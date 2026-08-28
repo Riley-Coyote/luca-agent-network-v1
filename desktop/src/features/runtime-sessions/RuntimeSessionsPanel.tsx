@@ -27,25 +27,41 @@ import {
   useRuntimeSessionContextMutation,
   useRuntimeSessionsQuery,
 } from "./hooks";
-import { indexedRuntimeId } from "./runtimeSessionModel";
+import {
+  getRuntimeSessionContextGeneration,
+  type RuntimeSessionStartAuthority,
+} from "./runtimeSessionHandoff";
+import {
+  indexedRuntimeId,
+  isRuntimeSessionStartCurrent,
+  runtimeConnectionKey,
+  runtimeSessionActionLabel,
+  type RuntimeSessionStartSnapshot,
+} from "./runtimeSessionModel";
 
 export function RuntimeSessionsPanel({
+  contextScopeKey,
   isMobile,
   onClose,
   onOpenBrain,
   onStartContext,
   runtime,
 }: {
+  contextScopeKey: string | null;
   isMobile: boolean;
   onClose: () => void;
   onOpenBrain: () => void;
-  onStartContext: (context: ConnectedRuntimeSessionContext) => void;
+  onStartContext: (
+    context: ConnectedRuntimeSessionContext,
+    authority: RuntimeSessionStartAuthority,
+  ) => boolean;
   runtime: RuntimeConnectionStatusV1 | null;
 }) {
   if (!runtime) return null;
 
   const content = (
     <RuntimeSessionsPanelContent
+      contextScopeKey={contextScopeKey}
       onClose={onClose}
       onOpenBrain={onOpenBrain}
       onStartContext={onStartContext}
@@ -92,20 +108,33 @@ export function RuntimeSessionsPanel({
 }
 
 function RuntimeSessionsPanelContent({
+  contextScopeKey,
   onClose,
   onOpenBrain,
   onStartContext,
   runtime,
 }: {
+  contextScopeKey: string | null;
   onClose: () => void;
   onOpenBrain: () => void;
-  onStartContext: (context: ConnectedRuntimeSessionContext) => void;
+  onStartContext: (
+    context: ConnectedRuntimeSessionContext,
+    authority: RuntimeSessionStartAuthority,
+  ) => boolean;
   runtime: RuntimeConnectionStatusV1;
 }) {
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const indexedId = indexedRuntimeId(runtime.runtimeId);
+  const runtimeKey = runtimeConnectionKey(runtime);
   const sessionsQuery = useRuntimeSessionsQuery(indexedId);
   const contextMutation = useRuntimeSessionContextMutation();
+  const mountedRef = React.useRef(false);
+  const pendingRef = React.useRef(false);
+  const requestIdRef = React.useRef(0);
+  const runtimeKeyRef = React.useRef(runtimeKey);
+  const scopeKeyRef = React.useRef(contextScopeKey ?? "");
+  runtimeKeyRef.current = runtimeKey;
+  scopeKeyRef.current = contextScopeKey ?? "";
   const [selectedSessionId, setSelectedSessionId] = React.useState<
     string | null
   >(null);
@@ -114,11 +143,55 @@ function RuntimeSessionsPanelContent({
   );
 
   React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      pendingRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    runtimeKeyRef.current = runtimeKey;
+    scopeKeyRef.current = contextScopeKey ?? "";
+    pendingRef.current = false;
+    requestIdRef.current += 1;
+    setSelectedSessionId(null);
+    setOperationError(null);
     headingRef.current?.focus({ preventScroll: true });
-  }, [runtime.runtimeId, runtime.statusId]);
+  }, [contextScopeKey, runtimeKey]);
+
+  function currentStartSnapshot(): RuntimeSessionStartSnapshot {
+    return {
+      mounted: mountedRef.current,
+      requestId: requestIdRef.current,
+      runtimeKey: runtimeKeyRef.current,
+      scopeKey: scopeKeyRef.current,
+    };
+  }
 
   async function startWithContext(session: ConnectedRuntimeSession) {
-    if (!indexedId || !session.available) return;
+    if (
+      !indexedId ||
+      !session.available ||
+      !contextScopeKey ||
+      pendingRef.current
+    ) {
+      return;
+    }
+    pendingRef.current = true;
+    const expected: RuntimeSessionStartSnapshot = {
+      mounted: true,
+      requestId: requestIdRef.current + 1,
+      runtimeKey,
+      scopeKey: contextScopeKey,
+    };
+    requestIdRef.current = expected.requestId;
+    const authority: RuntimeSessionStartAuthority = {
+      handoffGeneration: getRuntimeSessionContextGeneration(),
+      runtimeKey,
+      scopeKey: contextScopeKey,
+    };
     setSelectedSessionId(session.sessionId);
     setOperationError(null);
     try {
@@ -126,13 +199,25 @@ function RuntimeSessionsPanelContent({
         runtimeId: indexedId,
         sessionId: session.sessionId,
       });
-      onStartContext(context);
+      if (!isRuntimeSessionStartCurrent(expected, currentStartSnapshot())) {
+        return;
+      }
+      if (!onStartContext(context, authority)) {
+        setOperationError(
+          "The active community changed before context could be attached. Choose the session again.",
+        );
+      }
     } catch {
-      setOperationError(
-        "That indexed session changed or is unavailable. Refresh it in Brain, then try again.",
-      );
+      if (isRuntimeSessionStartCurrent(expected, currentStartSnapshot())) {
+        setOperationError(
+          "That indexed session changed or is unavailable. Refresh it in Brain, then try again.",
+        );
+      }
     } finally {
-      setSelectedSessionId(null);
+      if (isRuntimeSessionStartCurrent(expected, currentStartSnapshot())) {
+        pendingRef.current = false;
+        setSelectedSessionId(null);
+      }
     }
   }
 
@@ -168,7 +253,7 @@ function RuntimeSessionsPanelContent({
           </div>
         </div>
         <Button
-          aria-label="Close runtime sessions"
+          aria-label={`Close ${runtime.label} sessions`}
           className="absolute right-2.5 top-2.5"
           onClick={onClose}
           size="icon-xs"
@@ -224,6 +309,11 @@ function RuntimeSessionsPanelContent({
               Open Brain <ArrowRight />
             </Button>
           </div>
+        ) : sourceNeedsAttention && (list?.sessions.length ?? 0) === 0 ? (
+          <EmptyState
+            detail="One or more connected session indexes are stale or invalid. Refresh them in Brain before using their context."
+            title="Session index needs attention"
+          />
         ) : (list?.sessions.length ?? 0) === 0 ? (
           <EmptyState
             detail="The connected source contains no indexed visible conversations yet."
@@ -238,11 +328,15 @@ function RuntimeSessionsPanelContent({
                 verified excerpts can be used.
               </div>
             ) : null}
-            {list?.sessions.map((session) => (
+            {list?.sessions.map((session, index) => (
               <SessionCard
+                isDisabled={
+                  selectedSessionId !== null || contextScopeKey === null
+                }
                 isPending={selectedSessionId === session.sessionId}
                 key={session.sessionId}
                 onStart={() => void startWithContext(session)}
+                position={index + 1}
                 session={session}
               />
             ))}
@@ -268,26 +362,40 @@ function RuntimeSessionsPanelContent({
 }
 
 function SessionCard({
+  isDisabled,
   isPending,
   onStart,
+  position,
   session,
 }: {
+  isDisabled: boolean;
   isPending: boolean;
   onStart: () => void;
+  position: number;
   session: ConnectedRuntimeSession;
 }) {
+  const titleId = `runtime-session-title-${session.sessionId}`;
+  const descriptionId = `runtime-session-description-${session.sessionId}`;
   return (
     <article
+      aria-describedby={descriptionId}
+      aria-labelledby={titleId}
       className={cn(
         "rounded-xl border border-border/50 bg-card/15 p-3 transition-colors",
         session.available && "hover:border-border/80 hover:bg-card/25",
       )}
       data-testid={`runtime-session-${session.sessionId}`}
     >
-      <h3 className="line-clamp-2 text-sm font-medium leading-snug">
+      <h3
+        className="line-clamp-2 text-sm font-medium leading-snug"
+        id={titleId}
+      >
         {session.title}
       </h3>
-      <p className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-muted-foreground">
+      <p
+        className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-muted-foreground"
+        id={descriptionId}
+      >
         {session.preview}
       </p>
       <div className="mt-3 flex items-center justify-between gap-2">
@@ -295,7 +403,9 @@ function SessionCard({
           {formatSessionMeta(session)}
         </span>
         <Button
-          disabled={!session.available || isPending}
+          aria-describedby={descriptionId}
+          aria-label={runtimeSessionActionLabel(session.title, position)}
+          disabled={!session.available || isDisabled}
           onClick={onStart}
           size="xs"
           type="button"

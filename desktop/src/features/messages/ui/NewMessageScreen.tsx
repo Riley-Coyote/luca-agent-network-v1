@@ -33,6 +33,7 @@ import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   clearRuntimeSessionContext,
+  runtimeSessionContextMatchesScope,
   useRuntimeSessionContextHandoff,
 } from "@/features/runtime-sessions/runtimeSessionHandoff";
 import { buildRuntimeSessionContextEnvelope } from "@/features/runtime-sessions/runtimeSessionModel";
@@ -73,13 +74,24 @@ export function NewMessageScreen() {
   const currentPubkey = identityQuery.data?.pubkey;
   const communities = useCommunities();
   const pendingRuntimeContext = useRuntimeSessionContextHandoff();
+  const runtimeContextScope = React.useMemo(
+    () =>
+      currentPubkey && communities.activeCommunity
+        ? {
+            communityId: communities.activeCommunity.id,
+            ownerPubkey: currentPubkey,
+            relayUrl: communities.activeCommunity.relayUrl,
+          }
+        : null,
+    [communities.activeCommunity, currentPubkey],
+  );
   const runtimeContext =
     pendingRuntimeContext &&
-    currentPubkey &&
-    normalizePubkey(pendingRuntimeContext.ownerPubkey) ===
-      normalizePubkey(currentPubkey) &&
-    pendingRuntimeContext.relayUrl.trim() ===
-      (communities.activeCommunity?.relayUrl.trim() ?? "")
+    runtimeContextScope &&
+    runtimeSessionContextMatchesScope(
+      pendingRuntimeContext,
+      runtimeContextScope,
+    )
       ? pendingRuntimeContext.context
       : null;
   const runtimeContextEnvelope = React.useMemo(
@@ -230,21 +242,16 @@ export function NewMessageScreen() {
   }, []);
 
   React.useEffect(() => {
-    if (!pendingRuntimeContext || !currentPubkey) return;
-    const ownerChanged =
-      normalizePubkey(pendingRuntimeContext.ownerPubkey) !==
-      normalizePubkey(currentPubkey);
-    const relayChanged =
-      pendingRuntimeContext.relayUrl.trim() !==
-      (communities.activeCommunity?.relayUrl.trim() ?? "");
-    if (ownerChanged || relayChanged) {
+    if (!pendingRuntimeContext || !runtimeContextScope) return;
+    if (
+      !runtimeSessionContextMatchesScope(
+        pendingRuntimeContext,
+        runtimeContextScope,
+      )
+    ) {
       clearRuntimeSessionContext(pendingRuntimeContext.context.sessionId);
     }
-  }, [
-    communities.activeCommunity?.relayUrl,
-    currentPubkey,
-    pendingRuntimeContext,
-  ]);
+  }, [pendingRuntimeContext, runtimeContextScope]);
 
   const handleRemoveUser = React.useCallback(
     (pubkey: string) => {

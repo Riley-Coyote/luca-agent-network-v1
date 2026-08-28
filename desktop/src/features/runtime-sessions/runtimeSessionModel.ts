@@ -42,6 +42,29 @@ export function runtimeReadinessLabel(runtime: RuntimeConnectionStatusV1) {
   return "Unavailable";
 }
 
+export type RuntimeSessionStartSnapshot = {
+  mounted: boolean;
+  requestId: number;
+  runtimeKey: string;
+  scopeKey: string;
+};
+
+export function isRuntimeSessionStartCurrent(
+  expected: RuntimeSessionStartSnapshot,
+  current: RuntimeSessionStartSnapshot,
+) {
+  return (
+    current.mounted &&
+    current.requestId === expected.requestId &&
+    current.runtimeKey === expected.runtimeKey &&
+    current.scopeKey === expected.scopeKey
+  );
+}
+
+export function runtimeSessionActionLabel(title: string, position: number) {
+  return `Start with this context: ${title} (${position})`;
+}
+
 export function buildRuntimeSessionContextEnvelope(
   context: ConnectedRuntimeSessionContext,
 ) {

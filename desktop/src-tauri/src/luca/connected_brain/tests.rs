@@ -58,6 +58,7 @@ fn codex_parser_keeps_visible_messages_only() {
         "payload": {
             "type": "message",
             "role": "assistant",
+            "phase": "final_answer",
             "content": [{"type": "output_text", "text": "Visible answer"}]
         }
     });
@@ -93,12 +94,22 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
         "type": "user",
         "message": {"role": "user", "content": "OPENAI_API_KEY=secret"}
     });
+    let internal_command = json!({
+        "type": "user",
+        "message": {"role": "user", "content": "<command-message>hidden</command-message>"}
+    });
+    let role_mismatch = json!({
+        "type": "user",
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "hidden"}]}
+    });
     assert_eq!(
         sessions::parse_claude_fixture(&visible).as_deref(),
         Some("Visible answer")
     );
     assert_eq!(sessions::parse_claude_fixture(&tool_result), None);
     assert_eq!(sessions::parse_claude_fixture(&credential), None);
+    assert_eq!(sessions::parse_claude_fixture(&internal_command), None);
+    assert_eq!(sessions::parse_claude_fixture(&role_mismatch), None);
 }
 
 #[test]

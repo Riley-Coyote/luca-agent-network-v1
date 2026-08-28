@@ -50,7 +50,10 @@ import { addChannelMembers } from "@/shared/api/tauri";
 import type { RuntimeConnectionStatusV1 } from "@/shared/api/tauriMcp";
 import { RuntimeRailSection } from "@/features/runtime-sessions/RuntimeRailSection";
 import { RuntimeSessionsPanel } from "@/features/runtime-sessions/RuntimeSessionsPanel";
-import { stageRuntimeSessionContext } from "@/features/runtime-sessions/runtimeSessionHandoff";
+import {
+  runtimeSessionContextScopeKey,
+  stageRuntimeSessionContext,
+} from "@/features/runtime-sessions/runtimeSessionHandoff";
 import { runtimeConnectionKey } from "@/features/runtime-sessions/runtimeSessionModel";
 
 /** PROTOTYPE SWITCH. true = one recency-sorted chat list (the chat-app shape).
@@ -169,6 +172,21 @@ export function AppSidebar({
   const isMobile = useIsMobile();
   const [selectedRuntime, setSelectedRuntime] =
     React.useState<RuntimeConnectionStatusV1 | null>(null);
+  const runtimeContextScope =
+    currentPubkey && activeCommunity
+      ? {
+          communityId: activeCommunity.id,
+          ownerPubkey: currentPubkey,
+          relayUrl: activeCommunity.relayUrl,
+        }
+      : null;
+  const runtimeContextScopeKey = runtimeContextScope
+    ? runtimeSessionContextScopeKey(runtimeContextScope)
+    : null;
+  const runtimeContextScopeRef = React.useRef(runtimeContextScope);
+  const selectedRuntimeRef = React.useRef(selectedRuntime);
+  runtimeContextScopeRef.current = runtimeContextScope;
+  selectedRuntimeRef.current = selectedRuntime;
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
   const showSidebarUpdateCard =
@@ -508,6 +526,7 @@ export function AppSidebar({
     const selectedKey = selectedRuntime
       ? runtimeConnectionKey(selectedRuntime)
       : null;
+    selectedRuntimeRef.current = null;
     setSelectedRuntime(null);
     if (isMobile) setOpenMobile(true);
     if (!selectedKey) return;
@@ -641,11 +660,14 @@ export function AppSidebar({
                       <RuntimeRailSection
                         onSelect={(runtime) => {
                           const key = runtimeConnectionKey(runtime);
-                          setSelectedRuntime((current) =>
-                            current && runtimeConnectionKey(current) === key
-                              ? null
-                              : runtime,
-                          );
+                          setSelectedRuntime((current) => {
+                            const next =
+                              current && runtimeConnectionKey(current) === key
+                                ? null
+                                : runtime;
+                            selectedRuntimeRef.current = next;
+                            return next;
+                          });
                           if (isMobile) setOpenMobile(false);
                         }}
                         selectedRuntimeKey={
@@ -1068,21 +1090,37 @@ export function AppSidebar({
       <SidebarRail />
     </Sidebar>,
     <RuntimeSessionsPanel
+      contextScopeKey={runtimeContextScopeKey}
       isMobile={isMobile}
       onClose={closeRuntimePanel}
       onOpenBrain={() => {
+        selectedRuntimeRef.current = null;
         setSelectedRuntime(null);
         onSelectBrain();
       }}
-      onStartContext={(context) => {
-        if (!currentPubkey || !activeCommunity?.relayUrl) return;
-        stageRuntimeSessionContext({
-          context,
-          ownerPubkey: currentPubkey,
-          relayUrl: activeCommunity.relayUrl,
-        });
+      onStartContext={(context, authority) => {
+        const currentScope = runtimeContextScopeRef.current;
+        const currentRuntime = selectedRuntimeRef.current;
+        if (
+          !currentScope ||
+          !currentRuntime ||
+          authority.scopeKey !== runtimeSessionContextScopeKey(currentScope) ||
+          authority.runtimeKey !== runtimeConnectionKey(currentRuntime)
+        ) {
+          return false;
+        }
+        const staged = stageRuntimeSessionContext(
+          {
+            ...currentScope,
+            context,
+          },
+          authority.handoffGeneration,
+        );
+        if (!staged) return false;
+        selectedRuntimeRef.current = null;
         setSelectedRuntime(null);
         onNewMessage();
+        return true;
       }}
       runtime={selectedRuntime}
     />,

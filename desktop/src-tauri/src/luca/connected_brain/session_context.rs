@@ -1,12 +1,9 @@
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use luca_protocol::{ConnectedBrainIndexEntryV1, ConnectedBrainSourceKindV1, OpaqueId};
 use sha2::{Digest, Sha256};
 
-use super::{index::read_verified_excerpt, sessions};
+use super::{index::read_verified_session_excerpts, sessions};
 
 const MAX_LISTED_SESSIONS: usize = 200;
 const MAX_TITLE_CHARS: usize = 96;
@@ -66,27 +63,23 @@ pub(crate) fn list_indexed_sessions(
     let sessions = sessions
         .into_iter()
         .map(|session| {
-            let first = session.entries.first().copied();
-            let last = session.entries.last().copied();
-            let first_excerpt =
-                first.and_then(|entry| read_verified_excerpt(root, kind, entry).ok());
-            let last_excerpt = match (first, last) {
-                (Some(first), Some(last)) if first.entry_id == last.entry_id => {
-                    first_excerpt.clone()
-                }
-                (_, Some(last)) => read_verified_excerpt(root, kind, last).ok(),
-                _ => None,
-            };
-            let available = first_excerpt.is_some() && last_excerpt.is_some();
+            let selected_entries = list_entry_indices(session.entries.len())
+                .into_iter()
+                .filter_map(|index| session.entries.get(index).copied())
+                .collect::<Vec<_>>();
+            let verified = read_verified_session_excerpts(root, kind, &selected_entries).ok();
+            let first_excerpt = verified.as_ref().and_then(|values| values.first());
+            let preview_excerpt = verified.as_ref().and_then(|values| values.last());
+            let available = first_excerpt.is_some() && preview_excerpt.is_some();
             IndexedSessionSummaryV1 {
                 session_id: session.session_id,
                 title: first_excerpt
-                    .as_deref()
+                    .map(String::as_str)
                     .map(|text| bounded_single_line(text, MAX_TITLE_CHARS))
                     .filter(|text| !text.is_empty())
                     .unwrap_or_else(|| "Session needs refresh".to_owned()),
-                preview: last_excerpt
-                    .as_deref()
+                preview: preview_excerpt
+                    .map(String::as_str)
                     .map(|text| bounded_single_line(text, MAX_PREVIEW_CHARS))
                     .filter(|text| !text.is_empty())
                     .unwrap_or_else(|| {
@@ -121,15 +114,20 @@ pub(crate) fn context_for_indexed_session(
         return Ok(None);
     };
 
-    let selected_indices = context_entry_indices(session.entries.len());
-    let mut excerpts = Vec::with_capacity(selected_indices.len());
-    for index in selected_indices {
-        let entry = session
-            .entries
-            .get(index)
-            .ok_or_else(|| "connected session index is invalid".to_owned())?;
-        let excerpt = read_verified_excerpt(root, kind, entry)
-            .map_err(|_| "connected session needs refresh".to_owned())?;
+    let selected_entries = context_entry_indices(session.entries.len())
+        .into_iter()
+        .map(|index| {
+            session
+                .entries
+                .get(index)
+                .copied()
+                .ok_or_else(|| "connected session index is invalid".to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let selected_excerpts = read_verified_session_excerpts(root, kind, &selected_entries)
+        .map_err(|_| "connected session needs refresh".to_owned())?;
+    let mut excerpts = Vec::with_capacity(selected_excerpts.len());
+    for excerpt in selected_excerpts {
         let excerpt = bounded_single_line(&excerpt, MAX_CONTEXT_EXCERPT_CHARS);
         if !excerpt.is_empty() {
             excerpts.push(excerpt);
@@ -219,12 +217,15 @@ fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, 
 }
 
 fn context_entry_indices(entry_count: usize) -> Vec<usize> {
-    if entry_count <= MAX_CONTEXT_EXCERPTS {
-        return (0..entry_count).collect();
+    (0..entry_count.min(MAX_CONTEXT_EXCERPTS)).collect()
+}
+
+fn list_entry_indices(entry_count: usize) -> Vec<usize> {
+    match entry_count {
+        0 => Vec::new(),
+        1 => vec![0],
+        _ => vec![0, (entry_count - 1).min(MAX_CONTEXT_EXCERPTS - 1)],
     }
-    let mut selected = BTreeSet::from([0]);
-    selected.extend(entry_count.saturating_sub(MAX_CONTEXT_EXCERPTS - 1)..entry_count);
-    selected.into_iter().collect()
 }
 
 fn bounded_single_line(text: &str, max_chars: usize) -> String {
@@ -258,9 +259,11 @@ mod tests {
         fs::write(
             &session_path,
             [
-                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Plan the checkpoint from the existing sidebar."}]}}"#,
+                r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>private ambient prompt at /Users/riley/secret</environment_context>"}]}}"#,
+                r#"{"type":"event_msg","payload":{"type":"user_message","client_id":"fixture","message":"<in-app-browser-context source=\"browser\">private browser state at /Users/riley/browser</in-app-browser-context>\nPlan the checkpoint from /Users/riley/Projects/Polyphonic.","images":[],"local_images":[],"text_elements":[]}}"#,
                 r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"private tool payload"}}"#,
-                r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Keep the handoff local, bounded, and visible."}]}}"#,
+                r#"{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Internal progress at /Volumes/Private/worktree."}]}}"#,
+                r#"{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Keep the handoff local, bounded, and visible at /Volumes/LaCie/Polyphonic."}]}}"#,
             ]
             .join("\n"),
         )
@@ -303,6 +306,12 @@ mod tests {
         .unwrap();
         assert!(context.summary.contains("Plan the checkpoint"));
         assert!(context.summary.contains("Keep the handoff local"));
+        assert!(context.summary.contains("[local path]"));
+        assert!(!context.summary.contains("environment_context"));
+        assert!(!context.summary.contains("private ambient prompt"));
+        assert!(!context.summary.contains("Internal progress"));
+        assert!(!context.summary.contains("/Users/"));
+        assert!(!context.summary.contains("/Volumes/"));
         assert!(!context.summary.contains("private tool payload"));
         assert!(!context.summary.contains("session-native-id"));
         assert!(context.summary.chars().count() <= MAX_CONTEXT_SUMMARY_CHARS);

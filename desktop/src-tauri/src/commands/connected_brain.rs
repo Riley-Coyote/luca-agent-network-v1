@@ -179,6 +179,25 @@ fn source_status_rank(status: ConnectedBrainSourceStatusV1) -> u8 {
     }
 }
 
+fn isolate_expected_session_source_failure(
+    error: owner_brain_store::OwnerBrainStoreError,
+    verify_authority: impl FnOnce() -> Result<(), owner_brain_store::OwnerBrainStoreError>,
+) -> Result<bool, owner_brain_store::OwnerBrainStoreError> {
+    if !matches!(
+        error,
+        owner_brain_store::OwnerBrainStoreError::Stale
+            | owner_brain_store::OwnerBrainStoreError::Invalid
+    ) {
+        return Ok(false);
+    }
+
+    // Stale/invalid is also used by owner-key and runtime-authority paths.
+    // Re-read the encrypted catalog before treating it as source-local so an
+    // owner switch, locked/corrupt key, or crypto failure still fails closed.
+    verify_authority()?;
+    Ok(true)
+}
+
 fn grant_state_value(state: RepositoryWorkGrantStateV1) -> &'static str {
     match state {
         RepositoryWorkGrantStateV1::Active => "active",
@@ -447,7 +466,7 @@ pub async fn list_connected_runtime_sessions(
             });
         }
 
-        let source_status = sources
+        let catalog_source_status = sources
             .iter()
             .map(|source| source.source.status)
             .max_by_key(|status| source_status_rank(*status))
@@ -455,10 +474,26 @@ pub async fn list_connected_runtime_sessions(
             .unwrap_or("not_connected");
         let mut total_session_count = 0_usize;
         let mut sessions = Vec::new();
+        let mut had_source_failure = false;
         for source in sources {
-            let listed = state
-                .read_connected_brain_sessions(&owner, &source.source.source_id)
-                .map_err(|error| error.code().to_owned())?;
+            let listed = match state.read_connected_brain_sessions(&owner, &source.source.source_id)
+            {
+                Ok(listed) => listed,
+                Err(error) => {
+                    match isolate_expected_session_source_failure(error, || {
+                        state.read_connected_brain_catalog(&owner).map(|_| ())
+                    }) {
+                        Ok(true) => {
+                            had_source_failure = true;
+                            continue;
+                        }
+                        Ok(false) => return Err(error.code().to_owned()),
+                        Err(authority_error) => {
+                            return Err(authority_error.code().to_owned());
+                        }
+                    }
+                }
+            };
             total_session_count = total_session_count.saturating_add(listed.total_sessions);
             sessions.extend(listed.sessions.into_iter().map(|session| {
                 ConnectedRuntimeSessionViewV1 {
@@ -482,7 +517,11 @@ pub async fn list_connected_runtime_sessions(
         let truncated = total_session_count > sessions.len();
         Ok(ConnectedRuntimeSessionListV1 {
             runtime_id,
-            source_status,
+            source_status: if had_source_failure {
+                "needs_attention"
+            } else {
+                catalog_source_status
+            },
             sessions,
             total_session_count,
             truncated,
@@ -513,9 +552,24 @@ pub async fn get_connected_runtime_session_context(
             source.source.source_kind == kind
                 && source.source.status != ConnectedBrainSourceStatusV1::Disconnected
         }) {
-            let context = state
-                .read_connected_brain_session_context(&owner, &source.source.source_id, &session_id)
-                .map_err(|error| error.code().to_owned())?;
+            let context = match state.read_connected_brain_session_context(
+                &owner,
+                &source.source.source_id,
+                &session_id,
+            ) {
+                Ok(context) => context,
+                Err(error) => {
+                    match isolate_expected_session_source_failure(error, || {
+                        state.read_connected_brain_catalog(&owner).map(|_| ())
+                    }) {
+                        Ok(true) => continue,
+                        Ok(false) => return Err(error.code().to_owned()),
+                        Err(authority_error) => {
+                            return Err(authority_error.code().to_owned());
+                        }
+                    }
+                }
+            };
             if let Some(context) = context {
                 return Ok(ConnectedRuntimeSessionContextViewV1 {
                     runtime_id: input.runtime_id,
@@ -701,4 +755,40 @@ pub async fn revoke_connected_brain_resident(
     })
     .await
     .map_err(|_| "connected Brain revoke worker failed".to_owned())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_source_failures_are_isolated_without_masking_authority_failures() {
+        assert_eq!(
+            isolate_expected_session_source_failure(
+                owner_brain_store::OwnerBrainStoreError::Stale,
+                || Ok(())
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            isolate_expected_session_source_failure(
+                owner_brain_store::OwnerBrainStoreError::Invalid,
+                || Err(owner_brain_store::OwnerBrainStoreError::Locked)
+            ),
+            Err(owner_brain_store::OwnerBrainStoreError::Locked)
+        );
+        for error in [
+            owner_brain_store::OwnerBrainStoreError::Cancelled,
+            owner_brain_store::OwnerBrainStoreError::Locked,
+            owner_brain_store::OwnerBrainStoreError::Timeout,
+            owner_brain_store::OwnerBrainStoreError::Unavailable,
+        ] {
+            assert_eq!(
+                isolate_expected_session_source_failure(error, || {
+                    panic!("non-source failure must not be reclassified")
+                }),
+                Ok(false)
+            );
+        }
+    }
 }

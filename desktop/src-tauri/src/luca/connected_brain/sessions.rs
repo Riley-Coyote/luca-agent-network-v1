@@ -1,11 +1,13 @@
 use std::{
-    collections::VecDeque,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fs,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader},
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use luca_protocol::ConnectedBrainSourceKindV1;
+use regex::Regex;
 use serde_json::Value;
 
 use super::discovery::modified_timestamp;
@@ -13,6 +15,28 @@ use super::discovery::modified_timestamp;
 const MAX_SESSION_FILES: usize = 20_000;
 const MAX_SESSION_DEPTH: usize = 8;
 const MAX_JSONL_LINE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SESSION_SELECTIONS: usize = 8;
+const MAX_SESSION_SELECTION_BYTES: usize = 32 * 1024 * 1024;
+const MAX_SESSION_SELECTION_LINES: usize = 50_000;
+const SESSION_STREAM_BUFFER_BYTES: usize = 64 * 1024;
+
+static LOCAL_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?ix)
+        (?:file://(?:localhost)?)?
+        (?:
+            /(?:users|home|volumes)/[^/\s<>\"'`]+(?:/[^\s<>\"'`]*)? |
+            /(?:private|tmp|var|opt|usr|etc|applications|library|system|dev|workspace|mnt|media|bin|sbin|run|proc|srv)(?:/[^\s<>\"'`]*)? |
+            [a-z]:\\(?:users\\)?[^\\\s<>\"'`]+(?:\\[^\s<>\"'`]*)?
+        )"#,
+    )
+    .expect("local path redaction regex must compile")
+});
+
+static ABSOLUTE_PATH_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)(?P<prefix>^|[\s(\[{\"'=])/[A-Za-z0-9._~-]+(?:/[^\s<>\"'`\])}]*)?"#)
+        .expect("absolute path redaction regex must compile")
+});
 
 pub(super) struct SessionMetadata {
     pub count: usize,
@@ -75,6 +99,25 @@ pub(super) fn read_messages(
 ) -> Result<Vec<String>, String> {
     let canonical = resolved_session_path(root, kind, relative_path)?;
     parse_file(&canonical, kind)
+}
+
+/// Resolve only selected visible-message ordinals in one bounded streaming
+/// pass. This is the session-panel path: it never collects a transcript and
+/// stops as soon as every requested ordinal has been found.
+pub(super) fn read_messages_at_ordinals(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+    ordinals: &BTreeSet<usize>,
+) -> Result<BTreeMap<usize, String>, String> {
+    if ordinals.is_empty() || ordinals.len() > MAX_SESSION_SELECTIONS {
+        return Err("connected session selection is invalid".to_owned());
+    }
+    let canonical = resolved_session_path(root, kind, relative_path)?;
+    let file = fs::File::open(canonical)
+        .map_err(|_| "connected session selection is unavailable".to_owned())?;
+    let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
+    select_messages_from_reader(&mut reader, kind, ordinals)
 }
 
 pub(super) fn session_updated_at(
@@ -177,34 +220,137 @@ fn parse_file(path: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<Strin
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        let extracted = match kind {
-            ConnectedBrainSourceKindV1::CodexHistory => codex_visible_message(&value),
-            ConnectedBrainSourceKindV1::ClaudeHistory => claude_visible_message(&value),
-            ConnectedBrainSourceKindV1::Repository => None,
-        };
-        if let Some(text) = extracted.and_then(sanitize_visible_text) {
+        if let Some(text) = visible_session_message(&value, kind) {
             messages.push(text);
         }
     }
     Ok(messages)
 }
 
+fn select_messages_from_reader<R: BufRead>(
+    reader: &mut R,
+    kind: ConnectedBrainSourceKindV1,
+    ordinals: &BTreeSet<usize>,
+) -> Result<BTreeMap<usize, String>, String> {
+    let mut selected = BTreeMap::new();
+    let mut visible_ordinal = 0_usize;
+    let mut bytes_read = 0_usize;
+    let mut lines_read = 0_usize;
+    let mut line = Vec::with_capacity(SESSION_STREAM_BUFFER_BYTES);
+
+    loop {
+        if lines_read >= MAX_SESSION_SELECTION_LINES {
+            return Err("connected session selection exceeded its read limit".to_owned());
+        }
+        let remaining_bytes = MAX_SESSION_SELECTION_BYTES.saturating_sub(bytes_read);
+        let Some((line_bytes, oversized)) =
+            read_bounded_line(reader, &mut line, remaining_bytes)
+                .map_err(|_| "connected session selection exceeded its read limit".to_owned())?
+        else {
+            break;
+        };
+        bytes_read = bytes_read.saturating_add(line_bytes);
+        lines_read = lines_read.saturating_add(1);
+        if oversized {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
+            continue;
+        };
+        let Some(message) = visible_session_message(&value, kind) else {
+            continue;
+        };
+        if ordinals.contains(&visible_ordinal) {
+            selected.insert(visible_ordinal, message);
+            if selected.len() == ordinals.len() {
+                return Ok(selected);
+            }
+        }
+        visible_ordinal = visible_ordinal.saturating_add(1);
+    }
+    Ok(selected)
+}
+
+fn read_bounded_line<R: BufRead>(
+    reader: &mut R,
+    line: &mut Vec<u8>,
+    max_bytes: usize,
+) -> io::Result<Option<(usize, bool)>> {
+    line.clear();
+    let mut bytes_read = 0_usize;
+    let mut oversized = false;
+    let mut saw_bytes = false;
+
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return if saw_bytes {
+                Ok(Some((bytes_read, oversized)))
+            } else {
+                Ok(None)
+            };
+        }
+        saw_bytes = true;
+        let chunk_len = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |position| position + 1);
+        let has_newline = available.get(chunk_len.saturating_sub(1)) == Some(&b'\n');
+        if bytes_read.saturating_add(chunk_len) > max_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "session line exceeded the remaining read budget",
+            ));
+        }
+        bytes_read = bytes_read.saturating_add(chunk_len);
+        if !oversized {
+            if line.len().saturating_add(chunk_len) <= MAX_JSONL_LINE_BYTES + 1 {
+                line.extend_from_slice(&available[..chunk_len]);
+            } else {
+                line.clear();
+                oversized = true;
+            }
+        }
+        reader.consume(chunk_len);
+        if has_newline {
+            if !oversized {
+                if line.last() == Some(&b'\n') {
+                    line.pop();
+                }
+                if line.last() == Some(&b'\r') {
+                    line.pop();
+                }
+            }
+            return Ok(Some((bytes_read, oversized)));
+        }
+    }
+}
+
+fn visible_session_message(value: &Value, kind: ConnectedBrainSourceKindV1) -> Option<String> {
+    let extracted = match kind {
+        ConnectedBrainSourceKindV1::CodexHistory => codex_visible_message(value),
+        ConnectedBrainSourceKindV1::ClaudeHistory => claude_visible_message(value),
+        ConnectedBrainSourceKindV1::Repository => None,
+    };
+    extracted.and_then(sanitize_visible_text)
+}
+
 fn codex_visible_message(value: &Value) -> Option<String> {
-    if value.get("type")?.as_str()? != "response_item" {
-        return None;
-    }
+    let record_type = value.get("type")?.as_str()?;
     let payload = value.get("payload")?;
-    if payload.get("type")?.as_str()? != "message" {
-        return None;
+    match record_type {
+        "event_msg" if payload.get("type")?.as_str()? == "user_message" => {
+            strip_codex_ambient_prefix(payload.get("message")?.as_str()?)
+        }
+        "response_item"
+            if payload.get("type")?.as_str()? == "message"
+                && payload.get("role")?.as_str()? == "assistant"
+                && payload.get("phase")?.as_str()? == "final_answer" =>
+        {
+            strict_visible_blocks(payload.get("content")?, &["output_text"])
+        }
+        _ => None,
     }
-    let role = payload.get("role")?.as_str()?;
-    if !matches!(role, "user" | "assistant") {
-        return None;
-    }
-    visible_content(
-        payload.get("content")?,
-        &["input_text", "output_text", "text"],
-    )
 }
 
 fn claude_visible_message(value: &Value) -> Option<String> {
@@ -215,14 +361,46 @@ fn claude_visible_message(value: &Value) -> Option<String> {
         return None;
     }
     let message = value.get("message")?;
-    let role = message.get("role").and_then(Value::as_str).unwrap_or(kind);
-    if !matches!(role, "user" | "assistant") {
+    let role = message.get("role")?.as_str()?;
+    if role != kind {
         return None;
     }
-    visible_content(message.get("content")?, &["text"])
+    match role {
+        "user" => strict_user_visible_content(message.get("content")?),
+        "assistant" => visible_text_content(message.get("content")?),
+        _ => None,
+    }
 }
 
-fn visible_content(content: &Value, allowed_types: &[&str]) -> Option<String> {
+fn strict_visible_blocks(content: &Value, allowed_types: &[&str]) -> Option<String> {
+    let blocks = content.as_array()?;
+    if blocks.is_empty()
+        || blocks.iter().any(|block| {
+            !block
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| allowed_types.contains(&kind))
+                || block.get("text").and_then(Value::as_str).is_none()
+        })
+    {
+        return None;
+    }
+    let text = blocks
+        .iter()
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then_some(text)
+}
+
+fn strict_user_visible_content(content: &Value) -> Option<String> {
+    if let Some(text) = content.as_str() {
+        return Some(text.to_owned());
+    }
+    strict_visible_blocks(content, &["text"])
+}
+
+fn visible_text_content(content: &Value) -> Option<String> {
     if let Some(text) = content.as_str() {
         return Some(text.to_owned());
     }
@@ -233,7 +411,7 @@ fn visible_content(content: &Value, allowed_types: &[&str]) -> Option<String> {
             block
                 .get("type")
                 .and_then(Value::as_str)
-                .is_some_and(|kind| allowed_types.contains(&kind))
+                .is_some_and(|kind| kind == "text")
         })
         .filter_map(|block| block.get("text").and_then(Value::as_str))
         .collect::<Vec<_>>()
@@ -241,12 +419,77 @@ fn visible_content(content: &Value, allowed_types: &[&str]) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+fn strip_codex_ambient_prefix(text: &str) -> Option<String> {
+    const OPEN_PREFIX: &str = "<in-app-browser-context";
+    const CLOSE_TAG: &str = "</in-app-browser-context>";
+
+    let mut visible = text.trim();
+    while visible.starts_with(OPEN_PREFIX) {
+        let boundary = visible.as_bytes().get(OPEN_PREFIX.len()).copied()?;
+        if boundary != b'>' && !boundary.is_ascii_whitespace() {
+            return None;
+        }
+        let open_end = visible.find('>')?;
+        let close_start = visible[open_end + 1..].find(CLOSE_TAG)? + open_end + 1;
+        visible = visible[close_start + CLOSE_TAG.len()..].trim_start();
+    }
+    (!visible.is_empty()).then(|| visible.to_owned())
+}
+
 fn sanitize_visible_text(text: String) -> Option<String> {
     let trimmed = text.trim();
-    if trimmed.is_empty() || contains_credential(trimmed) {
+    if trimmed.is_empty()
+        || contains_credential(trimmed)
+        || contains_internal_prompt_markup(trimmed)
+    {
         return None;
     }
-    Some(trimmed.to_owned())
+    let redacted = ABSOLUTE_PATH_PATTERN.replace_all(trimmed, "${prefix}[local path]");
+    let redacted = LOCAL_PATH_PATTERN.replace_all(&redacted, "[local path]");
+    let redacted = redacted.trim();
+    (!redacted.is_empty()).then(|| redacted.to_owned())
+}
+
+fn contains_internal_prompt_markup(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    [
+        "<environment_context",
+        "</environment_context",
+        "<permissions",
+        "</permissions",
+        "<skills_instructions",
+        "</skills_instructions",
+        "<recommended_plugins",
+        "</recommended_plugins",
+        "<app-context",
+        "</app-context",
+        "<in-app-browser-context",
+        "</in-app-browser-context",
+        "<apps_instructions",
+        "<plugins_instructions",
+        "<multi_agent_mode",
+        "<collaboration_mode",
+        "<system-reminder",
+        "<command-",
+        "<local-command-",
+        "<ide_",
+        "<developer",
+        "</developer",
+        "<system",
+        "</system",
+        "<user",
+        "</user",
+        "<assistant",
+        "</assistant",
+        "<tool",
+        "</tool",
+        "<memory",
+        "</memory",
+        "<instructions>",
+        "# agents.md instructions",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
 }
 
 fn contains_credential(text: &str) -> bool {
@@ -271,4 +514,130 @@ pub(super) fn parse_codex_fixture(value: &Value) -> Option<String> {
 #[cfg(test)]
 pub(super) fn parse_claude_fixture(value: &Value) -> Option<String> {
     claude_visible_message(value).and_then(sanitize_visible_text)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, BufReader, Cursor, Read};
+
+    use serde_json::json;
+
+    use super::*;
+
+    struct FailIfRead;
+
+    impl Read for FailIfRead {
+        fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other(
+                "stream read continued past selected ordinal",
+            ))
+        }
+    }
+
+    #[test]
+    fn codex_allowlist_excludes_ambient_records_and_redacts_local_paths() {
+        let ambient_user = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{
+                    "type": "input_text",
+                    "text": "<environment_context>/Users/riley/private</environment_context>"
+                }]
+            }
+        });
+        assert_eq!(parse_codex_fixture(&ambient_user), None);
+
+        let visible_user = json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "client_id": "fixture-client",
+                "message": "<in-app-browser-context source=\"browser\">private ambient state at /Users/riley/browser</in-app-browser-context>\nOpen /Users/riley/Projects/Polyphonic and inspect it.",
+                "images": [],
+                "local_images": [],
+                "text_elements": []
+            }
+        });
+        let visible_user = parse_codex_fixture(&visible_user).unwrap();
+        assert!(visible_user.starts_with("Open [local path]"));
+        assert!(!visible_user.contains("private ambient state"));
+        assert!(!visible_user.contains("/Users/"));
+
+        let injected_user = json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "Please use this. <recommended_plugins>private platform data</recommended_plugins>"
+            }
+        });
+        assert_eq!(parse_codex_fixture(&injected_user), None);
+
+        let commentary = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "phase": "commentary",
+                "content": [{"type": "output_text", "text": "Working in /Volumes/Secret"}]
+            }
+        });
+        assert_eq!(parse_codex_fixture(&commentary), None);
+
+        let mixed_final = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [
+                    {"type": "output_text", "text": "Visible text"},
+                    {"type": "tool_use", "input": {"path": "/Users/riley/private"}}
+                ]
+            }
+        });
+        assert_eq!(parse_codex_fixture(&mixed_final), None);
+
+        let final_answer = json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "Done in /Volumes/LaCie/Polyphonic, /workspace, /custom/private/file.txt, file:///Users/riley/MyProject, and C:\\Users\\riley\\Private\\file.txt."}]
+            }
+        });
+        let final_answer = parse_codex_fixture(&final_answer).unwrap();
+        assert!(final_answer.contains("[local path]"));
+        assert!(!final_answer.contains("/Volumes/"));
+        assert!(!final_answer.contains("/workspace"));
+        assert!(!final_answer.contains("/custom/"));
+        assert!(!final_answer.contains("file:///"));
+        assert!(!final_answer.contains("C:\\Users\\"));
+    }
+
+    #[test]
+    fn selected_ordinal_reader_stops_before_unneeded_transcript_tail() {
+        let visible = json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "Only this visible message is needed."
+            }
+        });
+        let head = format!("{visible}\n").into_bytes();
+        let reader = Cursor::new(head).chain(FailIfRead);
+        let mut reader = BufReader::new(reader);
+        let selected = select_messages_from_reader(
+            &mut reader,
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &BTreeSet::from([0]),
+        )
+        .unwrap();
+        assert_eq!(
+            selected.get(&0).map(String::as_str),
+            Some("Only this visible message is needed.")
+        );
+    }
 }

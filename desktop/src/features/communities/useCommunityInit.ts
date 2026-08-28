@@ -27,6 +27,7 @@ import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
 import { resetManagedPresentationStore } from "@/features/messages/managedPresentationStore";
 import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
+import { resetRuntimeSessionContextHandoff } from "@/features/runtime-sessions/runtimeSessionHandoff";
 
 import { initFirstCommunity } from "./communityStorage";
 import type { Community } from "./types";
@@ -47,6 +48,7 @@ function resetCommunityState(): void {
   resetAgentWorkingSignal();
   resetManagedPresentationStore();
   resetFailedSendRetryState();
+  resetRuntimeSessionContextHandoff();
   resetSidebarRelayConnectionCardState();
   resetMediaCaches();
   resetVideoPlayerState();
