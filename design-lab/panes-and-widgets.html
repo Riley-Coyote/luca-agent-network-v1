@@ -456,6 +456,133 @@ html[data-theme="voidglass"][data-glass="on"] .lifted{
   html[data-theme="voidglass"] .card{background:var(--surface);border-color:var(--border)}
 }
 
+/* ── project-room navigation study ─────────────────────────────
+   This layer exists only behind ?projectNavStudy=1. It lets the shell lab
+   compare one shared context rail with one tile-local room picker without
+   changing production components or the study's standing default scene. */
+html[data-project-nav-study="true"] .lab{display:none}
+html[data-project-nav-study="true"] .stage{padding:32px}
+html[data-project-nav-study="true"] #col-side,
+html[data-project-nav-study="true"] #lip-v{display:none!important}
+html[data-project-nav-study="true"] #card-conv,
+html[data-project-nav-study="true"] #card-conv2{
+  transition:
+    box-shadow var(--motion-duration-instant) var(--motion-ease-standard),
+    opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+html[data-project-nav-study="true"] .project-tile-focused{
+  box-shadow:
+    inset 0 0 0 1px var(--ink-faint),
+    var(--lit),
+    0 1px 2px rgb(0 0 0/.14),
+    0 8px 24px rgb(0 0 0/.12);
+}
+.project-room-trigger{
+  min-width:0;display:flex;align-items:center;gap:10px;text-align:left;
+  margin-left:-8px;padding:5px 8px;border-radius:var(--radius-2);
+  color:var(--ink);transition:
+    background var(--motion-duration-instant) var(--motion-ease-standard),
+    color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.project-room-trigger:hover{background:var(--wash)}
+.project-room-trigger:focus-visible{box-shadow:inset 0 0 0 1px var(--ink-faint)}
+.project-room-trigger-copy{min-width:0;display:block}
+.project-room-trigger-copy strong{
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--type-title);font-weight:500;letter-spacing:var(--track-title);line-height:1.25;
+}
+.project-room-trigger-copy span{
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  margin-top:2px;font-size:var(--type-micro);font-weight:400;
+  letter-spacing:var(--track-micro);color:var(--ink-faint);
+}
+.project-room-trigger .chevron{
+  width:14px;height:14px;display:grid;place-items:center;flex:none;color:var(--ink-faint);
+  transition:transform var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.project-room-trigger[aria-expanded="true"] .chevron{transform:rotate(180deg)}
+
+.project-context-rail{
+  width:224px;flex:none;min-height:0;display:flex;flex-direction:column;
+  overflow:hidden;background:var(--surface);border-radius:var(--radius-4);
+  box-shadow:var(--lit),0 1px 2px rgb(0 0 0/.14),0 8px 24px rgb(0 0 0/.12);
+  animation:project-context-in 220ms cubic-bezier(.16,1,.3,1) both;
+}
+.project-context-head{
+  min-height:76px;display:flex;align-items:center;gap:10px;padding:0 14px 0 16px;
+  border-bottom:1px solid var(--border);
+}
+.project-context-head>div{min-width:0;flex:1}
+.project-context-head b{
+  display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:var(--type-ui);font-weight:500;
+}
+.project-context-head span{
+  display:block;margin-top:3px;font-size:var(--type-micro);color:var(--ink-faint);
+}
+.project-context-label{
+  margin:18px 16px 8px;font-size:var(--type-micro);font-weight:500;
+  letter-spacing:var(--eyebrow-tracking);text-transform:uppercase;color:var(--ink-faint);
+}
+.project-room-list{display:flex;flex-direction:column;gap:2px;padding:0 8px}
+.project-room-row{
+  width:100%;display:grid;grid-template-columns:18px minmax(0,1fr) auto;
+  align-items:center;gap:8px;padding:8px;border-radius:var(--radius-2);
+  text-align:left;color:var(--ink-muted);
+  transition:
+    background var(--motion-duration-instant) var(--motion-ease-standard),
+    color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+.project-room-row:hover{background:var(--wash);color:var(--ink)}
+.project-room-row:focus-visible{box-shadow:inset 0 0 0 1px var(--ink-faint)}
+.project-room-row[aria-selected="true"]{background:var(--wash-2);color:var(--ink)}
+.project-room-row .room-mark{font-family:var(--font-mono);color:var(--ink-faint);text-align:center}
+.project-room-row .room-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-room-row .room-meta{font-family:var(--font-mono);font-size:var(--type-micro);color:var(--ink-faint)}
+.project-context-foot{
+  margin-top:auto;padding:12px 16px 14px;border-top:1px solid var(--border);
+  font-size:var(--type-micro);line-height:1.45;color:var(--ink-faint);
+}
+
+.project-room-picker{
+  position:absolute;z-index:24;top:62px;left:14px;width:264px;
+  padding:8px;border-radius:var(--radius-4);background:var(--raised);
+  border:1px solid var(--border-strong);
+  box-shadow:inset 0 1px 0 rgb(255 255 255/.06),0 18px 52px rgb(0 0 0/.42);
+  transform-origin:top left;
+  animation:project-picker-in 180ms cubic-bezier(.16,1,.3,1) both;
+}
+.project-room-picker-head{
+  display:flex;align-items:center;justify-content:space-between;padding:5px 8px 9px;
+  font-size:var(--type-micro);font-weight:500;letter-spacing:var(--eyebrow-tracking);
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.project-room-picker .project-room-list{padding:0}
+.project-room-picker-foot{
+  display:flex;align-items:center;justify-content:space-between;margin-top:6px;
+  padding:9px 8px 3px;border-top:1px solid var(--border);
+  font-size:var(--type-micro);color:var(--ink-faint);
+}
+.project-room-picker-foot kbd{
+  font:inherit;padding:2px 5px;border-radius:5px;background:var(--wash);color:var(--ink-muted);
+}
+@keyframes project-context-in{
+  from{opacity:0;transform:translateX(-8px)}
+  to{opacity:1;transform:none}
+}
+@keyframes project-picker-in{
+  from{opacity:0;transform:translateY(-4px) scale(.985)}
+  to{opacity:1;transform:none}
+}
+@media (prefers-reduced-motion:reduce){
+  .project-context-rail,.project-room-picker{animation:none}
+}
+@media (max-width:1120px){
+  .project-context-rail{width:204px}
+  html[data-project-nav-study="true"] .stage{padding:24px}
+  html[data-project-nav-study="true"][data-project-nav="context"] #col-main{flex-direction:column!important}
+}
+
 /* ── lab bar ──────────────────────────────────────────────────── */
 .lab{
   position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:80;
@@ -1164,19 +1291,67 @@ html.theme-xfade .app,html.theme-xfade .app *{
   <!-- ── the working floor: cards, separated by the lip ── -->
   <div class="floor" id="floor">
 
+    <aside class="project-context-rail" id="project-context-rail" aria-label="Polyphonic launch rooms" hidden>
+      <header class="project-context-head">
+        <span class="g" data-icon="diamond" data-isize="15" aria-hidden="true"></span>
+        <div><b>Polyphonic launch</b><span>Project rooms</span></div>
+        <button class="ic" id="project-context-close" data-icon="close" data-isize="13" aria-label="Close project rooms"></button>
+      </header>
+      <p class="project-context-label">Rooms</p>
+      <nav class="project-room-list" aria-label="Rooms in Polyphonic launch">
+        <button class="project-room-row" data-project-room="general" aria-selected="true">
+          <span class="room-mark">#</span><span class="room-name">general</span><span class="room-meta">now</span>
+        </button>
+        <button class="project-room-row" data-project-room="landing-page" aria-selected="false">
+          <span class="room-mark">#</span><span class="room-name">landing-page</span><span class="room-meta">18m</span>
+        </button>
+        <button class="project-room-row" data-project-room="field-notes" aria-selected="false">
+          <span class="room-mark">#</span><span class="room-name">field-notes</span><span class="room-meta">2h</span>
+        </button>
+        <button class="project-room-row" data-project-room="drafts" aria-selected="false">
+          <span class="room-mark">#</span><span class="room-name">drafts</span><span class="room-meta">Fri</span>
+        </button>
+      </nav>
+      <div class="project-context-foot">This rail belongs to the focused project tile. Focus another chat and it leaves the floor.</div>
+    </aside>
+
     <div class="col main" id="col-main">
 
       <!-- conversation card -->
       <article class="card" id="card-conv" data-law="card">
         <header class="card-head">
-          <span data-mark="luca" data-size="22"></span>
-          <div><h2>Luca</h2><p>Direct message · shaping the launch story</p></div>
+          <span class="direct-conversation-mark" data-mark="luca" data-size="22"></span>
+          <div class="direct-conversation-title"><h2>Luca</h2><p>Direct message · shaping the launch story</p></div>
+          <button class="project-room-trigger" id="project-room-trigger" aria-controls="project-room-picker" aria-expanded="false" aria-haspopup="listbox" hidden>
+            <span class="g" data-icon="diamond" data-isize="15" aria-hidden="true"></span>
+            <span class="project-room-trigger-copy"><strong id="project-room-title">general</strong><span>Polyphonic launch · project room</span></span>
+            <span class="chevron" data-icon="chev-down" data-isize="12" aria-hidden="true"></span>
+          </button>
           <div class="acts">
             <button class="ic" data-icon="consult" title="Ask another resident"></button>
             <button class="ic" data-lift title="Lift this card"></button>
             <button class="ic" data-icon="more" title="Conversation options"></button>
           </div>
         </header>
+
+        <div class="project-room-picker" id="project-room-picker" role="listbox" aria-label="Polyphonic launch rooms" hidden>
+          <div class="project-room-picker-head"><span>Polyphonic launch</span><span>4 rooms</span></div>
+          <div class="project-room-list">
+            <button class="project-room-row" data-project-room="general" role="option" aria-selected="true">
+              <span class="room-mark">#</span><span class="room-name">general</span><span class="room-meta">now</span>
+            </button>
+            <button class="project-room-row" data-project-room="landing-page" role="option" aria-selected="false">
+              <span class="room-mark">#</span><span class="room-name">landing-page</span><span class="room-meta">18m</span>
+            </button>
+            <button class="project-room-row" data-project-room="field-notes" role="option" aria-selected="false">
+              <span class="room-mark">#</span><span class="room-name">field-notes</span><span class="room-meta">2h</span>
+            </button>
+            <button class="project-room-row" data-project-room="drafts" role="option" aria-selected="false">
+              <span class="room-mark">#</span><span class="room-name">drafts</span><span class="room-meta">Fri</span>
+            </button>
+          </div>
+          <div class="project-room-picker-foot"><span>Switch room</span><span><kbd>Esc</kbd> closes</span></div>
+        </div>
 
         <div class="body">
           <div class="hang thread">
@@ -1429,6 +1604,7 @@ const ICONS={
   sidebar:'<rect x="1.5" y="2.5" width="13" height="11" rx="2.5"/><path d="M6 2.5v11"/>',
   "chev-l":'<path d="M9.5 3 5 8l4.5 5"/>',
   "chev-r":'<path d="M6.5 3 11 8l-4.5 5"/>',
+  "chev-down":'<path d="M3 5.2 7 9l4-3.8"/>',
   plus:`<path d="M7 2.6v8.8M2.6 7h8.8"/>`,
   search:`<circle cx="6.3" cy="6.3" r="3.7"/><path d="M9.1 9.1L11.6 11.6"/>`,
   at:`<circle cx="7" cy="7" r="2.6"/><path d="M9.6 7v1.4a1.9 1.9 0 0 0 3.8 0V7A6.4 6.4 0 1 0 9.6 12.8"/>`,
@@ -1940,6 +2116,108 @@ if(q.get("place")==="1") showPlace(true);
 if(q.get("lift")==="1") openLift(widget);
 if(q.get("laws")==="1") lawsBtn.click();
 if(["dusk","quiet"].includes(q.get("wall"))) document.documentElement.dataset.wallpaper=q.get("wall");
+
+/* Two isolated project-room navigation variants. The same project tile,
+   rooms, focus behavior, and trigger are used in both so only the spatial
+   model changes: shared context rail vs tile-local picker. */
+if(q.get("projectNavStudy")==="1"){
+  // Picker is the approved/default direction; context remains addressable as
+  // the preserved comparison with ?nav=context.
+  const mode=q.get("nav")==="context"?"context":"picker";
+  const contextRail=document.getElementById("project-context-rail");
+  const contextClose=document.getElementById("project-context-close");
+  const roomTrigger=document.getElementById("project-room-trigger");
+  const roomPicker=document.getElementById("project-room-picker");
+  const roomTitle=document.getElementById("project-room-title");
+  const directMark=conv.querySelector(".direct-conversation-mark");
+  const directTitle=conv.querySelector(".direct-conversation-title");
+  const composerInput=conv.querySelector("textarea");
+  let focused=conv;
+  let contextDismissed=false;
+
+  document.documentElement.dataset.projectNavStudy="true";
+  document.documentElement.dataset.projectNav=mode;
+  directMark.hidden=true;
+  directTitle.hidden=true;
+  roomTrigger.hidden=false;
+  if(conv2.hidden) setTile(true);
+  closeDeck(false);
+
+  function syncExpanded(){
+    const open=mode==="context"?!contextRail.hidden:!roomPicker.hidden;
+    roomTrigger.setAttribute("aria-expanded",String(open));
+  }
+  function closePicker(){
+    roomPicker.hidden=true;
+    syncExpanded();
+  }
+  function setFocused(card){
+    const returning=focused!==conv&&card===conv;
+    focused=card;
+    conv.classList.toggle("project-tile-focused",card===conv);
+    conv2.classList.toggle("project-tile-focused",card===conv2);
+    if(mode==="context"){
+      if(returning) contextDismissed=false;
+      contextRail.hidden=card!==conv||contextDismissed;
+    }else{
+      contextRail.hidden=true;
+      if(card!==conv) closePicker();
+    }
+    syncExpanded();
+  }
+  function selectRoom(name){
+    document.querySelectorAll("[data-project-room]").forEach(row=>{
+      row.setAttribute("aria-selected",String(row.dataset.projectRoom===name));
+    });
+    roomTitle.textContent=name;
+    composerInput.placeholder=`Message #${name}`;
+    if(mode==="picker") closePicker();
+  }
+
+  contextClose.addEventListener("click",event=>{
+    event.stopPropagation();
+    contextDismissed=true;
+    contextRail.hidden=true;
+    syncExpanded();
+  });
+  roomTrigger.addEventListener("click",event=>{
+    event.stopPropagation();
+    setFocused(conv);
+    if(mode==="context"){
+      contextDismissed=!contextRail.hidden;
+      contextRail.hidden=contextDismissed;
+      syncExpanded();
+      return;
+    }
+    roomPicker.hidden=!roomPicker.hidden;
+    syncExpanded();
+    if(!roomPicker.hidden) roomPicker.querySelector('[aria-selected="true"]')?.focus();
+  });
+  document.querySelectorAll("[data-project-room]").forEach(row=>{
+    row.addEventListener("click",event=>{
+      event.stopPropagation();
+      selectRoom(row.dataset.projectRoom);
+    });
+  });
+  conv.addEventListener("pointerdown",()=>setFocused(conv));
+  conv2.addEventListener("pointerdown",()=>setFocused(conv2));
+  document.addEventListener("pointerdown",event=>{
+    if(mode==="picker"&&!roomPicker.hidden&&!roomPicker.contains(event.target)&&!roomTrigger.contains(event.target)) closePicker();
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape"&&!roomPicker.hidden){
+      closePicker();
+      roomTrigger.focus();
+    }
+    if(parent!==window&&!/^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)&&!event.target.isContentEditable&&!event.metaKey&&!event.ctrlKey&&!event.altKey){
+      if(["1","2","ArrowLeft","ArrowRight","r","R"].includes(event.key)){
+        parent.postMessage({type:"project-nav-prototype-key",key:event.key},location.origin);
+      }
+    }
+  });
+  setFocused(conv);
+  selectRoom("general");
+}
 drawRings(document);
 requestAnimationFrame(()=>{ booting=false; });
 </script>

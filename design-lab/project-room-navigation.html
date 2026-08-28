@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Project Room Navigation — Polyphonic shell study</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #08090b; }
+    #stage { position: fixed; inset: 0; }
+    #stage iframe { display: block; width: 100%; height: 100%; border: 0; background: #08090b; }
+
+    .proto-picker {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 4px;
+      border-radius: 999px;
+      background: rgba(10, 10, 10, 0.82);
+      -webkit-backdrop-filter: blur(12px) saturate(1.4);
+      backdrop-filter: blur(12px) saturate(1.4);
+      box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+        0 8px 24px rgba(0, 0, 0, 0.24),
+        0 2px 6px rgba(0, 0, 0, 0.12);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      line-height: 1;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .proto-picker-highlight {
+      position: absolute;
+      top: 4px;
+      left: 0;
+      height: 28px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+      will-change: transform;
+    }
+
+    /* The slide is enabled only after first paint (data-ready), so load doesn't animate. */
+    .proto-picker[data-ready] .proto-picker-highlight {
+      transition:
+        transform 250ms cubic-bezier(0.23, 1, 0.32, 1),
+        width 250ms cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .proto-picker[data-ready] .proto-picker-highlight { transition: none; }
+    }
+
+    .proto-picker-item {
+      position: relative; /* sits above the highlight */
+      display: flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.55);
+      font: inherit;
+      cursor: pointer;
+      transition: color 150ms ease-out;
+    }
+
+    .proto-picker-item:hover {
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    .proto-picker-item:active {
+      transform: scale(0.97);
+    }
+
+    .proto-picker-item:focus-visible {
+      outline: 2px solid rgba(255, 255, 255, 0.4);
+      outline-offset: 2px;
+    }
+
+    .proto-picker-item[data-active] {
+      color: #fff;
+    }
+
+    .proto-picker-divider {
+      width: 1px;
+      height: 16px;
+      margin: 0 4px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .proto-picker-replay {
+      padding: 0 10px;
+      font-size: 14px;
+    }
+
+    .proto-picker[data-position="top"] {
+      bottom: auto;
+      top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <main id="stage" aria-live="polite"></main>
+
+  <nav class="proto-picker" data-position="top" aria-label="Prototype variants">
+    <span class="proto-picker-highlight" aria-hidden="true"></span>
+    <button class="proto-picker-item">Context rail</button>
+    <button class="proto-picker-item" data-active aria-current="true">Room picker · approved</button>
+    <span class="proto-picker-divider" aria-hidden="true"></span>
+    <button class="proto-picker-item proto-picker-replay" aria-label="Replay animation (R)">↻</button>
+  </nav>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const requestedTheme = params.get('theme');
+    const theme = ['slate', 'inverse', 'smoke', 'dragon', 'voidglass', 'onyx', 'paper'].includes(requestedTheme)
+      ? requestedTheme
+      : 'slate';
+    const scene = mode => `panes-and-widgets.html?theme=${theme}&tile=1&projectNavStudy=1&nav=${mode}`;
+    const variants = [
+      () => `<iframe title="Context rail project-room navigation" src="${scene('context')}"></iframe>`,
+      () => `<iframe title="Room picker project-room navigation" src="${scene('picker')}"></iframe>`,
+    ];
+
+    // `variants` is an array of render functions, one per variant, in picker order.
+    const stage = document.getElementById('stage');
+    const picker = document.querySelector('.proto-picker');
+    const highlight = picker.querySelector('.proto-picker-highlight');
+    const items = [...picker.querySelectorAll('.proto-picker-item:not(.proto-picker-replay)')];
+    const replay = picker.querySelector('.proto-picker-replay');
+    let current = 1;
+
+    function moveHighlight() {
+      const el = items[current];
+      highlight.style.width = el.offsetWidth + 'px';
+      highlight.style.transform = `translateX(${el.offsetLeft}px)`;
+    }
+
+    function mount(i) {
+      stage.innerHTML = '';
+      // Clear first, render next frame, so entrance animations re-run.
+      requestAnimationFrame(() => { stage.innerHTML = variants[i](); });
+    }
+
+    function setActive(i) {
+      if (i < 0 || i >= variants.length) return;
+      current = i;
+      items.forEach((el, j) => {
+        el.toggleAttribute('data-active', j === i);
+        if (j === i) el.setAttribute('aria-current', 'true');
+        else el.removeAttribute('aria-current');
+      });
+      document.title = `${items[i].textContent} — Project Room Navigation`;
+      moveHighlight();
+      const url = new URL(location);
+      url.searchParams.set('v', i + 1);
+      history.replaceState(null, '', url);
+      mount(i);
+    }
+
+    items.forEach((el, i) => el.addEventListener('click', () => setActive(i)));
+    replay?.addEventListener('click', () => mount(current));
+    window.addEventListener('resize', moveHighlight);
+
+    function handlePrototypeKey(key) {
+      const num = parseInt(key, 10);
+      if (num >= 1 && num <= variants.length) setActive(num - 1);
+      else if (key === 'ArrowRight') setActive((current + 1) % variants.length);
+      else if (key === 'ArrowLeft') setActive((current - 1 + variants.length) % variants.length);
+      else if (key === 'r' || key === 'R') mount(current);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      handlePrototypeKey(e.key);
+    });
+
+    window.addEventListener('message', (event) => {
+      if (event.origin !== location.origin || event.data?.type !== 'project-nav-prototype-key') return;
+      handlePrototypeKey(event.data.key);
+    });
+
+    // The room picker is the approved direction. Keep v=1 available as the
+    // preserved comparison, but open v=2 when no explicit variant is asked for.
+    setActive((parseInt(new URLSearchParams(location.search).get('v'), 10) || 2) - 1);
+    // Enable the slide only after first paint, so load doesn't animate.
+    requestAnimationFrame(() => requestAnimationFrame(() => picker.setAttribute('data-ready', '')));
+  </script>
+</body>
+</html>
