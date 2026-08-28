@@ -48,12 +48,12 @@ export function startExchangeSync(
   pubkey: string,
   onCancelled: () => boolean,
 ): () => Promise<void> {
-  const reconcile = (event: RelayEvent) => {
+  const reconcile = (event: RelayEvent, liveObservation: boolean) => {
     if (event.pubkey !== pubkey) return;
     const record = parseExchangeRecordContent(event.content);
     if (!record) return;
     // Render the head immediately, then let the relay settle `spent`.
-    upsertExchangeRecord(record);
+    upsertExchangeRecord(record, { liveObservation });
     void refreshExchange(record.exchangeId);
   };
 
@@ -68,7 +68,7 @@ export function startExchangeSync(
     })
     .then((events) => {
       if (onCancelled()) return;
-      for (const event of events) reconcile(event);
+      for (const event of events) reconcile(event, false);
     })
     .catch((error) => {
       console.warn("[useExchangeSync] backfill failed:", error);
@@ -78,7 +78,7 @@ export function startExchangeSync(
   void relayClient
     .subscribeLive(
       { kinds: EXCHANGE_SYNC_KINDS, authors: [pubkey], limit: 0 },
-      reconcile,
+      (event) => reconcile(event, true),
     )
     .then((dispose) => {
       if (onCancelled()) void dispose();

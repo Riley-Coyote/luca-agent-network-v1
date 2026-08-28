@@ -32,6 +32,8 @@ import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { DayDivider } from "./DayDivider";
+import { ExchangeReceiptRow } from "@/features/exchange/ui/ExchangeReceiptRow";
+import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
 import { MessageRow } from "./MessageRow";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import { ManagedResponseRow } from "./ManagedResponseRow";
@@ -67,6 +69,8 @@ type TimelineMessageListProps = {
   huddleMemberPubkeysPending?: boolean;
   /** Event id of the oldest unread top-level message; renders a "New" divider above it. */
   firstUnreadMessageId?: string | null;
+  exchangeEntries?: readonly ExchangeEntry[];
+  onOpenExchange?: (exchangeId: string) => void;
   followThreadById?: (rootId: string) => void;
   highlightedMessageId?: string | null;
   isFollowingThreadById?: (rootId: string) => boolean;
@@ -138,6 +142,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   channelType,
   currentPubkey,
   firstUnreadMessageId = null,
+  exchangeEntries = [],
   followThreadById,
   highlightedMessageId = null,
   huddleMemberPubkeys,
@@ -152,6 +157,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   messages,
   onDelete,
   onEdit,
+  onOpenExchange,
   onMarkUnread,
   onMarkRead,
   onReply,
@@ -238,8 +244,8 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   // The flattened item stream, memoized on the entries and the unread boundary
   // (the unread divider is its own item, so it shifts subsequent rows).
   const itemsResult = React.useMemo(
-    () => buildTimelineItems(entries, firstUnreadMessageId),
-    [entries, firstUnreadMessageId],
+    () => buildTimelineItems(entries, firstUnreadMessageId, exchangeEntries),
+    [entries, exchangeEntries, firstUnreadMessageId],
   );
   const dayGroups = React.useMemo(
     () => buildTimelineDayGroups(itemsResult.items),
@@ -276,6 +282,17 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               ownerProfiles={ownerProfiles}
             />
           );
+        case "exchange-receipt":
+          return onOpenExchange ? (
+            <ExchangeReceiptRow
+              currentPubkey={currentPubkey}
+              exchange={item.exchange}
+              exchangeId={item.exchangeId}
+              onOpen={onOpenExchange}
+              profiles={profiles}
+              turnCount={item.turnCount}
+            />
+          ) : null;
         case "message":
           return (
             <MessageRowItem
@@ -333,6 +350,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       messageFooters,
       onDelete,
       onEdit,
+      onOpenExchange,
       onMarkRead,
       onMarkUnread,
       onReply,
@@ -401,7 +419,9 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
 });
 
 function timelineItemMessageId(item: TimelineNonDayItem): string | null {
-  return item.kind === "message" || item.kind === "system"
+  return item.kind === "message" ||
+    item.kind === "system" ||
+    item.kind === "exchange-receipt"
     ? item.entry.message.id
     : null;
 }

@@ -4,7 +4,9 @@ import test, { beforeEach } from "node:test";
 import {
   applyExchangeSnapshot,
   getPausedExchangeChannelIds,
+  getRoomExchangeHistory,
   getRoomExchanges,
+  latestLiveExchangeAfter,
   resetExchangeStore,
   upsertExchangeRecord,
 } from "./exchangeStore.ts";
@@ -99,4 +101,30 @@ test("snapshots are reference-stable until something actually changes", () => {
 
   applyExchangeSnapshot({ record: record(), spent: 2, phase: "open" });
   assert.notEqual(getRoomExchanges(ROOM), first);
+});
+
+test("only a genuinely new live head advances the live observation watermark", () => {
+  upsertExchangeRecord(record());
+  assert.equal(getRoomExchangeHistory(ROOM)[0].liveObservedAt, null);
+
+  applyExchangeSnapshot({ record: record(), spent: 1, phase: "open" });
+  assert.equal(getRoomExchangeHistory(ROOM)[0].liveObservedAt, null);
+
+  const liveRecord = record({ exchangeId: "5".repeat(64) });
+  upsertExchangeRecord(liveRecord, { liveObservation: true });
+  const liveEntry = getRoomExchangeHistory(ROOM).find(
+    (entry) => entry.record.exchangeId === liveRecord.exchangeId,
+  );
+  assert.equal(liveEntry?.liveObservedAt, 1);
+  assert.equal(
+    latestLiveExchangeAfter(getRoomExchangeHistory(ROOM), 0),
+    liveEntry,
+  );
+
+  applyExchangeSnapshot({ record: liveRecord, spent: 2, phase: "open" });
+  assert.equal(
+    latestLiveExchangeAfter(getRoomExchangeHistory(ROOM), 1),
+    null,
+    "a refetch of the same exchange must not look new",
+  );
 });

@@ -10,6 +10,7 @@ import { preloadTimelineImages } from "@/features/messages/lib/timelineImagePrel
 import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { useResidentMarksInMessages } from "@/features/messages/lib/conversationAppearancePreference";
 import type { TimelineMessage } from "@/features/messages/types";
+import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
 import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
 import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channelWindowStore";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -112,6 +113,8 @@ type MessageTimelineProps = {
   splitThreadPanelOpen?: boolean;
   /** Event id of the oldest unread top-level message at channel open, or null. */
   firstUnreadMessageId?: string | null;
+  exchangeEntries?: readonly ExchangeEntry[];
+  onOpenExchange?: (exchangeId: string) => void;
   /** Count of unread top-level messages at channel open. */
   unreadCount?: number;
   /** Per-thread unread counts keyed by thread root id. */
@@ -198,6 +201,8 @@ const MessageTimelineBase = React.forwardRef<
     onTargetReached,
     splitThreadPanelOpen = false,
     firstUnreadMessageId = null,
+    exchangeEntries = [],
+    onOpenExchange,
     unreadCount = 0,
     threadUnreadCounts,
   }: MessageTimelineProps,
@@ -664,6 +669,7 @@ const MessageTimelineBase = React.forwardRef<
       channelType={channelType}
       currentPubkey={currentPubkey}
       firstUnreadMessageId={firstUnreadMessageId}
+      exchangeEntries={exchangeEntries}
       followThreadById={followThreadById}
       highlightedMessageId={highlightedMessageId}
       huddleMemberPubkeys={huddleMemberPubkeys}
@@ -680,6 +686,7 @@ const MessageTimelineBase = React.forwardRef<
       messages={renderedMessages}
       onDelete={onDelete}
       onEdit={onEdit}
+      onOpenExchange={onOpenExchange}
       onMarkUnread={onMarkUnread}
       onMarkRead={onMarkRead}
       onReply={onReply}

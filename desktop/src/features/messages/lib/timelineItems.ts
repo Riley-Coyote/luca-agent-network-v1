@@ -16,6 +16,8 @@ import {
   hasSameMessageAuthor,
   isWithinGroupingWindow,
 } from "@/features/messages/lib/messageGrouping";
+import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
+import { exchangeIdFromTags } from "@/features/exchange/exchangeTags";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import {
   annotateVisitSpans,
@@ -48,6 +50,14 @@ export type TimelineItem =
   (
     | { kind: "day-divider"; key: string; headingTimestamp: number }
     | { kind: "unread-divider"; key: string }
+    | {
+        kind: "exchange-receipt";
+        key: string;
+        entry: MainTimelineEntry;
+        exchange: ExchangeEntry | null;
+        exchangeId: string;
+        turnCount: number;
+      }
     | { kind: "system"; key: string; entry: MainTimelineEntry }
     | {
         kind: "system-group";
@@ -186,16 +196,40 @@ function buildMembershipGroups(
 export function buildTimelineItems(
   entries: MainTimelineEntry[],
   firstUnreadMessageId: string | null,
+  exchanges: readonly ExchangeEntry[] = [],
 ): TimelineItemsResult {
   const items: TimelineItem[] = [];
   const renderedEntryKeys = new Set<string>();
   // Relay echoes can briefly overlap an optimistic row during reconciliation.
   // Virtua requires unique data keys or it can leave duplicate DOM rows.
-  const uniqueEntries = entries.filter((entry) => {
+  const deduplicatedEntries = entries.filter((entry) => {
     const key = entryRenderKey(entry);
     if (renderedEntryKeys.has(key)) return false;
     renderedEntryKeys.add(key);
     return true;
+  });
+  const exchangeById = new Map(
+    exchanges.map(
+      (exchange) => [exchange.record.exchangeId, exchange] as const,
+    ),
+  );
+  const exchangeLastIndex = new Map<string, number>();
+  const exchangeTurnCounts = new Map<string, number>();
+  deduplicatedEntries.forEach((entry, index) => {
+    const exchangeId = exchangeIdFromTags(entry.message.tags);
+    if (!exchangeId) return;
+    exchangeLastIndex.set(exchangeId, index);
+    exchangeTurnCounts.set(
+      exchangeId,
+      (exchangeTurnCounts.get(exchangeId) ?? 0) + 1,
+    );
+  });
+  // Agent-to-agent speech belongs verbatim in Between agents. The ordinary
+  // room keeps one chronological receipt at the final turn's position so the
+  // owner can see that a side conversation happened without reading it twice.
+  const uniqueEntries = deduplicatedEntries.filter((entry, index) => {
+    const exchangeId = exchangeIdFromTags(entry.message.tags);
+    return !exchangeId || exchangeLastIndex.get(exchangeId) === index;
   });
   let previousGroupEntry: MainTimelineEntry | null = null;
   let previousMessageItemIndex: number | null = null;
@@ -225,6 +259,7 @@ export function buildTimelineItems(
     const entry = uniqueEntries[i];
     const { message } = entry;
     const renderKey = entryRenderKey(entry);
+    const exchangeId = exchangeIdFromTags(message.tags);
 
     const dayBoundary = dayBoundariesByStartIndex.get(i);
     if (dayBoundary) {
@@ -241,6 +276,20 @@ export function buildTimelineItems(
       previousGroupEntry = null;
       previousMessageItemIndex = null;
       items.push({ kind: "unread-divider", key: `unread-${renderKey}` });
+    }
+
+    if (exchangeId) {
+      previousGroupEntry = null;
+      previousMessageItemIndex = null;
+      items.push({
+        kind: "exchange-receipt",
+        key: `exchange-receipt:${exchangeId}`,
+        entry,
+        exchange: exchangeById.get(exchangeId) ?? null,
+        exchangeId,
+        turnCount: exchangeTurnCounts.get(exchangeId) ?? 1,
+      });
+      continue;
     }
 
     // Visit notes are system rows whatever kind carries them (40099 today,

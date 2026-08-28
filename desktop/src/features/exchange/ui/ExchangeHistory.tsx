@@ -15,6 +15,7 @@ type ExchangeHistoryProps = {
   currentPubkey?: string;
   messages: TimelineMessage[];
   profiles?: UserProfileLookup;
+  requestedExchangeId?: string | null;
 };
 
 function createdAtSeconds(message: TimelineMessage): number {
@@ -43,13 +44,6 @@ function whenLabel(firstTurn: TimelineMessage | null, live: boolean): string {
   return at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-function revealMessage(messageId: string) {
-  const row = document.querySelector(
-    `[data-timeline-item-key="${CSS.escape(messageId)}"]`,
-  );
-  row?.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
 /**
  * "Between agents": every exchange that happened in this room, newest first —
  * the permanent record of what the residents said to each other here. Live
@@ -61,9 +55,26 @@ export function ExchangeHistory({
   currentPubkey,
   messages,
   profiles,
+  requestedExchangeId = null,
 }: ExchangeHistoryProps) {
   const entries = useRoomExchangeHistory(channelId);
   const [toggled, setToggled] = React.useState<Record<string, boolean>>({});
+
+  React.useEffect(() => {
+    if (!requestedExchangeId) return;
+    setToggled((previous) => ({
+      ...previous,
+      [requestedExchangeId]: true,
+    }));
+    const frame = requestAnimationFrame(() => {
+      document
+        .querySelector(
+          `[data-exchange-history-id="${CSS.escape(requestedExchangeId)}"]`,
+        )
+        ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [requestedExchangeId]);
 
   // Turns by exchange id, in order; visitors by exchange id.
   const { turnsByExchange, visitorsByExchange } = React.useMemo(() => {
@@ -124,6 +135,7 @@ export function ExchangeHistory({
         return (
           <div
             className="px-3 py-2.5"
+            data-exchange-history-id={record.exchangeId}
             data-exchange-phase={phase}
             data-testid={`exchange-history-${record.exchangeId}`}
             key={record.exchangeId}
@@ -169,16 +181,6 @@ export function ExchangeHistory({
                   ) : null}
                 </span>
               </button>
-              {first ? (
-                <button
-                  className="shrink-0 text-xs text-ink-faint transition-colors hover:text-foreground focus-visible:outline-hidden"
-                  onClick={() => revealMessage(first.id)}
-                  title="Show in conversation"
-                  type="button"
-                >
-                  Show
-                </button>
-              ) : null}
             </div>
             {expanded && turns.length > 0 ? (
               <div className="mt-3 flex flex-col gap-2.5 pl-7">
@@ -197,7 +199,7 @@ export function ExchangeHistory({
                       <span className="block text-xs font-medium leading-4 text-foreground">
                         {turn.author}
                       </span>
-                      <span className="mt-0.5 line-clamp-3 block text-xs leading-[1.45] text-ink-muted">
+                      <span className="mt-0.5 block whitespace-pre-wrap break-words text-xs leading-[1.45] text-ink-muted">
                         {turn.body}
                       </span>
                     </div>

@@ -40,6 +40,7 @@ export type ChannelPaneProps = {
   channelFind: ReturnType<typeof useChannelFind>;
   channelManagementOpen?: boolean;
   conversationContextOpen?: boolean;
+  requestedExchangeId?: string | null;
   currentPubkey?: string;
   projectContext?: ConversationProjectContext | null;
   editTarget?: {
@@ -82,6 +83,7 @@ export type ChannelPaneProps = {
   onCloseAgentSession: () => void;
   onCloseChannelManagement?: () => void;
   onCloseConversationContext?: () => void;
+  onOpenExchange?: (exchangeId: string) => void;
   onChannelManagementDeleted?: () => void;
   onCloseProfilePanel: () => void;
   onAddAgent?: (options?: { beforeSend?: () => void }) => void;

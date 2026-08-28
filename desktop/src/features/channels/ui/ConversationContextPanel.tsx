@@ -58,6 +58,7 @@ type ConversationContextPanelProps = {
   onResetWidth?: () => void;
   onResizeStart?: React.PointerEventHandler<HTMLButtonElement>;
   profiles?: UserProfileLookup;
+  requestedExchangeId?: string | null;
   transparentChrome?: boolean;
   widthPx: number;
 };
@@ -99,6 +100,7 @@ export function ConversationContextPanel({
   onResetWidth,
   onResizeStart,
   profiles,
+  requestedExchangeId = null,
   transparentChrome = false,
   widthPx,
 }: ConversationContextPanelProps) {
@@ -463,6 +465,7 @@ export function ConversationContextPanel({
                   currentPubkey={currentPubkey}
                   messages={messages}
                   profiles={profiles}
+                  requestedExchangeId={requestedExchangeId}
                 />
               </section>
             ) : null}

@@ -412,6 +412,64 @@ test("buildTimelineItems: duplicate render keys produce one virtual row", () => 
   assert.equal(getTimelineItemKey(messageItems[0]), "original");
 });
 
+test("buildTimelineItems: exchange turns collapse to one chronological receipt", () => {
+  const exchangeId = "e".repeat(64);
+  const entries = [
+    entry({ id: "before", createdAt: dayAt(2026, 6, 14, 12, 0) }),
+    entry({
+      id: "turn-1",
+      createdAt: dayAt(2026, 6, 14, 12, 1),
+      tags: [["exchange", exchangeId, "1"]],
+    }),
+    entry({
+      id: "turn-2",
+      createdAt: dayAt(2026, 6, 14, 12, 2),
+      tags: [["exchange", exchangeId, "2"]],
+    }),
+    entry({ id: "after", createdAt: dayAt(2026, 6, 14, 12, 3) }),
+  ];
+
+  const items = buildTimelineItems(entries, null).items;
+  assert.deepEqual(kinds(items), [
+    "day-divider",
+    "message",
+    "exchange-receipt",
+    "message",
+  ]);
+  const receipt = items.find((item) => item.kind === "exchange-receipt");
+  assert.equal(receipt?.entry.message.id, "turn-2");
+  assert.equal(receipt?.turnCount, 2);
+  assert.equal(receipt?.exchangeId, exchangeId);
+});
+
+test("buildTimelineItems: an exchange receipt preserves the active visit passage", () => {
+  const start = dayAt(2026, 6, 14);
+  const guest = "a".repeat(64);
+  const exchangeId = "e".repeat(64);
+  const items = buildTimelineItems(
+    [
+      visitEntry({
+        createdAt: start,
+        id: "arrival",
+        resident: guest,
+        type: "visit_arrived",
+      }),
+      entry({
+        id: "guest-turn",
+        createdAt: start + 60,
+        pubkey: guest,
+        tags: [["exchange", exchangeId, "1"]],
+      }),
+    ],
+    null,
+  ).items;
+
+  const receipt = items.find((item) => item.kind === "exchange-receipt");
+  assert.equal(receipt?.authorVisiting, true);
+  assert.equal(receipt?.visitSpan, "only");
+  assert.deepEqual(receipt?.activeVisitGuests, [guest]);
+});
+
 test("buildTimelineDayGroups: moves non-day rows under their day section", () => {
   const entries = [
     entry({ id: "d1a", createdAt: dayAt(2026, 6, 12) }),

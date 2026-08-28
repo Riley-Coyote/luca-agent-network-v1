@@ -59,7 +59,10 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
-import { useRoomExchanges } from "@/features/exchange/exchangeStore";
+import {
+  useRoomExchangeHistory,
+  useRoomExchanges,
+} from "@/features/exchange/exchangeStore";
 import { useExchangeTurnRefresh } from "@/features/exchange/useExchangeSync";
 import { ExchangeStrip } from "@/features/exchange/ui/ExchangeStrip";
 import {
@@ -100,6 +103,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   channelFind,
   channelManagementOpen = false,
   conversationContextOpen = false,
+  requestedExchangeId = null,
   currentPubkey,
   projectContext = null,
   editTarget = null,
@@ -131,6 +135,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   onCloseAgentSession,
   onCloseChannelManagement,
   onCloseConversationContext,
+  onOpenExchange,
   onChannelManagementDeleted,
   onCloseProfilePanel,
   onCloseThread,
@@ -219,6 +224,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   // Live exchanges belonging to this room, plus a re-read of the relay's spent
   // count whenever a turn-tagged message lands here.
   const roomExchanges = useRoomExchanges(activeChannelId);
+  const roomExchangeHistory = useRoomExchangeHistory(activeChannelId);
   // Open exchanges are ordinary resident activity and already remain available
   // in the conversation details. The composer should interrupt the owner only
   // when an exchange has paused and genuinely needs a decision.
@@ -952,9 +958,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                 threadSummaries={threadSummaries}
                 messages={projectedTimelineMessages}
                 firstUnreadMessageId={firstUnreadMessageId}
+                exchangeEntries={roomExchangeHistory}
                 unreadCount={unreadCount}
                 onDelete={onDelete}
                 onEdit={onEdit}
+                onOpenExchange={onOpenExchange}
                 onMarkUnread={onMarkUnread}
                 onMarkRead={onMarkRead}
                 expandedThreadHeadId={openThreadHeadId}
@@ -1242,6 +1250,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   onResetWidth={onResetThreadPanelWidth}
                   onResizeStart={onThreadPanelResizeStart}
                   profiles={profiles}
+                  requestedExchangeId={requestedExchangeId}
                   transparentChrome={useSplitAuxiliaryPane}
                   widthPx={threadPanelWidthPx}
                 />

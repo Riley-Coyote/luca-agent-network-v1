@@ -37,7 +37,12 @@ type VisitAware = {
 type AwareItem = TimelineItem & VisitAware;
 
 function entryOf(item: TimelineItem) {
-  if (item.kind === "message" || item.kind === "system") return item.entry;
+  if (
+    item.kind === "message" ||
+    item.kind === "system" ||
+    item.kind === "exchange-receipt"
+  )
+    return item.entry;
   if (item.kind === "system-group")
     return item.entries[item.entries.length - 1];
   return null;
@@ -95,7 +100,7 @@ export function annotateVisitSpans(items: TimelineItem[]): void {
 
     if (open.size === 0) continue;
 
-    if (item.kind === "message") {
+    if (item.kind === "message" || item.kind === "exchange-receipt") {
       const pubkey = item.entry.message.pubkey?.toLowerCase();
       item.authorVisiting = Boolean(pubkey && open.has(pubkey));
       speakers.push(item);

@@ -20,11 +20,19 @@ export type ExchangeEntry = {
   phase: ExchangePhase;
   /** First-seen ordinal — the strip renders the most recent exchange first. */
   observedAt: number;
+  /**
+   * Ordinal assigned only when a brand-new head arrives on the live relay
+   * subscription. Backfill and authoritative snapshot refreshes leave this
+   * null, so presentation can distinguish a genuinely new conversation from
+   * data merely being reloaded.
+   */
+  liveObservedAt: number | null;
 };
 
 const entries = new Map<string, ExchangeEntry>();
 const listeners = new Set<() => void>();
 let observedCounter = 0;
+let liveObservedCounter = 0;
 
 // Reference-stable snapshots for useSyncExternalStore: React reads a snapshot
 // before it subscribes, so these must survive with no listeners attached.
@@ -57,6 +65,7 @@ function sameEntry(a: ExchangeEntry | undefined, b: ExchangeEntry): boolean {
   return (
     a.spent === b.spent &&
     a.phase === b.phase &&
+    a.liveObservedAt === b.liveObservedAt &&
     a.record.bucket === b.record.bucket &&
     a.record.state === b.record.state &&
     a.record.deadline === b.record.deadline &&
@@ -68,12 +77,18 @@ function sameEntry(a: ExchangeEntry | undefined, b: ExchangeEntry): boolean {
   );
 }
 
-function put(entry: Omit<ExchangeEntry, "observedAt">) {
+function put(
+  entry: Omit<ExchangeEntry, "observedAt" | "liveObservedAt">,
+  liveObservation = false,
+) {
   const key = entry.record.exchangeId;
   const existing = entries.get(key);
   const next: ExchangeEntry = {
     ...entry,
     observedAt: existing?.observedAt ?? ++observedCounter,
+    liveObservedAt:
+      existing?.liveObservedAt ??
+      (liveObservation && !existing ? ++liveObservedCounter : null),
   };
   if (sameEntry(existing, next)) return;
   entries.set(key, next);
@@ -85,14 +100,20 @@ function put(entry: Omit<ExchangeEntry, "observedAt">) {
  * so an entry seen this way carries the previous count (0 when brand new) until
  * `applyExchangeSnapshot` lands the backend's answer.
  */
-export function upsertExchangeRecord(record: ExchangeRecord) {
+export function upsertExchangeRecord(
+  record: ExchangeRecord,
+  options: { liveObservation?: boolean } = {},
+) {
   const existing = entries.get(record.exchangeId);
   const spent = existing?.spent ?? 0;
-  put({
-    record,
-    spent,
-    phase: deriveExchangePhase(record, spent, Math.floor(Date.now() / 1000)),
-  });
+  put(
+    {
+      record,
+      spent,
+      phase: deriveExchangePhase(record, spent, Math.floor(Date.now() / 1000)),
+    },
+    options.liveObservation,
+  );
 }
 
 /** Record the authoritative `{record, spent, phase}` from the backend. */
@@ -177,6 +198,24 @@ export function useRoomExchangeHistory(
   );
 }
 
+/** Newest genuinely live-observed exchange after a caller-owned watermark. */
+export function latestLiveExchangeAfter(
+  roomEntries: readonly ExchangeEntry[],
+  after: number,
+): ExchangeEntry | null {
+  return (
+    roomEntries
+      .filter(
+        (entry) =>
+          entry.liveObservedAt !== null &&
+          entry.liveObservedAt > after &&
+          isLive(entry),
+      )
+      .sort((a, b) => (b.liveObservedAt ?? 0) - (a.liveObservedAt ?? 0))[0] ??
+    null
+  );
+}
+
 /**
  * Rooms holding a paused exchange. A paused exchange is waiting on the owner,
  * so its room reads as unread and high-priority even though the volleys that
@@ -214,5 +253,6 @@ export function usePausedExchangeChannelIds(): ReadonlySet<string> {
 export function resetExchangeStore() {
   entries.clear();
   observedCounter = 0;
+  liveObservedCounter = 0;
   notify();
 }

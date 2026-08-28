@@ -16,6 +16,10 @@ import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { ChannelPane } from "@/features/channels/ui/ChannelPane";
 import { WelcomeAgentCreateDialog } from "@/features/channels/ui/WelcomeAgentCreateDialog";
 import { ForumChannelContent } from "@/features/channels/ui/ForumChannelContent";
+import {
+  latestLiveExchangeAfter,
+  useRoomExchangeHistory,
+} from "@/features/exchange/exchangeStore";
 import { MembersSidebar } from "@/features/channels/ui/MembersSidebar";
 import {
   useManagedAgentsQuery,
@@ -136,6 +140,9 @@ export function ChannelScreen({
   const [isMembersSidebarOpen, setIsMembersSidebarOpen] = React.useState(false);
   const [isConversationContextOpen, setIsConversationContextOpen] =
     React.useState(false);
+  const [requestedExchangeId, setRequestedExchangeId] = React.useState<
+    string | null
+  >(null);
   const [isAddBotOpen, setIsAddBotOpen] = React.useState(false);
   const [channelContentRef, channelContentWidthPx] =
     useElementWidth<HTMLDivElement>();
@@ -161,6 +168,7 @@ export function ChannelScreen({
   const mainInsetRef = useMainInsetRef();
   const currentPubkey = currentIdentity?.pubkey;
   const activeChannelId = activeChannel?.id ?? null;
+  const roomExchangeHistory = useRoomExchangeHistory(activeChannelId);
   const relaySelfPubkey = useRelaySelfQuery(activeChannel !== null).data;
   const effectiveOpenThreadHeadId =
     optimisticOpenThreadHeadId === undefined
@@ -727,6 +735,7 @@ export function ChannelScreen({
   const handleToggleMembers = React.useCallback(() => {
     if (isConversationContextOpen) {
       setIsConversationContextOpen(false);
+      setRequestedExchangeId(null);
       return;
     }
 
@@ -737,6 +746,7 @@ export function ChannelScreen({
     handleCloseAgentSession();
     setProfilePanelPubkey(null);
     setChannelManagementOpen(false);
+    setRequestedExchangeId(null);
     setIsConversationContextOpen(true);
   }, [
     handleCloseAgentSession,
@@ -745,6 +755,57 @@ export function ChannelScreen({
     setOpenThreadHeadId,
     setProfilePanelPubkey,
   ]);
+
+  const handleOpenExchange = React.useCallback(
+    (exchangeId: string) => {
+      setOpenThreadHeadId(null);
+      setExpandedThreadReplyIds(new Set());
+      setThreadScrollTargetId(null);
+      setThreadReplyTargetId(null);
+      handleCloseAgentSession();
+      setProfilePanelPubkey(null);
+      setChannelManagementOpen(false);
+      setIsMembersSidebarOpen(false);
+      setRequestedExchangeId(exchangeId);
+      setIsConversationContextOpen(true);
+    },
+    [
+      handleCloseAgentSession,
+      setChannelManagementOpen,
+      setOpenThreadHeadId,
+      setProfilePanelPubkey,
+    ],
+  );
+
+  const exchangeObservationRef = React.useRef<{
+    channelId: string | null;
+    watermark: number;
+  } | null>(null);
+  React.useEffect(() => {
+    const watermark = roomExchangeHistory.reduce(
+      (maximum, entry) => Math.max(maximum, entry.liveObservedAt ?? 0),
+      0,
+    );
+    const previous = exchangeObservationRef.current;
+    if (!previous || previous.channelId !== activeChannelId) {
+      exchangeObservationRef.current = {
+        channelId: activeChannelId,
+        watermark,
+      };
+      return;
+    }
+
+    const newlyLive = latestLiveExchangeAfter(
+      roomExchangeHistory,
+      previous.watermark,
+    );
+    previous.watermark = Math.max(previous.watermark, watermark);
+    if (newlyLive) handleOpenExchange(newlyLive.record.exchangeId);
+  }, [activeChannelId, handleOpenExchange, roomExchangeHistory]);
+
+  React.useEffect(() => {
+    setRequestedExchangeId(null);
+  }, [activeChannelId]);
 
   const handleBackToConversation = React.useCallback(() => {
     setProfilePanelPubkey(null);
@@ -856,6 +917,7 @@ export function ChannelScreen({
                 channelFind={channelFind}
                 channelManagementOpen={channelManagementOpen}
                 conversationContextOpen={isConversationContextOpen}
+                requestedExchangeId={requestedExchangeId}
                 currentPubkey={currentPubkey}
                 projectContext={projectContext}
                 canResetThreadPanelWidth={canResetThreadPanelWidth}
@@ -915,9 +977,11 @@ export function ChannelScreen({
                     : undefined
                 }
                 onCloseChannelManagement={handleCloseChannelManagement}
-                onCloseConversationContext={() =>
-                  setIsConversationContextOpen(false)
-                }
+                onCloseConversationContext={() => {
+                  setIsConversationContextOpen(false);
+                  setRequestedExchangeId(null);
+                }}
+                onOpenExchange={handleOpenExchange}
                 onCloseThread={handleCloseThread}
                 onDelete={activeChannel?.archivedAt ? undefined : handleDelete}
                 onEdit={activeChannel?.archivedAt ? undefined : handleEdit}
