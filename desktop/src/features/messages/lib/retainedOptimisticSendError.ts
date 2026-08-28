@@ -1,4 +1,4 @@
-const retainedOptimisticSendErrors = new WeakMap<Error, string>();
+let retainedOptimisticSendErrors = new WeakMap<Error, string>();
 
 /** Mark a rejected send whose optimistic timeline row now owns retry. */
 export function retainOptimisticSendError(error: Error, channelId: string) {
@@ -10,4 +10,9 @@ export function retainedOptimisticSendChannel(error: unknown) {
   return error instanceof Error
     ? (retainedOptimisticSendErrors.get(error) ?? null)
     : null;
+}
+
+/** Forget failure ownership retained for the outgoing community. */
+export function resetRetainedOptimisticSendErrors() {
+  retainedOptimisticSendErrors = new WeakMap<Error, string>();
 }

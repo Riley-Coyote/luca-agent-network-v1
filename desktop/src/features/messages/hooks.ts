@@ -83,6 +83,11 @@ import {
 } from "@/features/messages/lib/channelWindowStore";
 import { retainOptimisticSendError } from "@/features/messages/lib/retainedOptimisticSendError";
 import {
+  failedSendRetry,
+  removeFailedSendRetry,
+  retainFailedSendRetry,
+} from "@/features/messages/lib/failedSendRetryState";
+import {
   parseChannelWindowResponse,
   parseLiveThreadSummary,
 } from "@/features/messages/lib/channelWindowResponse";
@@ -117,9 +122,6 @@ type MessageQueryContext = {
   optimisticId: string;
   channelId: string;
 };
-
-/** In-memory only. Pending events are excluded from snapshots and persistence. */
-const failedSendRetryVariables = new Map<string, SendMessageVariables>();
 
 const CHANNEL_TIMELINE_KINDS = new Set<number>(CHANNEL_TIMELINE_CONTENT_KINDS);
 const CHANNEL_AUX_KINDS = new Set<number>(CHANNEL_AUX_EVENT_KINDS);
@@ -744,7 +746,7 @@ export function useSendMessageMutation(
         }
       }
 
-      failedSendRetryVariables.set(optimisticMessage.id, {
+      retainFailedSendRetry(optimisticMessage.id, {
         ...variables,
         retryOptimisticId: undefined,
       });
@@ -802,7 +804,7 @@ export function useSendMessageMutation(
       if (!context) {
         return;
       }
-      failedSendRetryVariables.delete(context.optimisticId);
+      removeFailedSendRetry(context.optimisticId);
       replaceManagedPresentationReceipt(context.optimisticId, message.id);
 
       const windowKey = channelWindowKey(context.channelId);
@@ -827,7 +829,7 @@ export function useSendMessageMutation(
   return {
     ...mutation,
     retryFailedMessage: async (optimisticId: string) => {
-      const variables = failedSendRetryVariables.get(optimisticId);
+      const variables = failedSendRetry<SendMessageVariables>(optimisticId);
       if (!variables) {
         throw new Error("The failed message is no longer available to retry.");
       }

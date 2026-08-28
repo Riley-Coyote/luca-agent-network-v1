@@ -26,6 +26,7 @@ import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useS
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
 import { resetManagedPresentationStore } from "@/features/messages/managedPresentationStore";
+import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
 
 import { initFirstCommunity } from "./communityStorage";
 import type { Community } from "./types";
@@ -45,6 +46,7 @@ function resetCommunityState(): void {
   resetActiveAgentTurnsStore();
   resetAgentWorkingSignal();
   resetManagedPresentationStore();
+  resetFailedSendRetryState();
   resetSidebarRelayConnectionCardState();
   resetMediaCaches();
   resetVideoPlayerState();
