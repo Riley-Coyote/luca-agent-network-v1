@@ -163,14 +163,15 @@ export function useTeamActions(
   function openCreateDialog() {
     actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
-      setTeamDialogState({
-        title: "Create group",
-        description:
-          "Save a set of agents so you can add them to rooms together.",
+    setTeamDialogState({
+      title: "Create group",
+      description:
+        "Save a set of agents so you can add them to rooms together.",
       submitLabel: "Create group",
       initialValues: {
         name: "",
         description: "",
+        instructions: "",
         personaIds: [],
       },
     });
