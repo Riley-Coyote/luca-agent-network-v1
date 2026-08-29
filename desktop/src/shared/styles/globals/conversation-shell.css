@@ -355,6 +355,26 @@
   margin: 8px 8px 8px 1px;
 }
 
+/* A tiled conversation workspace is the FLOOR, not one large conversation
+   card subdivided by rules. Each visible pane below owns the ordinary card
+   treatment; the route surface steps aside so tone, radius, and shadow can
+   describe the individual cards exactly as they do in the shell lab. */
+:root[data-luca-shell]
+  [data-luca-conversation-surface]:has([data-luca-workspace-floor]) {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
+:root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card] {
+  background: hsl(var(--mn-surface));
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: var(--mn-card-edge);
+}
+
 /* Right-hand cards. An inspector is its own card on the floor, beside the
    conversation card, not a column attached inside it — the same surface, the
    same edge, the same radius, with one lip of floor between them. The slot

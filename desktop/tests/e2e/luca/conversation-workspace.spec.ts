@@ -146,9 +146,33 @@ test("Dock focuses an existing main-window conversation", async ({ page }) => {
     "data-focused",
     "true",
   );
-  await expect(
-    page.getByTestId(`workspace-tab-slot-1-${generalId}`),
-  ).toHaveAttribute("aria-selected", "true");
+});
+
+test("conversation cards keep a floor gap and expose draggable split handles", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1800, height: 1100 });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-general").click();
+
+  const ids = await visibleChannelIds(page);
+  const generalId = await page
+    .getByTestId("channel-general")
+    .getAttribute("data-channel-id");
+  const secondId = ids.find((channelId) => channelId !== generalId);
+  if (!secondId) throw new Error("Expected a second mock conversation.");
+  await openInNewPane(page, secondId);
+
+  await expect(page.locator("[data-workspace-tab]")).toHaveCount(0);
+  const handle = page.getByTestId("workspace-resize-vertical");
+  await expect(handle).toBeVisible();
+  const before = await page.getByTestId("workspace-pane-slot-1").boundingBox();
+  await handle.focus();
+  await page.keyboard.press("ArrowRight");
+  const after = await page.getByTestId("workspace-pane-slot-1").boundingBox();
+  expect(before).not.toBeNull();
+  expect(after).not.toBeNull();
+  expect(after?.width ?? 0).toBeGreaterThan(before?.width ?? 0);
 });
 
 test("a project room picker changes only its own tile", async ({ page }) => {

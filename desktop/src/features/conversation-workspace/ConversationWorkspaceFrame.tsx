@@ -4,9 +4,8 @@ import {
   LayoutPanelLeft,
   Rows2,
   Square,
-  X,
 } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
 import { useMainInsetWidth } from "@/shared/layout/MainInsetContext";
 import { RightCardsSlotBoundary } from "@/shared/layout/RightCardsSlot";
@@ -20,7 +19,6 @@ import {
   type WorkspaceConversationRef,
   type WorkspacePreset,
   type WorkspaceSlotId,
-  workspaceConversationEquals,
   workspaceSlot,
 } from "./workspaceLayout";
 
@@ -54,40 +52,141 @@ function shouldUseCompactProjection(
   return shellWidthPx / presetColumnCount(preset) < MIN_USABLE_PANE_WIDTH_PX;
 }
 
-function gridStyle(preset: WorkspacePreset): React.CSSProperties {
+function gridStyle(
+  preset: WorkspacePreset,
+  columnRatio: number,
+  rowRatio: number,
+): React.CSSProperties {
+  const columns = `${columnRatio}fr ${100 - columnRatio}fr`;
+  const rows = `${rowRatio}fr ${100 - rowRatio}fr`;
   switch (preset) {
     case "single":
       return { gridTemplateColumns: "minmax(0, 1fr)" };
     case "columns-2":
       return {
-        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+        gridTemplateColumns: columns,
         gridTemplateRows: "minmax(0, 1fr)",
       };
     case "rows-2":
       return {
         gridTemplateColumns: "minmax(0, 1fr)",
-        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+        gridTemplateRows: rows,
       };
     case "three":
       return {
-        gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+        gridTemplateColumns: columns,
+        gridTemplateRows: rows,
       };
     case "grid-4":
       return {
-        gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-        gridTemplateRows: "repeat(2, minmax(0, 1fr))",
+        gridTemplateColumns: columns,
+        gridTemplateRows: rows,
       };
   }
 }
 
+const MIN_SPLIT_RATIO = 25;
+const MAX_SPLIT_RATIO = 75;
+
+function clampSplitRatio(value: number) {
+  return Math.min(MAX_SPLIT_RATIO, Math.max(MIN_SPLIT_RATIO, value));
+}
+
+function WorkspaceResizeHandle({
+  axis,
+  crossStart,
+  onChange,
+  ratio,
+  segment,
+}: {
+  axis: "horizontal" | "vertical";
+  crossStart?: number;
+  onChange: (ratio: number) => void;
+  ratio: number;
+  segment?: "right";
+}) {
+  const beginResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const grid = event.currentTarget.parentElement;
+    if (!grid) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const update = (pointerEvent: PointerEvent) => {
+      const bounds = grid.getBoundingClientRect();
+      const raw =
+        axis === "vertical"
+          ? ((pointerEvent.clientX - bounds.left) / bounds.width) * 100
+          : ((pointerEvent.clientY - bounds.top) / bounds.height) * 100;
+      onChange(clampSplitRatio(raw));
+    };
+    const finish = () => {
+      window.removeEventListener("pointermove", update);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+    window.addEventListener("pointermove", update);
+    window.addEventListener("pointerup", finish, { once: true });
+    window.addEventListener("pointercancel", finish, { once: true });
+  };
+
+  const nudge = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const delta = 2;
+    if (axis === "vertical" && event.key === "ArrowLeft") {
+      event.preventDefault();
+      onChange(clampSplitRatio(ratio - delta));
+    } else if (axis === "vertical" && event.key === "ArrowRight") {
+      event.preventDefault();
+      onChange(clampSplitRatio(ratio + delta));
+    } else if (axis === "horizontal" && event.key === "ArrowUp") {
+      event.preventDefault();
+      onChange(clampSplitRatio(ratio - delta));
+    } else if (axis === "horizontal" && event.key === "ArrowDown") {
+      event.preventDefault();
+      onChange(clampSplitRatio(ratio + delta));
+    }
+  };
+
+  return (
+    <hr
+      aria-label={
+        axis === "vertical"
+          ? "Resize conversation columns"
+          : "Resize conversation rows"
+      }
+      aria-orientation={axis}
+      aria-valuemax={MAX_SPLIT_RATIO}
+      aria-valuemin={MIN_SPLIT_RATIO}
+      aria-valuenow={Math.round(ratio)}
+      className={cn(
+        "absolute z-40 touch-none border-0 bg-transparent outline-none before:absolute before:rounded-full before:bg-border-strong before:opacity-0 before:transition-opacity hover:before:opacity-100 focus-visible:before:opacity-100",
+        axis === "vertical"
+          ? "bottom-[5px] top-[5px] h-auto w-[10px] -translate-x-1/2 cursor-col-resize before:bottom-0 before:left-1/2 before:top-0 before:w-px before:-translate-x-1/2"
+          : "left-[5px] right-[5px] h-[10px] -translate-y-1/2 cursor-row-resize before:left-0 before:right-0 before:top-1/2 before:h-px before:-translate-y-1/2",
+      )}
+      data-testid={`workspace-resize-${axis}${segment ? `-${segment}` : ""}`}
+      onKeyDown={nudge}
+      onPointerDown={beginResize}
+      style={
+        axis === "vertical"
+          ? { left: `${ratio}%` }
+          : {
+              left:
+                crossStart === undefined
+                  ? "5px"
+                  : `calc(${crossStart}% + 2.5px)`,
+              top: `${ratio}%`,
+            }
+      }
+      tabIndex={0}
+    />
+  );
+}
+
 export function ConversationWorkspaceFrame({
-  channelLabels,
   onActivateConversation,
   onPresetChange,
   renderConversation,
 }: {
-  channelLabels: ReadonlyMap<string, string>;
   onActivateConversation: (
     slotId: WorkspaceSlotId,
     conversation: WorkspaceConversationRef,
@@ -102,6 +201,8 @@ export function ConversationWorkspaceFrame({
 }) {
   const workspace = useConversationWorkspace();
   const shellWidthPx = useMainInsetWidth();
+  const [columnRatio, setColumnRatio] = React.useState(50);
+  const [rowRatio, setRowRatio] = React.useState(50);
   if (!workspace) return null;
 
   const compact = shouldUseCompactProjection(
@@ -115,8 +216,9 @@ export function ConversationWorkspaceFrame({
   return (
     <section
       aria-label="Conversation workspace"
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-sidebar"
+      className="relative flex min-h-0 min-w-0 flex-1 flex-col"
       data-compact={compact ? "true" : undefined}
+      data-luca-workspace-floor
       data-testid="conversation-workspace"
     >
       <div
@@ -152,9 +254,9 @@ export function ConversationWorkspaceFrame({
       </div>
 
       <div
-        className="grid min-h-0 min-w-0 flex-1 gap-px bg-border/45"
+        className="relative grid min-h-0 min-w-0 flex-1 gap-[5px] p-[5px] pl-px"
         data-testid="conversation-workspace-grid"
-        style={gridStyle(projection.preset)}
+        style={gridStyle(projection.preset, columnRatio, rowRatio)}
       >
         {projection.visibleSlotIds.map((slotId, index) => {
           const slot = workspaceSlot(workspace.layout, slotId);
@@ -164,11 +266,12 @@ export function ConversationWorkspaceFrame({
             <article
               aria-label={`Conversation pane ${index + 1}`}
               className={cn(
-                "group/workspace-pane relative flex min-h-0 min-w-0 flex-col overflow-hidden bg-sidebar",
+                "group/workspace-pane relative flex min-h-0 min-w-0 flex-col overflow-hidden",
                 workspace.layout.preset === "three" &&
                   slotId === "slot-1" &&
                   "row-span-2",
               )}
+              data-luca-card
               data-focused={focused ? "true" : undefined}
               data-testid={`workspace-pane-${slotId}`}
               key={slotId}
@@ -195,70 +298,6 @@ export function ConversationWorkspaceFrame({
                 else workspace.focusSlot(slotId);
               }}
             >
-              <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border/45 bg-background/70 px-2 pr-36">
-                {slot.conversations.length === 0 ? (
-                  <span className="px-2 text-xs text-muted-foreground">
-                    Empty pane
-                  </span>
-                ) : (
-                  <div
-                    aria-label={`Pane ${index + 1} tabs`}
-                    className="flex min-w-0 items-center gap-1 overflow-x-auto"
-                    role="tablist"
-                  >
-                    {slot.conversations.map((conversation) => {
-                      const selected = workspaceConversationEquals(
-                        conversation,
-                        active,
-                      );
-                      const label =
-                        channelLabels.get(conversation.channelId) ??
-                        "Conversation";
-                      return (
-                        <div
-                          className={cn(
-                            "group/tab flex h-7 min-w-0 max-w-48 items-center rounded-md",
-                            selected
-                              ? "bg-foreground/8 text-foreground"
-                              : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-                          )}
-                          data-workspace-tab
-                          key={`${conversation.projectId ?? ""}:${conversation.channelId}`}
-                        >
-                          <button
-                            aria-selected={selected}
-                            className="min-w-0 flex-1 truncate px-2 text-left text-xs"
-                            data-testid={`workspace-tab-${slotId}-${conversation.channelId}`}
-                            onClick={() =>
-                              onActivateConversation(slotId, conversation)
-                            }
-                            role="tab"
-                            type="button"
-                          >
-                            {label}
-                          </button>
-                          <button
-                            aria-label={`Close ${label}`}
-                            className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-foreground/10 focus-visible:opacity-100 group-hover/tab:opacity-100"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              workspace.dispatch({
-                                type: "close-tab",
-                                conversation,
-                                slotId,
-                              });
-                            }}
-                            type="button"
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
               <div className="flex min-h-0 min-w-0 flex-1">
                 {active ? (
                   <RightCardsSlotBoundary isolate={!focused}>
@@ -280,6 +319,33 @@ export function ConversationWorkspaceFrame({
             </article>
           );
         })}
+        {!compact &&
+        (projection.preset === "columns-2" ||
+          projection.preset === "three" ||
+          projection.preset === "grid-4") ? (
+          <WorkspaceResizeHandle
+            axis="vertical"
+            onChange={setColumnRatio}
+            ratio={columnRatio}
+          />
+        ) : null}
+        {!compact &&
+        (projection.preset === "rows-2" || projection.preset === "grid-4") ? (
+          <WorkspaceResizeHandle
+            axis="horizontal"
+            crossStart={columnRatio}
+            onChange={setRowRatio}
+            ratio={rowRatio}
+          />
+        ) : null}
+        {!compact && projection.preset === "three" ? (
+          <WorkspaceResizeHandle
+            axis="horizontal"
+            onChange={setRowRatio}
+            ratio={rowRatio}
+            segment="right"
+          />
+        ) : null}
       </div>
       {compact && workspace.layout.preset !== "single" ? (
         <p className="sr-only" role="status">

@@ -334,12 +334,6 @@ function ChannelConversationSurface({
 export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
   const { goChannel } = useAppNavigation();
   const workspace = useConversationWorkspace();
-  const channels = useChannelsQuery().data ?? [];
-
-  const channelLabels = React.useMemo(
-    () => new Map(channels.map((channel) => [channel.id, channel.name])),
-    [channels],
-  );
 
   if (!workspace || isPopoutWindow()) {
     return (
@@ -363,7 +357,6 @@ export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
 
   return (
     <ConversationWorkspaceFrame
-      channelLabels={channelLabels}
       onActivateConversation={activateConversation}
       onPresetChange={(preset) => {
         const nextLayout = setWorkspacePreset(workspace.layout, preset);
