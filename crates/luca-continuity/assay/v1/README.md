@@ -62,6 +62,24 @@ creates a blinded packet without the experimental condition or compiler
 material. `body-free-record` hashes private identities, process identifiers,
 source event identifiers, and response content for durable evidence.
 
+Run one packet through a fresh, relay-free ACP session:
+
+```bash
+cargo run -p buzz-acp -- assay-run \
+  --agent-command codex-acp \
+  --agent-args '' \
+  --input /path/to/private/run.generation.json \
+  --output /path/to/private/run.private.json \
+  --workspace-root /path/to/private/empty-workspaces
+```
+
+The runner creates a new empty working directory for every run, refuses every
+runtime permission request, captures only public final-answer chunks, and
+guarantees child-process shutdown. It reuses the runtime's existing login and
+therefore does not claim to isolate runtime-global configuration that shares
+that login. It is suitable for source-level N/D/W controls, not a substitute
+for the installed managed-resident and encrypted-desktop acceptance path.
+
 Private generation packets, responses, reader packets, owner notes, and
 resident testimony do not belong in the repository. Use a disposable encrypted
 assay profile. The CLI's `0600` mode is defense in depth, not encryption.

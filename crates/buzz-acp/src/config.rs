@@ -358,6 +358,39 @@ pub struct AuthenticateArgs {
     pub method_id: String,
 }
 
+/// CLI args for one relay-free Continuity Assay generation turn.
+#[derive(Debug, Parser)]
+#[command(
+    name = "buzz-acp assay-run",
+    about = "Generate one private Continuity Assay response in a fresh ACP session"
+)]
+pub struct AssayRunArgs {
+    #[command(flatten)]
+    pub agent: AuthAgentArgs,
+
+    /// Private generation packet produced by luca-continuity-assay.
+    #[arg(long)]
+    pub input: PathBuf,
+
+    /// New private-run JSON path. The file must not already exist.
+    #[arg(long)]
+    pub output: PathBuf,
+
+    /// Existing private directory in which a new empty run workspace is created.
+    #[arg(long)]
+    pub workspace_root: PathBuf,
+
+    /// Optional exact runtime model ID applied after session creation.
+    #[arg(long)]
+    pub model: Option<String>,
+
+    #[arg(long, default_value_t = 120)]
+    pub idle_timeout_secs: u64,
+
+    #[arg(long, default_value_t = 600)]
+    pub max_duration_secs: u64,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "buzz-acp",

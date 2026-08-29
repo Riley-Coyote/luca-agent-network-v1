@@ -418,6 +418,9 @@ pub struct AcpClient {
     #[cfg(unix)]
     managed_permission: Option<std::sync::Arc<ManagedPermissionClient>>,
     managed_identity: bool,
+    /// Relay-free diagnostic clients can fail closed on every permission
+    /// request without pretending to be a desktop-managed resident.
+    deny_unmanaged_permissions: bool,
     managed_turn_id: Option<String>,
     managed_conversation_id: Option<String>,
     /// The JSON-RPC id of the most recently sent `session/prompt` request.
@@ -834,6 +837,7 @@ impl AcpClient {
             #[cfg(unix)]
             managed_permission,
             managed_identity,
+            deny_unmanaged_permissions: false,
             managed_turn_id: None,
             managed_conversation_id: None,
             last_prompt_id: None,
@@ -1266,6 +1270,13 @@ impl AcpClient {
     /// Start collecting public final-answer chunks for one managed turn.
     pub fn begin_final_message_capture(&mut self) {
         self.final_message_capture = Some(FinalChunkAccumulator::default());
+    }
+
+    /// Reject every permission request on a non-managed diagnostic client.
+    /// This is used by the Continuity Assay runner so a response generation
+    /// turn cannot inspect or mutate the host through runtime tools.
+    pub fn deny_unmanaged_permissions(&mut self) {
+        self.deny_unmanaged_permissions = true;
     }
 
     /// Note that a tool call or plan update interrupted the public message, so
@@ -2280,6 +2291,21 @@ impl AcpClient {
                     permission_response_cancelled(&id)
                 }
             };
+            self.write_ndjson(&response).await?;
+            self.permission_responded = true;
+            self.pending_permission_id = None;
+            return Ok(());
+        }
+
+        if self.deny_unmanaged_permissions {
+            let response = options
+                .iter()
+                .find(|option| {
+                    option.get("kind").and_then(|kind| kind.as_str()) == Some("reject_once")
+                })
+                .and_then(|option| option.get("optionId").and_then(|value| value.as_str()))
+                .map(|option_id| permission_response_selected(&id, option_id))
+                .unwrap_or_else(|| permission_response_cancelled(&id));
             self.write_ndjson(&response).await?;
             self.permission_responded = true;
             self.pending_permission_id = None;

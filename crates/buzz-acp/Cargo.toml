@@ -21,6 +21,7 @@ buzz-core = { workspace = true }
 buzz-sdk = { workspace = true }
 buzz-persona = { path = "../buzz-persona" }
 luca-protocol = { workspace = true }
+luca-continuity = { workspace = true }
 luca-diagnostics = { workspace = true }
 luca-signing-client = { workspace = true }
 

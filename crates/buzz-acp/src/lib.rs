@@ -2,6 +2,7 @@
 
 mod acp;
 mod artifact_mcp;
+mod assay_runner;
 mod communications_mcp;
 mod config;
 pub mod continuity_provider;
@@ -38,7 +39,7 @@ use buzz_core::observer::{
 };
 use clap::Parser;
 use config::{
-    AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
+    AssayRunArgs, AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
     MultipleEventHandling, RespondTo, SubscribeMode,
 };
 use filter::SubscriptionRule;
@@ -1293,6 +1294,16 @@ async fn tokio_main() -> Result<()> {
             .collect();
         let args = AuthenticateArgs::parse_from(&filtered);
         return run_authenticate(args).await;
+    }
+
+    if is_subcommand("assay-run") {
+        let filtered: Vec<String> = std::env::args()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, a)| a)
+            .collect();
+        let args = AssayRunArgs::parse_from(&filtered);
+        return assay_runner::run(args).await;
     }
 
     tracing_subscriber::fmt()
