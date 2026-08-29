@@ -625,6 +625,162 @@
   line-height: var(--type-title-leading);
 }
 
+/* The project and room are one piece of conversation identity. The approved
+   picker keeps that identity stable while closed and opens from the same
+   breadcrumb in the full project view, a tile, or a compact pop-out. */
+:root[data-luca-shell] .luca-project-room-picker-control {
+  max-width: min(360px, 100%);
+  min-width: 0;
+  position: relative;
+}
+
+:root[data-luca-shell] .luca-project-room-picker-trigger {
+  align-items: center;
+  border-radius: 7px;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  gap: 9px;
+  margin-left: -8px;
+  max-width: min(360px, 100%);
+  min-width: 0;
+  padding: 4px 8px;
+  pointer-events: none;
+  position: relative;
+  text-align: left;
+  transition:
+    background-color var(--motion-duration-instant) var(--motion-ease-standard),
+    color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+:root[data-luca-shell]
+  .luca-project-room-picker-trigger__button:hover
+  + .luca-project-room-picker-trigger {
+  background: hsl(var(--mn-hover));
+}
+
+:root[data-luca-shell] .luca-project-room-picker-trigger__button {
+  border-radius: 7px;
+  inset: 0;
+  position: absolute;
+  z-index: 1;
+}
+
+:root[data-luca-shell]
+  .luca-project-room-picker-trigger__button:focus-visible
+  + .luca-project-room-picker-trigger {
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink-faint));
+}
+
+:root[data-luca-shell] .luca-project-room-picker-trigger h1,
+:root[data-luca-shell] .luca-project-room-picker-trigger span span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] .luca-project-room-picker-trigger h1 {
+  font-size: var(--type-title-size);
+  font-weight: 550;
+  letter-spacing: var(--type-title-tracking);
+  line-height: var(--type-title-leading);
+}
+
+:root[data-luca-shell] .luca-project-room-picker-trigger span span {
+  color: hsl(var(--mn-ink-faint));
+  font-size: var(--type-ui-size);
+  line-height: var(--type-ui-leading);
+  margin-top: 1px;
+}
+
+:root[data-luca-shell] .luca-project-room-picker {
+  background: hsl(var(--mn-raised));
+  border: 1px solid hsl(var(--mn-border-strong));
+  box-shadow: var(--mn-card-edge);
+  padding: 8px;
+  width: 264px;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__header,
+:root[data-luca-shell] .luca-project-room-picker__footer {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  font-size: var(--type-eyebrow-size);
+  font-weight: 500;
+  justify-content: space-between;
+  letter-spacing: var(--type-eyebrow-tracking);
+}
+
+:root[data-luca-shell] .luca-project-room-picker__header {
+  padding: 5px 8px 9px;
+  text-transform: uppercase;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(360px, calc(100dvh - 150px));
+  overflow-y: auto;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__option {
+  align-items: center;
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  font-size: var(--mn-text-ui);
+  gap: 8px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  min-height: 36px;
+  padding: 7px 8px;
+  text-align: left;
+  transition:
+    background-color var(--motion-duration-instant) var(--motion-ease-standard),
+    color var(--motion-duration-instant) var(--motion-ease-standard);
+  width: 100%;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__option:hover,
+:root[data-luca-shell] .luca-project-room-picker__option:focus-visible {
+  background: hsl(var(--mn-hover));
+  color: hsl(var(--mn-ink));
+  outline: none;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__option[data-selected="true"] {
+  background: var(--mn-plate-strong);
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell] .luca-project-room-picker__mark,
+:root[data-luca-shell] .luca-project-room-picker__meta {
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  justify-content: center;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__meta {
+  font-family: var(--font-instrument, var(--font-mono));
+  font-size: var(--type-eyebrow-size);
+  min-width: 22px;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__footer {
+  border-top: 1px solid hsl(var(--mn-border));
+  margin-top: 6px;
+  padding: 9px 8px 3px;
+}
+
+:root[data-luca-shell] .luca-project-room-picker__footer kbd {
+  background: hsl(var(--mn-hover));
+  border-radius: 5px;
+  color: hsl(var(--mn-ink-muted));
+  font: inherit;
+  padding: 2px 5px;
+}
+
 /* Project room navigation is contextual furniture inside the approved Luca
    card. It borrows the Agent Library's master-detail proportion while leaving
    both the global rail and real conversation component untouched. */
@@ -871,7 +1027,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell]
-    :is(.luca-project-icon-button, .luca-project-room-row) {
+    :is(
+      .luca-project-icon-button,
+      .luca-project-room-row,
+      .luca-project-room-picker-trigger,
+      .luca-project-room-picker__option
+    ) {
     transition: none;
   }
 }

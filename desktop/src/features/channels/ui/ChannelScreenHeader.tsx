@@ -5,6 +5,7 @@ import {
   openChannelPopout,
   usePopoutWindowsEnabled,
 } from "@/app/popout/popoutFeature";
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
 import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
@@ -12,6 +13,8 @@ import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveCha
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
 import { ConversationPresenceRail } from "@/features/channels/ui/ConversationPresenceRail";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
+import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
+import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
 import {
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
   ProfileAvatarWithStatus,
@@ -37,6 +40,10 @@ type ChannelScreenHeaderProps = {
   activeDmPresenceStatus: PresenceStatus | null;
   agentPubkeys: ReadonlySet<string>;
   profiles?: UserProfileLookup;
+  projectRoomNavigation?: {
+    onSelectRoom: (channelId: string) => void;
+    viewModel: ProjectNavigatorViewModel;
+  } | null;
   residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
@@ -90,6 +97,7 @@ export function ChannelScreenHeader({
   activeDmPresenceStatus,
   agentPubkeys,
   profiles,
+  projectRoomNavigation,
   residentPersonaIdLookup,
   chromeWrapperRef,
   currentPubkey,
@@ -107,6 +115,7 @@ export function ChannelScreenHeader({
     [activeChannel, agentPubkeys, currentPubkey],
   );
   const popoutWindowsEnabled = usePopoutWindowsEnabled();
+  const popoutWindow = isPopoutWindow();
   const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
   const primaryDmIsResident = Boolean(
     primaryDmParticipant &&
@@ -121,52 +130,53 @@ export function ChannelScreenHeader({
 
   if (!showHeaderContent) return null;
 
-  const actions = activeChannel ? (
-    showJoinButton ? (
-      <Button
-        disabled={isJoining}
-        onClick={() => void onJoinChannel()}
-        size="sm"
-        variant="default"
-      >
-        <LogIn className="mr-1.5 h-4 w-4" />
-        {isJoining ? "Joining…" : "Join"}
-      </Button>
-    ) : (
-      <>
-        {popoutWindowsEnabled ? (
+  const actions =
+    activeChannel && !popoutWindow ? (
+      showJoinButton ? (
+        <Button
+          disabled={isJoining}
+          onClick={() => void onJoinChannel()}
+          size="sm"
+          variant="default"
+        >
+          <LogIn className="mr-1.5 h-4 w-4" />
+          {isJoining ? "Joining…" : "Join"}
+        </Button>
+      ) : (
+        <>
+          {popoutWindowsEnabled ? (
+            <Button
+              aria-label="Open as window"
+              data-testid="open-channel-popout"
+              onClick={() => {
+                void openChannelPopout(
+                  activeChannel.id,
+                  activeChannelTitle,
+                ).catch((error) => {
+                  console.warn("pop-out window unavailable", error);
+                });
+              }}
+              size="icon"
+              title="Open as window"
+              type="button"
+              variant="ghost"
+            >
+              <PictureInPicture2 />
+            </Button>
+          ) : null}
           <Button
-            aria-label="Open as window"
-            data-testid="open-channel-popout"
-            onClick={() => {
-              void openChannelPopout(
-                activeChannel.id,
-                activeChannelTitle,
-              ).catch((error) => {
-                console.warn("pop-out window unavailable", error);
-              });
-            }}
+            aria-label="Open conversation details"
+            onClick={onToggleMembers}
             size="icon"
-            title="Open as window"
+            title="Conversation details"
             type="button"
             variant="ghost"
           >
-            <PictureInPicture2 />
+            <PanelRight />
           </Button>
-        ) : null}
-        <Button
-          aria-label="Open conversation details"
-          onClick={onToggleMembers}
-          size="icon"
-          title="Conversation details"
-          type="button"
-          variant="ghost"
-        >
-          <PanelRight />
-        </Button>
-      </>
-    )
-  ) : null;
+        </>
+      )
+    ) : null;
 
   const humanDmLeading =
     activeChannel?.channelType === "dm" &&
@@ -193,14 +203,16 @@ export function ChannelScreenHeader({
       belowSystemChrome
       actions={actions}
       centerContent={
-        <ConversationPresenceRail
-          onOpenResident={onOpenResident}
-          onOpenRoster={onToggleMembers}
-          profiles={profiles}
-          residentPersonaIdLookup={residentPersonaIdLookup}
-          residentPubkeys={residentPubkeys}
-          visitorPubkeys={visitorPubkeys}
-        />
+        popoutWindow ? null : (
+          <ConversationPresenceRail
+            onOpenResident={onOpenResident}
+            onOpenRoster={onToggleMembers}
+            profiles={profiles}
+            residentPersonaIdLookup={residentPersonaIdLookup}
+            residentPubkeys={residentPubkeys}
+            visitorPubkeys={visitorPubkeys}
+          />
+        )
       }
       channelType={activeChannel?.channelType}
       chromeWrapperRef={chromeWrapperRef}
@@ -211,6 +223,14 @@ export function ChannelScreenHeader({
         <ChannelHeaderStatusBadge
           ephemeralDisplay={activeChannelEphemeralDisplay}
         />
+      }
+      titleControl={
+        projectRoomNavigation ? (
+          <ProjectRoomPicker
+            onSelectRoom={projectRoomNavigation.onSelectRoom}
+            viewModel={projectRoomNavigation.viewModel}
+          />
+        ) : undefined
       }
       subtitle={getChannelDescription(activeChannel) ?? ""}
       title={activeChannelTitle}

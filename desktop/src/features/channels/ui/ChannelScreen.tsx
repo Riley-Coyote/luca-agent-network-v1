@@ -1,4 +1,5 @@
 import * as React from "react";
+import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { useAppShell } from "@/app/AppShellContext";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
@@ -94,6 +95,7 @@ export function ChannelScreen({
   currentProfile,
   projectContext,
   projectNavigatorVisible,
+  projectRoomNavigation,
   shellWidthPx,
   onCloseForumPost,
   onSelectForumPost,
@@ -102,6 +104,7 @@ export function ChannelScreen({
   targetMessageEvents,
   targetMessageId,
 }: ChannelScreenProps) {
+  const popoutWindow = isPopoutWindow();
   const { goHome } = useAppNavigation();
   const {
     markChannelRead,
@@ -606,6 +609,12 @@ export function ChannelScreen({
       setThreadReplyTargetId,
       setThreadScrollTargetId,
     });
+  const handleOpenProfilePanelForSurface = React.useCallback(
+    (...args: Parameters<typeof handleOpenProfilePanel>) => {
+      if (!popoutWindow) handleOpenProfilePanel(...args);
+    },
+    [handleOpenProfilePanel, popoutWindow],
+  );
   const settledChannelIdRef = React.useRef<string | null>(null);
   const hasSettledThisChannel =
     activeChannelId !== null && settledChannelIdRef.current === activeChannelId;
@@ -683,10 +692,11 @@ export function ChannelScreen({
   });
 
   const hasAuxiliaryPanel = Boolean(
-    openAgentSessionPubkey ||
-      profilePanelPubkey ||
-      channelManagementOpen ||
-      isConversationContextOpen,
+    !popoutWindow &&
+      (openAgentSessionPubkey ||
+        profilePanelPubkey ||
+        channelManagementOpen ||
+        isConversationContextOpen),
   );
   const displayedThreadHeadMessage = threadPanelData.threadHead;
   const displayedThreadMessages = threadPanelData.visibleReplies;
@@ -809,8 +819,10 @@ export function ChannelScreen({
       previous.watermark,
     );
     previous.watermark = Math.max(previous.watermark, watermark);
-    if (newlyLive) handleOpenExchange(newlyLive.record.exchangeId);
-  }, [activeChannelId, handleOpenExchange, roomExchangeHistory]);
+    if (newlyLive && !popoutWindow) {
+      handleOpenExchange(newlyLive.record.exchangeId);
+    }
+  }, [activeChannelId, handleOpenExchange, popoutWindow, roomExchangeHistory]);
 
   // Intentionally reset a transient drawer selection whenever the room key
   // changes; the dependency is the trigger rather than an effect input.
@@ -836,6 +848,7 @@ export function ChannelScreen({
         activeDmPresenceStatus={activeDmPresenceStatus}
         agentPubkeys={agentPubkeys}
         profiles={messageProfiles}
+        projectRoomNavigation={projectRoomNavigation}
         residentPersonaIdLookup={residentPersonaIdLookup}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
@@ -845,7 +858,7 @@ export function ChannelScreen({
         onJoinChannel={joinChannelMutation.mutateAsync}
         onManageChannel={handleManageChannel}
         onOpenResident={(pubkey) =>
-          handleOpenProfilePanel(pubkey, { tab: "continuity" })
+          handleOpenProfilePanelForSurface(pubkey, { tab: "continuity" })
         }
         onToggleMembers={handleToggleMembers}
         showHeaderContent={!isSinglePanelView}
@@ -856,6 +869,7 @@ export function ChannelScreen({
     [
       visitorPubkeys,
       messageProfiles,
+      projectRoomNavigation,
       residentPersonaIdLookup,
       activeChannel,
       activeChannelEphemeralDisplay,
@@ -871,15 +885,21 @@ export function ChannelScreen({
       joinChannelMutation.isPending,
       joinChannelMutation.mutateAsync,
       handleManageChannel,
-      handleOpenProfilePanel,
+      handleOpenProfilePanelForSurface,
       handleToggleMembers,
       isSinglePanelView,
     ],
   );
 
   return (
-    <AgentSessionProvider onOpenAgentSession={handleOpenAgentSession}>
-      <ProfilePanelProvider onOpenProfilePanel={handleOpenProfilePanel}>
+    <AgentSessionProvider
+      onOpenAgentSession={
+        popoutWindow ? () => undefined : handleOpenAgentSession
+      }
+    >
+      <ProfilePanelProvider
+        onOpenProfilePanel={handleOpenProfilePanelForSurface}
+      >
         <WelcomeAgentCreateDialog
           guideName={welcomeGuideAgent?.name ?? "your welcome guide"}
           isSending={welcomeAgentCreate.isSending}
@@ -900,7 +920,7 @@ export function ChannelScreen({
                 onClosePost={onCloseForumPost}
                 onCloseProfilePanel={handleCloseProfilePanel}
                 onOpenDm={handleOpenDm}
-                onOpenProfilePanel={handleOpenProfilePanel}
+                onOpenProfilePanel={handleOpenProfilePanelForSurface}
                 onPanelResizeStart={handleThreadPanelResizeStart}
                 onProfilePanelTabChange={setProfilePanelTab}
                 onProfilePanelViewChange={setProfilePanelView}
@@ -924,8 +944,12 @@ export function ChannelScreen({
                 onAutoSendComplete={clearAutoSend}
                 botTypingEntries={botTypingEntries}
                 channelFind={channelFind}
-                channelManagementOpen={channelManagementOpen}
-                conversationContextOpen={isConversationContextOpen}
+                channelManagementOpen={
+                  popoutWindow ? false : channelManagementOpen
+                }
+                conversationContextOpen={
+                  popoutWindow ? false : isConversationContextOpen
+                }
                 requestedExchangeId={requestedExchangeId}
                 currentPubkey={currentPubkey}
                 projectContext={projectContext}
@@ -937,7 +961,9 @@ export function ChannelScreen({
                 onAddAgent={handleOpenAddBot}
                 onBrowseChannels={openBrowseChannels}
                 onCreateChannel={openCreateChannel}
-                onOpenMembers={handleOpenMembersSidebar}
+                onOpenMembers={
+                  popoutWindow ? () => undefined : handleOpenMembersSidebar
+                }
                 isFetchingOlder={isFetchingOlder}
                 entranceMessageId={welcomeEntranceMessageId}
                 onEntranceMessageComplete={handleWelcomeEntranceComplete}
@@ -990,7 +1016,9 @@ export function ChannelScreen({
                   setIsConversationContextOpen(false);
                   setRequestedExchangeId(null);
                 }}
-                onOpenExchange={handleOpenExchange}
+                onOpenExchange={
+                  popoutWindow ? () => undefined : handleOpenExchange
+                }
                 onCloseThread={handleCloseThread}
                 onDelete={activeChannel?.archivedAt ? undefined : handleDelete}
                 onEdit={activeChannel?.archivedAt ? undefined : handleEdit}
@@ -1002,7 +1030,7 @@ export function ChannelScreen({
                 onRetryFailedMessage={sendMessageMutation.retryFailedMessage}
                 onExpandThreadReplies={handleExpandThreadReplies}
                 onOpenDm={handleOpenDm}
-                onOpenProfilePanel={handleOpenProfilePanel}
+                onOpenProfilePanel={handleOpenProfilePanelForSurface}
                 onBackToConversation={handleBackToConversation}
                 onResetThreadPanelWidth={handleThreadPanelWidthReset}
                 onCloseProfilePanel={handleCloseProfilePanel}
@@ -1017,13 +1045,17 @@ export function ChannelScreen({
                 onThreadPanelResizeStart={handleThreadPanelResizeStart}
                 onTargetReached={handleTargetReached}
                 onToggleReaction={effectiveToggleReaction}
-                openAgentSessionChannelId={openAgentSessionChannelId}
-                openAgentSessionPubkey={openAgentSessionPubkey}
+                openAgentSessionChannelId={
+                  popoutWindow ? null : openAgentSessionChannelId
+                }
+                openAgentSessionPubkey={
+                  popoutWindow ? null : openAgentSessionPubkey
+                }
                 openThreadHeadId={effectiveOpenThreadHeadId}
                 shouldShowThreadSkeleton={shouldShowThreadSkeleton}
                 onProfilePanelViewChange={setProfilePanelView}
                 onProfilePanelTabChange={setProfilePanelTab}
-                profilePanelPubkey={profilePanelPubkey}
+                profilePanelPubkey={popoutWindow ? null : profilePanelPubkey}
                 profilePanelTab={profilePanelTab}
                 profilePanelView={profilePanelView}
                 personaLookup={personaLookup}

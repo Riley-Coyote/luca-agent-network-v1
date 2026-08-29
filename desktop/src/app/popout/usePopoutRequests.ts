@@ -52,7 +52,7 @@ function isOpenInMainRequest(
  * Main-window only, and a no-op outside Tauri.
  */
 export function usePopoutRequests(args: {
-  goChannel: (channelId: string) => void;
+  dockChannel: (channelId: string) => void;
   markChannelRead: MarkChannelRead;
 }) {
   const handleRead = React.useEffectEvent((payload: unknown) => {
@@ -68,7 +68,7 @@ export function usePopoutRequests(args: {
     if (!isOpenInMainRequest(payload)) {
       return;
     }
-    args.goChannel(payload.channelId);
+    args.dockChannel(payload.channelId);
     const window = getCurrentWindow();
     void window.unminimize().catch(() => {});
     void window.show().catch(() => {});

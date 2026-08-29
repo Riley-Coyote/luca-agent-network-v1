@@ -5,6 +5,7 @@ import type {
   RelayEvent,
 } from "@/shared/api/types";
 import type { ConversationProjectContext } from "@/features/luca/context/ConversationContextComposerSurface";
+import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 
 export type ChannelScreenProps = {
   activeChannel: Channel | null;
@@ -18,6 +19,10 @@ export type ChannelScreenProps = {
   currentIdentity?: Identity;
   currentProfile?: Profile;
   projectContext?: ConversationProjectContext | null;
+  projectRoomNavigation?: {
+    onSelectRoom: (channelId: string) => void;
+    viewModel: ProjectNavigatorViewModel;
+  } | null;
   /** Stable width of this conversation's shell when it is rendered in a tile. */
   shellWidthPx?: number;
   /** Whether the full project room navigator is actually beside this screen. */

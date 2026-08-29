@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   createDefaultWorkspaceLayout,
+  dockConversationInWorkspace,
   loadWorkspaceLayout,
   openConversationInNewPane,
   parseWorkspaceLayout,
@@ -183,6 +184,28 @@ test("focus, replacement, and tab selection stay pane-scoped", () => {
     slotId: "slot-4",
   });
   assert.equal(ignored, layout);
+});
+
+test("Dock focuses an existing copy or appends a tab without replacing one", () => {
+  let layout = replace(createDefaultWorkspaceLayout(), ref("one"));
+  layout = openPane(layout, ref("two"));
+  layout = reduceWorkspaceLayout(layout, {
+    type: "focus-slot",
+    slotId: "slot-1",
+  });
+
+  layout = dockConversationInWorkspace(layout, ref("three"));
+  assert.deepEqual(workspaceSlot(layout, "slot-1").conversations, [
+    ref("one"),
+    ref("three"),
+  ]);
+  assert.deepEqual(workspaceSlot(layout, "slot-1").activeTab, ref("three"));
+
+  layout = reduceWorkspaceLayout(layout, { type: "hide" });
+  layout = dockConversationInWorkspace(layout, ref("two"));
+  assert.equal(layout.visibility, "visible");
+  assert.equal(layout.focusedSlotId, "slot-2");
+  assert.deepEqual(workspaceSlot(layout, "slot-2").conversations, [ref("two")]);
 });
 
 test("closing an active tab selects its neighbor and the last close stays empty", () => {

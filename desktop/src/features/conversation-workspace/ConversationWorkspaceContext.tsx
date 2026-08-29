@@ -24,6 +24,7 @@ export type ConversationWorkspaceController = {
   layout: WorkspaceLayoutV1;
   dispatch: (action: WorkspaceLayoutAction) => void;
   focusSlot: (slotId: WorkspaceSlotId) => void;
+  dockConversation: (conversation: WorkspaceConversationRef) => void;
   openInNewPane: (
     conversation: WorkspaceConversationRef,
   ) => OpenInNewPaneResult;
@@ -121,6 +122,12 @@ export function useConversationWorkspaceController({
     [dispatch],
   );
 
+  const dockConversation = React.useCallback(
+    (conversation: WorkspaceConversationRef) =>
+      dispatch({ type: "dock-conversation", conversation }),
+    [dispatch],
+  );
+
   const replaceFocusedConversation = React.useCallback(
     (conversation: WorkspaceConversationRef) =>
       dispatch({ type: "replace-active-tab", conversation }),
@@ -147,6 +154,7 @@ export function useConversationWorkspaceController({
   return React.useMemo(
     () => ({
       dispatch,
+      dockConversation,
       focusSlot,
       layout,
       openInNewPane,
@@ -155,6 +163,7 @@ export function useConversationWorkspaceController({
     }),
     [
       dispatch,
+      dockConversation,
       focusSlot,
       layout,
       openInNewPane,

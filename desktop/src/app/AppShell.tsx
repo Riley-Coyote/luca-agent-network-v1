@@ -294,14 +294,19 @@ export function AppShell() {
       workspaceId: communitiesHook.activeCommunity?.id,
     },
   });
+  const selectedWorkspaceProjectId = selectedChannelId
+    ? projectByChannelId.get(selectedChannelId)?.id
+    : undefined;
 
   React.useEffect(() => {
     if (selectedChannelId) {
-      const projectId = projectByChannelId.get(selectedChannelId)?.id;
       conversationWorkspace.dispatch({ type: "restore" });
       conversationWorkspace.replaceFocusedConversation(
-        projectId
-          ? { channelId: selectedChannelId, projectId }
+        selectedWorkspaceProjectId
+          ? {
+              channelId: selectedChannelId,
+              projectId: selectedWorkspaceProjectId,
+            }
           : { channelId: selectedChannelId },
       );
       return;
@@ -310,8 +315,8 @@ export function AppShell() {
   }, [
     conversationWorkspace.dispatch,
     conversationWorkspace.replaceFocusedConversation,
-    projectByChannelId,
     selectedChannelId,
+    selectedWorkspaceProjectId,
   ]);
 
   React.useEffect(() => {
@@ -738,7 +743,15 @@ export function AppShell() {
   // for itself: publishing a NIP-RS read marker (one publisher, no slot
   // races) and taking this window's focus.
   usePopoutRequests({
-    goChannel: (channelId: string) => void goChannel(channelId),
+    dockChannel: (channelId: string) => {
+      const channel = channels.find((candidate) => candidate.id === channelId);
+      if (!channel) return;
+      const projectId = projectByChannelId.get(channelId)?.id;
+      conversationWorkspace.dockConversation(
+        projectId ? { channelId, projectId } : { channelId },
+      );
+      void goChannel(channelId);
+    },
     markChannelRead,
   });
 

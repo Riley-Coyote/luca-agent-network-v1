@@ -61,6 +61,7 @@ export type WorkspaceLayoutAction =
     }
   | { type: "set-preset"; preset: WorkspacePreset }
   | { type: "open-in-new-pane"; conversation: WorkspaceConversationRef }
+  | { type: "dock-conversation"; conversation: WorkspaceConversationRef }
   | { type: "hide" }
   | { type: "restore" };
 
@@ -529,6 +530,40 @@ export function openConversationInNewPane(
   return { layout: next, opened: true, reason: null, slotId: emptyId };
 }
 
+/**
+ * Return a popped-out conversation to the workspace without destroying the
+ * focused tab. An existing copy wins; otherwise Dock appends one tab to the
+ * focused slot and selects it.
+ */
+export function dockConversationInWorkspace(
+  layout: WorkspaceLayoutV1,
+  conversation: WorkspaceConversationRef,
+): WorkspaceLayoutV1 {
+  const normalized = parseConversationRef(conversation);
+  if (!normalized) return layout;
+
+  for (const slotId of PRESET_SLOT_IDS[layout.preset]) {
+    const existing = workspaceSlot(layout, slotId).conversations.find(
+      (candidate) => workspaceConversationEquals(candidate, normalized),
+    );
+    if (existing) {
+      const selected = selectTab(layout, slotId, existing);
+      return selected.visibility === "visible"
+        ? selected
+        : { ...selected, visibility: "visible" };
+    }
+  }
+
+  const next = cloneLayout(layout);
+  const slotId = targetSlotId(next);
+  const slot = workspaceSlot(next, slotId);
+  slot.conversations = mergeUnique(slot.conversations, [normalized]);
+  slot.activeTab = normalized;
+  next.focusedSlotId = slotId;
+  next.visibility = "visible";
+  return next;
+}
+
 export function reduceWorkspaceLayout(
   layout: WorkspaceLayoutV1,
   action: WorkspaceLayoutAction,
@@ -550,6 +585,8 @@ export function reduceWorkspaceLayout(
       return setWorkspacePreset(layout, action.preset);
     case "open-in-new-pane":
       return openConversationInNewPane(layout, action.conversation).layout;
+    case "dock-conversation":
+      return dockConversationInWorkspace(layout, action.conversation);
     case "hide":
       return layout.visibility === "hidden"
         ? layout

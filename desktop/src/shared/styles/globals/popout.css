@@ -1,8 +1,8 @@
 /* ── THE POP-OUT CHAT WINDOW ──────────────────────────────────────
    One conversation in its own window. No rail, no sidebar, no second
    place to go — so the only chrome it owns is the strip where a title bar
-   would be: a drag region and the two controls that have no native
-   equivalent. The strip does not name the window; the conversation header
+   would be: a drag region and two controls that reveal only when the owner
+   approaches the header or reaches them by keyboard. The strip does not name the window; the conversation header
    directly beneath it is the one title.
 
    The window is transparent-capable but paints an OPAQUE surface: the theme
@@ -62,12 +62,24 @@
   display: flex;
   flex-shrink: 0;
   gap: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+.luca-popout__strip:hover .luca-popout__controls,
+.luca-popout__strip:focus-within .luca-popout__controls,
+.luca-popout:has([data-testid="chat-header"]:hover) .luca-popout__controls,
+.luca-popout:has([data-testid="chat-header"]:focus-within)
+  .luca-popout__controls {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Pinned is a held state, not an action: the control keeps its own glyph and
    changes its ink and its seat, the way a pressed toggle should. */
 .luca-popout__pin[aria-pressed="true"] {
-  background: hsl(var(--mn-plate));
+  background: var(--mn-plate);
   box-shadow: var(--mn-lit-edge);
   color: hsl(var(--mn-ink));
 }
@@ -97,6 +109,13 @@
    changes. */
 :root[data-luca-shell][data-luca-popout] [data-testid="chat-header"] {
   padding-inline: 14px;
+}
+
+/* A project-room pop-out has no inspector actions competing in this row. Give
+   its room identity enough measure to remain a breadcrumb rather than
+   truncating the project context at the compact window's normal width. */
+:root[data-luca-shell][data-luca-popout] .luca-project-room-picker-control {
+  width: min(248px, 100%);
 }
 
 /* ── THE HOVER ACTIONS, AT POP-OUT WIDTHS ────────────────────────

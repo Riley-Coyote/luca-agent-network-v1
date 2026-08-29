@@ -1,28 +1,34 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useLocation } from "@tanstack/react-router";
 import { PanelsTopLeft, Pin } from "lucide-react";
 import * as React from "react";
 
-import {
-  POPOUT_OPEN_IN_MAIN_EVENT,
-  popoutChannelId,
-} from "@/app/popout/popoutMode";
+import { POPOUT_OPEN_IN_MAIN_EVENT } from "@/app/popout/popoutMode";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
 import { ArtifactCanvasProvider } from "@/features/artifacts/ArtifactCanvasProvider";
+import { useChannelsQuery } from "@/features/channels/hooks";
 import { useWebviewScrollBoundaryLock } from "@/shared/hooks/useWebviewScrollBoundaryLock";
 import { chromeCssVarDefaults } from "@/shared/layout/chromeLayout";
 import { MainInsetProvider } from "@/shared/layout/MainInsetContext";
-import {
-  RightCardsSlot,
-  RightCardsSlotProvider,
-} from "@/shared/layout/RightCardsSlot";
+import { RightCardsSlotProvider } from "@/shared/layout/RightCardsSlot";
 import { performTitleBarDoubleClickAction } from "@/shared/lib/titleBarActions";
 import { Button } from "@/shared/ui/button";
 
 const INTERACTIVE_SELECTOR =
   'button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
+
+function channelIdFromPathname(pathname: string): string | null {
+  const match = /^\/channels\/([^/]+)$/.exec(pathname);
+  if (!match?.[1]) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
 
 function isStripDragEvent(event: MouseEvent | PointerEvent): boolean {
   const target = event.target;
@@ -116,12 +122,34 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
   useWebviewZoomShortcuts();
   useWebviewScrollBoundaryLock();
   const { isPinned, togglePin } = usePopoutPin();
-  const channelId = popoutChannelId();
+  const location = useLocation();
+  const channelId = channelIdFromPathname(location.pathname);
+  const channelsQuery = useChannelsQuery();
+  const channelTitle =
+    channelsQuery.data?.find((channel) => channel.id === channelId)?.name ??
+    "Conversation";
   const stripRef = React.useRef<HTMLDivElement>(null);
   const insetRef = React.useRef<HTMLDivElement>(null);
   useWindowDragStrip(stripRef);
 
-  const handleOpenInLuca = React.useCallback(() => {
+  React.useEffect(() => {
+    if (!channelId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("channel") !== channelId) {
+      url.searchParams.set("channel", channelId);
+      window.history.replaceState(window.history.state, "", url);
+    }
+    document.title = channelTitle;
+    if (isTauri()) {
+      void getCurrentWindow()
+        .setTitle(channelTitle)
+        .catch((error) => {
+          console.warn("pop-out title unavailable", error);
+        });
+    }
+  }, [channelId, channelTitle]);
+
+  const handleDock = React.useCallback(() => {
     if (!isTauri() || !channelId) {
       return;
     }
@@ -129,7 +157,7 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
     // taking it, and the conversation route is its business, not ours.
     void emitTo("main", POPOUT_OPEN_IN_MAIN_EVENT, { channelId }).catch(
       (error) => {
-        console.warn("open in Luca unavailable", error);
+        console.warn("Dock in Luca unavailable", error);
       },
     );
   }, [channelId]);
@@ -152,7 +180,7 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
           data-testid="popout-drag-strip"
           ref={stripRef}
         >
-          <div className="luca-popout__controls">
+          <div className="luca-popout__controls" data-testid="popout-controls">
             {/* One glyph, two states. A slashed pin for "not pinned" would
                 read as "pinning unavailable"; the state lives in the
                 control's own ink, the way a pressed toggle should. */}
@@ -170,11 +198,11 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
               <Pin />
             </Button>
             <Button
-              aria-label="Open in Luca"
-              data-testid="popout-open-in-luca"
-              onClick={handleOpenInLuca}
+              aria-label="Dock in Luca"
+              data-testid="popout-dock"
+              onClick={handleDock}
               size="icon-xs"
-              title="Open in Luca"
+              title="Dock in Luca"
               type="button"
               variant="ghost"
             >
@@ -190,7 +218,6 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
             <ResidentHarnessProvider>
               <div className="luca-popout__body">
                 <div className="luca-popout__content">{children}</div>
-                <RightCardsSlot />
               </div>
             </ResidentHarnessProvider>
           </ArtifactCanvasProvider>

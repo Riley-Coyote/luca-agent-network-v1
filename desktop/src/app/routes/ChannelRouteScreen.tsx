@@ -14,8 +14,8 @@ import { ChannelScreen } from "@/features/channels/ui/ChannelScreen";
 import { LocalChannelPanelStateProvider } from "@/features/channels/ui/useChannelPanelHistoryState";
 import {
   ConversationWorkspaceFrame,
+  setWorkspacePreset,
   useConversationWorkspace,
-  workspaceConversationKey,
   workspaceSlot,
   type WorkspaceConversationRef,
   type WorkspaceSlotId,
@@ -43,6 +43,7 @@ type ChannelRouteScreenProps = {
 
 type ChannelConversationSurfaceProps = ChannelRouteScreenProps & {
   focused: boolean;
+  onSelectProjectRoom?: (channelId: string, projectId: string) => void;
   projectNavigatorVisible: boolean;
   shellWidthPx?: number;
 };
@@ -122,6 +123,7 @@ function ChannelConversationSurface({
   autoSendDraftKey,
   channelId,
   focused,
+  onSelectProjectRoom,
   projectNavigatorVisible,
   selectedPostId,
   shellWidthPx,
@@ -275,6 +277,23 @@ function ChannelConversationSurface({
           : null
       }
       projectNavigatorVisible={projectNavigatorVisible}
+      projectRoomNavigation={
+        projectViewModel
+          ? {
+              onSelectRoom: (nextChannelId) => {
+                if (onSelectProjectRoom) {
+                  onSelectProjectRoom(
+                    nextChannelId,
+                    projectViewModel.projectId,
+                  );
+                } else {
+                  void goChannel(nextChannelId);
+                }
+              },
+              viewModel: projectViewModel,
+            }
+          : null
+      }
       shellWidthPx={shellWidthPx}
       onCloseForumPost={() => {
         void closeForumPost(channelId);
@@ -298,7 +317,13 @@ function ChannelConversationSurface({
 
   return (
     <ProjectRoomWorkspace
-      onSelectRoom={(nextChannelId) => void goChannel(nextChannelId)}
+      onSelectRoom={(nextChannelId) => {
+        if (onSelectProjectRoom) {
+          onSelectProjectRoom(nextChannelId, projectViewModel.projectId);
+        } else {
+          void goChannel(nextChannelId);
+        }
+      }}
       viewModel={projectViewModel}
     >
       {conversation}
@@ -316,32 +341,13 @@ export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
     [channels],
   );
 
-  const focusedConversation = workspace
-    ? workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab
-    : null;
-  const focusedConversationKey = focusedConversation
-    ? workspaceConversationKey(focusedConversation)
-    : null;
-  const previousFocusedConversationKeyRef = React.useRef(
-    focusedConversationKey,
-  );
-
-  React.useEffect(() => {
-    const didWorkspaceFocusChange =
-      previousFocusedConversationKeyRef.current !== focusedConversationKey;
-    previousFocusedConversationKeyRef.current = focusedConversationKey;
-    if (
-      didWorkspaceFocusChange &&
-      focusedConversation &&
-      focusedConversation.channelId !== props.channelId
-    ) {
-      void goChannel(focusedConversation.channelId);
-    }
-  }, [focusedConversation, focusedConversationKey, goChannel, props.channelId]);
-
   if (!workspace || isPopoutWindow()) {
     return (
-      <ChannelConversationSurface {...props} focused projectNavigatorVisible />
+      <ChannelConversationSurface
+        {...props}
+        focused
+        projectNavigatorVisible={!isPopoutWindow()}
+      />
     );
   }
 
@@ -359,7 +365,21 @@ export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
     <ConversationWorkspaceFrame
       channelLabels={channelLabels}
       onActivateConversation={activateConversation}
-      renderConversation={(conversation, focused, _slotId, shellWidthPx) => {
+      onPresetChange={(preset) => {
+        const nextLayout = setWorkspacePreset(workspace.layout, preset);
+        workspace.dispatch({ type: "set-preset", preset });
+        const nextConversation = workspaceSlot(
+          nextLayout,
+          nextLayout.focusedSlotId,
+        ).activeTab;
+        if (
+          nextConversation &&
+          nextConversation.channelId !== props.channelId
+        ) {
+          void goChannel(nextConversation.channelId);
+        }
+      }}
+      renderConversation={(conversation, focused, slotId, shellWidthPx) => {
         const usesRouteState =
           focused && conversation.channelId === props.channelId;
         const surface = (
@@ -367,6 +387,18 @@ export function ChannelRouteScreen(props: ChannelRouteScreenProps) {
             autoSendDraftKey={usesRouteState ? props.autoSendDraftKey : null}
             channelId={conversation.channelId}
             focused={focused}
+            onSelectProjectRoom={(nextChannelId, projectId) => {
+              const nextConversation = {
+                channelId: nextChannelId,
+                projectId,
+              };
+              workspace.dispatch({
+                type: "replace-active-tab",
+                conversation: nextConversation,
+                slotId,
+              });
+              void goChannel(nextChannelId);
+            }}
             projectNavigatorVisible={
               focused && workspace.layout.preset === "single"
             }

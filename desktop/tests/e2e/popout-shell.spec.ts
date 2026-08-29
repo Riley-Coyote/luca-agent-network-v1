@@ -40,6 +40,11 @@ test.describe("the pop-out shell", () => {
     // carries controls and drag surface only, or the same word reads twice.
     await expect(page.getByTestId("chat-title")).toHaveText("general");
     await expect(page.getByTestId("popout-title")).toHaveCount(0);
+    await expect(page.getByTestId("open-channel-popout")).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Open conversation details" }),
+    ).toHaveCount(0);
+    await expect(page.locator("[data-luca-inspector]")).toHaveCount(0);
 
     // The strip stands where a title bar would, clear of the traffic lights.
     const stripBox = await strip.boundingBox();
@@ -145,14 +150,62 @@ test.describe("the pop-out shell", () => {
     expect(commands).not.toContain("set_artifact_canvas_window_open");
   });
 
-  test("keeps the pin off until it is asked for", async ({ page }) => {
+  test("reveals Pin and Dock only on header approach or keyboard focus", async ({
+    page,
+  }) => {
     await installMockBridge(page);
     await page.goto(POPOUT_URL);
 
+    const controls = page.getByTestId("popout-controls");
     const pin = page.getByTestId("popout-pin");
+    const dock = page.getByTestId("popout-dock");
+    await expect(controls).toHaveCSS("opacity", "0");
+    await expect(controls).toHaveCSS("pointer-events", "none");
+
+    await page.getByTestId("chat-header").hover();
+    await expect(controls).toHaveCSS("opacity", "1");
+    await expect(dock).toBeVisible();
     await expect(pin).toHaveAttribute("aria-pressed", "false");
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "true");
+
+    await page.getByTestId("message-input").click();
+    await page.mouse.move(190, 300);
+    await expect(controls).toHaveCSS("opacity", "0");
+    await dock.focus();
+    await expect(controls).toHaveCSS("opacity", "1");
+    await expect(dock).toBeFocused();
+  });
+
+  test("switches project rooms inside the same compact window", async ({
+    page,
+  }) => {
+    await installMockBridge(page);
+    await page.goto(
+      `/?e2e=mock&projectDemo=1&window=popout&channel=${GENERAL_CHANNEL_ID}#/channels/${GENERAL_CHANNEL_ID}`,
+    );
+
+    const trigger = page.getByTestId("project-room-picker-trigger");
+    await expect(trigger).toHaveAccessibleName(/general in Luca/);
+    await trigger.click();
+    const engineering = page
+      .getByTestId("project-room-picker")
+      .getByRole("option", { name: /engineering/i });
+    const optionTestId = await engineering.getAttribute("data-testid");
+    const engineeringId = optionTestId?.replace(
+      "project-room-picker-option-",
+      "",
+    );
+    if (!engineeringId) throw new Error("Expected the engineering room id.");
+    await engineering.click();
+
+    await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+    await expect(page).toHaveURL(new RegExp(`#/channels/${engineeringId}$`));
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("channel"))
+      .toBe(engineeringId);
+    await expect.poll(() => page.title()).toBe("engineering");
+    await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
   });
 });
 

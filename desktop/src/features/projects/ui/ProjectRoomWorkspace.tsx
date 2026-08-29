@@ -20,6 +20,7 @@ import { useCommunities } from "@/features/communities/useCommunities";
 import { useActiveWorkingChannelsById } from "@/features/sidebar/lib/useActiveWorkingChannelsById";
 import {
   filterProjectRooms,
+  projectRoomRelativeTime,
   type ProjectNavigatorViewModel,
 } from "@/features/projects/lib/projectNavigator";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -47,19 +48,6 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { Input } from "@/shared/ui/input";
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "";
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) return "";
-  const minutes = Math.max(0, Math.floor((Date.now() - then) / 60_000));
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
-}
 
 function contextStatus(viewModel: ProjectNavigatorViewModel) {
   if (viewModel.sourceIds.length > 0) {
@@ -424,7 +412,7 @@ export function ProjectRoomNavigator({
                           ? working.agentCount > 1
                             ? `${working.agentCount} working`
                             : "working"
-                          : relativeTime(channel.lastMessageAt)}
+                          : projectRoomRelativeTime(channel.lastMessageAt)}
                       </span>
                     </span>
                     <span className="mt-0.5 flex items-center gap-2">

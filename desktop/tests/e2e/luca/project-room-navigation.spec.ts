@@ -111,6 +111,50 @@ test("projects open their room navigator and remember the selected room", async 
   await expect(navigator).toBeVisible();
 });
 
+test("the approved room picker is complete by mouse and keyboard", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock&projectDemo=1");
+  await page.getByTestId("project-row-luca").click();
+
+  const trigger = page.getByTestId("project-room-picker-trigger");
+  const initialRoom = await page.getByTestId("chat-title").innerText();
+  await expect(trigger).toHaveAccessibleName(
+    new RegExp(`Switch room from ${initialRoom} in Luca`),
+  );
+  await trigger.click();
+
+  const picker = page.getByTestId("project-room-picker");
+  const options = picker.getByRole("option");
+  await expect(picker).toBeVisible();
+  const selectedOption = options.filter({ hasText: initialRoom });
+  await expect(selectedOption).toBeFocused();
+
+  await page.keyboard.press("ArrowDown");
+  await expect(selectedOption).not.toBeFocused();
+  await page.keyboard.press("Home");
+  await expect(options.first()).toBeFocused();
+  await page.keyboard.press("End");
+  const selectedLabel = (await options.last().innerText()).split("\n")[0];
+  await expect(options.last()).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId("chat-title")).toHaveText(selectedLabel);
+
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await page.getByTestId("project-room-navigator").click({
+    position: { x: 8, y: 8 },
+  });
+  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId("project-room-navigator")).toBeVisible();
+});
+
 test("a stale local assignment cannot project a direct message into a project", async ({
   page,
 }) => {

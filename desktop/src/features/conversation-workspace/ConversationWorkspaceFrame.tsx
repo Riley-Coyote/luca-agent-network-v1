@@ -25,6 +25,7 @@ import {
 } from "./workspaceLayout";
 
 const MIN_USABLE_PANE_WIDTH_PX = 440;
+const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
 
 const PRESET_CONTROLS: Array<{
   preset: WorkspacePreset;
@@ -83,6 +84,7 @@ function gridStyle(preset: WorkspacePreset): React.CSSProperties {
 export function ConversationWorkspaceFrame({
   channelLabels,
   onActivateConversation,
+  onPresetChange,
   renderConversation,
 }: {
   channelLabels: ReadonlyMap<string, string>;
@@ -90,6 +92,7 @@ export function ConversationWorkspaceFrame({
     slotId: WorkspaceSlotId,
     conversation: WorkspaceConversationRef,
   ) => void;
+  onPresetChange?: (preset: WorkspacePreset) => void;
   renderConversation: (
     conversation: WorkspaceConversationRef,
     focused: boolean,
@@ -129,7 +132,11 @@ export function ConversationWorkspaceFrame({
                 aria-pressed={workspace.layout.preset === preset}
                 className="size-7"
                 data-testid={`workspace-preset-${preset}`}
-                onClick={() => workspace.setPreset(preset)}
+                onClick={() =>
+                  onPresetChange
+                    ? onPresetChange(preset)
+                    : workspace.setPreset(preset)
+                }
                 size="icon"
                 type="button"
                 variant={
@@ -169,9 +176,8 @@ export function ConversationWorkspaceFrame({
                 if (focused) return;
                 if (
                   event.target instanceof Element &&
-                  event.target.closest("[data-workspace-tab]")
+                  event.target.closest(PANE_LOCAL_CONTROL_SELECTOR)
                 ) {
-                  workspace.focusSlot(slotId);
                   return;
                 }
                 if (active) onActivateConversation(slotId, active);
@@ -181,9 +187,8 @@ export function ConversationWorkspaceFrame({
                 if (focused) return;
                 if (
                   event.target instanceof Element &&
-                  event.target.closest("[data-workspace-tab]")
+                  event.target.closest(PANE_LOCAL_CONTROL_SELECTOR)
                 ) {
-                  workspace.focusSlot(slotId);
                   return;
                 }
                 if (active) onActivateConversation(slotId, active);
