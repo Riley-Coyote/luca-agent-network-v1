@@ -936,6 +936,7 @@ function ChannelManagementPanelContent({
           handleDeleteDialogOpenChange={handleDeleteDialogOpenChange}
           isArchived={isArchived}
           isDark={isDark}
+          isDirectMessage={resolvedChannel.channelType === "dm"}
           isDeleteDialogOpen={isDeleteDialogOpen}
           canDeleteChannel={canDeleteChannel}
           resolvedChannelName={resolvedChannel.name}

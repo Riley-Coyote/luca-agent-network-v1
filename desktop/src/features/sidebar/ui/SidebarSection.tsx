@@ -244,6 +244,7 @@ export function SidebarSection({
   mutedChannelIds,
   onMuteChannel,
   onUnmuteChannel,
+  onDeleteChannel,
   sectionActionsOpen,
 }: {
   action?: React.ReactNode;
@@ -271,6 +272,7 @@ export function SidebarSection({
   mutedChannelIds?: ReadonlySet<string>;
   onMuteChannel?: (channelId: string) => void;
   onUnmuteChannel?: (channelId: string) => void;
+  onDeleteChannel?: (channel: Channel) => void;
   sectionActionsOpen?: boolean;
 }) {
   if (items.length === 0 && !action && !emptyState) {
@@ -387,6 +389,7 @@ export function SidebarSection({
                         onMarkChannelUnread={onMarkChannelUnread}
                         onMuteChannel={onMuteChannel}
                         onUnmuteChannel={onUnmuteChannel}
+                        onDeleteChannel={onDeleteChannel}
                       />
                     </ContextMenuContent>
                   </ContextMenu>

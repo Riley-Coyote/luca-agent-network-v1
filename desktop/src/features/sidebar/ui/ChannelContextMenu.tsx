@@ -183,8 +183,7 @@ export function ChannelContextMenuItems({
   onDeleteChannel?: (channel: Channel) => void;
   onLeaveChannel?: (channel: Channel) => void;
 }) {
-  const canLoadOwnerActions =
-    channel.channelType !== "dm" && Boolean(onDeleteChannel);
+  const canLoadOwnerActions = Boolean(onDeleteChannel);
   const membersQuery = useChannelMembersQuery(channel.id, canLoadOwnerActions);
   const currentPubkey = useIdentityQuery().data?.pubkey;
   const conversationWorkspace = useConversationWorkspace();
@@ -383,7 +382,11 @@ export function ChannelContextMenuItems({
           <ContextMenuIconSlot>
             <Trash2 className="h-4 w-4" />
           </ContextMenuIconSlot>
-          <span>Delete channel</span>
+          <span>
+            {channel.channelType === "dm"
+              ? "Delete conversation"
+              : "Delete channel"}
+          </span>
         </ContextMenuItem>
       ) : null}
     </>

@@ -925,6 +925,7 @@ export function AppSidebar({
                         mutedChannelIds={mutedChannelIds}
                         onMuteChannel={onMuteChannel}
                         onUnmuteChannel={onUnmuteChannel}
+                        onDeleteChannel={requestDeleteChannel}
                       />
                     </>
                   )}

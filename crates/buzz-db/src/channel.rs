@@ -1270,6 +1270,10 @@ pub async fn unarchive_channel(
 
 /// Soft-delete a channel by setting `deleted_at = NOW()`.
 ///
+/// A DM's participant hash is its active-conversation identity. Clear it when
+/// deleting so the same people can intentionally start a new conversation
+/// instead of colliding with the unique hash held by deleted history.
+///
 /// Returns `Ok(true)` if the channel was deleted, `Ok(false)` if already
 /// deleted or not found.
 pub async fn soft_delete_channel(
@@ -1278,12 +1282,15 @@ pub async fn soft_delete_channel(
     channel_id: Uuid,
 ) -> Result<bool> {
     let result = sqlx::query(
-        "UPDATE channels SET deleted_at = NOW() WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL",
+        "UPDATE channels \
+         SET deleted_at = NOW(), \
+             participant_hash = CASE WHEN channel_type = 'dm' THEN NULL ELSE participant_hash END \
+         WHERE community_id = $1 AND id = $2 AND deleted_at IS NULL",
     )
-            .bind(community_id.as_uuid())
-            .bind(channel_id)
-            .execute(pool)
-            .await?;
+    .bind(community_id.as_uuid())
+    .bind(channel_id)
+    .execute(pool)
+    .await?;
 
     Ok(result.rows_affected() > 0)
 }
@@ -1399,6 +1406,7 @@ pub async fn reap_expired_ephemeral_channels(pool: &PgPool) -> Result<Vec<Reaped
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dm::create_dm;
     use crate::user::{ensure_user, set_agent_owner};
     use nostr::Keys;
 
@@ -1424,6 +1432,57 @@ mod tests {
             .await
             .expect("insert test community");
         id
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Postgres"]
+    async fn deleting_dm_allows_same_people_to_start_fresh() {
+        let pool = setup_pool().await;
+        let community_id = make_test_community(&pool).await;
+        let community = CommunityId::from_uuid(community_id);
+        let owner = random_pubkey();
+        let resident = random_pubkey();
+        ensure_user(&pool, community, &owner)
+            .await
+            .expect("ensure owner");
+        ensure_user(&pool, community, &resident)
+            .await
+            .expect("ensure resident");
+
+        let original = create_dm(
+            &pool,
+            community,
+            &[owner.as_slice(), resident.as_slice()],
+            &owner,
+        )
+        .await
+        .expect("create original DM");
+
+        let members = get_members(&pool, community, original.id)
+            .await
+            .expect("load original DM members");
+        assert_eq!(
+            members
+                .iter()
+                .find(|member| member.pubkey == owner)
+                .map(|member| member.role.as_str()),
+            Some("owner")
+        );
+
+        assert!(soft_delete_channel(&pool, community, original.id)
+            .await
+            .expect("delete original DM"));
+
+        let replacement = create_dm(
+            &pool,
+            community,
+            &[owner.as_slice(), resident.as_slice()],
+            &owner,
+        )
+        .await
+        .expect("create fresh DM");
+
+        assert_ne!(replacement.id, original.id);
     }
 
     #[allow(clippy::too_many_arguments)]

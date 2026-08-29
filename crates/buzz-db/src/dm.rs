@@ -178,12 +178,19 @@ pub async fn create_dm(
     .execute(&mut *tx)
     .await?;
 
-    // Add all participants as members with role='member'.
+    // The creator owns the conversation lifecycle; everyone else is a member.
+    // Older rows that predate this distinction are repaired by migration 0025.
     for pk in participants {
         sqlx::query(
             r#"
             INSERT INTO channel_members (community_id, channel_id, pubkey, role, invited_by)
-            VALUES ($1, $2, $3, 'member', $4)
+            VALUES (
+                $1,
+                $2,
+                $3,
+                CASE WHEN $3 = $4 THEN 'owner'::member_role ELSE 'member'::member_role END,
+                $4
+            )
             ON CONFLICT (community_id, channel_id, pubkey) DO UPDATE SET
                 removed_at = NULL,
                 removed_by = NULL,

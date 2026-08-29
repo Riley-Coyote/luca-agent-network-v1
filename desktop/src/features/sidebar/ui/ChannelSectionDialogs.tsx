@@ -347,6 +347,7 @@ export function useDeleteChannelDialog(onDeleted: (channel: Channel) => void) {
   const dialog = (
     <ChannelDeleteConfirmationDialog
       channelName={target?.name ?? ""}
+      isDirectMessage={target?.channelType === "dm"}
       error={deleteChannel.error}
       isPending={deleteChannel.isPending}
       onConfirm={() => {

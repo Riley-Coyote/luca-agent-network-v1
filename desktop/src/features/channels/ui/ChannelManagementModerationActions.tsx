@@ -33,6 +33,7 @@ type ChannelManagementModerationActionsProps = {
   handleDeleteDialogOpenChange: (open: boolean) => void;
   isArchived: boolean;
   isDark: boolean;
+  isDirectMessage: boolean;
   isDeleteDialogOpen: boolean;
   canDeleteChannel: boolean;
   resolvedChannelName: string;
@@ -41,6 +42,7 @@ type ChannelManagementModerationActionsProps = {
 
 type ChannelDeleteConfirmationDialogProps = {
   channelName: string;
+  isDirectMessage?: boolean;
   error: unknown;
   isPending: boolean;
   onConfirm: () => void;
@@ -96,6 +98,7 @@ export function useChannelModerationCapabilities(
 
 export function ChannelDeleteConfirmationDialog({
   channelName,
+  isDirectMessage = false,
   error,
   isPending,
   onConfirm,
@@ -110,10 +113,13 @@ export function ChannelDeleteConfirmationDialog({
       ) : null}
       <AlertDialogContent data-testid="channel-delete-confirmation-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete channel?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {isDirectMessage ? "Delete conversation?" : "Delete channel?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Delete {channelName} from the community list. This action cannot be
-            undone.
+            {isDirectMessage
+              ? "Delete this conversation and its message history. You can start a new conversation with the same people afterward. This action cannot be undone."
+              : `Delete ${channelName} from the community list. This action cannot be undone.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error instanceof Error ? (
@@ -141,7 +147,11 @@ export function ChannelDeleteConfirmationDialog({
               type="button"
               variant="destructive"
             >
-              {isPending ? "Deleting..." : "Delete channel"}
+              {isPending
+                ? "Deleting..."
+                : isDirectMessage
+                  ? "Delete conversation"
+                  : "Delete channel"}
             </Button>
           </AlertDialogAction>
         </AlertDialogFooter>
@@ -158,6 +168,7 @@ export function ChannelManagementModerationActions({
   handleDeleteDialogOpenChange,
   isArchived,
   isDark,
+  isDirectMessage,
   isDeleteDialogOpen,
   canDeleteChannel,
   resolvedChannelName,
@@ -223,6 +234,7 @@ export function ChannelManagementModerationActions({
       {canDeleteChannel ? (
         <ChannelDeleteConfirmationDialog
           channelName={resolvedChannelName}
+          isDirectMessage={isDirectMessage}
           error={deleteChannelMutation.error}
           isPending={deleteChannelMutation.isPending}
           onConfirm={() => {
