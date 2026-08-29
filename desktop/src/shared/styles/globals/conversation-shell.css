@@ -1091,7 +1091,11 @@
 :root[data-luca-shell] :is([data-luca-reading-plane], .luca-measure) {
   margin-inline: auto;
   max-width: var(--mn-reading-measure);
-  width: 100%;
+  /* The measure can become narrower inside a tile while the app window itself
+     remains wide, so a viewport media query cannot protect its edge spacing.
+     Keep a pane-relative 20px gutter at every width instead. On roomy panes
+     the max-width still wins, preserving the established reading column. */
+  width: calc(100% - 40px);
 }
 
 :root[data-luca-shell] [data-testid="message-row"] {
@@ -1260,12 +1264,6 @@
      instrument wells such as the Notebook Field. */
   background: hsl(var(--mn-surface));
   border-color: hsl(var(--mn-border));
-}
-
-@media (max-width: 1024px) {
-  :root[data-luca-shell] :is([data-luca-reading-plane], .luca-measure) {
-    max-width: calc(100% - 40px);
-  }
 }
 
 @media (max-width: 640px) {
