@@ -116,6 +116,7 @@ export type ManagedResponseSlot = {
 /** Stable activity-shelf projection; public response bodies are excluded. */
 export type ManagedResidentActivity = {
   failure: ManagedPresentationFailure | null;
+  handoffTargetName: string | null;
   phase: ManagedPresentationDisplayPhase;
   residentPubkey: string;
   /** A run whose answer already landed, kept only for its work summary. */

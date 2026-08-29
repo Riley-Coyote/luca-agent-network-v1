@@ -306,7 +306,8 @@ pub(crate) fn settle_visit_grants(
                 .record_visit(grant.clone())
                 .map_err(ExchangeRelayError::Unavailable)?,
         };
-        if !members.contains(&grant.resident) {
+        let membership_was_present = members.contains(&grant.resident);
+        if !membership_was_present {
             if let Err(error) =
                 relay.add_conversation_member(&grant.conversation_id, &grant.resident)
             {
@@ -327,7 +328,42 @@ pub(crate) fn settle_visit_grants(
             members.insert(grant.resident.clone());
         }
         if !visit.arrival_noted {
-            relay.publish_note(&grant.conversation_id, &arrival_note(relay, &visit.grant))?;
+            if let Err(error) =
+                relay.publish_note(&grant.conversation_id, &arrival_note(relay, &visit.grant))
+            {
+                // Membership plus its arrival note is one visible visit. If
+                // the note cannot be accepted, leaving only the membership
+                // behind creates an invisible, permanent-looking guest and
+                // makes a later exchange failure corrupt the room. Roll the
+                // uncommitted visit back before returning the original error.
+                match relay.remove_conversation_member(&grant.conversation_id, &grant.resident) {
+                    Ok(()) => {
+                        members.remove(&grant.resident);
+                        let rollback = store
+                            .lock()
+                            .map_err(|_| {
+                                ExchangeRelayError::Unavailable("visit store is locked".to_owned())
+                            })?
+                            .remove_visit(&grant.conversation_id, &grant.resident)
+                            .map_err(ExchangeRelayError::Unavailable);
+                        if let Err(rollback_error) = rollback {
+                            eprintln!(
+                                "luca-visit: failed arrival note also failed visit rollback: {rollback_error}"
+                            );
+                        }
+                    }
+                    Err(rollback_error) => {
+                        // Keep the visit record when membership removal fails;
+                        // it is the durable authority a retry needs to repair
+                        // the otherwise stranded guest.
+                        eprintln!(
+                            "luca-visit: failed arrival note also failed membership rollback for {}: {rollback_error}",
+                            grant.resident.as_str()
+                        );
+                    }
+                }
+                return Err(error);
+            }
             store
                 .lock()
                 .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?

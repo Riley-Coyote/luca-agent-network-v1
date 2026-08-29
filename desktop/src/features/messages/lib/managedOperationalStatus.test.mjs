@@ -10,6 +10,7 @@ import {
   managedActivityStepIsMono,
   managedActivityStepLabel,
   managedElapsedReadout,
+  managedHandoffTargetName,
   managedOperationalCopy,
   managedPermissionOutcomeCopy,
   mergeManagedActivityStep,
@@ -42,6 +43,10 @@ describe("managed operational presentation", () => {
       "Response couldn’t be published",
     );
     assert.equal(
+      managedOperationalCopy("failed", "publication", "Luca").label,
+      "Couldn’t reach Luca",
+    );
+    assert.equal(
       managedOperationalCopy("finalizing", null).label,
       "Finalizing response",
     );
@@ -49,6 +54,18 @@ describe("managed operational presentation", () => {
       managedOperationalCopy("needs_attention", null).label,
       "No response arrived",
     );
+  });
+
+  it("extracts only the body-free A2A handoff name", () => {
+    assert.equal(
+      managedHandoffTargetName("@Luca, can you check this?"),
+      "Luca",
+    );
+    assert.equal(
+      managedHandoffTargetName("email@example.com is not a mention"),
+      null,
+    );
+    assert.equal(managedHandoffTargetName("No handoff here"), null);
   });
 
   it("states the outcome and never names the control beside it", () => {

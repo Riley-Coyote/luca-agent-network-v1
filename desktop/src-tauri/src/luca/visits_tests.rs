@@ -17,6 +17,7 @@ struct FakeRelay {
     added: Mutex<Vec<Hex64>>,
     removed: Mutex<Vec<Hex64>>,
     notes: Mutex<Vec<String>>,
+    refuse_notes: Mutex<bool>,
 }
 
 impl FakeRelay {
@@ -67,6 +68,11 @@ impl ExchangeRelay for FakeRelay {
         _conversation_id: &OpaqueId,
         content: &str,
     ) -> Result<(), ExchangeRelayError> {
+        if *self.refuse_notes.lock().expect("refuse notes") {
+            return Err(ExchangeRelayError::Refused(
+                "restricted: exchange note refused".to_owned(),
+            ));
+        }
         self.notes.lock().expect("notes").push(content.to_owned());
         Ok(())
     }
@@ -118,6 +124,43 @@ impl ExchangeRelay for FakeRelay {
             .cloned()
             .unwrap_or_else(|| "resident".to_owned())
     }
+}
+
+#[test]
+fn a_refused_arrival_note_rolls_back_the_uncommitted_visit() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    relay.resident(&guest, "ziggy");
+    *relay.refuse_notes.lock().expect("refuse notes") = true;
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+
+    let result = settle_visit_grants(
+        &relay,
+        &store,
+        &[VisitGrant {
+            conversation_id: channel(),
+            resident: guest.clone(),
+            arrived_at: 1_700_000_000,
+            exchange_id: None,
+            correlation_id: correlation(),
+        }],
+    );
+
+    assert!(result.is_err());
+    assert_eq!(
+        relay.added.lock().expect("added").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+    assert_eq!(
+        relay.removed.lock().expect("removed").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+    assert!(!relay.room.lock().expect("room").contains(&guest));
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_none());
 }
 
 fn channel() -> OpaqueId {

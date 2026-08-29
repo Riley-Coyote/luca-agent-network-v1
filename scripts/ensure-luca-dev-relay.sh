@@ -11,12 +11,13 @@ TMUX_SESSION="${LUCA_DEV_RELAY_SESSION:-luca-dev-relay}"
 RELAY_LOG="${LUCA_DEV_RELAY_LOG:-/tmp/luca-dev-relay.log}"
 RELAY_BINARY="${REPO_ROOT}/target/debug/buzz-relay"
 READINESS_URL="http://127.0.0.1:8080/_readiness"
+FORCE_RESTART="${LUCA_DEV_RELAY_RESTART:-0}"
 
 relay_is_ready() {
   curl --silent --fail --max-time 1 "${READINESS_URL}" >/dev/null 2>&1
 }
 
-if relay_is_ready; then
+if relay_is_ready && [[ "${FORCE_RESTART}" != "1" ]]; then
   echo "Luca dev relay is already ready at ws://localhost:3000"
   exit 0
 fi
@@ -24,6 +25,27 @@ fi
 if ! command -v tmux >/dev/null 2>&1; then
   echo "tmux is required to keep the Luca dev relay alive after this terminal exits." >&2
   exit 1
+fi
+
+if [[ "${FORCE_RESTART}" == "1" ]]; then
+  relay_pids=$(lsof -nP -t -iTCP:3000 -sTCP:LISTEN 2>/dev/null | sort -u || true)
+  for relay_pid in ${relay_pids}; do
+    relay_command=$(ps -p "${relay_pid}" -o command= 2>/dev/null || true)
+    case "${relay_command}" in
+      *buzz-relay*) kill -TERM "${relay_pid}" ;;
+      *)
+        echo "Port 3000 belongs to an unexpected process; refusing to replace it:" >&2
+        echo "${relay_command}" >&2
+        exit 1
+        ;;
+    esac
+  done
+  for _ in $(seq 1 40); do
+    if ! lsof -nP -iTCP:3000 -sTCP:LISTEN >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.25
+  done
 fi
 
 if command -v lsof >/dev/null 2>&1 &&

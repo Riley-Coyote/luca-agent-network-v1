@@ -50,7 +50,7 @@ cargo build \
     -p buzz-relay
 
 echo "Ensuring the local Luca relay stays available..."
-./scripts/ensure-luca-dev-relay.sh
+LUCA_DEV_RELAY_RESTART=1 ./scripts/ensure-luca-dev-relay.sh
 
 TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \

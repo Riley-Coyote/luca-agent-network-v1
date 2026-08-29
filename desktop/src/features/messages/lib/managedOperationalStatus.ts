@@ -34,6 +34,7 @@ export type ManagedOperationalCopy = {
 export function managedOperationalCopy(
   phase: ManagedPresentationDisplayPhase,
   failure: ManagedPresentationFailure | null,
+  handoffTargetName: string | null = null,
 ): ManagedOperationalCopy | null {
   if (phase === "finalizing") {
     return { label: "Finalizing response", tone: "quiet" };
@@ -53,7 +54,9 @@ export function managedOperationalCopy(
       };
     case "publication":
       return {
-        label: "Response couldn’t be published",
+        label: handoffTargetName
+          ? `Couldn’t reach ${handoffTargetName}`
+          : "Response couldn’t be published",
         tone: "attention",
       };
     case "runtime":
@@ -64,6 +67,24 @@ export function managedOperationalCopy(
     default:
       return { label: "No response arrived", tone: "attention" };
   }
+}
+
+/**
+ * Mirrors the native exchange mention grammar and retains only the first
+ * body-free display name. The response body itself never enters activity
+ * state; this name exists solely to attribute a failed A2A handoff honestly.
+ */
+export function managedHandoffTargetName(text: string): string | null {
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] !== "@") continue;
+    const previous = index > 0 ? text[index - 1] : "";
+    if (/[A-Za-z0-9_]/.test(previous)) continue;
+    let end = index + 1;
+    while (end < text.length && /[A-Za-z0-9._-]/.test(text[end])) end += 1;
+    const name = text.slice(index + 1, end).replace(/[._-]+$/, "");
+    if (name) return name;
+  }
+  return null;
 }
 
 export function dedupeManagedOperationalStatuses(

@@ -617,7 +617,15 @@ export const MessageRow = React.memo(
       const managed = message.managedPresentation;
       if (!managed) return null;
       if (managed.phase === "finalizing") return null;
-      const status = managedOperationalCopy(managed.phase, managed.failure);
+      // A failed handoff is already reduced to one compact timeline sentence
+      // ("Couldn’t reach Luca."). Repeating it as metadata immediately below
+      // recreates the duplicate failure treatment this projection removes.
+      if (managed.handoffTargetName) return null;
+      const status = managedOperationalCopy(
+        managed.phase,
+        managed.failure,
+        managed.handoffTargetName ?? null,
+      );
       if (!status) return null;
       return (
         <p

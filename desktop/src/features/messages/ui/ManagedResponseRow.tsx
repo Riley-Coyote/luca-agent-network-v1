@@ -2,6 +2,7 @@ import * as React from "react";
 
 import { useManagedPresentationTurn } from "@/features/messages/managedPresentationHooks";
 import { acknowledgeManagedPresentationReconciliation } from "@/features/messages/managedPresentationStore";
+import { managedHandoffTargetName } from "@/features/messages/lib/managedOperationalStatus";
 import type {
   ManagedFinalReconciliation,
   ManagedPresentationTurn,
@@ -48,19 +49,26 @@ function hydrateManagedMessage(
   turn: ManagedPresentationTurn,
   visibleReconciliation: ManagedFinalReconciliation | null,
 ): TimelineMessage {
+  const handoffTargetName =
+    turn.failure === "publication"
+      ? managedHandoffTargetName(turn.visibleText)
+      : null;
   const streaming =
     turn.finalMessageId === null || turn.bufferedText.length > 0;
   return {
     ...message,
     id: turn.finalMessageId ?? message.id,
-    body: reconciledBody(
-      turn,
-      message.body,
-      message.managedPresentation?.canonicalPresent ?? false,
-    ),
+    body: handoffTargetName
+      ? `Couldn’t reach ${handoffTargetName}.`
+      : reconciledBody(
+          turn,
+          message.body,
+          message.managedPresentation?.canonicalPresent ?? false,
+        ),
     managedPresentation: {
       canonicalPresent: message.managedPresentation?.canonicalPresent ?? false,
       failure: turn.failure,
+      handoffTargetName,
       finalMessageId: turn.finalMessageId,
       finalReconciliation: visibleReconciliation,
       phase: turn.phase,

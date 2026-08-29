@@ -632,6 +632,7 @@ export function ConversationAgentActivityStrip({
             : (managedOperationalCopy(
                 processActivity?.phase ?? "thinking",
                 processActivity?.failure ?? null,
+                processActivity?.handoffTargetName ?? null,
               )?.label ?? null),
         dismissUiKey:
           isDismissableState(state) && processActivity?.uiKey

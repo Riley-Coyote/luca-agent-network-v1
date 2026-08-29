@@ -7,6 +7,7 @@ import type {
   ManagedResidentActivity,
   ManagedTurnActivityStep,
 } from "@/features/messages/managedPresentationTypes";
+import { managedHandoffTargetName } from "@/features/messages/lib/managedOperationalStatus";
 
 export const MANAGED_TERMINAL_ACTIVITY_MS = 4_000;
 
@@ -111,6 +112,7 @@ function sameActivity(
       activity.uiKey === rightActivity.uiKey &&
       activity.phase === rightActivity.phase &&
       activity.failure === rightActivity.failure &&
+      activity.handoffTargetName === rightActivity.handoffTargetName &&
       activity.settled === rightActivity.settled &&
       activity.startedAt === rightActivity.startedAt &&
       activity.steps.length === rightActivity.steps.length &&
@@ -140,6 +142,7 @@ function rebuildConversation(conversationId: string): void {
   for (const candidate of selected) {
     next.set(candidate.residentPubkey, {
       failure: candidate.failure,
+      handoffTargetName: candidate.handoffTargetName,
       phase: candidate.phase,
       residentPubkey: candidate.residentPubkey,
       settled: candidate.settled,
@@ -213,6 +216,10 @@ export function upsertManagedPresentationActivity(
     conversationId: turn.conversationId,
     creationOrdinal,
     failure: turn.failure,
+    handoffTargetName:
+      turn.failure === "publication"
+        ? managedHandoffTargetName(turn.visibleText)
+        : null,
     phase: turn.phase,
     residentPubkey: turn.residentPubkey,
     settled,
@@ -224,6 +231,7 @@ export function upsertManagedPresentationActivity(
     previous?.conversationId === next.conversationId &&
     previous.creationOrdinal === next.creationOrdinal &&
     previous.failure === next.failure &&
+    previous.handoffTargetName === next.handoffTargetName &&
     previous.phase === next.phase &&
     previous.residentPubkey === next.residentPubkey &&
     previous.settled === next.settled &&

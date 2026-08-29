@@ -57,6 +57,7 @@ export type TimelineMessage = {
   managedPresentation?: {
     canonicalPresent: boolean;
     failure: "runtime" | "publication" | "unavailable" | null;
+    handoffTargetName?: string | null;
     finalReconciliation:
       | "equal"
       | "signed_extends_stream"
