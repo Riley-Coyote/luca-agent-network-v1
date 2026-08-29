@@ -1,0 +1,43 @@
+.luca-resident-mote-frame {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  margin-block: -6px;
+  max-width: 440px;
+  overflow: visible;
+  padding: 0;
+  transition: background-color 140ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .luca-resident-mote-frame:hover {
+    background: hsl(var(--muted) / 0.22);
+  }
+}
+
+.luca-resident-mote-frame:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+.luca-resident-mote {
+  display: block;
+  max-width: 440px;
+  overflow: visible;
+}
+
+.luca-resident-mote canvas {
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-resident-mote {
+    pointer-events: none;
+  }
+}

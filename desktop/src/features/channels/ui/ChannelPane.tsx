@@ -890,21 +890,6 @@ export const ChannelPane = React.memo(function ChannelPane({
     <LucaGreetingChoicesContext.Provider value={lucaChoicesContext}>
       <ResidentStopContext.Provider value={residentStopContext}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
-          {/* The header veil: a solid band of the surface color with a fade
-              tail instead of a hard edge — text scrolling beneath is fully
-              covered through the header zone and dissolves at the boundary.
-              Pure gradient by design (no backdrop-filter: masked blur
-              silently fails in some webviews and reads as cloud). Rendered
-              in every layout — the header itself paints no background. */}
-          <div
-            aria-hidden="true"
-            className={cn(
-              "luca-conversation-veil-top pointer-events-none absolute inset-x-0 top-0 z-30",
-              "h-[calc(var(--buzz-channel-content-top-padding,5.75rem)+3rem)]",
-            )}
-            data-testid="channel-shared-header-backdrop"
-          />
-
           {!isSinglePanelView ? (
             <section
               aria-label="Channel messages and composer"

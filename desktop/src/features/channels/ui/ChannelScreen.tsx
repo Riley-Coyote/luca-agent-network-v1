@@ -847,9 +847,9 @@ export function ChannelScreen({
         activeDmHeaderParticipants={activeDmHeaderParticipants}
         activeDmPresenceStatus={activeDmPresenceStatus}
         agentPubkeys={agentPubkeys}
+        channelMembers={channelMembers}
         profiles={messageProfiles}
         projectRoomNavigation={projectRoomNavigation}
-        residentPersonaIdLookup={residentPersonaIdLookup}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
         isAddBotOpen={isAddBotOpen}
@@ -868,9 +868,9 @@ export function ChannelScreen({
     ),
     [
       visitorPubkeys,
+      channelMembers,
       messageProfiles,
       projectRoomNavigation,
-      residentPersonaIdLookup,
       activeChannel,
       activeChannelEphemeralDisplay,
       activeChannelTitle,

@@ -12,6 +12,7 @@ import { getChannelDescription } from "@/features/channels/lib/channelDescriptio
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
 import { WorkspaceLayoutMenuButton } from "@/features/conversation-workspace";
+import { ResidentMote } from "@/features/luca/residents/ResidentMote";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
@@ -21,7 +22,11 @@ import {
   scaleProfileAvatarStatusGeometry,
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
 import { Button } from "@/shared/ui/button";
-import type { Channel, PresenceStatus } from "@/shared/api/types";
+import type {
+  Channel,
+  ChannelMember,
+  PresenceStatus,
+} from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 const DM_HEADER_AVATAR_SIZE = 32;
@@ -39,12 +44,12 @@ type ChannelScreenHeaderProps = {
   activeDmHeaderParticipants: ActiveDmHeaderParticipant[];
   activeDmPresenceStatus: PresenceStatus | null;
   agentPubkeys: ReadonlySet<string>;
+  channelMembers?: readonly ChannelMember[];
   profiles?: UserProfileLookup;
   projectRoomNavigation?: {
     onSelectRoom: (channelId: string) => void;
     viewModel: ProjectNavigatorViewModel;
   } | null;
-  residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
   currentPubkey?: string;
   isAddBotOpen?: boolean;
@@ -68,13 +73,16 @@ export function ChannelScreenHeader({
   activeDmHeaderParticipants,
   activeDmPresenceStatus,
   agentPubkeys,
+  channelMembers,
   projectRoomNavigation,
   chromeWrapperRef,
+  currentPubkey,
   isJoining = false,
   onJoinChannel,
   onToggleMembers,
   showHeaderContent = true,
   transparentChrome = false,
+  visitorPubkeys,
 }: ChannelScreenHeaderProps) {
   const popoutWindowsEnabled = usePopoutWindowsEnabled();
   const popoutWindow = isPopoutWindow();
@@ -83,6 +91,28 @@ export function ChannelScreenHeader({
     primaryDmParticipant &&
       agentPubkeys.has(normalizePubkey(primaryDmParticipant.pubkey)),
   );
+  const presentResidentPubkeys = new Set<string>();
+  if (channelMembers) {
+    for (const member of channelMembers) {
+      if (member.isAgent || member.role === "bot") {
+        presentResidentPubkeys.add(normalizePubkey(member.pubkey));
+      }
+    }
+  } else {
+    for (const participant of activeDmHeaderParticipants) {
+      if (agentPubkeys.has(normalizePubkey(participant.pubkey))) {
+        presentResidentPubkeys.add(normalizePubkey(participant.pubkey));
+      }
+    }
+  }
+  for (const visitorPubkey of visitorPubkeys ?? []) {
+    presentResidentPubkeys.add(normalizePubkey(visitorPubkey));
+  }
+  if (currentPubkey) {
+    presentResidentPubkeys.delete(normalizePubkey(currentPubkey));
+  }
+  const showResidentMote =
+    activeChannel?.channelType === "dm" && presentResidentPubkeys.size > 0;
   const showJoinButton =
     activeChannel !== null &&
     !activeChannel.isMember &&
@@ -181,6 +211,8 @@ export function ChannelScreenHeader({
             onSelectRoom={projectRoomNavigation.onSelectRoom}
             viewModel={projectRoomNavigation.viewModel}
           />
+        ) : showResidentMote ? (
+          <ResidentMote count={presentResidentPubkeys.size} />
         ) : undefined
       }
       subtitle={null}
