@@ -1931,18 +1931,31 @@ async fn managed_session_context(
             .map_err(|_| AcpError::Protocol("local context deadline is invalid".into()))?,
     )
     .ok_or_else(|| AcpError::Protocol("local context request is invalid".into()))?;
-    let result = crate::continuity_provider::resolve_inherited_managed_session_context(&intent)
-        .await
-        .ok_or_else(|| AcpError::Protocol("conversation context is unavailable".into()))?;
+    let Some(result) =
+        crate::continuity_provider::resolve_inherited_managed_session_context(&intent).await
+    else {
+        tracing::warn!(
+            target: "luca::continuity",
+            conversation_id = %batch.channel_id,
+            "optional conversation context was unavailable; continuing without it"
+        );
+        return Ok(None);
+    };
+    match managed_session_context_status_is_usable(result.status)? {
+        true => Ok(Some(result)),
+        false => Ok(None),
+    }
+}
+
+fn managed_session_context_status_is_usable(
+    status: crate::continuity_provider::ManagedSessionContextStatusV1,
+) -> Result<bool, AcpError> {
     use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
-    match result.status {
-        Status::Empty => Ok(None),
-        Status::Ready | Status::Degraded => Ok(Some(result)),
+    match status {
+        Status::Ready | Status::Degraded => Ok(true),
+        Status::Empty | Status::Denied | Status::Unavailable => Ok(false),
         Status::MissingPrimary => Err(AcpError::Protocol(
             "working folder is unavailable; relink it or continue without it".into(),
-        )),
-        Status::Denied | Status::Unavailable => Err(AcpError::Protocol(
-            "conversation context is unavailable".into(),
         )),
     }
 }
@@ -5115,6 +5128,42 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
+
+    #[test]
+    fn optional_session_context_failures_do_not_block_conversation() {
+        use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
+
+        for status in [Status::Empty, Status::Denied, Status::Unavailable] {
+            assert_eq!(
+                managed_session_context_status_is_usable(status).expect("fail-open status"),
+                false
+            );
+        }
+    }
+
+    #[test]
+    fn resolved_session_context_is_applied() {
+        use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
+
+        for status in [Status::Ready, Status::Degraded] {
+            assert_eq!(
+                managed_session_context_status_is_usable(status).expect("usable context status"),
+                true
+            );
+        }
+    }
+
+    #[test]
+    fn explicitly_missing_primary_context_still_blocks_for_recovery() {
+        use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
+
+        let error = managed_session_context_status_is_usable(Status::MissingPrimary)
+            .expect_err("missing selected primary must require an explicit recovery choice");
+        assert_eq!(
+            error.to_string(),
+            "Protocol error: working folder is unavailable; relink it or continue without it"
+        );
+    }
 
     #[test]
     fn continuity_prompt_timestamp_is_protocol_canonical() {

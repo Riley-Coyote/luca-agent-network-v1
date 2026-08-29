@@ -643,9 +643,12 @@ pub(crate) async fn resolve_inherited_managed_continuity(
     }
 }
 
-/// Resolve one dispatch's roots before `session/new`. Unlike Brain retrieval,
-/// an unavailable local authority is not silently converted into a default
-/// directory: callers must surface an honest turn error.
+/// Resolve one dispatch's roots before `session/new`.
+///
+/// Transport absence and timeout return `None` so ordinary conversations can
+/// continue without optional working context. A provider can still return the
+/// typed `MissingPrimary` status when an explicitly selected root is broken;
+/// callers preserve that relink-or-continue-without safeguard.
 pub(crate) async fn resolve_inherited_managed_session_context(
     intent: &ManagedSessionContextIntentV1,
 ) -> Option<ManagedSessionContextResultV1> {
