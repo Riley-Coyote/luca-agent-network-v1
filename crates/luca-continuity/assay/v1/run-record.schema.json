@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://polyphonic.local/schemas/continuity-assay/run-record-v1.json",
+  "title": "Polyphonic Continuity Assay body-free run record V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "assay_version",
+    "scenario_id",
+    "condition",
+    "fixture_version",
+    "compiler_policy_version",
+    "app_commit",
+    "owner_pubkey_hash",
+    "resident_pubkey_hash",
+    "runtime_family",
+    "model_binding_fingerprint",
+    "process_id_hashes",
+    "session_epoch",
+    "source_event_id_hashes",
+    "packet_size",
+    "layer_statuses",
+    "response_event_id_hash",
+    "hard_gate_results",
+    "reader_panel_size",
+    "dimension_medians",
+    "continuation_classification_counts",
+    "paired_preference_counts",
+    "native_state_before_hashes",
+    "native_state_after_hashes",
+    "artifact_refs",
+    "created_at"
+  ],
+  "properties": {
+    "schema": { "const": "polyphonic.continuity-assay.run-record.v1" },
+    "assay_version": { "const": "1.0.0" },
+    "scenario_id": { "pattern": "^[CE][0-9]{2}$", "type": "string" },
+    "condition": { "enum": ["N", "D", "W", "F"] },
+    "fixture_version": { "$ref": "#/$defs/nonempty" },
+    "compiler_policy_version": { "$ref": "#/$defs/nonempty" },
+    "app_commit": { "$ref": "#/$defs/nonempty" },
+    "app_bundle_hash": { "$ref": "#/$defs/hash" },
+    "owner_pubkey_hash": { "$ref": "#/$defs/hash" },
+    "resident_pubkey_hash": { "$ref": "#/$defs/hash" },
+    "runtime_family": { "$ref": "#/$defs/nonempty" },
+    "model_binding_fingerprint": { "$ref": "#/$defs/nonempty" },
+    "process_id_hashes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hash" },
+      "uniqueItems": true
+    },
+    "session_epoch": { "minimum": 0, "type": "integer" },
+    "wake_receipt_id": { "$ref": "#/$defs/nonempty" },
+    "source_event_id_hashes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hash" },
+      "uniqueItems": true
+    },
+    "packet_size": { "minimum": 0, "type": "integer" },
+    "layer_statuses": {
+      "additionalProperties": { "$ref": "#/$defs/layerStatus" },
+      "type": "object"
+    },
+    "response_event_id_hash": { "$ref": "#/$defs/hash" },
+    "hard_gate_results": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/hardGateResult" }
+    },
+    "reader_panel_size": { "minimum": 0, "type": "integer" },
+    "dimension_medians": { "$ref": "#/$defs/countMap" },
+    "continuation_classification_counts": { "$ref": "#/$defs/countMap" },
+    "paired_preference_counts": { "$ref": "#/$defs/countMap" },
+    "owner_verdict": { "$ref": "#/$defs/nonempty" },
+    "resident_testimony_receipt": { "$ref": "#/$defs/nonempty" },
+    "native_state_before_hashes": { "$ref": "#/$defs/stringMap" },
+    "native_state_after_hashes": { "$ref": "#/$defs/stringMap" },
+    "artifact_refs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/nonempty" },
+      "uniqueItems": true
+    },
+    "created_at": { "$ref": "#/$defs/nonempty" }
+  },
+  "$defs": {
+    "nonempty": { "minLength": 1, "type": "string" },
+    "hash": { "pattern": "^sha256:[0-9a-f]{64}$", "type": "string" },
+    "layerStatus": {
+      "enum": ["ready", "empty", "denied", "stale", "locked", "unavailable", "timeout", "invalid"]
+    },
+    "countMap": {
+      "additionalProperties": { "minimum": 0, "type": "integer" },
+      "type": "object"
+    },
+    "stringMap": {
+      "additionalProperties": { "$ref": "#/$defs/nonempty" },
+      "type": "object"
+    },
+    "hardGateResult": {
+      "additionalProperties": false,
+      "required": ["gate_id", "passed"],
+      "properties": {
+        "gate_id": { "$ref": "#/$defs/nonempty" },
+        "passed": { "type": "boolean" },
+        "evidence_ref": { "$ref": "#/$defs/nonempty" }
+      },
+      "type": "object"
+    }
+  }
+}

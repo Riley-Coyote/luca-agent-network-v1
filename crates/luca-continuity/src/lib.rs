@@ -7,6 +7,7 @@
 
 #![forbid(unsafe_code)]
 
+mod assay;
 mod capsule;
 mod context;
 mod envelope;
@@ -22,6 +23,16 @@ mod retrieval_material;
 mod revision;
 mod scope;
 
+pub use assay::{
+    build_body_free_run_record, build_generation_packet, build_reader_packet, validate_assay_v1,
+    AssayConditionItemV1, AssayConditionV1, AssayError, AssayFaultModeV1, AssayGenerationPacketV1,
+    AssayGoldenEventKindV1, AssayGoldenEventStateV1, AssayGoldenEventV1, AssayGoldenLifeV1,
+    AssayHardGateResultV1, AssayLayerStatusV1, AssayManifestV1, AssayPrivateRunV1,
+    AssayReaderPacketV1, AssayRunMetadataV1, AssayRunRecordV1, AssayScenarioClassV1,
+    AssayScenarioV1, ASSAY_GENERATION_PACKET_SCHEMA_V1, ASSAY_GOLDEN_LIFE_SCHEMA_V1,
+    ASSAY_MANIFEST_SCHEMA_V1, ASSAY_PRIVATE_RUN_SCHEMA_V1, ASSAY_READER_PACKET_SCHEMA_V1,
+    ASSAY_RUN_RECORD_SCHEMA_V1, ASSAY_VERSION_V1,
+};
 pub use capsule::{
     classify_capsule_successor, derive_portable_capsule_id, parse_portable_capsule_envelope,
     project_portable_capsule, CapsuleSuccessorDisposition, PortableCapsuleBodyValue,
