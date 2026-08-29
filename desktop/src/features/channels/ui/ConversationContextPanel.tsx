@@ -5,6 +5,7 @@ import {
   Settings2,
 } from "lucide-react";
 import * as React from "react";
+import { toast } from "sonner";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
@@ -12,7 +13,10 @@ import {
   usePersonasQuery,
 } from "@/features/agents/hooks";
 import { useResidentHarnessLookup } from "@/features/agents/ResidentHarnessContext";
-import { useChannelMembersQuery } from "@/features/channels/hooks";
+import {
+  useChannelMembersQuery,
+  useEndResidentVisitMutation,
+} from "@/features/channels/hooks";
 import { ResidentDrawer } from "@/features/channels/ui/ResidentDrawer";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
@@ -151,6 +155,7 @@ export function ConversationContextPanel({
   const harnessLookup = useResidentHarnessLookup();
   const exchangeHistory = useRoomExchangeHistory(channel.id);
   const visitors = React.useMemo(() => openVisitors(messages), [messages]);
+  const endVisitMutation = useEndResidentVisitMutation(channel.id);
 
   // Which tab the drawer is on. `null` is the default for this conversation —
   // a resident's card in a 1:1, the conversation everywhere else.
@@ -350,37 +355,66 @@ export function ConversationContextPanel({
                     normalizePubkey(member.pubkey),
                   );
                   const state = residentState(agent);
+                  const visiting = visitors.has(normalizePubkey(member.pubkey));
                   return (
-                    <button
-                      className="group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors duration-150 hover:bg-plate-hover focus-visible:outline-hidden focus-visible:bg-plate-hover"
+                    <div
+                      className="group flex w-full items-center gap-1 px-1 transition-colors duration-150 hover:bg-plate-hover focus-within:bg-plate-hover"
                       data-testid={`conversation-resident-${normalizePubkey(member.pubkey)}`}
                       key={normalizePubkey(member.pubkey)}
-                      onClick={() => onOpenResident(member.pubkey)}
-                      type="button"
                     >
-                      <span className="flex h-7 w-7 shrink-0 items-center justify-center">
-                        <ResidentIdentityMark
-                          accessibleName={label}
-                          className={cn(
-                            state === "unavailable" && "opacity-50",
-                          )}
-                          decorative
-                          publicKey={member.pubkey}
-                          size={22}
-                        />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">
-                          {label}
+                      <button
+                        className="flex min-w-0 flex-1 items-center gap-3 px-2 py-2.5 text-left focus-visible:outline-hidden"
+                        onClick={() => onOpenResident(member.pubkey)}
+                        type="button"
+                      >
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center">
+                          <ResidentIdentityMark
+                            accessibleName={label}
+                            className={cn(
+                              state === "unavailable" && "opacity-50",
+                            )}
+                            decorative
+                            publicKey={member.pubkey}
+                            size={22}
+                          />
                         </span>
-                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                          {agent?.agentSource === "managed"
-                            ? `${harness && harness !== "other" ? HARNESS_LABELS[harness] : "Resident"} · ${visitors.has(normalizePubkey(member.pubkey)) ? "Visiting" : "Notebook available"}`
-                            : "External agent"}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">
+                            {label}
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {agent?.agentSource === "managed"
+                              ? `${harness && harness !== "other" ? HARNESS_LABELS[harness] : "Resident"} · ${visiting ? "Visiting" : "Notebook available"}`
+                              : "External agent"}
+                          </span>
                         </span>
-                      </span>
-                      <ArrowUpRight className="h-4 w-4 text-ink-faint transition-colors group-hover:text-foreground" />
-                    </button>
+                        {!visiting ? (
+                          <ArrowUpRight className="h-4 w-4 text-ink-faint transition-colors group-hover:text-foreground" />
+                        ) : null}
+                      </button>
+                      {visiting ? (
+                        <button
+                          aria-label={`End ${label}'s visit`}
+                          className="mr-2 shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                          data-testid={`end-visit-${normalizePubkey(member.pubkey)}`}
+                          disabled={endVisitMutation.isPending}
+                          onClick={() => {
+                            void endVisitMutation
+                              .mutateAsync(member.pubkey)
+                              .catch((error) => {
+                                toast.error(
+                                  error instanceof Error
+                                    ? error.message
+                                    : `Could not end ${label}'s visit.`,
+                                );
+                              });
+                          }}
+                          type="button"
+                        >
+                          End visit
+                        </button>
+                      ) : null}
+                    </div>
                   );
                 })}
                 {!membersQuery.isLoading &&

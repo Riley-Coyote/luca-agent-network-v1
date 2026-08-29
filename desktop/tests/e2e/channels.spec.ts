@@ -824,7 +824,7 @@ test("creates the DM before preparing a persona mention", async ({ page }) => {
   ).toBeVisible();
 });
 
-test("routes an agent mention from an existing DM to the expanded conversation", async ({
+test("keeps a managed-resident mention in the immutable DM as a visit", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -836,7 +836,9 @@ test("routes an agent mention from an existing DM to the expanded conversation",
   const sourceDmId = await sourceDm.getAttribute("data-channel-id");
   expect(sourceDmId).toBeTruthy();
   await sourceDm.click();
-  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(
+    page.locator("[data-active='true'][data-channel-id]"),
+  ).toHaveAttribute("data-channel-id", sourceDmId ?? "");
 
   const messageTail = "in this DM";
   const input = page.getByTestId("message-input");
@@ -852,46 +854,43 @@ test("routes an agent mention from an existing DM to the expanded conversation",
   const baselineCommands = await readCommandPayloadLog(page);
   await page.getByTestId("send-message").click();
 
-  await expect(
-    page.getByText("Create a group DM?", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("This conversation stays unchanged."),
-  ).toBeVisible();
-  expect(await readOutgoingChannelId(page, messageTail)).toBeNull();
-  await page.getByRole("button", { name: "Create group DM" }).click();
-
   await expect(page.getByTestId("message-timeline")).toContainText(messageTail);
   const activeConversation = page.locator(
     "[data-active='true'][data-channel-id]",
   );
-  const sentChannelId =
-    await activeConversation.getAttribute("data-channel-id");
-  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(activeConversation).toHaveAttribute(
     "data-channel-id",
-    sentChannelId ?? "",
+    sourceDmId ?? "",
   );
-  await expect(page.getByTestId("chat-title")).toContainText("alice");
-  await expect(page.getByTestId("chat-title")).toContainText("Luca");
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toHaveCount(0);
   await expect(sourceDm).not.toContainText("Luca");
   const sendCommands = (await readCommandPayloadLog(page)).slice(
     baselineCommands.length,
   );
-  expect(sendCommands).not.toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        command: "add_channel_members",
-        payload: expect.objectContaining({ channelId: sourceDmId }),
-      }),
-    ]),
+  expect(sendCommands.map((entry) => entry.command)).not.toContain("open_dm");
+  expect(sendCommands.map((entry) => entry.command)).toContain(
+    "start_managed_agent",
   );
-  expect(sendCommands.map((entry) => entry.command)).toEqual(
-    expect.arrayContaining(["open_dm", "start_managed_agent"]),
-  );
+  expect(
+    sendCommands.find(
+      (entry) =>
+        entry.command === "send_channel_message" &&
+        String((entry.payload as { content?: unknown }).content).includes(
+          messageTail,
+        ),
+    )?.payload,
+  ).toEqual(expect.objectContaining({ channelId: sourceDmId }));
+
+  await page.getByTestId("channel-general").click();
+  await sourceDm.click();
+  await expect(
+    page.locator("[data-active='true'][data-channel-id]"),
+  ).toHaveAttribute("data-channel-id", sourceDmId ?? "");
 });
 
-test("routes a managed relay-agent mention from an existing DM to the expanded conversation", async ({
+test("keeps a managed relay-agent mention in the immutable DM as a visit", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -917,7 +916,9 @@ test("routes a managed relay-agent mention from an existing DM to the expanded c
   const sourceDmId = await sourceDm.getAttribute("data-channel-id");
   expect(sourceDmId).toBeTruthy();
   await sourceDm.click();
-  await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
+  await expect(
+    page.locator("[data-active='true'][data-channel-id]"),
+  ).toHaveAttribute("data-channel-id", sourceDmId ?? "");
 
   const messageTail = "with the relay agent";
   const input = page.getByTestId("message-input");
@@ -933,35 +934,80 @@ test("routes a managed relay-agent mention from an existing DM to the expanded c
   const baselineCommands = await readCommandPayloadLog(page);
   await page.getByTestId("send-message").click();
 
-  await expect(
-    page.getByText("Create a group DM?", { exact: true }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Create group DM" }).click();
-
   await expect(page.getByTestId("message-timeline")).toContainText(messageTail);
   const activeConversation = page.locator(
     "[data-active='true'][data-channel-id]",
   );
-  const sentChannelId =
-    await activeConversation.getAttribute("data-channel-id");
-  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(activeConversation).toHaveAttribute(
     "data-channel-id",
-    sentChannelId ?? "",
+    sourceDmId ?? "",
   );
-  await expect(page.getByTestId("chat-title")).toContainText("alice");
-  await expect(page.getByTestId("chat-title")).toContainText("quinn");
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toHaveCount(0);
 
   const sendCommands = (await readCommandPayloadLog(page)).slice(
     baselineCommands.length,
   );
-  expect(sendCommands.map((entry) => entry.command)).toContain("open_dm");
+  expect(sendCommands.map((entry) => entry.command)).not.toContain("open_dm");
   expect(sendCommands.map((entry) => entry.command)).toContain(
     "start_managed_agent",
   );
   expect(sendCommands.map((entry) => entry.command)).not.toContain(
     "add_channel_members",
   );
+  expect(
+    sendCommands.find(
+      (entry) =>
+        entry.command === "send_channel_message" &&
+        String((entry.payload as { content?: unknown }).content).includes(
+          messageTail,
+        ),
+    )?.payload,
+  ).toEqual(expect.objectContaining({ channelId: sourceDmId }));
+});
+
+test("still offers a separate group DM when an ordinary person is invited", async ({
+  page,
+}) => {
+  await page.goto("/");
+  const sourceDm = page.getByTestId("channel-alice-tyler");
+  const sourceDmId = await sourceDm.getAttribute("data-channel-id");
+  expect(sourceDmId).toBeTruthy();
+  await sourceDm.click();
+
+  const input = page.getByTestId("message-input");
+  await input.fill("Loop in @out");
+  await expect(
+    page
+      .getByTestId("message-composer")
+      .getByTestId("mention-autocomplete")
+      .locator("button", { hasText: "outsider" }),
+  ).toBeVisible();
+  await input.press("Enter");
+  await page.keyboard.type(" for this conversation");
+  const baselineCommands = await readCommandPayloadLog(page);
+  await page.getByTestId("send-message").click();
+
+  await expect(
+    page.getByText("Create a group DM?", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This conversation stays unchanged."),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create group DM" }).click();
+
+  const activeConversation = page.locator(
+    "[data-active='true'][data-channel-id]",
+  );
+  await expect(activeConversation).not.toHaveAttribute(
+    "data-channel-id",
+    sourceDmId ?? "",
+  );
+  const sendCommands = (await readCommandPayloadLog(page)).slice(
+    baselineCommands.length,
+  );
+  expect(sendCommands.map((entry) => entry.command)).toContain("open_dm");
 });
 
 test("does not reroute an expanded DM after the user navigates away", async ({

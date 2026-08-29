@@ -819,6 +819,7 @@ pub fn run() {
             delete_channel,
             add_channel_members,
             remove_channel_member,
+            end_resident_visit,
             change_channel_member_role,
             join_channel,
             leave_channel,

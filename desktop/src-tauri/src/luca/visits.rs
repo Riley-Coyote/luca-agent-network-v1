@@ -199,30 +199,44 @@ pub(crate) fn commit_owner_message_visits(
     }
 
     for resident in &plan.faded {
-        let Some(visit) = store
-            .lock()
-            .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
-            .visit(&plan.conversation_id, resident)
-            .cloned()
-        else {
-            continue;
-        };
-        if !visit.membership_removed {
-            relay.remove_conversation_member(&plan.conversation_id, resident)?;
-            store
-                .lock()
-                .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
-                .mark_visit_membership_removed(&plan.conversation_id, resident)
-                .map_err(ExchangeRelayError::Unavailable)?;
-        }
-        relay.publish_note(&plan.conversation_id, &left_note(relay, &visit))?;
+        end_visit(relay, store, &plan.conversation_id, resident)?;
+    }
+    Ok(())
+}
+
+/// End one active visit immediately without changing the conversation's
+/// permanent participant set. The membership removal is recorded before the
+/// departure note so retrying after a partial relay failure is safe.
+pub(crate) fn end_visit(
+    relay: &dyn ExchangeRelay,
+    store: &Arc<Mutex<ExchangeStore>>,
+    conversation_id: &OpaqueId,
+    resident: &Hex64,
+) -> Result<bool, ExchangeRelayError> {
+    let Some(visit) = store
+        .lock()
+        .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+        .visit(conversation_id, resident)
+        .cloned()
+    else {
+        return Ok(false);
+    };
+
+    if !visit.membership_removed {
+        relay.remove_conversation_member(conversation_id, resident)?;
         store
             .lock()
             .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
-            .remove_visit(&plan.conversation_id, resident)
+            .mark_visit_membership_removed(conversation_id, resident)
             .map_err(ExchangeRelayError::Unavailable)?;
     }
-    Ok(())
+    relay.publish_note(conversation_id, &left_note(relay, &visit))?;
+    store
+        .lock()
+        .map_err(|_| ExchangeRelayError::Unavailable("visit store is locked".to_owned()))?
+        .remove_visit(conversation_id, resident)
+        .map_err(ExchangeRelayError::Unavailable)?;
+    Ok(true)
 }
 
 #[derive(Serialize)]

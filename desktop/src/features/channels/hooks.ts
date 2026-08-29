@@ -6,6 +6,7 @@ import {
   archiveChannel,
   createChannel,
   deleteChannel,
+  endResidentVisit,
   getCanvas,
   getChannelDetails,
   getChannelMembers,
@@ -545,6 +546,27 @@ export function useRemoveChannelMemberMutation(channelId: string | null) {
         invalidateChannelState(queryClient, channelId),
         queryClient.invalidateQueries({ queryKey: ["managed-agents"] }),
         queryClient.invalidateQueries({ queryKey: ["relay-agents"] }),
+      ]);
+    },
+  });
+}
+
+export function useEndResidentVisitMutation(channelId: string | null) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (pubkey: string) => {
+      if (!channelId) {
+        throw new Error("No conversation selected.");
+      }
+      await endResidentVisit(channelId, pubkey);
+    },
+    onSettled: async () => {
+      await Promise.all([
+        invalidateChannelState(queryClient, channelId),
+        queryClient.invalidateQueries({
+          queryKey: ["channel-messages", channelId],
+        }),
       ]);
     },
   });

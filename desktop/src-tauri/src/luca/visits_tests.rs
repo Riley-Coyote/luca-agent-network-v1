@@ -394,6 +394,52 @@ fn the_owners_next_unaddressed_message_fades_the_visit() {
 }
 
 #[test]
+fn explicit_end_visit_removes_only_the_guest_and_emits_departure() {
+    let relay = FakeRelay::default();
+    let guest = guest();
+    let permanent = Hex64::parse("f".repeat(64)).expect("permanent member");
+    relay.resident(&guest, "ziggy");
+    relay.room.lock().expect("room").insert(permanent.clone());
+    let store = Arc::new(Mutex::new(ExchangeStore::in_memory()));
+
+    handle_owner_mentions(
+        &relay,
+        &store,
+        &channel(),
+        &[guest.as_str().to_owned()],
+        &correlation(),
+        1_700_000_000,
+    )
+    .expect("visit");
+    relay.notes.lock().expect("notes").clear();
+
+    assert!(end_visit(&relay, &store, &channel(), &guest).expect("end visit"));
+    assert!(!end_visit(&relay, &store, &channel(), &guest).expect("idempotent absence"));
+
+    let room = relay.room.lock().expect("room");
+    assert!(!room.contains(&guest));
+    assert!(room.contains(&permanent));
+    drop(room);
+    assert!(store
+        .lock()
+        .expect("store")
+        .visit(&channel(), &guest)
+        .is_none());
+    assert_eq!(
+        relay.removed.lock().expect("removed").as_slice(),
+        std::slice::from_ref(&guest)
+    );
+    assert_eq!(
+        relay.notes.lock().expect("notes").as_slice(),
+        [format!(
+            "{{\"type\":\"visit_left\",\"resident\":\"{}\",\"exchange_id\":\"{}\",\"text\":\"ziggy left.\"}}",
+            guest.as_str(),
+            correlation().as_str()
+        )]
+    );
+}
+
+#[test]
 fn stopping_the_exchange_removes_its_guest_and_emits_left() {
     let relay = FakeRelay::default();
     let guest = guest();

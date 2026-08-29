@@ -793,16 +793,19 @@ export function useMentionSendFlow({
           buildCustomEmojiTags(finalContent, customEmoji),
         );
         const nonMemberPubkeys = getNonMemberMentionPubkeys(pubkeys);
-        let promptNonMemberPubkeys =
-          channelType === "dm"
-            ? nonMemberPubkeys
-            : nonMemberPubkeys.filter(
-                (pubkey) =>
-                  !mentions.isManagedAgentPubkey(pubkey) &&
-                  !createdPersonaAgentPubkeySet.has(normalizePubkey(pubkey)),
-              );
+        // A managed resident mentioned in any existing conversation is a
+        // temporary visitor. In particular, a 1:1 DM must keep its immutable
+        // participant identity: the native send planner provisions guest
+        // membership on that same conversation and owns the visit lifecycle.
+        // Only ordinary people (and non-managed relay identities) need the DM
+        // expansion prompt.
+        let promptNonMemberPubkeys = nonMemberPubkeys.filter(
+          (pubkey) =>
+            !mentions.isManagedAgentPubkey(pubkey) &&
+            !createdPersonaAgentPubkeySet.has(normalizePubkey(pubkey)),
+        );
 
-        if (channelType !== "dm" && promptNonMemberPubkeys.length > 0) {
+        if (promptNonMemberPubkeys.length > 0) {
           try {
             const managedAgentsByPubkey = await getManagedAgentsByPubkey();
             promptNonMemberPubkeys = promptNonMemberPubkeys.filter(

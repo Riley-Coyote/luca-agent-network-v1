@@ -914,6 +914,35 @@ pub async fn remove_channel_member(
 }
 
 #[tauri::command]
+pub async fn end_resident_visit(
+    channel_id: String,
+    pubkey: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let conversation_id = OpaqueId::parse(channel_id)
+        .map_err(|error| format!("invalid visit conversation id: {error}"))?;
+    let resident = Hex64::parse(pubkey.to_ascii_lowercase())
+        .map_err(|error| format!("invalid visiting resident: {error}"))?;
+    let app = state
+        .app_handle
+        .lock()
+        .map_err(|error| error.to_string())?
+        .clone()
+        .ok_or_else(|| "application handle is unavailable".to_owned())?;
+    let store = crate::luca::exchange_store::global_exchange_store(&app)?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let relay = crate::luca::exchange_relay::AppExchangeRelay::new(app);
+        crate::luca::visits::end_visit(&relay, &store, &conversation_id, &resident)
+    })
+    .await
+    .map_err(|error| format!("end visit task failed: {error}"))?
+    .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn change_channel_member_role(
     channel_id: String,
     pubkey: String,

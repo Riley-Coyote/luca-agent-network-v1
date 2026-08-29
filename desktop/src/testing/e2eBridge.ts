@@ -13666,6 +13666,8 @@ export function maybeInstallE2eTauriMocks() {
           payload as Parameters<typeof handleRemoveChannelMember>[0],
           activeConfig,
         );
+      case "end_resident_visit":
+        return null;
       case "join_channel":
         return handleJoinChannel(
           payload as Parameters<typeof handleJoinChannel>[0],

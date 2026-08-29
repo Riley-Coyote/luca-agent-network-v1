@@ -462,6 +462,13 @@ export async function removeChannelMember(
   await invokeTauri("remove_channel_member", { channelId, pubkey });
 }
 
+export async function endResidentVisit(
+  channelId: string,
+  pubkey: string,
+): Promise<void> {
+  await invokeTauri("end_resident_visit", { channelId, pubkey });
+}
+
 export async function changeChannelMemberRole(
   channelId: string,
   pubkey: string,
