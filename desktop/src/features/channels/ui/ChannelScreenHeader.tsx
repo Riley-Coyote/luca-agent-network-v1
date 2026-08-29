@@ -1,5 +1,5 @@
 import { LogIn, PanelRight, PictureInPicture2 } from "lucide-react";
-import * as React from "react";
+import type * as React from "react";
 
 import {
   openChannelPopout,
@@ -11,7 +11,7 @@ import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralC
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
-import { ConversationPresenceRail } from "@/features/channels/ui/ConversationPresenceRail";
+import { WorkspaceLayoutMenuButton } from "@/features/conversation-workspace";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
@@ -60,34 +60,6 @@ type ChannelScreenHeaderProps = {
   visitorPubkeys?: ReadonlySet<string>;
 };
 
-function conversationResidentPubkeys(
-  channel: Channel | null,
-  currentPubkey: string | undefined,
-  agentPubkeys: ReadonlySet<string>,
-): string[] {
-  if (!channel) return [];
-  const current = currentPubkey ? normalizePubkey(currentPubkey) : null;
-  const source = channel.participantPubkeys?.length
-    ? channel.participantPubkeys
-    : (channel.memberPubkeys ?? []);
-  const seen = new Set<string>();
-  const residents: string[] = [];
-  for (const pubkey of source) {
-    const normalized = normalizePubkey(pubkey);
-    if (
-      !normalized ||
-      normalized === current ||
-      seen.has(normalized) ||
-      !agentPubkeys.has(normalized)
-    ) {
-      continue;
-    }
-    seen.add(normalized);
-    residents.push(normalized);
-  }
-  return residents;
-}
-
 export function ChannelScreenHeader({
   activeChannel,
   activeChannelEphemeralDisplay,
@@ -96,24 +68,14 @@ export function ChannelScreenHeader({
   activeDmHeaderParticipants,
   activeDmPresenceStatus,
   agentPubkeys,
-  profiles,
   projectRoomNavigation,
-  residentPersonaIdLookup,
   chromeWrapperRef,
-  currentPubkey,
   isJoining = false,
   onJoinChannel,
-  onOpenResident,
   onToggleMembers,
   showHeaderContent = true,
   transparentChrome = false,
-  visitorPubkeys,
 }: ChannelScreenHeaderProps) {
-  const residentPubkeys = React.useMemo(
-    () =>
-      conversationResidentPubkeys(activeChannel, currentPubkey, agentPubkeys),
-    [activeChannel, agentPubkeys, currentPubkey],
-  );
   const popoutWindowsEnabled = usePopoutWindowsEnabled();
   const popoutWindow = isPopoutWindow();
   const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
@@ -144,6 +106,7 @@ export function ChannelScreenHeader({
         </Button>
       ) : (
         <>
+          <WorkspaceLayoutMenuButton />
           {popoutWindowsEnabled ? (
             <Button
               aria-label="Open as window"
@@ -202,18 +165,6 @@ export function ChannelScreenHeader({
     <ChatHeader
       belowSystemChrome
       actions={actions}
-      centerContent={
-        popoutWindow ? null : (
-          <ConversationPresenceRail
-            onOpenResident={onOpenResident}
-            onOpenRoster={onToggleMembers}
-            profiles={profiles}
-            residentPersonaIdLookup={residentPersonaIdLookup}
-            residentPubkeys={residentPubkeys}
-            visitorPubkeys={visitorPubkeys}
-          />
-        )
-      }
       channelType={activeChannel?.channelType}
       chromeWrapperRef={chromeWrapperRef}
       conversation
@@ -232,7 +183,7 @@ export function ChannelScreenHeader({
           />
         ) : undefined
       }
-      subtitle={getChannelDescription(activeChannel) ?? ""}
+      subtitle={null}
       title={activeChannelTitle}
       transparentChrome={transparentChrome}
       visibility={activeChannel?.visibility}

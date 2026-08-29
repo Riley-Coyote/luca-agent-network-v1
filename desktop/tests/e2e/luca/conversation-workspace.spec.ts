@@ -164,6 +164,15 @@ test("conversation cards keep a floor gap and expose draggable split handles", a
   await openInNewPane(page, secondId);
 
   await expect(page.locator("[data-workspace-tab]")).toHaveCount(0);
+  await expect(page.locator(".luca-chat-header__presence-wide")).toHaveCount(0);
+  await expect(page.getByTestId("chat-subtitle")).toHaveCount(0);
+  await expect(page.getByTestId("conversation-intro")).toHaveCount(0);
+  const focusedPane = page.locator('[data-focused="true"]');
+  await focusedPane.getByTestId("workspace-layout-menu").click();
+  await expect(page.getByTestId("workspace-preset-single")).toBeVisible();
+  await expect(page.getByTestId("workspace-preset-grid-4")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("workspace-preset-grid-4")).toBeHidden();
   const handle = page.getByTestId("workspace-resize-vertical");
   await expect(handle).toBeVisible();
   const before = await page.getByTestId("workspace-pane-slot-1").boundingBox();

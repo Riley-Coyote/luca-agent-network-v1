@@ -20,7 +20,7 @@ import { channelChrome } from "@/shared/layout/chromeLayout";
 import { Spinner } from "@/shared/ui/spinner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
-import { ChannelIntroBlock, type ChannelIntro } from "./ChannelIntroBlock";
+import type { ChannelIntro } from "./ChannelIntroBlock";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
@@ -433,13 +433,13 @@ const MessageTimelineBase = React.forwardRef<
   // intro block is retired. The surface selector still classifies DM-intro
   // eligibility so those conversations stay bare instead of getting the
   // generic dashed placeholder.
-  const showChannelIntro = timelineIntroSurface === "channel-intro";
-  const activeChannelIntro = showChannelIntro ? channelIntro : null;
-  const showIntro = activeChannelIntro !== null;
+  // Conversations open directly on their timeline. Channel and DM identity
+  // remain in the compact header instead of consuming a second intro surface.
+  const showIntro = false;
   const showGenericEmpty =
     timelineBodySurface === "empty" && timelineIntroSurface === null;
   const showMessageList = timelineBodySurface === "list";
-  const showChannelIntroOnly = activeChannelIntro !== null && !showMessageList;
+  const showChannelIntroOnly = false;
 
   const prepareForOwnMessage = React.useCallback(() => {
     // The user's own send is the deliberate Zulip exception: release buffered
@@ -649,13 +649,7 @@ const MessageTimelineBase = React.forwardRef<
     messages: showTimelineSkeleton ? EMPTY_MESSAGES : deferredMessages,
   });
 
-  const virtualizedLeadingContent = React.useMemo(
-    () =>
-      activeChannelIntro ? (
-        <ChannelIntroBlock className="pb-4 pt-2" intro={activeChannelIntro} />
-      ) : null,
-    [activeChannelIntro],
-  );
+  const virtualizedLeadingContent = null;
 
   const handleVirtualizerRangeChanged = React.useCallback(() => {
     bumpVirtualizerRenderVersion();
@@ -820,15 +814,6 @@ const MessageTimelineBase = React.forwardRef<
                 {showTimelineSkeleton ? (
                   <TimelineSkeleton rows={timelineSkeletonRows} />
                 ) : null}
-                {activeChannelIntro ? (
-                  /* Top-anchored like the virtualized leading row, so the
-                     first message arrives below with zero layout shift. */
-                  <ChannelIntroBlock
-                    className="py-2"
-                    intro={activeChannelIntro}
-                  />
-                ) : null}
-
                 {showGenericEmpty ? (
                   <div
                     className="mt-auto rounded-2xl border border-dashed border-border/80 bg-card/70 px-6 py-10 text-center shadow-xs"

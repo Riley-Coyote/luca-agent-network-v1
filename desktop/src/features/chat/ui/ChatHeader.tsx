@@ -211,7 +211,7 @@ export function ChatHeader({
               seen", "typing". Ours can say far more, because we know whether a
               resident is thinking, running a tool or writing. Height is
               reserved unconditionally so it never shifts the title. */}
-          {conversation && !titleControl ? (
+          {conversation && !titleControl && subtitle ? (
             <p
               className="min-h-4 truncate text-xs leading-4 text-muted-foreground"
               data-testid="chat-subtitle"

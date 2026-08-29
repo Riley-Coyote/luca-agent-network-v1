@@ -1,19 +1,10 @@
-import {
-  Columns2,
-  Grid2X2,
-  LayoutPanelLeft,
-  Rows2,
-  Square,
-} from "lucide-react";
 import * as React from "react";
 
 import { useMainInsetWidth } from "@/shared/layout/MainInsetContext";
 import { RightCardsSlotBoundary } from "@/shared/layout/RightCardsSlot";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-
 import { useConversationWorkspace } from "./ConversationWorkspaceContext";
+import { WorkspaceLayoutControlsProvider } from "./WorkspaceLayoutMenu";
 import {
   projectWorkspaceLayout,
   type WorkspaceConversationRef,
@@ -24,18 +15,6 @@ import {
 
 const MIN_USABLE_PANE_WIDTH_PX = 440;
 const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
-
-const PRESET_CONTROLS: Array<{
-  preset: WorkspacePreset;
-  label: string;
-  icon: typeof Square;
-}> = [
-  { preset: "single", label: "Single pane", icon: Square },
-  { preset: "columns-2", label: "Two columns", icon: Columns2 },
-  { preset: "rows-2", label: "Two rows", icon: Rows2 },
-  { preset: "three", label: "Three panes", icon: LayoutPanelLeft },
-  { preset: "grid-4", label: "Four panes", icon: Grid2X2 },
-];
 
 function presetColumnCount(preset: WorkspacePreset) {
   if (preset === "columns-2" || preset === "three" || preset === "grid-4") {
@@ -212,6 +191,10 @@ export function ConversationWorkspaceFrame({
   const projection = projectWorkspaceLayout(workspace.layout, compact);
   const columns = presetColumnCount(projection.preset);
   const estimatedWidthPx = Math.max(0, shellWidthPx / columns);
+  const changePreset = (preset: WorkspacePreset) => {
+    if (onPresetChange) onPresetChange(preset);
+    else workspace.setPreset(preset);
+  };
 
   return (
     <section
@@ -221,38 +204,6 @@ export function ConversationWorkspaceFrame({
       data-luca-workspace-floor
       data-testid="conversation-workspace"
     >
-      <div
-        aria-label="Workspace layout"
-        className="absolute right-4 top-3 z-50 flex items-center gap-0.5 rounded-lg border border-border/55 bg-background/90 p-0.5 shadow-sm backdrop-blur"
-        role="toolbar"
-      >
-        {PRESET_CONTROLS.map(({ icon: Icon, label, preset }) => (
-          <Tooltip key={preset}>
-            <TooltipTrigger asChild>
-              <Button
-                aria-label={label}
-                aria-pressed={workspace.layout.preset === preset}
-                className="size-7"
-                data-testid={`workspace-preset-${preset}`}
-                onClick={() =>
-                  onPresetChange
-                    ? onPresetChange(preset)
-                    : workspace.setPreset(preset)
-                }
-                size="icon"
-                type="button"
-                variant={
-                  workspace.layout.preset === preset ? "secondary" : "ghost"
-                }
-              >
-                <Icon className="size-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{label}</TooltipContent>
-          </Tooltip>
-        ))}
-      </div>
-
       <div
         className="relative grid min-h-0 min-w-0 flex-1 gap-[5px] p-[5px] pl-px"
         data-testid="conversation-workspace-grid"
@@ -300,16 +251,21 @@ export function ConversationWorkspaceFrame({
             >
               <div className="flex min-h-0 min-w-0 flex-1">
                 {active ? (
-                  <RightCardsSlotBoundary isolate={!focused}>
-                    <div className="flex min-h-0 min-w-0 flex-1">
-                      {renderConversation(
-                        active,
-                        focused,
-                        slotId,
-                        estimatedWidthPx,
-                      )}
-                    </div>
-                  </RightCardsSlotBoundary>
+                  <WorkspaceLayoutControlsProvider
+                    onPresetChange={changePreset}
+                    preset={workspace.layout.preset}
+                  >
+                    <RightCardsSlotBoundary isolate={!focused}>
+                      <div className="flex min-h-0 min-w-0 flex-1">
+                        {renderConversation(
+                          active,
+                          focused,
+                          slotId,
+                          estimatedWidthPx,
+                        )}
+                      </div>
+                    </RightCardsSlotBoundary>
+                  </WorkspaceLayoutControlsProvider>
                 ) : (
                   <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
                     Choose a conversation from the sidebar.
