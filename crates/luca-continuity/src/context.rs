@@ -651,8 +651,7 @@ impl Drop for SelectedSourceItem {
 
 fn validate_wake_input(input: &ContinuityWakeCompileInput) -> Result<(), ContinuityError> {
     if input.owner_pubkey == input.resident_pubkey
-        || input.layer_statuses.is_empty()
-        || input.layer_statuses.len() > 16
+        || input.layer_statuses.len() != 5
         || input.resident_items.len() > MAX_CONTINUITY_REFS
         || input.capsule_identity_orientation.len() > 1
         || input.capsule_relationship_orientation.len() > 1
@@ -660,15 +659,18 @@ fn validate_wake_input(input: &ContinuityWakeCompileInput) -> Result<(), Continu
     {
         return Err(ContinuityError::InvalidContextLayer);
     }
+    let expected_layers = [
+        LAYER_CAPSULE,
+        LAYER_HANDOFF,
+        LAYER_HYPNOMNEMA,
+        LAYER_ASSOCIATIVE_RECALL,
+        LAYER_OWNER_BRAIN,
+    ];
     if input
         .layer_statuses
         .iter()
-        .enumerate()
-        .any(|(index, layer)| {
-            input.layer_statuses[..index]
-                .iter()
-                .any(|prior| prior.layer == layer.layer)
-        })
+        .zip(expected_layers)
+        .any(|(layer, expected)| layer.layer.as_str() != expected)
     {
         return Err(ContinuityError::InvalidContextLayer);
     }
@@ -742,13 +744,21 @@ fn select_wake_material(
             corrections.push(selected);
         } else {
             match source.item.record_kind.as_str() {
-                "commitment" | "preference" | "open-thread"
-                    if commitments.len() < MAX_CONTINUITY_WAKE_COMMITMENTS =>
-                {
-                    commitments.push(selected);
+                "commitment" | "preference" | "open-thread" => {
+                    if commitments.len() < MAX_CONTINUITY_WAKE_COMMITMENTS {
+                        commitments.push(selected);
+                    }
                 }
-                "identity" if identity.is_empty() => identity.push(selected),
-                "relationship" if relationship.is_empty() => relationship.push(selected),
+                "identity" => {
+                    if identity.is_empty() {
+                        identity.push(selected);
+                    }
+                }
+                "relationship" => {
+                    if relationship.is_empty() {
+                        relationship.push(selected);
+                    }
+                }
                 _ if source.selected_by_retrieval
                     && relevant.len() < MAX_CONTINUITY_WAKE_RELEVANT_ITEMS =>
                 {
@@ -954,7 +964,11 @@ fn compile_selected_wake(
 ) -> Result<ContinuityWakeCompileOutput, ContinuityError> {
     let authorized_brain = selected.brain.clone();
     loop {
-        let candidate = wake_packet_candidate(&selected)?;
+        let candidate = if wake_provenance_ref_count(&selected) > MAX_CONTINUITY_REFS {
+            None
+        } else {
+            wake_packet_candidate(&selected)?
+        };
         if candidate
             .as_ref()
             .is_some_and(|value| value.canonical_len() <= budget)
@@ -991,19 +1005,22 @@ fn compile_selected_wake(
             selected.corrections.clear();
             selected.brain = authorized_brain;
             while !selected.brain.is_empty() {
-                if let Some(candidate) = wake_packet_candidate(&selected)? {
-                    if candidate.canonical_len() <= budget {
-                        return Ok(ContinuityWakeCompileOutput {
-                            packet: candidate.into_packet(),
-                            receipt: ContinuityWakeCompileReceipt {
-                                body_free_receipt_ref: None,
-                                wake_omitted_for_budget: true,
-                                omitted_resident_items: selected.initial_optional_resident_count,
-                                omitted_owner_brain_references: selected
-                                    .initial_brain_count
-                                    .saturating_sub(selected.brain.len()),
-                            },
-                        });
+                if wake_provenance_ref_count(&selected) <= MAX_CONTINUITY_REFS {
+                    if let Some(candidate) = wake_packet_candidate(&selected)? {
+                        if candidate.canonical_len() <= budget {
+                            return Ok(ContinuityWakeCompileOutput {
+                                packet: candidate.into_packet(),
+                                receipt: ContinuityWakeCompileReceipt {
+                                    body_free_receipt_ref: None,
+                                    wake_omitted_for_budget: true,
+                                    omitted_resident_items: selected
+                                        .initial_optional_resident_count,
+                                    omitted_owner_brain_references: selected
+                                        .initial_brain_count
+                                        .saturating_sub(selected.brain.len()),
+                                },
+                            });
+                        }
                     }
                 }
                 if let Some(mut omitted) = selected.brain.pop() {
@@ -1336,6 +1353,10 @@ fn wake_provenance_refs(
         return Err(ContinuityError::ContextPacketEncoding);
     }
     Ok(refs)
+}
+
+fn wake_provenance_ref_count(selected: &SelectedWakeMaterial) -> usize {
+    wake_provenance_refs(selected).map_or(MAX_CONTINUITY_REFS + 1, |refs| refs.len())
 }
 
 fn derive_wake_packet_id(
@@ -2409,6 +2430,16 @@ mod tests {
         }
     }
 
+    fn indexed_sha(index: usize) -> Sha256Ref {
+        Sha256Ref::parse(format!("sha256:{index:064x}")).unwrap()
+    }
+
+    fn indexed_refs(start: usize) -> Vec<Sha256Ref> {
+        (start..start + luca_protocol::MAX_CONTINUITY_WAKE_PROVENANCE_REFS)
+            .map(indexed_sha)
+            .collect()
+    }
+
     fn wake_input(reversed: bool) -> ContinuityWakeCompileInput {
         let mut resident_items = vec![
             wake_source(
@@ -2563,6 +2594,152 @@ mod tests {
             .content
             .contains("duplicate"));
         assert_eq!(wake["recent_corrections"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn typed_items_over_category_maxima_do_not_resurface_as_general_continuity() {
+        let mut input = wake_input(false);
+        input.current_handoff = None;
+        input.owner_brain_references.clear();
+        input.capsule_identity_orientation.clear();
+        input.resident_items = (0..6)
+            .map(|index| {
+                wake_source(
+                    &format!("commitment-{index}"),
+                    "commitment",
+                    "resident",
+                    &format!("Commitment {index}"),
+                    char::from_digit(index + 1, 16).unwrap(),
+                    index as u64,
+                    index as u8,
+                    false,
+                    true,
+                )
+            })
+            .chain([
+                wake_source(
+                    "identity-primary",
+                    "identity",
+                    "resident",
+                    "Primary identity",
+                    'a',
+                    0,
+                    20,
+                    false,
+                    true,
+                ),
+                wake_source(
+                    "identity-overflow",
+                    "identity",
+                    "resident",
+                    "Overflow identity",
+                    'b',
+                    1,
+                    19,
+                    false,
+                    true,
+                ),
+            ])
+            .collect();
+
+        let output = ContinuityWakeCompiler::compile(input, MAX_CONTINUITY_PACKET_BYTES).unwrap();
+        let payload = compiled_payload(&output);
+        let wake = &payload["wake"];
+        assert_eq!(wake["open_commitments"].as_array().unwrap().len(), 5);
+        assert_eq!(wake["identity_orientation"].as_array().unwrap().len(), 1);
+        assert!(wake["relevant_continuity_items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(wake["ambient_continuity_items"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(!output.packet.as_ref().unwrap().content.contains("Overflow"));
+    }
+
+    #[test]
+    fn aggregate_provenance_overflow_drops_optional_items_but_keeps_mandatory_wake() {
+        let mut next_ref = 100_usize;
+        let mut source = |id: String, kind: &str, correction: bool, rank: u64| {
+            let mut item = wake_source(
+                &id,
+                kind,
+                if correction { "owner" } else { "resident" },
+                &format!("body-{id}"),
+                '1',
+                rank,
+                (rank % 60) as u8,
+                correction,
+                true,
+            );
+            item.item.provenance_refs = indexed_refs(next_ref);
+            next_ref += luca_protocol::MAX_CONTINUITY_WAKE_PROVENANCE_REFS;
+            item
+        };
+        let mut resident_items = Vec::new();
+        for index in 0..3 {
+            resident_items.push(source(
+                format!("correction-{index}"),
+                "memory-note",
+                true,
+                index,
+            ));
+        }
+        for index in 0..5 {
+            resident_items.push(source(
+                format!("commitment-{index}"),
+                "commitment",
+                false,
+                10 + index,
+            ));
+        }
+        resident_items.push(source("identity".into(), "identity", false, 20));
+        resident_items.push(source("relationship".into(), "relationship", false, 21));
+        for index in 0..6 {
+            let mut item = source(format!("general-{index}"), "memory-note", false, 30 + index);
+            item.selected_by_retrieval = index < 5;
+            resident_items.push(item);
+        }
+        let mut handoff = wake_handoff("Mandatory handoff");
+        handoff.provenance_refs = indexed_refs(next_ref);
+        next_ref += luca_protocol::MAX_CONTINUITY_WAKE_PROVENANCE_REFS;
+        let mut brain = Vec::new();
+        for index in 0..8 {
+            let mut item = brain_item(&format!("brain-{index}"), "working context", '2');
+            item.provenance_refs = indexed_refs(next_ref);
+            next_ref += luca_protocol::MAX_CONTINUITY_WAKE_PROVENANCE_REFS;
+            brain.push(item);
+        }
+        let input = ContinuityWakeCompileInput {
+            owner_pubkey: hex('1'),
+            resident_pubkey: hex('2'),
+            relationship_scope_ref: sha('7'),
+            request_id: OpaqueId::parse("wake-provenance-overflow").unwrap(),
+            cue_ref: sha('8'),
+            layer_statuses: wake_layers(),
+            current_handoff: Some(handoff),
+            resident_items,
+            capsule_identity_orientation: Vec::new(),
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_references: brain,
+        };
+
+        let output = ContinuityWakeCompiler::compile(input, MAX_CONTINUITY_PACKET_BYTES).unwrap();
+        let payload = compiled_payload(&output);
+        assert_eq!(
+            payload["wake"]["recent_corrections"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
+        assert_eq!(
+            payload["wake"]["current_handoff"]["active_record_id"],
+            "handoff-active"
+        );
+        assert!(output.receipt.omitted_owner_brain_references > 0);
+        assert!(output.receipt.omitted_resident_items > 0);
     }
 
     #[test]

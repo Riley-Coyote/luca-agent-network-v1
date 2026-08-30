@@ -628,31 +628,76 @@ fn bounded_wake_body(value: &str) -> Result<(), ContinuityError> {
 
 fn validate_wake_record_kind(value: &OpaqueId) -> Result<(), ContinuityError> {
     match value.as_str() {
-        "handoff"
-        | "open-thread"
-        | "commitment"
-        | "preference"
-        | "hypomnema"
-        | "memory-note"
-        | "journal"
-        | "journal-annotation"
-        | "reflection"
-        | "owner-brain-source"
-        | "owner-brain-binding"
-        | "owner-brain-chunk-page"
-        | "owner-brain-grant"
-        | "owner-brain-receipt"
-        | "connected-brain-source"
-        | "connected-brain-binding"
-        | "connected-brain-index-page"
-        | "repository-work-grant"
-        | "associative-engram"
-        | "typed-connection"
-        | "identity"
-        | "relationship"
-        | "conviction" => Ok(()),
+        "handoff" | "open-thread" | "commitment" | "preference" | "hypomnema" | "memory-note"
+        | "journal" | "journal-annotation" | "reflection" | "associative-engram"
+        | "typed-connection" | "identity" | "relationship" | "conviction" => Ok(()),
         _ => Err(ContinuityError::Binding),
     }
+}
+
+fn validate_wake_category(
+    items: &[ContinuityWakeItemV1],
+    category: WakeItemCategory,
+) -> Result<(), ContinuityError> {
+    for item in items {
+        item.validate()?;
+        let kind = item.record_kind.as_str();
+        let valid = match category {
+            WakeItemCategory::Identity => kind == "identity",
+            WakeItemCategory::Relationship => kind == "relationship",
+            WakeItemCategory::Correction => {
+                item.author_kind.as_str() == "owner" && kind != "handoff"
+            }
+            WakeItemCategory::Commitment => {
+                matches!(kind, "commitment" | "preference" | "open-thread")
+            }
+            WakeItemCategory::General => matches!(
+                kind,
+                "hypomnema"
+                    | "memory-note"
+                    | "journal"
+                    | "journal-annotation"
+                    | "reflection"
+                    | "associative-engram"
+                    | "typed-connection"
+                    | "conviction"
+            ),
+        };
+        if !valid {
+            return Err(ContinuityError::Binding);
+        }
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum WakeItemCategory {
+    Identity,
+    Relationship,
+    Correction,
+    Commitment,
+    General,
+}
+
+fn validate_wake_layers(layers: &[ContinuityLayerResultV1]) -> Result<(), ContinuityError> {
+    const ORDERED_LAYERS: [&str; 5] = [
+        "capsule",
+        "handoff",
+        "hypomnema",
+        "associative_recall",
+        "owner_brain",
+    ];
+    if layers.len() != ORDERED_LAYERS.len()
+        || layers
+            .iter()
+            .zip(ORDERED_LAYERS)
+            .any(|(layer, expected)| layer.layer.as_str() != expected)
+    {
+        return Err(ContinuityError::Sequence);
+    }
+    layers
+        .iter()
+        .try_for_each(ContinuityLayerResultV1::validate)
 }
 
 fn validate_wake_author(value: &OpaqueId) -> Result<(), ContinuityError> {
@@ -974,37 +1019,19 @@ impl ContinuityWakePacketV1 {
             || self.relevant_continuity_items.len() > MAX_CONTINUITY_WAKE_RELEVANT_ITEMS
             || self.ambient_continuity_items.len() > MAX_CONTINUITY_WAKE_AMBIENT_ITEMS
             || !self.reflection_prompts.is_empty()
-            || self.layer_statuses.is_empty()
-            || self.layer_statuses.len() > 16
         {
             return Err(ContinuityError::Binding);
         }
-        if self
-            .layer_statuses
-            .iter()
-            .enumerate()
-            .any(|(index, layer)| {
-                self.layer_statuses[..index]
-                    .iter()
-                    .any(|prior| prior.layer == layer.layer)
-            })
-        {
-            return Err(ContinuityError::Sequence);
-        }
-        for layer in &self.layer_statuses {
-            layer.validate()?;
-        }
-        for item in self
-            .identity_orientation
-            .iter()
-            .chain(&self.relationship_orientation)
-            .chain(&self.relevant_continuity_items)
-            .chain(&self.ambient_continuity_items)
-            .chain(&self.recent_corrections)
-            .chain(&self.open_commitments)
-        {
-            item.validate()?;
-        }
+        validate_wake_layers(&self.layer_statuses)?;
+        validate_wake_category(&self.identity_orientation, WakeItemCategory::Identity)?;
+        validate_wake_category(
+            &self.relationship_orientation,
+            WakeItemCategory::Relationship,
+        )?;
+        validate_wake_category(&self.relevant_continuity_items, WakeItemCategory::General)?;
+        validate_wake_category(&self.ambient_continuity_items, WakeItemCategory::General)?;
+        validate_wake_category(&self.recent_corrections, WakeItemCategory::Correction)?;
+        validate_wake_category(&self.open_commitments, WakeItemCategory::Commitment)?;
         if let Some(handoff) = &self.current_handoff {
             handoff.validate()?;
         }

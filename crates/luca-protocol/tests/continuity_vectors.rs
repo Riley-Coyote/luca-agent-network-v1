@@ -253,11 +253,17 @@ fn wake_payload_vector() -> Value {
             "recent_corrections": [],
             "open_commitments": [],
             "reflection_prompts": [],
-            "layer_statuses": [{
-                "layer": "handoff",
-                "status": "ready",
-                "provenance_ref": format!("sha256:{}", "88".repeat(32))
-            }],
+            "layer_statuses": [
+                { "layer": "capsule", "status": "empty" },
+                {
+                    "layer": "handoff",
+                    "status": "ready",
+                    "provenance_ref": format!("sha256:{}", "88".repeat(32))
+                },
+                { "layer": "hypomnema", "status": "empty" },
+                { "layer": "associative_recall", "status": "empty" },
+                { "layer": "owner_brain", "status": "empty" }
+            ],
             "body_free_receipt_ref": format!("sha256:{}", "99".repeat(32))
         },
         "owner_brain_references": [{
@@ -319,6 +325,28 @@ fn wake_contract_rejects_unknown_fields_kinds_authors_and_partial_utf8_overflow(
     oversized["wake"]["identity_orientation"][0]["body"] =
         Value::String("🧠".repeat(MAX_CONTINUITY_WAKE_ITEM_BYTES / 4 + 1));
     assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(oversized).is_err());
+}
+
+#[test]
+fn wake_contract_rejects_cross_category_items_and_reordered_layers() {
+    let vector = wake_payload_vector();
+
+    let mut wrong_category = vector.clone();
+    wrong_category["wake"]["identity_orientation"][0]["record_kind"] =
+        Value::String("memory-note".into());
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(wrong_category).is_err());
+
+    let mut brain_smuggling = vector.clone();
+    brain_smuggling["wake"]["identity_orientation"][0]["record_kind"] =
+        Value::String("owner-brain-source".into());
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(brain_smuggling).is_err());
+
+    let mut reordered = vector;
+    reordered["wake"]["layer_statuses"]
+        .as_array_mut()
+        .unwrap()
+        .swap(0, 1);
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(reordered).is_err());
 }
 
 #[test]
