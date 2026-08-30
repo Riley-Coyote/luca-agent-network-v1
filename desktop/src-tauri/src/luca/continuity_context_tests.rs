@@ -6,8 +6,9 @@ use luca_continuity::{
     RetrievalRecordState,
 };
 use luca_protocol::{
-    ContinuityContextResultV1, ContinuityNamespaceV1, ContinuityScopeV1, ProviderEgressV1, SafeU53,
-    CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
+    CanonicalTimestamp, ContinuityContextResultV1, ContinuityNamespaceV1, ContinuityScopeV1,
+    ProviderEgressV1, ResidentHandoffV1, SafeU53, CONTINUITY_PROTOCOL,
+    MAX_CONTINUITY_PACKET_BYTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -91,18 +92,30 @@ fn request(max_packet_bytes: usize) -> ContinuityContextRequestV1 {
     }
 }
 
-fn retrieval(address: &NamespaceScope) -> RetrievalResult {
-    let specs = [
-        ("01-handoff", "handoff", "handoff-private-body"),
-        ("04-journal", "journal", "journal-private-body"),
-        ("06-commitment", "commitment", "associative-private-body"),
-        ("07-note", "memory-note", "memory-note-private-1"),
-        ("08-note", "memory-note", "memory-note-private-2"),
-        ("09-note", "memory-note", "memory-note-private-3"),
-        ("10-note", "memory-note", "memory-note-private-4"),
-        ("11-note", "memory-note", "memory-note-private-5"),
-        ("12-note", "memory-note", "memory-note-private-6"),
-    ];
+fn retrieval(address: &NamespaceScope) -> (RetrievalResult, Vec<ContinuityActiveLeaseRecordV1>) {
+    let handoff = serde_json::to_string(&ResidentHandoffV1 {
+        summary: "handoff-private-body".into(),
+        unresolved_threads: Vec::new(),
+        commitments: Vec::new(),
+        explicit_preferences: Vec::new(),
+        source_event_ids: vec![hex('d')],
+        updated_at: CanonicalTimestamp::parse("2026-08-29T00:00:00Z").unwrap(),
+    })
+    .unwrap();
+    let specs = vec![
+        ("01-handoff", "handoff", handoff),
+        ("04-journal", "journal", "journal-private-body".into()),
+        ("06-commitment", "commitment", "associative-private-body".into()),
+        ("07-note", "memory-note", "memory-note-private-1".into()),
+        ("08-note", "memory-note", "memory-note-private-2".into()),
+        ("09-note", "memory-note", "memory-note-private-3".into()),
+        ("10-note", "memory-note", "memory-note-private-4".into()),
+        ("11-note", "memory-note", "memory-note-private-5".into()),
+        ("12-note", "memory-note", "memory-note-private-6".into()),
+    ]
+    .into_iter()
+    .map(|(id, kind, body)| (id, kind, body.to_owned()))
+    .collect::<Vec<_>>();
     let records = specs
         .into_iter()
         .enumerate()
@@ -124,7 +137,7 @@ fn retrieval(address: &NamespaceScope) -> RetrievalResult {
             .unwrap()
         })
         .collect::<Vec<_>>();
-    InMemoryRetrievalIndex::hydrate(&records)
+    let retrieval = InMemoryRetrievalIndex::hydrate(&records)
         .unwrap()
         .retrieve(
             &RetrievalQuery {
@@ -134,21 +147,38 @@ fn retrieval(address: &NamespaceScope) -> RetrievalResult {
             },
             None,
         )
-        .unwrap()
+        .unwrap();
+    let active_records = records
+        .into_iter()
+        .map(|record| ContinuityActiveLeaseRecordV1 {
+            source_event_ids: if record.record_type().as_str() == "handoff" {
+                vec![hex('d')]
+            } else {
+                Vec::new()
+            },
+            record,
+            author_kind: OpaqueId::parse("resident").unwrap(),
+            canonical_timestamp: CanonicalTimestamp::parse("2026-08-29T00:00:00Z").unwrap(),
+            pinned_owner_correction: false,
+        })
+        .collect();
+    (retrieval, active_records)
 }
 
 struct FakeLeaseReader {
     status: ContinuityLayerStatusV1,
     retrieval: Option<RetrievalResult>,
+    active_records: Vec<ContinuityActiveLeaseRecordV1>,
     calls: Cell<usize>,
     lifecycle: Mutex<()>,
 }
 
 impl FakeLeaseReader {
-    fn ready(retrieval: RetrievalResult) -> Self {
+    fn ready((retrieval, active_records): (RetrievalResult, Vec<ContinuityActiveLeaseRecordV1>)) -> Self {
         Self {
             status: ContinuityLayerStatusV1::Ready,
             retrieval: Some(retrieval),
+            active_records,
             calls: Cell::new(0),
             lifecycle: Mutex::new(()),
         }
@@ -158,6 +188,7 @@ impl FakeLeaseReader {
         Self {
             status,
             retrieval: None,
+            active_records: Vec::new(),
             calls: Cell::new(0),
             lifecycle: Mutex::new(()),
         }
@@ -171,7 +202,7 @@ impl ContinuityLeaseReader for FakeLeaseReader {
         consumer: F,
     ) -> ContinuityReadLeaseOutcomeV1
     where
-        F: for<'lease> FnOnce(&'lease RetrievalResult),
+        F: for<'lease> FnOnce(ContinuityLeaseMaterialV1<'lease>),
     {
         let _lifecycle_guard = self.lifecycle.lock().unwrap();
         self.calls.set(self.calls.get() + 1);
@@ -194,7 +225,10 @@ impl ContinuityLeaseReader for FakeLeaseReader {
         };
         match self.status {
             ContinuityLayerStatusV1::Ready => {
-                consumer(self.retrieval.as_ref().unwrap());
+                consumer(ContinuityLeaseMaterialV1 {
+                    retrieval: self.retrieval.as_ref().unwrap(),
+                    active_records: &self.active_records,
+                });
                 ContinuityReadLeaseOutcomeV1::Ready(receipt)
             }
             ContinuityLayerStatusV1::Empty => ContinuityReadLeaseOutcomeV1::Empty(receipt),
@@ -225,8 +259,7 @@ where
         request,
         address,
         RetrievalText::from("continuity"),
-        empty_layer().unwrap(),
-        denied_layer().unwrap(),
+        supplement(empty_layer().unwrap(), denied_layer().unwrap()),
         None,
         Instant::now() + Duration::from_secs(1),
         1,
@@ -250,8 +283,20 @@ where
         request,
         address,
         RetrievalText::from("continuity"),
-        capsule,
-        denied_layer().unwrap(),
+        DesktopWakeSupplementV1 {
+            capsule_layer: capsule,
+            capsule_identity_orientation: vec![ContinuityWakeItemV1 {
+                item_id: OpaqueId::parse("portable-capsule-identity").unwrap(),
+                record_kind: OpaqueId::parse("identity").unwrap(),
+                author_kind: OpaqueId::parse("resident").unwrap(),
+                body: "portable-capsule-private-body".into(),
+                source_event_ids: vec![hex('e')],
+                provenance_refs: vec![sha('9')],
+            }],
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_layer: denied_layer().unwrap(),
+            owner_brain_references: Vec::new(),
+        },
         None,
         Instant::now() + Duration::from_secs(1),
         1,
@@ -267,6 +312,19 @@ fn ready_capsule() -> ContinuityLayerMaterial {
     )
     .unwrap()])
     .unwrap()
+}
+
+fn supplement(
+    capsule_layer: ContinuityLayerMaterial,
+    owner_brain_layer: ContinuityLayerMaterial,
+) -> DesktopWakeSupplementV1 {
+    DesktopWakeSupplementV1 {
+        capsule_layer,
+        capsule_identity_orientation: Vec::new(),
+        capsule_relationship_orientation: Vec::new(),
+        owner_brain_layer,
+        owner_brain_references: Vec::new(),
+    }
 }
 
 #[test]
@@ -285,8 +343,18 @@ fn granted_owner_brain_remains_independent_when_resident_notebook_is_disabled() 
         request(MAX_CONTINUITY_PACKET_BYTES),
         resident_address(),
         RetrievalText::from("continuity"),
-        empty_layer().unwrap(),
-        owner_brain,
+        DesktopWakeSupplementV1 {
+            capsule_layer: empty_layer().unwrap(),
+            capsule_identity_orientation: Vec::new(),
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_layer: owner_brain,
+            owner_brain_references: vec![ContinuityWorkingReferenceV1 {
+                item_id: OpaqueId::parse("brain-chunk-1").unwrap(),
+                body: "authorized-owner-brain-body corpus-only-fact".into(),
+                source_event_ids: Vec::new(),
+                provenance_refs: vec![sha('a')],
+            }],
+        },
         Some(ContinuityLayerStatusV1::Empty),
         Instant::now() + Duration::from_secs(1),
         1,
@@ -334,8 +402,7 @@ fn non_ready_owner_brain_never_reaches_the_provider_sink() {
             request(MAX_CONTINUITY_PACKET_BYTES),
             resident_address(),
             RetrievalText::from("corpus-only-fact"),
-            empty_layer().unwrap(),
-            owner_brain,
+            supplement(empty_layer().unwrap(), owner_brain),
             None,
             Instant::now() + Duration::from_secs(1),
             1,
@@ -422,7 +489,7 @@ fn ready_records_are_categorized_and_delivered_once_deterministically() {
                 assert!(packet.content.contains("associative-private-body"));
                 assert!(packet.content.contains("memory-note-private-1"));
                 assert!(packet.content.contains("memory-note-private-5"));
-                assert!(!packet.content.contains("memory-note-private-6"));
+                assert!(packet.content.contains("memory-note-private-6"));
             },
         );
         let digest = *wire_digest.borrow();

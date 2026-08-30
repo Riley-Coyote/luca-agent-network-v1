@@ -5,6 +5,7 @@
 //! packet wire is lent once to a consuming sink and can never be returned.
 
 use std::{
+    collections::BTreeMap,
     fmt,
     panic::{catch_unwind, AssertUnwindSafe},
     time::Instant,
@@ -12,25 +13,39 @@ use std::{
 
 use luca_continuity::{
     ContinuityContextResolver, ContinuityLayerMaterial, ContinuityReadSnapshot,
-    ContinuityReferenceItem, DurableContinuityRecordKind, NamespaceScope, RetrievalResult,
+    ContinuityReferenceItem, ContinuityWakeCompileInput, ContinuityWakeCompiler,
+    ContinuityWakeSourceItem, DurableContinuityRecordKind, NamespaceScope, RetrievalResult,
     RetrievalText,
 };
 use luca_protocol::{
     canonical_sha256, ContinuityContextRequestV1, ContinuityLayerStatusV1,
-    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, Hex64, OpaqueId, SafeU53,
-    Sha256Ref, CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
+    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1,
+    ContinuityWakeHandoffV1, ContinuityWakeItemV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId,
+    SafeU53, Sha256Ref, CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
 };
+use sha2::{Digest, Sha256};
 
 use crate::app_state::AppState;
 
 use super::continuity_runtime::{
-    ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseReceiptV1, ContinuityReadLeaseRequestV1,
+    ContinuityActiveLeaseRecordV1, ContinuityReadLeaseOutcomeV1, ContinuityReadLeaseReceiptV1,
+    ContinuityReadLeaseRequestV1,
 };
 
 const FIXED_LAYER_COUNT: usize = 5;
 const RESIDENT_NAMESPACE_DOMAIN: &str = "luca.continuity.resident-private.namespace.v1";
 const RESIDENT_NOTEBOOK_SCOPE_DOMAIN: &str = "luca.continuity.resident-private.notebook.v1";
 const RESIDENT_NOTEBOOK_SOURCE_ID: &str = "resident-notebook";
+
+/// Body-bearing supplementary sources loaded under their existing independent
+/// authorities before Wake compilation. Debug is intentionally unavailable.
+pub(crate) struct DesktopWakeSupplementV1 {
+    pub(crate) capsule_layer: ContinuityLayerMaterial,
+    pub(crate) capsule_identity_orientation: Vec<ContinuityWakeItemV1>,
+    pub(crate) capsule_relationship_orientation: Vec<ContinuityWakeItemV1>,
+    pub(crate) owner_brain_layer: ContinuityLayerMaterial,
+    pub(crate) owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+}
 
 /// Derive the one stable resident-private notebook address used by pre-turn
 /// retrieval and post-turn metabolism. Key rotation changes only the explicit
@@ -144,8 +159,7 @@ pub(crate) fn resolve_desktop_continuity_context<F>(
     request: ContinuityContextRequestV1,
     address: NamespaceScope,
     cue: RetrievalText,
-    capsule: ContinuityLayerMaterial,
-    owner_brain: ContinuityLayerMaterial,
+    supplement: DesktopWakeSupplementV1,
     resident_override_status: Option<ContinuityLayerStatusV1>,
     deadline: Instant,
     now_unix_ms: u64,
@@ -159,8 +173,7 @@ where
         request,
         address,
         cue,
-        capsule,
-        owner_brain,
+        supplement,
         resident_override_status,
         deadline,
         now_unix_ms,
@@ -175,7 +188,12 @@ trait ContinuityLeaseReader {
         consumer: F,
     ) -> ContinuityReadLeaseOutcomeV1
     where
-        F: for<'lease> FnOnce(&'lease RetrievalResult);
+        F: for<'lease> FnOnce(ContinuityLeaseMaterialV1<'lease>);
+}
+
+struct ContinuityLeaseMaterialV1<'lease> {
+    retrieval: &'lease RetrievalResult,
+    active_records: &'lease [ContinuityActiveLeaseRecordV1],
 }
 
 impl ContinuityLeaseReader for AppState {
@@ -185,9 +203,14 @@ impl ContinuityLeaseReader for AppState {
         consumer: F,
     ) -> ContinuityReadLeaseOutcomeV1
     where
-        F: for<'lease> FnOnce(&'lease RetrievalResult),
+        F: for<'lease> FnOnce(ContinuityLeaseMaterialV1<'lease>),
     {
-        self.read_continuity_lease(request, |view| consumer(view.retrieval))
+        self.read_continuity_lease(request, |view| {
+            consumer(ContinuityLeaseMaterialV1 {
+                retrieval: view.retrieval,
+                active_records: view.active_records,
+            })
+        })
     }
 }
 
@@ -197,8 +220,7 @@ fn resolve_with_lease_reader<R, F>(
     request: ContinuityContextRequestV1,
     address: NamespaceScope,
     cue: RetrievalText,
-    capsule: ContinuityLayerMaterial,
-    owner_brain: ContinuityLayerMaterial,
+    supplement: DesktopWakeSupplementV1,
     resident_override_status: Option<ContinuityLayerStatusV1>,
     deadline: Instant,
     now_unix_ms: u64,
@@ -217,9 +239,23 @@ where
 
     if let Some(status) = resident_override_status {
         let mut sink = Some(sink);
+        let cue_ref = cue_ref(&cue);
         let resolved = resolve_snapshot_to_receipt(
             &request,
-            degraded_notebook_snapshot(capsule, owner_brain, status),
+            degraded_notebook_snapshot(
+                supplement.capsule_layer,
+                supplement.owner_brain_layer,
+                status,
+            ),
+            WakeHostMaterialV1 {
+                relationship_scope_ref: address.as_protocol().scope_ref.clone(),
+                cue_ref,
+                current_handoff: None,
+                resident_items: Vec::new(),
+                capsule_identity_orientation: supplement.capsule_identity_orientation,
+                capsule_relationship_orientation: supplement.capsule_relationship_orientation,
+                owner_brain_references: supplement.owner_brain_references,
+            },
             now_unix_ms,
             &mut sink,
             false,
@@ -235,6 +271,8 @@ where
         };
     }
 
+    let cue_ref = cue_ref(&cue);
+    let relationship_scope_ref = address.as_protocol().scope_ref.clone();
     let lease_request = ContinuityReadLeaseRequestV1 {
         owner_pubkey: request.owner_pubkey.clone(),
         address,
@@ -244,23 +282,65 @@ where
     };
     let mut callback_receipt = None;
     let mut sink = Some(sink);
-    let mut capsule = Some(capsule);
-    let mut owner_brain = Some(owner_brain);
-    let lease_outcome = reader.read(lease_request, |retrieval| {
-        let snapshot = capsule
+    let mut supplement = Some(supplement);
+    let lease_outcome = reader.read(lease_request, |lease| {
+        let supplement = supplement
             .take()
             .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-            .and_then(|capsule| {
-                owner_brain
-                    .take()
-                    .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-                    .and_then(|owner_brain| {
-                        assemble_ready_snapshot(retrieval, capsule, owner_brain)
-                    })
+            .map(|supplement| {
+                let wake = assemble_wake_material(
+                    lease.active_records,
+                    lease.retrieval,
+                    relationship_scope_ref.clone(),
+                    cue_ref.clone(),
+                    supplement.capsule_identity_orientation,
+                    supplement.capsule_relationship_orientation,
+                    supplement.owner_brain_references,
+                );
+                let snapshot = assemble_ready_snapshot(
+                    lease.retrieval,
+                    supplement.capsule_layer,
+                    supplement.owner_brain_layer,
+                );
+                (snapshot, wake)
             });
+        let (snapshot, wake) = match supplement {
+            Ok((snapshot, Ok(wake))) => (snapshot, wake),
+            Ok((Err(error), _)) | Err(error) => {
+                callback_receipt = Some(resolve_snapshot_to_receipt(
+                    &request,
+                    Err(error),
+                    empty_wake_material(
+                        relationship_scope_ref.clone(),
+                        cue_ref.clone(),
+                    ),
+                    now_unix_ms,
+                    &mut sink,
+                    false,
+                    None,
+                ));
+                return;
+            }
+            Ok((_, Err(error))) => {
+                callback_receipt = Some(resolve_snapshot_to_receipt(
+                    &request,
+                    Err(error),
+                    empty_wake_material(
+                        relationship_scope_ref.clone(),
+                        cue_ref.clone(),
+                    ),
+                    now_unix_ms,
+                    &mut sink,
+                    false,
+                    None,
+                ));
+                return;
+            }
+        };
         callback_receipt = Some(resolve_snapshot_to_receipt(
             &request,
             snapshot,
+            wake,
             now_unix_ms,
             &mut sink,
             false,
@@ -286,20 +366,38 @@ where
         }
         outcome => {
             let (lease_status, lease_receipt) = lease_status(outcome);
-            let snapshot = capsule
+            let supplement = supplement
                 .take()
                 .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-                .and_then(|capsule| {
-                    owner_brain
-                        .take()
-                        .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
-                        .and_then(|owner_brain| {
-                            degraded_notebook_snapshot(capsule, owner_brain, lease_status)
-                        })
+                .map(|supplement| {
+                    let wake = WakeHostMaterialV1 {
+                        relationship_scope_ref: relationship_scope_ref.clone(),
+                        cue_ref: cue_ref.clone(),
+                        current_handoff: None,
+                        resident_items: Vec::new(),
+                        capsule_identity_orientation: supplement.capsule_identity_orientation,
+                        capsule_relationship_orientation: supplement
+                            .capsule_relationship_orientation,
+                        owner_brain_references: supplement.owner_brain_references,
+                    };
+                    let snapshot = degraded_notebook_snapshot(
+                        supplement.capsule_layer,
+                        supplement.owner_brain_layer,
+                        lease_status,
+                    );
+                    (snapshot, wake)
                 });
+            let (snapshot, wake) = match supplement {
+                Ok((snapshot, wake)) => (snapshot, wake),
+                Err(error) => (
+                    Err(error),
+                    empty_wake_material(relationship_scope_ref, cue_ref),
+                ),
+            };
             let mut resolved = resolve_snapshot_to_receipt(
                 &request,
                 snapshot,
+                wake,
                 now_unix_ms,
                 &mut sink,
                 true,
@@ -321,6 +419,7 @@ where
 fn resolve_snapshot_to_receipt<F>(
     request: &ContinuityContextRequestV1,
     snapshot: Result<ContinuityReadSnapshot, luca_continuity::ContinuityError>,
+    wake: WakeHostMaterialV1,
     now_unix_ms: u64,
     sink: &mut Option<F>,
     require_packet: bool,
@@ -348,6 +447,45 @@ where
                 )
             }
         },
+    };
+    let output = if forced_status.is_none() {
+        let compile = ContinuityWakeCompiler::compile(
+            ContinuityWakeCompileInput {
+                owner_pubkey: request.owner_pubkey.clone(),
+                resident_pubkey: request.resident_pubkey.clone(),
+                relationship_scope_ref: wake.relationship_scope_ref,
+                request_id: request.request_id.clone(),
+                cue_ref: wake.cue_ref,
+                layer_statuses: output.layers().to_vec(),
+                current_handoff: wake.current_handoff,
+                resident_items: wake.resident_items,
+                capsule_identity_orientation: wake.capsule_identity_orientation,
+                capsule_relationship_orientation: wake.capsule_relationship_orientation,
+                owner_brain_references: wake.owner_brain_references,
+            },
+            request.max_packet_bytes.get() as usize,
+        )
+        .and_then(|compiled| output.replace_packet(request, compiled.into_packet()));
+        match compile {
+            Ok(output) => output,
+            Err(_) => match invalid_status_snapshot().and_then(|snapshot| {
+                ContinuityContextResolver::resolve(request, snapshot, now_unix_ms)
+            }) {
+                Ok(output) => output,
+                Err(_) => {
+                    return receipt(
+                        request,
+                        ContinuityLayerStatusV1::Invalid,
+                        skipped_layer_statuses(ContinuityLayerStatusV1::Invalid),
+                        None,
+                        None,
+                        DesktopContinuityContextDispositionV1::Skipped,
+                    )
+                }
+            },
+        }
+    } else {
+        output
     };
     let layer_statuses = fixed_statuses(output.layers());
     let status = if let Some(status) = forced_status {
@@ -412,6 +550,110 @@ fn exact_resident_authority(
     namespace.owner_pubkey == request.owner_pubkey
         && namespace.kind == ContinuityNamespaceKindV1::ResidentPrivate
         && namespace.resident_pubkey.as_ref() == Some(&request.resident_pubkey)
+}
+
+struct WakeHostMaterialV1 {
+    relationship_scope_ref: Sha256Ref,
+    cue_ref: Sha256Ref,
+    current_handoff: Option<ContinuityWakeHandoffV1>,
+    resident_items: Vec<ContinuityWakeSourceItem>,
+    capsule_identity_orientation: Vec<ContinuityWakeItemV1>,
+    capsule_relationship_orientation: Vec<ContinuityWakeItemV1>,
+    owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+}
+
+fn empty_wake_material(
+    relationship_scope_ref: Sha256Ref,
+    cue_ref: Sha256Ref,
+) -> WakeHostMaterialV1 {
+    WakeHostMaterialV1 {
+        relationship_scope_ref,
+        cue_ref,
+        current_handoff: None,
+        resident_items: Vec::new(),
+        capsule_identity_orientation: Vec::new(),
+        capsule_relationship_orientation: Vec::new(),
+        owner_brain_references: Vec::new(),
+    }
+}
+
+fn cue_ref(cue: &RetrievalText) -> Sha256Ref {
+    let digest = Sha256::digest(cue.as_str().as_bytes());
+    let hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    Sha256Ref::parse(format!("sha256:{hex}"))
+        .expect("sha-256 digest is always a valid reference")
+}
+
+fn assemble_wake_material(
+    active_records: &[ContinuityActiveLeaseRecordV1],
+    retrieval: &RetrievalResult,
+    relationship_scope_ref: Sha256Ref,
+    cue_ref: Sha256Ref,
+    capsule_identity_orientation: Vec<ContinuityWakeItemV1>,
+    capsule_relationship_orientation: Vec<ContinuityWakeItemV1>,
+    owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+) -> Result<WakeHostMaterialV1, luca_continuity::ContinuityError> {
+    let retrieval_ranks = retrieval
+        .hits
+        .iter()
+        .enumerate()
+        .map(|(rank, hit)| (hit.record().record_id().clone(), rank))
+        .collect::<BTreeMap<_, _>>();
+    let mut current_handoff = None;
+    let mut resident_items = Vec::with_capacity(active_records.len());
+    for (ambient_rank, active) in active_records.iter().enumerate() {
+        let record = &active.record;
+        let kind = DurableContinuityRecordKind::parse(record.record_type())?;
+        if matches!(
+            kind,
+            DurableContinuityRecordKind::Journal | DurableContinuityRecordKind::JournalAnnotation
+        ) {
+            continue;
+        }
+        if kind == DurableContinuityRecordKind::Handoff {
+            if current_handoff.is_some() {
+                return Err(luca_continuity::ContinuityError::InvalidContextLayer);
+            }
+            let handoff = serde_json::from_str(record.body())
+                .map_err(|_| luca_continuity::ContinuityError::InvalidContextLayer)?;
+            current_handoff = Some(ContinuityWakeHandoffV1 {
+                active_record_id: record.record_id().clone(),
+                revision: record.revision(),
+                handoff,
+                provenance_refs: record.provenance_refs().to_vec(),
+            });
+            continue;
+        }
+        let item = ContinuityWakeItemV1 {
+            item_id: record.record_id().clone(),
+            record_kind: record.record_type().clone(),
+            author_kind: active.author_kind.clone(),
+            body: record.body().to_owned(),
+            source_event_ids: active.source_event_ids.clone(),
+            provenance_refs: record.provenance_refs().to_vec(),
+        };
+        let selected_rank = retrieval_ranks.get(record.record_id()).copied();
+        let rank = selected_rank.unwrap_or_else(|| retrieval.hits.len() + ambient_rank);
+        let rank = SafeU53::new(rank as u64)
+            .map_err(|_| luca_continuity::ContinuityError::InvalidContextLayer)?;
+        resident_items.push(ContinuityWakeSourceItem::new(
+            item,
+            record.revision(),
+            active.canonical_timestamp.clone(),
+            rank,
+            active.pinned_owner_correction,
+            selected_rank.is_some(),
+        )?);
+    }
+    Ok(WakeHostMaterialV1 {
+        relationship_scope_ref,
+        cue_ref,
+        current_handoff,
+        resident_items,
+        capsule_identity_orientation,
+        capsule_relationship_orientation,
+        owner_brain_references,
+    })
 }
 
 fn assemble_ready_snapshot(

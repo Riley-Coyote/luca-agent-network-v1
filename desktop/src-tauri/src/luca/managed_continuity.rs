@@ -15,7 +15,8 @@ use luca_continuity::{ContinuityLayerMaterial, ContinuityReferenceItem, Retrieva
 use luca_protocol::{
     canonical_sha256, canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1,
     ContinuityLayerResultV1, ContinuityLayerStatusV1, Hex64, OpaqueId, ProviderEgressV1, SafeU53,
-    Sha256Ref, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
+    ContinuityWorkingReferenceV1, Sha256Ref, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
+    MAX_CONTINUITY_REFS,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -24,9 +25,13 @@ use zeroize::Zeroizing;
 use crate::app_state::AppState;
 
 use super::{
-    continuity_capsule::{capsule_context_layer, ContinuityCapsuleDesktopError},
+    continuity_capsule::{
+        capsule_context_layer, capsule_wake_orientation, ContinuityCapsuleDesktopError,
+    },
     continuity_capsule_relay::load_current_capsule,
-    continuity_context::{resident_notebook_address, resolve_desktop_continuity_context},
+    continuity_context::{
+        resident_notebook_address, resolve_desktop_continuity_context, DesktopWakeSupplementV1,
+    },
     managed_dispatch_store::{global_dispatch_store, ManagedDispatchStore},
     owner_brain_store::{OwnerBrainRetrievalRequestV1, OwnerBrainStoreError},
 };
@@ -375,7 +380,7 @@ fn serve(
             .saturating_sub(now_unix_ms)
             .min(MAX_RESOLUTION_MILLIS);
         let deadline = Instant::now() + Duration::from_millis(remaining);
-        let owner_brain = load_owner_brain_context_layer(
+        let owner_brain = load_owner_brain_context(
             &state,
             OwnerBrainRetrievalRequestV1 {
                 request_id: request.request_id.clone(),
@@ -388,7 +393,7 @@ fn serve(
                 deadline,
             },
         );
-        let capsule = load_capsule_context_layer(
+        let capsule = load_capsule_context(
             &state,
             &request.owner_pubkey,
             &request.resident_pubkey,
@@ -405,8 +410,13 @@ fn serve(
             request,
             address,
             cue,
-            capsule,
-            owner_brain,
+            DesktopWakeSupplementV1 {
+                capsule_layer: capsule.layer,
+                capsule_identity_orientation: capsule.identity_orientation,
+                capsule_relationship_orientation: capsule.relationship_orientation,
+                owner_brain_layer: owner_brain.layer,
+                owner_brain_references: owner_brain.references,
+            },
             resident_override_status,
             deadline,
             now_unix_ms,
@@ -559,10 +569,15 @@ fn write_session_context_result(
     write
 }
 
-fn load_owner_brain_context_layer(
+struct OwnerBrainContextV1 {
+    layer: ContinuityLayerMaterial,
+    references: Vec<ContinuityWorkingReferenceV1>,
+}
+
+fn load_owner_brain_context(
     state: &AppState,
     request: OwnerBrainRetrievalRequestV1,
-) -> ContinuityLayerMaterial {
+) -> OwnerBrainContextV1 {
     let status = |status| {
         ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
             ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
@@ -571,39 +586,62 @@ fn load_owner_brain_context_layer(
     };
     match state.retrieve_owner_brain(request) {
         Ok(result) if result.status == ContinuityLayerStatusV1::Ready => {
-            let items = result
-                .selected
-                .into_iter()
-                .map(|chunk| {
-                    ContinuityReferenceItem::new(
-                        chunk.chunk_id,
-                        chunk.body.as_str().to_owned(),
-                        vec![chunk.content_hash],
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>();
-            match items.and_then(ContinuityLayerMaterial::ready) {
-                Ok(material) => material,
-                Err(_) => status(ContinuityLayerStatusV1::Invalid),
+            let mut items = Vec::with_capacity(result.selected.len());
+            let mut references = Vec::with_capacity(result.selected.len());
+            for chunk in result.selected {
+                let body = chunk.body.as_str().to_owned();
+                let provenance_refs = vec![chunk.content_hash];
+                let item = ContinuityReferenceItem::new(
+                    chunk.chunk_id.clone(),
+                    body.clone(),
+                    provenance_refs.clone(),
+                );
+                let reference = ContinuityWorkingReferenceV1 {
+                    item_id: chunk.chunk_id,
+                    body,
+                    source_event_ids: Vec::new(),
+                    provenance_refs,
+                };
+                if item.is_err() || reference.validate().is_err() {
+                    return OwnerBrainContextV1 {
+                        layer: status(ContinuityLayerStatusV1::Invalid),
+                        references: Vec::new(),
+                    };
+                }
+                items.push(item.expect("validated owner-brain item"));
+                references.push(reference);
+            }
+            match ContinuityLayerMaterial::ready(items) {
+                Ok(layer) => OwnerBrainContextV1 { layer, references },
+                Err(_) => OwnerBrainContextV1 {
+                    layer: status(ContinuityLayerStatusV1::Invalid),
+                    references: Vec::new(),
+                },
             }
         }
-        Ok(result) => status(result.status),
-        Err(OwnerBrainStoreError::Locked) => status(ContinuityLayerStatusV1::Locked),
-        Err(OwnerBrainStoreError::Timeout) => status(ContinuityLayerStatusV1::Timeout),
-        Err(OwnerBrainStoreError::Stale) => status(ContinuityLayerStatusV1::Stale),
-        Err(OwnerBrainStoreError::Unavailable) => status(ContinuityLayerStatusV1::Unavailable),
+        Ok(result) => OwnerBrainContextV1 { layer: status(result.status), references: Vec::new() },
+        Err(OwnerBrainStoreError::Locked) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Locked), references: Vec::new() },
+        Err(OwnerBrainStoreError::Timeout) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Timeout), references: Vec::new() },
+        Err(OwnerBrainStoreError::Stale) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Stale), references: Vec::new() },
+        Err(OwnerBrainStoreError::Unavailable) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Unavailable), references: Vec::new() },
         Err(OwnerBrainStoreError::Cancelled | OwnerBrainStoreError::Invalid) => {
-            status(ContinuityLayerStatusV1::Invalid)
+            OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Invalid), references: Vec::new() }
         }
     }
 }
 
-fn load_capsule_context_layer(
+struct CapsuleContextV1 {
+    layer: ContinuityLayerMaterial,
+    identity_orientation: Vec<luca_protocol::ContinuityWakeItemV1>,
+    relationship_orientation: Vec<luca_protocol::ContinuityWakeItemV1>,
+}
+
+fn load_capsule_context(
     state: &AppState,
     expected_owner: &Hex64,
     expected_resident: &Hex64,
     timeout_millis: u64,
-) -> ContinuityLayerMaterial {
+) -> CapsuleContextV1 {
     let fallback = |status| {
         ContinuityLayerMaterial::status(status, None).unwrap_or_else(|_| {
             ContinuityLayerMaterial::status(ContinuityLayerStatusV1::Invalid, None)
@@ -618,8 +656,8 @@ fn load_capsule_context_layer(
             {
                 handle
             }
-            Ok(_) => return fallback(ContinuityLayerStatusV1::Denied),
-            Err(_) => return fallback(ContinuityLayerStatusV1::Unavailable),
+            Ok(_) => return CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Denied), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+            Err(_) => return CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Unavailable), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
         };
     let result = tauri::async_runtime::block_on(async {
         tokio::time::timeout(
@@ -629,26 +667,33 @@ fn load_capsule_context_layer(
         .await
     });
     match result {
-        Ok(Ok(state)) => capsule_context_layer(state)
-            .unwrap_or_else(|_| fallback(ContinuityLayerStatusV1::Invalid)),
+        Ok(Ok(super::continuity_capsule::ContinuityCapsuleLoadState::Ready(loaded))) => {
+            let orientation = capsule_wake_orientation(&loaded);
+            let layer = capsule_context_layer(super::continuity_capsule::ContinuityCapsuleLoadState::Ready(loaded));
+            match (layer, orientation) {
+                (Ok(layer), Ok((identity_orientation, relationship_orientation))) => CapsuleContextV1 { layer, identity_orientation, relationship_orientation },
+                _ => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Invalid), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+            }
+        }
+        Ok(Ok(state)) => CapsuleContextV1 { layer: capsule_context_layer(state).unwrap_or_else(|_| fallback(ContinuityLayerStatusV1::Invalid)), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
         Err(_) | Ok(Err(ContinuityCapsuleDesktopError::Timeout)) => {
-            fallback(ContinuityLayerStatusV1::Timeout)
+            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Timeout), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
         }
         Ok(Err(ContinuityCapsuleDesktopError::OwnerLocked)) => {
-            fallback(ContinuityLayerStatusV1::Locked)
+            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Locked), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
         }
         Ok(Err(ContinuityCapsuleDesktopError::WrongOwner)) => {
-            fallback(ContinuityLayerStatusV1::Denied)
+            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Denied), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
         }
         Ok(Err(ContinuityCapsuleDesktopError::StaleBinding)) => {
-            fallback(ContinuityLayerStatusV1::Stale)
+            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Stale), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
         }
         Ok(Err(
             ContinuityCapsuleDesktopError::RelayUnavailable
             | ContinuityCapsuleDesktopError::BrokerBusy
             | ContinuityCapsuleDesktopError::BrokerUnavailable,
-        )) => fallback(ContinuityLayerStatusV1::Unavailable),
-        Ok(Err(_)) => fallback(ContinuityLayerStatusV1::Invalid),
+        )) => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Unavailable), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+        Ok(Err(_)) => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Invalid), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
     }
 }
 
@@ -876,6 +921,23 @@ mod tests {
         assert!(result.packet.is_none());
         assert_eq!(result.layers[0].status, ContinuityLayerStatusV1::Empty);
         assert_eq!(result.layers[4].status, ContinuityLayerStatusV1::Denied);
+    }
+
+    #[test]
+    fn wake_delivery_has_no_native_runtime_configuration_write_path() {
+        let source = include_str!("managed_continuity.rs");
+        for forbidden in [
+            ["config", ".toml"].concat(),
+            ["CLAUDE", ".md"].concat(),
+            ["AGENTS", ".md"].concat(),
+            ["settings", ".json"].concat(),
+            ["write_native", "_runtime"].concat(),
+        ] {
+            assert!(
+                !source.contains(&forbidden),
+                "native config path: {forbidden}"
+            );
+        }
     }
 
     #[cfg(unix)]

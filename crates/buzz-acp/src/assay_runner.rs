@@ -191,9 +191,11 @@ fn build_prompt_blocks(packet: &AssayGenerationPacketV1) -> Result<Vec<String>> 
                 .ok_or_else(|| anyhow!("wake packet omitted provider context"))?;
             let result: ContinuityContextResultV1 =
                 serde_json::from_str(serialized).context("parse wake provider context")?;
-            let block = crate::continuity_provider::continuity_prompt_block(result)
-                .ok_or_else(|| anyhow!("wake provider context contained no packet"))?;
-            blocks.push(block);
+            let rendered = crate::continuity_provider::continuity_prompt_blocks(result);
+            if rendered.is_empty() {
+                return Err(anyhow!("wake provider context contained no packet"));
+            }
+            blocks.extend(rendered);
         }
     }
     blocks.push(packet.opening_prompt.clone());

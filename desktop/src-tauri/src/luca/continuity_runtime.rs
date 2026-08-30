@@ -14,7 +14,8 @@ use luca_continuity::{
     RetrievalText, RevisionActor, RevisionLifecycle, RevisionOperation, RevisionRequest,
 };
 use luca_protocol::{
-    canonical_sha256, Hex64, OpaqueId, ResidentHandoffV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    canonical_sha256, CanonicalTimestamp, Hex64, OpaqueId, ResidentHandoffV1,
+    ResidentMemoryNoteV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
 
 use crate::app_state::ContinuityLifecycleLock;
@@ -124,6 +125,19 @@ pub(crate) struct ContinuityReadLeaseReceiptV1 {
 pub(crate) struct ContinuityReadLeaseViewV1<'lease> {
     pub(crate) authority: &'lease RevisionAuthorityTokenV1,
     pub(crate) retrieval: &'lease RetrievalResult,
+    /// Complete bounded active snapshot paired with authenticated envelope
+    /// metadata from the same immutable generation.
+    pub(crate) active_records: &'lease [ContinuityActiveLeaseRecordV1],
+}
+
+/// One authenticated active head available only inside the immutable lease.
+/// Debug remains body-free through `RetrievalRecord`'s implementation.
+pub(crate) struct ContinuityActiveLeaseRecordV1 {
+    pub(crate) record: RetrievalRecord,
+    pub(crate) author_kind: OpaqueId,
+    pub(crate) source_event_ids: Vec<Hex64>,
+    pub(crate) canonical_timestamp: CanonicalTimestamp,
+    pub(crate) pinned_owner_correction: bool,
 }
 
 /// Fixed fail-soft, body-free lease outcomes. Plaintext is exposed only to the
@@ -1328,7 +1342,7 @@ where
             )));
         }
     };
-    let mut records = Vec::with_capacity(capture.active_heads.len());
+    let mut active_records = Vec::with_capacity(capture.active_heads.len());
     for encrypted in &capture.active_heads {
         // Journal bodies and owner annotations are explicit-disclosure-only.
         // They must never enter the ordinary pre-turn retrieval index.
@@ -1385,7 +1399,26 @@ where
             }
         };
         match RetrievalRecord::new(input) {
-            Ok(record) => records.push(record),
+            Ok(record) => {
+                let source_event_ids = match exact_source_event_ids(&record) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Invalid(
+                            receipt(request, attempt_count, Some(&capture.token), 0),
+                        ));
+                    }
+                };
+                active_records.push(ContinuityActiveLeaseRecordV1 {
+                    record,
+                    author_kind: encrypted.author_kind.clone(),
+                    source_event_ids,
+                    canonical_timestamp: encrypted.created_at.clone(),
+                    pinned_owner_correction: capture
+                        .pinned_owner_correction_heads
+                        .binary_search(&encrypted.record_id)
+                        .is_ok(),
+                });
+            }
             Err(_) => {
                 return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Invalid(receipt(
                     request,
@@ -1396,6 +1429,10 @@ where
             }
         }
     }
+    let records = active_records
+        .iter()
+        .map(|active| active.record.clone())
+        .collect::<Vec<_>>();
     let index = match InMemoryRetrievalIndex::hydrate(&records) {
         Ok(index) => index,
         Err(_) => {
@@ -1518,7 +1555,7 @@ where
             0,
         )));
     }
-    if retrieval.hits.is_empty() {
+    if active_records.is_empty() {
         return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Empty(receipt(
             request,
             attempt_count,
@@ -1543,8 +1580,24 @@ where
     consumer(ContinuityReadLeaseViewV1 {
         authority: &capture.token,
         retrieval: &retrieval,
+        active_records: &active_records,
     });
     AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Ready(ready_receipt))
+}
+
+fn exact_source_event_ids(record: &RetrievalRecord) -> Result<Vec<Hex64>, ()> {
+    let mut source_event_ids = match record.record_type().as_str() {
+        "handoff" => serde_json::from_str::<ResidentHandoffV1>(record.body())
+            .map_err(|_| ())?
+            .source_event_ids,
+        "memory-note" => serde_json::from_str::<ResidentMemoryNoteV1>(record.body())
+            .map_err(|_| ())?
+            .source_event_ids,
+        _ => Vec::new(),
+    };
+    source_event_ids.sort();
+    source_event_ids.dedup();
+    Ok(source_event_ids)
 }
 
 fn restore_error_outcome(

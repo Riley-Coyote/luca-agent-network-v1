@@ -1866,12 +1866,12 @@ fn continuity_retrieval_cue(
     cue
 }
 
-async fn managed_continuity_prompt_block(
+async fn managed_continuity_prompt_blocks(
     ctx: &PromptContext,
     batch: &FlushBatch,
     conversation_context: Option<&ConversationContext>,
     turn_id: &str,
-) -> Option<String> {
+) -> Option<Vec<String>> {
     let managed = ctx.managed_final_publisher.as_ref()?;
     let trigger = last_eligible_managed_trigger(batch, &managed.owner_pubkey)?;
     let now_unix_ms: u64 = SystemTime::now()
@@ -1896,7 +1896,7 @@ async fn managed_continuity_prompt_block(
         luca_protocol::SafeU53::new(luca_protocol::MAX_CONTINUITY_PACKET_BYTES as u64).ok()?,
     )?;
     let result = crate::continuity_provider::resolve_inherited_managed_continuity(&intent).await?;
-    crate::continuity_provider::continuity_prompt_block(result)
+    Some(crate::continuity_provider::continuity_prompt_blocks(result))
 }
 
 async fn managed_session_context(
@@ -2867,7 +2867,9 @@ pub async fn run_prompt_task(
         // dedicated desktop continuity channel. Legacy, heartbeat, invalid,
         // sibling, and otherwise ineligible work never invokes the provider.
         let continuity_context =
-            managed_continuity_prompt_block(&ctx, b, conversation_context.as_ref(), &turn_id).await;
+            managed_continuity_prompt_blocks(&ctx, b, conversation_context.as_ref(), &turn_id)
+                .await
+                .unwrap_or_default();
 
         let profile_lookup =
             fetch_prompt_profile_lookup(b, conversation_context.as_ref(), &ctx.rest_client).await;
@@ -2894,7 +2896,11 @@ pub async fn run_prompt_task(
                 agent_core: agent_core.as_deref(),
                 channel_info: channel_info.as_ref(),
                 conversation_context: conversation_context.as_ref(),
-                continuity_context: continuity_context.as_deref(),
+                continuity_context: if continuity_context.is_empty() {
+                    None
+                } else {
+                    Some(&continuity_context)
+                },
                 profile_lookup: profile_lookup.as_ref(),
                 managed_publication: ctx.agent_keys.is_none(),
                 has_system_prompt_support: agent.has_system_prompt_support(),

@@ -20,6 +20,7 @@ use luca_continuity::{
     PORTABLE_CAPSULE_NIP_AE_SLUG,
 };
 use luca_protocol::{ContinuityLayerStatusV1, Hex64, Sha256Ref};
+use luca_protocol::{ContinuityWakeItemV1, OpaqueId};
 use nostr::{Event, JsonUtil, Keys, PublicKey};
 use reqwest::Method;
 use zeroize::Zeroize;
@@ -192,6 +193,61 @@ pub(crate) fn capsule_context_layer(
             ContinuityLayerMaterial::ready(vec![item])
         }
     }
+}
+
+/// Map only the Capsule's exact identity and owner-relationship segments into
+/// Wake fallback items. No prose or category is inferred from other segments.
+pub(crate) fn capsule_wake_orientation(
+    loaded: &LoadedContinuityCapsule,
+) -> Result<(Vec<ContinuityWakeItemV1>, Vec<ContinuityWakeItemV1>), luca_continuity::ContinuityError>
+{
+    let state = loaded.envelope.current_state();
+    let segments = state.segments_in_order();
+    let identity = segments
+        .iter()
+        .find_map(|(name, body)| matches!(*name, "core" | "self_model").then_some(*body).flatten());
+    let relationship = segments
+        .iter()
+        .find_map(|(name, body)| (*name == "owner_relationship").then_some(*body).flatten());
+    let event_ref = Sha256Ref::parse(format!("sha256:{}", loaded.event_id.as_str()))
+        .map_err(|_| luca_continuity::ContinuityError::InvalidCapsule)?;
+    let mut provenance_refs = state.source_refs().to_vec();
+    provenance_refs.push(event_ref);
+    provenance_refs.sort();
+    provenance_refs.dedup();
+    let author_kind = OpaqueId::parse("resident")
+        .map_err(|_| luca_continuity::ContinuityError::InvalidCapsule)?;
+    let source_event_ids = vec![loaded.event_id.clone()];
+    let make_item = |suffix: &str, record_kind: &str, body: &str| {
+        let item = ContinuityWakeItemV1 {
+            item_id: OpaqueId::parse(format!(
+                "{}-{suffix}",
+                loaded.envelope.capsule().capsule_id.as_str()
+            ))
+            .map_err(|_| luca_continuity::ContinuityError::InvalidCapsule)?,
+            record_kind: OpaqueId::parse(record_kind)
+                .map_err(|_| luca_continuity::ContinuityError::InvalidCapsule)?,
+            author_kind: author_kind.clone(),
+            body: body.to_owned(),
+            source_event_ids: source_event_ids.clone(),
+            provenance_refs: provenance_refs.clone(),
+        };
+        item.validate()
+            .map_err(|_| luca_continuity::ContinuityError::InvalidCapsule)?;
+        Ok(item)
+    };
+    Ok((
+        identity
+            .map(|body| make_item("identity", "identity", body))
+            .transpose()?
+            .into_iter()
+            .collect(),
+        relationship
+            .map(|body| make_item("relationship", "relationship", body))
+            .transpose()?
+            .into_iter()
+            .collect(),
+    ))
 }
 
 /// Verify signatures before decrypting, select the public coordinate head,

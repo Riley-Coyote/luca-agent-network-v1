@@ -307,6 +307,11 @@ pub(crate) struct StoredRevisionGenerationV1 {
 pub(crate) struct ImmutableScopeCaptureV1 {
     pub(crate) token: RevisionAuthorityTokenV1,
     pub(crate) active_heads: Vec<ContinuityRecordV1>,
+    /// Exact active heads whose lineage authority is pinned by an owner
+    /// correction. This is captured from the same immutable generation as the
+    /// encrypted envelopes; callers must never reconstruct it from authorship
+    /// or revision order.
+    pub(crate) pinned_owner_correction_heads: Vec<OpaqueId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -449,6 +454,20 @@ impl ContinuityStore {
             &generation.token,
             &generation.snapshot,
         )?;
+        let mut pinned_owner_correction_heads = generation
+            .snapshot
+            .lineages
+            .iter()
+            .filter(|lineage| {
+                lineage.lifecycle == RevisionLifecycle::Active
+                    && lineage.namespace == *requested.namespace().as_protocol()
+                    && lineage.scope == *requested.as_protocol()
+                    && lineage.pinned_owner_correction
+            })
+            .filter_map(|lineage| lineage.active_head_record_id.clone())
+            .collect::<Vec<_>>();
+        pinned_owner_correction_heads.sort();
+        pinned_owner_correction_heads.dedup();
         reject_rotation(&transaction, owner_pubkey)?;
         let reread = load_generation_in_snapshot(&transaction, owner_pubkey)?
             .ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
@@ -461,6 +480,7 @@ impl ContinuityStore {
         Ok(Some(ImmutableScopeCaptureV1 {
             token: generation.token,
             active_heads,
+            pinned_owner_correction_heads,
         }))
     }
 
