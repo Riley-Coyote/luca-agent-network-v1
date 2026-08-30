@@ -1,0 +1,102 @@
+{
+  "schema": "luca.conformance.continuity-spine.v1",
+  "prompt_protocol": "luca.continuity.prompt.v1",
+  "wake_protocol": "luca.continuity.wake.v1",
+  "compiler_version": "wake-spine-v1",
+  "limits": {
+    "outer_packet_bytes": 49152,
+    "item_body_bytes": 4096,
+    "source_event_ids_per_item": 8,
+    "provenance_refs_per_item": 16,
+    "identity_orientation": 1,
+    "relationship_orientation": 1,
+    "current_handoff": 1,
+    "recent_corrections": 3,
+    "open_commitments": 5,
+    "relevant_continuity_items": 5,
+    "ambient_continuity_items": 1,
+    "reflection_prompts": 0
+  },
+  "selection_order": [
+    "recent_corrections",
+    "current_handoff",
+    "open_commitments",
+    "identity_orientation",
+    "relationship_orientation",
+    "relevant_continuity_items",
+    "ambient_continuity_items",
+    "capsule_orientation_fallback",
+    "owner_brain_references"
+  ],
+  "mandatory_when_present": [
+    "metadata",
+    "layer_statuses",
+    "body_free_receipt_ref",
+    "recent_corrections",
+    "current_handoff"
+  ],
+  "optional_drop_order": [
+    "owner_brain_references",
+    "capsule_orientation_fallback",
+    "ambient_continuity_items",
+    "relevant_continuity_items",
+    "relationship_orientation",
+    "identity_orientation",
+    "open_commitments"
+  ],
+  "layer_order": [
+    "capsule",
+    "handoff",
+    "hypomnema",
+    "associative_recall",
+    "owner_brain"
+  ],
+  "fail_open_statuses": [
+    "empty",
+    "denied",
+    "stale",
+    "locked",
+    "unavailable",
+    "timeout",
+    "invalid"
+  ],
+  "capture": {
+    "allowed_outcomes": ["no_change", "handoff"],
+    "unsupported_outcome": "changes",
+    "unsupported_terminal_code": "unsupported_spine_outcome",
+    "invalid_terminal_code": "invalid_handoff_result",
+    "automatic_writable_record_kinds": ["handoff"]
+  },
+  "isolation_canaries": {
+    "owner_pubkey": "1111111111111111111111111111111111111111111111111111111111111111",
+    "resident_a_pubkey": "2222222222222222222222222222222222222222222222222222222222222222",
+    "resident_b_pubkey": "3333333333333333333333333333333333333333333333333333333333333333",
+    "resident_a_private_canary": "CASSIOPEIA-A-ONLY",
+    "resident_b_private_canary": "ORION-B-ONLY",
+    "forgotten_canary": "FORGOTTEN-LANTERN-MUST-NOT-RETURN",
+    "superseded_canary": "SUPERSEDED-RED-MUST-NOT-BE-CURRENT",
+    "corrected_canary": "CORRECTED-BLUE-IS-CURRENT"
+  },
+  "required_cases": [
+    "deterministic_packet_and_receipt",
+    "complete_utf8_item_boundaries",
+    "pre_turn_no_write",
+    "all_failure_states_fail_open",
+    "cross_resident_isolation",
+    "brain_denial_preserves_private_wake",
+    "pinned_correction_prevents_automatic_reversal",
+    "forget_survives_retry_restart_and_replay",
+    "ineligible_publications_enqueue_nothing",
+    "finalized_event_exactly_once_handoff",
+    "changes_commits_nothing",
+    "body_free_operational_surfaces"
+  ],
+  "explicit_deferrals": [
+    "automatic_memory_notes",
+    "reflection",
+    "metabolism",
+    "scheduled_inner_life",
+    "cross_resident_learning",
+    "native_runtime_memory_mutation"
+  ]
+}
