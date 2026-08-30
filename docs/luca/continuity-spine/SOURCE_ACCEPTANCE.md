@@ -1,6 +1,6 @@
 # Continuity spine source acceptance
 
-Status: assurance lane prepared on `codex/continuity-assurance`
+Status: source-tested on integrated commit `dcdf5d6bb`
 
 Authority: [`BUILD_SPEC.md`](BUILD_SPEC.md)
 
@@ -20,16 +20,40 @@ The standalone kernel acceptance tests are
 
 ## Evidence map
 
-| Contract | Deterministic source proof | Integration proof still owned elsewhere |
+| Contract | Deterministic kernel proof | Integrated host/protocol proof |
 |---|---|---|
-| Frozen protocols, limits, selection order, capture outcomes, and deferrals | `frozen_spine_fixture_matches_the_approved_contract` | Core canonical protocol-vector parsing |
-| Locked, unavailable, corrupt/invalid, timeout, Disabled/empty continuity never blocks ordinary generation | `every_frozen_fail_open_state_returns_a_body_free_result_without_a_packet` covers the pure resolver statuses and deadline | Host managed-dispatch tests cover Disabled mode and ordinary generation continuation |
-| Exact owner-resident namespace isolation and structural Owner Brain separation | `resident_private_scope_is_exact_and_owner_brain_cannot_alias_it` | Core Wake canary mapping and Host prompt-section projection |
-| Pinned owner correction cannot be automatically reversed | `pinned_correction_blocks_automatic_reversal_and_forget_survives_restart` | Host stale-job completion without mutation |
-| Forget removes active retrieval and survives purge, restart, and replay | `pinned_correction_blocks_automatic_reversal_and_forget_survives_restart` | Host pending/running job cancellation |
-| Operational surfaces remain body-free | `operational_debug_and_fixture_receipts_are_body_free` | Host logs, job rows, delivery receipts, and error projections |
+| Frozen protocols, limits, selection order, capture outcomes, and deferrals | `frozen_spine_fixture_matches_the_approved_contract` | Canonical protocol-vector parsing passed in `luca-protocol` |
+| Locked, unavailable, corrupt/invalid, timeout, Disabled/empty continuity never blocks ordinary generation | `every_frozen_fail_open_state_returns_a_body_free_result_without_a_packet` covers the pure resolver statuses and deadline | Managed-dispatch tests cover fail-open continuation |
+| Exact owner-resident namespace isolation and structural Owner Brain separation | `resident_private_scope_is_exact_and_owner_brain_cannot_alias_it` | Wake canary mapping and prompt-section projection passed in focused host tests |
+| Pinned owner correction cannot be automatically reversed | `pinned_correction_blocks_automatic_reversal_and_forget_survives_restart` | Stale completion and correction-selection tests passed |
+| Forget removes active retrieval and survives purge, restart, and replay | `pinned_correction_blocks_automatic_reversal_and_forget_survives_restart` | Pending/running job cancellation and replay tests passed |
+| Operational surfaces remain body-free | `operational_debug_and_fixture_receipts_are_body_free` | Focused delivery-receipt and error-projection tests passed |
 
-## Commands
+## Integrated evidence
+
+The following focused gate passed from exact integrated commit `dcdf5d6bb` on
+2026-08-29:
+
+- `cargo test -p luca-protocol --test continuity_vectors`: 10 passed.
+- `cargo test -p luca-continuity`: 121 passed across library, assay, retrieval,
+  revision, scope, and spine-acceptance targets.
+- `cargo test -p buzz-acp continuity --lib`: 25 passed.
+- `cargo test --manifest-path desktop/src-tauri/Cargo.toml continuity --lib`:
+  127 passed.
+- `cargo test --manifest-path desktop/src-tauri/Cargo.toml managed_message_publisher --lib`:
+  22 passed.
+- `cargo clippy -p luca-protocol -p luca-continuity --all-targets -- -D warnings`:
+  passed.
+- `cargo clippy -p buzz-acp --lib -- -D warnings`: passed.
+- `cargo check --manifest-path desktop/src-tauri/Cargo.toml`: passed with three
+  pre-existing dead-code warnings in `visits.rs`.
+- `cargo fmt --all -- --check` and `git diff --check`: passed.
+
+The exact protocol-vector target was used because the broader package filter
+would select only one intended vector test and would not constitute the frozen
+protocol gate.
+
+## Reproduction commands
 
 Run from the exact integrated candidate:
 
@@ -47,10 +71,8 @@ not evidence and must be replaced by the smallest exact target.
 
 ## Integration wiring checklist
 
-The assurance fixture intentionally does not invent Phase 1 APIs before they
-exist. When the Wake compiler lands, the integration owner must bind the same
-fixture to the actual strict protocol types and add or retain deterministic
-proof for:
+The integrated compiler, host delivery path, capture boundary, and acceptance
+fixture retain deterministic proof for:
 
 - byte-identical Wake and body-free receipt for the same snapshot and cue;
 - complete UTF-8 item admission and mandatory-category budget behavior;
@@ -64,10 +86,9 @@ proof for:
   creating no capture job;
 - one finalized event producing one logical job and at most one handoff mutation.
 
-These are integration requirements, not deferrals. This assurance commit is
-complete when its standalone fixture and current stable-boundary tests pass; the
-spine is complete only after every Core, Host, source, and installed gate in the
-approved specification passes on one exact unified-branch candidate.
+These are integration requirements, not deferrals. They passed on the exact
+source candidate above. Source-tested does not imply the separate installed or
+Riley-accepted states.
 
 ## Verdict vocabulary
 
