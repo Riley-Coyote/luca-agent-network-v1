@@ -288,40 +288,42 @@ where
             .take()
             .ok_or(luca_continuity::ContinuityError::InvalidContextLayer)
             .map(|supplement| {
-                let wake = assemble_wake_material(
-                    lease.active_records,
-                    lease.retrieval,
-                    relationship_scope_ref.clone(),
-                    cue_ref.clone(),
-                    supplement.capsule_identity_orientation,
-                    supplement.capsule_relationship_orientation,
-                    supplement.owner_brain_references,
-                );
-                let snapshot = assemble_ready_snapshot(
-                    lease.retrieval,
-                    supplement.capsule_layer,
-                    supplement.owner_brain_layer,
-                );
+                let resident_wake =
+                    assemble_resident_wake_material(lease.active_records, lease.retrieval);
+                let resident_layers = assemble_resident_layers(lease.retrieval);
+                let resident_ready = resident_wake.is_ok() && resident_layers.is_ok();
+                let snapshot = match resident_layers {
+                    Ok((handoff, hypomnema, associative_recall)) if resident_ready => {
+                        Ok(ContinuityReadSnapshot {
+                            capsule: supplement.capsule_layer,
+                            handoff,
+                            hypomnema,
+                            associative_recall,
+                            owner_brain: supplement.owner_brain_layer,
+                        })
+                    }
+                    _ => degraded_notebook_snapshot(
+                        supplement.capsule_layer,
+                        supplement.owner_brain_layer,
+                        ContinuityLayerStatusV1::Invalid,
+                    ),
+                };
+                let (current_handoff, resident_items) = resident_wake.unwrap_or_default();
+                let wake = WakeHostMaterialV1 {
+                    relationship_scope_ref: relationship_scope_ref.clone(),
+                    cue_ref: cue_ref.clone(),
+                    current_handoff: resident_ready.then_some(current_handoff).flatten(),
+                    resident_items: resident_ready.then_some(resident_items).unwrap_or_default(),
+                    capsule_identity_orientation: supplement.capsule_identity_orientation,
+                    capsule_relationship_orientation: supplement
+                        .capsule_relationship_orientation,
+                    owner_brain_references: supplement.owner_brain_references,
+                };
                 (snapshot, wake)
             });
         let (snapshot, wake) = match supplement {
-            Ok((snapshot, Ok(wake))) => (snapshot, wake),
-            Ok((Err(error), _)) | Err(error) => {
-                callback_receipt = Some(resolve_snapshot_to_receipt(
-                    &request,
-                    Err(error),
-                    empty_wake_material(
-                        relationship_scope_ref.clone(),
-                        cue_ref.clone(),
-                    ),
-                    now_unix_ms,
-                    &mut sink,
-                    false,
-                    None,
-                ));
-                return;
-            }
-            Ok((_, Err(error))) => {
+            Ok((snapshot, wake)) => (snapshot, wake),
+            Err(error) => {
                 callback_receipt = Some(resolve_snapshot_to_receipt(
                     &request,
                     Err(error),
@@ -584,15 +586,13 @@ fn cue_ref(cue: &RetrievalText) -> Sha256Ref {
         .expect("sha-256 digest is always a valid reference")
 }
 
-fn assemble_wake_material(
+fn assemble_resident_wake_material(
     active_records: &[ContinuityActiveLeaseRecordV1],
     retrieval: &RetrievalResult,
-    relationship_scope_ref: Sha256Ref,
-    cue_ref: Sha256Ref,
-    capsule_identity_orientation: Vec<ContinuityWakeItemV1>,
-    capsule_relationship_orientation: Vec<ContinuityWakeItemV1>,
-    owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
-) -> Result<WakeHostMaterialV1, luca_continuity::ContinuityError> {
+) -> Result<
+    (Option<ContinuityWakeHandoffV1>, Vec<ContinuityWakeSourceItem>),
+    luca_continuity::ContinuityError,
+> {
     let retrieval_ranks = retrieval
         .hits
         .iter()
@@ -600,8 +600,9 @@ fn assemble_wake_material(
         .map(|(rank, hit)| (hit.record().record_id().clone(), rank))
         .collect::<BTreeMap<_, _>>();
     let mut current_handoff = None;
-    let mut resident_items = Vec::with_capacity(active_records.len());
-    for (ambient_rank, active) in active_records.iter().enumerate() {
+    let mut selected = Vec::new();
+    let mut ambient = Vec::new();
+    for active in active_records {
         let record = &active.record;
         let kind = DurableContinuityRecordKind::parse(record.record_type())?;
         if matches!(
@@ -632,35 +633,62 @@ fn assemble_wake_material(
             source_event_ids: active.source_event_ids.clone(),
             provenance_refs: record.provenance_refs().to_vec(),
         };
-        let selected_rank = retrieval_ranks.get(record.record_id()).copied();
-        let rank = selected_rank.unwrap_or_else(|| retrieval.hits.len() + ambient_rank);
+        if let Some(rank) = retrieval_ranks.get(record.record_id()).copied() {
+            selected.push((rank, active, item));
+        } else {
+            ambient.push((
+                active.canonical_timestamp.clone(),
+                record.record_id().clone(),
+                active,
+                item,
+            ));
+        }
+    }
+    selected.sort_by_key(|(rank, _, _)| *rank);
+    ambient.sort_by(|left, right| {
+        right
+            .0
+            .cmp(&left.0)
+            .then_with(|| left.1.cmp(&right.1))
+    });
+    let mut resident_items = Vec::with_capacity(selected.len() + ambient.len());
+    for (rank, active, item) in selected {
         let rank = SafeU53::new(rank as u64)
             .map_err(|_| luca_continuity::ContinuityError::InvalidContextLayer)?;
         resident_items.push(ContinuityWakeSourceItem::new(
             item,
-            record.revision(),
+            active.record.revision(),
             active.canonical_timestamp.clone(),
             rank,
             active.pinned_owner_correction,
-            selected_rank.is_some(),
+            true,
         )?);
     }
-    Ok(WakeHostMaterialV1 {
-        relationship_scope_ref,
-        cue_ref,
-        current_handoff,
-        resident_items,
-        capsule_identity_orientation,
-        capsule_relationship_orientation,
-        owner_brain_references,
-    })
+    for (ambient_rank, (_, _, active, item)) in ambient.into_iter().enumerate() {
+        let rank = SafeU53::new((retrieval.hits.len() + ambient_rank) as u64)
+            .map_err(|_| luca_continuity::ContinuityError::InvalidContextLayer)?;
+        resident_items.push(ContinuityWakeSourceItem::new(
+            item,
+            active.record.revision(),
+            active.canonical_timestamp.clone(),
+            rank,
+            active.pinned_owner_correction,
+            false,
+        )?);
+    }
+    Ok((current_handoff, resident_items))
 }
 
-fn assemble_ready_snapshot(
+fn assemble_resident_layers(
     retrieval: &RetrievalResult,
-    capsule: ContinuityLayerMaterial,
-    owner_brain: ContinuityLayerMaterial,
-) -> Result<ContinuityReadSnapshot, luca_continuity::ContinuityError> {
+) -> Result<
+    (
+        ContinuityLayerMaterial,
+        ContinuityLayerMaterial,
+        ContinuityLayerMaterial,
+    ),
+    luca_continuity::ContinuityError,
+> {
     let mut handoff = Vec::new();
     let mut hypomnema = Vec::new();
     let mut associative_recall = Vec::new();
@@ -731,13 +759,11 @@ fn assemble_ready_snapshot(
             }
         }
     }
-    Ok(ContinuityReadSnapshot {
-        capsule,
-        handoff: layer_from_items(handoff)?,
-        hypomnema: layer_from_items(hypomnema)?,
-        associative_recall: layer_from_items(associative_recall)?,
-        owner_brain,
-    })
+    Ok((
+        layer_from_items(handoff)?,
+        layer_from_items(hypomnema)?,
+        layer_from_items(associative_recall)?,
+    ))
 }
 
 fn layer_from_items(

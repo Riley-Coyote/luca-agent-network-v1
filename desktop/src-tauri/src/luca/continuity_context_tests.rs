@@ -520,6 +520,123 @@ fn ready_records_are_categorized_and_delivered_once_deterministically() {
 }
 
 #[test]
+fn malformed_handoff_preserves_independent_capsule_and_owner_brain() {
+    let address = resident_address();
+    let (retrieval, mut active_records) = retrieval(&address);
+    let malformed = RetrievalRecord::new(RetrievalRecordInput {
+        address: address.clone(),
+        record_id: OpaqueId::parse("01-handoff").unwrap(),
+        record_type: OpaqueId::parse("handoff").unwrap(),
+        revision: SafeU53::new(0).unwrap(),
+        body: RetrievalText::from("{malformed-handoff"),
+        tags: vec![RetrievalText::from("continuity")],
+        confidence_basis_points: 8_000,
+        provenance_refs: vec![sha('a')],
+        outgoing_edges: Vec::new(),
+        state: RetrievalRecordState::Active,
+    })
+    .unwrap();
+    active_records[0].record = malformed;
+    let reader = FakeLeaseReader::ready((retrieval, active_records));
+    let capsule = ready_capsule();
+    let owner_brain = ContinuityLayerMaterial::ready(vec![ContinuityReferenceItem::new(
+        OpaqueId::parse("brain-chunk-1").unwrap(),
+        "independent-owner-brain-body".to_owned(),
+        vec![sha('b')],
+    )
+    .unwrap()])
+    .unwrap();
+
+    let outcome = resolve_with_lease_reader(
+        &reader,
+        request(MAX_CONTINUITY_PACKET_BYTES),
+        address,
+        RetrievalText::from("continuity"),
+        DesktopWakeSupplementV1 {
+            capsule_layer: capsule,
+            capsule_identity_orientation: vec![ContinuityWakeItemV1 {
+                item_id: OpaqueId::parse("portable-capsule-identity").unwrap(),
+                record_kind: OpaqueId::parse("identity").unwrap(),
+                author_kind: OpaqueId::parse("resident").unwrap(),
+                body: "portable-capsule-private-body".into(),
+                source_event_ids: vec![hex('e')],
+                provenance_refs: vec![sha('9')],
+            }],
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_layer: owner_brain,
+            owner_brain_references: vec![ContinuityWorkingReferenceV1 {
+                item_id: OpaqueId::parse("brain-chunk-1").unwrap(),
+                body: "independent-owner-brain-body".into(),
+                source_event_ids: Vec::new(),
+                provenance_refs: vec![sha('b')],
+            }],
+        },
+        None,
+        Instant::now() + Duration::from_secs(1),
+        1,
+        |wire| {
+            let result: ContinuityContextResultV1 = serde_json::from_slice(wire).unwrap();
+            let content = result.packet.unwrap().content;
+            assert!(content.contains("portable-capsule-private-body"));
+            assert!(content.contains("independent-owner-brain-body"));
+            assert!(!content.contains("malformed-handoff"));
+            assert_eq!(result.layers[0].status, ContinuityLayerStatusV1::Ready);
+            assert_eq!(result.layers[1].status, ContinuityLayerStatusV1::Invalid);
+            assert_eq!(result.layers[2].status, ContinuityLayerStatusV1::Invalid);
+            assert_eq!(result.layers[3].status, ContinuityLayerStatusV1::Invalid);
+            assert_eq!(result.layers[4].status, ContinuityLayerStatusV1::Ready);
+        },
+    );
+    assert_eq!(outcome.receipt().status, ContinuityLayerStatusV1::Ready);
+    assert_eq!(
+        outcome.receipt().disposition,
+        DesktopContinuityContextDispositionV1::Delivered
+    );
+}
+
+#[test]
+fn ambient_rank_is_independent_of_active_lineage_order() {
+    fn order(mut active_records: Vec<ContinuityActiveLeaseRecordV1>) -> Vec<String> {
+        let retrieval = RetrievalResult {
+            hits: Vec::new(),
+            lexical_seed_count: 0,
+            activated_candidate_count: 0,
+            vectors_used: false,
+        };
+        let (_, items) = assemble_resident_wake_material(&active_records, &retrieval).unwrap();
+        active_records.clear();
+        items
+            .iter()
+            .map(|item| item.item_id().as_str().to_owned())
+            .collect()
+    }
+
+    fn records(address: &NamespaceScope, reverse: bool) -> Vec<ContinuityActiveLeaseRecordV1> {
+        let (_, records) = retrieval(address);
+        let mut records = records
+            .into_iter()
+            .filter(|active| active.record.record_type().as_str() == "memory-note")
+            .take(3)
+            .collect::<Vec<_>>();
+        records[0].canonical_timestamp =
+            CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
+        records[1].canonical_timestamp =
+            CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
+        records[2].canonical_timestamp =
+            CanonicalTimestamp::parse("2026-08-29T01:00:00Z").unwrap();
+        if reverse {
+            records.reverse();
+        }
+        records
+    }
+
+    let address = resident_address();
+    let expected = order(records(&address, false));
+    assert_eq!(order(records(&address, true)), expected);
+    assert_eq!(expected, vec!["07-note", "08-note", "09-note"]);
+}
+
+#[test]
 fn verified_capsule_is_independent_of_every_notebook_lease_failure() {
     let address = resident_address();
     let reader = FakeLeaseReader::ready(retrieval(&address));
