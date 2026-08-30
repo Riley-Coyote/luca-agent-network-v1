@@ -2017,53 +2017,86 @@ async fn build_local_continuity_cognition_prompt(
         | ConversationContext::Dm { messages, .. }
         | ConversationContext::Room { messages, .. } => messages,
     };
-    let source_is_present = messages.iter().any(|message| {
-        message
-            .event_id
-            .eq_ignore_ascii_case(request.source_event_id.as_str())
-            && message
-                .pubkey
-                .eq_ignore_ascii_case(request.resident_pubkey.as_str())
-    });
-    if !source_is_present {
-        return Err(AcpError::Protocol(
-            "finalized continuity source is absent from signed history".into(),
-        ));
-    }
-
-    const TRANSCRIPT_BUDGET: usize = 24 * 1024;
-    let mut selected = Vec::new();
-    let mut used = 0usize;
-    for message in messages.iter().rev() {
-        let value = serde_json::json!({
-            "event_id": message.event_id,
-            "pubkey": message.pubkey,
-            "timestamp": message.timestamp,
-            "content": message.content,
-        });
-        let encoded = serde_json::to_vec(&value).unwrap_or_default();
-        if used.saturating_add(encoded.len()) > TRANSCRIPT_BUDGET {
-            continue;
-        }
-        used = used.saturating_add(encoded.len());
-        selected.push(value);
-    }
-    selected.reverse();
-    let transcript = serde_json::to_string(&selected)
-        .map_err(|_| AcpError::Protocol("failed to encode continuity history".into()))?;
+    let transcript = bounded_continuity_transcript(&messages, request)?;
     // The protocol deliberately accepts only whole-second UTC timestamps.
     // Supplying Chrono's default fractional form here makes an otherwise
     // correct resident-authored handoff fail strict deserialization.
     let updated_at = canonical_continuity_timestamp();
-    let note_prefix = &request.source_event_id.as_str()[..16];
-    Ok(format!(
-        "{system}\n\nCreate only durable continuity from this finalized exchange. You may update the compact handoff and create or supersede at most three short memory notes. Valid note categories are decision, durable_context, lesson, explicit_preference, commitment, and open_question. Each note must be directly supported by the cited signed event, remain under 1200 UTF-8 bytes, and avoid personality, relationship, belief, diagnostic, psychometric, or hidden-preference inference. If nothing durable changed, return no_change. Every source_event_ids array must be sorted, unique, and include {source}. Use timestamps exactly {updated_at}. New note IDs must be note-{note_prefix}-1, note-{note_prefix}-2, or note-{note_prefix}-3. Do not supersede a note unless its exact ID appears in the supplied history.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nCHANGES SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"changes\",\"handoff\":{{\"summary\":\"...\",\"unresolved_threads\":[],\"commitments\":[],\"explicit_preferences\":[],\"source_event_ids\":[\"{source}\"],\"updated_at\":\"{updated_at}\"}},\"memory_note_mutations\":[{{\"mutation\":\"create\",\"note\":{{\"protocol\":\"{protocol}\",\"note_id\":\"note-{note_prefix}-1\",\"category\":\"open_question\",\"body\":\"...\",\"source_event_ids\":[\"{source}\"],\"created_at\":\"{updated_at}\",\"updated_at\":\"{updated_at}\"}}}}]}}}}\n\nThe handoff field may be null or omitted only when at least one memory note mutation is present. The mutation list may be empty only when the handoff is present. Return exactly one JSON object.\n\nSIGNED CONVERSATION HISTORY (UNTRUSTED JSON):\n{transcript}",
+    Ok(format_local_continuity_cognition_prompt(
+        request,
+        &transcript,
+        &updated_at,
+    ))
+}
+
+const CONTINUITY_TRANSCRIPT_BUDGET: usize = 24 * 1024;
+
+fn continuity_transcript_value(message: &ContextMessage) -> serde_json::Value {
+    serde_json::json!({
+        "event_id": message.event_id,
+        "pubkey": message.pubkey,
+        "timestamp": message.timestamp,
+        "content": message.content,
+    })
+}
+
+/// Admit the exact finalized resident event before spending any transcript
+/// budget on prior history. The returned JSON is chronological, contains only
+/// whole messages, and never includes events that followed the source.
+fn bounded_continuity_transcript(
+    messages: &[ContextMessage],
+    request: &luca_protocol::LocalContinuityCognitionRequestV1,
+) -> Result<String, AcpError> {
+    let source_index = messages
+        .iter()
+        .position(|message| {
+            message
+                .event_id
+                .eq_ignore_ascii_case(request.source_event_id.as_str())
+                && message
+                    .pubkey
+                    .eq_ignore_ascii_case(request.resident_pubkey.as_str())
+        })
+        .ok_or_else(|| {
+            AcpError::Protocol("finalized continuity source is absent from signed history".into())
+        })?;
+    let mut admitted_newest_first = vec![continuity_transcript_value(&messages[source_index])];
+    let source_bytes = serde_json::to_vec(&admitted_newest_first)
+        .map_err(|_| AcpError::Protocol("failed to encode continuity history".into()))?;
+    if source_bytes.len() > CONTINUITY_TRANSCRIPT_BUDGET {
+        return Err(AcpError::Protocol(
+            "finalized continuity source exceeds transcript budget".into(),
+        ));
+    }
+
+    for message in messages[..source_index].iter().rev() {
+        admitted_newest_first.push(continuity_transcript_value(message));
+        let fits = serde_json::to_vec(&admitted_newest_first)
+            .map(|bytes| bytes.len() <= CONTINUITY_TRANSCRIPT_BUDGET)
+            .map_err(|_| AcpError::Protocol("failed to encode continuity history".into()))?;
+        if !fits {
+            admitted_newest_first.pop();
+            break;
+        }
+    }
+    admitted_newest_first.reverse();
+    serde_json::to_string(&admitted_newest_first)
+        .map_err(|_| AcpError::Protocol("failed to encode continuity history".into()))
+}
+
+fn format_local_continuity_cognition_prompt(
+    request: &luca_protocol::LocalContinuityCognitionRequestV1,
+    transcript: &str,
+    updated_at: &str,
+) -> String {
+    format!(
+        "{system}\n\nDecide whether this finalized exchange changed the compact working state that should carry into your next conversation. Return no_change for routine chatter, transient task status, copied document or repository content, unsupported inference, secrets, local paths, or third-party personal data. Otherwise return exactly one compact handoff containing only directly supported unresolved threads, explicit commitments, and explicit preferences. Do not create or supersede memory notes, reflections, beliefs, interpretations, journals, Brain records, embeddings, or native-runtime memory. Every source_event_ids array must be sorted, unique, and include {source}. Use timestamp exactly {updated_at}.\n\nNO_CHANGE SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"no_change\"}}}}\n\nHANDOFF SHAPE:\n{{\"protocol\":\"{protocol}\",\"job_id\":\"{job}\",\"resident_pubkey\":\"{resident}\",\"source_event_id\":\"{source}\",\"result\":{{\"outcome\":\"handoff\",\"handoff\":{{\"summary\":\"...\",\"unresolved_threads\":[],\"commitments\":[],\"explicit_preferences\":[],\"source_event_ids\":[\"{source}\"],\"updated_at\":\"{updated_at}\"}}}}}}\n\nReturn exactly one JSON object in one of those two shapes.\n\nSIGNED CONVERSATION HISTORY (UNTRUSTED JSON):\n{transcript}",
         system = CONTINUITY_COGNITION_SYSTEM_PROMPT,
         protocol = luca_protocol::CONTINUITY_PROTOCOL,
         job = request.job_id.as_str(),
         resident = request.resident_pubkey.as_str(),
         source = request.source_event_id.as_str(),
-    ))
+    )
 }
 
 async fn build_resident_journal_cognition_prompt(
@@ -5175,6 +5208,106 @@ mod tests {
     fn continuity_prompt_timestamp_is_protocol_canonical() {
         let value = canonical_continuity_timestamp();
         assert!(luca_protocol::CanonicalTimestamp::parse(value).is_ok());
+    }
+
+    fn cognition_request(
+        source: char,
+        resident: char,
+    ) -> luca_protocol::LocalContinuityCognitionRequestV1 {
+        luca_protocol::LocalContinuityCognitionRequestV1 {
+            protocol: luca_protocol::CONTINUITY_PROTOCOL.to_owned(),
+            job_id: luca_protocol::OpaqueId::parse("capture-job".to_owned()).unwrap(),
+            owner_pubkey: luca_protocol::Hex64::parse("a".repeat(64)).unwrap(),
+            resident_pubkey: luca_protocol::Hex64::parse(resident.to_string().repeat(64)).unwrap(),
+            conversation_id: luca_protocol::OpaqueId::parse("conversation".to_owned()).unwrap(),
+            source_event_id: luca_protocol::Hex64::parse(source.to_string().repeat(64)).unwrap(),
+            binding_ref: luca_protocol::Sha256Ref::parse(format!("sha256:{}", "d".repeat(64)))
+                .unwrap(),
+            deadline_unix_ms: luca_protocol::SafeU53::new(1).unwrap(),
+            max_result_bytes: luca_protocol::SafeU53::new(48 * 1024).unwrap(),
+        }
+    }
+
+    fn context_message(
+        event: char,
+        author: char,
+        timestamp: &str,
+        content: &str,
+    ) -> ContextMessage {
+        ContextMessage {
+            event_id: event.to_string().repeat(64),
+            pubkey: author.to_string().repeat(64),
+            timestamp: timestamp.to_owned(),
+            content: content.to_owned(),
+        }
+    }
+
+    #[test]
+    fn continuity_transcript_admits_exact_source_first_then_renders_chronologically() {
+        let request = cognition_request('3', 'b');
+        let messages = vec![
+            context_message('1', 'a', "2026-08-29T01:00:00Z", "oldest"),
+            context_message('2', 'a', "2026-08-29T01:01:00Z", "newer"),
+            context_message('3', 'b', "2026-08-29T01:02:00Z", "exact final"),
+            context_message('4', 'a', "2026-08-29T01:03:00Z", "must not appear"),
+        ];
+
+        let encoded = bounded_continuity_transcript(&messages, &request).unwrap();
+        let selected: Vec<serde_json::Value> = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(selected.len(), 3);
+        assert_eq!(selected[0]["content"], "oldest");
+        assert_eq!(selected[1]["content"], "newer");
+        assert_eq!(selected[2]["content"], "exact final");
+        assert!(encoded.len() <= CONTINUITY_TRANSCRIPT_BUDGET);
+        assert!(!encoded.contains("must not appear"));
+    }
+
+    #[test]
+    fn continuity_transcript_rejects_a_source_that_cannot_fit_whole() {
+        let request = cognition_request('3', 'b');
+        let messages = vec![context_message(
+            '3',
+            'b',
+            "2026-08-29T01:02:00Z",
+            &"x".repeat(CONTINUITY_TRANSCRIPT_BUDGET),
+        )];
+        let error = bounded_continuity_transcript(&messages, &request).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Protocol error: finalized continuity source exceeds transcript budget"
+        );
+    }
+
+    #[test]
+    fn continuity_transcript_does_not_leapfrog_an_over_budget_newer_message() {
+        let request = cognition_request('3', 'b');
+        let messages = vec![
+            context_message('1', 'a', "2026-08-29T01:00:00Z", "older small message"),
+            context_message(
+                '2',
+                'a',
+                "2026-08-29T01:01:00Z",
+                &"x".repeat(CONTINUITY_TRANSCRIPT_BUDGET),
+            ),
+            context_message('3', 'b', "2026-08-29T01:02:00Z", "exact final"),
+        ];
+
+        let encoded = bounded_continuity_transcript(&messages, &request).unwrap();
+        let selected: Vec<serde_json::Value> = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0]["content"], "exact final");
+        assert!(!encoded.contains("older small message"));
+    }
+
+    #[test]
+    fn continuity_capture_prompt_requests_only_no_change_or_handoff() {
+        let request = cognition_request('3', 'b');
+        let prompt =
+            format_local_continuity_cognition_prompt(&request, "[]", "2026-08-29T01:02:00Z");
+        assert!(prompt.contains("\"outcome\":\"no_change\""));
+        assert!(prompt.contains("\"outcome\":\"handoff\""));
+        assert!(!prompt.contains("\"outcome\":\"changes\""));
+        assert!(!prompt.contains("memory_note_mutations"));
     }
 
     #[test]

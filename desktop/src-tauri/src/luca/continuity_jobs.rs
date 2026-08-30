@@ -22,10 +22,19 @@ const JOB_KIND: &str = "resident_handoff";
 const MAX_ATTEMPTS: u64 = 2;
 const IDLE_DELAY: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(3);
+const INVALID_HANDOFF_RESULT: &str = "invalid_handoff_result";
+const UNSUPPORTED_SPINE_OUTCOME: &str = "unsupported_spine_outcome";
 // Native runtimes such as OpenClaw may need to initialize a provider process
 // before they can perform the private, tool-free notebook turn. Keep the job
 // bounded, but allow enough time for that real cold-start path.
 const COGNITION_DEADLINE: Duration = Duration::from_secs(180);
+
+fn unsupported_spine_outcome_code(
+    outcome: &LocalContinuityCognitionOutcomeV1,
+) -> Option<&'static str> {
+    matches!(outcome, LocalContinuityCognitionOutcomeV1::Changes { .. })
+        .then_some(UNSUPPORTED_SPINE_OUTCOME)
+}
 
 pub(crate) fn current_canonical_timestamp() -> Result<CanonicalTimestamp, String> {
     CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
@@ -400,7 +409,7 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
     let result = match super::managed_cognition::request(&request) {
         Ok(result) => result,
         Err(super::managed_cognition::ManagedCognitionError::Invalid) => {
-            let _ = fail_job(app, &job, "invalid_request_or_result", false);
+            let _ = fail_job(app, &job, INVALID_HANDOFF_RESULT, false);
             return;
         }
         Err(super::managed_cognition::ManagedCognitionError::Timeout) => {
@@ -412,6 +421,7 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             return;
         }
     };
+    let unsupported_outcome_code = unsupported_spine_outcome_code(&result.result);
     match result.result {
         LocalContinuityCognitionOutcomeV1::NoChange => {
             let _ = complete_job(app, &job, "no_change");
@@ -447,44 +457,15 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
                     retry_or_fail(app, &job, "continuity_unavailable");
                 }
                 ResidentMetabolismCommitOutcomeV1::Invalid => {
-                    let _ = fail_job(app, &job, "invalid_handoff", false);
+                    let _ = fail_job(app, &job, INVALID_HANDOFF_RESULT, false);
                 }
             }
         }
-        LocalContinuityCognitionOutcomeV1::Changes {
-            handoff,
-            memory_note_mutations,
-        } => {
-            if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
-                != Ok(ResidentContinuityModeV1::Enabled)
-                || !job_is_running(app, &job)
-            {
-                let _ = transition_terminal(app, &job, "cancelled", "continuity_preempted");
-                return;
-            }
-            let state = app.state::<AppState>();
-            match state.commit_resident_metabolism(ResidentMetabolismCommitRequestV1 {
-                owner_pubkey: job.job.owner_pubkey.clone(),
-                resident_pubkey: job.job.resident_pubkey.clone(),
-                source_event_id: job.job.source_event_id.clone(),
-                request_id: job.job.job_id.clone(),
-                handoff,
-                memory_note_mutations,
-            }) {
-                ResidentMetabolismCommitOutcomeV1::Committed(_) => {
-                    let _ = complete_job(app, &job, "metabolism_committed");
-                }
-                ResidentMetabolismCommitOutcomeV1::Stale => {
-                    let _ = complete_job(app, &job, "owner_correction_preserved");
-                }
-                ResidentMetabolismCommitOutcomeV1::Locked
-                | ResidentMetabolismCommitOutcomeV1::Unavailable => {
-                    retry_or_fail(app, &job, "continuity_unavailable");
-                }
-                ResidentMetabolismCommitOutcomeV1::Invalid => {
-                    let _ = fail_job(app, &job, "invalid_metabolism", false);
-                }
-            }
+        LocalContinuityCognitionOutcomeV1::Changes { .. } => {
+            // Kept readable by the protocol for backward compatibility, but
+            // the launch spine never commits broad automatic memory changes.
+            let code = unsupported_outcome_code.unwrap_or(UNSUPPORTED_SPINE_OUTCOME);
+            let _ = fail_job(app, &job, code, false);
         }
     }
 }
@@ -947,6 +928,30 @@ mod tests {
         let timestamp = current_canonical_timestamp().expect("canonical timestamp");
         assert_eq!(timestamp.as_str().len(), 20);
         assert!(timestamp.as_str().ends_with('Z'));
+    }
+
+    #[test]
+    fn spine_failure_codes_are_terminal_and_body_free() {
+        assert_eq!(INVALID_HANDOFF_RESULT, "invalid_handoff_result");
+        assert_eq!(UNSUPPORTED_SPINE_OUTCOME, "unsupported_spine_outcome");
+        assert!(!INVALID_HANDOFF_RESULT.contains(' '));
+        assert!(!UNSUPPORTED_SPINE_OUTCOME.contains(' '));
+    }
+
+    #[test]
+    fn legacy_changes_are_classified_as_unsupported_in_spine_mode() {
+        let changes = LocalContinuityCognitionOutcomeV1::Changes {
+            handoff: None,
+            memory_note_mutations: Vec::new(),
+        };
+        assert_eq!(
+            unsupported_spine_outcome_code(&changes),
+            Some("unsupported_spine_outcome")
+        );
+        assert_eq!(
+            unsupported_spine_outcome_code(&LocalContinuityCognitionOutcomeV1::NoChange),
+            None
+        );
     }
 }
 
