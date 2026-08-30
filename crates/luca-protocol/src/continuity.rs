@@ -8,7 +8,7 @@
 
 use crate::{
     canonicalize, CanonicalError, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError,
-    SafeDiagnosticV1, SafeU53, Sha256Ref,
+    SafeDiagnosticV1, SafeU53, Sha256Ref, MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -22,6 +22,30 @@ pub const MAX_CONTINUITY_PACKET_BYTES: usize = 48 * 1024;
 pub const MAX_CONTINUITY_CIPHERTEXT_BYTES: usize = 1_048_576;
 /// Maximum source/provenance references carried by one contract.
 pub const MAX_CONTINUITY_REFS: usize = 256;
+/// Frozen prompt-wrapper discriminator for the launch continuity spine.
+pub const CONTINUITY_PROMPT_PROTOCOL_V1: &str = "luca.continuity.prompt.v1";
+/// Frozen resident Wake discriminator for the launch continuity spine.
+pub const CONTINUITY_WAKE_PROTOCOL_V1: &str = "luca.continuity.wake.v1";
+/// Exact compiler identifier included in body-free Wake receipts.
+pub const CONTINUITY_WAKE_COMPILER_V1: &str = "wake-spine-v1";
+/// Maximum UTF-8 bytes in one Wake or working-reference body.
+pub const MAX_CONTINUITY_WAKE_ITEM_BYTES: usize = 4 * 1024;
+/// Maximum source events carried by one Wake item.
+pub const MAX_CONTINUITY_WAKE_SOURCE_EVENTS: usize = 8;
+/// Maximum provenance references carried by one Wake item.
+pub const MAX_CONTINUITY_WAKE_PROVENANCE_REFS: usize = 16;
+/// Maximum explicit identity anchors in one Wake.
+pub const MAX_CONTINUITY_WAKE_IDENTITY_ITEMS: usize = 1;
+/// Maximum explicit relationship anchors in one Wake.
+pub const MAX_CONTINUITY_WAKE_RELATIONSHIP_ITEMS: usize = 1;
+/// Maximum pinned owner corrections in one Wake.
+pub const MAX_CONTINUITY_WAKE_CORRECTIONS: usize = 3;
+/// Maximum explicit open commitments, preferences, and threads in one Wake.
+pub const MAX_CONTINUITY_WAKE_COMMITMENTS: usize = 5;
+/// Maximum relevant resident-private items in one Wake.
+pub const MAX_CONTINUITY_WAKE_RELEVANT_ITEMS: usize = 5;
+/// Maximum ambient resident-private items in one Wake.
+pub const MAX_CONTINUITY_WAKE_AMBIENT_ITEMS: usize = 1;
 /// Maximum UTF-8 bytes in the compact resident handoff summary.
 pub const MAX_HANDOFF_SUMMARY_BYTES: usize = 4 * 1024;
 /// Maximum UTF-8 bytes in one handoff list item.
@@ -597,6 +621,505 @@ impl ContinuityLayerResultV1 {
 }
 
 validated_deserialize!(ContinuityLayerResultV1, RawContinuityLayerResultV1);
+
+fn bounded_wake_body(value: &str) -> Result<(), ContinuityError> {
+    bounded_handoff_text(value, false, MAX_CONTINUITY_WAKE_ITEM_BYTES)
+}
+
+fn validate_wake_record_kind(value: &OpaqueId) -> Result<(), ContinuityError> {
+    match value.as_str() {
+        "handoff"
+        | "open-thread"
+        | "commitment"
+        | "preference"
+        | "hypomnema"
+        | "memory-note"
+        | "journal"
+        | "journal-annotation"
+        | "reflection"
+        | "owner-brain-source"
+        | "owner-brain-binding"
+        | "owner-brain-chunk-page"
+        | "owner-brain-grant"
+        | "owner-brain-receipt"
+        | "connected-brain-source"
+        | "connected-brain-binding"
+        | "connected-brain-index-page"
+        | "repository-work-grant"
+        | "associative-engram"
+        | "typed-connection"
+        | "identity"
+        | "relationship"
+        | "conviction" => Ok(()),
+        _ => Err(ContinuityError::Binding),
+    }
+}
+
+fn validate_wake_author(value: &OpaqueId) -> Result<(), ContinuityError> {
+    match value.as_str() {
+        "owner" | "resident" | "system" | "automatic" => Ok(()),
+        _ => Err(ContinuityError::Binding),
+    }
+}
+
+/// One bounded, provenance-carrying resident-private Wake item.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuityWakeItemV1 {
+    /// Stable active record identifier.
+    pub item_id: OpaqueId,
+    /// Exact closed durable record kind.
+    pub record_kind: OpaqueId,
+    /// Exact author category.
+    pub author_kind: OpaqueId,
+    /// Whole untrusted UTF-8 body.
+    pub body: String,
+    /// Sorted unique exact signed source events.
+    pub source_event_ids: Vec<Hex64>,
+    /// Sorted unique body-free provenance references.
+    pub provenance_refs: Vec<Sha256Ref>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawContinuityWakeItemV1 {
+    item_id: OpaqueId,
+    record_kind: OpaqueId,
+    author_kind: OpaqueId,
+    body: String,
+    source_event_ids: Vec<Hex64>,
+    provenance_refs: Vec<Sha256Ref>,
+}
+
+impl From<RawContinuityWakeItemV1> for ContinuityWakeItemV1 {
+    fn from(raw: RawContinuityWakeItemV1) -> Self {
+        Self {
+            item_id: raw.item_id,
+            record_kind: raw.record_kind,
+            author_kind: raw.author_kind,
+            body: raw.body,
+            source_event_ids: raw.source_event_ids,
+            provenance_refs: raw.provenance_refs,
+        }
+    }
+}
+
+impl ContinuityWakeItemV1 {
+    /// Enforce the Wake record, author, body, source, and provenance bounds.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        validate_wake_record_kind(&self.record_kind)?;
+        validate_wake_author(&self.author_kind)?;
+        bounded_wake_body(&self.body)?;
+        if self.source_event_ids.len() > MAX_CONTINUITY_WAKE_SOURCE_EVENTS
+            || !self
+                .source_event_ids
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+            || self.provenance_refs.is_empty()
+            || self.provenance_refs.len() > MAX_CONTINUITY_WAKE_PROVENANCE_REFS
+            || !self
+                .provenance_refs
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        {
+            return Err(ContinuityError::Sequence);
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ContinuityWakeItemV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakeItemV1")
+            .field("item_id", &self.item_id)
+            .field("record_kind", &self.record_kind)
+            .field("author_kind", &self.author_kind)
+            .field("body", &"[REDACTED]")
+            .field("source_event_ids", &self.source_event_ids)
+            .field("provenance_refs", &self.provenance_refs)
+            .finish()
+    }
+}
+
+validated_deserialize!(ContinuityWakeItemV1, RawContinuityWakeItemV1);
+
+/// One separately authorized Owner Brain working reference.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuityWorkingReferenceV1 {
+    /// Stable source item identifier.
+    pub item_id: OpaqueId,
+    /// Whole untrusted UTF-8 body.
+    pub body: String,
+    /// Sorted unique exact signed source events, when any.
+    pub source_event_ids: Vec<Hex64>,
+    /// Sorted unique body-free provenance references.
+    pub provenance_refs: Vec<Sha256Ref>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawContinuityWorkingReferenceV1 {
+    item_id: OpaqueId,
+    body: String,
+    source_event_ids: Vec<Hex64>,
+    provenance_refs: Vec<Sha256Ref>,
+}
+
+impl From<RawContinuityWorkingReferenceV1> for ContinuityWorkingReferenceV1 {
+    fn from(raw: RawContinuityWorkingReferenceV1) -> Self {
+        Self {
+            item_id: raw.item_id,
+            body: raw.body,
+            source_event_ids: raw.source_event_ids,
+            provenance_refs: raw.provenance_refs,
+        }
+    }
+}
+
+impl ContinuityWorkingReferenceV1 {
+    /// Enforce the same whole-item and provenance bounds as Wake items.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        bounded_wake_body(&self.body)?;
+        if self.source_event_ids.len() > MAX_CONTINUITY_WAKE_SOURCE_EVENTS
+            || !self
+                .source_event_ids
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+            || self.provenance_refs.is_empty()
+            || self.provenance_refs.len() > MAX_CONTINUITY_WAKE_PROVENANCE_REFS
+            || !self
+                .provenance_refs
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        {
+            return Err(ContinuityError::Sequence);
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ContinuityWorkingReferenceV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContinuityWorkingReferenceV1")
+            .field("item_id", &self.item_id)
+            .field("body", &"[REDACTED]")
+            .field("source_event_ids", &self.source_event_ids)
+            .field("provenance_refs", &self.provenance_refs)
+            .finish()
+    }
+}
+
+validated_deserialize!(
+    ContinuityWorkingReferenceV1,
+    RawContinuityWorkingReferenceV1
+);
+
+/// One validated active compact handoff and its revision authority.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuityWakeHandoffV1 {
+    /// Exact active encrypted-record identifier.
+    pub active_record_id: OpaqueId,
+    /// Exact active immutable revision.
+    pub revision: SafeU53,
+    /// Existing validated compact resident handoff.
+    pub handoff: ResidentHandoffV1,
+    /// Sorted unique body-free provenance references.
+    pub provenance_refs: Vec<Sha256Ref>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawContinuityWakeHandoffV1 {
+    active_record_id: OpaqueId,
+    revision: SafeU53,
+    handoff: ResidentHandoffV1,
+    provenance_refs: Vec<Sha256Ref>,
+}
+
+impl From<RawContinuityWakeHandoffV1> for ContinuityWakeHandoffV1 {
+    fn from(raw: RawContinuityWakeHandoffV1) -> Self {
+        Self {
+            active_record_id: raw.active_record_id,
+            revision: raw.revision,
+            handoff: raw.handoff,
+            provenance_refs: raw.provenance_refs,
+        }
+    }
+}
+
+impl ContinuityWakeHandoffV1 {
+    /// Validate the compact handoff and its exact active revision provenance.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        self.handoff.validate()?;
+        if self.provenance_refs.is_empty()
+            || self.provenance_refs.len() > MAX_CONTINUITY_WAKE_PROVENANCE_REFS
+            || !self
+                .provenance_refs
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        {
+            return Err(ContinuityError::Sequence);
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ContinuityWakeHandoffV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakeHandoffV1")
+            .field("active_record_id", &self.active_record_id)
+            .field("revision", &self.revision)
+            .field("handoff", &"[REDACTED]")
+            .field("provenance_refs", &self.provenance_refs)
+            .finish()
+    }
+}
+
+validated_deserialize!(ContinuityWakeHandoffV1, RawContinuityWakeHandoffV1);
+
+/// Bounded resident-private Wake orientation for one managed turn.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuityWakePacketV1 {
+    /// Frozen Wake discriminator.
+    pub protocol: String,
+    /// Frozen launch-spine compiler version.
+    pub compiler_version: String,
+    /// Exact owner identity.
+    pub owner_pubkey: Hex64,
+    /// Exact responding resident identity.
+    pub resident_pubkey: Hex64,
+    /// Stable resident notebook scope reference.
+    pub relationship_scope_ref: Sha256Ref,
+    /// Exact context request.
+    pub request_id: OpaqueId,
+    /// Explicit identity orientation or Capsule fallback.
+    pub identity_orientation: Vec<ContinuityWakeItemV1>,
+    /// Explicit relationship orientation or Capsule fallback.
+    pub relationship_orientation: Vec<ContinuityWakeItemV1>,
+    /// At most one active compact handoff.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_handoff: Option<ContinuityWakeHandoffV1>,
+    /// Ranked resident-private continuity selected by retrieval.
+    pub relevant_continuity_items: Vec<ContinuityWakeItemV1>,
+    /// At most one unselected resident-private snapshot item.
+    pub ambient_continuity_items: Vec<ContinuityWakeItemV1>,
+    /// Newest pinned owner corrections.
+    pub recent_corrections: Vec<ContinuityWakeItemV1>,
+    /// Explicit commitments, preferences, and open threads.
+    pub open_commitments: Vec<ContinuityWakeItemV1>,
+    /// Reserved for a future authorized phase; empty in the spine.
+    pub reflection_prompts: Vec<ContinuityWakeItemV1>,
+    /// Fixed ordered outcomes from the existing five-layer read.
+    pub layer_statuses: Vec<ContinuityLayerResultV1>,
+    /// Body-free deterministic compiler receipt.
+    pub body_free_receipt_ref: Sha256Ref,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawContinuityWakePacketV1 {
+    protocol: String,
+    compiler_version: String,
+    owner_pubkey: Hex64,
+    resident_pubkey: Hex64,
+    relationship_scope_ref: Sha256Ref,
+    request_id: OpaqueId,
+    identity_orientation: Vec<ContinuityWakeItemV1>,
+    relationship_orientation: Vec<ContinuityWakeItemV1>,
+    current_handoff: Option<ContinuityWakeHandoffV1>,
+    relevant_continuity_items: Vec<ContinuityWakeItemV1>,
+    ambient_continuity_items: Vec<ContinuityWakeItemV1>,
+    recent_corrections: Vec<ContinuityWakeItemV1>,
+    open_commitments: Vec<ContinuityWakeItemV1>,
+    reflection_prompts: Vec<ContinuityWakeItemV1>,
+    layer_statuses: Vec<ContinuityLayerResultV1>,
+    body_free_receipt_ref: Sha256Ref,
+}
+
+impl From<RawContinuityWakePacketV1> for ContinuityWakePacketV1 {
+    fn from(raw: RawContinuityWakePacketV1) -> Self {
+        Self {
+            protocol: raw.protocol,
+            compiler_version: raw.compiler_version,
+            owner_pubkey: raw.owner_pubkey,
+            resident_pubkey: raw.resident_pubkey,
+            relationship_scope_ref: raw.relationship_scope_ref,
+            request_id: raw.request_id,
+            identity_orientation: raw.identity_orientation,
+            relationship_orientation: raw.relationship_orientation,
+            current_handoff: raw.current_handoff,
+            relevant_continuity_items: raw.relevant_continuity_items,
+            ambient_continuity_items: raw.ambient_continuity_items,
+            recent_corrections: raw.recent_corrections,
+            open_commitments: raw.open_commitments,
+            reflection_prompts: raw.reflection_prompts,
+            layer_statuses: raw.layer_statuses,
+            body_free_receipt_ref: raw.body_free_receipt_ref,
+        }
+    }
+}
+
+impl ContinuityWakePacketV1 {
+    /// Enforce discriminator, identity separation, category maxima, and items.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        if self.protocol != CONTINUITY_WAKE_PROTOCOL_V1
+            || self.compiler_version != CONTINUITY_WAKE_COMPILER_V1
+            || self.owner_pubkey == self.resident_pubkey
+            || self.identity_orientation.len() > MAX_CONTINUITY_WAKE_IDENTITY_ITEMS
+            || self.relationship_orientation.len() > MAX_CONTINUITY_WAKE_RELATIONSHIP_ITEMS
+            || self.recent_corrections.len() > MAX_CONTINUITY_WAKE_CORRECTIONS
+            || self.open_commitments.len() > MAX_CONTINUITY_WAKE_COMMITMENTS
+            || self.relevant_continuity_items.len() > MAX_CONTINUITY_WAKE_RELEVANT_ITEMS
+            || self.ambient_continuity_items.len() > MAX_CONTINUITY_WAKE_AMBIENT_ITEMS
+            || !self.reflection_prompts.is_empty()
+            || self.layer_statuses.is_empty()
+            || self.layer_statuses.len() > 16
+        {
+            return Err(ContinuityError::Binding);
+        }
+        if self
+            .layer_statuses
+            .iter()
+            .enumerate()
+            .any(|(index, layer)| {
+                self.layer_statuses[..index]
+                    .iter()
+                    .any(|prior| prior.layer == layer.layer)
+            })
+        {
+            return Err(ContinuityError::Sequence);
+        }
+        for layer in &self.layer_statuses {
+            layer.validate()?;
+        }
+        for item in self
+            .identity_orientation
+            .iter()
+            .chain(&self.relationship_orientation)
+            .chain(&self.relevant_continuity_items)
+            .chain(&self.ambient_continuity_items)
+            .chain(&self.recent_corrections)
+            .chain(&self.open_commitments)
+        {
+            item.validate()?;
+        }
+        if let Some(handoff) = &self.current_handoff {
+            handoff.validate()?;
+        }
+        if self.current_handoff.is_none()
+            && self.identity_orientation.is_empty()
+            && self.relationship_orientation.is_empty()
+            && self.relevant_continuity_items.is_empty()
+            && self.ambient_continuity_items.is_empty()
+            && self.recent_corrections.is_empty()
+            && self.open_commitments.is_empty()
+        {
+            return Err(ContinuityError::Status);
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ContinuityWakePacketV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakePacketV1")
+            .field("protocol", &self.protocol)
+            .field("compiler_version", &self.compiler_version)
+            .field("owner_pubkey", &self.owner_pubkey)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("relationship_scope_ref", &self.relationship_scope_ref)
+            .field("request_id", &self.request_id)
+            .field(
+                "identity_orientation_count",
+                &self.identity_orientation.len(),
+            )
+            .field(
+                "relationship_orientation_count",
+                &self.relationship_orientation.len(),
+            )
+            .field(
+                "current_handoff",
+                &self.current_handoff.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("relevant_count", &self.relevant_continuity_items.len())
+            .field("ambient_count", &self.ambient_continuity_items.len())
+            .field("correction_count", &self.recent_corrections.len())
+            .field("commitment_count", &self.open_commitments.len())
+            .field("layer_statuses", &self.layer_statuses)
+            .field("body_free_receipt_ref", &self.body_free_receipt_ref)
+            .finish()
+    }
+}
+
+validated_deserialize!(ContinuityWakePacketV1, RawContinuityWakePacketV1);
+
+/// Canonical content carried inside the existing outer continuity packet.
+#[derive(Clone, PartialEq, Eq, Serialize)]
+pub struct ContinuityPromptPayloadV1 {
+    /// Frozen prompt-wrapper discriminator.
+    pub protocol: String,
+    /// Resident-private Wake, absent when no private or Capsule material is ready.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wake: Option<ContinuityWakePacketV1>,
+    /// Independently authorized Owner Brain working references.
+    pub owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawContinuityPromptPayloadV1 {
+    protocol: String,
+    wake: Option<ContinuityWakePacketV1>,
+    owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+}
+
+impl From<RawContinuityPromptPayloadV1> for ContinuityPromptPayloadV1 {
+    fn from(raw: RawContinuityPromptPayloadV1) -> Self {
+        Self {
+            protocol: raw.protocol,
+            wake: raw.wake,
+            owner_brain_references: raw.owner_brain_references,
+        }
+    }
+}
+
+impl ContinuityPromptPayloadV1 {
+    /// Validate separation, whole-item bounds, and nonempty content.
+    pub fn validate(&self) -> Result<(), ContinuityError> {
+        if self.protocol != CONTINUITY_PROMPT_PROTOCOL_V1
+            || self.owner_brain_references.len() > MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS
+            || (self.wake.is_none() && self.owner_brain_references.is_empty())
+        {
+            return Err(ContinuityError::Status);
+        }
+        if let Some(wake) = &self.wake {
+            wake.validate()?;
+        }
+        for reference in &self.owner_brain_references {
+            reference.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl std::fmt::Debug for ContinuityPromptPayloadV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ContinuityPromptPayloadV1")
+            .field("protocol", &self.protocol)
+            .field("wake", &self.wake.as_ref().map(|_| "[REDACTED]"))
+            .field(
+                "owner_brain_reference_count",
+                &self.owner_brain_references.len(),
+            )
+            .finish()
+    }
+}
+
+validated_deserialize!(ContinuityPromptPayloadV1, RawContinuityPromptPayloadV1);
 
 /// Layered read result with an optional bounded packet and body-free receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

@@ -43,7 +43,9 @@ pub use capsule::{
 };
 pub use context::{
     ContinuityContextOutput, ContinuityContextResolver, ContinuityLayerMaterial,
-    ContinuityReadSnapshot, ContinuityReferenceItem,
+    ContinuityReadSnapshot, ContinuityReferenceItem, ContinuityWakeCompileInput,
+    ContinuityWakeCompileOutput, ContinuityWakeCompileReceipt, ContinuityWakeCompiler,
+    ContinuityWakeSourceItem,
 };
 pub use envelope::{
     canonical_record_aad, decrypt_record, encrypt_record, DecryptedRecordBody, RecordMetadata,

@@ -1,9 +1,11 @@
 use luca_protocol::{
     canonicalize, parse_strict_json, BrainGrantV1, CognitionScheduleV1, ContinuityContextRequestV1,
     ContinuityContextResultV1, ContinuityJobV1, ContinuityLayerStatusV1, ContinuityMutationV1,
-    ContinuityNamespaceV1, ContinuityPacketV1, ContinuityRecordV1, ContinuityScopeV1,
-    ImportCommitReceiptV1, ImportDiscoveryReportV1, ImportPlanV1, LucaBackupManifestV1,
-    PortableContinuityCapsuleV1, ProactiveMessageCandidateV1, MAX_CONTINUITY_PACKET_BYTES,
+    ContinuityNamespaceV1, ContinuityPacketV1, ContinuityPromptPayloadV1, ContinuityRecordV1,
+    ContinuityScopeV1, ContinuityWakePacketV1, ImportCommitReceiptV1, ImportDiscoveryReportV1,
+    ImportPlanV1, LucaBackupManifestV1, PortableContinuityCapsuleV1, ProactiveMessageCandidateV1,
+    CONTINUITY_PROMPT_PROTOCOL_V1, CONTINUITY_WAKE_COMPILER_V1, CONTINUITY_WAKE_PROTOCOL_V1,
+    MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_WAKE_ITEM_BYTES,
 };
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -212,4 +214,118 @@ fn continuity_schema_is_strict_body_safe_and_names_all_interfaces() {
             "missing {definition}"
         );
     }
+}
+
+fn wake_payload_vector() -> Value {
+    serde_json::json!({
+        "protocol": CONTINUITY_PROMPT_PROTOCOL_V1,
+        "wake": {
+            "protocol": CONTINUITY_WAKE_PROTOCOL_V1,
+            "compiler_version": CONTINUITY_WAKE_COMPILER_V1,
+            "owner_pubkey": "11".repeat(32),
+            "resident_pubkey": "22".repeat(32),
+            "relationship_scope_ref": format!("sha256:{}", "33".repeat(32)),
+            "request_id": "wake-vector-1",
+            "identity_orientation": [{
+                "item_id": "identity-1",
+                "record_kind": "identity",
+                "author_kind": "resident",
+                "body": "I remain Orin.",
+                "source_event_ids": ["44".repeat(32)],
+                "provenance_refs": [format!("sha256:{}", "55".repeat(32))]
+            }],
+            "relationship_orientation": [],
+            "current_handoff": {
+                "active_record_id": "handoff-1",
+                "revision": 2,
+                "handoff": {
+                    "summary": "Naming remains open.",
+                    "unresolved_threads": ["Choose Hearthline or Stillwater"],
+                    "commitments": [],
+                    "explicit_preferences": [],
+                    "source_event_ids": ["66".repeat(32)],
+                    "updated_at": "2026-08-29T00:00:00Z"
+                },
+                "provenance_refs": [format!("sha256:{}", "77".repeat(32))]
+            },
+            "relevant_continuity_items": [],
+            "ambient_continuity_items": [],
+            "recent_corrections": [],
+            "open_commitments": [],
+            "reflection_prompts": [],
+            "layer_statuses": [{
+                "layer": "handoff",
+                "status": "ready",
+                "provenance_ref": format!("sha256:{}", "88".repeat(32))
+            }],
+            "body_free_receipt_ref": format!("sha256:{}", "99".repeat(32))
+        },
+        "owner_brain_references": [{
+            "item_id": "brain-1",
+            "body": "The target is macOS.",
+            "source_event_ids": [],
+            "provenance_refs": [format!("sha256:{}", "aa".repeat(32))]
+        }]
+    })
+}
+
+#[test]
+fn wake_prompt_vector_round_trips_canonically_and_keeps_brain_separate() {
+    let vector = wake_payload_vector();
+    let payload: ContinuityPromptPayloadV1 = serde_json::from_value(vector.clone()).unwrap();
+    payload.validate().unwrap();
+    let canonical = canonicalize(&payload).unwrap();
+    let reparsed: ContinuityPromptPayloadV1 = serde_json::from_slice(&canonical).unwrap();
+    assert_eq!(canonicalize(&reparsed).unwrap(), canonical);
+    let wake = reparsed.wake.as_ref().unwrap();
+    assert_eq!(
+        wake.identity_orientation[0].record_kind.as_str(),
+        "identity"
+    );
+    assert_eq!(
+        reparsed.owner_brain_references[0].item_id.as_str(),
+        "brain-1"
+    );
+    assert!(!wake
+        .identity_orientation
+        .iter()
+        .any(|item| item.item_id.as_str() == "brain-1"));
+}
+
+#[test]
+fn wake_contract_rejects_unknown_fields_kinds_authors_and_partial_utf8_overflow() {
+    let vector = wake_payload_vector();
+    let mut unknown = vector.clone();
+    unknown["wake"]["unknown"] = Value::Bool(true);
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(unknown).is_err());
+
+    let mut wrong_protocol = vector.clone();
+    wrong_protocol["wake"]["protocol"] = Value::String("luca.continuity.wake.v2".into());
+    assert!(
+        serde_json::from_value::<ContinuityWakePacketV1>(wrong_protocol["wake"].clone()).is_err()
+    );
+
+    let mut unknown_kind = vector.clone();
+    unknown_kind["wake"]["identity_orientation"][0]["record_kind"] =
+        Value::String("identity-ish".into());
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(unknown_kind).is_err());
+
+    let mut unknown_author = vector.clone();
+    unknown_author["wake"]["identity_orientation"][0]["author_kind"] =
+        Value::String("assistant".into());
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(unknown_author).is_err());
+
+    let mut oversized = vector;
+    oversized["wake"]["identity_orientation"][0]["body"] =
+        Value::String("🧠".repeat(MAX_CONTINUITY_WAKE_ITEM_BYTES / 4 + 1));
+    assert!(serde_json::from_value::<ContinuityPromptPayloadV1>(oversized).is_err());
+}
+
+#[test]
+fn wake_debug_surfaces_are_body_redacted() {
+    let payload: ContinuityPromptPayloadV1 = serde_json::from_value(wake_payload_vector()).unwrap();
+    let debug = format!("{payload:?}");
+    assert!(!debug.contains("I remain Orin"));
+    assert!(!debug.contains("The target is macOS"));
+    assert!(debug.contains("[REDACTED]"));
 }

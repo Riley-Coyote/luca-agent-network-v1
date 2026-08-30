@@ -5,11 +5,17 @@
 //! are rendered as canonical JSON inside a fixed length-prefixed untrusted-data
 //! envelope and are retained only in zeroizing allocations.
 
-use crate::{ContinuityError, RetrievalText};
+use crate::{ContinuityError, DurableContinuityRecordKind, RetrievalText};
 use luca_protocol::{
-    canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1, ContinuityLayerResultV1,
-    ContinuityLayerStatusV1, ContinuityPacketV1, OpaqueId, ProviderEgressV1, SafeDiagnosticV1,
-    SafeU53, Sha256Ref, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
+    canonicalize, CanonicalTimestamp, ContinuityContextRequestV1, ContinuityContextResultV1,
+    ContinuityLayerResultV1, ContinuityLayerStatusV1, ContinuityPacketV1,
+    ContinuityPromptPayloadV1, ContinuityWakeHandoffV1, ContinuityWakeItemV1,
+    ContinuityWakePacketV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId, ProviderEgressV1,
+    SafeDiagnosticV1, SafeU53, Sha256Ref, CONTINUITY_PROMPT_PROTOCOL_V1, CONTINUITY_PROTOCOL,
+    CONTINUITY_WAKE_COMPILER_V1, CONTINUITY_WAKE_PROTOCOL_V1, MAX_CONTINUITY_PACKET_BYTES,
+    MAX_CONTINUITY_REFS, MAX_CONTINUITY_WAKE_AMBIENT_ITEMS, MAX_CONTINUITY_WAKE_COMMITMENTS,
+    MAX_CONTINUITY_WAKE_CORRECTIONS, MAX_CONTINUITY_WAKE_RELEVANT_ITEMS,
+    MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
 };
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -36,6 +42,8 @@ const LAYER_ASSOCIATIVE_RECALL: &str = "associative_recall";
 const LAYER_OWNER_BRAIN: &str = "owner_brain";
 const MAX_CONTEXT_ITEMS_PER_LAYER: usize = 64;
 const MAX_CONTEXT_INPUT_BODY_BYTES: usize = 4 * MAX_CONTINUITY_PACKET_BYTES;
+const WAKE_PACKET_DIGEST_DOMAIN_V1: &str = "luca.continuity.wake.packet.v1";
+const WAKE_RECEIPT_DIGEST_DOMAIN_V1: &str = "luca.continuity.wake.receipt.v1";
 
 /// One generic, source-backed continuity reference owned in zeroizing memory.
 ///
@@ -211,6 +219,60 @@ impl ContinuityContextOutput {
         self.result.packet.is_some()
     }
 
+    /// Replace the legacy generic packet with one compiled Wake packet.
+    ///
+    /// The consuming operation preserves the already-derived layer outcomes
+    /// and diagnostics, verifies the exact request/resident binding, zeroizes
+    /// the old packet and wire, then recalculates the existing outer receipt
+    /// and canonical wire under the request's effective budget. Packet
+    /// presence must continue to match the protocol's ready-layer invariant.
+    pub fn replace_packet(
+        mut self,
+        request: &ContinuityContextRequestV1,
+        packet: Option<ContinuityPacketV1>,
+    ) -> Result<Self, ContinuityError> {
+        request
+            .validate()
+            .map_err(|_| ContinuityError::InvalidContextRequest)?;
+        if self.result.request_id != request.request_id
+            || self.result.resident_pubkey != request.resident_pubkey
+        {
+            return Err(ContinuityError::InvalidContextRequest);
+        }
+        let has_ready = self
+            .result
+            .layers
+            .iter()
+            .any(|layer| layer.status == ContinuityLayerStatusV1::Ready);
+        if has_ready != packet.is_some() {
+            return Err(ContinuityError::InvalidContextLayer);
+        }
+        let effective_budget =
+            (request.max_packet_bytes.get() as usize).min(MAX_CONTINUITY_PACKET_BYTES);
+        if let Some(packet) = &packet {
+            packet
+                .validate()
+                .map_err(|_| ContinuityError::ContextPacketEncoding)?;
+            if canonicalize(packet)
+                .map_err(|_| ContinuityError::ContextPacketEncoding)?
+                .len()
+                > effective_budget
+            {
+                return Err(ContinuityError::ContextPacketBudgetTooSmall);
+            }
+        }
+        zeroize_packet(&mut self.result.packet);
+        self.encoded_wire.zeroize();
+        let result = finalize_result(
+            request,
+            self.result.layers.clone(),
+            packet,
+            self.result.diagnostics.clone(),
+            effective_budget,
+        )?;
+        output_from_result(result)
+    }
+
     /// Consume the owner and lend canonical wire bytes to exactly one callback.
     ///
     /// The callback returns no value, preventing this API from returning an
@@ -315,6 +377,983 @@ impl ContinuityContextResolver {
         )?;
         output_from_result(result)
     }
+}
+
+/// One active resident-private source item supplied to the pure Wake compiler.
+///
+/// The trusted host is responsible for proving that the item is the active
+/// head in the exact owner/resident notebook before constructing this value.
+/// The compiler revalidates all body and metadata bounds and never performs a
+/// store read or write.
+#[derive(Clone)]
+pub struct ContinuityWakeSourceItem {
+    item: ContinuityWakeItemV1,
+    revision: SafeU53,
+    canonical_timestamp: CanonicalTimestamp,
+    retrieval_rank: SafeU53,
+    pinned_owner_correction: bool,
+    selected_by_retrieval: bool,
+}
+
+impl Drop for ContinuityWakeSourceItem {
+    fn drop(&mut self) {
+        self.item.body.zeroize();
+    }
+}
+
+impl ContinuityWakeSourceItem {
+    /// Construct one bounded active source item with deterministic rank data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        item: ContinuityWakeItemV1,
+        revision: SafeU53,
+        canonical_timestamp: CanonicalTimestamp,
+        retrieval_rank: SafeU53,
+        pinned_owner_correction: bool,
+        selected_by_retrieval: bool,
+    ) -> Result<Self, ContinuityError> {
+        item.validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)?;
+        DurableContinuityRecordKind::parse(&item.record_kind)?;
+        if pinned_owner_correction && item.author_kind.as_str() != "owner" {
+            return Err(ContinuityError::InvalidContextLayer);
+        }
+        if is_owner_brain_kind(item.record_kind.as_str()) {
+            return Err(ContinuityError::InvalidContextLayer);
+        }
+        Ok(Self {
+            item,
+            revision,
+            canonical_timestamp,
+            retrieval_rank,
+            pinned_owner_correction,
+            selected_by_retrieval,
+        })
+    }
+
+    /// Borrow the exact active record identifier.
+    pub fn item_id(&self) -> &OpaqueId {
+        &self.item.item_id
+    }
+}
+
+impl fmt::Debug for ContinuityWakeSourceItem {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakeSourceItem")
+            .field("item_id", &self.item.item_id)
+            .field("record_kind", &self.item.record_kind)
+            .field("author_kind", &self.item.author_kind)
+            .field("body", &"[REDACTED]")
+            .field("revision", &self.revision)
+            .field("canonical_timestamp", &self.canonical_timestamp)
+            .field("retrieval_rank", &self.retrieval_rank)
+            .field("pinned_owner_correction", &self.pinned_owner_correction)
+            .field("selected_by_retrieval", &self.selected_by_retrieval)
+            .finish()
+    }
+}
+
+/// Complete immutable input for one pure, deterministic Wake compilation.
+pub struct ContinuityWakeCompileInput {
+    /// Exact owner identity.
+    pub owner_pubkey: Hex64,
+    /// Exact responding resident identity.
+    pub resident_pubkey: Hex64,
+    /// Exact stable resident notebook scope from `resident_notebook_address`.
+    pub relationship_scope_ref: Sha256Ref,
+    /// Exact managed continuity request.
+    pub request_id: OpaqueId,
+    /// SHA-256 reference to the zeroizing triggering-message cue.
+    pub cue_ref: Sha256Ref,
+    /// Existing ordered five-layer outcomes.
+    pub layer_statuses: Vec<ContinuityLayerResultV1>,
+    /// Active current handoff, if one exists.
+    pub current_handoff: Option<ContinuityWakeHandoffV1>,
+    /// Active resident-private source heads from the bounded read snapshot.
+    pub resident_items: Vec<ContinuityWakeSourceItem>,
+    /// Valid Capsule identity fallback material.
+    pub capsule_identity_orientation: Vec<ContinuityWakeItemV1>,
+    /// Valid Capsule relationship fallback material.
+    pub capsule_relationship_orientation: Vec<ContinuityWakeItemV1>,
+    /// Independently authorized Owner Brain working references.
+    pub owner_brain_references: Vec<ContinuityWorkingReferenceV1>,
+}
+
+impl Drop for ContinuityWakeCompileInput {
+    fn drop(&mut self) {
+        zeroize_handoff(self.current_handoff.as_mut());
+        zeroize_wake_items(&mut self.capsule_identity_orientation);
+        zeroize_wake_items(&mut self.capsule_relationship_orientation);
+        zeroize_working_references(&mut self.owner_brain_references);
+    }
+}
+
+impl fmt::Debug for ContinuityWakeCompileInput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakeCompileInput")
+            .field("owner_pubkey", &self.owner_pubkey)
+            .field("resident_pubkey", &self.resident_pubkey)
+            .field("relationship_scope_ref", &self.relationship_scope_ref)
+            .field("request_id", &self.request_id)
+            .field("cue_ref", &self.cue_ref)
+            .field("layer_statuses", &self.layer_statuses)
+            .field(
+                "current_handoff",
+                &self.current_handoff.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("resident_item_count", &self.resident_items.len())
+            .field(
+                "capsule_identity_count",
+                &self.capsule_identity_orientation.len(),
+            )
+            .field(
+                "capsule_relationship_count",
+                &self.capsule_relationship_orientation.len(),
+            )
+            .field(
+                "owner_brain_reference_count",
+                &self.owner_brain_references.len(),
+            )
+            .finish()
+    }
+}
+
+/// Body-free outcome metadata for one Wake compilation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContinuityWakeCompileReceipt {
+    /// Deterministic body-free selection receipt when resident Wake was built.
+    pub body_free_receipt_ref: Option<Sha256Ref>,
+    /// Resident Wake was omitted because mandatory material could not fit.
+    pub wake_omitted_for_budget: bool,
+    /// Number of optional resident items omitted by category budgeting.
+    pub omitted_resident_items: usize,
+    /// Number of authorized Brain references omitted by budgeting.
+    pub omitted_owner_brain_references: usize,
+}
+
+/// Zeroizing owner of one compiled outer packet and body-free receipt.
+pub struct ContinuityWakeCompileOutput {
+    packet: Option<ContinuityPacketV1>,
+    receipt: ContinuityWakeCompileReceipt,
+}
+
+impl ContinuityWakeCompileOutput {
+    /// Borrow body-free compilation metadata.
+    pub fn receipt(&self) -> &ContinuityWakeCompileReceipt {
+        &self.receipt
+    }
+
+    /// Report whether any bounded prompt payload was produced.
+    pub fn has_packet(&self) -> bool {
+        self.packet.is_some()
+    }
+
+    /// Consume the output and transfer the packet to the trusted host.
+    pub fn into_packet(mut self) -> Option<ContinuityPacketV1> {
+        self.packet.take()
+    }
+}
+
+impl fmt::Debug for ContinuityWakeCompileOutput {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ContinuityWakeCompileOutput")
+            .field("packet", &self.packet.as_ref().map(|_| "[REDACTED]"))
+            .field("receipt", &self.receipt)
+            .finish()
+    }
+}
+
+impl Drop for ContinuityWakeCompileOutput {
+    fn drop(&mut self) {
+        if let Some(packet) = &mut self.packet {
+            packet.content.zeroize();
+        }
+    }
+}
+
+/// Pure bounded compiler for the launch continuity Wake contract.
+pub struct ContinuityWakeCompiler;
+
+impl ContinuityWakeCompiler {
+    /// Compile one immutable authorized snapshot under the existing outer cap.
+    pub fn compile(
+        input: ContinuityWakeCompileInput,
+        max_packet_bytes: usize,
+    ) -> Result<ContinuityWakeCompileOutput, ContinuityError> {
+        validate_wake_input(&input)?;
+        let budget = max_packet_bytes.min(MAX_CONTINUITY_PACKET_BYTES);
+        if budget == 0 {
+            return Err(ContinuityError::ContextPacketBudgetTooSmall);
+        }
+
+        let selected = select_wake_material(input)?;
+        compile_selected_wake(selected, budget)
+    }
+}
+
+struct SelectedWakeMaterial {
+    owner_pubkey: Hex64,
+    resident_pubkey: Hex64,
+    relationship_scope_ref: Sha256Ref,
+    request_id: OpaqueId,
+    cue_ref: Sha256Ref,
+    layer_statuses: Vec<ContinuityLayerResultV1>,
+    current_handoff: Option<ContinuityWakeHandoffV1>,
+    corrections: Vec<SelectedSourceItem>,
+    commitments: Vec<SelectedSourceItem>,
+    identity: Vec<SelectedSourceItem>,
+    relationship: Vec<SelectedSourceItem>,
+    relevant: Vec<SelectedSourceItem>,
+    ambient: Vec<SelectedSourceItem>,
+    capsule_identity: Vec<ContinuityWakeItemV1>,
+    capsule_relationship: Vec<ContinuityWakeItemV1>,
+    brain: Vec<ContinuityWorkingReferenceV1>,
+    initial_optional_resident_count: usize,
+    initial_brain_count: usize,
+}
+
+impl Drop for SelectedWakeMaterial {
+    fn drop(&mut self) {
+        zeroize_handoff(self.current_handoff.as_mut());
+        for source in self
+            .corrections
+            .iter_mut()
+            .chain(&mut self.commitments)
+            .chain(&mut self.identity)
+            .chain(&mut self.relationship)
+            .chain(&mut self.relevant)
+            .chain(&mut self.ambient)
+        {
+            source.item.body.zeroize();
+        }
+        zeroize_wake_items(&mut self.capsule_identity);
+        zeroize_wake_items(&mut self.capsule_relationship);
+        zeroize_working_references(&mut self.brain);
+    }
+}
+
+#[derive(Clone)]
+struct SelectedSourceItem {
+    item: ContinuityWakeItemV1,
+    revision: SafeU53,
+    canonical_timestamp: CanonicalTimestamp,
+    retrieval_rank: SafeU53,
+}
+
+impl Drop for SelectedSourceItem {
+    fn drop(&mut self) {
+        self.item.body.zeroize();
+    }
+}
+
+fn validate_wake_input(input: &ContinuityWakeCompileInput) -> Result<(), ContinuityError> {
+    if input.owner_pubkey == input.resident_pubkey
+        || input.layer_statuses.is_empty()
+        || input.layer_statuses.len() > 16
+        || input.resident_items.len() > MAX_CONTINUITY_REFS
+        || input.capsule_identity_orientation.len() > 1
+        || input.capsule_relationship_orientation.len() > 1
+        || input.owner_brain_references.len() > MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS
+    {
+        return Err(ContinuityError::InvalidContextLayer);
+    }
+    if input
+        .layer_statuses
+        .iter()
+        .enumerate()
+        .any(|(index, layer)| {
+            input.layer_statuses[..index]
+                .iter()
+                .any(|prior| prior.layer == layer.layer)
+        })
+    {
+        return Err(ContinuityError::InvalidContextLayer);
+    }
+    input.layer_statuses.iter().try_for_each(|layer| {
+        layer
+            .validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)
+    })?;
+    if let Some(handoff) = &input.current_handoff {
+        handoff
+            .validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)?;
+    }
+    for item in &input.capsule_identity_orientation {
+        item.validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)?;
+        if item.record_kind.as_str() != "identity" {
+            return Err(ContinuityError::InvalidContextLayer);
+        }
+    }
+    for item in &input.capsule_relationship_orientation {
+        item.validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)?;
+        if item.record_kind.as_str() != "relationship" {
+            return Err(ContinuityError::InvalidContextLayer);
+        }
+    }
+    for item in &input.owner_brain_references {
+        item.validate()
+            .map_err(|_| ContinuityError::InvalidContextLayer)?;
+    }
+    Ok(())
+}
+
+fn select_wake_material(
+    input: ContinuityWakeCompileInput,
+) -> Result<SelectedWakeMaterial, ContinuityError> {
+    let handoff_id = input
+        .current_handoff
+        .as_ref()
+        .map(|handoff| handoff.active_record_id.clone());
+    let mut seen_content = BTreeSet::new();
+    let mut seen_record_revisions = BTreeSet::new();
+    let mut corrections = Vec::new();
+    let mut commitments = Vec::new();
+    let mut identity = Vec::new();
+    let mut relationship = Vec::new();
+    let mut relevant = Vec::new();
+    let mut ambient_candidates = Vec::new();
+
+    let mut sources = input.resident_items.clone();
+    sources.sort_by_key(category_sort_key);
+    for source in sources {
+        if !seen_record_revisions.insert((source.item.item_id.clone(), source.revision)) {
+            continue;
+        }
+        if handoff_id.as_ref() == Some(&source.item.item_id) {
+            continue;
+        }
+        let dedupe_key = content_dedupe_key(&source.item)?;
+        if !seen_content.insert(dedupe_key) {
+            continue;
+        }
+        let selected = SelectedSourceItem {
+            item: source.item.clone(),
+            revision: source.revision,
+            canonical_timestamp: source.canonical_timestamp.clone(),
+            retrieval_rank: source.retrieval_rank,
+        };
+        if source.pinned_owner_correction && source.item.record_kind.as_str() != "handoff" {
+            corrections.push(selected);
+        } else {
+            match source.item.record_kind.as_str() {
+                "commitment" | "preference" | "open-thread"
+                    if commitments.len() < MAX_CONTINUITY_WAKE_COMMITMENTS =>
+                {
+                    commitments.push(selected);
+                }
+                "identity" if identity.is_empty() => identity.push(selected),
+                "relationship" if relationship.is_empty() => relationship.push(selected),
+                _ if source.selected_by_retrieval
+                    && relevant.len() < MAX_CONTINUITY_WAKE_RELEVANT_ITEMS =>
+                {
+                    relevant.push(selected);
+                }
+                _ => ambient_candidates.push(selected),
+            }
+        }
+    }
+    let ambient = ambient_candidates
+        .into_iter()
+        .take(MAX_CONTINUITY_WAKE_AMBIENT_ITEMS)
+        .collect::<Vec<_>>();
+    corrections.sort_by(|left, right| {
+        right
+            .canonical_timestamp
+            .cmp(&left.canonical_timestamp)
+            .then_with(|| left.item.item_id.cmp(&right.item.item_id))
+    });
+    corrections.truncate(MAX_CONTINUITY_WAKE_CORRECTIONS);
+    commitments.sort_by(selected_rank_order);
+    identity.sort_by(selected_rank_order);
+    relationship.sort_by(selected_rank_order);
+    relevant.sort_by(selected_rank_order);
+
+    let explicit_identity = !identity.is_empty();
+    let explicit_relationship = !relationship.is_empty();
+    let mut owner_brain_references = input.owner_brain_references.clone();
+    owner_brain_references.sort_by(|left, right| left.item_id.cmp(&right.item_id));
+    let mut unique_brain = Vec::with_capacity(owner_brain_references.len());
+    for mut reference in owner_brain_references {
+        if unique_brain
+            .last()
+            .is_some_and(|prior: &ContinuityWorkingReferenceV1| prior.item_id == reference.item_id)
+        {
+            reference.body.zeroize();
+        } else {
+            unique_brain.push(reference);
+        }
+    }
+    let owner_brain_references = unique_brain;
+
+    let initial_optional_resident_count = commitments.len()
+        + identity.len()
+        + relationship.len()
+        + relevant.len()
+        + ambient.len()
+        + usize::from(!explicit_identity && !input.capsule_identity_orientation.is_empty())
+        + usize::from(!explicit_relationship && !input.capsule_relationship_orientation.is_empty());
+    let initial_brain_count = owner_brain_references.len();
+    Ok(SelectedWakeMaterial {
+        owner_pubkey: input.owner_pubkey.clone(),
+        resident_pubkey: input.resident_pubkey.clone(),
+        relationship_scope_ref: input.relationship_scope_ref.clone(),
+        request_id: input.request_id.clone(),
+        cue_ref: input.cue_ref.clone(),
+        layer_statuses: input.layer_statuses.clone(),
+        current_handoff: input.current_handoff.clone(),
+        corrections,
+        commitments,
+        identity,
+        relationship,
+        relevant,
+        ambient,
+        capsule_identity: if explicit_identity {
+            Vec::new()
+        } else {
+            input.capsule_identity_orientation.clone()
+        },
+        capsule_relationship: if explicit_relationship {
+            Vec::new()
+        } else {
+            input.capsule_relationship_orientation.clone()
+        },
+        brain: owner_brain_references,
+        initial_optional_resident_count,
+        initial_brain_count,
+    })
+}
+
+fn zeroize_handoff(handoff: Option<&mut ContinuityWakeHandoffV1>) {
+    if let Some(handoff) = handoff {
+        handoff.handoff.summary.zeroize();
+        handoff.handoff.unresolved_threads.zeroize();
+        handoff.handoff.commitments.zeroize();
+        handoff.handoff.explicit_preferences.zeroize();
+    }
+}
+
+fn zeroize_wake_items(items: &mut [ContinuityWakeItemV1]) {
+    for item in items {
+        item.body.zeroize();
+    }
+}
+
+fn zeroize_working_references(items: &mut [ContinuityWorkingReferenceV1]) {
+    for item in items {
+        item.body.zeroize();
+    }
+}
+
+fn selected_rank_order(
+    left: &SelectedSourceItem,
+    right: &SelectedSourceItem,
+) -> std::cmp::Ordering {
+    left.retrieval_rank
+        .cmp(&right.retrieval_rank)
+        .then_with(|| right.canonical_timestamp.cmp(&left.canonical_timestamp))
+        .then_with(|| left.item.item_id.cmp(&right.item.item_id))
+}
+
+fn category_sort_key(
+    item: &ContinuityWakeSourceItem,
+) -> (u8, SafeU53, std::cmp::Reverse<CanonicalTimestamp>, OpaqueId) {
+    let priority = if item.pinned_owner_correction {
+        0
+    } else {
+        match item.item.record_kind.as_str() {
+            "commitment" | "preference" | "open-thread" => 1,
+            "identity" | "relationship" => 2,
+            _ if item.selected_by_retrieval => 3,
+            _ => 4,
+        }
+    };
+    (
+        priority,
+        item.retrieval_rank,
+        std::cmp::Reverse(item.canonical_timestamp.clone()),
+        item.item.item_id.clone(),
+    )
+}
+
+fn content_dedupe_key(item: &ContinuityWakeItemV1) -> Result<String, ContinuityError> {
+    #[derive(Serialize)]
+    struct ContentKey<'a> {
+        body_sha256: String,
+        provenance_refs: &'a [Sha256Ref],
+    }
+    let body_sha256 = hex::encode(Sha256::digest(item.body.as_bytes()));
+    canonical_digest(&ContentKey {
+        body_sha256,
+        provenance_refs: &item.provenance_refs,
+    })
+}
+
+fn is_owner_brain_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "owner-brain-source"
+            | "owner-brain-binding"
+            | "owner-brain-chunk-page"
+            | "owner-brain-grant"
+            | "owner-brain-receipt"
+            | "connected-brain-source"
+            | "connected-brain-binding"
+            | "connected-brain-index-page"
+            | "repository-work-grant"
+    )
+}
+
+#[derive(Serialize)]
+struct WakeReceiptProjection<'a> {
+    domain: &'static str,
+    compiler_version: &'static str,
+    request_id: &'a OpaqueId,
+    relationship_scope_ref: &'a Sha256Ref,
+    cue_ref: &'a Sha256Ref,
+    selected: Vec<WakeReceiptSelectedItem<'a>>,
+    category_counts: WakeCategoryCounts,
+    omission_counts: WakeOmissionCounts,
+    layer_statuses: &'a [ContinuityLayerResultV1],
+}
+
+#[derive(Serialize)]
+struct WakeReceiptSelectedItem<'a> {
+    category: &'static str,
+    item_id: &'a OpaqueId,
+    revision: Option<SafeU53>,
+    provenance_refs: &'a [Sha256Ref],
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+struct WakeCategoryCounts {
+    corrections: usize,
+    handoff: usize,
+    commitments: usize,
+    identity: usize,
+    relationship: usize,
+    relevant: usize,
+    ambient: usize,
+    brain: usize,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+struct WakeOmissionCounts {
+    resident_optional: usize,
+    brain: usize,
+}
+
+fn compile_selected_wake(
+    mut selected: SelectedWakeMaterial,
+    budget: usize,
+) -> Result<ContinuityWakeCompileOutput, ContinuityError> {
+    let authorized_brain = selected.brain.clone();
+    loop {
+        let candidate = wake_packet_candidate(&selected)?;
+        if candidate
+            .as_ref()
+            .is_some_and(|value| value.canonical_len() <= budget)
+        {
+            let receipt_ref = candidate
+                .as_ref()
+                .and_then(|value| value.body_free_receipt_ref.clone());
+            let packet = candidate.and_then(SensitiveWakePacketCandidate::into_packet);
+            return Ok(ContinuityWakeCompileOutput {
+                packet,
+                receipt: ContinuityWakeCompileReceipt {
+                    body_free_receipt_ref: receipt_ref,
+                    wake_omitted_for_budget: false,
+                    omitted_resident_items: selected
+                        .initial_optional_resident_count
+                        .saturating_sub(optional_resident_count(&selected)),
+                    omitted_owner_brain_references: selected
+                        .initial_brain_count
+                        .saturating_sub(selected.brain.len()),
+                },
+            });
+        }
+
+        if drop_last_optional(&mut selected) {
+            continue;
+        }
+
+        if selected.current_handoff.is_some() || !selected.corrections.is_empty() {
+            zeroize_handoff(selected.current_handoff.as_mut());
+            selected.current_handoff = None;
+            for correction in &mut selected.corrections {
+                correction.item.body.zeroize();
+            }
+            selected.corrections.clear();
+            selected.brain = authorized_brain;
+            while !selected.brain.is_empty() {
+                if let Some(candidate) = wake_packet_candidate(&selected)? {
+                    if candidate.canonical_len() <= budget {
+                        return Ok(ContinuityWakeCompileOutput {
+                            packet: candidate.into_packet(),
+                            receipt: ContinuityWakeCompileReceipt {
+                                body_free_receipt_ref: None,
+                                wake_omitted_for_budget: true,
+                                omitted_resident_items: selected.initial_optional_resident_count,
+                                omitted_owner_brain_references: selected
+                                    .initial_brain_count
+                                    .saturating_sub(selected.brain.len()),
+                            },
+                        });
+                    }
+                }
+                if let Some(mut omitted) = selected.brain.pop() {
+                    omitted.body.zeroize();
+                }
+            }
+            return Ok(ContinuityWakeCompileOutput {
+                packet: None,
+                receipt: ContinuityWakeCompileReceipt {
+                    body_free_receipt_ref: None,
+                    wake_omitted_for_budget: true,
+                    omitted_resident_items: selected.initial_optional_resident_count,
+                    omitted_owner_brain_references: selected.initial_brain_count,
+                },
+            });
+        }
+
+        return Ok(ContinuityWakeCompileOutput {
+            packet: None,
+            receipt: ContinuityWakeCompileReceipt {
+                body_free_receipt_ref: None,
+                wake_omitted_for_budget: false,
+                omitted_resident_items: selected.initial_optional_resident_count,
+                omitted_owner_brain_references: selected.initial_brain_count,
+            },
+        });
+    }
+}
+
+fn drop_last_optional(selected: &mut SelectedWakeMaterial) -> bool {
+    if let Some(mut item) = selected.brain.pop() {
+        item.body.zeroize();
+        return true;
+    }
+    if let Some(mut item) = selected.capsule_relationship.pop() {
+        item.body.zeroize();
+        return true;
+    }
+    if let Some(mut item) = selected.capsule_identity.pop() {
+        item.body.zeroize();
+        return true;
+    }
+    for items in [
+        &mut selected.ambient,
+        &mut selected.relevant,
+        &mut selected.relationship,
+        &mut selected.identity,
+        &mut selected.commitments,
+    ] {
+        if let Some(mut source) = items.pop() {
+            source.item.body.zeroize();
+            return true;
+        }
+    }
+    false
+}
+
+fn optional_resident_count(selected: &SelectedWakeMaterial) -> usize {
+    selected.commitments.len()
+        + selected.identity.len()
+        + selected.relationship.len()
+        + selected.relevant.len()
+        + selected.ambient.len()
+        + selected.capsule_identity.len()
+        + selected.capsule_relationship.len()
+}
+
+struct SensitiveWakePacketCandidate {
+    packet: Option<ContinuityPacketV1>,
+    canonical: Zeroizing<Vec<u8>>,
+    body_free_receipt_ref: Option<Sha256Ref>,
+}
+
+impl SensitiveWakePacketCandidate {
+    fn canonical_len(&self) -> usize {
+        self.canonical.len()
+    }
+
+    fn into_packet(mut self) -> Option<ContinuityPacketV1> {
+        self.packet.take()
+    }
+}
+
+impl Drop for SensitiveWakePacketCandidate {
+    fn drop(&mut self) {
+        if let Some(packet) = &mut self.packet {
+            packet.content.zeroize();
+        }
+        self.canonical.zeroize();
+    }
+}
+
+fn wake_packet_candidate(
+    selected: &SelectedWakeMaterial,
+) -> Result<Option<SensitiveWakePacketCandidate>, ContinuityError> {
+    let has_resident_material = selected.current_handoff.is_some()
+        || !selected.corrections.is_empty()
+        || optional_resident_count(selected) > 0;
+    if !has_resident_material && selected.brain.is_empty() {
+        return Ok(None);
+    }
+
+    let body_free_receipt_ref = if has_resident_material {
+        Some(derive_wake_receipt(selected)?)
+    } else {
+        None
+    };
+    let wake = if has_resident_material {
+        let mut identity_orientation = selected
+            .identity
+            .iter()
+            .map(|source| source.item.clone())
+            .collect::<Vec<_>>();
+        identity_orientation.extend(selected.capsule_identity.iter().cloned());
+        let mut relationship_orientation = selected
+            .relationship
+            .iter()
+            .map(|source| source.item.clone())
+            .collect::<Vec<_>>();
+        relationship_orientation.extend(selected.capsule_relationship.iter().cloned());
+        let wake = ContinuityWakePacketV1 {
+            protocol: CONTINUITY_WAKE_PROTOCOL_V1.into(),
+            compiler_version: CONTINUITY_WAKE_COMPILER_V1.into(),
+            owner_pubkey: selected.owner_pubkey.clone(),
+            resident_pubkey: selected.resident_pubkey.clone(),
+            relationship_scope_ref: selected.relationship_scope_ref.clone(),
+            request_id: selected.request_id.clone(),
+            identity_orientation,
+            relationship_orientation,
+            current_handoff: selected.current_handoff.clone(),
+            relevant_continuity_items: selected
+                .relevant
+                .iter()
+                .map(|source| source.item.clone())
+                .collect(),
+            ambient_continuity_items: selected
+                .ambient
+                .iter()
+                .map(|source| source.item.clone())
+                .collect(),
+            recent_corrections: selected
+                .corrections
+                .iter()
+                .map(|source| source.item.clone())
+                .collect(),
+            open_commitments: selected
+                .commitments
+                .iter()
+                .map(|source| source.item.clone())
+                .collect(),
+            reflection_prompts: Vec::new(),
+            layer_statuses: selected.layer_statuses.clone(),
+            body_free_receipt_ref: body_free_receipt_ref
+                .clone()
+                .ok_or(ContinuityError::ContextPacketEncoding)?,
+        };
+        wake.validate()
+            .map_err(|_| ContinuityError::ContextPacketEncoding)?;
+        Some(wake)
+    } else {
+        None
+    };
+    let mut payload = ContinuityPromptPayloadV1 {
+        protocol: CONTINUITY_PROMPT_PROTOCOL_V1.into(),
+        wake,
+        owner_brain_references: selected.brain.clone(),
+    };
+    if payload.validate().is_err() {
+        zeroize_prompt_payload(&mut payload);
+        return Err(ContinuityError::ContextPacketEncoding);
+    }
+    let encoded_payload = canonicalize(&payload);
+    zeroize_prompt_payload(&mut payload);
+    let mut payload_bytes =
+        Zeroizing::new(encoded_payload.map_err(|_| ContinuityError::ContextPacketEncoding)?);
+    let content = Zeroizing::new(
+        String::from_utf8(std::mem::take(&mut *payload_bytes)).map_err(|error| {
+            let _invalid = Zeroizing::new(error.into_bytes());
+            ContinuityError::ContextPacketEncoding
+        })?,
+    );
+    let provenance_refs = wake_provenance_refs(selected)?;
+    let packet_id = derive_wake_packet_id(&content, &provenance_refs)?;
+    let packet = ContinuityPacketV1 {
+        protocol: CONTINUITY_PROTOCOL.into(),
+        packet_id,
+        content: content.to_string(),
+        provenance_refs,
+    };
+    let canonical =
+        Zeroizing::new(canonicalize(&packet).map_err(|_| ContinuityError::ContextPacketEncoding)?);
+    Ok(Some(SensitiveWakePacketCandidate {
+        packet: Some(packet),
+        canonical,
+        body_free_receipt_ref,
+    }))
+}
+
+fn zeroize_prompt_payload(payload: &mut ContinuityPromptPayloadV1) {
+    if let Some(wake) = &mut payload.wake {
+        zeroize_handoff(wake.current_handoff.as_mut());
+        zeroize_wake_items(&mut wake.identity_orientation);
+        zeroize_wake_items(&mut wake.relationship_orientation);
+        zeroize_wake_items(&mut wake.relevant_continuity_items);
+        zeroize_wake_items(&mut wake.ambient_continuity_items);
+        zeroize_wake_items(&mut wake.recent_corrections);
+        zeroize_wake_items(&mut wake.open_commitments);
+        zeroize_wake_items(&mut wake.reflection_prompts);
+    }
+    zeroize_working_references(&mut payload.owner_brain_references);
+}
+
+fn derive_wake_receipt(selected: &SelectedWakeMaterial) -> Result<Sha256Ref, ContinuityError> {
+    let mut items = Vec::new();
+    for (category, sources) in [
+        ("correction", selected.corrections.as_slice()),
+        ("commitment", selected.commitments.as_slice()),
+        ("identity", selected.identity.as_slice()),
+        ("relationship", selected.relationship.as_slice()),
+        ("relevant", selected.relevant.as_slice()),
+        ("ambient", selected.ambient.as_slice()),
+    ] {
+        items.extend(sources.iter().map(|source| WakeReceiptSelectedItem {
+            category,
+            item_id: &source.item.item_id,
+            revision: Some(source.revision),
+            provenance_refs: &source.item.provenance_refs,
+        }));
+    }
+    if let Some(handoff) = &selected.current_handoff {
+        items.push(WakeReceiptSelectedItem {
+            category: "handoff",
+            item_id: &handoff.active_record_id,
+            revision: Some(handoff.revision),
+            provenance_refs: &handoff.provenance_refs,
+        });
+    }
+    items.extend(
+        selected
+            .capsule_identity
+            .iter()
+            .map(|item| WakeReceiptSelectedItem {
+                category: "capsule_identity",
+                item_id: &item.item_id,
+                revision: None,
+                provenance_refs: &item.provenance_refs,
+            }),
+    );
+    items.extend(
+        selected
+            .capsule_relationship
+            .iter()
+            .map(|item| WakeReceiptSelectedItem {
+                category: "capsule_relationship",
+                item_id: &item.item_id,
+                revision: None,
+                provenance_refs: &item.provenance_refs,
+            }),
+    );
+    items.extend(selected.brain.iter().map(|item| WakeReceiptSelectedItem {
+        category: "owner_brain",
+        item_id: &item.item_id,
+        revision: None,
+        provenance_refs: &item.provenance_refs,
+    }));
+    sha_ref(&WakeReceiptProjection {
+        domain: WAKE_RECEIPT_DIGEST_DOMAIN_V1,
+        compiler_version: CONTINUITY_WAKE_COMPILER_V1,
+        request_id: &selected.request_id,
+        relationship_scope_ref: &selected.relationship_scope_ref,
+        cue_ref: &selected.cue_ref,
+        selected: items,
+        category_counts: WakeCategoryCounts {
+            corrections: selected.corrections.len(),
+            handoff: usize::from(selected.current_handoff.is_some()),
+            commitments: selected.commitments.len(),
+            identity: selected.identity.len() + selected.capsule_identity.len(),
+            relationship: selected.relationship.len() + selected.capsule_relationship.len(),
+            relevant: selected.relevant.len(),
+            ambient: selected.ambient.len(),
+            brain: selected.brain.len(),
+        },
+        omission_counts: WakeOmissionCounts {
+            resident_optional: selected
+                .initial_optional_resident_count
+                .saturating_sub(optional_resident_count(selected)),
+            brain: selected
+                .initial_brain_count
+                .saturating_sub(selected.brain.len()),
+        },
+        layer_statuses: &selected.layer_statuses,
+    })
+}
+
+fn wake_provenance_refs(
+    selected: &SelectedWakeMaterial,
+) -> Result<Vec<Sha256Ref>, ContinuityError> {
+    let mut refs = selected
+        .layer_statuses
+        .iter()
+        .filter_map(|layer| layer.provenance_ref.clone())
+        .collect::<Vec<_>>();
+    if let Some(handoff) = &selected.current_handoff {
+        refs.extend(handoff.provenance_refs.iter().cloned());
+    }
+    for source in selected
+        .corrections
+        .iter()
+        .chain(&selected.commitments)
+        .chain(&selected.identity)
+        .chain(&selected.relationship)
+        .chain(&selected.relevant)
+        .chain(&selected.ambient)
+    {
+        refs.extend(source.item.provenance_refs.iter().cloned());
+    }
+    for item in selected
+        .capsule_identity
+        .iter()
+        .chain(&selected.capsule_relationship)
+    {
+        refs.extend(item.provenance_refs.iter().cloned());
+    }
+    for item in &selected.brain {
+        refs.extend(item.provenance_refs.iter().cloned());
+    }
+    refs.sort();
+    refs.dedup();
+    if refs.is_empty() || refs.len() > MAX_CONTINUITY_REFS {
+        return Err(ContinuityError::ContextPacketEncoding);
+    }
+    Ok(refs)
+}
+
+fn derive_wake_packet_id(
+    content: &str,
+    provenance_refs: &[Sha256Ref],
+) -> Result<OpaqueId, ContinuityError> {
+    #[derive(Serialize)]
+    struct WakePacketDigest<'a> {
+        domain: &'static str,
+        content: &'a str,
+        provenance_refs: &'a [Sha256Ref],
+    }
+    let digest = canonical_digest(&WakePacketDigest {
+        domain: WAKE_PACKET_DIGEST_DOMAIN_V1,
+        content,
+        provenance_refs,
+    })?;
+    opaque(&format!("wake-packet:{digest}"))
 }
 
 struct NamedLayer {
@@ -1273,5 +2312,382 @@ mod tests {
         assert!(
             output.encoded_wire.is_empty() || output.encoded_wire.iter().all(|byte| *byte == 0)
         );
+    }
+
+    fn timestamp(second: u8) -> CanonicalTimestamp {
+        CanonicalTimestamp::parse(format!("2026-08-29T00:00:{second:02}Z")).unwrap()
+    }
+
+    fn wake_item(
+        id: &str,
+        kind: &str,
+        author: &str,
+        body: &str,
+        provenance: char,
+    ) -> ContinuityWakeItemV1 {
+        ContinuityWakeItemV1 {
+            item_id: OpaqueId::parse(id).unwrap(),
+            record_kind: OpaqueId::parse(kind).unwrap(),
+            author_kind: OpaqueId::parse(author).unwrap(),
+            body: body.into(),
+            source_event_ids: vec![hex('a')],
+            provenance_refs: vec![sha(provenance)],
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn wake_source(
+        id: &str,
+        kind: &str,
+        author: &str,
+        body: &str,
+        provenance: char,
+        rank: u64,
+        second: u8,
+        correction: bool,
+        selected: bool,
+    ) -> ContinuityWakeSourceItem {
+        ContinuityWakeSourceItem::new(
+            wake_item(id, kind, author, body, provenance),
+            SafeU53::new(0).unwrap(),
+            timestamp(second),
+            SafeU53::new(rank).unwrap(),
+            correction,
+            selected,
+        )
+        .unwrap()
+    }
+
+    fn wake_layers() -> Vec<ContinuityLayerResultV1> {
+        [
+            ("capsule", ContinuityLayerStatusV1::Empty, None),
+            ("handoff", ContinuityLayerStatusV1::Ready, Some(sha('b'))),
+            ("hypomnema", ContinuityLayerStatusV1::Ready, Some(sha('c'))),
+            (
+                "associative_recall",
+                ContinuityLayerStatusV1::Ready,
+                Some(sha('d')),
+            ),
+            (
+                "owner_brain",
+                ContinuityLayerStatusV1::Ready,
+                Some(sha('e')),
+            ),
+        ]
+        .into_iter()
+        .map(|(name, status, provenance_ref)| ContinuityLayerResultV1 {
+            layer: OpaqueId::parse(name).unwrap(),
+            status,
+            provenance_ref,
+            diagnostic: None,
+        })
+        .collect()
+    }
+
+    fn wake_handoff(body: &str) -> ContinuityWakeHandoffV1 {
+        ContinuityWakeHandoffV1 {
+            active_record_id: OpaqueId::parse("handoff-active").unwrap(),
+            revision: SafeU53::new(2).unwrap(),
+            handoff: luca_protocol::ResidentHandoffV1 {
+                summary: body.into(),
+                unresolved_threads: vec!["Name the release".into()],
+                commitments: vec!["Return with one recommendation".into()],
+                explicit_preferences: Vec::new(),
+                source_event_ids: vec![hex('a')],
+                updated_at: timestamp(30),
+            },
+            provenance_refs: vec![sha('f')],
+        }
+    }
+
+    fn brain_item(id: &str, body: &str, provenance: char) -> ContinuityWorkingReferenceV1 {
+        ContinuityWorkingReferenceV1 {
+            item_id: OpaqueId::parse(id).unwrap(),
+            body: body.into(),
+            source_event_ids: Vec::new(),
+            provenance_refs: vec![sha(provenance)],
+        }
+    }
+
+    fn wake_input(reversed: bool) -> ContinuityWakeCompileInput {
+        let mut resident_items = vec![
+            wake_source(
+                "correction",
+                "preference",
+                "owner",
+                "Use compact answers",
+                '1',
+                7,
+                29,
+                true,
+                true,
+            ),
+            wake_source(
+                "commitment",
+                "commitment",
+                "resident",
+                "Return with one recommendation",
+                '2',
+                3,
+                20,
+                false,
+                true,
+            ),
+            wake_source(
+                "identity",
+                "identity",
+                "resident",
+                "I am Orin",
+                '3',
+                2,
+                18,
+                false,
+                true,
+            ),
+            wake_source(
+                "relationship",
+                "relationship",
+                "owner",
+                "Riley values candor",
+                '4',
+                2,
+                19,
+                false,
+                true,
+            ),
+            wake_source(
+                "relevant",
+                "memory-note",
+                "resident",
+                "The current choice is Hearthline or Stillwater",
+                '5',
+                1,
+                17,
+                false,
+                true,
+            ),
+            wake_source(
+                "ambient",
+                "hypomnema",
+                "resident",
+                "Quiet formative detail",
+                '6',
+                9,
+                15,
+                false,
+                false,
+            ),
+        ];
+        if reversed {
+            resident_items.reverse();
+        }
+        ContinuityWakeCompileInput {
+            owner_pubkey: hex('1'),
+            resident_pubkey: hex('2'),
+            relationship_scope_ref: sha('7'),
+            request_id: OpaqueId::parse("wake-request-1").unwrap(),
+            cue_ref: sha('8'),
+            layer_statuses: wake_layers(),
+            current_handoff: Some(wake_handoff("Naming remains open")),
+            resident_items,
+            capsule_identity_orientation: vec![wake_item(
+                "capsule-identity",
+                "identity",
+                "system",
+                "Capsule fallback",
+                '9',
+            )],
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_references: vec![brain_item("brain-b", "macOS target", 'a')],
+        }
+    }
+
+    fn compiled_payload(output: &ContinuityWakeCompileOutput) -> serde_json::Value {
+        serde_json::from_str(&output.packet.as_ref().unwrap().content).unwrap()
+    }
+
+    #[test]
+    fn wake_selection_and_receipt_are_deterministic_across_input_order() {
+        let left = ContinuityWakeCompiler::compile(wake_input(false), MAX_CONTINUITY_PACKET_BYTES)
+            .unwrap();
+        let right =
+            ContinuityWakeCompiler::compile(wake_input(true), MAX_CONTINUITY_PACKET_BYTES).unwrap();
+        assert_eq!(left.packet, right.packet);
+        assert_eq!(left.receipt, right.receipt);
+        let payload = compiled_payload(&left);
+        let wake = &payload["wake"];
+        assert_eq!(wake["protocol"], CONTINUITY_WAKE_PROTOCOL_V1);
+        assert_eq!(wake["compiler_version"], CONTINUITY_WAKE_COMPILER_V1);
+        assert_eq!(wake["relationship_scope_ref"], sha('7').as_str());
+        assert_eq!(wake["recent_corrections"][0]["item_id"], "correction");
+        assert_eq!(wake["open_commitments"][0]["item_id"], "commitment");
+        assert_eq!(wake["identity_orientation"][0]["item_id"], "identity");
+        assert_eq!(
+            wake["relationship_orientation"][0]["item_id"],
+            "relationship"
+        );
+        assert_eq!(wake["relevant_continuity_items"][0]["item_id"], "relevant");
+        assert_eq!(wake["ambient_continuity_items"][0]["item_id"], "ambient");
+        assert!(wake["reflection_prompts"].as_array().unwrap().is_empty());
+        assert_eq!(payload["owner_brain_references"][0]["item_id"], "brain-b");
+        assert_ne!(
+            wake["body_free_receipt_ref"].as_str().unwrap(),
+            sha('8').as_str()
+        );
+    }
+
+    #[test]
+    fn explicit_orientation_wins_and_content_dedupe_prevents_resurfacing() {
+        let duplicate = wake_source(
+            "duplicate",
+            "memory-note",
+            "resident",
+            "Use compact answers",
+            '1',
+            0,
+            28,
+            false,
+            true,
+        );
+        let mut input = wake_input(false);
+        input.resident_items.push(duplicate);
+        let output = ContinuityWakeCompiler::compile(input, MAX_CONTINUITY_PACKET_BYTES).unwrap();
+        let payload = compiled_payload(&output);
+        let wake = &payload["wake"];
+        assert_eq!(wake["identity_orientation"].as_array().unwrap().len(), 1);
+        assert_eq!(wake["identity_orientation"][0]["item_id"], "identity");
+        assert!(!output
+            .packet
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("duplicate"));
+        assert_eq!(wake["recent_corrections"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn budgeting_drops_optional_whole_items_before_mandatory_correction_and_handoff() {
+        let full = ContinuityWakeCompiler::compile(wake_input(false), MAX_CONTINUITY_PACKET_BYTES)
+            .unwrap();
+        let full_len = canonicalize(full.packet.as_ref().unwrap()).unwrap().len();
+        let bounded = ContinuityWakeCompiler::compile(wake_input(false), full_len - 1).unwrap();
+        assert!(bounded.has_packet());
+        assert!(bounded.receipt.omitted_owner_brain_references > 0);
+        let content = &bounded.packet.as_ref().unwrap().content;
+        let payload: serde_json::Value = serde_json::from_str(content).unwrap();
+        assert_eq!(
+            payload["wake"]["recent_corrections"][0]["item_id"],
+            "correction"
+        );
+        assert_eq!(
+            payload["wake"]["current_handoff"]["active_record_id"],
+            "handoff-active"
+        );
+        assert!(!content.contains("macOS target"));
+        assert!(
+            canonicalize(bounded.packet.as_ref().unwrap())
+                .unwrap()
+                .len()
+                < full_len
+        );
+    }
+
+    #[test]
+    fn mandatory_wake_budget_failure_can_still_deliver_independent_brain() {
+        let brain_only_input = ContinuityWakeCompileInput {
+            owner_pubkey: hex('1'),
+            resident_pubkey: hex('2'),
+            relationship_scope_ref: sha('7'),
+            request_id: OpaqueId::parse("wake-request-1").unwrap(),
+            cue_ref: sha('8'),
+            layer_statuses: wake_layers(),
+            current_handoff: None,
+            resident_items: Vec::new(),
+            capsule_identity_orientation: Vec::new(),
+            capsule_relationship_orientation: Vec::new(),
+            owner_brain_references: vec![brain_item("brain-b", "macOS target", 'a')],
+        };
+        let brain_only =
+            ContinuityWakeCompiler::compile(brain_only_input, MAX_CONTINUITY_PACKET_BYTES).unwrap();
+        let brain_budget = canonicalize(brain_only.packet.as_ref().unwrap())
+            .unwrap()
+            .len();
+
+        let mut mandatory = wake_input(false);
+        mandatory.current_handoff = Some(wake_handoff(&"h".repeat(3_900)));
+        mandatory
+            .resident_items
+            .retain(|item| item.pinned_owner_correction);
+        let output = ContinuityWakeCompiler::compile(mandatory, brain_budget).unwrap();
+        assert!(output.receipt.wake_omitted_for_budget);
+        let payload = compiled_payload(&output);
+        assert!(payload.get("wake").is_none());
+        assert_eq!(payload["owner_brain_references"][0]["item_id"], "brain-b");
+    }
+
+    #[test]
+    fn existing_context_output_repacketizes_wake_and_recalculates_outer_receipt() {
+        let request = request(MAX_CONTINUITY_PACKET_BYTES, 10_000);
+        let legacy = ContinuityContextResolver::resolve(
+            &request,
+            single_ready_snapshot("legacy generic envelope"),
+            1,
+        )
+        .unwrap();
+        let old_receipt = legacy.receipt_ref().clone();
+        let wake = ContinuityWakeCompiler::compile(wake_input(false), MAX_CONTINUITY_PACKET_BYTES)
+            .unwrap();
+        let replaced = legacy.replace_packet(&request, wake.into_packet()).unwrap();
+        assert_ne!(replaced.receipt_ref(), &old_receipt);
+        assert!(replaced
+            .result
+            .packet
+            .as_ref()
+            .unwrap()
+            .content
+            .starts_with('{'));
+        assert!(!replaced
+            .result
+            .packet
+            .as_ref()
+            .unwrap()
+            .content
+            .contains("legacy generic envelope"));
+
+        let legacy = ContinuityContextResolver::resolve(
+            &request,
+            single_ready_snapshot("legacy generic envelope"),
+            1,
+        )
+        .unwrap();
+        let mut wrong_request = request.clone();
+        wrong_request.resident_pubkey = hex('3');
+        assert!(matches!(
+            legacy.replace_packet(&wrong_request, None),
+            Err(ContinuityError::InvalidContextRequest)
+        ));
+    }
+
+    #[test]
+    fn invalid_source_metadata_and_cross_resident_identity_fail_closed() {
+        let invalid_author = ContinuityWakeSourceItem::new(
+            wake_item("bad", "memory-note", "intruder", "body", '1'),
+            SafeU53::new(0).unwrap(),
+            timestamp(1),
+            SafeU53::new(0).unwrap(),
+            false,
+            true,
+        );
+        assert!(matches!(
+            invalid_author,
+            Err(ContinuityError::InvalidContextLayer)
+        ));
+
+        let mut input = wake_input(false);
+        input.resident_pubkey = input.owner_pubkey.clone();
+        assert!(matches!(
+            ContinuityWakeCompiler::compile(input, MAX_CONTINUITY_PACKET_BYTES),
+            Err(ContinuityError::InvalidContextLayer)
+        ));
     }
 }
