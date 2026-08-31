@@ -21,6 +21,7 @@ import {
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
+import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import {
   EMPTY_ACTIVITY_SHELF_SLOTS,
   type ActivityAnnouncementItem,
@@ -148,13 +149,21 @@ function hasCancellableManagedTurn(uiKey: string | undefined): boolean {
   );
 }
 
-function ActivityPulse({ state }: { state: ConversationActivityState }) {
+function ActivityPulse({
+  seed,
+  state,
+}: {
+  seed: string;
+  state: ConversationActivityState;
+}) {
   return (
-    <span
-      aria-hidden="true"
-      className="luca-activity-pulse"
-      data-state={state}
-    />
+    <span aria-hidden="true" className="luca-activity-pulse" data-state={state}>
+      <SandpileActivityIndicator
+        active={isLiveState(state)}
+        seed={`${seed}:activity`}
+        size={32}
+      />
+    </span>
   );
 }
 
@@ -168,9 +177,7 @@ function ActivityPulse({ state }: { state: ConversationActivityState }) {
  *
  * And it wakes only when the line would actually read differently: a chained
  * timeout to the next tier boundary while there is no clock on screen, then
- * once a second once there is. A fixed interval spent its first ten wakes
- * repainting identical words, in the ten seconds the resident is most likely
- * to be streaming into the row directly above this one.
+ * once a minute once there is. Short work does not need a clock at all.
  */
 function ActivityWait({
   detail,
@@ -199,10 +206,10 @@ function ActivityWait({
   // Under a few seconds the app does not narrate its own latency at all.
   if (tier === "indicator")
     return <span className="luca-activity-item__state" />;
-  const showElapsed = tier === "elapsed" || tier === "long";
+  const elapsedReadout = managedElapsedReadout(elapsed);
   return (
     <span className="luca-activity-item__state">
-      <span className="luca-activity-item__label">
+      <span className="luca-activity-item__label" key={label}>
         {tier === "long" ? activityLongWaitLabel(label) : label}
       </span>
       {detail ? (
@@ -213,10 +220,8 @@ function ActivityWait({
           {detail}
         </span>
       ) : null}
-      {showElapsed ? (
-        <span className="luca-activity-item__elapsed">
-          {managedElapsedReadout(elapsed)}
-        </span>
+      {elapsedReadout ? (
+        <span className="luca-activity-item__elapsed">{elapsedReadout}</span>
       ) : null}
     </span>
   );
@@ -349,7 +354,7 @@ function ActivityItem({
       data-resident-pubkey={item.key}
       data-testid={`resident-activity-${item.key}`}
     >
-      <ActivityPulse state={item.state} />
+      <ActivityPulse seed={item.pubkey} state={item.state} />
       <button
         aria-label={`Open details for ${item.name}`}
         className="luca-activity-item__resident"
@@ -441,7 +446,10 @@ function ActivityDisclosure({
           className="luca-activity-disclosure"
           type="button"
         >
-          <ActivityPulse state="working" />
+          <ActivityPulse
+            seed={items[0]?.pubkey ?? "resident"}
+            state="working"
+          />
           <span>{label}</span>
         </button>
       </PopoverTrigger>

@@ -33,6 +33,10 @@ function reconciledBody(
   ) {
     return fallbackBody;
   }
+  // A signed final can arrive before the reveal scheduler's first paint. Its
+  // signature settles the turn, but it must not make the renderer jump ahead
+  // of already-authenticated graphemes waiting in the display queue.
+  if (turn.bufferedText.length > 0) return turn.visibleText;
   if (
     turn.finalMessageId !== null &&
     turn.signedText !== null &&
@@ -74,6 +78,10 @@ function hydrateManagedMessage(
       phase: turn.phase,
       streaming,
       uiKey: turn.uiKey,
+      workDurationMs:
+        turn.finalMessageId === null
+          ? undefined
+          : Math.max(0, turn.lastFrameAt - turn.startedAt),
     },
   };
 }

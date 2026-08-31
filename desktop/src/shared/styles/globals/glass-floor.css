@@ -198,15 +198,15 @@
     --mn-plate-strong-hover: rgb(255 255 255 / 0.68);
   }
 }
-/* the focus law survives strokelessness: the composer's border is
-   transparent at rest and brightens in place on focus */
+/* Native palettes keep the real composer border transparent; the shared
+   directional overlay owns focus in every material. */
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [data-testid="message-composer"]:focus-within {
-  border-color: hsl(var(--mn-ink) / 0.12);
+  border-color: transparent;
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
   [data-testid="message-composer"]:focus-within {
-  border-color: hsl(var(--mn-ink) / 0.12);
+  border-color: transparent;
 }
 
 /* ── deep panels ──────────────────────────────────────────────────

@@ -129,16 +129,16 @@ test("the awaiting row discloses more as the wait grows", () => {
     "searching the web · arxiv.org",
   );
 
-  // Then how long it has taken.
-  assert.equal(
-    labelAt(ACTIVITY_ELAPSED_AFTER_MS),
-    "searching the web · arxiv.org · 0:10",
-  );
-
-  // Then an acknowledgement that it is taking a while.
+  // A long wait is acknowledged without narrating sub-minute latency.
   assert.equal(
     labelAt(ACTIVITY_LONG_WAIT_AFTER_MS),
-    "still searching the web · arxiv.org · 0:30",
+    "still searching the web · arxiv.org",
+  );
+
+  // Whole-minute duration appears only once it is meaningful.
+  assert.equal(
+    labelAt(ACTIVITY_ELAPSED_AFTER_MS),
+    "still searching the web · arxiv.org · 1m",
   );
 });
 
@@ -149,11 +149,8 @@ test("an un-narrated turn stays quiet until the clock itself is news", () => {
   // No steps: at the phase tier there is nothing to add that the row's own
   // fallback word has not already said.
   assert.equal(labelAt(ACTIVITY_PHASE_WORD_AFTER_MS, bare), undefined);
-  assert.equal(labelAt(ACTIVITY_ELAPSED_AFTER_MS, bare), "thinking · 0:10");
-  assert.equal(
-    labelAt(ACTIVITY_LONG_WAIT_AFTER_MS, bare),
-    "still thinking · 0:30",
-  );
+  assert.equal(labelAt(ACTIVITY_LONG_WAIT_AFTER_MS, bare), "still thinking");
+  assert.equal(labelAt(ACTIVITY_ELAPSED_AFTER_MS, bare), "still thinking · 1m");
 });
 
 test("a path is read from its tail and a command is left verbatim", () => {

@@ -18,7 +18,8 @@
 :root[data-luca-shell] .luca-activity-item__state {
   align-items: baseline;
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  width: 100%;
 }
 
 /* THE LINE SITS ON THE ROW'S CENTRE, NOT ON ITS CEILING.
@@ -46,7 +47,7 @@
  * as one run of type is untouched.
  */
 :root[data-luca-shell] .luca-activity-item__resident {
-  align-items: center;
+  align-items: flex-start;
 }
 
 :root[data-luca-shell] .luca-activity-item__label {
@@ -54,6 +55,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+:root[data-luca-shell]
+  .luca-activity-item:is(
+    [data-activity-state="waking"],
+    [data-activity-state="thinking"],
+    [data-activity-state="working"],
+    [data-activity-state="writing"],
+    [data-activity-state="finalizing"]
+  )
+  .luca-activity-item__label {
+  animation:
+    luca-activity-label-arrive var(--motion-duration-fast)
+    var(--motion-ease-standard) both,
+    luca-activity-text-current 2.8s linear infinite;
+  background: linear-gradient(
+    100deg,
+    hsl(var(--mn-ink-muted) / 0.78) 16%,
+    hsl(var(--mn-ink)) 46%,
+    hsl(var(--mn-ink-muted) / 0.78) 76%
+  );
+  background-size: 220% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
 :root[data-luca-shell] .luca-activity-item__detail {
@@ -84,7 +110,28 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
-  padding-inline: 10px 8px;
+  font-size: var(--type-label-size);
+  padding-inline: 10px 4px;
+}
+
+@keyframes luca-activity-label-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes luca-activity-text-current {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 /* --- The ramp ------------------------------------------------------------
@@ -99,12 +146,16 @@
  * `ink-faint / 0.78` in mono under `ink / 0.86` in the UI face — rather than
  * by a size the ramp does not contain.
  */
-:root[data-luca-shell] .luca-activity-item__state,
 :root[data-luca-shell] .luca-activity-item__steps,
 :root[data-luca-shell] .luca-activity-step,
 :root[data-luca-shell] .luca-activity-step__detail {
   font-size: var(--type-micro-size);
   letter-spacing: var(--type-micro-tracking);
+}
+
+:root[data-luca-shell] .luca-activity-item__state {
+  font-size: var(--type-body-size);
+  letter-spacing: var(--type-body-tracking);
 }
 
 :root[data-luca-shell] .luca-activity-item__name {
@@ -363,7 +414,7 @@
   :root[data-luca-shell]
     .luca-activity-step[data-live="true"]
     .luca-activity-step__favicon {
-    animation: luca-activity-pulse 1.8s ease-in-out infinite;
+    animation: luca-activity-pulse 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite;
   }
 }
 
@@ -375,6 +426,21 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell]
+    .luca-activity-item:is(
+      [data-activity-state="waking"],
+      [data-activity-state="thinking"],
+      [data-activity-state="working"],
+      [data-activity-state="writing"],
+      [data-activity-state="finalizing"]
+    )
+    .luca-activity-item__label {
+    animation: none;
+    background: none;
+    color: hsl(var(--mn-ink-muted));
+    transform: none;
+  }
+
   :root[data-luca-shell] .luca-activity-item__dismiss {
     transition: none;
   }
@@ -399,5 +465,12 @@
   :root[data-luca-shell] .luca-activity-step,
   :root[data-luca-shell] .luca-activity-step__detail {
     color: hsl(var(--mn-ink));
+  }
+
+  :root[data-luca-shell] .luca-activity-item__label {
+    animation: none;
+    background: none;
+    color: hsl(var(--mn-ink-muted));
+    transform: none;
   }
 }

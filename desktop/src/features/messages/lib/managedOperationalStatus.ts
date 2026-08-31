@@ -379,14 +379,20 @@ export function managedActivityRunSummary(
   return failed > 0 ? `${steps_} · ${failed} failed` : steps_;
 }
 
+/** Work duration is useful only once a turn has become meaningfully long. */
+export const MANAGED_ELAPSED_VISIBLE_AFTER_MS = 60_000;
+
 /**
- * Elapsed wait as m:ss. Deliberately not the `formatElapsed` "1m 5s" form: this
- * number sits under a live answer and changes every second, and a fixed-width
- * clock reading stops the line reflowing beneath the eye.
+ * A quiet whole-unit duration for both live and completed resident work.
+ * Seconds are intentionally absent: below a minute the value is noise, and
+ * above it a minute-resolution label stays still instead of ticking beside a
+ * message the owner is trying to read.
  */
-export function managedElapsedReadout(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const seconds = totalSeconds % 60;
-  const minutes = Math.floor(totalSeconds / 60);
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+export function managedElapsedReadout(ms: number): string | null {
+  if (ms < MANAGED_ELAPSED_VISIBLE_AFTER_MS) return null;
+  const totalMinutes = Math.floor(ms / MANAGED_ELAPSED_VISIBLE_AFTER_MS);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
 }

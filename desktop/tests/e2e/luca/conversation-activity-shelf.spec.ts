@@ -165,7 +165,65 @@ test("activity shelf keeps three stable residents and discloses the rest", async
       name: "Stop all active residents in this conversation",
     }),
   ).toHaveCount(0);
-
+  await expect(page.locator(".luca-activity-item__elapsed")).toHaveCount(0);
+  const sandpile = page.locator("[data-sandpile-activity]").first();
+  await expect(sandpile.locator("..")).toHaveCSS("border-top-width", "0px");
+  await expect(sandpile).toHaveCSS("width", "32px");
+  await expect(sandpile).toHaveAttribute("data-sandpile-grid-size", "32");
+  const firstFrame = await sandpile.evaluate((canvas) => {
+    const surface = canvas as HTMLCanvasElement;
+    const context = surface.getContext("2d");
+    if (!context) return null;
+    const { data, height, width } = context.getImageData(
+      0,
+      0,
+      surface.width,
+      surface.height,
+    );
+    const alphaAt = (x: number, y: number) => data[(y * width + x) * 4 + 3];
+    let checksum = 0;
+    for (let index = 0; index < data.length; index += 29) {
+      checksum = (checksum + data[index]) % 1_000_003;
+    }
+    return {
+      backingMatchesDisplay:
+        width ===
+        Math.round(
+          Math.min(
+            surface.getBoundingClientRect().width,
+            surface.getBoundingClientRect().height,
+          ) * window.devicePixelRatio,
+        ),
+      centerAlpha: alphaAt(width >> 1, height >> 1),
+      checksum,
+      cornerAlpha: alphaAt(0, 0),
+      gridSize: Number(surface.dataset.sandpileGridSize),
+    };
+  });
+  expect(firstFrame?.backingMatchesDisplay).toBe(true);
+  expect(firstFrame?.gridSize).toBe(32);
+  expect(firstFrame?.cornerAlpha).toBe(0);
+  expect(firstFrame?.centerAlpha).toBe(255);
+  await expect
+    .poll(() =>
+      sandpile.evaluate((canvas) => {
+        const surface = canvas as HTMLCanvasElement;
+        const context = surface.getContext("2d");
+        if (!context) return 0;
+        const { data } = context.getImageData(
+          0,
+          0,
+          surface.width,
+          surface.height,
+        );
+        let checksum = 0;
+        for (let index = 0; index < data.length; index += 29) {
+          checksum = (checksum + data[index]) % 1_000_003;
+        }
+        return checksum;
+      }),
+    )
+    .not.toBe(firstFrame?.checksum);
   const disclosure = page.getByRole("button", {
     name: "+1 working. View all resident activity.",
   });
@@ -177,6 +235,65 @@ test("activity shelf keeps three stable residents and discloses the rest", async
   ).toContainText("Mara");
   await page.keyboard.press("Escape");
   await expect(disclosure).toBeFocused();
+});
+
+test("composer focus adds only the directional material edge", async ({
+  page,
+}) => {
+  await openConversation(page);
+  const composer = page.getByTestId("message-composer");
+  await page.getByTestId("channel-general").focus();
+  await expect
+    .poll(() =>
+      composer.evaluate(
+        (element) => getComputedStyle(element, "::after").opacity,
+      ),
+    )
+    .toBe("0");
+  const inactive = await composer.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const edge = getComputedStyle(element, "::after");
+    return {
+      background: style.backgroundColor,
+      borderColor: style.borderColor,
+      edgeOpacity: edge.opacity,
+      height: bounds.height,
+      width: bounds.width,
+    };
+  });
+  expect(inactive.borderColor).toBe("rgba(0, 0, 0, 0)");
+  expect(inactive.edgeOpacity).toBe("0");
+
+  await page.getByTestId("message-input").focus();
+  await expect
+    .poll(() =>
+      composer.evaluate(
+        (element) => getComputedStyle(element, "::after").opacity,
+      ),
+    )
+    .toBe("1");
+  const active = await composer.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    const edge = getComputedStyle(element, "::after");
+    return {
+      background: style.backgroundColor,
+      borderColor: style.borderColor,
+      edgeBackground: edge.backgroundImage,
+      edgeOpacity: edge.opacity,
+      edgePadding: edge.paddingTop,
+      height: bounds.height,
+      width: bounds.width,
+    };
+  });
+  expect(active.borderColor).toBe("rgba(0, 0, 0, 0)");
+  expect(active.edgeOpacity).toBe("1");
+  expect(active.edgeBackground).toContain("linear-gradient");
+  expect(Number.parseFloat(active.edgePadding)).toBeLessThanOrEqual(1);
+  expect(active.background).toBe(inactive.background);
+  expect(active.height).toBe(inactive.height);
+  expect(active.width).toBe(inactive.width);
 });
 
 test("multi-resident direct conversations expose Stop all", async ({
@@ -235,6 +352,27 @@ test("activity shelf collapses and settles motion at compact Mac size", async ({
     .first()
     .evaluate((cell) => getComputedStyle(cell).animationName);
   expect(animationName).toBe("none");
+  const sandpile = page.locator("[data-sandpile-activity]").first();
+  const checksum = () =>
+    sandpile.evaluate((canvas) => {
+      const surface = canvas as HTMLCanvasElement;
+      const context = surface.getContext("2d");
+      if (!context) return 0;
+      const { data } = context.getImageData(
+        0,
+        0,
+        surface.width,
+        surface.height,
+      );
+      let value = 0;
+      for (let index = 0; index < data.length; index += 29) {
+        value = (value + data[index]) % 1_000_003;
+      }
+      return value;
+    });
+  const firstFrame = await checksum();
+  await page.waitForTimeout(160);
+  expect(await checksum()).toBe(firstFrame);
   await expect(page.getByTestId("message-input")).toBeVisible();
 });
 

@@ -7,13 +7,19 @@ const motionCss = readFileSync(
   "utf8",
 );
 
-test("conversation arrival uses shared motion tokens", () => {
+test("conversation arrival is quick, crisp, and uses shared motion tokens", () => {
   assert.match(motionCss, /--motion-duration-arrival:\s*500ms/);
-  assert.match(motionCss, /--motion-ease-arrival:/);
+  assert.match(motionCss, /--motion-duration-message-arrival:\s*180ms/);
+  assert.match(motionCss, /--motion-distance-message-arrival:\s*4px/);
   assert.match(
     motionCss,
-    /\.motion-enter-conversation\s*\{[\s\S]*var\(--motion-duration-arrival\)[\s\S]*var\(--motion-ease-arrival\)/,
+    /\.motion-enter-conversation\s*\{[\s\S]*var\(--motion-duration-message-arrival\)[\s\S]*var\(--motion-ease-standard\)/,
   );
+  const conversationKeyframes = motionCss.match(
+    /@keyframes motion-enter-conversation\s*\{[\s\S]*?\n\}/,
+  )?.[0];
+  assert.ok(conversationKeyframes);
+  assert.doesNotMatch(conversationKeyframes, /filter|blur/);
 });
 
 test("conversation arrival has a reduced-motion treatment", () => {

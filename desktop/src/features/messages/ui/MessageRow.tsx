@@ -15,10 +15,7 @@ import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoic
 import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
-import {
-  ResidentIdentityMark,
-  type ResidentMarkLiveState,
-} from "@/features/channels/ui/ResidentIdentityMark";
+import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -44,7 +41,10 @@ import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
-import { managedOperationalCopy } from "@/features/messages/lib/managedOperationalStatus";
+import {
+  managedElapsedReadout,
+  managedOperationalCopy,
+} from "@/features/messages/lib/managedOperationalStatus";
 import {
   getManagedOperationalReceiptSnapshot,
   subscribeManagedOperationalReceipts,
@@ -649,12 +649,11 @@ export const MessageRow = React.memo(
       );
     })();
 
-    // While a reply is coming and no text has arrived, the mark carries the
-    // state and one quiet word beside the name says what — "thinking",
-    // "reading files". Once words stream, the mark holds lit and the word goes.
+    // While a reply is coming and no text has arrived, one quiet word beside
+    // the name says what — "thinking", "reading files". Identity marks remain
+    // identity; the activity shelf's sandpile is the single animated state cue.
     const managedPhase = message.managedPresentation?.phase;
-    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
-      ?.streaming
+    const managedActivityState = !message.managedPresentation?.streaming
       ? null
       : managedPhase === "waking" ||
           managedPhase === "thinking" ||
@@ -667,7 +666,7 @@ export const MessageRow = React.memo(
     // the owner's behalf: nothing is thinking yet, and saying so is what
     // keeps a longer wait from reading as a broken one.
     const activityWord =
-      residentMarkLive === "thinking"
+      managedActivityState === "thinking"
         ? (message.managedPresentation?.activityLabel ??
           (managedPhase === "waking"
             ? "waking"
@@ -679,7 +678,7 @@ export const MessageRow = React.memo(
           // The runtime's own narration wins here for the same reason it wins
           // above: it says what is being written, and the phase word only says
           // that something is. Falls back when nothing was narrated.
-          residentMarkLive === "writing" && message.body === ""
+          managedActivityState === "writing" && message.body === ""
           ? (message.managedPresentation?.activityLabel ?? "writing")
           : null;
 
@@ -696,9 +695,23 @@ export const MessageRow = React.memo(
       residentStop !== null &&
       stopPubkey !== null &&
       (stopping || residentStop.canStop(stopPubkey));
+    const managedWorkDuration =
+      message.managedPresentation?.workDurationMs !== undefined &&
+      !message.managedPresentation.streaming
+        ? managedElapsedReadout(message.managedPresentation.workDurationMs)
+        : null;
 
     const inlineMetadataNode = (
       <div className="flex shrink-0 items-baseline gap-2 text-xs">
+        {managedWorkDuration ? (
+          <span
+            className="text-ink-faint"
+            data-managed-work-duration
+            title="Elapsed resident work time"
+          >
+            {managedWorkDuration}
+          </span>
+        ) : null}
         {/* The clock is available, not announced: it fades in when the row is
             hovered or holds focus (see message-anatomy.css) and reserves its
             box the rest of the time, so revealing it never moves a word.
@@ -1031,17 +1044,17 @@ export const MessageRow = React.memo(
             playEntrance &&
               !message.managedPresentation &&
               "motion-enter-conversation",
-            // Your own words land; a resident's arrive. The blurred 500 ms
-            // entrance says "someone spoke" — news. Nothing about your own
-            // message is news, so it gets the shorter, unblurred one. That
-            // asymmetry is the grammar of the timeline, not a shortcut.
+            // Your own words land; a resident's arrive. Both are quick and
+            // unblurred because this is frequent UI. The resident travels one
+            // pixel farther and takes one beat longer — enough asymmetry to
+            // read as incoming without making text wait behind an effect.
             isOwnMessage &&
               rowIsFresh &&
               !playEntrance &&
               !message.managedPresentation &&
               "motion-land-own",
-            // The arriving half of that grammar, finally wired: a complete
-            // incoming message ARRIVES with the blurred entrance. The age
+            // The arriving half of that grammar: a complete incoming message
+            // rises into place. The age
             // gate (rowIsFresh) is what keeps history, scroll-back remounts
             // and channel switches still.
             !isOwnMessage &&
@@ -1049,9 +1062,9 @@ export const MessageRow = React.memo(
               !playEntrance &&
               !message.managedPresentation &&
               "motion-enter-conversation",
-            // A streaming reply mounts as a near-empty bubble that grows —
-            // a 500ms blur over reflowing text would smear. It (and the DM
-            // pending placeholder) rises gently instead.
+            // A streaming reply mounts as a near-empty bubble that grows. It
+            // and the DM pending placeholder use the same quick, unblurred rise
+            // so reflowing text never smears behind an entrance effect.
             !isOwnMessage &&
               rowIsFresh &&
               Boolean(message.managedPresentation) &&
@@ -1108,7 +1121,6 @@ export const MessageRow = React.memo(
                 <ResidentIdentityMark
                   accessibleName={message.author}
                   decorative
-                  live={residentMarkLive}
                   personaId={message.residentPersonaId}
                   publicKey={message.pubkey}
                   size={21}
@@ -1174,6 +1186,10 @@ export const MessageRow = React.memo(
       next.message.managedPresentation?.failure &&
     prev.message.managedPresentation?.streaming ===
       next.message.managedPresentation?.streaming &&
+    prev.message.managedPresentation?.activityLabel ===
+      next.message.managedPresentation?.activityLabel &&
+    prev.message.managedPresentation?.workDurationMs ===
+      next.message.managedPresentation?.workDurationMs &&
     // Value comparisons, not identity: these arrays are rebuilt with fresh
     // identities on every ingest/refetch even when unchanged — identity
     // checks made every row re-render on every streamed event in an open

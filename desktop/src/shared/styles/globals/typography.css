@@ -120,7 +120,7 @@
   font-family: var(--font-reading);
   font-size: var(--type-body-size);
   letter-spacing: var(--type-body-tracking);
-  line-height: var(--type-body-leading);
+  line-height: 1.74;
 }
 
 :root[data-luca-shell] .type-title {

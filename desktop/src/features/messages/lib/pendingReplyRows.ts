@@ -71,8 +71,11 @@ function managedWaitLabel(
   const detail = step ? managedActivityStepDetail(step) : null;
   const parts = [tier === "long" ? `still ${said}` : said];
   if (detail) parts.push(detail);
-  if (tier === "elapsed" || tier === "long") {
-    parts.push(managedElapsedReadout(Math.max(0, now - activity.startedAt)));
+  if (tier === "long") {
+    const elapsed = managedElapsedReadout(
+      Math.max(0, now - activity.startedAt),
+    );
+    if (elapsed) parts.push(elapsed);
   }
   return parts.join(" · ");
 }

@@ -794,7 +794,7 @@ describe("managedPresentationStore", () => {
     );
   });
 
-  it("publishes a signed final atomically when no streamed grapheme was visible", () => {
+  it("keeps revealing queued graphemes when the signed final wins the first-paint race", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(frame("turn_started", 1));
     ingestManagedPresentationFrame(
@@ -808,9 +808,14 @@ describe("managedPresentationStore", () => {
       "signed-before-paint",
       "Complete signed body",
     );
-    assert.equal(turn().visibleText, "Complete signed body");
-    assert.equal(turn().bufferedText, "");
+    assert.equal(turn().visibleText, "");
+    assert.equal(turn().bufferedText, "Complete signed body");
     assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 1);
+
+    flushManagedPresentationSchedulerForTests();
+    assert.ok(turn().visibleText.length > 0);
+    assert.ok(turn().visibleText.length < "Complete signed body".length);
+    assert.ok(turn().bufferedText.length > 0);
 
     flushAll();
     assert.equal(turn().visibleText, "Complete signed body");
@@ -1182,7 +1187,7 @@ describe("managedPresentationStore", () => {
     dispose();
   });
 
-  it("accumulates rich activity across a turn and keeps it after the answer", () => {
+  it("accumulates rich activity while live and retires it after the answer", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     ingestManagedPresentationFrame(
       frame("turn_started", 1, {
@@ -1243,19 +1248,12 @@ describe("managedPresentationStore", () => {
       "Here is the answer.",
     );
     flushAll();
-    const settled =
+    assert.equal(
       getManagedPresentationActivitySnapshot(conversationId).get(
         residentPubkey,
-      );
-    assert.ok(
-      settled,
-      "a narrated run keeps its work summary after the answer",
-    );
-    assert.equal(settled.settled, true);
-    assert.deepEqual(
-      settled.steps.map((entry) => entry.status),
-      ["done", "done"],
-      "a clean finish settles the step that was still running",
+      ),
+      undefined,
+      "the answer retires the transient work summary",
     );
   });
 

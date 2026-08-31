@@ -381,11 +381,14 @@ describe("rich activity", () => {
     );
   });
 
-  it("reads the wait as a fixed-width clock", () => {
-    assert.equal(managedElapsedReadout(0), "0:00");
-    assert.equal(managedElapsedReadout(-500), "0:00");
-    assert.equal(managedElapsedReadout(9_400), "0:09");
-    assert.equal(managedElapsedReadout(65_000), "1:05");
-    assert.equal(managedElapsedReadout(600_000), "10:00");
+  it("shows only meaningful whole-unit work durations", () => {
+    assert.equal(managedElapsedReadout(0), null);
+    assert.equal(managedElapsedReadout(-500), null);
+    assert.equal(managedElapsedReadout(59_999), null);
+    assert.equal(managedElapsedReadout(60_000), "1m");
+    assert.equal(managedElapsedReadout(119_999), "1m");
+    assert.equal(managedElapsedReadout(240_000), "4m");
+    assert.equal(managedElapsedReadout(3_600_000), "1h");
+    assert.equal(managedElapsedReadout(4_320_000), "1h 12m");
   });
 });

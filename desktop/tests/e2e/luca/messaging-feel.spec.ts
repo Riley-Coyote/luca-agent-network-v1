@@ -167,10 +167,13 @@ test("a fresh reply arrives animated; old history stays still", async ({
     .filter({ hasText: "feel-gate-fresh-reply" });
   await expect(freshRow).toHaveCount(1);
   // The arriving half of the timeline grammar: a fresh incoming message
-  // wears the blurred entrance.
+  // rises into place without blurring readable text.
   expect(
     await freshRow.evaluate((row) => getComputedStyle(row).animationName),
   ).toBe("motion-enter-conversation");
+  expect(
+    await freshRow.evaluate((row) => getComputedStyle(row).animationDuration),
+  ).toBe("0.18s");
 
   await page.evaluate((alicePubkey) => {
     window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({

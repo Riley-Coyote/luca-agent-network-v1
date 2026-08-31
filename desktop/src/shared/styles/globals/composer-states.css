@@ -30,42 +30,52 @@
     box-shadow var(--motion-duration-instant) var(--motion-ease-standard);
 }
 
-/* WHAT HOLDS THE CARD OFF THE GROUND IS THE SHADE STEP, NOT AN EDGE.
- *
- * Measured at 1440×900 in the default palette: card #2e2f30 over ground
- * #1b1c1d is a 19-RGB step, while the 12% focus hairline composites to
- * #464646 — a 24-RGB step drawn ON TOP of that card. The edge was a bigger
- * value jump than the plane change it decorated, and because the composer
- * autofocuses it was on screen 100% of the time; in an empty room that reads
- * as a form field, which is the one thing this card is not.
- *
- * 6% ink composites to ~#3a3a3b, a 12-RGB step — quieter than the plane it
- * sits on. Capped rather than removed because two palettes still lean on it:
- * graphite's card→ground step measures 5 RGB and ash's 9, and there the
- * hairline is the only thing holding the card off the ground. Widening those
- * ladders is the palette's work; until it lands, the mark stays, quiet.
- *
- * The lit edge takes over as the object cue — one inset highlight, the
- * system's single light effect, the same one the owner's plate wears. */
+/* The resting card is entirely strokeless. Focus adds no conventional border:
+ * a masked half-pixel catches light at the top and loses it down the sides,
+ * matching the shell's grazing-light material language without boxing the
+ * composer in. */
 :root[data-luca-shell] [data-testid="message-composer"] {
   border-color: transparent;
-  box-shadow: var(--mn-lit-edge);
+  box-shadow: var(--mn-lit-edge-off);
 }
 
 :root[data-luca-shell] [data-testid="message-composer"]:focus-within {
-  border-color: hsl(var(--mn-ink) / 0.06);
+  border-color: transparent;
 }
 
-/* The inverted state model: this control is almost always focused, so BLUR is
- * the state worth marking. The card loses its highlight and goes flat, which
- * is what a plane does when the light moves elsewhere. Alpha 0 rather than
- * `none` keeps the shadow list interpolable, so the change eases rather than
- * cutting. */
-:root[data-luca-shell] [data-testid="message-composer"]:not(:focus-within) {
-  /* The token, not a literal: Paper's lit edge is a non-inset under-shadow,
-     and an inset literal here cannot interpolate with it — the transition
-     snapped on exactly the palette it was written to ease. */
-  box-shadow: var(--mn-lit-edge-off);
+:root[data-luca-shell] [data-testid="message-composer"]::after {
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--mn-ink) / 0.11) 0%,
+    hsl(var(--mn-ink) / 0.04) 42%,
+    transparent 78%
+  );
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  padding: 1px;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+@media (min-resolution: 2dppx) {
+  :root[data-luca-shell] [data-testid="message-composer"]::after {
+    padding: 0.5px;
+  }
+}
+
+:root[data-luca-shell] [data-testid="message-composer"]:focus-within::after {
+  opacity: 1;
 }
 
 /* At the tuck the card should read as sinking into the recess, and two light
@@ -76,6 +86,12 @@
   .luca-sheet-deck
   + [data-testid="message-composer"]:focus-within {
   border-top-color: transparent;
+}
+
+:root[data-luca-shell]
+  .luca-sheet-deck
+  + [data-testid="message-composer"]:focus-within::after {
+  opacity: 0;
 }
 
 /* The send button has two states, armed and disarmed, and never moves between

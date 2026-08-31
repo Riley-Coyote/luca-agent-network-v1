@@ -241,16 +241,15 @@ export function activityShelfOverflow(state: ActivityShelfSlotState): string[] {
  * at once instead of narrating only abnormal latency. (Was 3s; the feel
  * audit found that window near-silent.) */
 export const ACTIVITY_PHASE_WORD_AFTER_MS = 300;
-/** Silence starts to read as a hang, and a number is reassurance. */
-export const ACTIVITY_ELAPSED_AFTER_MS = 10_000;
+/** Duration is silent until a turn has taken a full minute. */
+export const ACTIVITY_ELAPSED_AFTER_MS = 60_000;
 /** Long enough that saying "still" is honest rather than fussy. */
 export const ACTIVITY_LONG_WAIT_AFTER_MS = 30_000;
 
-export type ActivityWaitTier = "indicator" | "phase" | "elapsed" | "long";
+export type ActivityWaitTier = "indicator" | "phase" | "long";
 
 export function activityWaitTier(elapsedMs: number): ActivityWaitTier {
   if (elapsedMs >= ACTIVITY_LONG_WAIT_AFTER_MS) return "long";
-  if (elapsedMs >= ACTIVITY_ELAPSED_AFTER_MS) return "elapsed";
   if (elapsedMs >= ACTIVITY_PHASE_WORD_AFTER_MS) return "phase";
   return "indicator";
 }
@@ -264,18 +263,19 @@ export function activityWaitTier(elapsedMs: number): ActivityWaitTier {
  * in the ten seconds a resident is most likely to be streaming into the row
  * directly above it.
  *
- * Once the clock is on screen it genuinely changes every second, and the wait
- * is aligned to the next whole one so the digits turn on the second rather
- * than on whichever millisecond the turn happened to start.
+ * Once duration is visible it changes only on whole-minute boundaries.
  */
 export function nextActivityWaitChangeMs(elapsedMs: number): number {
   if (elapsedMs < ACTIVITY_PHASE_WORD_AFTER_MS) {
     return ACTIVITY_PHASE_WORD_AFTER_MS - elapsedMs;
   }
+  if (elapsedMs < ACTIVITY_LONG_WAIT_AFTER_MS) {
+    return ACTIVITY_LONG_WAIT_AFTER_MS - elapsedMs;
+  }
   if (elapsedMs < ACTIVITY_ELAPSED_AFTER_MS) {
     return ACTIVITY_ELAPSED_AFTER_MS - elapsedMs;
   }
-  return 1_000 - (elapsedMs % 1_000);
+  return 60_000 - (elapsedMs % 60_000);
 }
 
 /**

@@ -1103,7 +1103,7 @@
 }
 
 :root[data-luca-shell] [data-testid="message-row"]:hover {
-  background: hsl(var(--mn-raised) / 0.55);
+  background: transparent;
 }
 
 /* Message copy is ink at full strength. It used to be `--mn-ink / 0.88`, which
@@ -1235,13 +1235,10 @@
   box-shadow: var(--mn-lit-edge);
 }
 
-/* Focus is the card's own border brightening in place — the canon focus,
- * never a second ring. The composer autofocuses, so focus-within is its
- * PRACTICAL resting state: the brightness must be livable full-time. A
- * whisper (12% ink) reads as a faint halo while the card holds the
- * keyboard, and falls back to pure shade when it does not. */
+/* Composer focus is painted by the directional overlay in
+ * composer-states.css. Its real border remains transparent in every state. */
 :root[data-luca-shell] [data-testid="message-composer"]:focus-within {
-  border-color: hsl(var(--mn-ink) / 0.12);
+  border-color: transparent;
 }
 
 :root[data-luca-shell] [data-testid="message-composer-toolbar"] {

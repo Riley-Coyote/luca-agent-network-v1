@@ -87,7 +87,7 @@ async function responseGeometry(row: Locator) {
       fontSize: Number.parseFloat(style.fontSize),
       left: bounds.left,
       lineHeight: Number.parseFloat(style.lineHeight),
-      top: bounds.top,
+      top: element.offsetTop,
       width: bounds.width,
     };
   });
@@ -283,6 +283,10 @@ test("a streamed response settles in place when its signed final arrives", async
     hasText: "One continuous response.",
   });
   await expect(response).toBeVisible();
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "1",
+  );
   await response.evaluate((element) => {
     element.setAttribute("data-stable-node-probe", "settled-turn");
   });
@@ -297,6 +301,13 @@ test("a streamed response settles in place when its signed final arrives", async
     page.locator('[data-stable-node-probe="settled-turn"]'),
   ).toHaveCount(1);
   await expect(finalResponse).toHaveAttribute("data-signed-message-id", /.+/);
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "0",
+  );
+  await expect(
+    finalResponse.locator("[data-managed-work-duration]"),
+  ).toHaveCount(0);
   const signedGeometry = await responseGeometry(finalResponse);
 
   for (const key of [
@@ -311,6 +322,86 @@ test("a streamed response settles in place when its signed final arrives", async
       `${key} should remain stable through signing`,
     ).toBeLessThanOrEqual(1);
   }
+});
+
+test("sub-minute resident work omits duration metadata", async ({ page }) => {
+  const ownerRow = await send(page, "Return this one quickly.");
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "short-turn",
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "Quick answer.",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "short-turn",
+  });
+  await emitSignedFinal(page, CLAUDE, receiptId, "Quick answer.");
+
+  const finalResponse = managedResponseRows(page).filter({
+    hasText: "Quick answer.",
+  });
+  await expect(finalResponse).toBeVisible();
+  await expect(
+    finalResponse.locator("[data-managed-work-duration]"),
+  ).toHaveCount(0);
+});
+
+test("completed resident work keeps a compact duration stable on hover", async ({
+  page,
+}) => {
+  const ownerRow = await send(page, "Take the time needed for this response.");
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 1,
+    turnId: "long-turn",
+  });
+  await page.evaluate(() => {
+    const nativeNow = Date.now.bind(Date);
+    Date.now = () => nativeNow() + 72 * 60_000;
+  });
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: "Measured answer.",
+    receiptId,
+    residentPubkey: CLAUDE,
+    sequence: 2,
+    turnId: "long-turn",
+  });
+  await emitSignedFinal(page, CLAUDE, receiptId, "Measured answer.");
+
+  const finalResponse = managedResponseRows(page).filter({
+    hasText: "Measured answer.",
+  });
+  await expect(finalResponse).toBeVisible();
+  const duration = finalResponse.locator("[data-managed-work-duration]");
+  await expect(duration).toHaveText("1h 12m");
+  const durationLeftBeforeHover = await duration.evaluate(
+    (element) => element.getBoundingClientRect().left,
+  );
+
+  await finalResponse.hover();
+  await expect(finalResponse.locator("[data-message-time]")).toHaveCSS(
+    "opacity",
+    "1",
+  );
+  const durationLeftAfterHover = await duration.evaluate(
+    (element) => element.getBoundingClientRect().left,
+  );
+  expect(durationLeftAfterHover).toBe(durationLeftBeforeHover);
 });
 
 test("authoritative reconciliation animates once and never replays after remount", async ({

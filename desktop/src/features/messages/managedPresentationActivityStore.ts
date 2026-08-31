@@ -58,28 +58,12 @@ export function managedTerminalActivityUntil(
 }
 
 /**
- * A run whose signed answer already landed, kept for its work summary alone.
- * Terminal outcomes are never "settled" — they are unfinished business.
- */
-function isSettled(turn: ManagedPresentationTurn): boolean {
-  return (
-    turn.finalMessageId !== null &&
-    !isTerminalPhase(turn.phase) &&
-    turn.activitySteps.length > 0
-  );
-}
-
-/**
- * Signed finals normally take their indicator away with them — the answer is
- * the better signal. A run that narrated real work keeps a collapsed summary
- * instead, so the history of what was done survives the arrival of the answer.
+ * A signed answer always retires its live activity line. Step history is a
+ * disclosure for work in progress, not a second persistent footer below the
+ * answer. The completed duration travels with the answer itself.
  */
 function shouldOmitSignedFinal(turn: ManagedPresentationTurn): boolean {
-  return (
-    turn.finalMessageId !== null &&
-    !isTerminalPhase(turn.phase) &&
-    !isSettled(turn)
-  );
+  return turn.finalMessageId !== null && !isTerminalPhase(turn.phase);
 }
 
 /** Only a live turn may claim a resident's slot ahead of a finished one. */
@@ -192,7 +176,7 @@ export function upsertManagedPresentationActivity(
   terminalUntil?: number,
 ): void {
   const terminal = isTerminalPhase(turn.phase);
-  const settled = isSettled(turn);
+  const settled = false;
   if (!terminal) {
     terminalExpiresAt.delete(turn.uiKey);
     if (!settled) retiredTerminalKeys.delete(turn.uiKey);

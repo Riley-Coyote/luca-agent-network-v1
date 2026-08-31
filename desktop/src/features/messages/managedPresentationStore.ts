@@ -1040,14 +1040,16 @@ export function reconcileManagedPresentationFinal(
     next.slotOrdinal === null &&
     (next.finalMessageId !== null || next.signedText !== null)
   ) {
-    clearPending(next.uiKey);
+    const queuedGraphemes = pendingGraphemes.get(next.uiKey)?.length ?? 0;
     next = activateResponseSlot(
-      {
-        ...next,
-        bufferedText: "",
-        receivedText: next.signedText ?? next.receivedText,
-        visibleText: next.signedText ?? "",
-      },
+      queuedGraphemes > 0
+        ? next
+        : {
+            ...next,
+            bufferedText: "",
+            receivedText: next.signedText ?? next.receivedText,
+            visibleText: next.signedText ?? "",
+          },
       Date.now(),
     );
   }

@@ -81,5 +81,7 @@ export type TimelineMessage = {
     /** Plain phrase for what the resident is doing while no text has arrived
      *  yet — "thinking", "reading files" — shown beside the name. */
     activityLabel?: string;
+    /** Stable elapsed work time once the signed answer lands. */
+    workDurationMs?: number;
   };
 };

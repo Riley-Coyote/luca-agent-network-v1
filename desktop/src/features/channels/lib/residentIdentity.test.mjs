@@ -51,7 +51,7 @@ test("custom resident marks are deterministic, well-formed identity glyphs, 7 by
 });
 
 test("provider marks reuse transparent source assets without baked tiles", async () => {
-  const [markSource, contactSource] = await Promise.all([
+  const [markSource, contactSource, thinkingLabSource] = await Promise.all([
     readFile(
       new URL("../ui/ResidentIdentityMark.tsx", import.meta.url),
       "utf8",
@@ -60,12 +60,25 @@ test("provider marks reuse transparent source assets without baked tiles", async
       new URL("../../messages/ui/DirectRuntimeContactRow.tsx", import.meta.url),
       "utf8",
     ),
+    readFile(
+      new URL("../../messages/lab/ThinkingIndicatorLab.tsx", import.meta.url),
+      "utf8",
+    ),
   ]);
 
+  assert.match(markSource, /harness-logos\/chatgpt\.png\?inline/);
+  assert.match(markSource, /harness-logos\/claude\.png\?inline/);
+  assert.match(contactSource, /<HarnessLogo/);
   for (const source of [markSource, contactSource]) {
-    assert.match(source, /harness-logos\/chatgpt\.png\?inline/);
-    assert.match(source, /harness-logos\/claude\.png\?inline/);
     assert.doesNotMatch(source, /runtime-icons\/(?:codex|claude)\.png/);
     assert.doesNotMatch(source, /object-cover|rounded-\[/);
   }
+
+  // Activity has one animated owner in the product: the shelf sandpile. The
+  // former runtime-mark murmur remains inspectable in the design lab, but the
+  // identity component can no longer turn it on accidentally.
+  assert.doesNotMatch(markSource, /FilamentMark|data-resident-mark-live/);
+  assert.match(thinkingLabSource, /archived-runtime-mark-thinking/);
+  assert.match(thinkingLabSource, /motion="murmur"/);
+  assert.match(thinkingLabSource, /bloom=\{false\}/);
 });

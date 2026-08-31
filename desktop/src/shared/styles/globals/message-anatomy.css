@@ -116,11 +116,16 @@
   transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
 }
 
-:root[data-luca-shell] [data-testid="message-row"]:hover [data-message-time],
 :root[data-luca-shell]
   [data-testid="message-row"]:focus-within
   [data-message-time] {
   opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root[data-luca-shell] [data-testid="message-row"]:hover [data-message-time] {
+    opacity: 1;
+  }
 }
 
 /* ------------------------------------------------------------------
@@ -229,7 +234,7 @@
   [data-message-anatomy="bubble"][data-message-side="own"]:focus-within
   [data-message-column]
   > [data-message-plate] {
-  background: var(--mn-plate-strong-hover);
+  background: var(--mn-plate-strong);
 }
 
 /* THE HOVER ACTIONS, OVER A PLATE. Everywhere else this pill floats over the
@@ -280,17 +285,17 @@
   [data-message-anatomy="surface"][data-message-side="own"]:hover,
 :root[data-luca-shell]
   [data-message-anatomy="surface"][data-message-side="own"]:focus-within {
-  background: var(--mn-plate-hover);
+  background: var(--mn-plate);
 }
 
 /* ------------------------------------------------------------------
  * LANDING
  *
- * A resident's turn ARRIVES: 500ms, blurred, from below — someone spoke, and
- * that is news. Your own message is not news. It LANDS: the same direction,
- * a third of the time, no blur, because it appears exactly where you already
- * decided it would. Keeping the two apart is what lets the eye tell an
- * answer from an echo without reading either.
+ * A resident's turn ARRIVES: 180ms, four pixels from below — someone spoke,
+ * and that is news. Your own message is not news. It LANDS: the same direction
+ * in 160ms because it appears exactly where you already decided it would.
+ * Neither blurs text; keeping the small timing difference is enough to tell an
+ * answer from an echo without making a frequent interaction feel ceremonial.
  * ------------------------------------------------------------------ */
 .motion-land-own {
   animation: motion-land-own var(--motion-duration-land)
@@ -309,11 +314,10 @@
   }
 }
 
-/* A streaming reply's gentler entrance: the row mounts at the first
-   painted grapheme as a near-empty bubble that grows, so it cannot wear
-   the blurred 500ms arrival — it rises quickly and unblurred, and the
-   growing text does the rest. The DM pending placeholder wears the same
-   rise for the same reason. */
+/* A streaming reply's gentler entrance: the row mounts at the first painted
+   grapheme as a near-empty bubble that grows. It uses the same quick,
+   unblurred arrival language at a slightly smaller distance, and the growing
+   text does the rest. The DM pending placeholder wears the same rise. */
 .motion-enter-managed {
   animation: motion-enter-managed var(--motion-duration-fast)
     var(--motion-ease-standard) both;
@@ -391,7 +395,8 @@
   [data-message-anatomy="bubble"][data-message-side="own"][data-message-highlighted]
   [data-message-column]
   > [data-message-plate] {
-  animation: luca-own-plate-highlight-fade 2s ease-out forwards;
+  animation: luca-own-plate-highlight-fade 2s var(--motion-ease-arrival)
+    forwards;
 }
 @keyframes luca-own-plate-highlight-fade {
   from {

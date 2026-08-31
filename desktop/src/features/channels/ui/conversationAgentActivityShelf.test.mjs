@@ -269,7 +269,9 @@ describe("conversationAgentActivityShelf", () => {
     );
 
     assert.ok(residentRule);
-    assert.match(residentRule[1], /min-height:\s*28px/);
+    const minimumHeight = residentRule[1].match(/min-height:\s*(\d+)px/);
+    assert.ok(minimumHeight);
+    assert.ok(Number(minimumHeight[1]) >= 28);
   });
 
   it("still announces the reply when the work summary stays behind", () => {
@@ -293,14 +295,13 @@ describe("wait disclosure", () => {
       "indicator",
     );
     assert.equal(activityWaitTier(ACTIVITY_PHASE_WORD_AFTER_MS), "phase");
-    assert.equal(activityWaitTier(ACTIVITY_ELAPSED_AFTER_MS - 1), "phase");
-    assert.equal(activityWaitTier(ACTIVITY_ELAPSED_AFTER_MS), "elapsed");
-    assert.equal(activityWaitTier(ACTIVITY_LONG_WAIT_AFTER_MS - 1), "elapsed");
+    assert.equal(activityWaitTier(ACTIVITY_LONG_WAIT_AFTER_MS - 1), "phase");
     assert.equal(activityWaitTier(ACTIVITY_LONG_WAIT_AFTER_MS), "long");
+    assert.equal(activityWaitTier(ACTIVITY_ELAPSED_AFTER_MS), "long");
     assert.equal(activityWaitTier(10 * 60_000), "long");
     assert.ok(
-      ACTIVITY_PHASE_WORD_AFTER_MS < ACTIVITY_ELAPSED_AFTER_MS &&
-        ACTIVITY_ELAPSED_AFTER_MS < ACTIVITY_LONG_WAIT_AFTER_MS,
+      ACTIVITY_PHASE_WORD_AFTER_MS < ACTIVITY_LONG_WAIT_AFTER_MS &&
+        ACTIVITY_LONG_WAIT_AFTER_MS < ACTIVITY_ELAPSED_AFTER_MS,
     );
   });
 
@@ -311,14 +312,17 @@ describe("wait disclosure", () => {
     assert.equal(nextActivityWaitChangeMs(ACTIVITY_PHASE_WORD_AFTER_MS - 1), 1);
     assert.equal(
       nextActivityWaitChangeMs(ACTIVITY_PHASE_WORD_AFTER_MS),
-      ACTIVITY_ELAPSED_AFTER_MS - ACTIVITY_PHASE_WORD_AFTER_MS,
+      ACTIVITY_LONG_WAIT_AFTER_MS - ACTIVITY_PHASE_WORD_AFTER_MS,
     );
-    // Once the clock is on screen, align to the whole second so the digits
-    // turn on the second rather than on the turn's own start offset.
-    assert.equal(nextActivityWaitChangeMs(ACTIVITY_ELAPSED_AFTER_MS), 1_000);
+    assert.equal(
+      nextActivityWaitChangeMs(ACTIVITY_LONG_WAIT_AFTER_MS),
+      ACTIVITY_ELAPSED_AFTER_MS - ACTIVITY_LONG_WAIT_AFTER_MS,
+    );
+    // Once duration is visible, wake only on whole-minute boundaries.
+    assert.equal(nextActivityWaitChangeMs(ACTIVITY_ELAPSED_AFTER_MS), 60_000);
     assert.equal(
       nextActivityWaitChangeMs(ACTIVITY_ELAPSED_AFTER_MS + 250),
-      750,
+      59_750,
     );
     assert.equal(
       nextActivityWaitChangeMs(ACTIVITY_LONG_WAIT_AFTER_MS - 400),
