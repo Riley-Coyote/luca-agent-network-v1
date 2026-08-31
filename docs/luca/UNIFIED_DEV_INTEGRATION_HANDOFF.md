@@ -91,6 +91,11 @@ Do not create another persistent app copy or profile for ordinary review.
 
 - Production release certification, migration, notarization, and broad matrix
   hardening.
+- Broader resident capability parity—including browser use, web search, image
+  generation, executable Skills/MCP, parallel tasks, automations, and computer
+  use—is the immediate follow-up to Brain/session-context reliability and is
+  tracked in
+  [`POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md`](POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md).
 - Skill installation/editing, a plugin manager, and a marketplace.
 - Hermes/OpenClaw runtime-owned MCP readers.
 - Native session resume, bidirectional synchronization, or terminal emulation.
