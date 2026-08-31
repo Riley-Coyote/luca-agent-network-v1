@@ -86,13 +86,19 @@ Do not create another persistent app copy or profile for ordinary review.
   existing legacy selection remains representable so it can be changed safely.
 - Runtime readiness comes from the native catalog. The renderer does not infer
   authentication from a provider label or reuse credentials across runtimes.
+- Future capability work is governed by
+  [RUNTIME_FIRST_CAPABILITY_CONTRACT.md](RUNTIME_FIRST_CAPABILITY_CONTRACT.md):
+  the exact embedded runtime remains the primary worker; Polyphonic exposes and
+  mediates its verified tools before adding a hosted substitute. Model,
+  runtime/harness, and vendor-native application features are not interchangeable.
 
 ## Deliberately deferred
 
 - Production release certification, migration, notarization, and broad matrix
   hardening.
-- Broader resident capability parity—including browser use, web search, image
-  generation, executable Skills/MCP, parallel tasks, automations, and computer
+- Broader resident capability parity—including exposure-first browser use, web
+  search, image generation, executable Skills/MCP, runtime-native subagents,
+  cross-resident parallel tasks, automations, and computer
   use—is the immediate follow-up to Brain/session-context reliability and is
   tracked in
   [`POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md`](POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md).

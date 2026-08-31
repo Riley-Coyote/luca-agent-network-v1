@@ -1,5 +1,9 @@
 # Native agent parity contract
 
+Capability ownership and provider resolution are governed by
+[../RUNTIME_FIRST_CAPABILITY_CONTRACT.md](../RUNTIME_FIRST_CAPABILITY_CONTRACT.md).
+This contract preserves the exact native binding underneath that architecture.
+
 ## What Luca preserves
 
 Luca imports a stable semantic identity, not a copy of the native agent. Hermes
@@ -29,7 +33,14 @@ The executable, profile home, agent, gateway identity, and workspace are checked
 before use. A missing or changed value produces a degraded/failed resident with
 a specific reason. Luca never substitutes a different profile, agent, runtime,
 or directory. A capability the native ACP runtime does not expose remains
-unsupported; Luca does not simulate it.
+unsupported **by that provider**; Luca does not simulate it or label a separate
+provider as native-runtime parity.
+
+The model, embedded runtime/harness, and vendor's separate native application
+are distinct layers. Importing a runtime preserves what the exact embedded
+session exposes; it does not silently inherit host-only features from another
+application. Before adding a Luca-hosted substitute, the implementation must
+audit runtime-native tools and compatible explicitly granted Skills/MCPs first.
 
 ## Verification split
 

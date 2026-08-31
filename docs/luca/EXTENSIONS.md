@@ -62,6 +62,14 @@ already portable formats with ecosystems. Inventing a competing one buys nothing
 and costs adoption. Luca's job for capabilities starts with discovery and
 legibility; safe installation can follow without creating a competing format.
 
+The governing capability rule is
+[runtime-first, host-mediated, and capability-honest](RUNTIME_FIRST_CAPABILITY_CONTRACT.md):
+expose the selected runtime's verified native capability first, then a compatible
+explicitly granted Skill/plugin/MCP, and add a Polyphonic-hosted provider only
+for a proven gap. A vendor application's host-only feature is not automatically
+a runtime capability, and a runtime capability does not need to be rebuilt just
+to receive Polyphonic UI.
+
 The first legibility slice is now implemented in the unified development app:
 
 - **Skills** lists bounded, locally discovered runtime skills in Library. A user

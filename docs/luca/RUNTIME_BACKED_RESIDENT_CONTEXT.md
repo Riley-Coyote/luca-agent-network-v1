@@ -37,6 +37,11 @@ desktop-to-harness inherited channel for that authorized dispatch.
 
 ## Authority boundaries
 
+Capability ownership follows
+[RUNTIME_FIRST_CAPABILITY_CONTRACT.md](RUNTIME_FIRST_CAPABILITY_CONTRACT.md).
+Conversation context supplies working material; it neither creates a capability
+nor changes which provider owns it.
+
 - Absolute paths remain in the existing native connected-source binding store.
 - No path enters relay events, room/project metadata, renderer persistence,
   message bodies, context receipts, or logs.
@@ -48,6 +53,9 @@ desktop-to-harness inherited channel for that authorized dispatch.
 - Context selection changes neither the resident's signing identity nor the
   authority of the signed owner event.
 - No new encryption, permission, or confirmation system is introduced.
+- Selecting a runtime or native session does not imply inheritance of every
+  feature from the vendor's separate desktop or web application. The exact
+  embedded adapter/session remains the capability boundary.
 
 ## Turn flow
 
