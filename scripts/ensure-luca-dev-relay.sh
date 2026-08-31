@@ -10,7 +10,8 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TMUX_SESSION="${LUCA_DEV_RELAY_SESSION:-luca-dev-relay}"
 RELAY_LOG="${LUCA_DEV_RELAY_LOG:-/tmp/luca-dev-relay.log}"
 RELAY_BINARY="${REPO_ROOT}/target/debug/buzz-relay"
-READINESS_URL="http://127.0.0.1:8080/_readiness"
+HEALTH_PORT="${LUCA_DEV_RELAY_HEALTH_PORT:-18080}"
+READINESS_URL="http://127.0.0.1:${HEALTH_PORT}/_readiness"
 FORCE_RESTART="${LUCA_DEV_RELAY_RESTART:-0}"
 
 relay_is_ready() {
@@ -85,12 +86,13 @@ done
 tmux kill-session -t "${TMUX_SESSION}" 2>/dev/null || true
 
 printf -v relay_command \
-  "cd %q && exec env DATABASE_URL=%q REDIS_URL=%q RELAY_URL=%q BUZZ_BIND_ADDR=%q BUZZ_AUTO_MIGRATE=1 BUZZ_RECONCILE_CHANNELS=true BUZZ_GIT_PROBE_WRITERS=8 BUZZ_GIT_PROBE_ROUNDS=2 %q >> %q 2>&1" \
+  "cd %q && exec env DATABASE_URL=%q REDIS_URL=%q RELAY_URL=%q BUZZ_BIND_ADDR=%q BUZZ_HEALTH_PORT=%q BUZZ_AUTO_MIGRATE=1 BUZZ_RECONCILE_CHANNELS=true BUZZ_GIT_PROBE_WRITERS=8 BUZZ_GIT_PROBE_ROUNDS=2 %q >> %q 2>&1" \
   "${REPO_ROOT}" \
   "postgres://buzz:buzz_dev@localhost:5432/buzz" \
   "redis://localhost:6379" \
   "ws://localhost:3000" \
   "127.0.0.1:3000" \
+  "${HEALTH_PORT}" \
   "${RELAY_BINARY}" \
   "${RELAY_LOG}"
 
