@@ -163,6 +163,30 @@ pub fn build_create_channel(
     Ok(EventBuilder::new(Kind::Custom(9007), "").tags(tags))
 }
 
+/// Kind 30178 — safe, syncable Luca Project identity.
+pub fn build_luca_project(
+    project_id: Uuid,
+    name: &str,
+    archived: bool,
+) -> Result<EventBuilder, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("Project name is required".to_string());
+    }
+    let content = serde_json::json!({
+        "version": 1,
+        "name": name,
+        "archived": archived,
+    })
+    .to_string();
+    let tags = vec![tag(vec!["d", &project_id.to_string()])?];
+    Ok(EventBuilder::new(
+        Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_PROJECT as u16),
+        content,
+    )
+    .tags(tags))
+}
+
 /// Kind 9021 — join channel.
 pub fn build_join(channel_id: Uuid) -> Result<EventBuilder, String> {
     let tags = vec![tag(vec!["h", &channel_id.to_string()])?];
@@ -175,7 +199,7 @@ pub fn build_leave(channel_id: Uuid) -> Result<EventBuilder, String> {
     Ok(EventBuilder::new(Kind::Custom(9022), "").tags(tags))
 }
 
-/// Kind 9002 — update channel name/description/visibility/ttl.
+/// Kind 9002 — update channel name/description/visibility/ttl/Project.
 ///
 /// `ttl`: outer `None` leaves it unchanged; `Some(Some(secs))` sets the
 /// ephemeral timeout; `Some(None)` clears it (emits `["ttl", ""]`).
@@ -185,9 +209,17 @@ pub fn build_update_channel(
     about: Option<&str>,
     visibility: Option<&str>,
     ttl: Option<Option<i32>>,
+    project_id: Option<Option<Uuid>>,
 ) -> Result<EventBuilder, String> {
-    if name.is_none() && about.is_none() && visibility.is_none() && ttl.is_none() {
-        return Err("at least one of name, about, visibility, or ttl must be provided".into());
+    if name.is_none()
+        && about.is_none()
+        && visibility.is_none()
+        && ttl.is_none()
+        && project_id.is_none()
+    {
+        return Err(
+            "at least one of name, about, visibility, ttl, or projectId must be provided".into(),
+        );
     }
     if let Some(v) = visibility {
         if v != "open" && v != "private" {
@@ -209,6 +241,10 @@ pub fn build_update_channel(
             Some(secs) => tags.push(tag(vec!["ttl", &secs.to_string()])?),
             None => tags.push(tag(vec!["ttl", ""])?),
         }
+    }
+    if let Some(project_id) = project_id {
+        let value = project_id.map(|id| id.to_string()).unwrap_or_default();
+        tags.push(tag(vec!["project", &value])?);
     }
     Ok(EventBuilder::new(Kind::Custom(9002), "").tags(tags))
 }

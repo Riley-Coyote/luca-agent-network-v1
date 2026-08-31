@@ -1,11 +1,13 @@
 //! Luca-owned desktop authority components layered onto the Buzz application.
 
+pub(crate) mod action_bridge;
 pub(crate) mod local_broker_session;
 pub(crate) mod managed_dispatch_store;
 pub(crate) mod managed_message_outbox;
 pub(crate) mod managed_message_publisher;
 pub(crate) mod managed_permission;
 pub(crate) mod owner_identity_recovery;
+pub(crate) mod projects;
 #[cfg(test)]
 mod reliability_f10;
 pub(crate) mod resident_registry;

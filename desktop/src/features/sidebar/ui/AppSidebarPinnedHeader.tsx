@@ -1,4 +1,11 @@
-import { Activity, Bot, Brain, MessageCircle, Settings } from "lucide-react";
+import {
+  Activity,
+  Bot,
+  Brain,
+  FolderKanban,
+  MessageCircle,
+  Settings,
+} from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -38,6 +45,7 @@ type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
   onSelectHome: () => void;
+  onSelectProjects: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   selectedView: SidebarSelectedView;
@@ -82,6 +90,7 @@ export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
   onSelectHome,
+  onSelectProjects,
   onSelectPulse,
   onSelectSettings,
   selectedView,
@@ -98,11 +107,11 @@ export function AppSidebarPrimaryMenu({
             data-testid="open-chat-view"
             isActive={selectedView === "home"}
             onClick={onSelectHome}
-            tooltip="Chat"
+            tooltip="Chats"
             type="button"
           >
             <MessageCircle className="h-4 w-4" />
-            <SidebarMenuLabel>Chat</SidebarMenuLabel>
+            <SidebarMenuLabel>Chats</SidebarMenuLabel>
           </SidebarMenuButton>
           {homeBadgeCount > 0 ? (
             <SidebarMenuBadge
@@ -112,6 +121,18 @@ export function AppSidebarPrimaryMenu({
               {Math.min(homeBadgeCount, 99)}
             </SidebarMenuBadge>
           ) : null}
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-projects-view"
+            isActive={selectedView === "projects"}
+            onClick={onSelectProjects}
+            tooltip="Projects"
+            type="button"
+          >
+            <FolderKanban className="h-4 w-4" />
+            <SidebarMenuLabel>Projects</SidebarMenuLabel>
+          </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton

@@ -689,9 +689,8 @@ export function useCreateChannelManagedAgentMutation(channelId: string | null) {
     },
     onSettled: (_data, _err, variables) => {
       const effectiveChannelId = variables?.channelId ?? channelId;
-      // Stream membership is already applied to channelsQueryKey by onSuccess,
-      // while immutable DM membership produces a separate conversation that
-      // must be discovered by refetching the channel list.
+      // Membership is already applied optimistically. Refetch DMs as well so
+      // participant labels and roles reflect the signed membership event.
       invalidateAgentQueriesInBackground(queryClient, effectiveChannelId, {
         refetchChannels: isCachedDmChannel(queryClient, effectiveChannelId),
       });

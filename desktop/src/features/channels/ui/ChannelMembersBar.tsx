@@ -1,4 +1,4 @@
-import { EllipsisVertical, Settings2, Users } from "lucide-react";
+import { EllipsisVertical, Settings2, UserPlus, Users } from "lucide-react";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHuddle } from "@/features/huddle";
@@ -139,7 +139,7 @@ export function ChannelMembersBar({
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label="Channel actions"
+            aria-label="Chat actions"
             data-testid="channel-actions-menu-trigger"
             size="icon"
             type="button"
@@ -154,7 +154,7 @@ export function ChannelMembersBar({
             onSelect={onToggleMembers}
           >
             <Users />
-            <span>Members</span>
+            <span>People and agents</span>
             <span className="ml-auto text-xs text-muted-foreground">
               {memberCount}
             </span>
@@ -165,7 +165,7 @@ export function ChannelMembersBar({
             onSelect={onManageChannel}
           >
             <Settings2 />
-            <span>Manage channel</span>
+            <span>Chat settings</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -174,20 +174,20 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label={`View channel members (${memberCount})`}
+              aria-label={`Add or remove people and agents (${memberCount} here)`}
               className="h-8 px-2.5"
               data-testid="channel-members-trigger"
               onClick={onToggleMembers}
               type="button"
               variant="outline"
             >
-              <Users />
+              <UserPlus />
               <span className="min-w-[1ch] text-sm font-medium tabular-nums">
                 {memberCount}
               </span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Channel members</TooltipContent>
+          <TooltipContent>Add or remove people and agents</TooltipContent>
         </Tooltip>
 
         {huddleIndicator}
@@ -195,7 +195,7 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Manage channel"
+              aria-label="Chat settings"
               data-testid="channel-management-trigger"
               onClick={onManageChannel}
               size="icon"
@@ -205,7 +205,7 @@ export function ChannelMembersBar({
               <Settings2 />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Channel settings</TooltipContent>
+          <TooltipContent>Chat settings</TooltipContent>
         </Tooltip>
       </div>
     );

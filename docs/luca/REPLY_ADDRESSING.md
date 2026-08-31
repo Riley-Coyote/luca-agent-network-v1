@@ -1,6 +1,6 @@
 # Reply addressing — who a reply wakes up
 
-**Status:** rule decided by Riley 2026-08-05. Not implemented.
+**Status:** canonical rule, incorporated into the conversation model.
 **Owner:** Codex (send path + ACP interaction). Presentation is already built.
 
 ---
@@ -72,14 +72,10 @@ Two details:
 
 ---
 
-## The risk that needs Codex's judgment
+## Agent-to-agent loop rule
 
-**Agent-to-agent reply loops.**
-
-If a reply auto-addresses its target, and residents can reply to each other,
-two residents can address each other indefinitely without a human in the loop.
-This is the one way the rule can go badly wrong, and it must be settled before
-shipping it.
+If a reply auto-addresses its target, two Agents could otherwise address each
+other indefinitely without a human in the loop.
 
 There is already a guard in this area:
 `crates/buzz-acp/src/queue.rs` (`turn_is_human_facing`) treats a turn as
@@ -100,9 +96,11 @@ order I would consider them:
 3. Auto-address always, with a depth cap on consecutive agent-to-agent replies.
    Correct in principle, more machinery.
 
-**Recommendation: (1).** It gives Riley's rule exactly as stated for every
-interaction he actually performs, and it does not create a new class of
-autonomous chatter.
+Luca therefore uses option (1): automatic reply-addressing is derived for
+human-authored messages. An Agent reply keeps the parent pointer but must use an
+exact explicit mention to hand work to another Agent. Delegation assignments
+also carry exact worker mentions. Turn and budget limits remain defense in
+depth, not the source of intent.
 
 ---
 
@@ -121,7 +119,7 @@ implement the new rule on top of it by accident.
 
 ---
 
-## Open questions
+## Remaining edge decisions
 
 - Replying to your **own** message: address nobody, or re-address the residents
   already in that exchange?

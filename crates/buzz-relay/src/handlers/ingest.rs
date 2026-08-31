@@ -21,15 +21,15 @@ use buzz_core::kind::{
     KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN,
     KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_PARTICIPANT_JOINED,
     KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST,
-    KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION,
-    KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT,
-    KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST,
-    KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP,
-    KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST,
-    KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER, KIND_NIP43_LEAVE_REQUEST,
-    KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST, KIND_PRESENCE_UPDATE,
-    KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE, KIND_REPORT,
-    KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
+    KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_LUCA_PROJECT, KIND_MANAGED_AGENT,
+    KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN,
+    KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN,
+    KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT,
+    KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST,
+    KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
+    KIND_PRESENCE_UPDATE, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE,
+    KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
     KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
     KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEXT_NOTE, KIND_USER_STATUS,
     KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
@@ -200,7 +200,7 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         KIND_PROFILE => Ok(Scope::UsersWrite),
         KIND_TEXT_NOTE | KIND_LONG_FORM => Ok(Scope::MessagesWrite),
         KIND_CONTACT_LIST | KIND_READ_STATE | KIND_USER_STATUS | KIND_AGENT_ENGRAM
-        | KIND_EVENT_REMINDER | KIND_PERSONA | KIND_TEAM | KIND_MANAGED_AGENT
+        | KIND_EVENT_REMINDER | KIND_PERSONA | KIND_TEAM | KIND_MANAGED_AGENT | KIND_LUCA_PROJECT
         | super::push_lease::KIND_PUSH_LEASE => {
             Ok(Scope::UsersWrite)
         }
@@ -410,6 +410,7 @@ pub(crate) fn is_global_only_kind(kind: u32) -> bool {
             // keyed by (pubkey, kind, d_tag). A stray `h` tag must not channel-scope them.
             | KIND_TEAM
             | KIND_MANAGED_AGENT
+            | KIND_LUCA_PROJECT
             // NIP-34: git events use `a` tags (repo reference), not `h` tags (channel scope).
             // Parameterized replaceable kinds are keyed by (pubkey, kind, d_tag).
             | KIND_GIT_REPO_ANNOUNCEMENT
@@ -1062,6 +1063,60 @@ fn validate_persona_envelope(event: &Event) -> Result<(), String> {
         return Err(
             "persona event `d` tag must match [a-z0-9_-] after the first character".to_string(),
         );
+    }
+    Ok(())
+}
+
+/// Validate Luca's safe, syncable Project identity event.
+///
+/// The relay accepts only the public identity fields. Private instructions and
+/// filesystem paths are intentionally impossible to encode in this envelope.
+fn validate_luca_project_envelope(event: &Event) -> Result<(), String> {
+    let d_tags: Vec<&str> = event
+        .tags
+        .iter()
+        .filter_map(|tag| {
+            let parts = tag.as_slice();
+            (parts.len() >= 2 && parts[0].as_str() == "d").then(|| parts[1].as_str())
+        })
+        .collect();
+    if d_tags.len() != 1 {
+        return Err(format!(
+            "Luca Project event must have exactly one `d` tag (got {})",
+            d_tags.len()
+        ));
+    }
+    Uuid::parse_str(d_tags[0]).map_err(|_| "Luca Project `d` tag must be a UUID".to_string())?;
+
+    let content: serde_json::Value = serde_json::from_str(&event.content)
+        .map_err(|_| "Luca Project content must be a JSON object".to_string())?;
+    let object = content
+        .as_object()
+        .ok_or_else(|| "Luca Project content must be a JSON object".to_string())?;
+    const ALLOWED_FIELDS: &[&str] = &["version", "name", "archived"];
+    if let Some(field) = object
+        .keys()
+        .find(|field| !ALLOWED_FIELDS.contains(&field.as_str()))
+    {
+        return Err(format!(
+            "Luca Project content contains private or unsupported field `{field}`"
+        ));
+    }
+    match object.get("version").and_then(serde_json::Value::as_u64) {
+        Some(1) => {}
+        _ => return Err("Luca Project version must be 1".to_string()),
+    }
+    let name = object
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| "Luca Project name must not be empty".to_string())?;
+    if name.chars().count() > 120 {
+        return Err("Luca Project name must be at most 120 characters".to_string());
+    }
+    if !matches!(object.get("archived"), Some(serde_json::Value::Bool(_))) {
+        return Err("Luca Project archived must be a boolean".to_string());
     }
     Ok(())
 }
@@ -2025,6 +2080,11 @@ async fn ingest_event_inner(
             .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
     }
 
+    if kind_u32 == KIND_LUCA_PROJECT {
+        validate_luca_project_envelope(&event)
+            .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+    }
+
     // Track pre-created channel UUID for compensation on insert failure.
     let mut pre_created_channel: Option<Uuid> = None;
 
@@ -2805,6 +2865,7 @@ mod tests {
             KIND_PERSONA,
             KIND_TEAM,
             KIND_MANAGED_AGENT,
+            KIND_LUCA_PROJECT,
             KIND_AGENT_TURN_METRIC,
         ];
         for kind in migrated {
@@ -2891,7 +2952,7 @@ mod tests {
     #[test]
     fn team_and_managed_agent_are_in_scope_allowlist() {
         let dummy = make_dummy_event();
-        for kind in [KIND_TEAM, KIND_MANAGED_AGENT] {
+        for kind in [KIND_TEAM, KIND_MANAGED_AGENT, KIND_LUCA_PROJECT] {
             assert_eq!(
                 required_scope_for_kind(kind, &dummy).unwrap(),
                 Scope::UsersWrite,
@@ -2902,7 +2963,7 @@ mod tests {
 
     #[test]
     fn team_and_managed_agent_are_global_only() {
-        for kind in [KIND_TEAM, KIND_MANAGED_AGENT] {
+        for kind in [KIND_TEAM, KIND_MANAGED_AGENT, KIND_LUCA_PROJECT] {
             assert!(
                 is_global_only_kind(kind),
                 "kind {kind} should be global-only (never channel-scoped)"

@@ -23,6 +23,8 @@ type ChannelRouteSearch = {
   profileView?: ProfilePanelView;
   thread?: string;
   threadRootId?: string;
+  collection?: "agent" | "project";
+  collectionId?: string;
 };
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -41,6 +43,11 @@ function validateChannelSearch(
     profileView: parseProfilePanelView(search.profileView) ?? undefined,
     thread: nonEmptyString(search.thread),
     threadRootId: nonEmptyString(search.threadRootId),
+    collection:
+      search.collection === "agent" || search.collection === "project"
+        ? search.collection
+        : undefined,
+    collectionId: nonEmptyString(search.collectionId),
   };
 }
 

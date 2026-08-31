@@ -168,6 +168,7 @@ pub(crate) fn build_import_team(
         name: name.to_string(),
         description: snapshot.team.description.clone(),
         persona_ids,
+        member_pubkeys: Vec::new(),
         instructions: snapshot.team.instructions.clone(),
         is_builtin: false,
         source_dir: None,

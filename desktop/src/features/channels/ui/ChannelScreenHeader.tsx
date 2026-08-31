@@ -115,9 +115,7 @@ export function ChannelScreenHeader({
         <LogIn className="mr-1.5 h-4 w-4" />
         {isJoining ? "Joining…" : "Join"}
       </Button>
-    ) : CONVERSATION_HEADER ? null : (
-      // The mark stack beside the title already says who is here, more legibly
-      // than a number does. A count is org-speak; a chat app shows faces.
+    ) : (
       <ChannelMembersBar
         channel={activeChannel}
         currentPubkey={currentPubkey}

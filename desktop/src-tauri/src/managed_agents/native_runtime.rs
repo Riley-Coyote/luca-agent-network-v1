@@ -39,6 +39,9 @@ pub struct SecretRef {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
+// Keep the persisted, serde-tagged binding shape stable. Boxing one variant
+// would change a widely used Rust API solely to optimize an infrequent value.
+#[allow(clippy::large_enum_variant)]
 pub enum RuntimeBinding {
     Hermes {
         #[serde(rename = "schemaVersion")]

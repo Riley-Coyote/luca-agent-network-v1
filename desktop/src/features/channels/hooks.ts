@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   addChannelMembers,
   archiveChannel,
+  createChat,
   createChannel,
   deleteChannel,
   getCanvas,
@@ -25,6 +26,7 @@ import type {
   AddChannelMembersInput,
   Channel,
   ChannelDetail,
+  CreateChatInput,
   CreateChannelInput,
   OpenDmInput,
   SetChannelPurposeInput,
@@ -74,11 +76,9 @@ export type CachedChannelMember = {
 };
 
 /**
- * Records a successful membership mutation in the shared channel list before
- * its read-after-write refetch completes. DM participant sets are immutable,
- * so adding a member there creates a separate conversation and must never
- * decorate the source channel optimistically. Exported for focused cache race
- * regression coverage.
+ * Records a successful membership mutation in the shared chat list before its
+ * read-after-write refetch completes. Chats have mutable participant sets, so
+ * DMs and other channel-backed chats use the same optimistic update.
  */
 export function upsertCachedChannelMember(
   current: Channel[] | undefined,
@@ -96,16 +96,23 @@ export function upsertCachedChannelMember(
         return channel;
       }
 
-      if (channel.channelType === "dm") {
-        return channel;
-      }
-
       const hasMember = channel.memberPubkeys.some(
         (pubkey) => pubkey.toLowerCase() === normalizedPubkey,
       );
       const memberPubkeys = hasMember
         ? channel.memberPubkeys
         : [...channel.memberPubkeys, member.pubkey];
+      const hasParticipant = channel.participantPubkeys.some(
+        (pubkey) => pubkey.toLowerCase() === normalizedPubkey,
+      );
+      const participantPubkeys =
+        channel.channelType === "dm" && !hasParticipant
+          ? [...channel.participantPubkeys, member.pubkey]
+          : channel.participantPubkeys;
+      const participants =
+        channel.channelType === "dm" && !hasParticipant
+          ? [...channel.participants, member.name]
+          : channel.participants;
       return {
         ...channel,
         memberCount: Math.max(
@@ -113,6 +120,8 @@ export function upsertCachedChannelMember(
           channel.memberCount + (member.membershipAdded && !hasMember ? 1 : 0),
         ),
         memberPubkeys,
+        participantPubkeys,
+        participants,
       };
     }),
   );
@@ -133,10 +142,10 @@ export function upsertCachedChannel(
 }
 
 /**
- * Reconciles a relay-returned channel after a list refresh. When the refresh
- * already contains the immutable DM, its current metadata wins over the older
- * snapshot used to open the route. Otherwise the opened channel repairs the
- * route after a read-after-write-lagged list response.
+ * Reconciles a relay-returned chat after a list refresh. When the refresh
+ * already contains the chat, its current metadata wins over the older snapshot
+ * used to open the route. Otherwise the opened chat repairs the route after a
+ * read-after-write-lagged list response.
  */
 export function reconcileRefreshedCachedChannel(
   refreshed: Channel[] | undefined,
@@ -231,6 +240,25 @@ export function useCreateChannelMutation() {
       // refetchType "none": onSuccess already cached the relay-returned channel;
       // an immediate getChannels() refetch blocked the dialog and could clobber
       // it with a read-after-write-lagged snapshot. Live updates reconcile later.
+      void queryClient.invalidateQueries({
+        queryKey: channelsQueryKey,
+        refetchType: "none",
+      });
+    },
+  });
+}
+
+export function useCreateChatMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (input: CreateChatInput) => createChat(input),
+    onSuccess: ({ chat }) => {
+      queryClient.setQueryData<Channel[]>(channelsQueryKey, (current) =>
+        upsertCachedChannel(current, chat),
+      );
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: channelsQueryKey,
         refetchType: "none",

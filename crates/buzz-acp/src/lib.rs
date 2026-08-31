@@ -7,6 +7,7 @@ mod filter;
 pub mod luca_final_publisher;
 mod observer;
 mod pool;
+mod project_context;
 mod queue;
 mod relay;
 mod setup_mode;
@@ -1622,6 +1623,8 @@ async fn tokio_main() -> Result<()> {
             .unwrap_or_else(|_| std::path::PathBuf::from("/"))
             .to_string_lossy()
             .to_string(),
+        project_context_handoff: std::env::var_os("LUCA_PROJECT_CONTEXT_HANDOFF")
+            .map(std::path::PathBuf::from),
         rest_client: relay.rest_client(),
         channel_info: channel_info_map,
         context_message_limit: config.context_message_limit,
@@ -3889,8 +3892,37 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
 }
 
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
-    if config.mcp_command.is_empty() || config.identity.is_managed() {
+    if config.mcp_command.is_empty() {
         return vec![];
+    }
+    if config.identity.is_managed() {
+        let required = [
+            "LUCA_ACTION_BRIDGE_PATH",
+            "LUCA_ACTION_BRIDGE_TOKEN",
+            "LUCA_MANAGED_RESIDENT_PUBKEY",
+        ];
+        let env = required
+            .into_iter()
+            .map(|name| {
+                std::env::var(name)
+                    .ok()
+                    .filter(|value| !value.is_empty())
+                    .map(|value| EnvVar {
+                        name: name.to_owned(),
+                        value,
+                    })
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(env) = env else {
+            tracing::warn!("managed Luca action MCP endpoint is incomplete; skipping toolset");
+            return vec![];
+        };
+        return vec![McpServer {
+            name: "luca-actions".into(),
+            command: config.mcp_command.clone(),
+            args: vec![],
+            env,
+        }];
     }
     let Some(keys) = config.identity.legacy_keys() else {
         return vec![];

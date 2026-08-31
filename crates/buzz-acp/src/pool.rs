@@ -102,6 +102,8 @@ pub struct SessionState {
     /// fetch fails — all fail open. Cleared on session invalidation alongside
     /// `core_sections` so the next session picks up any canvas change.
     pub canvas_sections: HashMap<Uuid, String>,
+    /// Fingerprint of the machine-local Project binding used for this chat.
+    pub project_binding_fingerprints: HashMap<Uuid, String>,
 }
 
 impl SessionState {
@@ -124,6 +126,7 @@ impl SessionState {
         self.turn_counts.remove(channel_id);
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
+        self.project_binding_fingerprints.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -135,6 +138,7 @@ impl SessionState {
         self.heartbeat_turn_count = 0;
         self.core_sections.clear();
         self.canvas_sections.clear();
+        self.project_binding_fingerprints.clear();
     }
 
     #[cfg(test)]
@@ -143,6 +147,7 @@ impl SessionState {
             || self.turn_counts.contains_key(channel_id)
             || self.core_sections.contains_key(channel_id)
             || self.canvas_sections.contains_key(channel_id)
+            || self.project_binding_fingerprints.contains_key(channel_id)
     }
 }
 
@@ -452,6 +457,8 @@ pub struct PromptContext {
     /// (`include_str!`) is inherently `'static`.
     pub base_prompt: Option<&'static str>,
     pub cwd: String,
+    /// Machine-local Luca Project bindings. Absent for unmanaged/older clients.
+    pub project_context_handoff: Option<std::path::PathBuf>,
     /// REST client for pre-prompt context fetches (thread/DM history).
     pub rest_client: RestClient,
     /// Channel metadata from discovery (name, type). Read-only after startup.
@@ -761,6 +768,7 @@ async fn create_session_and_apply_model(
     source: &PromptSource,
     agent_core: Option<&str>,
     agent_canvas: Option<&str>,
+    project_context: Option<&crate::project_context::ProjectChatContext>,
 ) -> Result<String, AcpError> {
     // Build base_prompt + system_prompt + agent core + canvas metadata into a
     // single prompt. Standard protocol-v2 agents receive it in `session/new`;
@@ -769,10 +777,20 @@ async fn create_session_and_apply_model(
     // its own `[Agent Memory — core]` header, and canvas carries its own
     // `[Channel Canvas]` header; both are appended with a blank-line separator.
     let is_goose = agent.agent_name == "goose";
+    let project_prompt = project_context.map(|project| project.prompt_section());
+    let turn_system_prompt = match (ctx.system_prompt.as_deref(), project_prompt.as_deref()) {
+        (Some(system), Some(project)) => Some(format!("{system}\n\n{project}")),
+        (Some(system), None) => Some(system.to_string()),
+        (None, Some(project)) => Some(project.to_string()),
+        (None, None) => None,
+    };
+    let session_cwd = project_context
+        .and_then(|project| project.usable_working_folder())
+        .unwrap_or(&ctx.cwd);
     let combined_system_prompt = with_canvas(
         with_core(
             with_team(
-                framed_system_prompt(&ctx.cwd, ctx.base_prompt, ctx.system_prompt.as_deref()),
+                framed_system_prompt(session_cwd, ctx.base_prompt, turn_system_prompt.as_deref()),
                 ctx.team_instructions.as_deref(),
             ),
             agent_core,
@@ -784,7 +802,7 @@ async fn create_session_and_apply_model(
     let resp = agent
         .acp
         .session_new_full_with_meta(
-            &ctx.cwd,
+            session_cwd,
             ctx.mcp_servers.clone(),
             session_new_system_prompt(
                 is_goose,
@@ -1422,6 +1440,41 @@ pub async fn run_prompt_task(
         .unwrap_or_default();
     let _reaction_guard = ReactionGuard::new(ctx.rest_client.clone(), reaction_ids.clone());
 
+    // Luca Desktop writes a bounded local handoff keyed by canonical chat ID.
+    // Re-read it before each turn so Project edits take effect without
+    // restarting the resident process. A binding change rotates only this
+    // chat's ACP session; missing folders fail open to the normal workspace.
+    let project_context = match &source {
+        PromptSource::Channel(cid) => {
+            crate::project_context::load_chat_context(ctx.project_context_handoff.as_ref(), *cid)
+        }
+        PromptSource::Heartbeat => None,
+    };
+    if let PromptSource::Channel(cid) = &source {
+        let current = project_context
+            .as_ref()
+            .map(|project| project.fingerprint());
+        let prior = agent.state.project_binding_fingerprints.get(cid).cloned();
+        if prior != current {
+            agent.state.invalidate_channel(cid);
+            if let Some(fingerprint) = current {
+                agent
+                    .state
+                    .project_binding_fingerprints
+                    .insert(*cid, fingerprint);
+            }
+        }
+    }
+    let project_prompt = project_context
+        .as_ref()
+        .map(|project| project.prompt_section());
+    let turn_system_prompt = match (ctx.system_prompt.as_deref(), project_prompt.as_deref()) {
+        (Some(system), Some(project)) => Some(format!("{system}\n\n{project}")),
+        (Some(system), None) => Some(system.to_string()),
+        (None, Some(project)) => Some(project.to_string()),
+        (None, None) => None,
+    };
+
     //
     // Core memory is delivered inside the system prompt the harness already
     // builds (system role for protocol >= 2, the `[System]` user-message
@@ -1549,6 +1602,7 @@ pub async fn run_prompt_task(
                     &source,
                     agent_core.as_deref(),
                     agent_canvas.as_deref(),
+                    project_context.as_ref(),
                 )
                 .await
                 {
@@ -1596,7 +1650,9 @@ pub async fn run_prompt_task(
             if let Some(sid) = &agent.state.heartbeat_session {
                 (sid.clone(), false)
             } else {
-                match create_session_and_apply_model(&mut agent, &ctx, &source, None, None).await {
+                match create_session_and_apply_model(&mut agent, &ctx, &source, None, None, None)
+                    .await
+                {
                     Ok(sid) => {
                         tracing::info!(
                             target: "pool::session",
@@ -1857,7 +1913,7 @@ pub async fn run_prompt_task(
                 managed_publication: ctx.agent_keys.is_none(),
                 has_system_prompt_support: agent.has_system_prompt_support(),
                 base_prompt: ctx.base_prompt,
-                system_prompt: ctx.system_prompt.as_deref(),
+                system_prompt: turn_system_prompt.as_deref(),
                 team_instructions: ctx.team_instructions.as_deref(),
                 agent_canvas: agent_canvas.as_deref(),
             },
@@ -5486,6 +5542,7 @@ mod tests {
             heartbeat_prompt: None,
             base_prompt: None,
             cwd: ".".to_string(),
+            project_context_handoff: None,
             rest_client: RestClient {
                 http: reqwest::Client::new(),
                 base_url: "http://127.0.0.1:0".to_string(),

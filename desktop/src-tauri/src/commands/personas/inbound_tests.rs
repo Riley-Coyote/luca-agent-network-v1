@@ -389,6 +389,7 @@ fn local_team() -> TeamRecord {
         description: Some("local desc".to_string()),
         instructions: None,
         persona_ids: vec!["p-local".to_string()],
+        member_pubkeys: vec![],
         is_builtin: false,
         source_dir: Some(std::path::PathBuf::from("/local/team/dir")),
         is_symlink: true,
@@ -401,10 +402,12 @@ fn local_team() -> TeamRecord {
 
 fn team_content(name: &str) -> TeamEventContent {
     TeamEventContent {
+        version: 1,
         name: name.to_string(),
         description: Some("remote desc".to_string()),
         instructions: Some(Some("remote instructions".to_string())),
         persona_ids: Some(vec!["p-remote-1".to_string(), "p-remote-2".to_string()]),
+        member_pubkeys: None,
     }
 }
 
@@ -412,10 +415,12 @@ fn team_content(name: &str) -> TeamEventContent {
 /// always-publish: `instructions`/`persona_ids` both omitted (`None`).
 fn team_content_omitting_optional_fields(name: &str) -> TeamEventContent {
     TeamEventContent {
+        version: 1,
         name: name.to_string(),
         description: Some("remote desc".to_string()),
         instructions: None,
         persona_ids: None,
+        member_pubkeys: None,
     }
 }
 
@@ -423,10 +428,12 @@ fn team_content_omitting_optional_fields(name: &str) -> TeamEventContent {
 /// `Some(None)` (JSON `null`), `persona_ids` is `Some(vec![])`.
 fn team_content_clearing_optional_fields(name: &str) -> TeamEventContent {
     TeamEventContent {
+        version: 1,
         name: name.to_string(),
         description: Some("remote desc".to_string()),
         instructions: Some(None),
         persona_ids: Some(vec![]),
+        member_pubkeys: None,
     }
 }
 

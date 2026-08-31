@@ -1,7 +1,6 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const ProjectDetailScreen = React.lazy(async () => {
@@ -9,8 +8,8 @@ const ProjectDetailScreen = React.lazy(async () => {
   return { default: module.ProjectDetailScreen };
 });
 
-export const Route = createFileRoute("/projects/$projectId")({
-  component: ProjectDetailRouteComponent,
+export const Route = createFileRoute("/repositories/$projectId")({
+  component: RepositoryDetailRouteComponent,
   validateSearch: (search: Record<string, unknown>) => ({
     commitHash:
       typeof search.commitHash === "string" ? search.commitHash : undefined,
@@ -22,11 +21,9 @@ export const Route = createFileRoute("/projects/$projectId")({
   }),
 });
 
-function ProjectDetailRouteComponent() {
-  usePreviewFeatureWarning("projects");
+function RepositoryDetailRouteComponent() {
   const { projectId } = Route.useParams();
   const { commitHash, pullRequestId, issueId } = Route.useSearch();
-
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="projects" />}>
       <ProjectDetailScreen

@@ -10,7 +10,8 @@ import {
   useTeamsQuery,
   useUpdateTeamMutation,
 } from "@/features/agents/hooks";
-import type { CreateChannelManagedAgentsResult } from "@/features/agents/channelAgents";
+import { useCreateChatMutation } from "@/features/channels/hooks";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { deletePersona } from "@/shared/api/tauriPersonas";
 import {
   confirmTeamSnapshotImport,
@@ -23,7 +24,6 @@ import {
 } from "@/shared/api/tauriTeams";
 import type {
   AgentTeam,
-  Channel,
   CreateTeamInput,
   UpdateTeamInput,
 } from "@/shared/api/types";
@@ -41,17 +41,11 @@ type ActionMessages = {
   setActionErrorMessage: (message: string | null) => void;
 };
 
-type RefetchCallbacks = {
-  refetchManagedAgents: () => void;
-  refetchRelayAgents: () => void;
-};
-
-export function useTeamActions(
-  actions: ActionMessages,
-  refetch: RefetchCallbacks,
-) {
+export function useTeamActions(actions: ActionMessages) {
   const queryClient = useQueryClient();
+  const navigation = useAppNavigation();
   const teamsQuery = useTeamsQuery();
+  const createChatMutation = useCreateChatMutation();
   const createTeamMutation = useCreateTeamMutation();
   const updateTeamMutation = useUpdateTeamMutation();
   const deleteTeamMutation = useDeleteTeamMutation();
@@ -61,8 +55,6 @@ export function useTeamActions(
   const [teamToDelete, setTeamToDelete] = React.useState<AgentTeam | null>(
     null,
   );
-  const [teamToAddToChannel, setTeamToAddToChannel] =
-    React.useState<AgentTeam | null>(null);
   const [teamToExport, setTeamToExport] = React.useState<AgentTeam | null>(
     null,
   );
@@ -139,25 +131,29 @@ export function useTeamActions(
     }
   }
 
-  function handleTeamDeployed(
-    channel: Channel,
-    result: CreateChannelManagedAgentsResult,
-  ) {
+  async function handleStartTeamChat(team: AgentTeam) {
+    actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
-    const successCount = result.successes.length;
-    const failCount = result.failures.length;
-    if (failCount === 0) {
-      actions.setActionNoticeMessage(
-        `Deployed ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}.`,
+    if (team.memberPubkeys.length === 0) {
+      actions.setActionErrorMessage(
+        `Edit "${team.name}" and select its persistent agents before starting a chat.`,
       );
-    } else {
-      actions.setActionNoticeMessage(
-        `Deployed ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}. ${failCount} failed.`,
+      return;
+    }
+    try {
+      const result = await createChatMutation.mutateAsync({
+        participantPubkeys: team.memberPubkeys,
+        title: team.name,
+      });
+      actions.setActionNoticeMessage(`Started a chat with "${team.name}".`);
+      await navigation.goChannel(result.chat.id);
+    } catch (error) {
+      actions.setActionErrorMessage(
+        error instanceof Error
+          ? error.message
+          : `Failed to start a chat with "${team.name}".`,
       );
     }
-    setTeamToAddToChannel(null);
-    refetch.refetchManagedAgents();
-    refetch.refetchRelayAgents();
   }
 
   function openCreateDialog() {
@@ -165,11 +161,12 @@ export function useTeamActions(
     actions.setActionErrorMessage(null);
     setTeamDialogState({
       title: "Create team",
-      description: "Group agents together for quick deployment to channels.",
+      description: "Save a roster of agents for chats and delegated work.",
       submitLabel: "Create team",
       initialValues: {
         name: "",
         description: "",
+        memberPubkeys: [],
         personaIds: [],
       },
     });
@@ -185,6 +182,7 @@ export function useTeamActions(
       initialValues: {
         name: `${team.name} copy`,
         description: team.description ?? "",
+        memberPubkeys: [...team.memberPubkeys],
         personaIds: [...team.personaIds],
       },
     });
@@ -215,6 +213,7 @@ export function useTeamActions(
         id: team.id,
         name: team.name,
         description: team.description ?? "",
+        memberPubkeys: [...team.memberPubkeys],
         personaIds: [...team.personaIds],
       },
     });
@@ -323,8 +322,6 @@ export function useTeamActions(
     setTeamDialogState,
     teamToDelete,
     setTeamToDelete,
-    teamToAddToChannel,
-    setTeamToAddToChannel,
     teamToExport,
     setTeamToExport,
     teamToShare,
@@ -337,7 +334,7 @@ export function useTeamActions(
     handleTeamSubmit,
     handleDeleteRemovedPersonas,
     handleDeleteTeam,
-    handleTeamDeployed,
+    handleStartTeamChat,
     openCreateDialog,
     openDuplicateDialog,
     openEditDialog,

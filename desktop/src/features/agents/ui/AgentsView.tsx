@@ -5,7 +5,6 @@ import {
   subscribeSnapshotImport,
 } from "@/features/agents/openSnapshotImportFromUrlEvent";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
-import { AddTeamToChannelDialog } from "./AddTeamToChannelDialog";
 import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
 import { AgentDialog } from "./AgentDialog";
 import { PersonaCatalogDialog } from "./PersonaCatalogDialog";
@@ -58,16 +57,10 @@ export function AgentsView() {
   function openResidentCreate() {
     openUnifiedCreate();
   }
-  const teamActions = useTeamActions(
-    {
-      setActionNoticeMessage: agents.setActionNoticeMessage,
-      setActionErrorMessage: agents.setActionErrorMessage,
-    },
-    {
-      refetchManagedAgents: agents.refetchManagedAgents,
-      refetchRelayAgents: agents.refetchRelayAgents,
-    },
-  );
+  const teamActions = useTeamActions({
+    setActionNoticeMessage: agents.setActionNoticeMessage,
+    setActionErrorMessage: agents.setActionErrorMessage,
+  });
 
   const isActionPending =
     agents.isPending ||
@@ -239,7 +232,9 @@ export function AgentsView() {
               onDelete={teamActions.setTeamToDelete}
               onDuplicate={teamActions.openDuplicateDialog}
               onEdit={teamActions.openEditDialog}
-              onAddToChannel={teamActions.setTeamToAddToChannel}
+              onStartChat={(team) => {
+                void teamActions.handleStartTeamChat(team);
+              }}
               onShare={teamActions.openShare}
               onImport={() => {
                 teamImportInputRef.current?.click();
@@ -455,10 +450,8 @@ export function AgentsView() {
               teamActions.setTeamDialogState(null);
             }
           }}
-          onDeleteRemovedPersonas={teamActions.handleDeleteRemovedPersonas}
           onSubmit={teamActions.handleTeamSubmit}
           open={teamActions.teamDialogState !== null}
-          personas={personas.libraryPersonas}
           submitLabel={teamActions.teamDialogState.submitLabel}
           title={teamActions.teamDialogState.title}
         />
@@ -475,19 +468,6 @@ export function AgentsView() {
           }}
           open={teamActions.teamToDelete !== null}
           team={teamActions.teamToDelete}
-        />
-      ) : null}
-      {teamActions.teamToAddToChannel ? (
-        <AddTeamToChannelDialog
-          onDeployed={teamActions.handleTeamDeployed}
-          onOpenChange={(open) => {
-            if (!open) {
-              teamActions.setTeamToAddToChannel(null);
-            }
-          }}
-          open={teamActions.teamToAddToChannel !== null}
-          personas={personas.libraryPersonas}
-          team={teamActions.teamToAddToChannel}
         />
       ) : null}
       {teamActions.teamToShare ? (

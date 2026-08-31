@@ -42,7 +42,7 @@ test("pickQuickBotPersonas seeds the three starter agents", () => {
 
   assert.deepEqual(
     pickQuickBotPersonas(personas, []).map((persona) => persona.id),
-    ["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    ["builtin:bumble", "builtin:honey", "builtin:fizz"],
   );
 });
 

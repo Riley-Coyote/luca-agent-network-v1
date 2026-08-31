@@ -2,7 +2,8 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
-  useOpenDmMutation,
+  useAddChannelMembersMutation,
+  useCreateChatMutation,
   useUpsertCachedChannel,
 } from "@/features/channels/hooks";
 import type { Channel } from "@/shared/api/types";
@@ -26,10 +27,19 @@ import {
  * normal chat header becomes an inline "To:" field, while recipient discovery
  * lives in an attached popover instead of taking over the message area.
  */
-export function NewMessageScreen() {
+export function NewMessageScreen({
+  projectId,
+  collection,
+  collectionId,
+}: {
+  projectId?: string;
+  collection?: "agent" | "project";
+  collectionId?: string;
+} = {}) {
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
-  const openDmMutation = useOpenDmMutation();
+  const createChatMutation = useCreateChatMutation();
+  const addMembersMutation = useAddChannelMembersMutation(null);
   const upsertCachedChannel = useUpsertCachedChannel();
   const sendMessageMutation = useSendMessageMutation(null, identityQuery.data);
   const { goChannel } = useAppNavigation();
@@ -51,13 +61,13 @@ export function NewMessageScreen() {
   const isMountedRef = React.useRef(false);
   const isPending =
     isPreparingMentionSend ||
-    openDmMutation.isPending ||
+    addMembersMutation.isPending ||
+    createChatMutation.isPending ||
     sendMessageMutation.isPending;
 
   const {
     deferredSearchQuery,
     handleDirectoryScroll,
-    hasReachedRecipientLimit,
     isDirectoryLoading,
     ownerProfiles,
     removeUser,
@@ -195,8 +205,65 @@ export function NewMessageScreen() {
         return preparedDirectMessage;
       }
 
+      if (preparedDirectMessage) {
+        const missingPubkeys = requestedPubkeys.filter(
+          (pubkey) => !preparedParticipantPubkeys.has(pubkey),
+        );
+        if (missingPubkeys.length === 0) return preparedDirectMessage;
+        if (addMembersMutation.isPending || sendMessageMutation.isPending) {
+          return null;
+        }
+
+        setSubmitErrorMessage(null);
+        try {
+          const result = await addMembersMutation.mutateAsync({
+            channelId: preparedDirectMessage.id,
+            pubkeys: missingPubkeys,
+            role: "member",
+          });
+          const updatedParticipantPubkeys = [
+            ...new Set([
+              ...preparedDirectMessage.participantPubkeys,
+              ...result.added,
+            ]),
+          ];
+          const updatedDirectMessage = {
+            ...preparedDirectMessage,
+            memberCount: Math.max(
+              preparedDirectMessage.memberCount,
+              updatedParticipantPubkeys.length,
+            ),
+            memberPubkeys: [
+              ...new Set([
+                ...preparedDirectMessage.memberPubkeys,
+                ...result.added,
+              ]),
+            ],
+            participantPubkeys: updatedParticipantPubkeys,
+          };
+          preparedDirectMessageRef.current = updatedDirectMessage;
+          await upsertCachedChannel(updatedDirectMessage);
+
+          if (result.errors.length > 0) {
+            throw new Error(
+              result.errors
+                .map(({ pubkey, error }) => `${pubkey}: ${error}`)
+                .join("; "),
+            );
+          }
+          return updatedDirectMessage;
+        } catch (error) {
+          setSubmitErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to add participants to this Chat.",
+          );
+          return null;
+        }
+      }
+
       if (
-        openDmMutation.isPending ||
+        createChatMutation.isPending ||
         sendMessageMutation.isPending ||
         requestedPubkeys.length === 0
       ) {
@@ -206,9 +273,11 @@ export function NewMessageScreen() {
       setSubmitErrorMessage(null);
 
       try {
-        const directMessage = await openDmMutation.mutateAsync({
-          pubkeys: requestedPubkeys,
+        const result = await createChatMutation.mutateAsync({
+          participantPubkeys: requestedPubkeys,
+          projectId,
         });
+        const directMessage = result.chat;
         preparedDirectMessageRef.current = directMessage;
         return directMessage;
       } catch (error) {
@@ -221,11 +290,15 @@ export function NewMessageScreen() {
       }
     },
     [
+      addMembersMutation.isPending,
+      addMembersMutation.mutateAsync,
       currentPubkey,
-      openDmMutation.isPending,
-      openDmMutation.mutateAsync,
+      createChatMutation.isPending,
+      createChatMutation.mutateAsync,
+      projectId,
       selectedUsers,
       sendMessageMutation.isPending,
+      upsertCachedChannel,
     ],
   );
 
@@ -269,7 +342,6 @@ export function NewMessageScreen() {
           mediaTags,
         });
       } catch (error) {
-        preparedDirectMessageRef.current = null;
         const message =
           error instanceof Error ? error.message : "Failed to send message.";
         setSubmitErrorMessage(message);
@@ -284,10 +356,16 @@ export function NewMessageScreen() {
       if (!isMountedRef.current) {
         return;
       }
-      await goChannel(directMessage.id, { replace: true });
+      await goChannel(directMessage.id, {
+        replace: true,
+        collection,
+        collectionId,
+      });
     },
     [
       goChannel,
+      collection,
+      collectionId,
       openDirectMessage,
       sendMessageMutation,
       submitErrorMessage,
@@ -510,10 +588,7 @@ export function NewMessageScreen() {
                       return (
                         <NewMessageResultRow
                           currentPubkey={currentPubkey}
-                          disabled={
-                            isPending ||
-                            (hasReachedRecipientLimit && !isSelected)
-                          }
+                          disabled={isPending}
                           isAlreadySelected={isSelected}
                           isKeyboardHighlighted={
                             highlightedRecipient?.pubkey === user.pubkey
@@ -574,14 +649,6 @@ export function NewMessageScreen() {
         data-testid="new-message-body"
       />
 
-      {hasReachedRecipientLimit ? (
-        <p
-          className="px-5 pb-2 text-sm text-muted-foreground"
-          data-testid="new-dm-limit"
-        >
-          DMs support up to nine people, including you.
-        </p>
-      ) : null}
       {searchError ? (
         <p className="px-5 pb-2 text-sm text-destructive">
           {searchError.message}

@@ -141,11 +141,6 @@ function isProviderBackedAgent(agent: ManagedAgent) {
   return agent.backend.type === "provider";
 }
 
-const DM_THREAD_AGENT_MENTION_ERROR =
-  "Agents must already be in a DM to be mentioned in its threads. Start a new conversation that includes the agent.";
-const DM_THREAD_MEMBERS_LOADING_ERROR =
-  "Checking conversation members. Try again in a moment.";
-
 export function useMentionSendFlow({
   channelId,
   channelLinks,
@@ -465,16 +460,7 @@ export function useMentionSendFlow({
           ...readyAgentPubkeys,
           ...agentMentionPubkeys,
         ]);
-        let sendChannelId = draft.capturedChannelId;
-        if (preparedAgentPubkeys.length > 0 && onPrepareSendChannel) {
-          sendChannelId = await onPrepareSendChannel(preparedAgentPubkeys);
-          if (!sendChannelId) {
-            return;
-          }
-          if (!isMountedRef.current) {
-            return;
-          }
-        }
+        const sendChannelId = draft.capturedChannelId;
 
         const agentReadiness = await ensureManagedAgentMentionsReady(
           managedMentionPubkeys.filter(
@@ -597,46 +583,6 @@ export function useMentionSendFlow({
     [channelType, mentions.hasResolvedMembers, mentions.memberPubkeys],
   );
 
-  const getDmThreadAgentMentionError = React.useCallback(
-    (
-      trimmed: string,
-      capturedThreadContext: SendMessageWithMentionFlowInput["capturedThreadContext"],
-    ) => {
-      if (channelType !== "dm" || capturedThreadContext == null) {
-        return null;
-      }
-
-      if (mentions.extractMentionPersonas(trimmed).length > 0) {
-        return DM_THREAD_AGENT_MENTION_ERROR;
-      }
-
-      const agentPubkeys = mentions
-        .extractMentionPubkeys(trimmed)
-        .filter(mentions.isAgentPubkey);
-      if (agentPubkeys.length === 0) {
-        return null;
-      }
-
-      if (!mentions.hasResolvedMembers) {
-        return DM_THREAD_MEMBERS_LOADING_ERROR;
-      }
-
-      return agentPubkeys.some(
-        (pubkey) => !mentions.memberPubkeys.has(normalizePubkey(pubkey)),
-      )
-        ? DM_THREAD_AGENT_MENTION_ERROR
-        : null;
-    },
-    [
-      channelType,
-      mentions.extractMentionPersonas,
-      mentions.extractMentionPubkeys,
-      mentions.hasResolvedMembers,
-      mentions.isAgentPubkey,
-      mentions.memberPubkeys,
-    ],
-  );
-
   const sendMessageWithMentionFlow = React.useCallback(
     async ({
       capturedChannelId,
@@ -655,16 +601,6 @@ export function useMentionSendFlow({
       isMentionSendPendingRef.current = true;
       setIsMentionSendPending(true);
       try {
-        const dmThreadAgentMentionError = getDmThreadAgentMentionError(
-          trimmed,
-          capturedThreadContext,
-        );
-        if (dmThreadAgentMentionError) {
-          setNonMemberPromptError(dmThreadAgentMentionError);
-          toast.error(dmThreadAgentMentionError);
-          return;
-        }
-
         let effectiveChannelId = capturedChannelId;
         if (!effectiveChannelId && onPrepareSendChannel) {
           effectiveChannelId = await onPrepareSendChannel();
@@ -703,6 +639,24 @@ export function useMentionSendFlow({
             createdPersonaAgentPubkeySet.has(pubkey),
         );
         const pubkeys = explicitMentionPubkeys;
+        if (
+          channelType === "dm" &&
+          onPrepareSendChannel &&
+          pubkeys.length > 0
+        ) {
+          try {
+            effectiveChannelId = await onPrepareSendChannel(pubkeys);
+          } catch (error) {
+            const message = getErrorMessage(
+              error,
+              "Could not add the mentioned participant to this Chat.",
+            );
+            setNonMemberPromptError(message);
+            toast.error(message);
+            return;
+          }
+          if (!effectiveChannelId) return;
+        }
         const { content: finalContent, mediaTags } = buildOutgoingMessage(
           trimmed,
           pendingImeta,
@@ -771,7 +725,6 @@ export function useMentionSendFlow({
       customEmoji,
       getManagedAgentsByPubkey,
       getNonMemberMentionPubkeys,
-      getDmThreadAgentMentionError,
       mentions.extractMentionPubkeys,
       mentions.isAgentPubkey,
       mentions.isManagedAgentPubkey,

@@ -129,7 +129,7 @@ test("F15: three residents are created through the key-safe Luca boundary", asyn
   for (const [index, persona] of RESIDENT_PERSONAS.entries()) {
     await page
       .getByRole("button", {
-        name: `Add ${persona.displayName} as resident`,
+        name: `Add ${persona.displayName} as agent`,
       })
       .click();
     await expect(page.getByTestId("resident-ready-count")).toContainText(
@@ -247,7 +247,7 @@ test("F15: setup exposes persisted public identity and replaceable bindings", as
   await expect(luca).toContainText("fixture-provider");
   await expect(luca).toContainText("fixture-luca");
   await expect(
-    page.getByRole("button", { name: "Add Luca as resident" }),
+    page.getByRole("button", { name: "Add Luca as agent" }),
   ).toHaveCount(0);
 });
 
@@ -275,7 +275,7 @@ for (const persistence of ["notPersisted", "unknown"] as const) {
       ];
     }, persistence);
 
-    await page.getByRole("button", { name: "Create resident" }).click();
+    await page.getByRole("button", { name: "Create agent" }).click();
     const dialog = page.getByTestId("persona-dialog");
     await dialog.getByLabel("Agent name").fill(displayName);
     await dialog
@@ -289,7 +289,7 @@ for (const persistence of ["notPersisted", "unknown"] as const) {
       page.getByTestId("agents-library-personas").getByText(displayName),
     ).toHaveCount(1);
     await expect(
-      page.getByRole("button", { name: `Add ${displayName} as resident` }),
+      page.getByRole("button", { name: `Add ${displayName} as agent` }),
     ).toBeVisible();
 
     const personas = await page.evaluate(async () => {

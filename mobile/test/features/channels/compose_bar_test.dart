@@ -962,7 +962,7 @@ void main() {
       ]);
     });
 
-    testWidgets('does not mutate a DM when mentioning a non-member agent', (
+    testWidgets('adds a non-member agent to the same DM before sending', (
       tester,
     ) async {
       final agentPubkey = 'd' * 64;
@@ -1003,7 +1003,14 @@ void main() {
       await _selectAndSendAgentMention(tester);
 
       expect(sentContent, 'hello @Helper Bot');
-      expect(publishedEvents.where((event) => event['kind'] == 9000), isEmpty);
+      final addMemberEvent = publishedEvents.singleWhere(
+        (event) => event['kind'] == 9000,
+      );
+      expect(addMemberEvent['tags'], [
+        ['h', 'channel-1'],
+        ['p', agentPubkey],
+        ['role', 'bot'],
+      ]);
     });
 
     testWidgets('waits for current member data before adding an agent', (

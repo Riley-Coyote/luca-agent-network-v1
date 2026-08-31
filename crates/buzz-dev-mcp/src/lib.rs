@@ -10,6 +10,7 @@ use rmcp::{
 use std::path::Path;
 use std::sync::Arc;
 
+mod luca_actions;
 mod paths;
 mod read_file;
 mod rg;
@@ -168,6 +169,12 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     // buzz CLI needs tokio (async HTTP client).
     if cmd == "buzz" {
         std::process::exit(buzz_cli::run_from_args(std::env::args()).await);
+    }
+
+    // Managed residents receive a separate, narrow tool surface. The bridge
+    // env contains no signing material and never exposes the developer tools.
+    if let Some(actions) = luca_actions::LucaActionMcp::from_env() {
+        return actions.serve().await;
     }
 
     // MCP server mode — safe to init tracing now.

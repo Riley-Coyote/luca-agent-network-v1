@@ -11,6 +11,7 @@ class Channel {
   final String description;
   final String? topic;
   final String? purpose;
+  final String? projectId;
   final String createdBy;
   final DateTime createdAt;
   final int memberCount;
@@ -33,6 +34,7 @@ class Channel {
     required this.memberCount,
     this.topic,
     this.purpose,
+    this.projectId,
     this.lastMessageAt,
     this.archivedAt,
     this.participants = const [],
@@ -50,6 +52,7 @@ class Channel {
     description: (json['description'] as String?) ?? '',
     topic: json['topic'] as String?,
     purpose: json['purpose'] as String?,
+    projectId: json['project_id'] as String?,
     createdBy: json['created_by'] as String,
     createdAt: DateTime.parse(json['created_at'] as String),
     memberCount: json['member_count'] as int,
@@ -111,6 +114,7 @@ class Channel {
     description: details.description,
     topic: details.topic,
     purpose: details.purpose,
+    projectId: details.projectId,
     createdBy: details.createdBy,
     createdAt: details.createdAt,
     memberCount: memberCount,
@@ -136,6 +140,7 @@ class Channel {
     description: description,
     topic: topic,
     purpose: purpose,
+    projectId: projectId,
     createdBy: createdBy,
     createdAt: createdAt,
     memberCount: memberCount ?? this.memberCount,
@@ -162,6 +167,7 @@ class ChannelDetails {
   final String description;
   final String? topic;
   final String? purpose;
+  final String? projectId;
   final String createdBy;
   final DateTime createdAt;
   final int memberCount;
@@ -180,6 +186,7 @@ class ChannelDetails {
     required this.memberCount,
     this.topic,
     this.purpose,
+    this.projectId,
     this.archivedAt,
     this.ttlSeconds,
     this.ttlDeadline,
@@ -193,6 +200,7 @@ class ChannelDetails {
     description: (json['description'] as String?) ?? '',
     topic: json['topic'] as String?,
     purpose: json['purpose'] as String?,
+    projectId: json['project_id'] as String?,
     createdBy: json['created_by'] as String,
     createdAt: DateTime.parse(json['created_at'] as String),
     memberCount: json['member_count'] as int,
@@ -213,6 +221,7 @@ class ChannelDetails {
     description: channel.description,
     topic: channel.topic,
     purpose: channel.purpose,
+    projectId: channel.projectId,
     createdBy: channel.createdBy,
     createdAt: channel.createdAt,
     memberCount: channel.memberCount,

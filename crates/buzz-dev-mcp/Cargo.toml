@@ -25,6 +25,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rmcp = { workspace = true }
 schemars = { workspace = true }
+uuid = { workspace = true }
 similar = "3"
 tempfile = "3"
 ignore = "0.4.25"

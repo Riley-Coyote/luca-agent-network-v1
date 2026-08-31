@@ -84,10 +84,10 @@ export function ResidentSetup({
               className="text-xl font-medium tracking-tight text-foreground"
               id="resident-setup-title"
             >
-              Set up your residents
+              Set up your agents
             </h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
-              Each resident has an independent cryptographic identity. Its model
+              Each agent has an independent cryptographic identity. Its model
               and runtime can change without changing who it is.
             </p>
           </div>
@@ -117,7 +117,7 @@ export function ResidentSetup({
           <div className="flex flex-col items-start gap-4 rounded-xl border border-dashed border-border/80 bg-background/30 px-5 py-5">
             <div>
               <p className="text-sm font-medium text-foreground">
-                Create your first resident
+                Create your first agent
               </p>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 Choose its identity, instructions, runtime, and model. Luca
@@ -126,7 +126,7 @@ export function ResidentSetup({
             </div>
             <Button onClick={onCreateResident} size="sm">
               <Plus aria-hidden="true" />
-              Create resident
+              Create agent
             </Button>
           </div>
         ) : null}
@@ -162,9 +162,7 @@ export function ResidentSetup({
                             {ready ? (
                               <Check aria-hidden="true" className="size-3" />
                             ) : null}
-                            {ready
-                              ? "Resident ready"
-                              : `Resident ${resident.status}`}
+                            {ready ? "Agent ready" : `Agent ${resident.status}`}
                           </span>
                         ) : null}
                       </div>
@@ -185,14 +183,14 @@ export function ResidentSetup({
                   </div>
                   {!resident ? (
                     <Button
-                      aria-label={`Add ${persona.displayName} as resident`}
+                      aria-label={`Add ${persona.displayName} as agent`}
                       disabled={isPending || isStarting}
                       onClick={() => onAddResident(persona)}
                       size="sm"
                       variant="outline"
                     >
                       <Plus aria-hidden="true" />
-                      {isStarting ? "Adding…" : "Add resident"}
+                      {isStarting ? "Adding…" : "Add agent"}
                     </Button>
                   ) : null}
                 </div>
@@ -227,7 +225,7 @@ export function ResidentSetup({
           <div className="flex justify-start pt-1">
             <Button onClick={onCreateResident} size="sm" variant="ghost">
               <Plus aria-hidden="true" />
-              Create another resident
+              Create another agent
             </Button>
           </div>
         ) : null}

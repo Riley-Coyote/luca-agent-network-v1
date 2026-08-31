@@ -58,10 +58,17 @@ export function useAppNavigation() {
   );
 
   const goAgents = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (
+      behavior?: NavigationBehavior & {
+        collectionId?: string;
+      },
+    ) =>
       commitNavigation(
         {
           to: "/agents",
+          search: behavior?.collectionId
+            ? { collection: "agent", collectionId: behavior.collectionId }
+            : {},
         },
         behavior,
       ),
@@ -80,10 +87,17 @@ export function useAppNavigation() {
   );
 
   const goProjects = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (
+      behavior?: NavigationBehavior & {
+        collectionId?: string;
+      },
+    ) =>
       commitNavigation(
         {
           to: "/projects",
+          search: behavior?.collectionId
+            ? { collection: "project", collectionId: behavior.collectionId }
+            : {},
         },
         behavior,
       ),
@@ -101,7 +115,7 @@ export function useAppNavigation() {
     ) =>
       commitNavigation(
         {
-          to: "/projects/$projectId",
+          to: "/repositories/$projectId",
           params: {
             projectId,
           },
@@ -158,6 +172,8 @@ export function useAppNavigation() {
          */
         autoSend?: string;
         messageId?: string;
+        collection?: "agent" | "project";
+        collectionId?: string;
         replace?: boolean;
         threadRootId?: string | null;
       },
@@ -179,6 +195,12 @@ export function useAppNavigation() {
               ? { agentSession: options.agentSession }
               : {}),
             ...(options?.autoSend ? { autoSend: options.autoSend } : {}),
+            ...(options?.collection && options.collectionId
+              ? {
+                  collection: options.collection,
+                  collectionId: options.collectionId,
+                }
+              : {}),
           },
         },
         {
@@ -190,12 +212,23 @@ export function useAppNavigation() {
   );
 
   const goNewMessage = React.useCallback(
-    (behavior?: NavigationBehavior) =>
+    (
+      options?: NavigationBehavior & {
+        projectId?: string;
+        collection?: "agent" | "project";
+        collectionId?: string;
+      },
+    ) =>
       commitNavigation(
         {
           to: "/messages/new",
+          search: {
+            projectId: options?.projectId,
+            collection: options?.collection,
+            collectionId: options?.collectionId,
+          },
         },
-        behavior,
+        options,
       ),
     [commitNavigation],
   );

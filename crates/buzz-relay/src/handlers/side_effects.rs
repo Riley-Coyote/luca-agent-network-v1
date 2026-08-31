@@ -417,6 +417,7 @@ pub async fn validate_admin_event(
                 "purpose",
                 "visibility",
                 "ttl",
+                "project",
             ];
             let has_recognized = event
                 .tags
@@ -424,7 +425,7 @@ pub async fn validate_admin_event(
                 .any(|t| RECOGNIZED_TAGS.contains(&t.kind().to_string().as_str()));
             if !has_recognized {
                 return Err(anyhow::anyhow!(
-                    "kind:9002 must include at least one metadata tag (name, about, archived, topic, purpose, visibility, ttl)"
+                    "kind:9002 must include at least one metadata tag (name, about, archived, topic, purpose, visibility, ttl, project)"
                 ));
             }
 
@@ -487,11 +488,35 @@ pub async fn validate_admin_event(
                 }
             }
 
-            // name/about/archived/visibility/ttl require owner/admin;
+            // Empty explicitly clears the Project; otherwise it must be a UUID.
+            for t in event.tags.iter() {
+                if t.kind().to_string() == "project" {
+                    match t.content() {
+                        Some("") => {}
+                        Some(value) => {
+                            Uuid::parse_str(value).map_err(|_| {
+                                anyhow::anyhow!("invalid project value: must be a UUID or empty")
+                            })?;
+                        }
+                        None => {
+                            return Err(anyhow::anyhow!(
+                                "project tag must have a value (UUID, or empty string to clear)"
+                            ));
+                        }
+                    }
+                }
+            }
+
+            // name/about/archived/visibility/ttl/project require owner/admin;
             // topic/purpose allow any member.
             let has_privileged_tag = event.tags.iter().any(|t| {
                 let k = t.kind().to_string();
-                k == "name" || k == "about" || k == "archived" || k == "visibility" || k == "ttl"
+                k == "name"
+                    || k == "about"
+                    || k == "archived"
+                    || k == "visibility"
+                    || k == "ttl"
+                    || k == "project"
             });
             if has_privileged_tag {
                 let members = state.db.get_members(tenant.community(), channel_id).await?;
@@ -513,7 +538,7 @@ pub async fn validate_admin_event(
                             return Ok(());
                         }
                         Err(anyhow::anyhow!(
-                            "actor not authorized for name/about/archived/visibility/ttl changes"
+                            "actor not authorized for name/about/archived/visibility/ttl/project changes"
                         ))
                     }
                 }
@@ -1006,6 +1031,9 @@ pub async fn emit_group_discovery_events(
         if let Some(ref deadline) = channel.ttl_deadline {
             tags.push(Tag::parse(["ttl_deadline", &deadline.to_rfc3339()])?);
         }
+        if let Some(project_id) = channel.project_id {
+            tags.push(Tag::parse(["project", &project_id.to_string()])?);
+        }
         emit_addressable_discovery_event(
             tenant,
             state,
@@ -1454,6 +1482,37 @@ async fn handle_edit_metadata(
                         channel_id,
                         serde_json::json!({
                             "type": "ttl_changed", "actor": actor_hex, "ttl_seconds": ttl_change
+                        }),
+                    )
+                    .await?;
+                }
+                "project" => {
+                    let project_id = if val.is_empty() {
+                        None
+                    } else {
+                        Some(Uuid::parse_str(val).map_err(|_| {
+                            anyhow::anyhow!("invalid project value: must be a UUID or empty")
+                        })?)
+                    };
+                    state
+                        .db
+                        .update_channel(
+                            tenant.community(),
+                            channel_id,
+                            buzz_db::channel::ChannelUpdate {
+                                project_id: Some(project_id),
+                                ..Default::default()
+                            },
+                        )
+                        .await?;
+                    emit_system_message(
+                        tenant,
+                        state,
+                        channel_id,
+                        serde_json::json!({
+                            "type": "project_changed",
+                            "actor": actor_hex,
+                            "project_id": project_id,
                         }),
                     )
                     .await?;

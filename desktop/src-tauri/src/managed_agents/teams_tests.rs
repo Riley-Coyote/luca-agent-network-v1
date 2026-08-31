@@ -16,6 +16,7 @@ fn team(id: &str, name: &str) -> TeamRecord {
         description: None,
         instructions: None,
         persona_ids: Vec::new(),
+        member_pubkeys: Vec::new(),
         is_builtin: false,
         source_dir: None,
         is_symlink: false,
@@ -272,6 +273,7 @@ fn migration_pristine_fizz_is_purged() {
         description: Some("Fizz works carefully and collaboratively.".to_string()),
         instructions: None,
         persona_ids: vec!["builtin:fizz".to_string()],
+        member_pubkeys: vec![],
         is_builtin: true,
         source_dir: None,
         is_symlink: false,
@@ -297,6 +299,7 @@ fn migration_customized_fizz_is_demoted_to_user_team() {
         description: Some("Fizz works carefully and collaboratively.".to_string()),
         instructions: None,
         persona_ids: vec!["builtin:fizz".to_string(), "extra:persona".to_string()],
+        member_pubkeys: vec![],
         is_builtin: true,
         source_dir: None,
         is_symlink: false,
@@ -325,10 +328,10 @@ fn welcome_team_is_seeded_and_idempotent() {
     assert_eq!(records.len(), 1);
     let welcome = &records[0];
     assert_eq!(welcome.id, "builtin-team:welcome");
-    assert_eq!(welcome.name, "Welcome Team");
+    assert_eq!(welcome.name, "Starter Agents");
     assert_eq!(
         welcome.description.as_deref(),
-        Some("A friendly starter trio ready to help you plan, create, and ship.")
+        Some("Luca, Vektor, and Anima — an optional starting network.")
     );
     assert_eq!(
         welcome.persona_ids,
@@ -347,6 +350,26 @@ fn welcome_team_is_seeded_and_idempotent() {
         serde_json::to_value(records_after_second_merge).unwrap(),
         expected
     );
+}
+
+#[test]
+fn starter_residents_seed_migrates_to_agents_terminology() {
+    let (mut records, _) = merge_teams(Vec::new(), "2026-07-01T00:00:00Z");
+    let welcome = records
+        .iter_mut()
+        .find(|team| team.id == "builtin-team:welcome")
+        .expect("starter team should be seeded");
+    welcome.name = "Starter Residents".to_string();
+
+    let (records, changed) = merge_teams(records, "2026-07-02T00:00:00Z");
+
+    assert!(changed);
+    let welcome = records
+        .iter()
+        .find(|team| team.id == "builtin-team:welcome")
+        .expect("starter team should remain available");
+    assert_eq!(welcome.name, "Starter Agents");
+    assert_eq!(welcome.updated_at, "2026-07-02T00:00:00Z");
 }
 
 #[test]
