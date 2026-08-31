@@ -47,8 +47,12 @@ cargo build \
     -p git-credential-nostr \
     -p buzz-relay
 
-echo "Ensuring the local Luca relay stays available..."
-LUCA_DEV_RELAY_RESTART=1 ./scripts/ensure-luca-dev-relay.sh
+if [[ -x "$REPO_ROOT/scripts/ensure-luca-dev-relay.sh" ]]; then
+    echo "Ensuring the local Luca relay stays available..."
+    LUCA_DEV_RELAY_RESTART=1 "$REPO_ROOT/scripts/ensure-luca-dev-relay.sh"
+else
+    echo "Relay restart helper is not present in this checkout; preserving the current relay."
+fi
 
 TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
 TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \
