@@ -58,6 +58,7 @@ struct ActionBridgeOwner {
     shutdown: Arc<AtomicBool>,
     handle: JoinHandle<()>,
     path: PathBuf,
+    directory: PathBuf,
 }
 
 fn bridges() -> &'static Mutex<HashMap<String, ActionBridgeOwner>> {
@@ -79,23 +80,28 @@ pub(crate) fn create_endpoint(
     if resident_pubkey.len() != 64 || !resident_pubkey.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("conversational action endpoint requires a resident pubkey".into());
     }
-    let directory = app
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("resolve Luca action cache: {error}"))?
-        .join("luca-actions");
-    std::fs::create_dir_all(&directory)
+    let directory = action_endpoint_directory();
+    std::fs::create_dir(&directory)
         .map_err(|error| format!("create Luca action cache: {error}"))?;
-    let path = directory.join(format!("{}.sock", resident_pubkey.to_ascii_lowercase()));
-    if path.exists() {
-        std::fs::remove_file(&path)
-            .map_err(|error| format!("remove stale Luca action endpoint: {error}"))?;
+    use std::os::unix::fs::PermissionsExt;
+    if let Err(error) = std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
+    {
+        let _ = std::fs::remove_dir(&directory);
+        return Err(format!("secure Luca action cache: {error}"));
     }
-    let listener = std::os::unix::net::UnixListener::bind(&path)
-        .map_err(|error| format!("bind Luca action endpoint: {error}"))?;
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| format!("configure Luca action endpoint: {error}"))?;
+    let path = action_endpoint_socket_path(&directory);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            let _ = std::fs::remove_dir(&directory);
+            return Err(format!("bind Luca action endpoint: {error}"));
+        }
+    };
+    listener.set_nonblocking(true).map_err(|error| {
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&directory);
+        format!("configure Luca action endpoint: {error}")
+    })?;
     let token = uuid::Uuid::new_v4().to_string();
     let shutdown = Arc::new(AtomicBool::new(false));
     let resident = resident_pubkey.to_ascii_lowercase();
@@ -103,6 +109,7 @@ pub(crate) fn create_endpoint(
     let thread_token = token.clone();
     let thread_shutdown = Arc::clone(&shutdown);
     let thread_path = path.clone();
+    let thread_directory = directory.clone();
     let handle = std::thread::Builder::new()
         .name(format!("luca-actions-{}", &resident[..8]))
         .spawn(move || {
@@ -132,8 +139,13 @@ pub(crate) fn create_endpoint(
                 }
             }
             let _ = std::fs::remove_file(&thread_path);
+            let _ = std::fs::remove_dir(&thread_directory);
         })
-        .map_err(|error| format!("start Luca action endpoint: {error}"))?;
+        .map_err(|error| {
+            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_dir(&directory);
+            format!("start Luca action endpoint: {error}")
+        })?;
     bridges()
         .lock()
         .map_err(|_| "Luca action endpoint registry unavailable".to_string())?
@@ -143,9 +155,27 @@ pub(crate) fn create_endpoint(
                 shutdown,
                 handle,
                 path: path.clone(),
+                directory,
             },
         );
     Ok(ActionBridgeEndpoint { path, token })
+}
+
+#[cfg(unix)]
+fn action_endpoint_directory() -> PathBuf {
+    // Darwin permits only 103 visible bytes in a Unix-domain socket path.
+    // App cache paths can consume most of that budget before an endpoint name
+    // is appended, so keep this capability-bearing transport in a private,
+    // per-endpoint short directory. The opaque token remains the authority.
+    PathBuf::from("/tmp").join(format!(
+        "luca-ac-{}",
+        &uuid::Uuid::new_v4().simple().to_string()[..16]
+    ))
+}
+
+#[cfg(unix)]
+fn action_endpoint_socket_path(directory: &std::path::Path) -> PathBuf {
+    directory.join("endpoint.sock")
 }
 
 #[cfg(not(unix))]
@@ -165,6 +195,7 @@ pub(crate) fn stop_endpoint(resident_pubkey: &str) -> Result<(), String> {
         owner.shutdown.store(true, Ordering::Release);
         let _ = owner.handle.join();
         let _ = std::fs::remove_file(owner.path);
+        let _ = std::fs::remove_dir(owner.directory);
     }
     Ok(())
 }
@@ -945,4 +976,24 @@ fn validate_references(app: &tauri::AppHandle, request: &BridgeRequest) -> Resul
         }
     }
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::{action_endpoint_directory, action_endpoint_socket_path};
+    use std::os::unix::ffi::OsStrExt;
+
+    #[test]
+    fn action_endpoint_path_fits_darwin_sun_len() {
+        let first = action_endpoint_socket_path(&action_endpoint_directory());
+        let second = action_endpoint_socket_path(&action_endpoint_directory());
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("/tmp"));
+        assert!(
+            first.as_os_str().as_bytes().len() <= 103,
+            "action endpoint path must fit Darwin sun_path: {}",
+            first.display()
+        );
+    }
 }
