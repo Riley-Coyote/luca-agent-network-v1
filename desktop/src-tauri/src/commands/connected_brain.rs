@@ -631,13 +631,9 @@ pub async fn connect_connected_brain_source(
             if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
                 .is_err()
             {
-                state
-                    .set_connected_brain_status(
-                        &owner,
-                        &source_id,
-                        ConnectedBrainSourceStatusV1::NeedsAttention,
-                    )
-                    .map_err(|error| error.code().to_owned())?;
+                eprintln!(
+                    "buzz-desktop: connected Brain source is current but background watch is unavailable"
+                );
             }
             sources.push(source_view(result.source));
         }
@@ -672,14 +668,9 @@ pub async fn refresh_connected_brain_source(
         if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
             .is_err()
         {
-            state
-                .set_connected_brain_status(
-                    &owner,
-                    &source_id,
-                    ConnectedBrainSourceStatusV1::NeedsAttention,
-                )
-                .map_err(|error| error.code().to_owned())?;
-            return Err("connected-source-watch-unavailable".to_owned());
+            eprintln!(
+                "buzz-desktop: refreshed Brain source is current but background watch is unavailable"
+            );
         }
         Ok(ConnectedBrainMutationResultV1 {
             sources: vec![source_view(result.source)],

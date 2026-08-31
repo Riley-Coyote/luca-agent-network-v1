@@ -1,10 +1,13 @@
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::VecDeque,
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
+
+#[cfg(test)]
+use std::collections::{BTreeMap, BTreeSet};
 
 use luca_protocol::ConnectedBrainSourceKindV1;
 use regex::Regex;
@@ -15,10 +18,13 @@ use super::discovery::modified_timestamp;
 const MAX_SESSION_FILES: usize = 20_000;
 const MAX_SESSION_DEPTH: usize = 8;
 const MAX_JSONL_LINE_BYTES: usize = 2 * 1024 * 1024;
-const MAX_SESSION_SELECTIONS: usize = 8;
-const MAX_RAIL_SESSION_FILES: usize = 64;
-const MAX_RAIL_SESSION_BYTES: usize = 24 * 1024 * 1024;
-const MAX_RAIL_SESSION_LINES: usize = 30_000;
+const MAX_SESSION_SELECTIONS: usize = 32;
+const MAX_INDEXED_MESSAGES_PER_SESSION: usize = 16;
+const MAX_INDEX_SESSION_BYTES: usize = 2 * 1024 * 1024;
+const MAX_INDEX_SESSION_LINES: usize = 4_000;
+const MAX_RAIL_SESSION_FILES: usize = 200;
+const MAX_RAIL_SESSION_BYTES: usize = 64 * 1024 * 1024;
+const MAX_RAIL_SESSION_LINES: usize = 100_000;
 const MAX_CONTEXT_SESSION_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CONTEXT_SESSION_LINES: usize = 50_000;
 const SESSION_STREAM_BUFFER_BYTES: usize = 64 * 1024;
@@ -74,16 +80,6 @@ impl SessionReadBudget {
         }
     }
 
-    pub(super) fn candidate_limit(&self) -> usize {
-        if self.is_exhausted() {
-            0
-        } else {
-            self.remaining_files
-                .min(self.remaining_lines)
-                .min(self.remaining_bytes)
-        }
-    }
-
     pub(super) fn is_exhausted(&self) -> bool {
         self.exhausted
             || self.remaining_files == 0
@@ -121,6 +117,12 @@ pub(super) struct SessionMetadata {
     pub latest_at: Option<String>,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct SessionFileMetadata {
+    pub relative_locator: String,
+    pub updated_at: Option<String>,
+}
+
 pub(super) fn session_metadata(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
@@ -138,6 +140,36 @@ pub(super) fn session_metadata(
     })
 }
 
+/// Return body-free native session metadata newest first. This is deliberately
+/// independent from the bounded Brain search index: a very large conversation
+/// must not prevent newer conversations from appearing in the session rail.
+pub(super) fn session_file_metadata(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+) -> Result<Vec<SessionFileMetadata>, String> {
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|_| "session history is unavailable".to_owned())?;
+    let mut files = session_files(&canonical_root, kind)?
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path.strip_prefix(&canonical_root).ok()?;
+            let relative_locator = relative.to_str()?.replace('\\', "/");
+            Some(SessionFileMetadata {
+                relative_locator,
+                updated_at: modified_timestamp(&path),
+            })
+        })
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| {
+        right
+            .updated_at
+            .cmp(&left.updated_at)
+            .then_with(|| right.relative_locator.cmp(&left.relative_locator))
+    });
+    Ok(files)
+}
+
 /// Visit visible session records in deterministic file/ordinal order. The
 /// visitor can stop the source immediately, which lets index construction end
 /// at its existing entry cap without collecting transcripts or opening the
@@ -150,22 +182,80 @@ pub(super) fn visit_messages(
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    for path in session_files(&canonical_root, kind)? {
-        let Ok(relative) = path.strip_prefix(&canonical_root) else {
-            continue;
-        };
-        let Some(relative_path) = relative.to_str().map(|value| value.replace('\\', "/")) else {
-            continue;
-        };
-        let file = fs::File::open(path).map_err(|_| "session history is unavailable".to_owned())?;
-        let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
-        if !visit_messages_from_reader(&mut reader, kind, |ordinal, message| {
-            visitor(&relative_path, ordinal, message)
-        })? {
-            return Ok(());
+    for session in session_file_metadata(&canonical_root, kind)? {
+        let mut budget =
+            SessionReadBudget::new(1, MAX_INDEX_SESSION_BYTES, MAX_INDEX_SESSION_LINES);
+        let messages = read_visible_prefix(
+            &canonical_root,
+            kind,
+            &session.relative_locator,
+            MAX_INDEXED_MESSAGES_PER_SESSION,
+            &mut budget,
+        )?;
+        for (ordinal, message) in messages.into_iter().enumerate() {
+            if !visitor(&session.relative_locator, ordinal, message)? {
+                return Ok(());
+            }
         }
     }
     Ok(())
+}
+
+/// Read the first visible user-facing messages from one native session under a
+/// shared bounded budget. Hidden prompts, tools, credentials and local paths
+/// pass through the same sanitizer as Brain indexing.
+pub(super) fn read_visible_prefix(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+    limit: usize,
+    budget: &mut SessionReadBudget,
+) -> Result<Vec<String>, String> {
+    if limit == 0 || limit > MAX_SESSION_SELECTIONS {
+        return Err("connected session prefix selection is invalid".to_owned());
+    }
+    budget
+        .begin_file()
+        .map_err(|_| "connected session read budget exhausted".to_owned())?;
+    let canonical = resolved_session_path(root, kind, relative_path)?;
+    let file = fs::File::open(canonical)
+        .map_err(|_| "connected session selection is unavailable".to_owned())?;
+    let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
+    let mut selected = Vec::with_capacity(limit);
+    let mut line = Vec::with_capacity(SESSION_STREAM_BUFFER_BYTES);
+    loop {
+        if budget.remaining_lines == 0 || budget.remaining_bytes == 0 {
+            budget.mark_exhausted();
+            return Ok(selected);
+        }
+        let Some((line_bytes, oversized)) =
+            (match read_bounded_line(&mut reader, &mut line, budget.remaining_bytes) {
+                Ok(line) => line,
+                Err(BoundedLineReadError::Budget) => {
+                    budget.mark_exhausted();
+                    return Ok(selected);
+                }
+                Err(BoundedLineReadError::Io) => {
+                    return Err("connected session selection is unavailable".to_owned());
+                }
+            })
+        else {
+            return Ok(selected);
+        };
+        budget.record_line(line_bytes);
+        if oversized {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(&line) else {
+            continue;
+        };
+        if let Some(message) = visible_session_message(&value, kind) {
+            selected.push(message);
+            if selected.len() == limit {
+                return Ok(selected);
+            }
+        }
+    }
 }
 
 pub(super) fn read_messages(
@@ -175,39 +265,6 @@ pub(super) fn read_messages(
 ) -> Result<Vec<String>, String> {
     let canonical = resolved_session_path(root, kind, relative_path)?;
     parse_file(&canonical, kind)
-}
-
-/// Resolve only selected visible-message ordinals in one bounded streaming
-/// pass. This is the session-panel path: it never collects a transcript and
-/// stops as soon as every requested ordinal has been found.
-pub(super) fn read_messages_at_ordinals(
-    root: &Path,
-    kind: ConnectedBrainSourceKindV1,
-    relative_path: &str,
-    ordinals: &BTreeSet<usize>,
-    budget: &mut SessionReadBudget,
-) -> Result<BTreeMap<usize, String>, String> {
-    if ordinals.is_empty() || ordinals.len() > MAX_SESSION_SELECTIONS {
-        return Err("connected session selection is invalid".to_owned());
-    }
-    budget
-        .begin_file()
-        .map_err(|_| "connected session read budget exhausted".to_owned())?;
-    let canonical = resolved_session_path(root, kind, relative_path)?;
-    let file = fs::File::open(canonical)
-        .map_err(|_| "connected session selection is unavailable".to_owned())?;
-    let mut reader = BufReader::with_capacity(SESSION_STREAM_BUFFER_BYTES, file);
-    select_messages_from_reader(&mut reader, kind, ordinals, budget)
-}
-
-pub(super) fn session_updated_at(
-    root: &Path,
-    kind: ConnectedBrainSourceKindV1,
-    relative_path: &str,
-) -> Option<String> {
-    resolved_session_path(root, kind, relative_path)
-        .ok()
-        .and_then(|path| modified_timestamp(&path))
 }
 
 fn resolved_session_path(
@@ -330,6 +387,7 @@ fn visit_messages_from_reader<R: BufRead>(
     }
 }
 
+#[cfg(test)]
 fn select_messages_from_reader<R: BufRead>(
     reader: &mut R,
     kind: ConnectedBrainSourceKindV1,

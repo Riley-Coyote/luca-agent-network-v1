@@ -232,3 +232,72 @@ fn index_rereads_original_and_rejects_changed_hash() {
         read_verified_excerpt(root.path(), ConnectedBrainSourceKindV1::Repository, entry).is_err()
     );
 }
+
+fn write_codex_session(path: &std::path::Path, prefix: &str, messages: usize) {
+    let body = (0..messages)
+        .map(|index| {
+            json!({
+                "type": "event_msg",
+                "payload": {
+                    "type": "user_message",
+                    "message": format!("{prefix} message {index}")
+                }
+            })
+            .to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(path, format!("{body}\n")).unwrap();
+}
+
+#[test]
+fn native_session_catalog_is_not_limited_to_search_index_entries() {
+    let root = tempfile::tempdir().unwrap();
+    write_codex_session(&root.path().join("a-older.jsonl"), "Older topic", 2);
+    write_codex_session(&root.path().join("z-newer.jsonl"), "Newer topic", 2);
+    let source_id = OpaqueId::parse("source-session-catalog").unwrap();
+    let mut budget = SessionReadBudget::for_rail_list();
+
+    let listed = list_native_sessions(
+        root.path(),
+        ConnectedBrainSourceKindV1::CodexHistory,
+        &source_id,
+        &mut budget,
+    )
+    .unwrap();
+
+    assert_eq!(listed.total_sessions, 2);
+    assert_eq!(listed.sessions.len(), 2);
+    assert_eq!(listed.sessions[0].title, "Newer topic message 0");
+    assert_eq!(listed.sessions[1].title, "Older topic message 0");
+}
+
+#[test]
+fn session_index_spreads_its_budget_across_recent_sessions() {
+    let root = tempfile::tempdir().unwrap();
+    write_codex_session(&root.path().join("a-older.jsonl"), "Older topic", 40);
+    write_codex_session(&root.path().join("z-newer.jsonl"), "Newer topic", 40);
+    let candidate = ConnectedBrainDiscoveryCandidateV1 {
+        discovery_id: OpaqueId::parse("discovery-session-budget").unwrap(),
+        source_kind: ConnectedBrainSourceKindV1::CodexHistory,
+        display_name: "Codex".into(),
+        canonical_root: root.path().canonicalize().unwrap(),
+        item_count: 2,
+        earliest_at: None,
+        latest_at: None,
+        discovered_at: Instant::now(),
+    };
+    let source_id = OpaqueId::parse("source-session-budget").unwrap();
+
+    let build = build_index(&source_id, &candidate).unwrap();
+    let locators = build
+        .entries
+        .iter()
+        .map(|entry| entry.relative_locator.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+
+    assert_eq!(build.entries.len(), 32);
+    assert_eq!(locators.len(), 2);
+    assert!(locators.contains("a-older.jsonl"));
+    assert!(locators.contains("z-newer.jsonl"));
+}

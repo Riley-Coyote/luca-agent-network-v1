@@ -66,16 +66,23 @@ export function useConnectedBrainInventoryQuery() {
   return useQuery({
     queryKey: connectedBrainInventoryQueryKey,
     queryFn: discoverConnectedBrainSources,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
+    staleTime: 60_000,
   });
 }
 
 export function useConnectedBrainActions() {
   const queryClient = useQueryClient();
-  const refresh = () =>
-    queryClient.invalidateQueries({
-      queryKey: connectedBrainInventoryQueryKey,
-    });
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: connectedBrainInventoryQueryKey,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["connected-runtime-sessions"],
+      }),
+    ]);
+  };
   return {
     addRoot: useMutation({
       mutationFn: addConnectedBrainRoot,

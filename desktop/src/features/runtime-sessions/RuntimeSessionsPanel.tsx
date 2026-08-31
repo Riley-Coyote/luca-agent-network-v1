@@ -4,6 +4,7 @@ import {
   ArrowRight,
   LoaderCircle,
   RefreshCw,
+  Search,
   X,
 } from "lucide-react";
 
@@ -141,6 +142,7 @@ function RuntimeSessionsPanelContent({
   const [operationError, setOperationError] = React.useState<string | null>(
     null,
   );
+  const [search, setSearch] = React.useState("");
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -158,6 +160,7 @@ function RuntimeSessionsPanelContent({
     requestIdRef.current += 1;
     setSelectedSessionId(null);
     setOperationError(null);
+    setSearch("");
     headingRef.current?.focus({ preventScroll: true });
   }, [contextScopeKey, runtimeKey]);
 
@@ -226,6 +229,14 @@ function RuntimeSessionsPanelContent({
   const needsSource = sourceStatus === "not_connected";
   const sourceNeedsAttention =
     sourceStatus === "needs_attention" || sourceStatus === "unavailable";
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const visibleSessions =
+    list?.sessions.filter((session) => {
+      if (!normalizedSearch) return true;
+      return `${session.title} ${session.preview}`
+        .toLocaleLowerCase()
+        .includes(normalizedSearch);
+    }) ?? [];
 
   return (
     <>
@@ -246,9 +257,8 @@ function RuntimeSessionsPanelContent({
               {runtime.label} sessions
             </h2>
             <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Bring visible, indexed excerpts into a new Polyphonic
-              conversation. This never resumes or synchronizes the external
-              session.
+              Browse local history or bring one session into a new Polyphonic
+              conversation as context.
             </p>
           </div>
         </div>
@@ -316,12 +326,12 @@ function RuntimeSessionsPanelContent({
           />
         ) : list?.truncated && list.sessions.length === 0 ? (
           <EmptyState
-            detail={`${list.totalSessionCount} indexed sessions exist, but none fit within this panel's bounded local read limit.`}
+            detail={`${list.totalSessionCount} local sessions exist, but none fit within this panel's bounded read limit.`}
             title="Sessions exceed the read limit"
           />
         ) : (list?.sessions.length ?? 0) === 0 ? (
           <EmptyState
-            detail="The connected source contains no indexed visible conversations yet."
+            detail="The connected source contains no visible conversations yet."
             title="No sessions found"
           />
         ) : (
@@ -329,11 +339,22 @@ function RuntimeSessionsPanelContent({
             {sourceNeedsAttention ? (
               <div className="mb-3 flex gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
-                Brain reports this source needs attention. Only unchanged,
-                verified excerpts can be used.
+                Brain reports this source needs attention. Readable sessions
+                remain available while you repair the connection.
               </div>
             ) : null}
-            {list?.sessions.map((session, index) => (
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <span className="sr-only">Search {runtime.label} sessions</span>
+              <input
+                className="h-9 w-full rounded-lg border border-border/50 bg-card/20 pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-border focus:bg-card/30"
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search sessions"
+                type="search"
+                value={search}
+              />
+            </label>
+            {visibleSessions.map((session, index) => (
               <SessionCard
                 isDisabled={
                   selectedSessionId !== null || contextScopeKey === null
@@ -345,10 +366,15 @@ function RuntimeSessionsPanelContent({
                 session={session}
               />
             ))}
+            {visibleSessions.length === 0 ? (
+              <p className="px-3 py-8 text-center text-xs text-muted-foreground">
+                No sessions match this search.
+              </p>
+            ) : null}
             {list?.truncated ? (
               <p className="px-2 py-2 text-2xs leading-relaxed text-muted-foreground">
-                Showing {list.sessions.length} of {list.totalSessionCount}{" "}
-                indexed sessions within the bounded local read limit.
+                Showing the {list.sessions.length} most recent of{" "}
+                {list.totalSessionCount} local sessions.
               </p>
             ) : null}
           </div>
@@ -398,7 +424,7 @@ function SessionCard({
         {session.title}
       </h3>
       <p
-        className="mt-1.5 line-clamp-3 text-xs leading-relaxed text-muted-foreground"
+        className="mt-1 line-clamp-1 text-xs text-muted-foreground"
         id={descriptionId}
       >
         {session.preview}
@@ -427,13 +453,13 @@ function SessionCard({
 }
 
 function formatSessionMeta(session: ConnectedRuntimeSession) {
-  const count = `${session.visibleMessageCount} visible message${session.visibleMessageCount === 1 ? "" : "s"}`;
-  if (!session.updatedAt) return count;
+  if (!session.updatedAt) return "Local session";
   const timestamp = new Date(session.updatedAt);
-  if (Number.isNaN(timestamp.getTime())) return count;
-  return `${count} · ${new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(timestamp.getTime())) return "Local session";
+  return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
-  }).format(timestamp)}`;
+    timeStyle: "short",
+  }).format(timestamp);
 }
 
 function EmptyState({ detail, title }: { detail: string; title: string }) {

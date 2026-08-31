@@ -105,55 +105,6 @@ pub(crate) fn read_verified_excerpt(
     Ok(body)
 }
 
-/// Verify a bounded selection from one session file in a single streaming
-/// pass. Unlike `read_verified_excerpt`, this path never materializes the
-/// transcript and is used by the runtime-session panel/context handoff only.
-pub(super) fn read_verified_session_excerpts(
-    root: &Path,
-    kind: ConnectedBrainSourceKindV1,
-    entries: &[&ConnectedBrainIndexEntryV1],
-    budget: &mut sessions::SessionReadBudget,
-) -> Result<Vec<String>, String> {
-    if entries.is_empty() || kind == ConnectedBrainSourceKindV1::Repository || entries.len() > 8 {
-        return Err("connected session selection is invalid".to_owned());
-    }
-    let relative_locator = entries[0].relative_locator.as_str();
-    let mut ordinals = BTreeSet::new();
-    for entry in entries {
-        entry
-            .validate()
-            .map_err(|_| "connected session index entry is invalid".to_owned())?;
-        if entry.relative_locator != relative_locator {
-            return Err("connected session selection spans multiple files".to_owned());
-        }
-        let ordinal = usize::try_from(entry.ordinal.get())
-            .map_err(|_| "connected session ordinal is invalid".to_owned())?;
-        if !ordinals.insert(ordinal) {
-            return Err("connected session selection contains duplicates".to_owned());
-        }
-    }
-    let messages =
-        sessions::read_messages_at_ordinals(root, kind, relative_locator, &ordinals, budget)?;
-    entries
-        .iter()
-        .map(|entry| {
-            let ordinal = usize::try_from(entry.ordinal.get())
-                .map_err(|_| "connected session ordinal is invalid".to_owned())?;
-            let message = messages
-                .get(&ordinal)
-                .ok_or_else(|| "connected session excerpt changed".to_owned())?;
-            let body = normalized_chunks(message)
-                .into_iter()
-                .next()
-                .ok_or_else(|| "connected session excerpt changed".to_owned())?;
-            if content_hash(&body)? != entry.content_hash {
-                return Err("connected source excerpt hash changed".to_owned());
-            }
-            Ok(body)
-        })
-        .collect()
-}
-
 fn push_session_entries_until_limit(
     source_id: &OpaqueId,
     root: &Path,

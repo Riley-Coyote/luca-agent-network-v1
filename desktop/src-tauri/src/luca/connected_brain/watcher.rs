@@ -219,10 +219,8 @@ fn reconcile_connected_sources(app: &AppHandle) -> Result<(), String> {
                 )
                 .is_err()
                 {
-                    let _ = state.set_connected_brain_status(
-                        &owner,
-                        &source.source.source_id,
-                        ConnectedBrainSourceStatusV1::NeedsAttention,
+                    eprintln!(
+                        "buzz-desktop: Brain source remains readable but background watch is unavailable"
                     );
                 }
             }
@@ -267,13 +265,7 @@ fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) {
             .map_err(|error| error.code().to_owned())
     })();
     if result.is_err() {
-        if let Ok(owner) = active_owner(&state) {
-            let _ = state.set_connected_brain_status(
-                &owner,
-                source_id,
-                ConnectedBrainSourceStatusV1::NeedsAttention,
-            );
-        }
+        eprintln!("buzz-desktop: background Brain refresh failed; keeping the last verified index");
     }
 }
 

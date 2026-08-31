@@ -1,6 +1,6 @@
 use super::*;
 use crate::luca::connected_brain::{
-    context_for_indexed_session, list_indexed_sessions, source_id_for_candidate,
+    context_for_native_session, list_native_sessions, source_id_for_candidate,
     ConnectedBrainDiscoveryCandidateV1, ConnectedBrainIndexBuildV1, IndexedSessionContextV1,
     IndexedSessionListV1, SessionReadBudget,
 };
@@ -327,7 +327,7 @@ pub(crate) fn read_connected_sessions(
     source_id: &OpaqueId,
     budget: &mut SessionReadBudget,
 ) -> Result<IndexedSessionListV1, OwnerBrainStoreError> {
-    let (canonical_root, kind, entries) = {
+    let (canonical_root, kind) = {
         let _guard = lifecycle
             .lock()
             .map_err(|_| OwnerBrainStoreError::Unavailable)?;
@@ -336,9 +336,9 @@ pub(crate) fn read_connected_sessions(
             .lock()
             .map_err(|_| OwnerBrainStoreError::Unavailable)?;
         let runtime = ready_runtime(&state, owner_pubkey)?;
-        connected_session_material(&root, runtime, source_id)?
+        connected_session_source(&root, runtime, source_id)?
     };
-    list_indexed_sessions(&canonical_root, kind, source_id, &entries, budget)
+    list_native_sessions(&canonical_root, kind, source_id, budget)
         .map_err(|_| OwnerBrainStoreError::Invalid)
 }
 
@@ -352,7 +352,7 @@ pub(crate) fn read_connected_session_context(
     source_id: &OpaqueId,
     session_id: &OpaqueId,
 ) -> Result<Option<IndexedSessionContextV1>, OwnerBrainStoreError> {
-    let (canonical_root, kind, entries) = {
+    let (canonical_root, kind) = {
         let _guard = lifecycle
             .lock()
             .map_err(|_| OwnerBrainStoreError::Unavailable)?;
@@ -361,24 +361,17 @@ pub(crate) fn read_connected_session_context(
             .lock()
             .map_err(|_| OwnerBrainStoreError::Unavailable)?;
         let runtime = ready_runtime(&state, owner_pubkey)?;
-        connected_session_material(&root, runtime, source_id)?
+        connected_session_source(&root, runtime, source_id)?
     };
-    context_for_indexed_session(&canonical_root, kind, source_id, &entries, session_id)
+    context_for_native_session(&canonical_root, kind, source_id, session_id)
         .map_err(|_| OwnerBrainStoreError::Stale)
 }
 
-fn connected_session_material(
+fn connected_session_source(
     root: &ContinuityMasterKey,
     runtime: &ContinuityRuntime,
     source_id: &OpaqueId,
-) -> Result<
-    (
-        PathBuf,
-        ConnectedBrainSourceKindV1,
-        Vec<ConnectedBrainIndexEntryV1>,
-    ),
-    OwnerBrainStoreError,
-> {
+) -> Result<(PathBuf, ConnectedBrainSourceKindV1), OwnerBrainStoreError> {
     let Some((generation, namespace, namespace_key)) = connected_generation(root, runtime)? else {
         return Err(OwnerBrainStoreError::Invalid);
     };
@@ -398,15 +391,7 @@ fn connected_session_material(
     let canonical_root = PathBuf::from(binding.canonical_root)
         .canonicalize()
         .map_err(|_| OwnerBrainStoreError::Stale)?;
-    let address = owner_brain_source_address(namespace, source_id.clone())?;
-    let entries = super::connected_retrieval::load_connected_entries(
-        &generation,
-        &address,
-        namespace_key.as_bytes(),
-        &manifest,
-        Instant::now() + std::time::Duration::from_secs(5),
-    )?;
-    Ok((canonical_root, manifest.source.source_kind, entries))
+    Ok((canonical_root, manifest.source.source_kind))
 }
 
 pub(super) fn connect_source_with_runtime(

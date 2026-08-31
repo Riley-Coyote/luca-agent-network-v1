@@ -97,18 +97,25 @@ and references, never source bodies or paths.
 - MCPs/skills/plugins: collapsed, read-only observed status using **Available**,
   **Runtime managed**, and **Needs attention**.
 
-## Indexed native sessions
+## Native session catalogue and context
 
 An installed Codex or Claude Code runtime may contribute a read-only session
-rail. Polyphonic discovers only a bounded corpus and projects a sanitized title,
-timestamp, source runtime, and short visible excerpt. The renderer receives no
-native session ID, local path, hidden system prompt, SDK-managed context
-envelope, or raw runtime metadata.
+rail. Lightweight native file metadata supplies the newest-first catalogue;
+catalogue visibility no longer depends on whether the bounded Brain search
+index happened to retain entries from that session. Polyphonic projects a
+sanitized title, timestamp, source runtime, and short visible excerpt. The
+renderer receives no native session ID, local path, hidden system prompt,
+SDK-managed context envelope, or raw runtime metadata.
 
-Choosing **Start with this context** stages that bounded excerpt for a new
+Choosing **Start with this context** lazily reads and sanitizes a bounded visible
+prefix from the authoritative local session, then stages it for a new
 Polyphonic conversation. It does not reopen, resume, mutate, or synchronize the
 native session. A community or runtime change invalidates any in-flight or
 staged selection so context cannot cross owner or conversation boundaries.
+
+The Brain search index remains separately bounded. Runtime-session indexing
+starts with the newest files and caps entries per conversation so one enormous
+transcript cannot crowd every other recent session out of search.
 
 ## Deferred
 

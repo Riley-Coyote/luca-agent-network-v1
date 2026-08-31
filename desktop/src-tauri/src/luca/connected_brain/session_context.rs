@@ -1,9 +1,9 @@
-use std::{collections::BTreeMap, path::Path};
+use std::path::Path;
 
-use luca_protocol::{ConnectedBrainIndexEntryV1, ConnectedBrainSourceKindV1, OpaqueId};
+use luca_protocol::{ConnectedBrainSourceKindV1, OpaqueId};
 use sha2::{Digest, Sha256};
 
-use super::{index::read_verified_session_excerpts, sessions};
+use super::sessions;
 
 const MAX_LISTED_SESSIONS: usize = 200;
 const MAX_TITLE_CHARS: usize = 96;
@@ -37,119 +37,84 @@ pub(crate) struct IndexedSessionContextV1 {
     pub updated_at: Option<String>,
 }
 
-struct IndexedSession<'a> {
-    relative_locator: &'a str,
-    entries: Vec<&'a ConnectedBrainIndexEntryV1>,
-}
-
-pub(crate) fn list_indexed_sessions(
+/// Build the session rail from lightweight native file metadata rather than
+/// from the bounded Brain search index. The index may intentionally retain
+/// only a subset of a large history; catalogue browsing must not inherit that
+/// truncation.
+pub(crate) fn list_native_sessions(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
-    entries: &[ConnectedBrainIndexEntryV1],
     budget: &mut sessions::SessionReadBudget,
 ) -> Result<IndexedSessionListV1, String> {
-    let mut sessions = grouped_sessions(kind, source_id, entries)?;
-    let total_sessions = sessions.len();
-    // Locators are already a deterministic, native-only index key. Bound the
-    // candidate set before any per-file canonicalize/stat/read work; Codex's
-    // date hierarchy also naturally puts recent locators first.
-    sessions.sort_by(|left, right| right.relative_locator.cmp(left.relative_locator));
-    sessions.truncate(MAX_LISTED_SESSIONS.min(budget.candidate_limit()));
-
-    let mut sessions = sessions
-        .into_iter()
-        .map(|session| {
-            let updated_at = sessions::session_updated_at(root, kind, session.relative_locator);
-            (session, updated_at)
-        })
-        .collect::<Vec<_>>();
-    sessions.sort_by(|left, right| {
-        right
-            .1
-            .cmp(&left.1)
-            .then_with(|| right.0.relative_locator.cmp(left.0.relative_locator))
-    });
-
-    let mut projected = Vec::with_capacity(sessions.len());
-    for (session, updated_at) in sessions {
+    if kind == ConnectedBrainSourceKindV1::Repository {
+        return Err("repository sources do not contain runtime sessions".to_owned());
+    }
+    let files = sessions::session_file_metadata(root, kind)?;
+    let total_sessions = files.len();
+    let mut projected = Vec::with_capacity(total_sessions.min(MAX_LISTED_SESSIONS));
+    for file in files.into_iter().take(MAX_LISTED_SESSIONS) {
         if budget.is_exhausted() {
             break;
         }
-        let selected_entries = list_entry_indices(session.entries.len())
-            .into_iter()
-            .filter_map(|index| session.entries.get(index).copied())
-            .collect::<Vec<_>>();
-        let verified = match read_verified_session_excerpts(root, kind, &selected_entries, budget) {
-            Ok(verified) => Some(verified),
-            Err(_) if budget.is_exhausted() => break,
-            Err(_) => None,
+        let excerpts =
+            match sessions::read_visible_prefix(root, kind, &file.relative_locator, 2, budget) {
+                Ok(excerpts) => excerpts,
+                Err(_) if budget.is_exhausted() => break,
+                Err(_) => continue,
+            };
+        let Some(first) = excerpts.first() else {
+            continue;
         };
-        let first_excerpt = verified.as_ref().and_then(|values| values.first());
-        let preview_excerpt = verified.as_ref().and_then(|values| values.last());
-        let available = first_excerpt.is_some() && preview_excerpt.is_some();
+        let title = bounded_single_line(first, MAX_TITLE_CHARS);
+        if title.is_empty() {
+            continue;
+        }
+        let preview = excerpts.get(1).unwrap_or(first).as_str();
         projected.push(IndexedSessionSummaryV1 {
-            session_id: session_id(source_id, session.relative_locator)?,
-            title: first_excerpt
-                .map(String::as_str)
-                .map(|text| bounded_single_line(text, MAX_TITLE_CHARS))
-                .filter(|text| !text.is_empty())
-                .unwrap_or_else(|| "Session needs refresh".to_owned()),
-            preview: preview_excerpt
-                .map(String::as_str)
-                .map(|text| bounded_single_line(text, MAX_PREVIEW_CHARS))
-                .filter(|text| !text.is_empty())
-                .unwrap_or_else(|| {
-                    "Its indexed visible excerpts changed on disk. Refresh Brain to use it."
-                        .to_owned()
-                }),
-            visible_message_count: session.entries.len(),
-            updated_at,
-            available,
+            session_id: session_id(source_id, &file.relative_locator)?,
+            title,
+            preview: bounded_single_line(preview, MAX_PREVIEW_CHARS),
+            visible_message_count: excerpts.len(),
+            updated_at: file.updated_at,
+            available: true,
         });
     }
-
     Ok(IndexedSessionListV1 {
         sessions: projected,
         total_sessions,
     })
 }
 
-pub(crate) fn context_for_indexed_session(
+/// Resolve a catalogue selection lazily from the authoritative native file.
+/// The opaque ID is derived from the connected source and private locator, so
+/// neither native path nor provider session identifier crosses IPC.
+pub(crate) fn context_for_native_session(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
-    entries: &[ConnectedBrainIndexEntryV1],
     requested_session_id: &OpaqueId,
 ) -> Result<Option<IndexedSessionContextV1>, String> {
-    let sessions = grouped_sessions(kind, source_id, entries)?;
-    let mut selected = None;
-    for session in sessions {
-        let candidate_session_id = session_id(source_id, session.relative_locator)?;
-        if candidate_session_id == *requested_session_id {
-            selected = Some((session, candidate_session_id));
-            break;
-        }
+    if kind == ConnectedBrainSourceKindV1::Repository {
+        return Err("repository sources do not contain runtime sessions".to_owned());
     }
-    let Some((session, selected_session_id)) = selected else {
+    let selected = sessions::session_file_metadata(root, kind)?
+        .into_iter()
+        .find_map(|file| {
+            let candidate = session_id(source_id, &file.relative_locator).ok()?;
+            (candidate == *requested_session_id).then_some((file, candidate))
+        });
+    let Some((file, selected_session_id)) = selected else {
         return Ok(None);
     };
-    let updated_at = sessions::session_updated_at(root, kind, session.relative_locator);
-
-    let selected_entries = context_entry_indices(session.entries.len())
-        .into_iter()
-        .map(|index| {
-            session
-                .entries
-                .get(index)
-                .copied()
-                .ok_or_else(|| "connected session index is invalid".to_owned())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
     let mut budget = sessions::SessionReadBudget::for_context();
-    let selected_excerpts =
-        read_verified_session_excerpts(root, kind, &selected_entries, &mut budget)
-            .map_err(|_| "connected session needs refresh".to_owned())?;
+    let selected_excerpts = sessions::read_visible_prefix(
+        root,
+        kind,
+        &file.relative_locator,
+        MAX_CONTEXT_EXCERPTS,
+        &mut budget,
+    )?;
     let mut excerpts = Vec::with_capacity(selected_excerpts.len());
     for excerpt in selected_excerpts {
         let excerpt = bounded_single_line(&excerpt, MAX_CONTEXT_EXCERPT_CHARS);
@@ -160,71 +125,22 @@ pub(crate) fn context_for_indexed_session(
     if excerpts.is_empty() {
         return Err("connected session contains no visible excerpts".to_owned());
     }
-
-    let title = excerpts
-        .first()
-        .map(|text| bounded_single_line(text, MAX_TITLE_CHARS))
-        .filter(|text| !text.is_empty())
-        .unwrap_or_else(|| "Local session".to_owned());
-    let mut summary = format!(
-        "{} visible messages were indexed. Selected visible excerpts:",
-        session.entries.len()
-    );
-    for excerpt in excerpts {
+    let title = bounded_single_line(&excerpts[0], MAX_TITLE_CHARS);
+    let mut summary = "Selected visible excerpts from this local session:".to_owned();
+    for excerpt in &excerpts {
         let next = format!("\n\n- {excerpt}");
         if summary.chars().count() + next.chars().count() > MAX_CONTEXT_SUMMARY_CHARS {
             break;
         }
         summary.push_str(&next);
     }
-
     Ok(Some(IndexedSessionContextV1 {
         session_id: selected_session_id,
         title,
         summary,
-        visible_message_count: session.entries.len(),
-        updated_at,
+        visible_message_count: excerpts.len(),
+        updated_at: file.updated_at,
     }))
-}
-
-fn grouped_sessions<'a>(
-    kind: ConnectedBrainSourceKindV1,
-    source_id: &OpaqueId,
-    entries: &'a [ConnectedBrainIndexEntryV1],
-) -> Result<Vec<IndexedSession<'a>>, String> {
-    if kind == ConnectedBrainSourceKindV1::Repository {
-        return Err("repository sources do not contain runtime sessions".to_owned());
-    }
-    let mut grouped = BTreeMap::<&str, Vec<&ConnectedBrainIndexEntryV1>>::new();
-    for entry in entries {
-        entry
-            .validate()
-            .map_err(|_| "connected session index is invalid".to_owned())?;
-        if entry.source_id != *source_id {
-            return Err("connected session index source is invalid".to_owned());
-        }
-        grouped
-            .entry(entry.relative_locator.as_str())
-            .or_default()
-            .push(entry);
-    }
-
-    grouped
-        .into_iter()
-        .map(|(relative_locator, mut entries)| {
-            entries.sort_by(|left, right| left.ordinal.cmp(&right.ordinal));
-            if entries
-                .windows(2)
-                .any(|pair| pair[0].ordinal == pair[1].ordinal)
-            {
-                return Err("connected session index contains duplicate messages".to_owned());
-            }
-            Ok(IndexedSession {
-                relative_locator,
-                entries,
-            })
-        })
-        .collect()
 }
 
 fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, String> {
@@ -235,18 +151,6 @@ fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, 
     digest.update(relative_locator.as_bytes());
     OpaqueId::parse(format!("session-{}", hex::encode(digest.finalize())))
         .map_err(|_| "connected session ID is invalid".to_owned())
-}
-
-fn context_entry_indices(entry_count: usize) -> Vec<usize> {
-    (0..entry_count.min(MAX_CONTEXT_EXCERPTS)).collect()
-}
-
-fn list_entry_indices(entry_count: usize) -> Vec<usize> {
-    match entry_count {
-        0 => Vec::new(),
-        1 => vec![0],
-        _ => vec![0, (entry_count - 1).min(MAX_CONTEXT_EXCERPTS - 1)],
-    }
 }
 
 fn bounded_single_line(text: &str, max_chars: usize) -> String {
@@ -264,14 +168,12 @@ fn bounded_single_line(text: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, time::Instant};
+    use std::fs;
 
     use luca_protocol::ConnectedBrainSourceKindV1;
     use tempfile::tempdir;
 
     use super::*;
-    use crate::luca::connected_brain::{build_index, ConnectedBrainDiscoveryCandidateV1};
-
     #[test]
     fn indexed_context_contains_only_bounded_visible_messages() {
         let root = tempdir().unwrap();
@@ -291,24 +193,11 @@ mod tests {
         .unwrap();
         let canonical_root = root.path().canonicalize().unwrap();
         let source_id = OpaqueId::parse("connected-session-test").unwrap();
-        let candidate = ConnectedBrainDiscoveryCandidateV1 {
-            discovery_id: OpaqueId::parse("discovery-session-test").unwrap(),
-            source_kind: ConnectedBrainSourceKindV1::CodexHistory,
-            display_name: "Codex".to_owned(),
-            canonical_root: canonical_root.clone(),
-            item_count: 1,
-            earliest_at: None,
-            latest_at: None,
-            discovered_at: Instant::now(),
-        };
-        let build = build_index(&source_id, &candidate).unwrap();
-
         let mut list_budget = sessions::SessionReadBudget::for_rail_list();
-        let list = list_indexed_sessions(
+        let list = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &mut list_budget,
         )
         .unwrap();
@@ -318,11 +207,10 @@ mod tests {
         assert!(list.sessions[0].title.contains("Plan the checkpoint"));
         assert!(!list.sessions[0].session_id.as_str().contains("native-id"));
 
-        let context = context_for_indexed_session(
+        let context = context_for_native_session(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &list.sessions[0].session_id,
         )
         .unwrap()
@@ -349,35 +237,19 @@ mod tests {
         }
         let canonical_root = root.path().canonicalize().unwrap();
         let source_id = OpaqueId::parse("connected-session-budget-test").unwrap();
-        let candidate = ConnectedBrainDiscoveryCandidateV1 {
-            discovery_id: OpaqueId::parse("discovery-session-budget-test").unwrap(),
-            source_kind: ConnectedBrainSourceKindV1::CodexHistory,
-            display_name: "Codex".to_owned(),
-            canonical_root: canonical_root.clone(),
-            item_count: 3,
-            earliest_at: None,
-            latest_at: None,
-            discovered_at: Instant::now(),
-        };
-        let build = build_index(&source_id, &candidate).unwrap();
-        assert_eq!(build.entries.len(), 3);
-
         let second_source_id = OpaqueId::parse("connected-session-budget-test-b").unwrap();
-        let second_build = build_index(&second_source_id, &candidate).unwrap();
         let mut cross_source_budget = sessions::SessionReadBudget::new(1, 1024 * 1024, 100);
-        let first_source = list_indexed_sessions(
+        let first_source = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &mut cross_source_budget,
         )
         .unwrap();
-        let second_source = list_indexed_sessions(
+        let second_source = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &second_source_id,
-            &second_build.entries,
             &mut cross_source_budget,
         )
         .unwrap();
@@ -386,11 +258,10 @@ mod tests {
         assert_eq!(second_source.total_sessions, 3);
 
         let mut file_budget = sessions::SessionReadBudget::new(2, 1024 * 1024, 100);
-        let file_limited = list_indexed_sessions(
+        let file_limited = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &mut file_budget,
         )
         .unwrap();
@@ -398,11 +269,10 @@ mod tests {
         assert_eq!(file_limited.sessions.len(), 2);
 
         let mut byte_budget = sessions::SessionReadBudget::new(3, record.len(), 100);
-        let byte_limited = list_indexed_sessions(
+        let byte_limited = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &mut byte_budget,
         )
         .unwrap();
@@ -410,11 +280,10 @@ mod tests {
         assert_eq!(byte_limited.sessions.len(), 1);
 
         let mut line_budget = sessions::SessionReadBudget::new(3, 1024 * 1024, 1);
-        let line_limited = list_indexed_sessions(
+        let line_limited = list_native_sessions(
             &canonical_root,
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
-            &build.entries,
             &mut line_budget,
         )
         .unwrap();

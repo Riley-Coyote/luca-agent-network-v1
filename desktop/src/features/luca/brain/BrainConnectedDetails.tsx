@@ -30,6 +30,7 @@ import { Button } from "@/shared/ui/button";
 
 export function BrainConnectedDetails({
   busySourceIds,
+  error,
   inventory,
   kind,
   onConnect,
@@ -40,6 +41,7 @@ export function BrainConnectedDetails({
   residents,
 }: {
   busySourceIds: ReadonlySet<string>;
+  error: string | null;
   inventory: ConnectedBrainInventory;
   kind: ConnectedBrainSourceKind;
   onConnect: () => void;
@@ -63,6 +65,15 @@ export function BrainConnectedDetails({
 
   return (
     <div className="max-h-[65vh] space-y-4 overflow-y-auto pr-1">
+      {error ? (
+        <div
+          className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          role="alert"
+        >
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      ) : null}
       {sources.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border/60 px-4 py-8 text-center text-sm text-muted-foreground">
           Nothing in this category is connected yet.
@@ -101,10 +112,19 @@ export function BrainConnectedDetails({
                   type="button"
                   variant="ghost"
                 >
-                  <RefreshCw />
-                  {sourceNeedsAttention(source.status)
-                    ? "Retry source"
-                    : "Refresh"}
+                  <RefreshCw
+                    className={cn(
+                      busySourceIds.has(source.sourceId) &&
+                        "animate-spin motion-reduce:animate-none",
+                    )}
+                  />
+                  {busySourceIds.has(source.sourceId)
+                    ? sourceNeedsAttention(source.status)
+                      ? "Repairing…"
+                      : "Refreshing…"
+                    : sourceNeedsAttention(source.status)
+                      ? "Retry source"
+                      : "Refresh"}
                 </Button>
                 <Button
                   disabled={busySourceIds.has(source.sourceId)}

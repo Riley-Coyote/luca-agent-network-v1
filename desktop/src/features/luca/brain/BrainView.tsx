@@ -443,6 +443,7 @@ export function BrainView() {
           ) : detailCategory ? (
             <BrainConnectedDetails
               busySourceIds={busySourceIds}
+              error={operationError}
               inventory={inventory}
               kind={detailCategory}
               onConnect={() => requestConnection(detailCategory)}
