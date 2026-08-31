@@ -190,6 +190,9 @@ A capability lane is complete only when:
 
 ## Dependent plans and contracts
 
+- [capability-parity/BUILD_SPEC.md](capability-parity/BUILD_SPEC.md) is the
+  approval-first execution package; its scope table determines which capability
+  lanes may run autonomously.
 - [POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md](POLYPHONIC_RESIDENT_CAPABILITY_PARITY.md)
   applies this contract to the current capability backlog.
 - [RUNTIME_BACKED_RESIDENT_CONTEXT.md](RUNTIME_BACKED_RESIDENT_CONTEXT.md)

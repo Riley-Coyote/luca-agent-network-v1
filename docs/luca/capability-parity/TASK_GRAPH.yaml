@@ -1,0 +1,148 @@
+project: polyphonic-capability-parity
+status: draft_pending_riley_scope_approval
+branch: codex/unified-dev
+baseline_commit: f2ee3861f
+architecture_contract: ../RUNTIME_FIRST_CAPABILITY_CONTRACT.md
+build_spec: BUILD_SPEC.md
+acceptance: ACCEPTANCE.md
+max_parallel_delegated_lanes: 3
+recursive_delegation: forbidden
+
+scope_decisions:
+  runtime_targets:
+    R1_codex: recommended_include
+    R2_claude_code: recommended_include
+    R3_hermes_existing_profile_only: recommended_include_if_configured
+    R4_openclaw_existing_binding_only: recommended_include_if_configured
+    R5_other_acp: recommended_defer
+  parity_release:
+    P01_live_capability_audit: recommended_include
+    P02_capability_inventory: recommended_include
+    P03_native_developer_work: recommended_include
+    P04_skills: recommended_include
+    P05_mcp: recommended_include
+    P06_existing_web_provider: recommended_expose_only
+    P07_existing_browser_provider: recommended_expose_only
+    P08_existing_image_provider: recommended_expose_only
+    P09_native_subagents: recommended_include
+    P10_native_schedules_background: recommended_expose_only
+    P11_unified_execution_experience: recommended_include
+  expansions:
+    X01_hosted_web_search: recommended_defer
+    X02_hosted_browser: recommended_defer
+    X03_hosted_image_generation: recommended_defer
+    X04_cross_resident_orchestration: recommended_defer
+    X05_automations_and_durable_jobs: recommended_defer
+    X06_macos_computer_use: recommended_defer
+    X07_hosted_connectors: recommended_defer
+    X08_voice_and_audio: recommended_defer
+
+gates:
+  - id: CP0
+    title: Approval and control
+    tasks: [CP00, CP01]
+    barrier_task: CP01
+  - id: CP1
+    title: Live capability truth
+    tasks: [CP10, CP11]
+    barrier_task: CP11
+  - id: CP2
+    title: Runtime-native execution
+    tasks: [CP20, CP21, CP22]
+    barrier_task: CP22
+  - id: CP3
+    title: Existing-provider capability exposure
+    tasks: [CP30, CP31]
+    barrier_task: CP31
+  - id: CP4
+    title: Unified conversation experience
+    tasks: [CP40]
+    barrier_task: CP40
+  - id: CP5
+    title: Conditional approved expansions
+    tasks: [CP50]
+    barrier_task: CP50
+  - id: CP6
+    title: Integrated acceptance
+    tasks: [CP60, CP61]
+    barrier_task: CP61
+
+tasks:
+  - id: CP00
+    gate: CP0
+    title: Record Riley scope decisions and exact baseline
+    depends_on: []
+    acceptance: [A001, A002, A003]
+    status: BLOCKED_ON_RILEY_SCOPE_APPROVAL
+  - id: CP01
+    gate: CP0
+    title: Freeze runtime matrix, dirt boundaries, and autonomous authority
+    depends_on: [CP00]
+    acceptance: [A004, A005, A006]
+    status: PENDING
+  - id: CP10
+    gate: CP1
+    title: Audit exact installed runtime and adapter capabilities
+    depends_on: [CP01]
+    acceptance: [A101, A102, A103, A104]
+    status: PENDING
+  - id: CP11
+    gate: CP1
+    title: Add canonical capability truth projection
+    depends_on: [CP10]
+    acceptance: [A105, A106, A107]
+    status: PENDING
+  - id: CP20
+    gate: CP2
+    title: Prove native files repository shell Git tests and builds
+    depends_on: [CP11]
+    acceptance: [A201, A202, A203]
+    status: PENDING
+  - id: CP21
+    gate: CP2
+    title: Complete Skill compatibility and invocation
+    depends_on: [CP11]
+    acceptance: [A204, A205, A206]
+    status: PENDING
+  - id: CP22
+    gate: CP2
+    title: Complete MCP execution authority and visibility
+    depends_on: [CP11]
+    acceptance: [A207, A208, A209, A210]
+    status: PENDING
+  - id: CP30
+    gate: CP3
+    title: Expose approved existing web browser and image providers
+    depends_on: [CP20, CP21, CP22]
+    acceptance: [A301, A302, A303, A304]
+    status: PENDING
+  - id: CP31
+    gate: CP3
+    title: Expose approved native subagent schedule and background behavior
+    depends_on: [CP20, CP21, CP22]
+    acceptance: [A305, A306, A307]
+    status: PENDING
+  - id: CP40
+    gate: CP4
+    title: Unify permissions activity cancellation retry results and receipts
+    depends_on: [CP30, CP31]
+    acceptance: [A401, A402, A403, A404, A405]
+    status: PENDING
+  - id: CP50
+    gate: CP5
+    title: Execute only separately approved expansion lane specifications
+    depends_on: [CP40]
+    acceptance: [A501, A502]
+    status: SKIPPED_UNLESS_EXPANSION_APPROVED
+  - id: CP60
+    gate: CP6
+    title: Run integrated source and regression gates
+    depends_on: [CP40, CP50]
+    acceptance: [A601, A602, A603]
+    status: PENDING
+  - id: CP61
+    gate: CP6
+    title: Rebuild relaunch and run installed runtime matrix
+    depends_on: [CP60]
+    acceptance: [A604, A605, A606, A607]
+    status: PENDING

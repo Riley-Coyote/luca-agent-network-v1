@@ -6,6 +6,11 @@ Revised: 2026-08-30 — runtime-first exposure contract
 
 Status: authorized priority backlog; not an implementation or release claim
 
+Execution package: [`capability-parity/BUILD_SPEC.md`](capability-parity/BUILD_SPEC.md)
+with [`TASK_GRAPH.yaml`](capability-parity/TASK_GRAPH.yaml) and
+[`ACCEPTANCE.md`](capability-parity/ACCEPTANCE.md). The package is a draft until
+Riley records exact include/expose-only/defer choices in its approval sheet.
+
 Execution trigger: begin immediately after the active Brain session-catalog,
 incremental-indexing, and context-handoff work is reliable. Do not interrupt or
 fold this work into that prerequisite.
