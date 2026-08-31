@@ -8,12 +8,23 @@
 set -euo pipefail
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
-BUILD_APP="$REPO_ROOT/desktop/src-tauri/target/debug/bundle/macos/Luca Agent Network Dev.app"
 INSTALL_APP="${LUCA_DEV_INSTALL_APP:-$HOME/Applications/Luca Agent Network Dev.app}"
 APP_ID="com.luca.agent-network.dev"
 APP_NAME="Luca Agent Network Dev"
 DEFAULT_KEYRING_SERVICE="buzz-desktop-dev.luca-v1"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+# Prefer a stable local signing identity so macOS keeps permissions attached to
+# the Dev bundle across rebuilds. Fall back to ad-hoc signing when unavailable.
+CODESIGN_IDENTITY="${LUCA_DEV_CODESIGN_IDENTITY:-}"
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    CODESIGN_IDENTITY=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+        | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' \
+        | /usr/bin/head -1)
+fi
+if [[ -z "$CODESIGN_IDENTITY" ]]; then
+    CODESIGN_IDENTITY="-"
+fi
 
 case "$INSTALL_APP" in
     */Applications/Luca\ Agent\ Network\ Dev.app) ;;
@@ -27,6 +38,33 @@ cd "$REPO_ROOT"
 . ./bin/activate-hermit
 
 echo "Building $APP_NAME from $(git rev-parse --short HEAD)..."
+echo "Building native sidecars..."
+cargo build \
+    -p buzz-acp \
+    -p buzz-agent \
+    -p buzz-dev-mcp \
+    -p buzz-cli \
+    -p git-credential-nostr \
+    -p buzz-relay
+
+echo "Ensuring the local Luca relay stays available..."
+LUCA_DEV_RELAY_RESTART=1 ./scripts/ensure-luca-dev-relay.sh
+
+TARGET=$(rustc -vV | /usr/bin/sed -n 's|host: ||p')
+TARGET_DIR=$(cargo metadata --format-version 1 --no-deps \
+    | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
+TAURI_TARGET_DIR=$(cargo metadata \
+    --manifest-path "$REPO_ROOT/desktop/src-tauri/Cargo.toml" \
+    --format-version 1 --no-deps \
+    | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).target_directory")
+BUILD_APP="$TAURI_TARGET_DIR/debug/bundle/macos/Luca Agent Network Dev.app"
+BINARIES_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
+mkdir -p "$BINARIES_DIR"
+for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+    cp "$TARGET_DIR/debug/$bin" "$BINARIES_DIR/$bin-$TARGET"
+    chmod +x "$BINARIES_DIR/$bin-$TARGET"
+done
+
 (
     cd desktop
     pnpm exec tauri build --debug --bundles app \
@@ -60,7 +98,7 @@ else
     /usr/libexec/PlistBuddy -c "Add :LSEnvironment:BUZZ_DEV_KEYRING_SERVICE string $KEYRING_SERVICE" "$PLIST"
 fi
 
-codesign --force --deep --sign - \
+codesign --force --deep --timestamp=none --sign "$CODESIGN_IDENTITY" \
     --entitlements "$REPO_ROOT/desktop/src-tauri/Entitlements.plist" \
     "$BUILD_APP"
 codesign --verify --deep --strict "$BUILD_APP"
@@ -144,4 +182,5 @@ fi
 trap - ERR
 echo "Installed and running: $INSTALL_APP"
 echo "Bundle ID: $APP_ID"
+echo "Signing identity: $CODESIGN_IDENTITY"
 echo "Previous bundle backup: $OLD_APP"
