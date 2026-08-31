@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import * as React from "react";
 
 import type { RoomProject } from "@/features/channels/lib/roomProjects";
@@ -150,9 +151,8 @@ function ChatRow({
         "min-h-8 transition-colors duration-100 data-[active=true]:duration-0",
       )}
       data-active={isActive ? "true" : undefined}
-      data-channel-id={channel.id}
       data-sidebar="menu-button"
-      data-testid={`channel-${channel.name}`}
+      data-testid={`chat-row-${channel.id}`}
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
@@ -204,14 +204,26 @@ function ChatRow({
   );
 }
 
+const COLLAPSED_KEY = "luca.collapsedProjects.v1";
+
+function readCollapsed(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
 export function ChatList({
   items,
+  projectByChannelId,
   selectedChannelId,
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
 }: {
   items: readonly ChatListItem[];
+  projectByChannelId: ReadonlyMap<string, RoomProject>;
   selectedChannelId: string | null;
   unreadChannelIds: ReadonlySet<string>;
   /** Channels with a resident mid-turn. Replaces the timestamp while running —
@@ -219,7 +231,24 @@ export function ChatList({
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
 }) {
-  const sortedItems = React.useMemo(() => sortChats(items), [items]);
+  const groups = React.useMemo(
+    () => groupChats(items, projectByChannelId),
+    [items, projectByChannelId],
+  );
+  const [collapsed, setCollapsed] = React.useState<Set<string>>(readCollapsed);
+
+  const toggle = React.useCallback((projectId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(projectId)) next.add(projectId);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        /* a rail that forgets its collapse state is not worth throwing over */
+      }
+      return next;
+    });
+  }, []);
 
   const rowProps = {
     selectedChannelId,
@@ -230,9 +259,53 @@ export function ChatList({
 
   return (
     <div className="flex flex-col px-2" data-testid="chat-list">
-      {sortedItems.map((item) => (
-        <ChatRow item={item} key={item.channel.id} {...rowProps} />
-      ))}
+      {groups.map((group) => {
+        const isCollapsed = collapsed.has(group.project?.id ?? "__rooms");
+        return (
+          <div
+            className="flex flex-col"
+            data-testid={`chat-group-${group.project?.id ?? "ungrouped"}`}
+            key={group.project?.id ?? "ungrouped"}
+          >
+            {/* Every section is labelled, including the ungrouped one. It is
+                "Rooms": chats that belong to no project are still rooms, and an
+                unlabelled block above labelled ones reads as an accident rather
+                than a decision. Same treatment for all of them — an affordance
+                that exists on some sections and not others feels arbitrary. */}
+            <button
+                aria-expanded={!isCollapsed}
+                // The label IS the toggle. A permanent chevron is chrome at two
+                // projects and only earns its place at ten, so it appears on
+                // hover; the section reads as a signpost the rest of the time.
+                className={cn(
+                  "group/section flex w-full items-center gap-1 px-2 pb-1 text-left outline-none",
+                  // The first section sits under the pinned nav, which already
+                  // supplies the separation; later ones need their own air.
+                  group.project ? "mt-3" : "mt-2",
+                )}
+                onClick={() => toggle(group.project?.id ?? "__rooms")}
+                type="button"
+              >
+                <span className="truncate text-2xs font-medium uppercase tracking-[0.1em] text-sidebar-foreground/35 transition-colors group-hover/section:text-sidebar-foreground/60">
+                  {group.project?.label ?? "Rooms"}
+                </span>
+                <ChevronDown
+                  aria-hidden
+                  className={cn(
+                    "h-3 w-3 shrink-0 text-sidebar-foreground/40 opacity-0 transition-[opacity,transform] group-hover/section:opacity-100 group-focus-visible/section:opacity-100",
+                    isCollapsed && "-rotate-90 opacity-100",
+                  )}
+                />
+            </button>
+
+            {isCollapsed
+              ? null
+              : group.items.map((item) => (
+                  <ChatRow item={item} key={item.channel.id} {...rowProps} />
+                ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

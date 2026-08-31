@@ -38,32 +38,26 @@ test("rejects an agent-management request with extra secret-shaped fields", () =
   assert.equal(parseAgentManagementRequest(payload), null);
 });
 
-test("chat creation accepts the typed runtime and association options", () => {
-  const payload = createPayload();
-  Object.assign(payload.request, {
-    runtime: "claude",
-    provider: "anthropic",
-    model: "claude-opus",
-    respondTo: "owner-only",
-    projectId: "project-1",
-    teamId: "team-1",
-    createFirstChat: true,
-  });
-
-  assert.deepEqual(parseAgentManagementRequest(payload), payload);
+test("chat creation cannot choose runtime, provider, model, or access", () => {
+  for (const [field, value] of [
+    ["runtime", "claude"],
+    ["provider", "anthropic"],
+    ["model", "claude-opus"],
+    ["respondTo", "anyone"],
+  ]) {
+    const payload = createPayload();
+    payload.request[field] = value;
+    assert.equal(parseAgentManagementRequest(payload), null);
+  }
 });
 
-test("chat creation defaults to owner-only behavior", () => {
+test("chat creation leaves advanced behavior unset so the form stays collapsed", () => {
   const parsed = parseAgentManagementRequest(createPayload());
   assert.ok(parsed && parsed.action === "create");
 
   assert.deepEqual(createInputFromRequest(parsed), {
     displayName: "Research helper",
     systemPrompt: "Find reliable sources and summarize them.",
-    behavior: {
-      respondTo: "owner-only",
-      respondToAllowlist: [],
-    },
   });
 });
 

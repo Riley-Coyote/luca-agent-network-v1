@@ -10,8 +10,6 @@ import {
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type AgentsRouteSearch = {
-  collection?: "agent";
-  collectionId?: string;
   profile?: string;
   profilePersona?: string;
   profileTab?: ProfilePanelTab;
@@ -26,14 +24,6 @@ function validateAgentsSearch(
   search: Record<string, unknown>,
 ): AgentsRouteSearch {
   return {
-    collection:
-      search.collection === "agent" && nonEmptyString(search.collectionId)
-        ? "agent"
-        : undefined,
-    collectionId:
-      search.collection === "agent"
-        ? nonEmptyString(search.collectionId)
-        : undefined,
     profile: nonEmptyString(search.profile),
     profilePersona: nonEmptyString(search.profilePersona),
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,

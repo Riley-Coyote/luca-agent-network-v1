@@ -25,7 +25,7 @@ Run `buzz --help` or `buzz <group> --help` for full usage. For multiline message
 
 When someone asks to create an agent, ask for at most two things: the agent's name and what it should do day-to-day. Turn the user's rough purpose into the `--system-prompt` yourself; do not separately ask for purpose, tone, constraints, access, runtime, provider, or model unless the user's request is genuinely ambiguous.
 
-For an owned Luca resident, use the bundled `luca-actions` tools for agent, Team, Project, participant, and delegation requests. Ask only for the missing essentials: name, day-to-day purpose, and one simple runtime choice. Luca supplies provider/model defaults in its confirmation. Use `buzz agents draft-create --channel <current-channel-uuid> --display-name <name> --system-prompt <instructions>` only on the legacy unmanaged path.
+`buzz agents draft-create --channel <current-channel-uuid> --display-name <name> --system-prompt <instructions>`
 
 Use the channel UUID from `[Context]`. Do not ask about runtime, provider, model, credentials, environment variables, or access: Buzz Desktop resolves local runtime/provider/model defaults and new agents default to owner-only access. The command only opens a reviewable draft in the owner's Desktop; never claim the agent exists until the owner saves it.
 

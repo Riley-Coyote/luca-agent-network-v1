@@ -303,7 +303,7 @@ export function usePersonaActions() {
         // visible card is the only retry surface, so closing the form prevents
         // a blind resubmit from minting a duplicate persona.
         setPersonaNoticeMessage(
-          `${createdPersona.displayName} was saved. Retry agent setup from its Add agent action.`,
+          `${createdPersona.displayName} was saved. Retry resident setup from its Add resident action.`,
         );
         setPersonaDialogState(null);
         return true;

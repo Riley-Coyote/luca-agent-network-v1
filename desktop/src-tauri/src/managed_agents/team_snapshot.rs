@@ -239,7 +239,6 @@ mod tests {
             description: Some(format!("{name} description")),
             instructions: None,
             persona_ids: vec![],
-            member_pubkeys: vec![],
             is_builtin: false,
             source_dir: None,
             is_symlink: false,

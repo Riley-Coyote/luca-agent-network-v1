@@ -10,10 +10,10 @@ use super::agent_env::build_buzz_agent_provider_defaults;
 
 use crate::{
     managed_agents::{
+        KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord, ManagedAgentSummary,
         append_log_marker, known_acp_runtime, login_shell_path, managed_agent_log_path,
         missing_command_message, normalize_agent_args, open_log_file, resolve_command,
-        spawn_key_refusal, KnownAcpRuntime, ManagedAgentProcess, ManagedAgentRecord,
-        ManagedAgentSummary,
+        spawn_key_refusal,
     },
     util::now_iso,
 };
@@ -1668,7 +1668,6 @@ pub fn spawn_agent_child(
     // encrypted outbox. The handle is removed under the registry lock, then
     // joined without holding that lock.
     join_managed_signing_broker(&record.pubkey)?;
-    crate::luca::action_bridge::stop_endpoint(&record.pubkey)?;
     if let Some(error) = spawn_key_refusal(record) {
         return Err(error);
     }
@@ -1781,8 +1780,6 @@ pub fn spawn_agent_child(
         resident_pubkey.clone(),
         session_epoch,
     )?;
-    let action_endpoint =
-        crate::luca::action_bridge::create_endpoint(app, resident_pubkey.as_str())?;
     let spawn_config_hash = super::spawn_hash::spawn_config_hash(
         record,
         &personas,
@@ -1825,8 +1822,6 @@ pub fn spawn_agent_child(
     command.env_remove("NOSTR_PRIVATE_KEY");
     command.env_remove("BUZZ_AUTH_TAG");
     command.env("LUCA_MANAGED_RESIDENT_PUBKEY", resident_pubkey.as_str());
-    command.env("LUCA_ACTION_BRIDGE_PATH", &action_endpoint.path);
-    command.env("LUCA_ACTION_BRIDGE_TOKEN", &action_endpoint.token);
     command.env(
         "LUCA_MANAGED_SESSION_EPOCH",
         session_epoch.get().to_string(),
@@ -1841,9 +1836,6 @@ pub fn spawn_agent_child(
     command.env("BUZZ_RELAY_URL", &effective_relay_url);
     command.env("BUZZ_ACP_AGENT_COMMAND", &resolved_agent_command);
     command.env("BUZZ_ACP_AGENT_ARGS", agent_args.join(","));
-    if let Ok(path) = crate::luca::projects::runtime_handoff_path(app) {
-        command.env("LUCA_PROJECT_CONTEXT_HANDOFF", path);
-    }
     match &resolved_mcp_command {
         Some(mcp_cmd) => {
             command.env("BUZZ_ACP_MCP_COMMAND", mcp_cmd);
@@ -1881,7 +1873,7 @@ pub fn spawn_agent_child(
     let spawned_setup_mode;
     {
         use crate::managed_agents::{
-            agent_readiness, resolve_effective_agent_env, AgentReadiness, Requirement,
+            AgentReadiness, Requirement, agent_readiness, resolve_effective_agent_env,
         };
 
         let effective = resolve_effective_agent_env(record, &personas, runtime_meta, &global);
@@ -2166,7 +2158,6 @@ pub fn spawn_agent_child(
     }
 
     let mut child = command.spawn().map_err(|error| {
-        let _ = crate::luca::action_bridge::stop_endpoint(&record.pubkey);
         format!(
             "failed to spawn `{}` for agent {}: {error}",
             resolved_acp_command.display(),
@@ -2401,7 +2392,6 @@ pub fn stop_managed_agent_process(
     record: &mut ManagedAgentRecord,
     runtimes: &mut HashMap<String, ManagedAgentProcess>,
 ) -> Result<(), String> {
-    crate::luca::action_bridge::stop_endpoint(&record.pubkey)?;
     let Some(mut runtime) = runtimes.remove(&record.pubkey) else {
         if let Some(pid) = record.runtime_pid {
             if process_is_running(pid) {

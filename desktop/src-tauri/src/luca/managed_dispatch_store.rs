@@ -423,31 +423,6 @@ impl ManagedDispatchStore {
         turns
     }
 
-    /// Read the durable state for the exact residents invoked by one signed
-    /// delegation assignment. This exposes lifecycle only: no prompt, model
-    /// output, broker secret, or signing material crosses the boundary.
-    pub(crate) fn states_for_trigger(
-        &self,
-        trigger_event_id: &str,
-        residents: &[String],
-    ) -> Vec<(String, ManagedDispatchState)> {
-        let residents = residents
-            .iter()
-            .map(|resident| resident.to_ascii_lowercase())
-            .collect::<HashSet<_>>();
-        let mut states = self
-            .dispatches
-            .values()
-            .filter(|dispatch| {
-                dispatch.trigger_event_id == trigger_event_id
-                    && residents.contains(&dispatch.resident_pubkey)
-            })
-            .map(|dispatch| (dispatch.resident_pubkey.clone(), dispatch.state))
-            .collect::<Vec<_>>();
-        states.sort_by(|left, right| left.0.cmp(&right.0));
-        states
-    }
-
     /// Persist cancellation of exactly one claimed resident turn before the
     /// caller sends any relay control. The dispatch receipt is the canonical
     /// owner trigger event ID used throughout the existing broker protocol.

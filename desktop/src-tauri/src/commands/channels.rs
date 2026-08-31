@@ -1,12 +1,9 @@
-use tauri::{AppHandle, State};
+use tauri::State;
 
 use crate::{
     app_state::AppState,
     events,
-    models::{
-        ChannelDetailInfo, ChannelInfo, ChannelMembersResponse, CreateChatParticipantFailure,
-        CreateChatResult,
-    },
+    models::{ChannelDetailInfo, ChannelInfo, ChannelMembersResponse},
     nostr_convert,
     relay::{query_relay, relay_api_base_url_with_override, submit_event, submit_event_with_keys},
 };
@@ -611,134 +608,6 @@ pub async fn create_channel(
         .ok_or_else(|| "channel created but metadata not yet available".to_string())
 }
 
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateChatInput {
-    pub participant_pubkeys: Vec<String>,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub project_id: Option<String>,
-}
-
-/// Create one independent Luca Chat. Unlike the legacy DM-open commands this
-/// always creates a fresh private DM-type channel and then mutates membership
-/// through the existing NIP-29 operations.
-#[tauri::command]
-pub async fn create_chat(
-    input: CreateChatInput,
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<CreateChatResult, String> {
-    let creator_keys = state.signing_keys()?;
-    let creator_pubkey = creator_keys.public_key().to_hex();
-    let mut requested: Vec<String> = input
-        .participant_pubkeys
-        .into_iter()
-        .map(|pubkey| pubkey.to_ascii_lowercase())
-        .collect();
-    requested.sort();
-    requested.dedup();
-    requested.retain(|pubkey| pubkey != &creator_pubkey);
-    if requested.is_empty() {
-        return Err("a new Chat needs at least one other participant".to_string());
-    }
-
-    let title = input
-        .title
-        .as_deref()
-        .map(str::trim)
-        .filter(|title| !title.is_empty())
-        .unwrap_or("Chat");
-    let project_id = input
-        .project_id
-        .as_deref()
-        .map(uuid::Uuid::parse_str)
-        .transpose()
-        .map_err(|error| format!("invalid projectId: {error}"))?;
-
-    let channel_uuid = uuid::Uuid::new_v4();
-    let builder = events::build_create_channel(channel_uuid, title, "private", "dm", None, None)?;
-    submit_event_with_keys(builder, &state, &creator_keys, None).await?;
-    state.mark_pending_owned_channel(&creator_pubkey, &channel_uuid.to_string());
-
-    let mut added = Vec::new();
-    let mut participant_failures = Vec::new();
-    for pubkey in requested {
-        let builder = match events::build_add_member(channel_uuid, &pubkey, None) {
-            Ok(builder) => builder,
-            Err(error) => {
-                participant_failures.push(CreateChatParticipantFailure { pubkey, error });
-                continue;
-            }
-        };
-        match submit_event_with_keys(builder, &state, &creator_keys, None).await {
-            Ok(_) => added.push(pubkey),
-            Err(error) => participant_failures.push(CreateChatParticipantFailure { pubkey, error }),
-        }
-    }
-
-    if added.is_empty() {
-        let delete_builder = events::build_delete_channel(channel_uuid)?;
-        let _ = submit_event_with_keys(delete_builder, &state, &creator_keys, None).await;
-        return Err(format!(
-            "Chat was not created because no requested participant could be added: {}",
-            participant_failures
-                .iter()
-                .map(|failure| format!("{}: {}", failure.pubkey, failure.error))
-                .collect::<Vec<_>>()
-                .join("; ")
-        ));
-    }
-
-    if let Some(project_id) = project_id {
-        let update = events::build_update_channel(
-            channel_uuid,
-            None,
-            None,
-            None,
-            None,
-            Some(Some(project_id)),
-        )?;
-        if let Err(error) = submit_event_with_keys(update, &state, &creator_keys, None).await {
-            let delete_builder = events::build_delete_channel(channel_uuid)?;
-            let _ = submit_event_with_keys(delete_builder, &state, &creator_keys, None).await;
-            return Err(format!("Chat Project assignment failed: {error}"));
-        }
-        let _guard = state
-            .luca_projects_store_lock
-            .lock()
-            .map_err(|error| error.to_string())?;
-        crate::luca::projects::set_chat_project(
-            &app,
-            &creator_pubkey,
-            &channel_uuid.to_string(),
-            Some(&project_id.to_string()),
-        )?;
-    }
-
-    let channel_id = channel_uuid.to_string();
-    let events = query_relay(
-        &state,
-        &[serde_json::json!({
-            "kinds": [39000],
-            "#d": [&channel_id],
-            "limit": 1
-        })],
-    )
-    .await?;
-    let chat = events
-        .first()
-        .map(|event| nostr_convert::channel_info_from_event(event, None, Some(true)))
-        .transpose()?
-        .ok_or_else(|| "Chat created but metadata is not yet available".to_string())?;
-
-    Ok(CreateChatResult {
-        chat,
-        participant_failures,
-    })
-}
-
 #[tauri::command]
 pub async fn ensure_starter_channels(
     state: State<'_, AppState>,
@@ -826,47 +695,22 @@ pub struct UpdateChannelInput {
     /// Absent = leave unchanged, `null` = clear (permanent), seconds = set.
     #[serde(default, deserialize_with = "crate::util::double_option")]
     pub ttl_seconds: Option<Option<i32>>,
-    /// Absent = leave unchanged, `null` = clear, UUID = assign or move.
-    #[serde(default, deserialize_with = "crate::util::double_option")]
-    pub project_id: Option<Option<String>>,
 }
 
 #[tauri::command]
 pub async fn update_channel(
     input: UpdateChannelInput,
-    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ChannelDetailInfo, String> {
     let uuid = parse_channel_uuid(&input.channel_id)?;
-    let project_id = input
-        .project_id
-        .map(|value| value.map(|id| uuid::Uuid::parse_str(&id)).transpose())
-        .transpose()
-        .map_err(|error| format!("invalid projectId: {error}"))?;
     let builder = events::build_update_channel(
         uuid,
         input.name.as_deref(),
         input.description.as_deref(),
         input.visibility.as_deref(),
         input.ttl_seconds,
-        project_id,
     )?;
     submit_event(builder, &state).await?;
-
-    if let Some(project_id) = project_id {
-        let keys = state.signing_keys()?;
-        let owner_pubkey = keys.public_key().to_hex();
-        let _guard = state
-            .luca_projects_store_lock
-            .lock()
-            .map_err(|error| error.to_string())?;
-        crate::luca::projects::set_chat_project(
-            &app,
-            &owner_pubkey,
-            &input.channel_id,
-            project_id.as_ref().map(ToString::to_string).as_deref(),
-        )?;
-    }
 
     let events = query_relay(
         &state,

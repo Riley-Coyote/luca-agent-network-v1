@@ -7,14 +7,13 @@
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
-import { Route as repositoriesRouteImport } from "./routes/repositories";
 import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$workflowId";
-import { Route as repositoriesDotprojectIdRouteImport } from "./routes/repositories.$projectId";
+import { Route as projectsDotprojectIdRouteImport } from "./routes/projects.$projectId";
 import { Route as messagesDotnewRouteImport } from "./routes/messages.new";
 import { Route as channelsDotchannelIdRouteImport } from "./routes/channels.$channelId";
 import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./routes/channels.$channelId.posts.$postId";
@@ -27,11 +26,6 @@ const workflowsRoute = workflowsRouteImport.update({
 const settingsRoute = settingsRouteImport.update({
   id: "/settings",
   path: "/settings",
-  getParentRoute: () => rootRouteImport,
-} as any);
-const repositoriesRoute = repositoriesRouteImport.update({
-  id: "/repositories",
-  path: "/repositories",
   getParentRoute: () => rootRouteImport,
 } as any);
 const remindersRoute = remindersRouteImport.update({
@@ -64,12 +58,11 @@ const workflowsDotworkflowIdRoute = workflowsDotworkflowIdRouteImport.update({
   path: "/workflows/$workflowId",
   getParentRoute: () => rootRouteImport,
 } as any);
-const repositoriesDotprojectIdRoute =
-  repositoriesDotprojectIdRouteImport.update({
-    id: "/repositories/$projectId",
-    path: "/repositories/$projectId",
-    getParentRoute: () => rootRouteImport,
-  } as any);
+const projectsDotprojectIdRoute = projectsDotprojectIdRouteImport.update({
+  id: "/projects/$projectId",
+  path: "/projects/$projectId",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const messagesDotnewRoute = messagesDotnewRouteImport.update({
   id: "/messages/new",
   path: "/messages/new",
@@ -93,12 +86,11 @@ export interface FileRoutesByFullPath {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/repositories": typeof repositoriesRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/repositories/$projectId": typeof repositoriesDotprojectIdRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -108,12 +100,11 @@ export interface FileRoutesByTo {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/repositories": typeof repositoriesRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/repositories/$projectId": typeof repositoriesDotprojectIdRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -124,12 +115,11 @@ export interface FileRoutesById {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
-  "/repositories": typeof repositoriesRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
-  "/repositories/$projectId": typeof repositoriesDotprojectIdRoute;
+  "/projects/$projectId": typeof projectsDotprojectIdRoute;
   "/workflows/$workflowId": typeof workflowsDotworkflowIdRoute;
   "/channels/$channelId/posts/$postId": typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -141,12 +131,11 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/repositories"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/repositories/$projectId"
+    | "/projects/$projectId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesByTo: FileRoutesByTo;
@@ -156,12 +145,11 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/repositories"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/repositories/$projectId"
+    | "/projects/$projectId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   id:
@@ -171,12 +159,11 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
-    | "/repositories"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
-    | "/repositories/$projectId"
+    | "/projects/$projectId"
     | "/workflows/$workflowId"
     | "/channels/$channelId/posts/$postId";
   fileRoutesById: FileRoutesById;
@@ -187,12 +174,11 @@ export interface RootRouteChildren {
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
   remindersRoute: typeof remindersRoute;
-  repositoriesRoute: typeof repositoriesRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
-  repositoriesDotprojectIdRoute: typeof repositoriesDotprojectIdRoute;
+  projectsDotprojectIdRoute: typeof projectsDotprojectIdRoute;
   workflowsDotworkflowIdRoute: typeof workflowsDotworkflowIdRoute;
   channelsDotchannelIdDotpostsDotpostIdRoute: typeof channelsDotchannelIdDotpostsDotpostIdRoute;
 }
@@ -211,13 +197,6 @@ declare module "@tanstack/react-router" {
       path: "/settings";
       fullPath: "/settings";
       preLoaderRoute: typeof settingsRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/repositories": {
-      id: "/repositories";
-      path: "/repositories";
-      fullPath: "/repositories";
-      preLoaderRoute: typeof repositoriesRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/reminders": {
@@ -262,11 +241,11 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof workflowsDotworkflowIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/repositories/$projectId": {
-      id: "/repositories/$projectId";
-      path: "/repositories/$projectId";
-      fullPath: "/repositories/$projectId";
-      preLoaderRoute: typeof repositoriesDotprojectIdRouteImport;
+    "/projects/$projectId": {
+      id: "/projects/$projectId";
+      path: "/projects/$projectId";
+      fullPath: "/projects/$projectId";
+      preLoaderRoute: typeof projectsDotprojectIdRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/messages/new": {
@@ -299,12 +278,11 @@ const rootRouteChildren: RootRouteChildren = {
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,
   remindersRoute: remindersRoute,
-  repositoriesRoute: repositoriesRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,
-  repositoriesDotprojectIdRoute: repositoriesDotprojectIdRoute,
+  projectsDotprojectIdRoute: projectsDotprojectIdRoute,
   workflowsDotworkflowIdRoute: workflowsDotworkflowIdRoute,
   channelsDotchannelIdDotpostsDotpostIdRoute:
     channelsDotchannelIdDotpostsDotpostIdRoute,

@@ -176,7 +176,9 @@ fn sensitive_matches(input: &str) -> Vec<SensitiveMatch> {
     for candidate in candidates {
         if non_overlapping
             .last()
-            .is_none_or(|previous: &SensitiveMatch| previous.end <= candidate.start)
+            .map_or(true, |previous: &SensitiveMatch| {
+                previous.end <= candidate.start
+            })
         {
             non_overlapping.push(candidate);
         }

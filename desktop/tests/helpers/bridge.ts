@@ -68,28 +68,6 @@ type MockSearchProfileSeed = {
   about?: string | null;
   ownerPubkey?: string | null;
   isAgent?: boolean;
-  status?: "online" | "away" | "offline";
-};
-
-type MockFixtureChannelSeed = {
-  id: string;
-  name: string;
-  description?: string;
-  topic?: string | null;
-  purpose?: string | null;
-  memberPubkeys: string[];
-};
-
-type MockFixtureMessageSeed = {
-  channelName: string;
-  content: string;
-  pubkey: string;
-  createdAt: number;
-  id: string;
-  kind?: number;
-  mentionPubkeys?: string[];
-  parentEventId?: string | null;
-  extraTags?: string[][];
 };
 
 type MockRelayAgentSeed = {
@@ -149,14 +127,6 @@ export type MockAgentMemoryListing = {
 };
 
 type MockBridgeOptions = {
-  /** Public-only synthetic viewer used by isolated visual fixtures. */
-  viewerProfile?: { pubkey: string; displayName: string };
-  /** Hide the stock E2E channels and expose only these synthetic channels. */
-  fixtureOnly?: boolean;
-  /** Deterministic channels installed before the app's first channel query. */
-  fixtureChannels?: MockFixtureChannelSeed[];
-  /** Deterministic authored events installed before the first subscription. */
-  fixtureMessages?: MockFixtureMessageSeed[];
   /** Advertised HEAD for the first mock project without adding that branch. */
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */
@@ -591,12 +561,10 @@ A retired launch checklist used to live at [[mem/archive/deleted-launch-checklis
 async function seedOnboardingCompletionForKnownIdentities(
   page: Page,
   relayWsUrl?: string,
-  extraPubkeys: string[] = [],
 ) {
   const pubkeys = [
     DEFAULT_MOCK_PUBKEY,
     ...Object.values(TEST_IDENTITIES).map(({ pubkey }) => pubkey),
-    ...extraPubkeys,
   ];
   await page.addInitScript(
     ({ onboardingPrefix, pubkeys: pubkeysToSeed, relayUrl, welcomePrefix }) => {
@@ -696,18 +664,11 @@ export async function installBridge(page: Page, options: BridgeOptions) {
   // reads the seedActiveIdentity override key (if present) and falls back to
   // the bridge identity's pubkey or DEFAULT_MOCK_PUBKEY for mock mode.
   if (!options.skipCommunitySeed) {
-    const activePubkey =
-      options.mock?.viewerProfile?.pubkey ??
-      identity?.pubkey ??
-      DEFAULT_MOCK_PUBKEY;
+    const activePubkey = identity?.pubkey ?? DEFAULT_MOCK_PUBKEY;
     await seedDefaultCommunity(page, activePubkey, options.relayWsUrl);
   }
   if (!options.skipOnboardingSeed) {
-    await seedOnboardingCompletionForKnownIdentities(
-      page,
-      options.relayWsUrl,
-      options.mock?.viewerProfile ? [options.mock.viewerProfile.pubkey] : [],
-    );
+    await seedOnboardingCompletionForKnownIdentities(page, options.relayWsUrl);
   }
   // Default to opting every preview feature in. Specs that exercise the
   // Experiments toggle UI itself pass `seedPreviewFeatures: false`.
@@ -860,6 +821,12 @@ export async function openChannelBrowser(page: Page) {
 // Section header actions (create channel, new DM, mark all read, sort) now
 // live inside a per-section "more actions" (⋮) menu instead of standalone
 // header icon buttons. These helpers open that menu and pick an item.
+async function openSectionMenu(page: Page, actionsTestId: string) {
+  const trigger = page.getByTestId(actionsTestId);
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+}
+
 // The Channels section "+" now opens the unified Add-channel browser, so the
 // standalone create dialog is reached via the primary-modifier + Shift + N
 // keyboard shortcut (the "New channel" menu item was removed as redundant).
@@ -884,8 +851,7 @@ export async function openCreateChannelDialog(page: Page) {
 }
 
 export async function openNewMessagePage(page: Page) {
-  const trigger = page.getByTestId("sidebar-new-chat");
-  await trigger.scrollIntoViewIfNeeded();
-  await trigger.click();
+  await openSectionMenu(page, "section-actions-dms");
+  await page.getByRole("menuitem", { name: "New message" }).click();
   await page.getByTestId("new-message-page").waitFor({ state: "visible" });
 }

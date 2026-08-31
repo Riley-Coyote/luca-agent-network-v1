@@ -5,31 +5,6 @@ can be checked from the target repository. It is not an authority to broaden
 product scope. Each entry below is a narrow, auditable correction to a copied
 artifact; the authoritative kit remains unchanged.
 
-## 2026-08-30 — Agent, Chat, Project, and delegation product model
-
-- Approved source: `docs/luca/CONVERSATION_MODEL.md` and Riley's 2026-08-30
-  implementation authorization.
-- Superseded assumptions: one permanent one-to-one DM per resident; immutable
-  DM participant sets; adding an Agent by creating a second expanded group DM;
-  and Channels/DMs as Luca's user-facing organizational taxonomy.
-- Local correction: an Agent is a persistent identity; a Chat is an independent
-  conversation with mutable participants; a Project organizes canonical Chats
-  and supplies local context; a Team is a saved roster of stable Agent public
-  keys; and a Task is work/status inside Chats rather than navigation.
-- Compatibility: Buzz Channel remains the signed transport/storage primitive,
-  and legacy kinds `41010`/`41011` remain available to older clients. The new
-  desktop path creates fresh private DM-type channels and mutates membership
-  with the existing NIP-29 operations.
-- Continuity boundary: cross-Chat memory belongs to later Brain work. Normal
-  Chats, Project context, creation, and delegation may not depend on it.
-- Authority boundary: conversational actions use a narrow typed local proposal
-  bridge and the existing desktop custody paths. No owner/resident key, generic
-  signing API, arbitrary Tauri control, conductor, or Hermes/OpenClaw config
-  mutation is authorized.
-- Scope: desktop delivers the complete navigation and conversational-action
-  experience; mobile receives protocol/model compatibility only. There is no
-  user Channel data requiring product migration.
-
 ## 2026-07-22 — G0 architecture status
 
 - Copied file: `ARCHITECTURE_IMPLEMENTATION_SPEC.md`

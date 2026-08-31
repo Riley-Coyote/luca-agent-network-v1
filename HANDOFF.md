@@ -26,23 +26,18 @@ git switch agent/runtime-reliability
 Then read, in order:
 
 1. This file.
-2. [`docs/luca/CONVERSATION_MODEL.md`](docs/luca/CONVERSATION_MODEL.md).
-3. [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md).
-4. [`docs/luca-native-residents.md`](docs/luca-native-residents.md).
-5. [`.codex/luca-v1/USABLE_BUILD_MODE.md`](.codex/luca-v1/USABLE_BUILD_MODE.md).
-6. [`.codex/luca-v1/RUNTIME_PARITY_DELTA.md`](.codex/luca-v1/RUNTIME_PARITY_DELTA.md).
-7. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
-8. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
-9. [`docs/luca/REPLY_ADDRESSING.md`](docs/luca/REPLY_ADDRESSING.md) before changing
+2. [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md).
+3. [`docs/luca-native-residents.md`](docs/luca-native-residents.md).
+4. [`.codex/luca-v1/USABLE_BUILD_MODE.md`](.codex/luca-v1/USABLE_BUILD_MODE.md).
+5. [`.codex/luca-v1/RUNTIME_PARITY_DELTA.md`](.codex/luca-v1/RUNTIME_PARITY_DELTA.md).
+6. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
+7. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
+8. [`docs/luca/REPLY_ADDRESSING.md`](docs/luca/REPLY_ADDRESSING.md) before changing
    who a message wakes up. The rule is decided and unimplemented; it carries an
    agent-to-agent loop risk that needs settling before it ships.
-10. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before building Project
-   grouping and local context. Note the hard constraint: local context and a
-   working-folder path must never go on the relay.
-11. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md)
-    before planning or implementing Unified Brain discovery, import, memory,
-    graph, or source-adapter work. The packet defines the owner-brain boundary,
-    private resident continuity, onboarding, milestones, and quality gates.
+9. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before building project
+   grouping. Design is settled and the UI is prototyped; the data model is not
+   built. Note the hard constraint: a local repo path must never go on the relay.
 
 The `.codex/luca-v1` directory contains the complete planning kit, contracts,
 task graph, protocol maps, and historical decisions. `HANDOFF.md` records the
@@ -51,15 +46,13 @@ newer simplifications and actual implementation state.
 ## Product in one paragraph
 
 Luca is a personal home where one owner can talk directly with persistent AI
-Agents in independent Chats. The owner may create multiple Chats with the same
-Agent, add or remove participants in place, organize a Chat under one optional
-Project, and delegate focused work conversationally. Every Agent has a stable
-cryptographic identity that remains the same when its model, executable, or
-runtime session changes. Agents can be imported read-only from existing Hermes
-profiles and OpenClaw agents. Buzz supplies the signed Channel transport,
+residents in ordinary DMs and multi-agent conversations. Every resident has a
+stable cryptographic identity that remains the same when its model, executable,
+or runtime session changes. Residents can be imported read-only from the user's
+existing Hermes profiles and OpenClaw agents. Buzz supplies the proven signed
 conversation log, realtime messaging, attachments, search, desktop shell, and
-ACP harness. Luca supplies the user-facing Agent/Chat/Project model, resident
-custody, runtime bindings, host-owned reply publication, and UI.
+ACP harness. Luca supplies the personal product model, resident custody,
+runtime bindings, host-owned reply publication, continuity seams, and UI.
 
 There is no conductor. Luca may be a resident, but is not a privileged router.
 Mnemos universal-brain retrieval and the fuller Polyphonic inner-life engine are
@@ -71,12 +64,12 @@ future slices and must not be pulled into the current runtime critical path.
 Luca desktop (Tauri + React)
   - owner identity and local secure custody
   - personal-home onboarding and navigation
-  - Chats, Projects, Agent creation/import, approvals, delegation, activity
+  - conversations, import UI, approvals, cancellation, activity
   - sole ordinary managed-reply publisher and resident signer
                 |
                 v
 Buzz relay and signed Nostr event log
-  - canonical chronology, authorship, channels, membership, threads
+  - canonical chronology, authorship, rooms, DMs, threads
   - realtime delivery, replay, search, attachments
                 |
                 v
@@ -122,7 +115,7 @@ Authority rules:
   intermediary.
 - Replies expand inline in the main conversation rather than requiring the
   legacy thread drawer.
-- Agent and Project selections open a contextual Chat list beside the timeline.
+- The right side is reserved for optional agent/activity/context inspection.
 - Open, bubble-free timelines and the existing composer remain canonical.
 - Stable key-derived 7x7 identity specimens are used across resident surfaces.
 - The shell is a dark graphite/slate system; the separate vision branch contains
@@ -215,7 +208,6 @@ merge `agent/vision-demo` wholesale.
 | Product flags and personal home | `desktop/src/app/lucaFeatureFlags.ts`, `desktop/src/app/personalHomeTenancy.ts` |
 | Owner onboarding/recovery | `desktop/src/features/onboarding/`, `desktop/src-tauri/src/commands/identity.rs` |
 | Conversation-first UI | `desktop/src/features/home/ui/HomeView.tsx`, `desktop/src/features/channels/ui/`, `desktop/src/features/sidebar/` |
-| Canonical conversation model | `docs/luca/CONVERSATION_MODEL.md` |
 | Identity specimens | `desktop/src/shared/ui/AgentIdentitySpecimen.tsx` |
 | Native discovery/bindings | `desktop/src-tauri/src/managed_agents/native_runtime.rs`, `desktop/src-tauri/src/commands/agent_discovery.rs` |
 | Resident registry | `desktop/src-tauri/src/luca/resident_registry.rs` |

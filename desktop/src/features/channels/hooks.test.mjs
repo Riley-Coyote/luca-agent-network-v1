@@ -55,7 +55,7 @@ test("upsertCachedChannel_replacesExistingChannelWithoutDuplicates", () => {
   assert.deepEqual(repairedChannels, [openedDm]);
 });
 
-test("upsertCachedChannelMember_updatesTheSameMutableDm", () => {
+test("upsertCachedChannelMember_doesNotDecorateImmutableDmSource", () => {
   const charliePubkey = "charlie-pubkey";
   const ownerPubkey = "owner-pubkey";
   const fizzPubkey = "fizz-pubkey";
@@ -69,18 +69,7 @@ test("upsertCachedChannelMember_updatesTheSameMutableDm", () => {
     name: "Fizz",
     pubkey: fizzPubkey,
   });
-  assert.deepEqual(channels?.[0].memberPubkeys, [
-    charliePubkey,
-    ownerPubkey,
-    fizzPubkey,
-  ]);
-  assert.deepEqual(channels?.[0].participantPubkeys, [
-    charliePubkey,
-    ownerPubkey,
-    fizzPubkey,
-  ]);
-  assert.deepEqual(channels?.[0].participants, ["charlie", "owner", "Fizz"]);
-  assert.equal(channels?.[0].memberCount, 3);
+  assert.deepEqual(channels, [openedDm]);
 });
 
 test("upsertCachedChannelMember_recordsStreamMemberBeforeRefetch", () => {

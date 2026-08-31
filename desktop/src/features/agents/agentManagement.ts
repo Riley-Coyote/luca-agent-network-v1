@@ -14,13 +14,6 @@ export type AgentManagementCreateRequest = {
     channelId: string;
     displayName: string;
     systemPrompt: string;
-    runtime?: string;
-    provider?: string;
-    model?: string;
-    respondTo?: RespondToMode;
-    projectId?: string;
-    teamId?: string;
-    createFirstChat?: boolean;
   };
 };
 
@@ -52,10 +45,6 @@ function isRespondTo(value: unknown): value is RespondToMode | undefined {
   return value === undefined || value === "owner-only" || value === "anyone";
 }
 
-function isOptionalText(value: unknown): value is string | undefined {
-  return value === undefined || isText(value);
-}
-
 function hasOnlyKeys(
   value: Record<string, unknown>,
   allowed: readonly string[],
@@ -81,30 +70,13 @@ export function parseAgentManagementRequest(
   const request = payload.request as Record<string, unknown>;
 
   if (payload.action === "create") {
+    if (!hasOnlyKeys(request, ["channelId", "displayName", "systemPrompt"])) {
+      return null;
+    }
     if (
-      !hasOnlyKeys(request, [
-        "channelId",
-        "displayName",
-        "systemPrompt",
-        "runtime",
-        "provider",
-        "model",
-        "respondTo",
-        "projectId",
-        "teamId",
-        "createFirstChat",
-      ]) ||
       !isText(request.channelId) ||
       !isText(request.displayName) ||
-      !isText(request.systemPrompt) ||
-      !isOptionalText(request.runtime) ||
-      !isOptionalText(request.provider) ||
-      !isOptionalText(request.model) ||
-      !isRespondTo(request.respondTo) ||
-      !isOptionalText(request.projectId) ||
-      !isOptionalText(request.teamId) ||
-      (request.createFirstChat !== undefined &&
-        typeof request.createFirstChat !== "boolean")
+      !isText(request.systemPrompt)
     ) {
       return null;
     }
@@ -116,15 +88,6 @@ export function parseAgentManagementRequest(
         channelId: request.channelId,
         displayName: request.displayName,
         systemPrompt: request.systemPrompt,
-        ...(request.runtime ? { runtime: request.runtime } : {}),
-        ...(request.provider ? { provider: request.provider } : {}),
-        ...(request.model ? { model: request.model } : {}),
-        ...(request.respondTo ? { respondTo: request.respondTo } : {}),
-        ...(request.projectId ? { projectId: request.projectId } : {}),
-        ...(request.teamId ? { teamId: request.teamId } : {}),
-        ...(request.createFirstChat !== undefined
-          ? { createFirstChat: request.createFirstChat }
-          : {}),
       },
     };
   }
@@ -183,12 +146,5 @@ export function createInputFromRequest(
   return {
     displayName: request.request.displayName,
     systemPrompt: request.request.systemPrompt,
-    ...(request.request.runtime ? { runtime: request.request.runtime } : {}),
-    ...(request.request.provider ? { provider: request.request.provider } : {}),
-    ...(request.request.model ? { model: request.request.model } : {}),
-    behavior: {
-      respondTo: request.request.respondTo ?? "owner-only",
-      respondToAllowlist: [],
-    },
   };
 }

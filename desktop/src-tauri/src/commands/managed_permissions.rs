@@ -1,8 +1,7 @@
 use tauri::AppHandle;
 
 #[tauri::command]
-pub fn list_pending_managed_permissions(
-) -> Result<Vec<crate::luca::managed_permission::PendingManagedPermission>, String> {
+pub fn list_pending_managed_permissions() -> Result<Vec<crate::luca::managed_permission::PendingManagedPermission>, String> {
     crate::luca::managed_permission::list_pending()
 }
 

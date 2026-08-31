@@ -55,12 +55,6 @@ async function hasOutgoingEventWithContent(
           }>;
         }
       ).__BUZZ_E2E_COMMAND_LOG__?.some((entry) => {
-        if (entry.command === "send_channel_message") {
-          return (
-            (entry.payload as { content?: unknown } | undefined)?.content ===
-            expectedContent
-          );
-        }
         if (entry.command !== "plugin:websocket|send") {
           return false;
         }
@@ -102,15 +96,6 @@ async function readOutgoingChannelId(
       ).__BUZZ_E2E_COMMAND_LOG__ ?? [];
 
     for (const entry of entries) {
-      if (entry.command === "send_channel_message") {
-        const payload = entry.payload as
-          | { channelId?: string; content?: string }
-          | undefined;
-        if (payload?.content?.includes(expectedContent)) {
-          return payload.channelId ?? null;
-        }
-        continue;
-      }
       if (entry.command !== "plugin:websocket|send") {
         continue;
       }
@@ -585,7 +570,7 @@ test("start a new direct message from the sidebar", async ({ page }) => {
 
   await expect(page.getByTestId("dm-list")).toContainText("charlie");
   await expect(page.getByTestId("chat-title")).toHaveText("charlie");
-  await expect(page.getByTestId("sidebar-new-chat")).not.toBeFocused();
+  await expect(page.getByTestId("section-actions-dms")).not.toBeFocused();
 });
 
 test("keeps typing focus while arrow keys traverse and select DM recipients", async ({
@@ -664,9 +649,7 @@ test("sends the first message from the new direct message composer", async ({
   await expect(page.getByTestId("message-timeline")).toContainText(message);
 });
 
-test("creates one Chat and adds a persona mention before sending", async ({
-  page,
-}) => {
+test("creates the DM before preparing a persona mention", async ({ page }) => {
   await installMockBridge(page, {
     activePersonaIds: ["builtin:fizz"],
     createManagedAgentDelayMs: 1_000,
@@ -692,17 +675,17 @@ test("creates one Chat and adds a persona mention before sending", async ({
 
   const baselineCommands = await readCommandLog(page);
   const baselineCommandPayloads = await readCommandPayloadLog(page);
-  const baselineCreateChatCount = commandCount(baselineCommands, "create_chat");
+  const baselineOpenDmCount = commandCount(baselineCommands, "open_dm");
   const baselineCreateCount = commandCount(
     baselineCommands,
-    "create_luca_resident",
+    "create_managed_agent",
   );
 
   await page.getByTestId("send-message").click();
 
   await expect
-    .poll(async () => commandCount(await readCommandLog(page), "create_chat"))
-    .toBeGreaterThan(baselineCreateChatCount);
+    .poll(async () => commandCount(await readCommandLog(page), "open_dm"))
+    .toBeGreaterThan(baselineOpenDmCount);
   await expect(
     page.getByTestId(`new-dm-selected-${TEST_IDENTITIES.charlie.pubkey}`),
   ).toBeDisabled();
@@ -710,7 +693,7 @@ test("creates one Chat and adds a persona mention before sending", async ({
   await expect(page.getByTestId("new-message-recipient-popover")).toBeHidden();
   await expect
     .poll(async () =>
-      commandCount(await readCommandLog(page), "create_luca_resident"),
+      commandCount(await readCommandLog(page), "create_managed_agent"),
     )
     .toBeGreaterThan(baselineCreateCount);
   await expect(page.getByTestId("chat-title")).toContainText("charlie");
@@ -722,26 +705,47 @@ test("creates one Chat and adds a persona mention before sending", async ({
   const sendCommandPayloads = (await readCommandPayloadLog(page)).slice(
     baselineCommandPayloads.length,
   );
-  expect(commandCount(sendCommands, "create_chat")).toBe(1);
-  const createChatIndex = sendCommands.indexOf("create_chat");
-  const createIndex = sendCommands.indexOf("create_luca_resident");
-  const addMemberIndex = sendCommands.indexOf("add_channel_members");
+  expect(commandCount(sendCommands, "open_dm")).toBe(2);
+  const firstOpenIndex = sendCommands.indexOf("open_dm");
+  const createIndex = sendCommands.indexOf("create_managed_agent");
+  const expandedOpenIndex = sendCommands.lastIndexOf("open_dm");
   const startIndex = sendCommands.indexOf("start_managed_agent");
-  expect(createChatIndex).toBeLessThan(createIndex);
-  expect(createIndex).toBeLessThan(addMemberIndex);
-  expect(addMemberIndex).toBeLessThan(startIndex);
+  expect(firstOpenIndex).toBeLessThan(createIndex);
+  expect(createIndex).toBeLessThan(expandedOpenIndex);
+  expect(expandedOpenIndex).toBeLessThan(startIndex);
+  expect(sendCommands).not.toContain("add_channel_members");
 
-  const activeChat = page.locator("[data-active='true'][data-channel-id]");
-  const activeChatId = await activeChat.getAttribute("data-channel-id");
-  expect(activeChatId).toBeTruthy();
-  expect(sendCommandPayloads).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        command: "add_channel_members",
-        payload: expect.objectContaining({ channelId: activeChatId }),
-      }),
-    ]),
-  );
+  const sentMessageCommand = sendCommandPayloads.find((entry) => {
+    if (entry.command !== "plugin:websocket|send") {
+      return false;
+    }
+    const data = (entry.payload as { message?: { data?: string } } | undefined)
+      ?.message?.data;
+    if (!data) {
+      return false;
+    }
+    const frame = JSON.parse(data) as unknown[];
+    return (
+      frame[0] === "EVENT" &&
+      (frame[1] as { content?: string } | undefined)?.content.includes(
+        "for a hand",
+      )
+    );
+  });
+  const sentMessageData = (
+    sentMessageCommand?.payload as { message?: { data?: string } } | undefined
+  )?.message?.data;
+  expect(sentMessageData).toBeTruthy();
+  const sentMessageEvent = (
+    JSON.parse(sentMessageData ?? "[]") as [string, { tags?: string[][] }]
+  )[1];
+  const sentChannelId = sentMessageEvent.tags?.find(
+    (tag) => tag[0] === "h",
+  )?.[1];
+  expect(sentChannelId).toBeTruthy();
+  await expect(
+    page.locator("[data-active='true'][data-channel-id]"),
+  ).toHaveAttribute("data-channel-id", sentChannelId ?? "");
   await expect(page.getByTestId("message-timeline")).toContainText(
     "for a hand",
   );
@@ -753,7 +757,7 @@ test("creates one Chat and adds a persona mention before sending", async ({
   ).toBeVisible();
 });
 
-test("adds an agent mention to the current Chat without navigating", async ({
+test("routes an agent mention from an existing DM to the expanded conversation", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -785,15 +789,17 @@ test("adds an agent mention to the current Chat without navigating", async ({
     .poll(async () => readOutgoingChannelId(page, messageTail))
     .not.toBeNull();
   const sentChannelId = await readOutgoingChannelId(page, messageTail);
-  expect(sentChannelId).toBe(sourceDmId);
+  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(
     page.locator("[data-active='true'][data-channel-id]"),
   ).toHaveAttribute("data-channel-id", sentChannelId ?? "");
   await expect(page.getByTestId("chat-title")).toContainText("alice");
+  await expect(page.getByTestId("chat-title")).toContainText("Fizz");
+  await expect(sourceDm).not.toContainText("Fizz");
   const sendCommands = (await readCommandPayloadLog(page)).slice(
     baselineCommands.length,
   );
-  expect(sendCommands).toEqual(
+  expect(sendCommands).not.toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         command: "add_channel_members",
@@ -802,14 +808,11 @@ test("adds an agent mention to the current Chat without navigating", async ({
     ]),
   );
   expect(sendCommands.map((entry) => entry.command)).toEqual(
-    expect.arrayContaining(["start_managed_agent"]),
-  );
-  expect(sendCommands.map((entry) => entry.command)).not.toContain(
-    "create_chat",
+    expect.arrayContaining(["open_dm", "start_managed_agent"]),
   );
 });
 
-test("adds a managed relay-agent mention to the current Chat", async ({
+test("routes a managed relay-agent mention from an existing DM to the expanded conversation", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -855,27 +858,26 @@ test("adds a managed relay-agent mention to the current Chat", async ({
     .poll(async () => readOutgoingChannelId(page, messageTail))
     .not.toBeNull();
   const sentChannelId = await readOutgoingChannelId(page, messageTail);
-  expect(sentChannelId).toBe(sourceDmId);
+  expect(sentChannelId).not.toBe(sourceDmId);
   await expect(
     page.locator("[data-active='true'][data-channel-id]"),
   ).toHaveAttribute("data-channel-id", sentChannelId ?? "");
   await expect(page.getByTestId("chat-title")).toContainText("alice");
+  await expect(page.getByTestId("chat-title")).toContainText("quinn");
 
   const sendCommands = (await readCommandPayloadLog(page)).slice(
     baselineCommands.length,
   );
+  expect(sendCommands.map((entry) => entry.command)).toContain("open_dm");
   expect(sendCommands.map((entry) => entry.command)).toContain(
     "start_managed_agent",
   );
-  expect(sendCommands.map((entry) => entry.command)).toContain(
-    "add_channel_members",
-  );
   expect(sendCommands.map((entry) => entry.command)).not.toContain(
-    "create_chat",
+    "add_channel_members",
   );
 });
 
-test("does not reroute a Chat after the user navigates away", async ({
+test("does not reroute an expanded DM after the user navigates away", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -907,12 +909,12 @@ test("does not reroute a Chat after the user navigates away", async ({
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 });
 
-test("does not send after a pending participant add unmounts the Chat", async ({
+test("does not reroute an expanded DM after the channel pane unmounts", async ({
   page,
 }) => {
   await installMockBridge(page, {
     activePersonaIds: ["builtin:fizz"],
-    addChannelMembersDelayMs: 1_000,
+    openDmDelayMs: 1_000,
   });
   await page.goto("/");
   await page.getByTestId("channel-alice-tyler").click();
@@ -940,9 +942,7 @@ test("does not send after a pending participant add unmounts the Chat", async ({
     .toBeNull();
 });
 
-test("preserves the created Chat and draft after the first send fails", async ({
-  page,
-}) => {
+test("drops an expanded DM after the first message fails", async ({ page }) => {
   const retryMessage = "Retry without the agent";
   const sendError = "Mock first DM send failed.";
   await installMockBridge(page, {
@@ -975,19 +975,19 @@ test("preserves the created Chat and draft after the first send fails", async ({
   const commandsAfterFailure = await readCommandPayloadLog(page);
   const failedSendChannelId = await readOutgoingChannelId(page, "for a hand");
   expect(failedSendChannelId).toBeTruthy();
-  expect(commandsAfterFailure.map((entry) => entry.command)).toContain(
+  expect(commandsAfterFailure.map((entry) => entry.command)).not.toContain(
     "add_channel_members",
   );
-  const baselineCreateChatCount = commandCount(
+  const baselineOpenDmCount = commandCount(
     commandsAfterFailure.map((entry) => entry.command),
-    "create_chat",
+    "open_dm",
   );
 
   await input.fill(retryMessage);
   const retryBaseline = commandsAfterFailure.length;
   await page.getByTestId("send-message").click();
 
-  await expect(page.getByTestId("chat-title")).toContainText("charlie");
+  await expect(page.getByTestId("chat-title")).toHaveText("charlie");
   await expect(page.getByTestId("message-timeline")).toContainText(
     retryMessage,
   );
@@ -996,29 +996,41 @@ test("preserves the created Chat and draft after the first send fails", async ({
   expect(
     commandCount(
       allCommands.map((entry) => entry.command),
-      "create_chat",
+      "open_dm",
     ),
-  ).toBe(baselineCreateChatCount);
+  ).toBe(baselineOpenDmCount + 1);
   const retryCommands = allCommands.slice(retryBaseline);
-  const retrySend = retryCommands.find(
-    (entry) =>
-      entry.command === "send_channel_message" &&
-      (entry.payload as { content?: string } | undefined)?.content ===
-        retryMessage,
-  );
-  const retryChannelId = (
-    retrySend?.payload as { channelId?: string } | undefined
-  )?.channelId;
+  const retrySend = retryCommands.find((entry) => {
+    if (entry.command !== "plugin:websocket|send") {
+      return false;
+    }
+    const data = (entry.payload as { message?: { data?: string } } | undefined)
+      ?.message?.data;
+    if (!data) {
+      return false;
+    }
+    const frame = JSON.parse(data) as unknown[];
+    return (
+      frame[0] === "EVENT" &&
+      (frame[1] as { content?: string } | undefined)?.content === retryMessage
+    );
+  });
+  const retrySendData = (
+    retrySend?.payload as { message?: { data?: string } } | undefined
+  )?.message?.data;
+  expect(retrySendData).toBeTruthy();
+  const retryEvent = (
+    JSON.parse(retrySendData ?? "[]") as [string, { tags?: string[][] }]
+  )[1];
+  const retryChannelId = retryEvent.tags?.find((tag) => tag[0] === "h")?.[1];
   expect(retryChannelId).toBeTruthy();
-  expect(retryChannelId).toBe(failedSendChannelId);
+  expect(retryChannelId).not.toBe(failedSendChannelId);
   await expect(
     page.locator("[data-active='true'][data-channel-id]"),
   ).toHaveAttribute("data-channel-id", retryChannelId ?? "");
 });
 
-test("preserves the Chat and draft after agent startup fails", async ({
-  page,
-}) => {
+test("drops an expanded DM after agent startup fails", async ({ page }) => {
   const retryMessage = "Retry after agent startup failed";
   const startError = "Mock agent startup failed.";
   await installMockBridge(page, {
@@ -1051,16 +1063,24 @@ test("preserves the Chat and draft after agent startup fails", async ({
   await expect(input).toContainText("Fizz");
 
   const commandsAfterFailure = await readCommandPayloadLog(page);
-  const createChatCallsAfterFailure = commandsAfterFailure.filter(
-    (entry) => entry.command === "create_chat",
+  const openDmCallsAfterFailure = commandsAfterFailure.filter(
+    (entry) => entry.command === "open_dm",
   );
-  expect(createChatCallsAfterFailure).toHaveLength(1);
+  expect(openDmCallsAfterFailure).toHaveLength(2);
+  expect(
+    (openDmCallsAfterFailure.at(-1)?.payload as { pubkeys?: string[] })
+      ?.pubkeys,
+  ).toEqual(expect.arrayContaining([TEST_IDENTITIES.charlie.pubkey]));
+  expect(
+    (openDmCallsAfterFailure.at(-1)?.payload as { pubkeys?: string[] })
+      ?.pubkeys,
+  ).toHaveLength(2);
 
   await input.fill(retryMessage);
   const retryBaseline = commandsAfterFailure.length;
   await page.getByTestId("send-message").click();
 
-  await expect(page.getByTestId("chat-title")).toContainText("charlie");
+  await expect(page.getByTestId("chat-title")).toHaveText("charlie");
   await expect(page.getByTestId("message-timeline")).toContainText(
     retryMessage,
   );
@@ -1068,9 +1088,13 @@ test("preserves the Chat and draft after agent startup fails", async ({
   const retryCommands = (await readCommandPayloadLog(page)).slice(
     retryBaseline,
   );
-  expect(retryCommands.map((entry) => entry.command)).not.toContain(
-    "create_chat",
+  const retryOpenDm = retryCommands.find(
+    (entry) => entry.command === "open_dm",
   );
+  expect(
+    (retryOpenDm?.payload as { pubkeys?: string[] } | undefined)?.pubkeys,
+  ).toEqual([TEST_IDENTITIES.charlie.pubkey]);
+  await expect(page.getByTestId("chat-title")).not.toContainText("Fizz");
 });
 
 test("closes direct message results while opening", async ({ page }) => {

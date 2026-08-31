@@ -860,7 +860,7 @@ test("providerDefaultLabel_globalSetWithWhitespace_trimsAndReturnsInherit", () =
 test("providerDefaultLabel_sharedCompute_neverLeaksInternalId", () => {
   assert.equal(
     getDefaultLlmProviderLabel("buzz-agent", "relay-mesh"),
-    "Use agent defaults (Shared compute)",
+    "Use agent defaults (Buzz shared compute)",
   );
 });
 

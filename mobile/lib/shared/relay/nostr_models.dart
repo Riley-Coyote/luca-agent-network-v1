@@ -294,7 +294,6 @@ class ChannelData {
   final String visibility;
   final String description;
   final String? topic;
-  final String? projectId;
   final List<String> participantPubkeys;
   final int? ttlSeconds;
   final DateTime? ttlDeadline;
@@ -307,7 +306,6 @@ class ChannelData {
     required this.visibility,
     required this.description,
     this.topic,
-    this.projectId,
     this.participantPubkeys = const [],
     this.ttlSeconds,
     this.ttlDeadline,
@@ -333,7 +331,6 @@ class ChannelData {
         : 'open';
     final description = event.getTagValue('about') ?? '';
     final topic = event.getTagValue('topic');
-    final projectId = event.getTagValue('project');
     final participants = [
       for (final t in event.tags)
         if (t.length >= 2 && t[0] == 'p') t[1],
@@ -357,7 +354,6 @@ class ChannelData {
       visibility: visibility,
       description: description,
       topic: topic,
-      projectId: projectId,
       participantPubkeys: participants,
       ttlSeconds: ttlSeconds,
       ttlDeadline: ttlDeadline,

@@ -21,9 +21,9 @@ import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import {
   channelsQueryKey,
   useChannelsQuery,
-  useCreateChatMutation,
   useCreateChannelMutation,
   useHideDmMutation,
+  useOpenDmMutation,
 } from "@/features/channels/hooks";
 import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
 import { msgContextKey } from "@/features/channels/readState/readStateFormat";
@@ -41,7 +41,6 @@ import { useAutoRestartPolicy } from "@/features/agents/lib/useAutoRestartPolicy
 import { usePersonaSync } from "@/features/agents/lib/usePersonaSync";
 import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIngestion";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
-import { ConversationalProposalDialogs } from "@/features/agents/ui/ConversationalProposalDialogs";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
 import {
   usePresenceSession,
@@ -68,7 +67,6 @@ import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
-import { LucaCollectionPanel } from "@/features/sidebar/ui/LucaCollectionPanel";
 import { CommunityRail } from "@/features/sidebar/ui/CommunityRail";
 import { useChannelMutes } from "@/features/sidebar/lib/useChannelMutes";
 import { useChannelStars } from "@/features/sidebar/lib/useChannelStars";
@@ -155,20 +153,6 @@ export function AppShell() {
     () => deriveShellRoute(location.pathname),
     [location.pathname],
   );
-  const selectedCollection = React.useMemo(() => {
-    const search = location.search as {
-      collection?: unknown;
-      collectionId?: unknown;
-    };
-    if (
-      (search.collection === "agent" || search.collection === "project") &&
-      typeof search.collectionId === "string" &&
-      search.collectionId.length > 0
-    ) {
-      return { type: search.collection, id: search.collectionId } as const;
-    }
-    return null;
-  }, [location.search]);
   // Settings lives in history so back returns to the previous app entry.
   const settingsOpen = location.pathname === "/settings";
   const locationSearchSection = (location.search as { section?: unknown })
@@ -431,8 +415,8 @@ export function AppShell() {
 
   const createChannelMutation = useCreateChannelMutation(),
     createForumMutation = useCreateChannelMutation();
-  const createChatMutation = useCreateChatMutation();
   const { applyCanvas, applyAgents } = useApplyTemplate();
+  const openDmMutation = useOpenDmMutation();
   const hideDmMutation = useHideDmMutation();
   const {
     browseDialogType,
@@ -833,17 +817,12 @@ export function AppShell() {
                           onMarkChannelUnread={markChannelUnread}
                           onBrowseChannels={handleOpenBrowseChannels}
                           onOpenDm={async ({ pubkeys }) => {
-                            const result = await createChatMutation.mutateAsync(
-                              {
-                                participantPubkeys: pubkeys,
-                              },
-                            );
-                            await goChannel(result.chat.id);
+                            const directMessage =
+                              await openDmMutation.mutateAsync({
+                                pubkeys,
+                              });
+                            await goChannel(directMessage.id);
                           }}
-                          selectedCollection={selectedCollection}
-                          onSelectAgent={(pubkey) =>
-                            void goAgents({ collectionId: pubkey })
-                          }
                           onSelectAgents={() => void goAgents()}
                           onSelectChannel={(channelId) =>
                             void goChannel(channelId)
@@ -853,9 +832,6 @@ export function AppShell() {
                           searchFocusRequest={searchFocusRequest}
                           onSelectHome={() => void goHome()}
                           onSelectProjects={() => void goProjects()}
-                          onSelectProject={(projectId) =>
-                            void goProjects({ collectionId: projectId })
-                          }
                           onSelectPulse={() => void goPulse()}
                           onSelectSettings={handleOpenSettings}
                           onSelectWorkflows={() => void goWorkflows()}
@@ -890,35 +866,6 @@ export function AppShell() {
                           onStarChannel={starChannel}
                           onUnstarChannel={unstarChannel}
                         />
-                        {selectedCollection ? (
-                          <LucaCollectionPanel
-                            channels={sidebarChannels}
-                            currentPubkey={identityQuery.data?.pubkey}
-                            onChatCreated={(chatId) =>
-                              void goChannel(chatId, {
-                                collection: selectedCollection.type,
-                                collectionId: selectedCollection.id,
-                              })
-                            }
-                            onManageAgent={() => void goAgents()}
-                            onManageProject={() => void goProjects()}
-                            onNewProjectChat={(projectId) =>
-                              void goNewMessage({
-                                projectId,
-                                collection: "project",
-                                collectionId: projectId,
-                              })
-                            }
-                            onOpenChat={(chatId) =>
-                              void goChannel(chatId, {
-                                collection: selectedCollection.type,
-                                collectionId: selectedCollection.id,
-                              })
-                            }
-                            selectedChannelId={selectedChannelId}
-                            selection={selectedCollection}
-                          />
-                        ) : null}
                         <MainInsetProvider mainInsetRef={mainInsetRef}>
                           <SidebarInset
                             ref={mainInsetRef}
@@ -942,7 +889,6 @@ export function AppShell() {
                     )}
                     <RequestedAgentCreateDialogs />
                     <AgentManagementDialogs />
-                    <ConversationalProposalDialogs />
                     <AppShellOverlays
                       activeChannel={managedChannel}
                       browseDialogType={browseDialogType}

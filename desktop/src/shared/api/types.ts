@@ -19,7 +19,6 @@ export type Channel = {
   isMember: boolean;
   ttlSeconds: number | null;
   ttlDeadline: string | null;
-  projectId: string | null;
 };
 
 export type ChannelDetail = Channel & {
@@ -62,24 +61,6 @@ export type UpdateChannelInput = {
   visibility?: ChannelVisibility;
   /** Omit to leave unchanged, `null` to clear (permanent), or a positive number of seconds to set. */
   ttlSeconds?: number | null;
-  /** Omit to leave unchanged, `null` to remove, or a Project UUID to assign. */
-  projectId?: string | null;
-};
-
-export type CreateChatInput = {
-  participantPubkeys: string[];
-  title?: string;
-  projectId?: string;
-};
-
-export type CreateChatParticipantFailure = {
-  pubkey: string;
-  error: string;
-};
-
-export type CreateChatResult = {
-  chat: Channel;
-  participantFailures: CreateChatParticipantFailure[];
 };
 
 export type SetChannelTopicInput = {
@@ -914,8 +895,6 @@ export type AgentTeam = {
   description: string | null;
   instructions: string | null;
   personaIds: string[];
-  /** Stable identities for Luca teams. Legacy teams may have only personaIds. */
-  memberPubkeys: string[];
   isBuiltin: boolean;
   /** Absolute path to the team's backing directory (if directory-backed). */
   sourceDir: string | null;
@@ -933,8 +912,7 @@ export type CreateTeamInput = {
   name: string;
   description?: string;
   instructions?: string;
-  personaIds?: string[];
-  memberPubkeys: string[];
+  personaIds: string[];
 };
 
 export type UpdateTeamInput = {
@@ -942,8 +920,7 @@ export type UpdateTeamInput = {
   name: string;
   description?: string;
   instructions?: string;
-  personaIds?: string[];
-  memberPubkeys: string[];
+  personaIds: string[];
 };
 // ── Channel Template types ─────────────────────────────────────────────────────
 

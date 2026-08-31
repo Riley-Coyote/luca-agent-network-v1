@@ -82,15 +82,6 @@ with a TypeScript lookup table or an id comparison in a component.
    resident, session epoch, turn, conversation, and ACP request ID. They are
    never published to the relay or persisted as policy. Legacy unmanaged ACP
    permission behavior remains separate.
-10. **Conversational creation is proposal-only until desktop confirmation.** A
-    managed Agent may use only the bundled typed proposal bridge. The bridge
-    receives no signing key, owner auth tag, generic Tauri command surface, or
-    native-config write authority. Runtime/provider/model defaults must come
-    from the Rust runtime catalog, and confirmed creation must use the existing
-    Luca key-safe resident path.
-11. **Teams contain stable Agents, not deployable persona copies.** Luca writes
-    Team membership as Agent public keys. Legacy persona IDs may be read for
-    compatibility, but Team actions must not create duplicate residents.
 
 ## The tests that enforce this
 

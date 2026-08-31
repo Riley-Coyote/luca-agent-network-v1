@@ -1,39 +1,23 @@
+import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { useAppNavigation } from "@/app/navigation/useAppNavigation";
-import { LucaProjectsScreen } from "@/features/luca-projects/LucaProjectsScreen";
+import { usePreviewFeatureWarning } from "@/shared/features";
+import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
-type ProjectsRouteSearch = {
-  collection?: "project";
-  collectionId?: string;
-};
-
-function validateProjectsSearch(
-  search: Record<string, unknown>,
-): ProjectsRouteSearch {
-  const collectionId =
-    typeof search.collectionId === "string" && search.collectionId.length > 0
-      ? search.collectionId
-      : undefined;
-  return {
-    collection:
-      search.collection === "project" && collectionId ? "project" : undefined,
-    collectionId: search.collection === "project" ? collectionId : undefined,
-  };
-}
+const ProjectsScreen = React.lazy(async () => {
+  const module = await import("@/features/projects/ui/ProjectsScreen");
+  return { default: module.ProjectsScreen };
+});
 
 export const Route = createFileRoute("/projects")({
-  validateSearch: validateProjectsSearch,
   component: ProjectsRouteComponent,
 });
 
 function ProjectsRouteComponent() {
-  const { goProjects } = useAppNavigation();
+  usePreviewFeatureWarning("projects");
   return (
-    <LucaProjectsScreen
-      onOpenProject={(projectId) =>
-        void goProjects({ collectionId: projectId })
-      }
-    />
+    <React.Suspense fallback={<ViewLoadingFallback kind="projects" />}>
+      <ProjectsScreen />
+    </React.Suspense>
   );
 }

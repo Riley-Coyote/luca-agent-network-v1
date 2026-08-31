@@ -122,39 +122,11 @@ type MockSearchProfileSeed = {
   about?: string | null;
   ownerPubkey?: string | null;
   isAgent?: boolean;
-  status?: "online" | "away" | "offline";
-};
-
-type MockFixtureChannelSeed = {
-  id: string;
-  name: string;
-  description?: string;
-  topic?: string | null;
-  purpose?: string | null;
-  memberPubkeys: string[];
-};
-
-type MockFixtureMessageSeed = {
-  channelName: string;
-  content: string;
-  pubkey: string;
-  createdAt: number;
-  id: string;
-  kind?: number;
-  mentionPubkeys?: string[];
-  parentEventId?: string | null;
-  extraTags?: string[][];
 };
 
 type E2eConfig = {
   mode?: "mock" | "relay";
   mock?: {
-    /** Public-only synthetic viewer for isolated visual fixtures. */
-    viewerProfile?: { pubkey: string; displayName: string };
-    /** Hide stock E2E channels and expose only fixture channels. */
-    fixtureOnly?: boolean;
-    fixtureChannels?: MockFixtureChannelSeed[];
-    fixtureMessages?: MockFixtureMessageSeed[];
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
     /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
@@ -503,7 +475,6 @@ type RawChannel = {
   participant_pubkeys: string[];
   ttl_seconds: number | null;
   ttl_deadline: string | null;
-  project_id?: string | null;
 };
 
 type RawChannelWithMembership = RawChannel & {
@@ -534,16 +505,6 @@ type RawChannelMember = {
 type RawChannelMembersResponse = {
   members: RawChannelMember[];
   next_cursor: string | null;
-};
-
-type MockLucaProject = {
-  id: string;
-  name: string;
-  archived: boolean;
-  instructions: string | null;
-  workingFolder: string | null;
-  workingFolderState: "not_set" | "connected" | "missing";
-  contextRevision: number;
 };
 
 type RawAddChannelMembersResponse = {
@@ -1269,7 +1230,6 @@ function toRawChannel(
     participant_pubkeys: [...channel.participant_pubkeys],
     ttl_seconds: channel.ttl_seconds ?? null,
     ttl_deadline: channel.ttl_deadline ?? null,
-    project_id: channel.project_id ?? null,
     is_member: channel.members.some(
       (member) => member.pubkey.toLowerCase() === currentPubkey,
     ),
@@ -1498,88 +1458,6 @@ function resetMockRelayMembers(config: E2eConfig | undefined) {
       created_at: isoMinutesAgo(60),
     },
   ];
-}
-
-function installFixtureWorld(config: E2eConfig | undefined) {
-  const fixtureChannels = config?.mock?.fixtureChannels ?? [];
-  if (fixtureChannels.length === 0) {
-    return;
-  }
-
-  const viewer = config?.mock?.viewerProfile;
-  if (viewer) {
-    const pubkey = viewer.pubkey.toLowerCase();
-    mockProfiles.set(pubkey, {
-      pubkey,
-      display_name: viewer.displayName,
-      avatar_url: null,
-      about: null,
-      nip05_handle: null,
-      owner_pubkey: null,
-      is_agent: false,
-      has_profile_event: true,
-    });
-    applyMockDisplayName(pubkey, viewer.displayName);
-  }
-
-  for (const seed of fixtureChannels) {
-    const existing = mockChannels.find((channel) => channel.id === seed.id);
-    if (existing) {
-      continue;
-    }
-    const members = seed.memberPubkeys.map((pubkey, index) => ({
-      pubkey: pubkey.toLowerCase(),
-      role: (index === 0 ? "owner" : "bot") as RawChannelMember["role"],
-      is_agent: index !== 0,
-      joined_at: new Date(0).toISOString(),
-      display_name: mockDisplayNames.get(pubkey.toLowerCase()) ?? null,
-    }));
-    mockChannels.push(
-      createMockChannel({
-        id: seed.id,
-        name: seed.name,
-        channel_type: "stream",
-        visibility: "private",
-        description: seed.description ?? "",
-        topic: seed.topic ?? null,
-        purpose: seed.purpose ?? null,
-        last_message_at: null,
-        archived_at: null,
-        created_by: members[0]?.pubkey ?? getMockMemberPubkey(config),
-        topic_set_by: members[0]?.pubkey ?? null,
-        topic_set_at: null,
-        purpose_set_by: members[0]?.pubkey ?? null,
-        purpose_set_at: null,
-        topic_required: false,
-        max_members: null,
-        nip29_group_id: null,
-        created_minutes_ago: 0,
-        updated_minutes_ago: 0,
-        members,
-      }),
-    );
-  }
-
-  for (const seed of config?.mock?.fixtureMessages ?? []) {
-    const channel = mockChannels.find(
-      (candidate) => candidate.name === seed.channelName,
-    );
-    if (!channel) {
-      throw new Error(`Fixture channel ${seed.channelName} not found.`);
-    }
-    emitMockChannelMessage(
-      channel.id,
-      seed.content,
-      seed.parentEventId,
-      seed.pubkey,
-      seed.kind ?? 9,
-      seed.mentionPubkeys,
-      seed.extraTags,
-      seed.createdAt,
-      seed.id,
-    );
-    channel.last_message_at = new Date(seed.createdAt * 1_000).toISOString();
-  }
 }
 
 function buildMockConfigSurface(pubkey: string): {
@@ -2110,7 +1988,7 @@ function resetMockManagedAgents(config?: E2eConfig) {
       avatar_url: null,
       about: null,
       nip05_handle: null,
-      owner_pubkey: getMockMemberPubkey(config),
+      owner_pubkey: MOCK_IDENTITY_PUBKEY,
       is_agent: true,
       has_profile_event: true,
     });
@@ -2278,9 +2156,6 @@ function seedMockSearchProfiles(config?: E2eConfig) {
     if (seed.isAgent) {
       mockAgentPubkeys.add(pubkey);
     }
-    if (seed.status) {
-      setMockPresenceStatus(pubkey, seed.status);
-    }
   }
 }
 
@@ -2321,12 +2196,7 @@ function listMockProfiles(): RawProfile[] {
 }
 
 function listMockChannels(config?: E2eConfig): RawChannelWithMembership[] {
-  const channels = config?.mock?.fixtureOnly
-    ? mockChannels.filter((channel) =>
-        config.mock?.fixtureChannels?.some((seed) => seed.id === channel.id),
-      )
-    : mockChannels;
-  return channels.map((channel) => toRawChannel(channel, config));
+  return mockChannels.map((channel) => toRawChannel(channel, config));
 }
 
 function getMockChannel(channelId: string): MockChannel {
@@ -2339,19 +2209,11 @@ function getMockChannel(channelId: string): MockChannel {
 }
 
 function getMockMemberPubkey(config: E2eConfig | undefined): string {
-  return (
-    config?.mock?.viewerProfile?.pubkey ??
-    getActiveIdentity(config)?.pubkey ??
-    getMockIdentity().pubkey
-  );
+  return getActiveIdentity(config)?.pubkey ?? getMockIdentity().pubkey;
 }
 
 function getMockMemberDisplayName(config: E2eConfig | undefined): string {
-  return (
-    config?.mock?.viewerProfile?.displayName ??
-    getActiveIdentity(config)?.username ??
-    getMockIdentity().displayName
-  );
+  return getActiveIdentity(config)?.username ?? getMockIdentity().displayName;
 }
 
 function createCurrentMember(
@@ -2870,7 +2732,6 @@ function resetMockMesh() {
 }
 let mockPersonas: RawPersona[] = [];
 let mockTeams: RawTeam[] = [];
-let mockLucaProjects: MockLucaProject[] = [];
 // Listeners registered via the mock __TAURI_INTERNALS__.listen — keyed by event name.
 const tauriEventListeners = new Map<string, Set<() => void>>();
 const openedExternalUrls: string[] = [];
@@ -5957,123 +5818,6 @@ async function handleOpenDm(
   };
 }
 
-async function handleCreateChat(
-  args: {
-    input: {
-      participantPubkeys: string[];
-      title?: string;
-      projectId?: string;
-    };
-  },
-  config: E2eConfig | undefined,
-) {
-  const requested = normalizeParticipantPubkeys(args.input.participantPubkeys);
-  if (requested.length === 0) {
-    throw new Error("Select at least one person or agent to start a chat.");
-  }
-  const ownerPubkey = getMockMemberPubkey(config);
-  const participantPubkeys = normalizeParticipantPubkeys([
-    ownerPubkey,
-    ...requested.filter(
-      (pubkey) => normalizePubkey(pubkey) !== normalizePubkey(ownerPubkey),
-    ),
-  ]);
-  if (participantPubkeys.length < 2) {
-    throw new Error("The chat needs at least one other participant.");
-  }
-  const members = participantPubkeys.map((pubkey) =>
-    createMockMember(
-      pubkey,
-      normalizePubkey(pubkey) === normalizePubkey(ownerPubkey)
-        ? "owner"
-        : "member",
-      0,
-    ),
-  );
-  const channel = createMockChannel({
-    id: crypto.randomUUID(),
-    name: args.input.title?.trim() || "Chat",
-    channel_type: "dm",
-    visibility: "private",
-    description: "",
-    topic: null,
-    purpose: null,
-    last_message_at: null,
-    archived_at: null,
-    project_id: args.input.projectId ?? null,
-    created_by: ownerPubkey,
-    topic_set_by: null,
-    topic_set_at: null,
-    purpose_set_by: null,
-    purpose_set_at: null,
-    topic_required: false,
-    max_members: null,
-    nip29_group_id: null,
-    created_minutes_ago: 0,
-    updated_minutes_ago: 0,
-    members,
-  });
-  syncMockChannel(channel);
-  mockChannels.push(channel);
-  return {
-    chat: toRawChannel(channel, config),
-    participant_failures: [],
-  };
-}
-
-function handleListLucaProjects() {
-  return mockLucaProjects.map((project) => ({ ...project }));
-}
-
-function handleCreateLucaProject(args: {
-  input: { name: string; instructions?: string; workingFolder?: string };
-}) {
-  const project: MockLucaProject = {
-    id: crypto.randomUUID(),
-    name: args.input.name.trim(),
-    archived: false,
-    instructions: args.input.instructions?.trim() || null,
-    workingFolder: args.input.workingFolder?.trim() || null,
-    workingFolderState: args.input.workingFolder?.trim()
-      ? "connected"
-      : "not_set",
-    contextRevision: 1,
-  };
-  mockLucaProjects.push(project);
-  return { ...project };
-}
-
-function handleUpdateLucaProject(args: {
-  input: {
-    projectId: string;
-    name?: string;
-    archived?: boolean;
-    instructions?: string | null;
-    workingFolder?: string | null;
-  };
-}) {
-  const project = mockLucaProjects.find(
-    (candidate) => candidate.id === args.input.projectId,
-  );
-  if (!project) throw new Error("Project not found.");
-  if (args.input.name !== undefined) project.name = args.input.name.trim();
-  if (args.input.archived !== undefined) {
-    project.archived = args.input.archived;
-  }
-  if (args.input.instructions !== undefined) {
-    project.instructions = args.input.instructions?.trim() || null;
-    project.contextRevision += 1;
-  }
-  if (args.input.workingFolder !== undefined) {
-    project.workingFolder = args.input.workingFolder?.trim() || null;
-    project.workingFolderState = project.workingFolder
-      ? "connected"
-      : "not_set";
-    project.contextRevision += 1;
-  }
-  return { ...project };
-}
-
 async function handleHideDm(
   args: { channelId: string },
   config: E2eConfig | undefined,
@@ -6192,7 +5936,6 @@ async function handleUpdateChannel(
     description?: string;
     visibility?: "open" | "private";
     ttlSeconds?: number | null;
-    projectId?: string | null;
   },
   config: E2eConfig | undefined,
 ) {
@@ -6220,9 +5963,6 @@ async function handleUpdateChannel(
           ? null
           : new Date(Date.now() + args.ttlSeconds * 1000).toISOString();
     }
-    if (args.projectId !== undefined) {
-      channel.project_id = args.projectId;
-    }
     touchMockChannel(channel);
     return toRawChannelDetail(channel, config);
   }
@@ -6239,9 +5979,6 @@ async function handleUpdateChannel(
   }
   if (args.ttlSeconds !== undefined) {
     tags.push(["ttl", args.ttlSeconds === null ? "" : String(args.ttlSeconds)]);
-  }
-  if (args.projectId !== undefined) {
-    tags.push(["project", args.projectId ?? ""]);
   }
   await submitSignedEvent(config, { kind: 9002, content: "", tags });
 
@@ -6510,8 +6247,27 @@ async function handleAddChannelMembers(
       added.push(pubkey);
     }
 
+    // DM participant sets are immutable. Adding a member creates or reuses a
+    // separate DM for the expanded set instead of mutating the source channel.
+    const targetChannel =
+      channel.channel_type === "dm" && added.length > 0
+        ? getMockChannel(
+            (
+              await handleOpenDm(
+                {
+                  pubkeys: [
+                    ...channel.members.map((member) => member.pubkey),
+                    ...added,
+                  ],
+                },
+                config,
+              )
+            ).id,
+          )
+        : channel;
+
     for (const pubkey of added) {
-      const existingMember = channel.members.find(
+      const existingMember = targetChannel.members.find(
         (member) => normalizePubkey(member.pubkey) === normalizePubkey(pubkey),
       );
       if (existingMember) {
@@ -6523,7 +6279,7 @@ async function handleAddChannelMembers(
         existingMember.display_name = mockDisplayNames.get(pubkey) ?? null;
         continue;
       }
-      channel.members.push({
+      targetChannel.members.push({
         pubkey,
         role: args.role ?? "member",
         is_agent:
@@ -6535,8 +6291,8 @@ async function handleAddChannelMembers(
       });
     }
 
-    syncMockChannel(channel);
-    touchMockChannel(channel);
+    syncMockChannel(targetChannel);
+    touchMockChannel(targetChannel);
     syncMockRelayAgentsFromManagedAgents();
     return {
       added,
@@ -8313,10 +8069,6 @@ async function handleSendChannelMessage(
       window.setTimeout(resolve, sendMessageDelayMs),
     );
   }
-  const sendMessageError = config?.mock?.sendMessageErrors?.shift();
-  if (sendMessageError) {
-    throw new Error(sendMessageError);
-  }
 
   // NIP-92 imeta attachments. The real relay echoes these back on the stored
   // event; mirror that here so attachment renderers (FileCard, images, video)
@@ -9186,13 +8938,11 @@ export function maybeInstallE2eTauriMocks() {
     ? { ...config.mock.globalAgentConfig }
     : null;
   resetMockRelayMembers(config);
-  seedMockSearchProfiles(config);
-  installFixtureWorld(config);
   resetMockRelayAgents(config);
   resetMockManagedAgents(config);
   resetMockPersonas(config);
   resetMockTeams(config);
-  mockLucaProjects = [];
+  seedMockSearchProfiles(config);
   resetMockWorkflows();
   resetMockMesh();
   resetMockUserStatuses();
@@ -9540,15 +9290,7 @@ export function maybeInstallE2eTauriMocks() {
           };
         }
 
-        const fixtureViewer = activeConfig?.mock?.viewerProfile;
-        return fixtureViewer
-          ? {
-              pubkey: fixtureViewer.pubkey,
-              display_name: fixtureViewer.displayName,
-              lost: false,
-              locked: false,
-            }
-          : { ...DEFAULT_MOCK_IDENTITY, lost: isLost, locked: isLocked };
+        return { ...DEFAULT_MOCK_IDENTITY, lost: isLost, locked: isLocked };
       }
       case "sign_nostr_identity_binding": {
         const request = payload as {
@@ -10414,8 +10156,6 @@ export function maybeInstallE2eTauriMocks() {
         );
       case "list_luca_residents":
         return handleListLucaResidents();
-      case "discover_native_residents":
-        return { runtimes: [] };
       case "start_managed_agent":
         return handleStartManagedAgent(
           payload as Parameters<typeof handleStartManagedAgent>[0],
@@ -10613,21 +10353,6 @@ export function maybeInstallE2eTauriMocks() {
         return handleCreateChannel(
           payload as Parameters<typeof handleCreateChannel>[0],
           activeConfig,
-        );
-      case "create_chat":
-        return handleCreateChat(
-          payload as Parameters<typeof handleCreateChat>[0],
-          activeConfig,
-        );
-      case "list_luca_projects":
-        return handleListLucaProjects();
-      case "create_luca_project":
-        return handleCreateLucaProject(
-          payload as Parameters<typeof handleCreateLucaProject>[0],
-        );
-      case "update_luca_project":
-        return handleUpdateLucaProject(
-          payload as Parameters<typeof handleUpdateLucaProject>[0],
         );
       case "ensure_starter_channels":
         return handleEnsureStarterChannels(activeConfig);

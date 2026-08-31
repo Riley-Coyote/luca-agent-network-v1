@@ -690,10 +690,6 @@ pub struct TeamRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
     pub persona_ids: Vec<String>,
-    /// Stable resident identities. Luca writes this field; `persona_ids`
-    /// remains readable for teams created by older clients.
-    #[serde(default)]
-    pub member_pubkeys: Vec<String>,
     #[serde(default)]
     pub is_builtin: bool,
     /// Absolute path to the team's backing directory (if directory-backed).
@@ -720,8 +716,6 @@ pub struct CreateTeamRequest {
     pub instructions: Option<String>,
     #[serde(default)]
     pub persona_ids: Vec<String>,
-    #[serde(default)]
-    pub member_pubkeys: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -733,8 +727,6 @@ pub struct UpdateTeamRequest {
     pub instructions: Option<String>,
     #[serde(default)]
     pub persona_ids: Vec<String>,
-    #[serde(default)]
-    pub member_pubkeys: Vec<String>,
 }
 
 pub const DEFAULT_ACP_COMMAND: &str = "buzz-acp";

@@ -1,8 +1,8 @@
 import {
   CopyPlus,
   EllipsisVertical,
-  MessageCirclePlus,
   Pencil,
+  Rocket,
   Share2,
   Trash2,
   Upload,
@@ -35,7 +35,7 @@ type TeamsSectionProps = {
   onDuplicate: (team: AgentTeam) => void;
   onEdit: (team: AgentTeam) => void;
   onDelete: (team: AgentTeam) => void;
-  onStartChat: (team: AgentTeam) => void;
+  onAddToChannel: (team: AgentTeam) => void;
   onShare: (team: AgentTeam) => void;
   onImport: () => void;
 };
@@ -50,7 +50,7 @@ export function TeamsSection({
   onDuplicate,
   onEdit,
   onDelete,
-  onStartChat,
+  onAddToChannel,
   onShare,
   onImport,
 }: TeamsSectionProps) {
@@ -59,7 +59,7 @@ export function TeamsSection({
       <div className={TEAM_CARD_COLUMN_CLASS}>
         <SectionHeader
           title="Agent teams"
-          description="Saved rosters of your agents for chats and delegated work."
+          description="Group agents that you can add to a channel together."
         />
       </div>
 
@@ -109,10 +109,10 @@ export function TeamsSection({
                     >
                       <DropdownMenuItem
                         disabled={isPending || hasMissingPersonas}
-                        onClick={() => onStartChat(team)}
+                        onClick={() => onAddToChannel(team)}
                       >
-                        <MessageCirclePlus className="h-4 w-4" />
-                        Start chat with team
+                        <Rocket className="h-4 w-4" />
+                        Deploy to channel
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -152,9 +152,7 @@ export function TeamsSection({
                 description={team.description}
                 isSymlink={team.isSymlink}
                 key={team.id}
-                memberCount={
-                  team.memberPubkeys.length || team.personaIds.length
-                }
+                memberCount={team.personaIds.length}
                 personas={resolution.resolvedPersonas}
                 sourceDir={team.sourceDir}
                 symlinkTarget={team.symlinkTarget}
@@ -166,8 +164,7 @@ export function TeamsSection({
                     {missingPersonaCount} agent
                     {missingPersonaCount === 1 ? "" : "s"} in this team{" "}
                     {missingPersonaCount === 1 ? "is" : "are"} no longer in your
-                    agents. Edit the team to fix it before starting a chat or
-                    sharing.
+                    agents. Edit the team to fix it before deploying or sharing.
                   </p>
                 ) : null}
               </TeamIdentityCard>

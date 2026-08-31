@@ -9,7 +9,6 @@ function isGenericDmChannelName(name: string) {
   const normalized = name.trim().toLowerCase();
   return (
     normalized.length === 0 ||
-    normalized === "chat" ||
     normalized === "dm" ||
     normalized === "direct message" ||
     normalized === "direct messages" ||

@@ -1,123 +1,145 @@
-# Luca Projects
+# Projects — grouping rooms by the work they belong to
 
-**Status:** canonical implementation contract, approved 2026-08-30.
-**Related:** [`CONVERSATION_MODEL.md`](CONVERSATION_MODEL.md).
+**Status:** design settled, UI prototyped, data model **not built**.
+**Owner:** Codex (event kind, relay handling, local path binding).
+**Prototype:** shipped behind the rail's grouping, reading a local map — see
+"What already exists" below.
 
-A Project organizes Chats that share work context. It is deliberately simple:
-one safe, syncable identity; optional private instructions; and one optional
-working folder on each machine.
+---
 
-## Product behavior
+## What a project is
 
-- A Chat belongs to zero or one Project.
-- A Project is a collection, not a workspace mode. Selecting it opens a second
-  column of its Chats; there is no global "current Project" state.
-- The same canonical Chat ID appears under its Agents, its Project, and the flat
-  Chats quick list. Moving a Chat does not copy its timeline.
-- Project Chats are ordered by activity. The Project collection itself may also
-  use recent activity rather than alphabetical or fixed ordering.
-- A Chat may contain one Agent, several Agents, visiting Agents, and people.
-  Projects do not imply or own an Agent roster.
+**A project is an attribute of a room, not a mode you are in.**
 
-The older rail prototype grouped all rooms beneath Project headings in one
-list. That prototype established useful recency behavior, but its localStorage
-assignment map and always-grouped navigation are superseded. The current
-design uses a dedicated Projects rail section and a contextual Chat column.
+A room bound to `~/Repositories/luca-agent-network-v1` already carries its own
+working context. Residents in that room get that working directory *because the
+room says so* — not because the owner navigated into a project first. There is
+no "current project" state, nothing to enter or leave, and nothing to get lost
+in.
 
-## Syncable Project identity
+This was a deliberate choice over the alternative (a Discord/Slack-style
+workspace switcher, where you are *in* a project and the rail shows only its
+rooms). Modality would have fragmented the conversation list and added a state
+the owner has to track. Rejected.
 
-Project identity uses parameterized-replaceable kind `30178`, owned by the
-user and keyed by its UUID `d` tag.
+**One project per room.** A repo-backed project cannot sensibly be many-to-many,
+and the rail groups rooms — grouping requires a single home in a way that filter
+chips would not. This is a constraint we are choosing, not an accident.
 
-Safe event content contains only:
+---
 
-- display name;
-- archived state;
-- schema version.
+## Why grouping and not filtering
 
-The UUID remains in the `d` tag. A Project event must never contain an absolute
-path, private instructions, credentials, repository secrets, or file contents.
+The rail originally had a `CHANNELS` / `DIRECT MESSAGES` taxonomy, which was
+removed: it grouped by **object type**, which is meaningless and system-imposed.
+The first replacement proposal was Telegram-style filter chips over one flat
+list. Riley rejected that with a concrete reason — *you cannot tell at a glance
+which sessions belong to which project* — and he was right. The flat-list rule
+came from consumer messengers, and **those apps have no project dimension**.
 
-## Chat binding
+Grouping was never what made the old sidebar feel like Slack. Three other things
+were, and the spec preserves the fixes:
 
-Buzz `Channel` remains the signed transport primitive. A Chat's optional
-Project UUID is stored in channel metadata and emitted as a `project` tag. Kind
-`9002` metadata edits assign, move, or clear the binding. The database exposes
-the resolved `project_id` for efficient collection queries.
+1. it grouped by object type → now grouped by the work, which the owner thinks in
+2. heavy section chrome → the label *is* the toggle, chevron only on hover, no
+   per-section action menus
+3. **fixed order** → groups are ordered by their most recent room, so whatever
+   is being worked on floats up and last month's project sinks
 
-Because a Chat has one optional Project, moving it is one metadata edit. There
-is no join table and no multi-Project UI.
+Point 3 is the one that keeps this alive rather than filed. Do not "stabilise"
+the group order.
 
-## Private machine-local settings
+---
 
-Each machine stores a private record keyed by `(owner, project_id)`:
+## What already exists (desktop, prototype)
 
-- optional context/instructions;
-- optional absolute working-folder path.
+| file | what it does |
+|---|---|
+| `features/sidebar/ui/ChatList.tsx` | `groupChats()` — grouping + the recency-ordered rule. Pure, 7 tests in `chatListGrouping.test.mjs`. |
+| `features/channels/lib/roomProjects.ts` | `useRoomProjects()` — **the piece to replace.** Reads a local assignment map; seeds a demo assignment under the mock only. |
 
-The folder may itself be a Git repository, but Luca does not require or expose
-repository semantics here. The hidden NIP-34 repository browser remains an
-unlinked compatibility feature at `/repositories`; user-facing `/projects`
-belongs to this model.
+Behaviour with no assignments is exactly today's flat list, with everything under
+a `Rooms` section. That is the degrade path and there is a test for it.
 
-Local settings must not be serialized into Nostr events, relay request bodies,
-diagnostic receipts, model-visible tool arguments, or renderer logs. Public
-Project events and channel metadata contain only the safe Project ID/name
-information above.
+**Codex replaces `useRoomProjects` with the real source. Nothing else in the rail
+should need to change.**
 
-## Agent runtime handoff
+---
 
-When an owned Agent answers in a Project Chat, Luca provides a bounded local
-handoff to that Chat's ACP session:
+## Data model
 
-- prepend the Project instructions to the local Agent prompt context;
-- use the Project folder as the session working directory;
-- rotate the runtime session when the Project binding, instructions revision,
-  or folder binding changes.
+### The project entity — new addressable kind
 
-If the folder no longer exists, Chat and messaging continue without a working
-directory override. The Project collection and Chat header show **Reconnect
-folder**. Luca must not delete, archive, or hide the Project or its Chats.
+`30178` is the next free slot in the `3017x` block. `KIND_TEAM` (30176) is the
+closest existing analogue: a named grouping, parameterized-replaceable, keyed by
+`(pubkey, kind, d_tag)` with the project id as the `d_tag`.
 
-Project instructions alter context only. They never alter authority, tool
-permissions, provider, model, budgets, Agent identity, or signing custody.
+Content carries the project's **identity**: a stable id and a display label.
 
-## Creation and settings
+### The room binding — a tag on channel metadata
 
-A Project can be created through the Projects UI or a confirmed conversational
-proposal. The user supplies a name; a folder is optional and can be chosen
-later. Persistent creation uses one compact confirmation, with private details
-available behind Edit details.
+A room references its project by id. Prefer a tag on the existing channel
+metadata event over a new endpoint, per the repo's Nostr-first rule.
 
-Project settings allow:
+### ⚠ The repo path must NOT go on the relay
 
-- rename;
-- archive/unarchive;
-- edit private instructions;
-- choose, reconnect, or clear the local working folder.
+**This is the constraint most likely to be missed.** Relay events are
+world-readable — `KIND_MANAGED_AGENT`'s own doc comment says so explicitly and
+lists what must never appear in one. A local filesystem path discloses the
+owner's directory layout, their username, and often the names of unrelated
+private projects sitting beside it.
 
-## Compatibility and migration
+So the project splits in two:
 
-There is no existing Luca user Channel data requiring product migration or
-conversion onboarding. The localStorage demo assignment map is removed rather
-than migrated. Older clients ignore the new optional Project metadata and keep
-working through existing Channel and DM event kinds.
+- **On the relay:** project id + display label. Safe, syncs across devices,
+  survives a reinstall, and is what the rail groups by.
+- **Local only:** the `id → absolute path` binding. Never published, never in
+  event content, never in a tag. A path is machine-specific anyway — the same
+  project legitimately lives at different paths on different machines, so
+  syncing it would be wrong even if it were safe.
 
-## Acceptance
+That split also answers "what happens on a second device": the project appears
+with its rooms and its label, and simply has no path until the owner points it
+at one locally.
 
-- Assigning or moving a Project changes one canonical Chat.
-- The Chat is listed under every participant and its Project with the same ID.
-- Project instructions and the valid folder reach only that Chat's local ACP
-  session.
-- Changing the binding rotates the session.
-- A missing folder leaves messaging usable and shows Reconnect folder.
-- Relay events contain no absolute local paths or private Project instructions.
-- Wide and narrow collection navigation preserve back/forward state.
+---
 
-## Non-goals
+## What Codex builds
 
-- Multiple Projects per Chat.
-- Multiple folders or general resource graphs per Project.
-- A Project-specific Agent roster.
-- Git hosting, repository migration, or a broad NIP-34 rename.
-- Cross-Chat memory or Unified Brain.
+1. **Kind `30178`** in `buzz-core/src/kind.rs` with a doc comment, plus relay
+   handling. Follow `KIND_TEAM` / `KIND_MANAGED_AGENT` for shape.
+2. **A project tag on channel metadata**, and expose the resolved project id on
+   the `Channel` type the desktop already consumes.
+3. **A local-only path store** for `projectId → absolutePath`, alongside the
+   existing local archive/state mechanisms. Must never be published.
+4. **Replace `useRoomProjects`** to read (2) instead of localStorage. The rail,
+   grouping, ordering and tests stay as they are.
+5. **Wire the path into agent working directory** — this is the payoff. A
+   resident answering in a project-bound room should be working in that repo.
+   Coordinate with the ACP/harness side; see `REPLY_ADDRESSING.md` for the
+   adjacent question of *who* answers.
+
+---
+
+## Open questions
+
+- **Creating a project.** Proposal: point at a directory, and that is a project;
+  the label defaults to the directory name. Needs a picker and a name field.
+- **Assigning a room.** From the room's own header/info panel is the obvious
+  place, since project is a room attribute. Not designed yet.
+- **What happens when the path is gone** — repo moved or deleted. The project
+  should not break; it should surface as "no working directory" and the rooms
+  should still open. Do not delete rooms on a missing path.
+- **Does a project imply an agent roster?** Plausible — "these residents work in
+  this repo" — but not decided, and it interacts with reply addressing. Do not
+  assume it.
+
+---
+
+## Do not
+
+- Do not make a project a mode, a switcher, or a "current project" state.
+- Do not sort groups alphabetically or pin them to a fixed order.
+- Do not put a filesystem path in a relay event, a tag, or event content.
+- Do not allow a room in two projects without redesigning the rail first.
+- Do not delete or hide rooms when their project's path is missing.

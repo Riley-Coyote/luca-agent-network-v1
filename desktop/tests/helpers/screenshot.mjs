@@ -21,7 +21,6 @@
 //   --viewport <WxH>           Viewport dimensions (default: 1280x720)
 //   --outdir <path>            Output directory (default: test-results/screenshots)
 //   --messages <path>          JSON file with messages to inject before capture
-//   --scale <n>                Device pixel ratio for the capture (default: 1; use 2 for retina)
 //   --update-ready             Mock an available update so the sidebar update card renders
 
 import { parseArgs } from "node:util";
@@ -43,7 +42,6 @@ const { values: args } = parseArgs({
     outdir: { type: "string", default: "test-results/screenshots" },
     messages: { type: "string" },
     "local-storage": { type: "string", multiple: true, default: [] },
-    scale: { type: "string", default: "1" },
     "update-ready": { type: "boolean", default: false },
   },
   strict: true,
@@ -64,10 +62,6 @@ const activeChannel = args["active-channel"];
 const rightClick = args["right-click"];
 
 const [vpWidth, vpHeight] = args.viewport.split("x").map(Number);
-const deviceScaleFactor = Number(args.scale);
-if (!Number.isFinite(deviceScaleFactor) || deviceScaleFactor <= 0) {
-  throw new Error(`--scale expects a positive number, received "${args.scale}"`);
-}
 const waitMs = Number(args.wait);
 const outdir = resolve(args.outdir);
 
@@ -110,7 +104,6 @@ const TEST_PUBKEYS = [
 const browser = await chromium.launch({ headless: !process.env.BUZZ_HEADED });
 const page = await browser.newPage({
   viewport: { width: vpWidth, height: vpHeight },
-  deviceScaleFactor,
 });
 
 // Seed default community (mirrors seedDefaultCommunity in bridge.ts)
@@ -278,18 +271,12 @@ try {
     await page.waitForTimeout(500);
   }
 
-  // Wait for finishing CSS/Web animations before capturing. Mirrors
-  // `waitForAnimations` in tests/helpers/animations.ts: looping animations
-  // (spinners, pulsing presence dots) never settle, and an animation can be
-  // cancelled between sampling and awaiting it — which rejects `.finished`
-  // with an AbortError. Swallow rejections and race against a short ceiling.
-  await page.evaluate((ceiling) => {
-    const settled = Promise.all(
-      document.getAnimations().map((a) => a.finished.catch(() => undefined)),
-    );
-    const ceilingHit = new Promise((resolve) => setTimeout(resolve, ceiling));
-    return Promise.race([settled.then(() => undefined), ceilingHit]);
-  }, 1000);
+  // Wait for all CSS/Web animations to finish before capturing.
+  // Radix components animate in via CSS — without this, screenshots
+  // are taken mid-transition and appear greyed-out or partially rendered.
+  await page.evaluate(() =>
+    Promise.all(document.getAnimations().map((a) => a.finished)),
+  );
 
   const filepath = join(outdir, `${args.name}.png`);
   const clipOpts = args.clip
