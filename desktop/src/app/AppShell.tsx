@@ -31,15 +31,11 @@ import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import {
   channelsQueryKey,
   useChannelsQuery,
+  useCreateChatMutation,
   useCreateChannelMutation,
   useHideDmMutation,
-  useOpenDmMutation,
 } from "@/features/channels/hooks";
 import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
-import {
-  assignRoomProject,
-  useRoomProjects,
-} from "@/features/channels/lib/roomProjects";
 import {
   ConversationWorkspaceProvider,
   OPEN_CONVERSATION_IN_PANE_EVENT,
@@ -64,6 +60,7 @@ import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIng
 import { useBrainReviewNavigation } from "@/features/luca/brain/useBrainReviewNavigation";
 import { usePolyphonicSurfaceNavigation } from "@/features/luca/usePolyphonicSurfaceNavigation";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
+import { ConversationalProposalDialogs } from "@/features/agents/ui/ConversationalProposalDialogs";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
 import {
   usePresenceSession,
@@ -90,6 +87,7 @@ import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
+import { LucaCollectionPanel } from "@/features/sidebar/ui/LucaCollectionPanel";
 import { CommunityRail } from "@/features/sidebar/ui/CommunityRail";
 import { useChannelMutes } from "@/features/sidebar/lib/useChannelMutes";
 import { useChannelStars } from "@/features/sidebar/lib/useChannelStars";
@@ -97,6 +95,7 @@ import { useCommunities } from "@/features/communities/useCommunities";
 import { useAddCommunityDialogState } from "@/features/communities/addCommunityPrefill";
 import { useApplyTemplate } from "@/features/channel-templates/useApplyTemplate";
 import { relayClient } from "@/shared/api/relayClient";
+import { updateChannel } from "@/shared/api/tauriChannels";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { useRelayAutoHeal } from "@/shared/api/useRelayAutoHeal";
 import { useDeferredStartup } from "@/shared/hooks/useDeferredStartup";
@@ -155,7 +154,6 @@ export function AppShell() {
     goHome,
     goInbox,
     goNewMessage,
-    goProject,
     goProjects,
     goPulse,
     goSettings,
@@ -202,6 +200,20 @@ export function AppShell() {
     const [, , rawProjectId] = location.pathname.split("/");
     return rawProjectId ? decodeURIComponent(rawProjectId) : null;
   }, [location.pathname]);
+  const selectedCollection = React.useMemo(() => {
+    const search = location.search as {
+      collection?: unknown;
+      collectionId?: unknown;
+    };
+    if (
+      (search.collection === "agent" || search.collection === "project") &&
+      typeof search.collectionId === "string" &&
+      search.collectionId.length > 0
+    ) {
+      return { type: search.collection, id: search.collectionId } as const;
+    }
+    return null;
+  }, [location.search]);
   // Settings lives in history so back returns to the previous app entry.
   const settingsOpen = location.pathname === "/settings";
   const locationSearchSection = (location.search as { section?: unknown })
@@ -270,15 +282,19 @@ export function AppShell() {
   const feedItemState = useFeedItemState(identityQuery.data?.pubkey);
   const channelsQuery = useChannelsQuery();
   const channels = channelsQuery.data ?? [];
-  const projectByChannelId = useRoomProjects(
-    channels,
-    identityQuery.data?.pubkey,
-    communitiesHook.activeCommunity?.relayUrl,
+  const projectByChannelId = React.useMemo(
+    () =>
+      new Map(
+        channels.flatMap((channel) =>
+          channel.projectId ? [[channel.id, channel.projectId] as const] : [],
+        ),
+      ),
+    [channels],
   );
   const availableWorkspaceConversations = React.useMemo(
     () =>
       channels.map((channel) => {
-        const projectId = projectByChannelId.get(channel.id)?.id;
+        const projectId = projectByChannelId.get(channel.id);
         return projectId
           ? { channelId: channel.id, projectId }
           : { channelId: channel.id };
@@ -295,7 +311,7 @@ export function AppShell() {
     },
   });
   const selectedWorkspaceProjectId = selectedChannelId
-    ? projectByChannelId.get(selectedChannelId)?.id
+    ? projectByChannelId.get(selectedChannelId)
     : undefined;
 
   React.useEffect(() => {
@@ -323,7 +339,7 @@ export function AppShell() {
     const handleOpenInPane = (event: Event) => {
       const requested = (event as CustomEvent<WorkspaceConversationRef>).detail;
       if (!requested?.channelId) return;
-      const projectId = projectByChannelId.get(requested.channelId)?.id;
+      const projectId = projectByChannelId.get(requested.channelId);
       const conversation = projectId
         ? { channelId: requested.channelId, projectId }
         : { channelId: requested.channelId };
@@ -556,8 +572,8 @@ export function AppShell() {
 
   const createChannelMutation = useCreateChannelMutation(),
     createForumMutation = useCreateChannelMutation();
+  const createChatMutation = useCreateChatMutation();
   const { applyCanvas, applyAgents } = useApplyTemplate();
-  const openDmMutation = useOpenDmMutation();
   const hideDmMutation = useHideDmMutation();
   const {
     browseDialogType,
@@ -605,17 +621,10 @@ export function AppShell() {
 
       await applyCanvas(templateId, createdChannel.id, name);
       if (createChannelProjectId) {
-        const assigned = assignRoomProject(
-          identityQuery.data?.pubkey,
-          communitiesHook.activeCommunity?.relayUrl,
-          createdChannel.id,
-          createChannelProjectId,
-        );
-        if (!assigned) {
-          throw new Error(
-            "The room was created, but it could not be added to the project.",
-          );
-        }
+        await updateChannel({
+          channelId: createdChannel.id,
+          projectId: createChannelProjectId,
+        });
       }
       await goChannel(createdChannel.id);
       try {
@@ -628,11 +637,9 @@ export function AppShell() {
     [
       applyAgents,
       applyCanvas,
-      communitiesHook.activeCommunity?.relayUrl,
       createChannelMutation,
       createChannelProjectId,
       goChannel,
-      identityQuery.data?.pubkey,
     ],
   );
 
@@ -746,7 +753,7 @@ export function AppShell() {
     dockChannel: (channelId: string) => {
       const channel = channels.find((candidate) => candidate.id === channelId);
       if (!channel) return;
-      const projectId = projectByChannelId.get(channelId)?.id;
+      const projectId = projectByChannelId.get(channelId);
       conversationWorkspace.dockConversation(
         projectId ? { channelId, projectId } : { channelId },
       );
@@ -1018,25 +1025,25 @@ export function AppShell() {
                             onMarkChannelUnread={markChannelUnread}
                             onBrowseChannels={handleOpenBrowseChannels}
                             onOpenDm={async ({ pubkeys }) => {
-                              const directMessage =
-                                await openDmMutation.mutateAsync({
-                                  pubkeys,
+                              const result =
+                                await createChatMutation.mutateAsync({
+                                  participantPubkeys: pubkeys,
                                 });
-                              await goChannel(directMessage.id);
+                              await goChannel(result.chat.id);
                             }}
+                            selectedCollection={selectedCollection}
+                            onSelectAgent={(pubkey) =>
+                              void goAgents({ collectionId: pubkey })
+                            }
                             onSelectAgents={() => void goAgents()}
                             onSelectArtifacts={() => void goArtifacts()}
                             onSelectBrain={() => void goBrain()}
                             onSelectChannel={(channelId) =>
                               void goChannel(channelId)
                             }
-                            onSelectProject={(projectId, preferredRoomId) => {
-                              if (preferredRoomId) {
-                                void goChannel(preferredRoomId);
-                                return;
-                              }
-                              void goProject(projectId);
-                            }}
+                            onSelectProject={(projectId) =>
+                              void goProjects({ collectionId: projectId })
+                            }
                             onOpenSearchResult={handleOpenSearchResult}
                             searchChannels={channels}
                             searchFocusRequest={searchFocusRequest}
@@ -1082,6 +1089,35 @@ export function AppShell() {
                             onStarChannel={starChannel}
                             onUnstarChannel={unstarChannel}
                           />
+                          {selectedCollection ? (
+                            <LucaCollectionPanel
+                              channels={sidebarChannels}
+                              currentPubkey={identityQuery.data?.pubkey}
+                              onChatCreated={(chatId) =>
+                                void goChannel(chatId, {
+                                  collection: selectedCollection.type,
+                                  collectionId: selectedCollection.id,
+                                })
+                              }
+                              onManageAgent={() => void goAgents()}
+                              onManageProject={() => void goProjects()}
+                              onNewProjectChat={(projectId) =>
+                                void goNewMessage({
+                                  projectId,
+                                  collection: "project",
+                                  collectionId: projectId,
+                                })
+                              }
+                              onOpenChat={(chatId) =>
+                                void goChannel(chatId, {
+                                  collection: selectedCollection.type,
+                                  collectionId: selectedCollection.id,
+                                })
+                              }
+                              selectedChannelId={selectedChannelId}
+                              selection={selectedCollection}
+                            />
+                          ) : null}
                           <MainInsetProvider mainInsetRef={mainInsetRef}>
                             <SidebarInset
                               ref={mainInsetRef}
@@ -1154,6 +1190,7 @@ export function AppShell() {
                       )}
                       <RequestedAgentCreateDialogs />
                       <AgentManagementDialogs />
+                      <ConversationalProposalDialogs />
                       <AppShellOverlays
                         activeChannel={managedChannel}
                         browseDialogType={browseDialogType}

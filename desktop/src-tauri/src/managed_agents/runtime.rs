@@ -2154,6 +2154,12 @@ fn abort_spawned_child(child: &mut std::process::Child) {
     let _ = child.wait();
 }
 
+#[cfg(unix)]
+fn abort_spawned_child_with_actions(child: &mut std::process::Child, resident_pubkey: &str) {
+    abort_spawned_child(child);
+    let _ = crate::luca::action_bridge::stop_endpoint(resident_pubkey);
+}
+
 /// Spawn an agent process without holding any locks on records or runtimes.
 /// Returns the child process and log path on success. The caller is responsible
 /// for updating `ManagedAgentRecord` fields and inserting into the runtimes map.
@@ -2433,6 +2439,11 @@ fn spawn_agent_child_unix(
     command.env_remove("NOSTR_PRIVATE_KEY");
     command.env_remove("BUZZ_AUTH_TAG");
     command.env("LUCA_MANAGED_RESIDENT_PUBKEY", resident_pubkey.as_str());
+    if let Ok(path) = crate::luca::projects::runtime_handoff_path(app) {
+        command.env("LUCA_PROJECT_CONTEXT_HANDOFF", path);
+    } else {
+        command.env_remove("LUCA_PROJECT_CONTEXT_HANDOFF");
+    }
     command.env(
         "LUCA_MANAGED_SESSION_EPOCH",
         session_epoch.get().to_string(),
@@ -2830,6 +2841,26 @@ fn spawn_agent_child_unix(
     // env_clear().
     command.env("BUZZ_MANAGED_AGENT", current_instance_id(app));
 
+    // A managed resident gets one narrow, typed local action endpoint. The MCP
+    // personality receives only this opaque capability and the public resident
+    // identity; it receives no relay signer or desktop API surface.
+    let action_endpoint = if resolved_mcp_command.is_some() {
+        Some(crate::luca::action_bridge::create_endpoint(
+            app,
+            resident_pubkey.as_str(),
+        )?)
+    } else {
+        crate::luca::action_bridge::stop_endpoint(resident_pubkey.as_str())?;
+        None
+    };
+    if let Some(endpoint) = action_endpoint.as_ref() {
+        command.env("LUCA_ACTION_BRIDGE_PATH", &endpoint.path);
+        command.env("LUCA_ACTION_BRIDGE_TOKEN", &endpoint.token);
+    } else {
+        command.env_remove("LUCA_ACTION_BRIDGE_PATH");
+        command.env_remove("LUCA_ACTION_BRIDGE_TOKEN");
+    }
+
     // Spawn the harness in its own process group so we can kill the entire
     // tree (harness + MCP servers + agent subprocesses) on shutdown.
     #[cfg(unix)]
@@ -2864,13 +2895,17 @@ fn spawn_agent_child_unix(
     }
 
     let mut resident_start_guard = ManagedResidentStartGuard::begin(resident_pubkey.as_str())?;
-    let mut child = command.spawn().map_err(|error| {
-        format!(
-            "failed to spawn `{}` for agent {}: {error}",
-            resolved_acp_command.display(),
-            record.name
-        )
-    })?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            let _ = crate::luca::action_bridge::stop_endpoint(resident_pubkey.as_str());
+            return Err(format!(
+                "failed to spawn `{}` for agent {}: {error}",
+                resolved_acp_command.display(),
+                record.name
+            ));
+        }
+    };
     let child_pid = child.id();
     let binding = crate::luca::local_broker_session::LocalBrokerSessionBinding {
         owner_pubkey: owner_pubkey.clone(),
@@ -2905,7 +2940,7 @@ fn spawn_agent_child_unix(
     let (outbox_path, publisher, dispatch_store) = match publisher_setup {
         Ok(setup) => setup,
         Err(error) => {
-            abort_spawned_child(&mut child);
+            abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
             return Err(error);
         }
     };
@@ -2918,7 +2953,7 @@ fn spawn_agent_child_unix(
         ) {
             Ok(broker) => broker,
             Err(error) => {
-                abort_spawned_child(&mut child);
+                abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
                 return Err(format!("failed to bind managed signing broker: {error}"));
             }
         };
@@ -2926,7 +2961,7 @@ fn spawn_agent_child_unix(
     let (mut broker_stream, broker_shutdown) = match desktop_broker_endpoint.split_for_serve() {
         Ok(split) => split,
         Err(error) => {
-            abort_spawned_child(&mut child);
+            abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
             return Err(format!(
                 "failed to split managed signing broker endpoint: {error}"
             ));
@@ -2937,7 +2972,7 @@ fn spawn_agent_child_unix(
         broker_stream.set_write_timeout(Some(std::time::Duration::from_secs(5))),
     ] {
         if let Err(error) = result {
-            abort_spawned_child(&mut child);
+            abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
             return Err(format!(
                 "failed to bound managed signing broker socket I/O: {error}"
             ));
@@ -2993,7 +3028,7 @@ fn spawn_agent_child_unix(
             }) {
             Ok(handle) => handle,
             Err(error) => {
-                abort_spawned_child(&mut child);
+                abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
                 return Err(format!("failed to start managed signing broker: {error}"));
             }
         };
@@ -3008,23 +3043,23 @@ fn spawn_agent_child_unix(
     ) {
         let _ = owner.shutdown.shutdown();
         let _ = owner.handle.join();
-        abort_spawned_child(&mut child);
+        abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
         return Err("managed signing broker owner already exists".into());
     }
     if register_managed_capsule_broker(&record.pubkey, capsule_handle).is_err() {
         let _ = join_managed_signing_broker(&record.pubkey);
-        abort_spawned_child(&mut child);
+        abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
         return Err("managed Capsule broker owner already exists".into());
     }
     if crate::luca::managed_cognition::register(managed_cognition_client).is_err() {
         let _ = join_managed_signing_broker(&record.pubkey);
-        abort_spawned_child(&mut child);
+        abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
         return Err("managed cognition broker owner already exists".into());
     }
     #[cfg(unix)]
     if let Err(error) = repository_broker_lease.commit() {
         let _ = join_managed_signing_broker(&record.pubkey);
-        abort_spawned_child(&mut child);
+        abort_spawned_child_with_actions(&mut child, resident_pubkey.as_str());
         return Err(format!("failed to register repository broker: {error}"));
     }
     #[cfg(unix)]
@@ -3151,6 +3186,8 @@ pub fn stop_managed_agent_process(
     record: &mut ManagedAgentRecord,
     runtimes: &mut HashMap<String, ManagedAgentProcess>,
 ) -> Result<(), String> {
+    #[cfg(unix)]
+    crate::luca::action_bridge::stop_endpoint(&record.pubkey)?;
     let Some(mut runtime) = runtimes.remove(&record.pubkey) else {
         // Revoke all resident-scoped broker authority before attempting a
         // fallible process termination. A failed kill must never leave the

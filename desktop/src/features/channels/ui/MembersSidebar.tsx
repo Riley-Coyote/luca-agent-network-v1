@@ -631,7 +631,7 @@ export function MembersSidebar({
         >
           <DialogHeader className="space-y-0 pb-5">
             <div className="flex items-center justify-between gap-4">
-              <DialogTitle>Channel members</DialogTitle>
+              <DialogTitle>People in this chat</DialogTitle>
               <DialogClose className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-accent hover:text-accent-foreground focus:outline-hidden focus:ring-1 focus:ring-ring">
                 <X className="h-4 w-4" />
                 <span className="sr-only">Close</span>

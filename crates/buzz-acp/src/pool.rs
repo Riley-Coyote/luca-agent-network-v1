@@ -109,6 +109,8 @@ pub struct SessionState {
     /// Hash-only native root binding applied to each cached channel session.
     /// Filesystem paths are intentionally absent from reusable harness state.
     pub native_context_refs: HashMap<Uuid, String>,
+    /// Fingerprint of the machine-local Project binding used for this Chat.
+    pub project_binding_fingerprints: HashMap<Uuid, String>,
 }
 
 impl SessionState {
@@ -134,6 +136,7 @@ impl SessionState {
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
         self.native_context_refs.remove(channel_id);
+        self.project_binding_fingerprints.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -146,6 +149,7 @@ impl SessionState {
         self.core_sections.clear();
         self.canvas_sections.clear();
         self.native_context_refs.clear();
+        self.project_binding_fingerprints.clear();
     }
 
     #[cfg(test)]
@@ -155,6 +159,7 @@ impl SessionState {
             || self.core_sections.contains_key(channel_id)
             || self.canvas_sections.contains_key(channel_id)
             || self.native_context_refs.contains_key(channel_id)
+            || self.project_binding_fingerprints.contains_key(channel_id)
     }
 }
 
@@ -526,6 +531,8 @@ pub struct PromptContext {
     /// (`include_str!`) is inherently `'static`.
     pub base_prompt: Option<&'static str>,
     pub cwd: String,
+    /// Machine-local Luca Project bindings. Absent for unmanaged/older clients.
+    pub project_context_handoff: Option<std::path::PathBuf>,
     /// REST client for pre-prompt context fetches (thread/DM history).
     pub rest_client: RestClient,
     /// Channel metadata from discovery (name, type). Read-only after startup.
@@ -841,6 +848,7 @@ struct SessionCreationContext<'a> {
     communications_turn: Option<&'a crate::communications_mcp::CommunicationsTurnBindingV1>,
     artifact_turn: Option<&'a crate::artifact_mcp::ArtifactTurnBindingV1>,
     managed_context: Option<&'a crate::continuity_provider::ManagedSessionContextResultV1>,
+    project_context: Option<&'a crate::project_context::ProjectChatContext>,
 }
 
 /// Create a new ACP session via `session_new_full()`, populate model capabilities
@@ -862,9 +870,23 @@ async fn create_session_and_apply_model(
     // its own `[Agent Memory — core]` header, and canvas carries its own
     // `[Channel Canvas]` header; both are appended with a blank-line separator.
     let is_goose = agent.agent_name == "goose";
+    let project_prompt = session_context
+        .project_context
+        .map(|project| project.prompt_section());
+    let effective_system_prompt = match (ctx.system_prompt.as_deref(), project_prompt.as_deref()) {
+        (Some(system), Some(project)) => Some(format!("{system}\n\n{project}")),
+        (Some(system), None) => Some(system.to_string()),
+        (None, Some(project)) => Some(project.to_string()),
+        (None, None) => None,
+    };
     let session_cwd = session_context
-        .managed_context
-        .and_then(|context| context.cwd.as_deref())
+        .project_context
+        .and_then(|project| project.usable_working_folder())
+        .or_else(|| {
+            session_context
+                .managed_context
+                .and_then(|context| context.cwd.as_deref())
+        })
         .unwrap_or(&ctx.cwd);
     let additional_directories = session_context
         .managed_context
@@ -885,7 +907,7 @@ async fn create_session_and_apply_model(
                         framed_system_prompt(
                             session_cwd,
                             ctx.base_prompt,
-                            ctx.system_prompt.as_deref(),
+                            effective_system_prompt.as_deref(),
                         ),
                         ctx.team_instructions.as_deref(),
                     ),
@@ -2343,6 +2365,46 @@ pub async fn run_prompt_task(
         .unwrap_or_default();
     let _reaction_guard = ReactionGuard::new(ctx.rest_client.clone(), reaction_ids.clone());
 
+    // Re-read the bounded local handoff before every turn so Project edits
+    // take effect without restarting the resident. A binding change rotates
+    // only this Chat's ACP session; a missing folder fails open.
+    let project_context = match &source {
+        PromptSource::Channel(channel_id) => crate::project_context::load_chat_context(
+            ctx.project_context_handoff.as_ref(),
+            *channel_id,
+        ),
+        PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
+    };
+    let mut project_rotated_session = false;
+    if let PromptSource::Channel(channel_id) = &source {
+        let current = project_context
+            .as_ref()
+            .map(crate::project_context::ProjectChatContext::fingerprint);
+        let prior = agent
+            .state
+            .project_binding_fingerprints
+            .get(channel_id)
+            .cloned();
+        if prior != current {
+            project_rotated_session = agent.state.invalidate_channel(channel_id);
+            if let Some(fingerprint) = current {
+                agent
+                    .state
+                    .project_binding_fingerprints
+                    .insert(*channel_id, fingerprint);
+            }
+        }
+    }
+    let project_prompt = project_context
+        .as_ref()
+        .map(crate::project_context::ProjectChatContext::prompt_section);
+    let turn_system_prompt = match (ctx.system_prompt.as_deref(), project_prompt.as_deref()) {
+        (Some(system), Some(project)) => Some(format!("{system}\n\n{project}")),
+        (Some(system), None) => Some(system.to_string()),
+        (None, Some(project)) => Some(project.to_string()),
+        (None, None) => None,
+    };
+
     // Resolve the exact dispatch snapshot before any session is selected or
     // created. A native-root change rotates only this room. Brain-only changes
     // keep the provider session because their native root digest is unchanged.
@@ -2364,14 +2426,14 @@ pub async fn run_prompt_task(
         },
         _ => None,
     };
-    let mut context_rotated_session = false;
+    let mut context_rotated_session = project_rotated_session;
     if let PromptSource::Channel(cid) = &source {
         let current_ref = resolved_managed_context
             .as_ref()
             .and_then(|context| context.native_roots_ref.as_ref())
             .map(|value| value.as_str().to_owned())
             .unwrap_or_else(|| "luca.default-native-context.v1".to_owned());
-        context_rotated_session = reconcile_native_context(
+        context_rotated_session |= reconcile_native_context(
             &mut agent.state,
             cid,
             current_ref,
@@ -2540,6 +2602,7 @@ pub async fn run_prompt_task(
                         communications_turn: communications_turn.as_ref(),
                         artifact_turn: artifact_turn.as_ref(),
                         managed_context: resolved_managed_context.as_ref(),
+                        project_context: project_context.as_ref(),
                     },
                 )
                 .await
@@ -2938,7 +3001,7 @@ pub async fn run_prompt_task(
                 managed_publication: ctx.agent_keys.is_none(),
                 has_system_prompt_support: agent.has_system_prompt_support(),
                 base_prompt: ctx.base_prompt,
-                system_prompt: ctx.system_prompt.as_deref(),
+                system_prompt: turn_system_prompt.as_deref(),
                 team_instructions: ctx.team_instructions.as_deref(),
                 agent_canvas: agent_canvas.as_deref(),
             },
@@ -7851,6 +7914,7 @@ while read -r _; do :; done
             heartbeat_prompt: None,
             base_prompt: None,
             cwd: ".".to_string(),
+            project_context_handoff: None,
             rest_client: RestClient {
                 http: reqwest::Client::new(),
                 base_url: "http://127.0.0.1:0".to_string(),

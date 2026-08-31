@@ -13,6 +13,7 @@ APP_ID="com.luca.agent-network.dev"
 APP_NAME="Luca Agent Network Dev"
 DEFAULT_KEYRING_SERVICE="buzz-desktop-dev.luca-v1"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+SOURCE_AUTHORITY_FILE="$HOME/Library/Application Support/Luca Agent Network Dev/canonical-build-source"
 
 # A stable signing identity keeps macOS Keychain and Accessibility grants tied
 # to the application identity across rebuilds. Developers can choose an exact
@@ -35,6 +36,22 @@ case "$INSTALL_APP" in
         exit 2
         ;;
 esac
+
+if [[ ! -f "$SOURCE_AUTHORITY_FILE" ]]; then
+    echo "Refusing to replace $APP_NAME without a canonical build-source record." >&2
+    echo "Missing: $SOURCE_AUTHORITY_FILE" >&2
+    exit 2
+fi
+
+EXPECTED_REPO_ROOT=$(/usr/bin/sed -n '1p' "$SOURCE_AUTHORITY_FILE")
+EXPECTED_BRANCH=$(/usr/bin/sed -n '2p' "$SOURCE_AUTHORITY_FILE")
+CURRENT_BRANCH=$(git branch --show-current)
+if [[ "$REPO_ROOT" != "$EXPECTED_REPO_ROOT" || "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]]; then
+    echo "Refusing to replace $APP_NAME from an unapproved checkout." >&2
+    echo "Expected: $EXPECTED_REPO_ROOT on $EXPECTED_BRANCH" >&2
+    echo "Actual:   $REPO_ROOT on ${CURRENT_BRANCH:-detached HEAD}" >&2
+    exit 2
+fi
 
 cd "$REPO_ROOT"
 . ./bin/activate-hermit
@@ -134,6 +151,17 @@ running_pids() {
     '
 }
 
+rollback() {
+    if [[ -d "$OLD_APP" ]]; then
+        [[ -d "$INSTALL_APP" ]] && mv "$INSTALL_APP" "$NEW_APP.failed"
+        mv "$OLD_APP" "$INSTALL_APP"
+        "$LSREGISTER" -f "$INSTALL_APP" || true
+        /usr/bin/open -n "$INSTALL_APP" || true
+    fi
+    [[ -d "$INSTALL_APP" ]] && /usr/bin/chflags uchg "$INSTALL_APP" || true
+}
+trap rollback ERR
+
 /usr/bin/osascript -e "tell application id \"$APP_ID\" to quit" >/dev/null 2>&1 || true
 for _ in 1 2 3 4 5 6 7 8 9 10; do
     [[ -z "$(running_pids)" ]] && break
@@ -145,18 +173,9 @@ if [[ -n "$(running_pids)" ]]; then
 fi
 
 if [[ -d "$INSTALL_APP" ]]; then
+    /usr/bin/chflags nouchg "$INSTALL_APP"
     mv "$INSTALL_APP" "$OLD_APP"
 fi
-
-rollback() {
-    if [[ -d "$OLD_APP" ]]; then
-        [[ -d "$INSTALL_APP" ]] && mv "$INSTALL_APP" "$NEW_APP.failed"
-        mv "$OLD_APP" "$INSTALL_APP"
-        "$LSREGISTER" -f "$INSTALL_APP" || true
-        /usr/bin/open -n "$INSTALL_APP" || true
-    fi
-}
-trap rollback ERR
 
 mv "$NEW_APP" "$INSTALL_APP"
 codesign --verify --deep --strict "$INSTALL_APP"
@@ -188,6 +207,7 @@ if [[ -z "$(running_pids)" ]]; then
     false
 fi
 
+/usr/bin/chflags uchg "$INSTALL_APP"
 trap - ERR
 /bin/rm -rf -- "$STAGE_DIR"
 echo "Installed and running: $INSTALL_APP"

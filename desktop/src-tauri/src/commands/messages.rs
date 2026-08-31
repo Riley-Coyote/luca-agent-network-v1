@@ -908,7 +908,7 @@ fn legacy_managed_agent_auth_tag(
         .map_err(|error| format!("failed to compute managed agent auth tag: {error}"))
 }
 
-fn managed_agent_submission_auth_tag(
+pub(crate) fn managed_agent_submission_auth_tag(
     record: &ManagedAgentRecord,
     state: &AppState,
     agent_pubkey: &PublicKey,
@@ -955,6 +955,38 @@ pub async fn send_managed_agent_channel_message(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<SendChannelMessageResponse, String> {
+    send_managed_agent_channel_message_impl(
+        agent_pubkey,
+        channel_id,
+        content,
+        marker,
+        marker_scope,
+        mention_pubkeys,
+        parent_event_id,
+        additional_markers,
+        false,
+        app,
+        &state,
+    )
+    .await
+}
+
+/// Publish one managed-resident message, optionally staging exact dispatch
+/// authority for the owned residents mentioned by a focused assignment.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn send_managed_agent_channel_message_impl(
+    agent_pubkey: String,
+    channel_id: String,
+    content: String,
+    marker: Option<String>,
+    marker_scope: Option<String>,
+    mention_pubkeys: Option<Vec<String>>,
+    parent_event_id: Option<String>,
+    additional_markers: Option<Vec<String>>,
+    dispatch_mentions: bool,
+    app: AppHandle,
+    state: &AppState,
+) -> Result<SendChannelMessageResponse, String> {
     let channel_uuid = uuid::Uuid::parse_str(&channel_id)
         .map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
     let trimmed = content.trim();
@@ -987,15 +1019,15 @@ pub async fn send_managed_agent_channel_message(
         ));
     }
     let submission_auth_tag =
-        managed_agent_submission_auth_tag(&record, &state, &keys.public_key())?;
+        managed_agent_submission_auth_tag(&record, state, &keys.public_key())?;
     let thread_ref = match parent_event_id.as_deref() {
-        Some(parent_id) => Some(resolve_thread_ref(parent_id, &state).await?),
+        Some(parent_id) => Some(resolve_thread_ref(parent_id, state).await?),
         None => None,
     };
 
     if let Some(marker) = marker.as_deref() {
         if let Some(existing) = find_managed_agent_channel_message_by_marker(
-            &state,
+            state,
             marker_author_for_scope(marker_scope.as_deref(), Some(&record.pubkey))?,
             &channel_id,
             marker,
@@ -1034,8 +1066,64 @@ pub async fn send_managed_agent_channel_message(
         &mentions,
         &client_tags,
     )?;
-    let result =
-        submit_event_with_keys(builder, &state, &keys, submission_auth_tag.as_deref()).await?;
+    let result = if dispatch_mentions && !mentions.is_empty() {
+        let event = builder
+            .sign_with_keys(&keys)
+            .map_err(|error| format!("failed to sign managed agent message: {error}"))?;
+        let mentioned = mentions
+            .iter()
+            .map(|value| value.to_ascii_lowercase())
+            .collect::<std::collections::HashSet<_>>();
+        let managed_residents = load_managed_agents(&app)?
+            .into_iter()
+            .map(|record| record.pubkey.to_ascii_lowercase())
+            .filter(|pubkey| mentioned.contains(pubkey))
+            .collect::<Vec<_>>();
+        let dispatch_store = if managed_residents.is_empty() {
+            None
+        } else {
+            Some(crate::luca::managed_dispatch_store::global_dispatch_store(
+                &app,
+            )?)
+        };
+        let staged = if let Some(dispatch_store) = &dispatch_store {
+            dispatch_store
+                .lock()
+                .map_err(|error| error.to_string())?
+                .stage_owner_event_with_artifacts_and_context(
+                    &event,
+                    &managed_residents,
+                    &[],
+                    None,
+                    chrono::Utc::now().timestamp().max(0) as u64,
+                )?
+        } else {
+            Vec::new()
+        };
+        match crate::relay::submit_signed_event_with_keys(
+            &event,
+            state,
+            &keys,
+            submission_auth_tag.as_deref(),
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                if error.starts_with("relay rejected event:") && !staged.is_empty() {
+                    if let Some(dispatch_store) = dispatch_store {
+                        dispatch_store
+                            .lock()
+                            .map_err(|lock| lock.to_string())?
+                            .mark_rejected(&staged)?;
+                    }
+                }
+                return Err(error);
+            }
+        }
+    } else {
+        submit_event_with_keys(builder, state, &keys, submission_auth_tag.as_deref()).await?
+    };
 
     Ok(SendChannelMessageResponse {
         event_id: result.event_id,

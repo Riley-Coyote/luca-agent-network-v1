@@ -23,9 +23,6 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import type { ManagedAgent, UserSearchResult } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-/** Maximum recipients (excluding the current user) a DM can address. */
-export const NEW_MESSAGE_RECIPIENT_LIMIT = 8;
-
 const DIRECTORY_PAGE_SIZE = 50;
 
 export type NewMessageRecipientCandidate = UserSearchResult & {
@@ -79,9 +76,6 @@ export function useNewMessageRecipients({
   );
   const selectedUsersCountRef = React.useRef(0);
   const deferredSearchQuery = React.useDeferredValue(searchQuery.trim());
-  const hasReachedRecipientLimit =
-    selectedUsers.length >= NEW_MESSAGE_RECIPIENT_LIMIT;
-
   const selectedPubkeys = React.useMemo(
     () => new Set(selectedUsers.map((user) => normalizePubkey(user.pubkey))),
     [selectedUsers],
@@ -93,8 +87,7 @@ export function useNewMessageRecipients({
   const channelsQuery = useChannelsQuery({ enabled: active });
   const userSearchQuery = useInfiniteUserSearchQuery(deferredSearchQuery, {
     allowEmpty: true,
-    enabled:
-      active && (!hasReachedRecipientLimit || deferredSearchQuery.length > 0),
+    enabled: active,
     limit: DIRECTORY_PAGE_SIZE,
   });
   const userSearchResults = useFlattenedUserSearchResults(userSearchQuery.data);
@@ -244,7 +237,7 @@ export function useNewMessageRecipients({
     isDirectoryLoading || directoryIdentityQuery !== deferredSearchQuery;
   const handleDirectoryScroll = useUserSearchFetchMoreOnScroll(
     userSearchQuery,
-    !hasReachedRecipientLimit || deferredSearchQuery.length > 0,
+    true,
   );
 
   const searchOwnerPubkeys = React.useMemo(
@@ -276,28 +269,21 @@ export function useNewMessageRecipients({
     selectedUsersCountRef.current = selectedUsers.length;
   }, [selectedUsers.length]);
 
-  const selectUser = React.useCallback(
-    (user: UserSearchResult) => {
-      if (selectedUsers.length >= NEW_MESSAGE_RECIPIENT_LIMIT) {
-        return;
+  const selectUser = React.useCallback((user: UserSearchResult) => {
+    setSelectedUsers((current) => {
+      const pubkey = normalizePubkey(user.pubkey);
+      if (
+        current.some(
+          (candidate) => normalizePubkey(candidate.pubkey) === pubkey,
+        )
+      ) {
+        return current;
       }
 
-      setSelectedUsers((current) => {
-        const pubkey = normalizePubkey(user.pubkey);
-        if (
-          current.some(
-            (candidate) => normalizePubkey(candidate.pubkey) === pubkey,
-          )
-        ) {
-          return current;
-        }
-
-        return [...current, user];
-      });
-      setSearchQuery("");
-    },
-    [selectedUsers.length],
-  );
+      return [...current, user];
+    });
+    setSearchQuery("");
+  }, []);
 
   const removeUser = React.useCallback((pubkey: string) => {
     setSelectedUsers((current) =>
@@ -315,7 +301,6 @@ export function useNewMessageRecipients({
     currentPubkey: currentPubkey ?? identityQuery.data?.pubkey,
     deferredSearchQuery,
     handleDirectoryScroll,
-    hasReachedRecipientLimit,
     isDirectoryLoading: isDirectorySettling,
     ownerProfiles: ownerProfilesQuery.data?.profiles,
     removeUser,

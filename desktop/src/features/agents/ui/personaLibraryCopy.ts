@@ -1,7 +1,7 @@
 export const personaLibraryCopy = {
   title: "My agents",
   description:
-    "The agents you have chosen for this app. Use them to create groups and launch agents.",
+    "The agents you have chosen for this app. Use them to create teams and start chats.",
   chooseFromCatalog: "Choose from catalog",
   createNew: "New agent",
   import: "Import snapshot",
@@ -29,10 +29,10 @@ export const personaCatalogCopy = {
   availableState: "Available",
   detailSelectedTitle: "Selected for My Agents",
   detailSelectedDescription:
-    "Turn this off to remove the agent from groups and agent creation in this app.",
+    "Turn this off to remove the agent from teams and agent creation in this app.",
   detailAvailableTitle: "Available in Agent Catalog",
   detailAvailableDescription:
-    "Turn this on to make the agent available for groups and agent creation.",
+    "Turn this on to make the agent available for teams and agent creation.",
   useAction: "Add agent",
   addedAction: "Added to My Agents",
   teamEmptyState:

@@ -1,94 +1,124 @@
-# Projects — grouping rooms by the work they belong to
+# Luca Projects
 
-**Status:** navigation, device-local projection, and device-local runtime
-context defaults implemented. Connected-source discovery remains owned by the
-Brain surface.
+**Status:** canonical implementation contract, approved 2026-08-30.
+**Related:** [`CONVERSATION_MODEL.md`](CONVERSATION_MODEL.md).
 
-**Visual authority:**
-[`project-navigation/VISUAL_FIDELITY_CONTRACT.md`](project-navigation/VISUAL_FIDELITY_CONTRACT.md).
+A Project organizes Chats that share work context. It is deliberately simple:
+one safe, syncable identity; optional private instructions; and one optional
+working folder on each machine.
 
-## Product model
+## Product behavior
 
-- A project is a navigable container for rooms.
-- A room remains the canonical conversation unit.
-- One room belongs to at most one project.
-- DMs and rooms without a project remain directly available under `Rooms`.
-- Selecting a project opens its remembered or most recently active room; it is
-  never a second-click inbox.
-- A project may supply device-local working-context defaults to its rooms. It
-  still does not grant Brain access, relay authority, resident ownership, or
-  tool permission.
-- A room may replace the inherited working folder or add room-only sources.
-  Those changes stay in that room until the owner explicitly selects **Save to
-  project**.
+- A Chat belongs to zero or one Project.
+- A Project is a collection, not a workspace mode. Selecting it opens a second
+  column of its Chats; there is no global "current Project" state.
+- The same canonical Chat ID appears under its Agents, its Project, and the flat
+  Chats quick list. Moving a Chat does not copy its timeline.
+- Project Chats are ordered by activity. The Project collection itself may also
+  use recent activity rather than alphabetical or fixed ordering.
+- A Chat may contain one Agent, several Agents, visiting Agents, and people.
+  Projects do not imply or own an Agent roster.
 
-The persistent global rail stays unchanged. Project rooms appear in the
-contextual navigator inside the main application card rather than nested below
-the project row. This is the approved master-detail pattern shared with the
-Agent Library.
+The older rail prototype grouped all rooms beneath Project headings in one
+list. That prototype established useful recency behavior, but its localStorage
+assignment map and always-grouped navigation are superseded. The current
+design uses a dedicated Projects rail section and a contextual Chat column.
 
-## Current implementation
+## Syncable Project identity
 
-| File | Responsibility |
-|---|---|
-| `features/channels/lib/roomProjects.ts` | Owner/relay-scoped local project catalog, one-project-per-room assignments, migration from the old prototype keys, and the reviewed mutation seam for Brain Setup. |
-| `features/projects/lib/projectNavigator.ts` | Pure project-room view model and room filtering. |
-| `features/projects/ui/ProjectRoomWorkspace.tsx` | Contextual room navigator, empty state, responsive transition, and composition around the real conversation surface. |
-| `features/sidebar/ui/ChatList.tsx` | Loose rooms plus one global-rail row per project. |
-| `app/routes/ChannelRouteScreen.tsx` | Derives project context while keeping `/channels/:channelId` canonical. |
-| `app/routes/projects.$projectId.tsx` | Empty-project and project-entry route; preserves the older repository-project route for unrelated IDs. |
-| `src-tauri/src/luca/conversation_context.rs` | Owner/relay-scoped native authority for project defaults, room overrides, opaque source bindings, availability, revisions, and exact dispatch snapshots. |
-| `features/luca/context/ConversationContextComposerSurface.tsx` | Single composer entry point, compact context chip, inheritance-aware drawer, missing-folder recovery, and local change marker. |
+Project identity uses parameterized-replaceable kind `30179`, owned by the
+user and keyed by its UUID `d` tag. Kind `30178` remains reserved for Luca's
+existing exchange object.
 
-The local projection is versioned and scoped by owner public key and relay, so
-one identity or home cannot inherit another's project organization. Existing
-unscoped prototype data migrates once. Writes are reactive in the current
-window and across storage events.
+Safe event content contains only:
 
-## Filesystem privacy boundary
+- display name;
+- archived state;
+- schema version.
 
-A local filesystem path must never appear in a relay event, room metadata,
-message, evidence log, or public project identifier. It discloses the owner's
-username and directory layout and is different on every device.
+The UUID remains in the `d` tag. A Project event must never contain an absolute
+path, private instructions, credentials, repository secrets, or file contents.
 
-The native context authority resolves a project or room's opaque connected
-source IDs through the existing device-local connected-source store. Absolute
-paths never enter renderer persistence, project metadata, relay events,
-messages, or context receipts. A moved or missing path changes only the
-working-context status; it never deletes or hides the project or its rooms.
+## Chat binding
 
-## Brain and runtime boundary
+Buzz `Channel` remains the signed transport primitive. A Chat's optional
+Project UUID is stored in channel metadata and emitted as a `project` tag. Kind
+`9002` metadata edits assign, move, or clear the binding. The database exposes
+the resolved `project_id` for efficient collection queries.
 
-Brain Setup continues to use the existing frontend seam rather than inventing
-a second project catalog:
+Because a Chat has one optional Project, moving it is one metadata edit. There
+is no join table and no multi-Project UI.
 
-- `replaceRoomProjects(ownerPubkey, relayUrl, projects)` commits the reviewed
-  catalog.
-- `assignRoomProject(ownerPubkey, relayUrl, channelId, projectId)` assigns or
-  unassigns exactly one room.
-- `workingContextStatus` is a coarse project-list projection. The native
-  `ConversationContextViewV1` is authoritative for per-room readiness.
+## Private machine-local settings
 
-The context layer now provides:
+Each machine stores a private record keyed by `(owner, project_id)`:
 
-1. one optional primary working folder and bounded additional sources;
-2. project inheritance, isolated room overrides, explicit promotion, and
-   optimistic revision checks;
-3. trusted native path resolution that never crosses the renderer/relay
-   privacy boundary;
-4. exact context freezing before a managed owner event is published; and
-5. source grants that remain separate from project membership.
+- optional context/instructions;
+- optional absolute working-folder path.
 
-Selecting a source for runtime context does not create a Brain grant. Brain
-retrieval remains limited to grants already held by the resident. Native folder
-access follows the selected runtime adapter's existing approval behavior.
+The folder may itself be a Git repository, but Luca does not require or expose
+repository semantics here. The hidden NIP-34 repository browser remains an
+unlinked compatibility feature at `/repositories`; user-facing `/projects`
+belongs to this model.
 
-## Do not
+Local settings must not be serialized into Nostr events, relay request bodies,
+diagnostic receipts, model-visible tool arguments, or renderer logs. Public
+Project events and channel metadata contain only the safe Project ID/name
+information above.
 
-- Do not create a global "current project" runtime mode or a process-wide cwd.
-- Do not put local paths on the relay.
-- Do not give every resident in a room automatic source or memory access.
-- Do not make a room belong to multiple projects without redesigning the
-  navigation and authority model.
-- Do not restore the old Slack-style inbox or nest project rooms in the global
-  rail.
+## Agent runtime handoff
+
+When an owned Agent answers in a Project Chat, Luca provides a bounded local
+handoff to that Chat's ACP session:
+
+- prepend the Project instructions to the local Agent prompt context;
+- use the Project folder as the session working directory;
+- rotate the runtime session when the Project binding, instructions revision,
+  or folder binding changes.
+
+If the folder no longer exists, Chat and messaging continue without a working
+directory override. The Project collection and Chat header show **Reconnect
+folder**. Luca must not delete, archive, or hide the Project or its Chats.
+
+Project instructions alter context only. They never alter authority, tool
+permissions, provider, model, budgets, Agent identity, or signing custody.
+
+## Creation and settings
+
+A Project can be created through the Projects UI or a confirmed conversational
+proposal. The user supplies a name; a folder is optional and can be chosen
+later. Persistent creation uses one compact confirmation, with private details
+available behind Edit details.
+
+Project settings allow:
+
+- rename;
+- archive/unarchive;
+- edit private instructions;
+- choose, reconnect, or clear the local working folder.
+
+## Compatibility and migration
+
+There is no existing Luca user Channel data requiring product migration or
+conversion onboarding. The localStorage demo assignment map is removed rather
+than migrated. Older clients ignore the new optional Project metadata and keep
+working through existing Channel and DM event kinds.
+
+## Acceptance
+
+- Assigning or moving a Project changes one canonical Chat.
+- The Chat is listed under every participant and its Project with the same ID.
+- Project instructions and the valid folder reach only that Chat's local ACP
+  session.
+- Changing the binding rotates the session.
+- A missing folder leaves messaging usable and shows Reconnect folder.
+- Relay events contain no absolute local paths or private Project instructions.
+- Wide and narrow collection navigation preserve back/forward state.
+
+## Non-goals
+
+- Multiple Projects per Chat.
+- Multiple folders or general resource graphs per Project.
+- A Project-specific Agent roster.
+- Git hosting, repository migration, or a broad NIP-34 rename.
+- Cross-Chat memory or Unified Brain.

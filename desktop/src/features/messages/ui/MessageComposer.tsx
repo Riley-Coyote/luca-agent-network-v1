@@ -1217,7 +1217,6 @@ function MessageComposerImpl({
       </footer>
 
       <NonMemberMentionDialog
-        createsGroupDm={channelType === "dm"}
         error={mentionSendFlow.nonMemberPromptError}
         isInvitePending={mentionSendFlow.isInvitePending}
         names={mentionSendFlow.pendingNonMemberNames}

@@ -11,6 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 #[cfg(unix)]
+mod luca_actions;
+#[cfg(unix)]
 mod luca_artifacts;
 #[cfg(unix)]
 mod luca_communications;
@@ -279,11 +281,13 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     let artifact_probe_mode = std::env::var("LUCA_ARTIFACT_PROBE_MODE").as_deref() == Ok("1");
     let repository_mode = std::env::var("LUCA_REPOSITORY_MODE").as_deref() == Ok("1");
     let communications_mode = std::env::var("LUCA_COMMUNICATIONS_MODE").as_deref() == Ok("1");
+    let action_mode = std::env::var_os("LUCA_ACTION_BRIDGE_PATH").is_some();
     if [
         artifact_mode,
         artifact_probe_mode,
         repository_mode,
         communications_mode,
+        action_mode,
     ]
     .into_iter()
     .filter(|enabled| *enabled)
@@ -301,6 +305,24 @@ async fn async_main(cmd: String) -> Result<(), Box<dyn std::error::Error>> {
     // receipt coordinates.
     if artifact_mode || artifact_probe_mode {
         scrub_artifact_personality_environment();
+    }
+
+    if action_mode {
+        #[cfg(unix)]
+        {
+            let actions = luca_actions::LucaActionMcp::from_env()
+                .ok_or("Luca action MCP bootstrap is incomplete")?;
+            // The endpoint bootstrap has been copied into the typed server.
+            // Drop the rest of the inherited environment before serving so
+            // provider credentials and signing material are never exposed to
+            // this narrow personality or any future child it might gain.
+            for (key, _) in std::env::vars_os().collect::<Vec<_>>() {
+                std::env::remove_var(key);
+            }
+            return actions.serve().await;
+        }
+        #[cfg(not(unix))]
+        return Err("Luca conversational actions are supported only on Unix".into());
     }
 
     // Restricted personalities must never translate or retain signing

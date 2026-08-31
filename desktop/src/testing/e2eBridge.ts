@@ -140,6 +140,15 @@ type MockTeamSeed = {
   personaIds: string[];
 };
 
+type MockLucaProjectSeed = {
+  id?: string;
+  name: string;
+  archived?: boolean;
+  instructions?: string | null;
+  workingFolder?: string | null;
+  workingFolderState?: "not_set" | "connected" | "missing";
+};
+
 type MockCapabilitySkillSeed = {
   skillId: string;
   name: string;
@@ -270,6 +279,9 @@ type E2eConfig = {
     conversationContextFixture?: "ready" | "multiple" | "missing";
     personas?: MockPersonaSeed[];
     teams?: MockTeamSeed[];
+    projects?: MockLucaProjectSeed[];
+    /** Assign a mock channel to a Luca Project by channel name. */
+    channelProjects?: Record<string, string>;
     capabilitySkills?: MockCapabilitySkillSeed[];
     capabilitySkillsError?: string;
     runtimeSessionContextDelayMs?: number;
@@ -559,6 +571,7 @@ type RawChannel = {
   description: string;
   topic: string | null;
   purpose: string | null;
+  project_id?: string | null;
   member_count: number;
   member_pubkeys: string[];
   last_message_at: string | null;
@@ -890,6 +903,16 @@ type RawTeam = {
   version: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type RawLucaProject = {
+  id: string;
+  name: string;
+  archived: boolean;
+  instructions: string | null;
+  workingFolder: string | null;
+  workingFolderState: "not_set" | "connected" | "missing";
+  contextRevision: number;
 };
 
 type MockManagedAgent = RawManagedAgent & {
@@ -1618,6 +1641,7 @@ function toRawChannel(
     description: channel.description,
     topic: channel.topic,
     purpose: channel.purpose,
+    project_id: config?.mock?.channelProjects?.[channel.name] ?? null,
     member_count: channel.member_count,
     member_pubkeys: channel.members.map((member) => member.pubkey),
     last_message_at: channel.last_message_at,
@@ -3499,6 +3523,21 @@ let mockWebsocketSendMutexWedged = false;
 let mockClosedChannelLiveSubscription = false;
 const realSockets = new Map<number, WebSocket>();
 let mockManagedAgents: MockManagedAgent[] = [];
+let mockLucaProjects: RawLucaProject[] = [];
+
+function resetMockLucaProjects(config?: E2eConfig) {
+  mockLucaProjects = (config?.mock?.projects ?? []).map((project) => ({
+    id: project.id ?? crypto.randomUUID(),
+    name: project.name,
+    archived: project.archived ?? false,
+    instructions: project.instructions ?? null,
+    workingFolder: project.workingFolder ?? null,
+    workingFolderState:
+      project.workingFolderState ??
+      (project.workingFolder ? "connected" : "not_set"),
+    contextRevision: 1,
+  }));
+}
 
 let mockMcpConnectionSequence = 1;
 let mockLucaMcpRegistry: LucaMcpRegistryV1 = {
@@ -10216,6 +10255,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockLucaMcpRegistry();
   resetMockPersonas(config);
   resetMockTeams(config);
+  resetMockLucaProjects(config);
   seedMockSearchProfiles(config);
   resetMockWorkflows();
   resetMockMesh();
@@ -13017,6 +13057,62 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "list_managed_agents":
         return handleListManagedAgents(activeConfig);
+      case "list_luca_projects":
+        return mockLucaProjects.map((project) => ({ ...project }));
+      case "create_luca_project": {
+        const input = (
+          payload as {
+            input: {
+              name: string;
+              instructions?: string;
+              workingFolder?: string;
+            };
+          }
+        ).input;
+        const project: RawLucaProject = {
+          id: crypto.randomUUID(),
+          name: input.name.trim(),
+          archived: false,
+          instructions: input.instructions?.trim() || null,
+          workingFolder: input.workingFolder?.trim() || null,
+          workingFolderState: input.workingFolder?.trim()
+            ? "connected"
+            : "not_set",
+          contextRevision: 1,
+        };
+        mockLucaProjects.push(project);
+        return { ...project };
+      }
+      case "update_luca_project": {
+        const input = (
+          payload as {
+            input: {
+              projectId: string;
+              name?: string;
+              archived?: boolean;
+              instructions?: string | null;
+              workingFolder?: string | null;
+            };
+          }
+        ).input;
+        const project = mockLucaProjects.find(
+          (candidate) => candidate.id === input.projectId,
+        );
+        if (!project) throw new Error(`Project ${input.projectId} not found.`);
+        if (input.name !== undefined) project.name = input.name.trim();
+        if (input.archived !== undefined) project.archived = input.archived;
+        if (input.instructions !== undefined) {
+          project.instructions = input.instructions?.trim() || null;
+        }
+        if (input.workingFolder !== undefined) {
+          project.workingFolder = input.workingFolder?.trim() || null;
+          project.workingFolderState = project.workingFolder
+            ? "connected"
+            : "not_set";
+        }
+        project.contextRevision += 1;
+        return { ...project };
+      }
       case "get_resident_capability_settings":
         return mockResidentCapabilitySettings;
       case "set_polyphonic_onboarding_status":

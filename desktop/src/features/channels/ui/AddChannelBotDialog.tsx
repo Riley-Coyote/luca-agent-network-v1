@@ -245,12 +245,8 @@ export function AddChannelBotDialog({
       ? `Adding ${selectedPersonas.length}…`
       : "Adding…"
     : selectedPersonas.length > 1
-      ? `${conversationMode === "dm" ? "Start group DM with" : "Add"} ${
-          selectedPersonas.length
-        } agents`
-      : conversationMode === "dm"
-        ? "Start group DM"
-        : "Add agent";
+      ? `Add ${selectedPersonas.length} agents`
+      : "Add agent";
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
@@ -259,7 +255,7 @@ export function AddChannelBotDialog({
         data-testid="add-channel-bot-dialog"
         description={
           conversationMode === "dm"
-            ? "Choose agents for a separate group DM. This conversation stays unchanged."
+            ? "Choose agents to bring into this chat."
             : "Choose from your agents, or create a new one."
         }
         footer={
@@ -287,7 +283,7 @@ export function AddChannelBotDialog({
         headerTestId="add-channel-bot-dialog-header"
         scrollAreaClassName="space-y-5"
         scrollAreaTestId="add-channel-bot-dialog-scroll-area"
-        title={conversationMode === "dm" ? "Start a group DM" : "Add agents"}
+        title="Add agents"
       >
         <AddChannelBotPersonasSection
           canToggleSelections={!isSubmitting}

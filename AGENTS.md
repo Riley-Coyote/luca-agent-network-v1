@@ -6,8 +6,13 @@ changing code, read [HANDOFF.md](HANDOFF.md) and
 Buzz product assumptions in the upstream guide below. In particular:
 
 - Luca is a personal agent network, not an organization/community product.
-- There is no conductor. The owner talks directly with persistent residents in
-  DMs and multi-agent conversations.
+- There is no conductor. The owner talks directly with persistent Agents in
+  independent Chats, may change Chat participants in place, and may delegate
+  focused work through a primary Agent.
+- Chat is the Luca-facing conversation primitive; Buzz Channel remains the
+  signed transport primitive. Projects organize Chats and add local context.
+- Read `docs/luca/CONVERSATION_MODEL.md` before changing Chats, Agents, Projects,
+  Teams, Tasks, participants, navigation, or delegation behavior.
 - Buzz remains the messaging/event/UI foundation; do not rebuild its transport.
 - Resident cryptographic identity is stable across runtime/model changes.
 - Native Hermes/OpenClaw/Codex/Claude Code agents may be configured from Luca

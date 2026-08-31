@@ -610,7 +610,7 @@ function SettingsSection({
         ) : null}
       </LedgerSection>
 
-      <LedgerSection eyebrow="Conversations" title="Recent rooms">
+      <LedgerSection eyebrow="Conversations" title="Recent chats">
         {channels.length > 0 ? (
           <div className="divide-y divide-border/45">
             {channels.slice(0, 6).map((channel) => (

@@ -129,6 +129,7 @@ pub struct ChannelInfo {
     pub is_member: bool,
     pub ttl_seconds: Option<i32>,
     pub ttl_deadline: Option<String>,
+    pub project_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -155,6 +156,7 @@ pub struct ChannelDetailInfo {
     pub nip29_group_id: Option<String>,
     pub ttl_seconds: Option<i32>,
     pub ttl_deadline: Option<String>,
+    pub project_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -174,6 +176,18 @@ pub struct ChannelMemberInfo {
 pub struct ChannelMembersResponse {
     pub members: Vec<ChannelMemberInfo>,
     pub next_cursor: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateChatParticipantFailure {
+    pub pubkey: String,
+    pub error: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CreateChatResult {
+    pub chat: ChannelInfo,
+    pub participant_failures: Vec<CreateChatParticipantFailure>,
 }
 
 #[derive(Serialize, Deserialize)]

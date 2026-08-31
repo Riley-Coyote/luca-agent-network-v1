@@ -11,6 +11,8 @@ import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 type ChannelRouteSearch = {
   agentSession?: string;
+  collection?: "agent" | "project";
+  collectionId?: string;
   /**
    * When set, the composer on mount will auto-submit its loaded draft once,
    * then clear this param. Value is the draft key that was loaded so the
@@ -45,6 +47,11 @@ function validateChannelSearch(
 ): ChannelRouteSearch {
   return {
     agentSession: nonEmptyString(search.agentSession),
+    collection:
+      search.collection === "agent" || search.collection === "project"
+        ? search.collection
+        : undefined,
+    collectionId: nonEmptyString(search.collectionId),
     autoSend: nonEmptyString(search.autoSend),
     messageId: nonEmptyString(search.messageId),
     profile: nonEmptyString(search.profile),

@@ -511,6 +511,31 @@ impl ManagedDispatchStore {
         })
     }
 
+    /// Read the durable lifecycle state for the exact residents invoked by a
+    /// signed focused-work assignment. No prompt or output bodies cross this
+    /// boundary.
+    pub(crate) fn states_for_trigger(
+        &self,
+        trigger_event_id: &str,
+        residents: &[String],
+    ) -> Vec<(String, ManagedDispatchState)> {
+        let residents = residents
+            .iter()
+            .map(|resident| resident.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        let mut states = self
+            .dispatches
+            .values()
+            .filter(|dispatch| {
+                dispatch.trigger_event_id == trigger_event_id
+                    && residents.contains(&dispatch.resident_pubkey)
+            })
+            .map(|dispatch| (dispatch.resident_pubkey.clone(), dispatch.state))
+            .collect::<Vec<_>>();
+        states.sort_by(|left, right| left.0.cmp(&right.0));
+        states
+    }
+
     /// Context editing is disabled only while a resident dispatch in this
     /// conversation is pending or active.
     pub(crate) fn conversation_has_active_turn(&self, conversation_id: &str) -> bool {

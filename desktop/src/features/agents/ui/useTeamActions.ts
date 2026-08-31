@@ -10,7 +10,8 @@ import {
   useTeamsQuery,
   useUpdateTeamMutation,
 } from "@/features/agents/hooks";
-import type { CreateChannelManagedAgentsResult } from "@/features/agents/channelAgents";
+import { useCreateChatMutation } from "@/features/channels/hooks";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { deletePersona } from "@/shared/api/tauriPersonas";
 import {
   confirmTeamSnapshotImport,
@@ -23,7 +24,6 @@ import {
 } from "@/shared/api/tauriTeams";
 import type {
   AgentTeam,
-  Channel,
   CreateTeamInput,
   UpdateTeamInput,
 } from "@/shared/api/types";
@@ -41,17 +41,11 @@ type ActionMessages = {
   setActionErrorMessage: (message: string | null) => void;
 };
 
-type RefetchCallbacks = {
-  refetchManagedAgents: () => void;
-  refetchRelayAgents: () => void;
-};
-
-export function useTeamActions(
-  actions: ActionMessages,
-  refetch: RefetchCallbacks,
-) {
+export function useTeamActions(actions: ActionMessages) {
   const queryClient = useQueryClient();
+  const navigation = useAppNavigation();
   const teamsQuery = useTeamsQuery();
+  const createChatMutation = useCreateChatMutation();
   const createTeamMutation = useCreateTeamMutation();
   const updateTeamMutation = useUpdateTeamMutation();
   const deleteTeamMutation = useDeleteTeamMutation();
@@ -61,8 +55,6 @@ export function useTeamActions(
   const [teamToDelete, setTeamToDelete] = React.useState<AgentTeam | null>(
     null,
   );
-  const [teamToAddToChannel, setTeamToAddToChannel] =
-    React.useState<AgentTeam | null>(null);
   const [teamToExport, setTeamToExport] = React.useState<AgentTeam | null>(
     null,
   );
@@ -111,15 +103,15 @@ export function useTeamActions(
     try {
       if ("id" in input) {
         await updateTeamMutation.mutateAsync(input);
-        actions.setActionNoticeMessage(`Updated group "${input.name}".`);
+        actions.setActionNoticeMessage(`Updated team "${input.name}".`);
       } else {
         await createTeamMutation.mutateAsync(input);
-        actions.setActionNoticeMessage(`Created group "${input.name}".`);
+        actions.setActionNoticeMessage(`Created team "${input.name}".`);
       }
       setTeamDialogState(null);
     } catch (error) {
       actions.setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to save group.",
+        error instanceof Error ? error.message : "Failed to save team.",
       );
     }
   }
@@ -130,48 +122,51 @@ export function useTeamActions(
 
     try {
       await deleteTeamMutation.mutateAsync(team.id);
-      actions.setActionNoticeMessage(`Deleted group "${team.name}".`);
+      actions.setActionNoticeMessage(`Deleted team "${team.name}".`);
       setTeamToDelete(null);
     } catch (error) {
       actions.setActionErrorMessage(
-        error instanceof Error ? error.message : "Failed to delete group.",
+        error instanceof Error ? error.message : "Failed to delete team.",
       );
     }
   }
 
-  function handleTeamDeployed(
-    channel: Channel,
-    result: CreateChannelManagedAgentsResult,
-  ) {
+  async function handleStartTeamChat(team: AgentTeam) {
+    actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
-    const successCount = result.successes.length;
-    const failCount = result.failures.length;
-    if (failCount === 0) {
-      actions.setActionNoticeMessage(
-        `Added ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}.`,
+    if (team.memberPubkeys.length === 0) {
+      actions.setActionErrorMessage(
+        `Edit "${team.name}" and select its persistent agents before starting a chat.`,
       );
-    } else {
-      actions.setActionNoticeMessage(
-        `Added ${successCount} ${successCount === 1 ? "agent" : "agents"} to ${channel.name}. ${failCount} failed.`,
+      return;
+    }
+    try {
+      const result = await createChatMutation.mutateAsync({
+        participantPubkeys: team.memberPubkeys,
+        title: team.name,
+      });
+      actions.setActionNoticeMessage(`Started a chat with "${team.name}".`);
+      await navigation.goChannel(result.chat.id);
+    } catch (error) {
+      actions.setActionErrorMessage(
+        error instanceof Error
+          ? error.message
+          : `Failed to start a chat with "${team.name}".`,
       );
     }
-    setTeamToAddToChannel(null);
-    refetch.refetchManagedAgents();
-    refetch.refetchRelayAgents();
   }
 
   function openCreateDialog() {
     actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
     setTeamDialogState({
-      title: "Create group",
-      description:
-        "Save a set of agents so you can add them to rooms together.",
-      submitLabel: "Create group",
+      title: "Create team",
+      description: "Save a roster of agents for chats and delegated work.",
+      submitLabel: "Create team",
       initialValues: {
         name: "",
         description: "",
-        instructions: "",
+        memberPubkeys: [],
         personaIds: [],
       },
     });
@@ -182,12 +177,12 @@ export function useTeamActions(
     actions.setActionErrorMessage(null);
     setTeamDialogState({
       title: `Duplicate ${team.name}`,
-      description: "Create a new group by copying this one.",
-      submitLabel: "Create group",
+      description: "Create a new team by copying this one.",
+      submitLabel: "Create team",
       initialValues: {
         name: `${team.name} copy`,
         description: team.description ?? "",
-        instructions: team.instructions ?? "",
+        memberPubkeys: [...team.memberPubkeys],
         personaIds: [...team.personaIds],
       },
     });
@@ -211,14 +206,14 @@ export function useTeamActions(
     actions.setActionNoticeMessage(null);
     actions.setActionErrorMessage(null);
     setTeamDialogState({
-      title: "Edit group",
+      title: "Edit team",
       description: "",
       submitLabel: "Save changes",
       initialValues: {
         id: team.id,
         name: team.name,
         description: team.description ?? "",
-        instructions: team.instructions ?? "",
+        memberPubkeys: [...team.memberPubkeys],
         personaIds: [...team.personaIds],
       },
     });
@@ -254,7 +249,7 @@ export function useTeamActions(
           actions.setActionErrorMessage(
             error instanceof Error
               ? error.message
-              : "Failed to export group snapshot.",
+              : "Failed to export team snapshot.",
           );
         },
       },
@@ -279,7 +274,7 @@ export function useTeamActions(
       actions.setActionErrorMessage(
         err instanceof Error
           ? err.message
-          : "Failed to read group snapshot file.",
+          : "Failed to read team snapshot file.",
       );
     }
   }
@@ -306,7 +301,7 @@ export function useTeamActions(
       }
     } catch (err) {
       setTeamSnapshotImportConfirmError(
-        err instanceof Error ? err.message : "Failed to import group snapshot.",
+        err instanceof Error ? err.message : "Failed to import team snapshot.",
       );
     }
   }
@@ -327,8 +322,6 @@ export function useTeamActions(
     setTeamDialogState,
     teamToDelete,
     setTeamToDelete,
-    teamToAddToChannel,
-    setTeamToAddToChannel,
     teamToExport,
     setTeamToExport,
     teamToShare,
@@ -341,7 +334,7 @@ export function useTeamActions(
     handleTeamSubmit,
     handleDeleteRemovedPersonas,
     handleDeleteTeam,
-    handleTeamDeployed,
+    handleStartTeamChat,
     openCreateDialog,
     openDuplicateDialog,
     openEditDialog,

@@ -887,6 +887,9 @@ fn apply_inbound_team(teams: &mut Vec<TeamRecord>, d_tag: String, inbound: TeamE
             if let Some(persona_ids) = inbound.persona_ids {
                 local.persona_ids = persona_ids;
             }
+            if let Some(member_pubkeys) = inbound.member_pubkeys {
+                local.member_pubkeys = member_pubkeys;
+            }
         }
         None => teams.push(TeamRecord {
             id: d_tag,
@@ -896,6 +899,7 @@ fn apply_inbound_team(teams: &mut Vec<TeamRecord>, d_tag: String, inbound: TeamE
             // pre-fix client simply means no known value.
             instructions: inbound.instructions.unwrap_or_default(),
             persona_ids: inbound.persona_ids.unwrap_or_default(),
+            member_pubkeys: inbound.member_pubkeys.unwrap_or_default(),
             is_builtin: false,
             source_dir: None,
             is_symlink: false,

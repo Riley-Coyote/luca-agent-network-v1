@@ -15,6 +15,7 @@ mod managed_mcp_provider;
 mod managed_presentation;
 mod observer;
 mod pool;
+mod project_context;
 mod queue;
 mod relay;
 mod repository_mcp;
@@ -1774,6 +1775,8 @@ async fn tokio_main() -> Result<()> {
             .unwrap_or_else(|_| std::path::PathBuf::from("/"))
             .to_string_lossy()
             .to_string(),
+        project_context_handoff: std::env::var_os("LUCA_PROJECT_CONTEXT_HANDOFF")
+            .map(std::path::PathBuf::from),
         rest_client: relay.rest_client(),
         channel_info: channel_info_map,
         context_message_limit: config.context_message_limit,
@@ -4368,10 +4371,37 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
 
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     if config.identity.is_managed() {
-        return managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
+        let mut servers = managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
             tracing::warn!(target: "luca::mcp", code = error.code(), "managed MCP connections unavailable; continuing without tools");
             vec![]
         });
+        if !config.mcp_command.is_empty() {
+            let bridge = std::env::var("LUCA_ACTION_BRIDGE_PATH").ok();
+            let token = std::env::var("LUCA_ACTION_BRIDGE_TOKEN").ok();
+            let resident = std::env::var("LUCA_MANAGED_RESIDENT_PUBKEY").ok();
+            if let (Some(bridge), Some(token), Some(resident)) = (bridge, token, resident) {
+                servers.push(McpServer {
+                    name: "luca-actions".into(),
+                    command: config.mcp_command.clone(),
+                    args: vec![],
+                    env: vec![
+                        EnvVar {
+                            name: "LUCA_ACTION_BRIDGE_PATH".into(),
+                            value: bridge,
+                        },
+                        EnvVar {
+                            name: "LUCA_ACTION_BRIDGE_TOKEN".into(),
+                            value: token,
+                        },
+                        EnvVar {
+                            name: "LUCA_MANAGED_RESIDENT_PUBKEY".into(),
+                            value: resident,
+                        },
+                    ],
+                });
+            }
+        }
+        return servers;
     }
     if config.mcp_command.is_empty() {
         return vec![];

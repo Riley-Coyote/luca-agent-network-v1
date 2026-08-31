@@ -148,6 +148,15 @@ type MockTeamSeed = {
   personaIds: string[];
 };
 
+type MockLucaProjectSeed = {
+  id?: string;
+  name: string;
+  archived?: boolean;
+  instructions?: string | null;
+  workingFolder?: string | null;
+  workingFolderState?: "not_set" | "connected" | "missing";
+};
+
 type MockCapabilitySkillSeed = {
   skillId: string;
   name: string;
@@ -273,6 +282,9 @@ type MockBridgeOptions = {
   conversationContextFixture?: "ready" | "multiple" | "missing";
   personas?: MockPersonaSeed[];
   teams?: MockTeamSeed[];
+  projects?: MockLucaProjectSeed[];
+  /** Assign a mock channel to a Luca Project by channel name. */
+  channelProjects?: Record<string, string>;
   /** Runtime-owned skill catalog projected through the native capability API. */
   capabilitySkills?: MockCapabilitySkillSeed[];
   /** Fail skill catalog reads without affecting ordinary agent messaging. */

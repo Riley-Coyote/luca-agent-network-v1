@@ -11,6 +11,7 @@ type RawTeam = {
   description: string | null;
   instructions?: string | null;
   persona_ids: string[];
+  member_pubkeys?: string[];
   is_builtin?: boolean;
   source_dir?: string | null;
   is_symlink?: boolean;
@@ -27,6 +28,7 @@ function fromRawTeam(team: RawTeam): AgentTeam {
     description: team.description,
     instructions: team.instructions ?? null,
     personaIds: team.persona_ids,
+    memberPubkeys: team.member_pubkeys ?? [],
     isBuiltin: team.is_builtin ?? false,
     sourceDir: team.source_dir ?? null,
     isSymlink: team.is_symlink ?? false,
@@ -49,6 +51,7 @@ export async function createTeam(input: CreateTeamInput): Promise<AgentTeam> {
         description: input.description,
         instructions: input.instructions,
         personaIds: input.personaIds,
+        memberPubkeys: input.memberPubkeys ?? [],
       },
     }),
   );
@@ -63,6 +66,7 @@ export async function updateTeam(input: UpdateTeamInput): Promise<AgentTeam> {
         description: input.description,
         instructions: input.instructions,
         personaIds: input.personaIds,
+        memberPubkeys: input.memberPubkeys ?? [],
       },
     }),
   );
@@ -120,6 +124,7 @@ type RawTeamRecord = {
   name: string;
   description: string | null;
   persona_ids: string[];
+  member_pubkeys?: string[];
   instructions: string | null;
   is_builtin: boolean;
   source_dir: string | null;
