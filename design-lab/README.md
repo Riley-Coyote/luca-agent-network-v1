@@ -36,6 +36,13 @@ fast-forward it and rebuild.
 
 ## Related design references
 
+- `?lab=thinking` on the desktop dev build — the reply-state motion archive.
+  It includes the exact 21px no-bloom `murmur` filament retired from the
+  product on 2026-08-30, enlarged beside it for inspection, plus the earlier
+  thinking-indicator directions. The filament implementation remains in
+  `desktop/src/shared/ui/dot-display/identity/FilamentMark.tsx`; the archive
+  surface is `desktop/src/features/messages/lab/ThinkingIndicatorLab.tsx`.
+
 - `design-artifacts/Luca-Design-Artifacts/` (main checkout; also
   `Luca-Design-Artifacts.zip`) — the Aug 6 sigil session: the phosphor engine
   running live, the charcoal palette ladder + WCAG matrix, fourteen animation

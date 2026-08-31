@@ -474,6 +474,71 @@ function FilamentSection({ bloom }: { bloom: boolean }) {
   );
 }
 
+/**
+ * The exact product treatment retired on 2026-08-30. It used to replace a
+ * resident's resting runtime/identity mark whenever a managed reply was live.
+ * Keeping the specimen here preserves the work without leaving two competing
+ * thinking animations in the conversation surface.
+ */
+function ArchivedRuntimeMarkThinking() {
+  return (
+    <section
+      className="mb-12 rounded-xl border border-border bg-card p-5"
+      data-testid="archived-runtime-mark-thinking"
+    >
+      <div className="mb-4 flex items-start justify-between gap-8">
+        <div>
+          <p className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
+            archived product treatment · 2026-08-30
+          </p>
+          <h2 className="mt-1 text-lg font-medium tracking-[-0.01em]">
+            Runtime-mark murmur
+          </h2>
+          <p className="mt-1 max-w-[38rem] text-sm leading-6 text-muted-foreground">
+            Three faint currents pass through the resident glyph for the whole
+            live turn. Retired from chat because the activity shelf now owns the
+            single animated thinking signal; preserved here at its exact
+            production settings.
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border border-border px-2 py-1 font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
+          preserved
+        </span>
+      </div>
+      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-6 rounded-lg border border-border/60 bg-background/60 px-3 py-3">
+        <Row
+          live
+          mark={
+            <FilamentMark
+              bloom={false}
+              fit="box"
+              mode="current"
+              motion="murmur"
+              seed={LUCA_IDENTITY_SEED}
+              size={21}
+            />
+          }
+          status={<StatusWord word="thinking" />}
+          body={null}
+        />
+        <div className="flex flex-col items-center gap-2">
+          <FilamentMark
+            bloom={false}
+            fit="box"
+            mode="current"
+            motion="murmur"
+            seed={LUCA_IDENTITY_SEED}
+            size={72}
+          />
+          <span className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
+            enlarged
+          </span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ThinkingIndicatorLab() {
   const [playing, setPlaying] = React.useState(true);
   const [speed, setSpeed] = React.useState(1);
@@ -540,6 +605,8 @@ export function ThinkingIndicatorLab() {
             </span>
           ))}
         </div>
+
+        <ArchivedRuntimeMarkThinking />
 
         <section className="mb-12">
           <div className="mb-4 flex items-end justify-between gap-6">
