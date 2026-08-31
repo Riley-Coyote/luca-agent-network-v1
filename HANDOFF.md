@@ -69,16 +69,14 @@ git switch luca/v1.1
 Then read, in order:
 
 1. This file.
-2. [`docs/luca/CONVERSATION_MODEL.md`](docs/luca/CONVERSATION_MODEL.md).
-3. [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md).
-4. [`docs/luca-native-residents.md`](docs/luca-native-residents.md).
-5. [`.codex/luca-v1/USABLE_BUILD_MODE.md`](.codex/luca-v1/USABLE_BUILD_MODE.md).
-6. [`.codex/luca-v1/RUNTIME_PARITY_DELTA.md`](.codex/luca-v1/RUNTIME_PARITY_DELTA.md).
-7. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
-8. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
-9. [`docs/luca/REPLY_ADDRESSING.md`](docs/luca/REPLY_ADDRESSING.md) before changing who a message wakes up.
-10. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before changing Project grouping or local context.
-11. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md) before Brain source, discovery, import, graph, or adapter work. Its long-range vision is subordinate to the active V1.2.1 contracts in `docs/luca/v1.1-v1.3/`.
+2. [`docs/luca/G1_CHECKLIST.md`](docs/luca/G1_CHECKLIST.md).
+3. [`docs/luca-native-residents.md`](docs/luca-native-residents.md).
+4. [`.codex/luca-v1/USABLE_BUILD_MODE.md`](.codex/luca-v1/USABLE_BUILD_MODE.md).
+5. [`.codex/luca-v1/RUNTIME_PARITY_DELTA.md`](.codex/luca-v1/RUNTIME_PARITY_DELTA.md).
+6. [`.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md`](.codex/luca-v1/ARCHITECTURE_IMPLEMENTATION_SPEC.md) for the longer original architecture.
+7. [`.codex/luca-v1/SECURITY_THREAT_MODEL.md`](.codex/luca-v1/SECURITY_THREAT_MODEL.md) before authority, signing, identity, permission, or recovery changes.
+8. [`docs/luca/PROJECTS.md`](docs/luca/PROJECTS.md) before changing project grouping or local repository bindings.
+9. [`docs/luca/unified-brain/README.md`](docs/luca/unified-brain/README.md) before Brain source, discovery, import, graph, or adapter work. Its long-range vision is subordinate to the active V1.2.1 contracts in `docs/luca/v1.1-v1.3/`.
 
 The `.codex/luca-v1` directory contains the complete planning kit, contracts,
 task graph, protocol maps, and historical decisions. `HANDOFF.md` records the
@@ -87,15 +85,13 @@ newer simplifications and actual implementation state.
 ## Product in one paragraph
 
 Luca is a personal home where one owner can talk directly with persistent AI
-Agents in independent Chats. The owner may create multiple Chats with the same
-Agent, add or remove participants in place, organize a Chat under one optional
-Project, and delegate focused work conversationally. Every Agent has a stable
-cryptographic identity that remains the same when its model, executable, or
-runtime session changes. Agents can be imported read-only from existing Hermes
-profiles and OpenClaw agents. Buzz supplies the signed Channel transport,
+residents in ordinary DMs and multi-agent conversations. Every resident has a
+stable cryptographic identity that remains the same when its model, executable,
+or runtime session changes. Residents can be imported read-only from the user's
+existing Hermes profiles and OpenClaw agents. Buzz supplies the proven signed
 conversation log, realtime messaging, attachments, search, desktop shell, and
-ACP harness. Luca supplies the user-facing Agent/Chat/Project model, resident
-custody, runtime bindings, host-owned reply publication, and UI.
+ACP harness. Luca supplies the personal product model, resident custody,
+runtime bindings, host-owned reply publication, continuity seams, and UI.
 
 There is no conductor. Luca may be a resident, but is not a privileged router.
 Mnemos universal-brain retrieval and the fuller Polyphonic inner-life engine are

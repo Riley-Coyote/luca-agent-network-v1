@@ -28,14 +28,10 @@ work. Passing focused unit tests alone is not a G1 verdict.
 
 ## Messaging matrix
 
-- [ ] Create two Chats with identical participants and confirm distinct Chat IDs.
-- [ ] Add and remove a participant in place without opening a replacement Chat.
-- [ ] Hermes Chat: send one message and receive exactly one Agent-authored final.
-- [ ] OpenClaw Chat: send one message and receive exactly one Agent-authored final.
-- [ ] Mixed Hermes/OpenClaw Chat: address both and receive correctly attributed,
+- [ ] Hermes DM: send one message and receive exactly one resident-authored final.
+- [ ] OpenClaw DM: send one message and receive exactly one resident-authored final.
+- [ ] Mixed Hermes/OpenClaw room: address both and receive correctly attributed,
       correctly placed replies.
-- [ ] One canonical Chat appears under every participant and its optional Project.
-- [ ] A visiting Agent can join and leave without entering the owned Agents roster.
 - [ ] Confirm normal top-level sends, inline replies, unread boundaries, search
       targets, pagination, and scroll anchoring remain correct.
 - [ ] Confirm attachment/media send and render smoke.
@@ -87,14 +83,6 @@ work. Passing focused unit tests alone is not a G1 verdict.
 - [ ] No conductor or organization-first blocker exists.
 - [ ] Owner recovery is usable and accurately explains custody.
 - [ ] Persistent resident setup works with one real ACP provider.
-- [ ] Chats is a flat recency list; Agent and Project selections expose their
-      contextual Chat collections with back/forward state intact.
-- [ ] A Project applies local instructions and its working directory without
-      publishing either value to the relay; a missing folder does not block chat.
-- [ ] Conversational Agent creation reaches one compact confirmation and creates
-      a real key-safe resident.
-- [ ] Focused Team delegation creates one Chat and reports status/result back to
-      the source Chat without introducing Task navigation.
 - [ ] Conversation works when every continuity/Mnemos service is absent.
 
 ## Security and quality

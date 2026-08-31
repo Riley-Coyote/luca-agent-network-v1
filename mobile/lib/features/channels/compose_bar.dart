@@ -323,18 +323,23 @@ class ComposeBar extends HookConsumerWidget {
       final nonMemberAgentPubkeys = <String>[];
       final nonMemberHumans = <MentionCandidate>[];
       if (selectedMentions.isNotEmpty) {
-        final memberPubkeys = (await ref.read(
-          channelMembersProvider(channelId).future,
-        )).map((member) => member.pubkey.toLowerCase()).toSet();
-        final seenNonMembers = <String>{};
-        for (final candidate in selectedMentions) {
-          final pk = candidate.pubkey.toLowerCase();
-          if (memberPubkeys.contains(pk)) continue;
-          if (!seenNonMembers.add(pk)) continue;
-          if (candidate.isAgent) {
-            nonMemberAgentPubkeys.add(pk);
-          } else {
-            nonMemberHumans.add(candidate);
+        final currentChannel = (await ref.read(
+          channelsProvider.future,
+        )).firstWhere((channel) => channel.id == channelId);
+        if (!currentChannel.isDm) {
+          final memberPubkeys = (await ref.read(
+            channelMembersProvider(channelId).future,
+          )).map((member) => member.pubkey.toLowerCase()).toSet();
+          final seenNonMembers = <String>{};
+          for (final candidate in selectedMentions) {
+            final pk = candidate.pubkey.toLowerCase();
+            if (memberPubkeys.contains(pk)) continue;
+            if (!seenNonMembers.add(pk)) continue;
+            if (candidate.isAgent) {
+              nonMemberAgentPubkeys.add(pk);
+            } else {
+              nonMemberHumans.add(candidate);
+            }
           }
         }
       }

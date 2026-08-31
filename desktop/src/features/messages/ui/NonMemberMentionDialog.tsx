@@ -9,6 +9,7 @@ import {
 import { Button } from "@/shared/ui/button";
 
 type NonMemberMentionDialogProps = {
+  createsGroupDm?: boolean;
   error: string | null;
   isInvitePending: boolean;
   names: string[];
@@ -19,6 +20,7 @@ type NonMemberMentionDialogProps = {
 };
 
 export function NonMemberMentionDialog({
+  createsGroupDm = false,
   error,
   isInvitePending,
   names,
@@ -38,10 +40,24 @@ export function NonMemberMentionDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Add people to this chat?</AlertDialogTitle>
+          <AlertDialogTitle>
+            {createsGroupDm
+              ? "Create a group DM?"
+              : "Mention people outside this channel?"}
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            {names.join(", ")} {names.length === 1 ? "is" : "are"} not in this
-            chat. Add them, or send without adding them.
+            {createsGroupDm ? (
+              <>
+                Adding {names.join(", ")} creates a separate group DM. This
+                conversation stays unchanged.
+              </>
+            ) : (
+              <>
+                {names.join(", ")} {names.length === 1 ? "is" : "are"} not in
+                this channel. Invite them to the channel, or send without
+                inviting them.
+              </>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {error ? (
@@ -57,7 +73,7 @@ export function NonMemberMentionDialog({
             type="button"
             variant="outline"
           >
-            Send without adding
+            {createsGroupDm ? "Send without adding" : "Do nothing"}
           </Button>
           <Button
             disabled={isInvitePending}
@@ -65,7 +81,13 @@ export function NonMemberMentionDialog({
             size="sm"
             type="button"
           >
-            {isInvitePending ? "Adding…" : "Add and send"}
+            {isInvitePending
+              ? createsGroupDm
+                ? "Creating…"
+                : "Inviting..."
+              : createsGroupDm
+                ? "Create group DM"
+                : "Invite"}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

@@ -21,8 +21,6 @@ use super::TeamRecord;
 /// omitted — they describe this client's install, not the shared team.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TeamEventContent {
-    #[serde(default = "team_event_version")]
-    pub version: u8,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -47,14 +45,6 @@ pub struct TeamEventContent {
     /// membership (see the Sietch Tabr incident).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub persona_ids: Option<Vec<String>>,
-    /// Stable resident identities. Omission means an older publisher whose
-    /// value is unknown, while an empty array explicitly clears membership.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub member_pubkeys: Option<Vec<String>>,
-}
-
-fn team_event_version() -> u8 {
-    1
 }
 
 /// Project a `TeamRecord` onto the content fields published in team events.
@@ -62,7 +52,6 @@ fn team_event_version() -> u8 {
 /// one place.
 pub fn team_event_content(record: &TeamRecord) -> TeamEventContent {
     TeamEventContent {
-        version: 2,
         name: record.name.clone(),
         description: record.description.clone(),
         // Always `Some`, even when the inner value is absent — `None` is
@@ -70,7 +59,6 @@ pub fn team_event_content(record: &TeamRecord) -> TeamEventContent {
         // the struct doc comments).
         instructions: Some(record.instructions.clone()),
         persona_ids: Some(record.persona_ids.clone()),
-        member_pubkeys: Some(record.member_pubkeys.clone()),
     }
 }
 
@@ -123,7 +111,6 @@ mod tests {
             description: Some("A test team".to_string()),
             instructions: Some("Coordinate carefully.".to_string()),
             persona_ids: vec!["p1".to_string(), "p2".to_string()],
-            member_pubkeys: vec![],
             is_builtin: false,
             source_dir: Some(PathBuf::from("/local/only/path")),
             is_symlink: true,
@@ -167,15 +154,14 @@ mod tests {
         // Published fields present.
         assert!(json.contains("\"name\""));
         assert!(json.contains("\"persona_ids\""));
-        assert!(json.contains("\"member_pubkeys\""));
         assert!(json.contains("\"instructions\""));
-        assert!(json.contains("\"version\":2"));
         // Local-only / install-specific fields never published.
         assert!(!json.contains("source_dir"));
         assert!(!json.contains("is_symlink"));
         assert!(!json.contains("symlink_target"));
         assert!(!json.contains("is_builtin"));
         assert!(!json.contains("created_at"));
+        assert!(!json.contains("version"));
     }
 
     #[test]

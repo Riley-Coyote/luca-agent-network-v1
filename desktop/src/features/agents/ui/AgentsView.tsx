@@ -6,6 +6,7 @@ import {
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useOpenDmMutation } from "@/features/channels/hooks";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
+import { AddTeamToChannelDialog } from "./AddTeamToChannelDialog";
 import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
 import { AgentDialog } from "./AgentDialog";
 import { PersonaCatalogDialog } from "./PersonaCatalogDialog";
@@ -126,10 +127,16 @@ export function AgentsView({
     agents.setActionErrorMessage(null);
     setIsGroupsOpen(true);
   }
-  const teamActions = useTeamActions({
-    setActionNoticeMessage: agents.setActionNoticeMessage,
-    setActionErrorMessage: agents.setActionErrorMessage,
-  });
+  const teamActions = useTeamActions(
+    {
+      setActionNoticeMessage: agents.setActionNoticeMessage,
+      setActionErrorMessage: agents.setActionErrorMessage,
+    },
+    {
+      refetchManagedAgents: agents.refetchManagedAgents,
+      refetchRelayAgents: agents.refetchRelayAgents,
+    },
+  );
 
   const isActionPending =
     agents.isPending ||
@@ -427,9 +434,11 @@ export function AgentsView({
       <Dialog onOpenChange={setIsGroupsOpen} open={isGroupsOpen}>
         <DialogContent className="max-h-[86vh] max-w-5xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Teams</DialogTitle>
+            <DialogTitle>Agent groups</DialogTitle>
           </DialogHeader>
           <TeamsSection
+            actionErrorMessage={agents.actionErrorMessage}
+            actionNoticeMessage={agents.actionNoticeMessage}
             error={
               teamActions.teamsQuery.error instanceof Error
                 ? teamActions.teamsQuery.error
@@ -441,9 +450,7 @@ export function AgentsView({
               teamActions.updateTeamMutation.isPending ||
               teamActions.deleteTeamMutation.isPending
             }
-            onStartChat={(team) => {
-              void teamActions.handleStartTeamChat(team);
-            }}
+            onAddToChannel={teamActions.setTeamToAddToChannel}
             onCreate={teamActions.openCreateDialog}
             onDelete={teamActions.setTeamToDelete}
             onDuplicate={teamActions.openDuplicateDialog}
@@ -661,8 +668,10 @@ export function AgentsView({
               teamActions.setTeamDialogState(null);
             }
           }}
+          onDeleteRemovedPersonas={teamActions.handleDeleteRemovedPersonas}
           onSubmit={teamActions.handleTeamSubmit}
           open={teamActions.teamDialogState !== null}
+          personas={personas.libraryPersonas}
           submitLabel={teamActions.teamDialogState.submitLabel}
           title={teamActions.teamDialogState.title}
         />
@@ -679,6 +688,19 @@ export function AgentsView({
           }}
           open={teamActions.teamToDelete !== null}
           team={teamActions.teamToDelete}
+        />
+      ) : null}
+      {teamActions.teamToAddToChannel ? (
+        <AddTeamToChannelDialog
+          onDeployed={teamActions.handleTeamDeployed}
+          onOpenChange={(open) => {
+            if (!open) {
+              teamActions.setTeamToAddToChannel(null);
+            }
+          }}
+          open={teamActions.teamToAddToChannel !== null}
+          personas={personas.libraryPersonas}
+          team={teamActions.teamToAddToChannel}
         />
       ) : null}
       {teamActions.teamToShare ? (

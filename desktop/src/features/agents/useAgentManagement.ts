@@ -24,7 +24,6 @@ import {
 } from "./lib/instanceInputForDefinition";
 import { useCreatedAgentChannelAttachment } from "./useCreatedAgentChannelAttachment";
 import { classifyAgentManagementOrigin } from "./agentManagementBuffer";
-import { subscribeConversationalActions } from "./conversationalActionStore";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { resolveManagedAgentAvatarUrl } from "./ui/managedAgentAvatar";
 import type { AgentCreateIntent } from "./ui/agentCreateIntent";
@@ -33,9 +32,6 @@ import type {
   CreatePersonaInput,
   UpdatePersonaInput,
 } from "@/shared/api/types";
-import { createChat } from "@/shared/api/tauriChannels";
-import { listTeams, updateTeam } from "@/shared/api/tauriTeams";
-import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
 
 function updateInputFromRequest(
   request: Extract<AgentManagementRequest, { action: "update" }>,
@@ -144,52 +140,6 @@ export function useAgentManagement() {
     [],
   );
 
-  React.useEffect(
-    () =>
-      subscribeConversationalActions((action) => {
-        if (action.action !== "propose_agent") return;
-        const name = action.payload.name;
-        const instructions = action.payload.instructions;
-        if (typeof name !== "string" || typeof instructions !== "string") {
-          return;
-        }
-        acceptOwnedRequest(action.residentPubkey, {
-          type: "agent_management_request",
-          action: "create",
-          requestId: action.requestId,
-          request: {
-            channelId: action.sourceChatId,
-            displayName: name,
-            systemPrompt: instructions,
-            provisioningIntent: "fresh",
-            runtime:
-              typeof action.payload.runtime === "string"
-                ? action.payload.runtime
-                : undefined,
-            provider:
-              typeof action.payload.provider === "string"
-                ? action.payload.provider
-                : undefined,
-            model:
-              typeof action.payload.model === "string"
-                ? action.payload.model
-                : undefined,
-            respondTo: "owner-only",
-            projectId:
-              typeof action.payload.projectId === "string"
-                ? action.payload.projectId
-                : undefined,
-            teamId:
-              typeof action.payload.teamId === "string"
-                ? action.payload.teamId
-                : undefined,
-            createFirstChat: action.payload.createFirstChat === true,
-          },
-        });
-      }),
-    [],
-  );
-
   const matchingPersonas = React.useMemo(() => {
     if (request?.action !== "update") return [];
     const target = request.request.agentName.trim().toLocaleLowerCase();
@@ -280,44 +230,12 @@ export function useAgentManagement() {
           ),
         );
         if (created.spawnError) throw new Error(created.spawnError);
-        await createdAgentAttachment.presentCreatedAgent(created, null);
-        if (request.request.teamId) {
-          const team = (await listTeams()).find(
-            (candidate) => candidate.id === request.request.teamId,
-          );
-          if (team) {
-            await updateTeam({
-              id: team.id,
-              name: team.name,
-              description: team.description ?? "",
-              instructions: team.instructions ?? undefined,
-              memberPubkeys: Array.from(
-                new Set([...team.memberPubkeys, created.agent.pubkey]),
-              ),
-              personaIds: team.personaIds,
-            });
-          }
-        }
-        let firstChatId: string | null = null;
-        if (request.request.createFirstChat) {
-          const firstChat = await createChat({
-            participantPubkeys: [created.agent.pubkey],
-            projectId: request.request.projectId,
-          });
-          firstChatId = firstChat.chat.id;
-        }
-        const requestingAgent = sourceAgentPubkey.current;
-        if (!requestingAgent) {
-          throw new Error("The requesting Agent is no longer available.");
-        }
-        await sendManagedAgentChannelMessage({
-          agentPubkey: requestingAgent,
-          channelId: request.request.channelId,
-          content: firstChatId
-            ? `Created Agent “${created.agent.name}”. Open the first Chat: buzz://message?channel=${firstChatId}`
-            : `Created Agent “${created.agent.name}”. It is now available in Agents.`,
-          marker: `luca-action:${request.requestId}:confirmed`,
-          markerScope: "agent",
+        const targetChannel = (channelsQuery.data ?? []).find(
+          (channel) => channel.id === request.request.channelId,
+        );
+        await createdAgentAttachment.presentCreatedAgent(created, {
+          id: request.request.channelId,
+          name: targetChannel?.name ?? "this channel",
         });
         createdAgentAttachment.dismissCreatedAgent();
       }
@@ -331,7 +249,7 @@ export function useAgentManagement() {
     } catch (cause) {
       setError(
         createdPersonaName
-          ? `${createdPersonaName} was saved. Retry agent setup from its Add agent action.`
+          ? `${createdPersonaName} was saved. Retry resident setup from its Add resident action.`
           : cause instanceof Error
             ? cause.message
             : "Could not save this agent.",

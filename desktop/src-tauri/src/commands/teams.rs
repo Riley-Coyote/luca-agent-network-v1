@@ -4,9 +4,8 @@ use uuid::Uuid;
 use crate::{
     app_state::AppState,
     managed_agents::{
-        delete_team_with_cascade, ensure_persona_ids_are_active, load_managed_agents,
-        load_personas, load_teams, save_teams, try_regenerate_nest, CreateTeamRequest,
-        ManagedAgentRecord, TeamRecord, UpdateTeamRequest,
+        delete_team_with_cascade, ensure_persona_ids_are_active, load_personas, load_teams,
+        save_teams, try_regenerate_nest, CreateTeamRequest, TeamRecord, UpdateTeamRequest,
     },
     util::now_iso,
 };
@@ -24,25 +23,6 @@ fn trim_optional(value: Option<String>) -> Option<String> {
         let trimmed = candidate.trim();
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     })
-}
-
-fn ensure_member_pubkeys_are_owned(
-    agents: &[ManagedAgentRecord],
-    member_pubkeys: &[String],
-) -> Result<(), String> {
-    for requested in member_pubkeys {
-        let normalized = requested.trim().to_ascii_lowercase();
-        if normalized.len() != 64 || !normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-            return Err(format!("invalid team member pubkey: {requested}"));
-        }
-        if !agents
-            .iter()
-            .any(|agent| agent.pubkey.eq_ignore_ascii_case(&normalized))
-        {
-            return Err(format!("owned agent {requested} was not found"));
-        }
-    }
-    Ok(())
 }
 
 /// Retain a freshly authored team event in the local store, flagged for relay
@@ -184,8 +164,6 @@ pub async fn create_team(input: CreateTeamRequest, app: AppHandle) -> Result<Tea
             .map_err(|error| error.to_string())?;
         let personas = load_personas(&app)?;
         ensure_persona_ids_are_active(&personas, &input.persona_ids)?;
-        let agents = load_managed_agents(&app)?;
-        ensure_member_pubkeys_are_owned(&agents, &input.member_pubkeys)?;
         let mut teams = load_teams(&app)?;
         let team = TeamRecord {
             id: Uuid::new_v4().to_string(),
@@ -193,7 +171,6 @@ pub async fn create_team(input: CreateTeamRequest, app: AppHandle) -> Result<Tea
             description,
             instructions,
             persona_ids: input.persona_ids,
-            member_pubkeys: input.member_pubkeys,
             is_builtin: false,
             source_dir: None,
             is_symlink: false,
@@ -227,8 +204,6 @@ pub async fn update_team(input: UpdateTeamRequest, app: AppHandle) -> Result<Tea
             .map_err(|error| error.to_string())?;
         let personas = load_personas(&app)?;
         ensure_persona_ids_are_active(&personas, &input.persona_ids)?;
-        let agents = load_managed_agents(&app)?;
-        ensure_member_pubkeys_are_owned(&agents, &input.member_pubkeys)?;
         let mut teams = load_teams(&app)?;
         let team = teams
             .iter_mut()
@@ -239,7 +214,6 @@ pub async fn update_team(input: UpdateTeamRequest, app: AppHandle) -> Result<Tea
         team.description = description;
         team.instructions = instructions;
         team.persona_ids = input.persona_ids;
-        team.member_pubkeys = input.member_pubkeys;
         team.updated_at = now_iso();
 
         let updated = team.clone();

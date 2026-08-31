@@ -143,7 +143,7 @@ export function ChannelMembersBar({
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button
-            aria-label="Conversation actions"
+            aria-label="Channel actions"
             data-testid="channel-actions-menu-trigger"
             size="icon"
             type="button"
@@ -158,7 +158,7 @@ export function ChannelMembersBar({
             onSelect={onToggleMembers}
           >
             <Users />
-            <span>People</span>
+            <span>Members</span>
             <span className="ml-auto text-xs text-muted-foreground">
               {memberCount}
             </span>
@@ -169,7 +169,7 @@ export function ChannelMembersBar({
             onSelect={onManageChannel}
           >
             <Settings2 />
-            <span>Conversation settings</span>
+            <span>Manage channel</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -178,7 +178,7 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label={`View people in this chat (${memberCount})`}
+              aria-label={`View channel members (${memberCount})`}
               className="h-8 px-2.5"
               data-testid="channel-members-trigger"
               onClick={onToggleMembers}
@@ -191,7 +191,7 @@ export function ChannelMembersBar({
               </span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>People in this chat</TooltipContent>
+          <TooltipContent>Channel members</TooltipContent>
         </Tooltip>
 
         {huddleIndicator}
@@ -199,7 +199,7 @@ export function ChannelMembersBar({
         <Tooltip disableHoverableContent>
           <TooltipTrigger asChild>
             <Button
-              aria-label="Conversation settings"
+              aria-label="Manage channel"
               data-testid="channel-management-trigger"
               onClick={onManageChannel}
               size="icon"
@@ -209,7 +209,7 @@ export function ChannelMembersBar({
               <Settings2 />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Conversation settings</TooltipContent>
+          <TooltipContent>Channel settings</TooltipContent>
         </Tooltip>
       </div>
     );

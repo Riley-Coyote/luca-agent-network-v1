@@ -103,7 +103,6 @@ pub struct AppState {
     pub managed_agent_restore_transition: Mutex<()>,
     pub managed_agents_store_lock: Mutex<()>,
     pub channel_templates_store_lock: Mutex<()>,
-    pub luca_projects_store_lock: Mutex<()>,
     /// Single lifecycle lock shared by every trusted continuity entrypoint.
     continuity_lifecycle: ContinuityLifecycleLock,
     /// The one process-owned encrypted continuity store and its body-free
@@ -285,7 +284,6 @@ pub fn build_app_state() -> AppState {
         identity_mutation: Mutex::new(()),
         managed_agents_store_lock: Mutex::new(()),
         channel_templates_store_lock: Mutex::new(()),
-        luca_projects_store_lock: Mutex::new(()),
         continuity_lifecycle: ContinuityLifecycleLock::new(),
         continuity_runtime: Mutex::new(ContinuityRuntimeState::Uninitialized),
         managed_agent_processes: Mutex::new(HashMap::new()),

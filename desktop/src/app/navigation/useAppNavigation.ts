@@ -64,27 +64,11 @@ export function useAppNavigation() {
   );
 
   const goAgents = React.useCallback(
-    (
-      behavior?: NavigationBehavior & {
-        collectionId?: string;
-        reviewNative?: boolean;
-      },
-    ) =>
+    (behavior?: NavigationBehavior & { reviewNative?: boolean }) =>
       commitNavigation(
         {
           to: "/agents",
-          search:
-            behavior?.reviewNative || behavior?.collectionId
-              ? {
-                  ...(behavior?.collectionId
-                    ? {
-                        collection: "agent",
-                        collectionId: behavior.collectionId,
-                      }
-                    : {}),
-                  ...(behavior?.reviewNative ? { review: "native" } : {}),
-                }
-              : undefined,
+          search: behavior?.reviewNative ? { review: "native" } : undefined,
         },
         behavior,
       ),
@@ -161,16 +145,10 @@ export function useAppNavigation() {
   );
 
   const goProjects = React.useCallback(
-    (behavior?: NavigationBehavior & { collectionId?: string }) =>
+    (behavior?: NavigationBehavior) =>
       commitNavigation(
         {
           to: "/projects",
-          search: behavior?.collectionId
-            ? {
-                collection: "project",
-                collectionId: behavior.collectionId,
-              }
-            : undefined,
         },
         behavior,
       ),
@@ -238,8 +216,6 @@ export function useAppNavigation() {
       options?: {
         /** Open the agent activity pane for this agent pubkey on arrival. */
         agentSession?: string;
-        collection?: "agent" | "project";
-        collectionId?: string;
         /**
          * When set, the main composer auto-submits the draft with this key
          * once on mount. Clears itself (via `?autoSend` search param) after
@@ -269,12 +245,6 @@ export function useAppNavigation() {
               ? { agentSession: options.agentSession }
               : {}),
             ...(options?.autoSend ? { autoSend: options.autoSend } : {}),
-            ...(options?.collection && options.collectionId
-              ? {
-                  collection: options.collection,
-                  collectionId: options.collectionId,
-                }
-              : {}),
           },
         },
         {
@@ -289,9 +259,6 @@ export function useAppNavigation() {
   const goNewMessage = React.useCallback(
     (
       behavior?: NavigationBehavior & {
-        collection?: "agent" | "project";
-        collectionId?: string;
-        projectId?: string;
         runtime?: string;
         skill?: string;
       },
@@ -300,14 +267,8 @@ export function useAppNavigation() {
         {
           to: "/messages/new",
           search:
-            behavior?.skill ||
-            behavior?.runtime ||
-            behavior?.projectId ||
-            (behavior?.collection && behavior.collectionId)
+            behavior?.skill || behavior?.runtime
               ? {
-                  collection: behavior.collection,
-                  collectionId: behavior.collectionId,
-                  projectId: behavior.projectId,
                   runtime: behavior.runtime,
                   skill: behavior.skill,
                 }

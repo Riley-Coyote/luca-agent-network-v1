@@ -29,7 +29,6 @@ mod tests {
             description: None,
             instructions: None,
             persona_ids: Vec::new(),
-            member_pubkeys: Vec::new(),
             is_builtin: false,
             source_dir: None,
             is_symlink: false,

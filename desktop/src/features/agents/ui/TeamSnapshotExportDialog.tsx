@@ -33,9 +33,9 @@ const MEMORY_LEVELS: {
   value: SnapshotMemoryLevel;
   label: string;
 }[] = [
-  { value: "none", label: "Team only" },
-  { value: "core", label: "Team + core memory" },
-  { value: "everything", label: "Team + all memories" },
+  { value: "none", label: "Group only" },
+  { value: "core", label: "Group + core memory" },
+  { value: "everything", label: "Group + all memories" },
 ];
 
 const FORMAT_OPTIONS: { value: SnapshotFormat; label: string }[] = [

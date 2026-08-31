@@ -5,8 +5,6 @@ import type {
   ChannelMessagesPageResponse,
   ChannelPageCursor,
   ChannelType,
-  CreateChatInput,
-  CreateChatResult,
   CreateChannelInput,
   OpenDmInput,
   SetChannelPurposeInput,
@@ -32,7 +30,6 @@ export type RawChannel = {
   is_member?: boolean;
   ttl_seconds: number | null;
   ttl_deadline: string | null;
-  project_id?: string | null;
 };
 
 type RawChannelDetail = RawChannel & {
@@ -79,7 +76,6 @@ export function fromRawChannel(channel: RawChannel): Channel {
     isMember: channel.is_member ?? true,
     ttlSeconds: channel.ttl_seconds,
     ttlDeadline: channel.ttl_deadline,
-    projectId: channel.project_id ?? null,
   };
 }
 
@@ -118,23 +114,6 @@ export async function createChannel(
   input: CreateChannelInput,
 ): Promise<Channel> {
   return fromRawChannel(await invokeTauri<RawChannel>("create_channel", input));
-}
-
-type RawCreateChatResult = {
-  chat: RawChannel;
-  participant_failures: Array<{ pubkey: string; error: string }>;
-};
-
-export async function createChat(
-  input: CreateChatInput,
-): Promise<CreateChatResult> {
-  const result = await invokeTauri<RawCreateChatResult>("create_chat", {
-    input,
-  });
-  return {
-    chat: fromRawChannel(result.chat),
-    participantFailures: result.participant_failures,
-  };
 }
 
 export async function ensureStarterChannels(): Promise<Channel[]> {

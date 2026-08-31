@@ -9,7 +9,6 @@ import type {
   UserStatus,
 } from "@/shared/api/types";
 import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
-import type { LucaCollectionSelection } from "@/features/sidebar/ui/LucaSidebarCollections";
 
 export type AppSidebarProps = {
   addCommunityPrefill?: AddCommunityPrefillRequest | null;
@@ -28,7 +27,6 @@ export type AppSidebarProps = {
   errorMessage?: string;
   selectedChannelId: string | null;
   selectedProjectId?: string | null;
-  selectedCollection: LucaCollectionSelection;
   selectedView:
     | "home"
     | "inbox"
@@ -79,7 +77,6 @@ export type AppSidebarProps = {
   ) => void;
   onRemoveCommunity: (id: string) => void;
   onCreateAgent: () => void;
-  onSelectAgent: (pubkey: string) => void;
   onSelectAgents: () => void;
   onSelectBrain: () => void;
   onSelectArtifacts: () => void;

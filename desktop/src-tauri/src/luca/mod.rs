@@ -1,8 +1,6 @@
 //! Luca-owned desktop authority components layered onto the Buzz application.
 
 pub(crate) mod artifacts;
-#[cfg(unix)]
-pub(crate) mod action_bridge;
 
 // These accepted G2 kernel modules intentionally retain dormant export,
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
@@ -59,7 +57,6 @@ pub(crate) mod operator_forge;
 pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
-pub(crate) mod projects;
 #[cfg(test)]
 mod reliability_f10;
 #[cfg(unix)]

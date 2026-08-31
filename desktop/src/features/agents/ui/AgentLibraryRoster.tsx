@@ -156,7 +156,7 @@ export function AgentLibraryRoster({
       {showFooter ? (
         <footer className="grid grid-cols-2 border-t border-border/55 p-2">
           <Button className="justify-start" onClick={onGroups} variant="ghost">
-            <UsersRound /> Teams
+            <UsersRound /> Groups
           </Button>
           <Button
             className="justify-start"

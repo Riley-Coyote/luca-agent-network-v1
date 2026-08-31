@@ -1,8 +1,8 @@
 import {
   CopyPlus,
   EllipsisVertical,
-  MessageCirclePlus,
   Pencil,
+  Rocket,
   Share2,
   Trash2,
   Upload,
@@ -26,6 +26,8 @@ const TEAM_CARD_COLUMN_CLASS = "w-full";
 const TEAM_CARD_GRID_CLASS = `${TEAM_CARD_COLUMN_CLASS} grid grid-cols-[repeat(auto-fill,minmax(220px,240px))] justify-start gap-3`;
 
 type TeamsSectionProps = {
+  actionErrorMessage: string | null;
+  actionNoticeMessage: string | null;
   teams: AgentTeam[];
   personas: AgentPersona[];
   error: Error | null;
@@ -35,12 +37,14 @@ type TeamsSectionProps = {
   onDuplicate: (team: AgentTeam) => void;
   onEdit: (team: AgentTeam) => void;
   onDelete: (team: AgentTeam) => void;
-  onStartChat: (team: AgentTeam) => void;
+  onAddToChannel: (team: AgentTeam) => void;
   onShare: (team: AgentTeam) => void;
   onImport: () => void;
 };
 
 export function TeamsSection({
+  actionErrorMessage,
+  actionNoticeMessage,
   teams,
   personas,
   error,
@@ -50,7 +54,7 @@ export function TeamsSection({
   onDuplicate,
   onEdit,
   onDelete,
-  onStartChat,
+  onAddToChannel,
   onShare,
   onImport,
 }: TeamsSectionProps) {
@@ -58,10 +62,26 @@ export function TeamsSection({
     <section className="relative space-y-4" data-testid="agents-library-teams">
       <div className={TEAM_CARD_COLUMN_CLASS}>
         <SectionHeader
-          title="Agent teams"
-          description="Saved rosters of your agents for chats and delegated work."
+          title="Groups"
+          description="Save sets of agents so you can add them to a room together."
         />
       </div>
+
+      {actionErrorMessage ? (
+        <p
+          className={`${TEAM_CARD_COLUMN_CLASS} rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive`}
+          role="alert"
+        >
+          {actionErrorMessage}
+        </p>
+      ) : actionNoticeMessage ? (
+        <p
+          className={`${TEAM_CARD_COLUMN_CLASS} rounded-lg border border-border/70 bg-background/55 px-4 py-3 text-sm text-foreground`}
+          role="status"
+        >
+          {actionNoticeMessage}
+        </p>
+      ) : null}
 
       {isLoading ? (
         <div className={TEAM_CARD_GRID_CLASS}>
@@ -96,7 +116,7 @@ export function TeamsSection({
                   <DropdownMenu modal={false}>
                     <DropdownMenuTrigger asChild>
                       <button
-                        aria-label={`${team.name} team actions`}
+                        aria-label={`${team.name} group actions`}
                         className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                         type="button"
                       >
@@ -109,10 +129,10 @@ export function TeamsSection({
                     >
                       <DropdownMenuItem
                         disabled={isPending || hasMissingPersonas}
-                        onClick={() => onStartChat(team)}
+                        onClick={() => onAddToChannel(team)}
                       >
-                        <MessageCirclePlus className="h-4 w-4" />
-                        Start chat with team
+                        <Rocket className="h-4 w-4" />
+                        Add group to room
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem
@@ -152,9 +172,7 @@ export function TeamsSection({
                 description={team.description}
                 isSymlink={team.isSymlink}
                 key={team.id}
-                memberCount={
-                  team.memberPubkeys.length || team.personaIds.length
-                }
+                memberCount={team.personaIds.length}
                 personas={resolution.resolvedPersonas}
                 sourceDir={team.sourceDir}
                 symlinkTarget={team.symlinkTarget}
@@ -164,10 +182,9 @@ export function TeamsSection({
                 {hasMissingPersonas ? (
                   <p className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                     {missingPersonaCount} agent
-                    {missingPersonaCount === 1 ? "" : "s"} in this team{" "}
+                    {missingPersonaCount === 1 ? "" : "s"} in this group{" "}
                     {missingPersonaCount === 1 ? "is" : "are"} no longer in your
-                    agents. Edit the team to fix it before starting a chat or
-                    sharing.
+                    agents. Edit the group to fix it before adding or sharing.
                   </p>
                 ) : null}
               </TeamIdentityCard>
@@ -205,9 +222,9 @@ function NewTeamCard({
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <CreateIdentityCard
-          ariaLabel="New team"
+          ariaLabel="New group"
           dataTestId="new-team-card"
-          label="New team"
+          label="New group"
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -215,11 +232,11 @@ function NewTeamCard({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         <DropdownMenuItem disabled={isPending} onClick={onCreate}>
-          Create team
+          Create group
         </DropdownMenuItem>
         <DropdownMenuItem disabled={isPending} onClick={onImport}>
           <Upload className="h-4 w-4" />
-          Import team snapshot
+          Import group snapshot
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

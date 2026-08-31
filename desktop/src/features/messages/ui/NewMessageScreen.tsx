@@ -18,7 +18,7 @@ import {
   startManagedAgentWithRules,
 } from "@/features/agents/lib/managedAgentControlActions";
 import {
-  useCreateChatMutation,
+  useOpenDmMutation,
   useUpsertCachedChannel,
 } from "@/features/channels/hooks";
 import {
@@ -63,7 +63,6 @@ import {
  */
 export function NewMessageScreen() {
   const routeSearch = useSearch({ strict: false } as never) as {
-    projectId?: string;
     runtime?: string;
     skill?: string;
   };
@@ -114,7 +113,7 @@ export function NewMessageScreen() {
     [managedAgentsQuery.data],
   );
   const startManagedAgentMutation = useStartManagedAgentMutation();
-  const createChatMutation = useCreateChatMutation();
+  const openDmMutation = useOpenDmMutation();
   const upsertCachedChannel = useUpsertCachedChannel();
   const sendMessageMutation = useSendMessageMutation(
     null,
@@ -148,13 +147,14 @@ export function NewMessageScreen() {
   const isPending =
     isPreparingMentionSend ||
     creatingDirectRuntimeId !== null ||
-    createChatMutation.isPending ||
+    openDmMutation.isPending ||
     startManagedAgentMutation.isPending ||
     sendMessageMutation.isPending;
 
   const {
     deferredSearchQuery,
     handleDirectoryScroll,
+    hasReachedRecipientLimit,
     isDirectoryLoading,
     ownerProfiles,
     removeUser,
@@ -418,7 +418,7 @@ export function NewMessageScreen() {
       }
 
       if (
-        createChatMutation.isPending ||
+        openDmMutation.isPending ||
         sendMessageMutation.isPending ||
         requestedPubkeys.length === 0
       ) {
@@ -428,16 +428,17 @@ export function NewMessageScreen() {
       setSubmitErrorMessage(null);
 
       try {
-        const { chat: directMessage } = await createChatMutation.mutateAsync({
-          participantPubkeys: requestedPubkeys,
-          projectId: routeSearch.projectId,
+        const directMessage = await openDmMutation.mutateAsync({
+          pubkeys: requestedPubkeys,
         });
         preparedDirectMessageRef.current = directMessage;
         await ensureSelectedAgentsRunning(requestedPubkeys);
         return directMessage;
       } catch (error) {
         setSubmitErrorMessage(
-          error instanceof Error ? error.message : "Failed to create chat.",
+          error instanceof Error
+            ? error.message
+            : "Failed to open direct message.",
         );
         return null;
       }
@@ -445,9 +446,8 @@ export function NewMessageScreen() {
     [
       currentPubkey,
       ensureSelectedAgentsRunning,
-      createChatMutation.isPending,
-      createChatMutation.mutateAsync,
-      routeSearch.projectId,
+      openDmMutation.isPending,
+      openDmMutation.mutateAsync,
       selectedUsers,
       sendMessageMutation.isPending,
     ],
@@ -754,7 +754,10 @@ export function NewMessageScreen() {
                       return (
                         <NewMessageResultRow
                           currentPubkey={currentPubkey}
-                          disabled={isPending}
+                          disabled={
+                            isPending ||
+                            (hasReachedRecipientLimit && !isSelected)
+                          }
                           isAlreadySelected={isSelected}
                           isKeyboardHighlighted={
                             highlightedRecipient?.pubkey === user.pubkey
@@ -821,7 +824,10 @@ export function NewMessageScreen() {
                       return (
                         <NewMessageResultRow
                           currentPubkey={currentPubkey}
-                          disabled={isPending}
+                          disabled={
+                            isPending ||
+                            (hasReachedRecipientLimit && !isSelected)
+                          }
                           isAlreadySelected={isSelected}
                           isKeyboardHighlighted={
                             highlightedRecipient?.pubkey === user.pubkey
@@ -917,6 +923,14 @@ export function NewMessageScreen() {
         </section>
       ) : null}
 
+      {hasReachedRecipientLimit ? (
+        <p
+          className="px-5 pb-2 text-sm text-muted-foreground"
+          data-testid="new-dm-limit"
+        >
+          DMs support up to nine people, including you.
+        </p>
+      ) : null}
       {searchError ? (
         <p className="px-5 pb-2 text-sm text-destructive">
           {searchError.message}

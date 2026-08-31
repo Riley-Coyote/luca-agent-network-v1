@@ -198,13 +198,6 @@ pub const KIND_MANAGED_AGENT: u32 = 30177;
 /// every listed member. Every member is a `p` tag so residents can REQ by `#p`.
 pub const KIND_LUCA_EXCHANGE: u32 = 30178;
 
-/// Luca Project (parameterized replaceable, owner-authored, global).
-///
-/// Addressed by `(pubkey, kind, d_tag)` where `d_tag` is the Project UUID.
-/// Content contains only safe syncable identity fields. Machine-local
-/// instructions and working-folder paths MUST never be published.
-pub const KIND_LUCA_PROJECT: u32 = 30179;
-
 // NIP-56 reporting
 /// NIP-56: Report an event, pubkey, or blob to relay moderators (kind:1984).
 ///
@@ -549,7 +542,6 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_TEAM,
     KIND_MANAGED_AGENT,
     KIND_LUCA_EXCHANGE,
-    KIND_LUCA_PROJECT,
     KIND_REPORT,
     KIND_PRODUCT_FEEDBACK,
     KIND_NIP29_PUT_USER,
@@ -750,7 +742,6 @@ const _: () = assert!(is_parameterized_replaceable(KIND_PERSONA)); // 30175 ∈ 
 const _: () = assert!(is_parameterized_replaceable(KIND_TEAM)); // 30176 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_MANAGED_AGENT)); // 30177 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_LUCA_EXCHANGE)); // 30178 ∈ 30000–39999
-const _: () = assert!(is_parameterized_replaceable(KIND_LUCA_PROJECT)); // 30179 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WORKFLOW_DEF)); // 30620 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 30300 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
