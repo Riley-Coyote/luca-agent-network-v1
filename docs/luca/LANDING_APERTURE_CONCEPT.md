@@ -104,6 +104,33 @@ What changed:
   30em; a vignette; film grain; the field arrives over 1.6 s while the type is already
   there; the marks rise in with a 140 ms stagger.
 
+## Round four — clean marks, crisp field (Riley, 2026-09-02, late)
+
+Riley: keep brand colour on the marks that have it (Claude, OpenClaw, Kimi), leave
+OpenAI, Hermes and Grok white, lose the colour gradients around the marks ("they make
+the page look blurry"), keep the coloured threads. Done, and further: the bloom under the
+dots is pulled to a faint wide ambient (glow 0.28 at a coarse mip), the dots are sharp
+discs again (edge 0.035), and instead of boxes or halos the field simply goes quiet under
+each mark, its label and the runtime strip — a feathered dimming in the shader (dimAmt
+0.28 over ~18px), no edge, nothing opaque.
+
+## Handing off to Claude Design
+
+Riley takes the page into Claude Design next. What survives a design canvas and what
+doesn't:
+- **Editable there:** everything in the DOM — nav, eyebrow, headline, lede, CTA row,
+  the five source labels and marks, the runtime strip, the story captions, the shell
+  frame mock, the final section, all tokens in `:root`.
+- **Not editable there:** the field. It is a WebGL2 shader driven by scroll; a canvas
+  tool will see a black `<canvas>`. Refine layout and type in Claude Design, then bring
+  the DOM back over this file — the field, the cutout, the beats and the traces are all
+  keyed to element ids (`#aperture`, `#aperture2`, `#frame`, `.src`, `.strip .in`) and
+  will follow moved elements as long as the ids survive.
+- **Dials that are not in the DOM:** `window.__tune` (field look), `CAST` (names,
+  runtimes, marks, hues, tempos), `HERO_POS` (the arc), `BEATS` (scroll choreography).
+- **Assets:** brand marks are inline `<symbol>`s from `@lobehub/icons-static-svg`
+  (mono and `-color` variants). The colour ones are the labs' own colours.
+
 ## Verified (2026-09-02, Playwright, real Chromium, software GL)
 
 Desktop 1440×900 at every beat; 390×844 mobile (no horizontal overflow, sources
