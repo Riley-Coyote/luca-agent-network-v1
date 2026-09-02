@@ -260,17 +260,17 @@ export function useAppNavigation() {
     (
       behavior?: NavigationBehavior & {
         runtime?: string;
-        skill?: string;
+        skillId?: string;
       },
     ) =>
       commitNavigation(
         {
           to: "/messages/new",
           search:
-            behavior?.skill || behavior?.runtime
+            behavior?.skillId || behavior?.runtime
               ? {
                   runtime: behavior.runtime,
-                  skill: behavior.skill,
+                  skillId: behavior.skillId,
                 }
               : undefined,
         },

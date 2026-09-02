@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, path::Path};
 
 use luca_protocol::{ConnectedBrainSourceKindV1, OpaqueId};
 use sha2::{Digest, Sha256};
@@ -46,11 +46,16 @@ pub(crate) fn list_native_sessions(
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
     budget: &mut sessions::SessionReadBudget,
+    excluded_provider_session_ids: &HashSet<String>,
 ) -> Result<IndexedSessionListV1, String> {
     if kind == ConnectedBrainSourceKindV1::Repository {
         return Err("repository sources do not contain runtime sessions".to_owned());
     }
-    let files = sessions::session_file_metadata(root, kind)?;
+    let files = sessions::session_file_metadata_excluding(
+        root,
+        kind,
+        excluded_provider_session_ids,
+    )?;
     let total_sessions = files.len();
     let mut projected = Vec::with_capacity(total_sessions.min(MAX_LISTED_SESSIONS));
     for file in files.into_iter().take(MAX_LISTED_SESSIONS) {
@@ -94,11 +99,16 @@ pub(crate) fn context_for_native_session(
     kind: ConnectedBrainSourceKindV1,
     source_id: &OpaqueId,
     requested_session_id: &OpaqueId,
+    excluded_provider_session_ids: &HashSet<String>,
 ) -> Result<Option<IndexedSessionContextV1>, String> {
     if kind == ConnectedBrainSourceKindV1::Repository {
         return Err("repository sources do not contain runtime sessions".to_owned());
     }
-    let selected = sessions::session_file_metadata(root, kind)?
+    let selected = sessions::session_file_metadata_excluding(
+        root,
+        kind,
+        excluded_provider_session_ids,
+    )?
         .into_iter()
         .find_map(|file| {
             let candidate = session_id(source_id, &file.relative_locator).ok()?;
@@ -199,6 +209,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &mut list_budget,
+            &HashSet::new(),
         )
         .unwrap();
         assert_eq!(list.total_sessions, 1);
@@ -212,6 +223,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &list.sessions[0].session_id,
+            &HashSet::new(),
         )
         .unwrap()
         .unwrap();
@@ -244,6 +256,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &mut cross_source_budget,
+            &HashSet::new(),
         )
         .unwrap();
         let second_source = list_native_sessions(
@@ -251,6 +264,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &second_source_id,
             &mut cross_source_budget,
+            &HashSet::new(),
         )
         .unwrap();
         assert_eq!(first_source.sessions.len(), 1);
@@ -263,6 +277,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &mut file_budget,
+            &HashSet::new(),
         )
         .unwrap();
         assert_eq!(file_limited.total_sessions, 3);
@@ -274,6 +289,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &mut byte_budget,
+            &HashSet::new(),
         )
         .unwrap();
         assert_eq!(byte_limited.total_sessions, 3);
@@ -285,6 +301,7 @@ mod tests {
             ConnectedBrainSourceKindV1::CodexHistory,
             &source_id,
             &mut line_budget,
+            &HashSet::new(),
         )
         .unwrap();
         assert_eq!(line_limited.total_sessions, 3);

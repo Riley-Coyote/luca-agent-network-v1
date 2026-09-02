@@ -342,6 +342,34 @@ fn handle_frame(
         }
         return operator_status(app, context);
     }
+    if frame.operation == RepositoryToolOperationV1::ProposeRuntimeTask {
+        return crate::luca::runtime_tasks::propose_runtime_task(
+            app,
+            context.resident_pubkey.as_str(),
+            frame.conversation_id.as_str(),
+            frame.arguments,
+        )
+        .map(|content| RepositoryBrokerResponseV1 {
+            protocol: BROKER_PROTOCOL,
+            ok: true,
+            content,
+            receipt: None,
+        });
+    }
+    if frame.operation == RepositoryToolOperationV1::ReadRuntimeTaskResult {
+        return crate::luca::runtime_tasks::read_runtime_task_result_for_resident(
+            app,
+            context.resident_pubkey.as_str(),
+            frame.conversation_id.as_str(),
+            frame.arguments,
+        )
+        .map(|content| RepositoryBrokerResponseV1 {
+            protocol: BROKER_PROTOCOL,
+            ok: true,
+            content,
+            receipt: None,
+        });
+    }
     if frame.operation == RepositoryToolOperationV1::List {
         if frame
             .arguments
@@ -771,6 +799,7 @@ fn repository_capability(operation: RepositoryToolOperationV1) -> CapabilityKind
         RepositoryToolOperationV1::Run | RepositoryToolOperationV1::Commit => {
             CapabilityKind::ProcessExecute
         }
+        RepositoryToolOperationV1::ProposeRuntimeTask => CapabilityKind::ProcessExecute,
         _ => CapabilityKind::FilesystemRead,
     }
 }

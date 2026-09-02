@@ -14,6 +14,34 @@ export type CapabilitySkillDetail = CapabilitySkillSummary & {
   content: string;
 };
 
+export type ResidentSessionCommand = {
+  canonicalName: string;
+  description: string;
+  inputHint?: string;
+};
+
+export type ResidentSessionCapability = {
+  protocol: "luca.resident-session-capability.v1";
+  residentPubkey: string;
+  runtimeFamily: string;
+  runtimeVersion?: string;
+  adapterVersion?: string;
+  sessionId?: string;
+  sessionEpoch: number;
+  observedAt: string;
+  commands: ResidentSessionCommand[];
+};
+
+export type CapabilitySkillActivation = {
+  skillId: string;
+  residentPubkey: string;
+  runtimeFamily: string | null;
+  canonicalName: string | null;
+  catalogGeneration: string;
+  status: "ready" | "checking" | "unavailable";
+  reason: string | null;
+};
+
 function record(value: unknown): JsonRecord {
   return value !== null && typeof value === "object"
     ? (value as JsonRecord)
@@ -61,4 +89,20 @@ export async function readCapabilitySkill(
     ...normalizeSkill(raw),
     content: stringValue(raw.content),
   };
+}
+
+export function getResidentSessionCapabilities(
+  residentPubkey: string,
+): Promise<ResidentSessionCapability | null> {
+  return invokeTauri("get_resident_session_capabilities", { residentPubkey });
+}
+
+export function resolveCapabilitySkillActivation(
+  skillId: string,
+  residentPubkey: string,
+): Promise<CapabilitySkillActivation> {
+  return invokeTauri("resolve_capability_skill_activation", {
+    skillId,
+    residentPubkey,
+  });
 }

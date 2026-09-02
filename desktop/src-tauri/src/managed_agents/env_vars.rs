@@ -68,6 +68,8 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     "LUCA_MANAGED_RESIDENT_PUBKEY",
     "LUCA_MANAGED_SESSION_EPOCH",
     "LUCA_MANAGED_OWNER_ATTESTATION",
+    "LUCA_RUNTIME_SESSION_PURPOSE_STORE",
+    "LUCA_MANAGED_RUNTIME_FAMILY",
     // Relay URL: overriding would let a malicious config redirect the
     // agent to an attacker-controlled relay.
     "BUZZ_RELAY_URL",

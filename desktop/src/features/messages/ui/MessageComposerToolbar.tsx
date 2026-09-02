@@ -7,6 +7,8 @@ import {
   Mic,
   Paperclip,
   Plus,
+  Sparkles,
+  SquareArrowOutUpRight,
   Square,
   X,
 } from "lucide-react";
@@ -53,6 +55,8 @@ export const MessageComposerToolbar = React.memo(
     onFormattingToggle,
     onLinkButton,
     onOpenContext,
+    onOpenCapabilities,
+    onRunTask,
     onOpenMentionPicker,
     onPaperclip,
   }: {
@@ -84,6 +88,8 @@ export const MessageComposerToolbar = React.memo(
     onFormattingToggle: (pressed: boolean) => void;
     onLinkButton: () => void;
     onOpenContext?: () => void;
+    onOpenCapabilities?: () => void;
+    onRunTask?: () => void;
     onOpenMentionPicker: () => void;
     onPaperclip: () => void;
   }) {
@@ -174,6 +180,18 @@ export const MessageComposerToolbar = React.memo(
                   <Paperclip />
                   Attach files
                 </DropdownMenuItem>
+                {onOpenCapabilities ? (
+                  <DropdownMenuItem onSelect={onOpenCapabilities}>
+                    <Sparkles />
+                    Skills and tools
+                  </DropdownMenuItem>
+                ) : null}
+                {onRunTask ? (
+                  <DropdownMenuItem onSelect={onRunTask}>
+                    <SquareArrowOutUpRight />
+                    Run task
+                  </DropdownMenuItem>
+                ) : null}
                 {onOpenContext ? (
                   <DropdownMenuItem onSelect={onOpenContext}>
                     <FolderPlus />

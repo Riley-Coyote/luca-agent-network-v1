@@ -903,7 +903,7 @@ pub fn parse_thread_tags(event: &Event) -> ThreadTags {
     }
 }
 
-/// Extract a leading slash command from message content.
+/// Extract a leading provider command from message content.
 ///
 /// ACP connectors (claude-agent-acp, codex-acp) detect slash commands by
 /// checking whether the **first** prompt content block starts with `/`. Buzz
@@ -914,7 +914,7 @@ pub fn parse_thread_tags(event: &Event) -> ThreadTags {
 /// slash command.
 ///
 /// Returns `Some("/goal ship it")` when the first non-mention token starts
-/// with `/` followed by an ASCII alphanumeric; `None` otherwise. A `/`
+/// with `/` or `$` followed by an ASCII alphanumeric; `None` otherwise. A prefix
 /// appearing later in the text (e.g. `"@Eva see /tmp/foo"`) never matches.
 pub fn extract_slash_command(content: &str, known_names: &[&str]) -> Option<String> {
     // Longest-first so "Dawn Smith" wins over "Dawn".
@@ -966,8 +966,11 @@ pub fn extract_slash_command(content: &str, known_names: &[&str]) -> Option<Stri
     }
 
     let mut chars = rest.chars();
-    (chars.next() == Some('/') && chars.next().is_some_and(|c| c.is_ascii_alphanumeric()))
-        .then(|| rest.to_string())
+    (chars
+        .next()
+        .is_some_and(|prefix| matches!(prefix, '/' | '$'))
+        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric()))
+    .then(|| rest.to_string())
 }
 
 /// Return the slash command for a batch, if it qualifies for pass-through.
@@ -4705,6 +4708,10 @@ mod tests {
         assert_eq!(
             extract_slash_command("@Eva /goal ship it", &[]),
             Some("/goal ship it".to_string())
+        );
+        assert_eq!(
+            extract_slash_command("@Eva $imagegen make a cover", &[]),
+            Some("$imagegen make a cover".to_string())
         );
         // Multiple leading mentions.
         assert_eq!(

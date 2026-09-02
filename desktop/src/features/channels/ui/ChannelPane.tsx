@@ -92,6 +92,13 @@ import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 import { useIsThreadPanelOverlay } from "@/shared/hooks/use-mobile";
 import { channelChrome } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
+import {
+  useRuntimeTaskProposals,
+  useRuntimeTasks,
+} from "@/features/capabilities/useRuntimeTasks";
+import { RuntimeTaskResultReceipts } from "@/features/capabilities/ui/RuntimeTaskResultReceipts";
+import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
 export const ChannelPane = React.memo(function ChannelPane({
   activeChannel,
   agentPubkeys,
@@ -209,6 +216,8 @@ export const ChannelPane = React.memo(function ChannelPane({
     !activeChannel.archivedAt;
   const hasMainComposerOverlay = !isNonMemberView;
   const activeChannelId = activeChannel?.id ?? null;
+  const runtimeTasksQuery = useRuntimeTasks(activeChannelId);
+  const runtimeTaskProposalsQuery = useRuntimeTaskProposals(activeChannelId);
   const dragChannelIdRef = React.useRef(activeChannelId);
   React.useEffect(() => {
     if (dragChannelIdRef.current === activeChannelId) return;
@@ -521,6 +530,23 @@ export const ChannelPane = React.memo(function ChannelPane({
       }
     },
     [activeChannelId, currentPubkey, handleSendMessage, messages],
+  );
+  const handleRetryRuntimeTaskSynthesis = React.useCallback(
+    async (task: RuntimeTaskProjection) => {
+      if (!activeChannelId) {
+        throw new Error("The initiating conversation is unavailable.");
+      }
+      const provider = task.runtimeFamily === "codex" ? "Codex" : "Claude Code";
+      await handleSendMessage(
+        `Please synthesize the completed ${provider} task result. Use read_runtime_task_result with task_id ${task.taskId}; do not rerun the provider task.`,
+        [task.residentPubkey],
+        undefined,
+        activeChannelId,
+        undefined,
+        [task.residentPubkey],
+      );
+    },
+    [activeChannelId, handleSendMessage],
   );
   const directMessageIntro = React.useMemo(() => {
     const intro = buildDirectMessageIntro({
@@ -1080,16 +1106,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                         ))}
                       </div>
                     ) : null}
-                    {activePermissionRequests.length > 0 ? (
-                      <div className="luca-measure pointer-events-auto mb-2 grid gap-2">
-                        {activePermissionRequests.map((pending) => (
-                          <ManagedPermissionCard
-                            key={pending.pendingId}
-                            pending={pending}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
                     {heldDelivery.notice ? (
                       <HeldDeliveryNotice
                         notice={heldDelivery.notice}
@@ -1142,13 +1158,48 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onRetryResident={(target) =>
                         void handleRetryResident(target)
                       }
+                      permissionContent={
+                        activePermissionRequests.length > 0 ? (
+                          <div className="grid gap-2">
+                            {activePermissionRequests.map((pending) => (
+                              <ManagedPermissionCard
+                                key={pending.pendingId}
+                                pending={pending}
+                              />
+                            ))}
+                          </div>
+                        ) : null
+                      }
+                      runtimeTasks={runtimeTasksQuery.data ?? []}
                       sessionAgents={agentSessionAgents}
                       activityByPubkey={stripActivity}
                       presentationActivityByPubkey={stripPresentationActivity}
                       presentationStateByPubkey={stripPresentationState}
                       workingPubkeys={stripWorkingPubkeys}
                     />
+                    <RuntimeTaskProposalConfirmation
+                      projectSourceIds={projectContext?.sourceIds ?? []}
+                      proposals={runtimeTaskProposalsQuery.data ?? []}
+                      residentNames={
+                        new Map(
+                          agentSessionAgents.map((agent) => [
+                            normalizePubkey(agent.pubkey),
+                            agent.name,
+                          ]),
+                        )
+                      }
+                    />
+                    <RuntimeTaskResultReceipts
+                      onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
+                      tasks={runtimeTasksQuery.data ?? []}
+                    />
                     <MessageComposer
+                      capabilityResidents={agentSessionAgents
+                        .filter((agent) => agent.agentSource === "managed")
+                        .map((agent) => ({
+                          pubkey: normalizePubkey(agent.pubkey),
+                          name: agent.name,
+                        }))}
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}
                       channelType={activeChannel?.channelType ?? null}

@@ -36,6 +36,8 @@ const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
     "LUCA_MANAGED_MCP_FD",
     "LUCA_MANAGED_PRESENTATION_FD",
     "LUCA_MANAGED_BINDING_REF",
+    "LUCA_RUNTIME_SESSION_PURPOSE_STORE",
+    "LUCA_MANAGED_RUNTIME_FAMILY",
     "BUZZ_ACP_REPOSITORY_MCP_COMMAND",
     "BUZZ_ACP_REPOSITORY_MCP_CONFIG",
     "BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND",
@@ -473,6 +475,9 @@ pub struct AcpClient {
     /// Managed final-message chunks for the one currently active prompt.
     /// This is populated only from public ACP `agent_message_chunk` updates.
     final_message_capture: Option<FinalChunkAccumulator>,
+    /// Exact provider commands advertised by the current ACP session.
+    /// Values include their canonical `/` or `$` prefix.
+    available_commands: std::collections::BTreeSet<String>,
     /// Protocol requested for this runtime process. Existing Buzz runtimes
     /// remain on v2; native Hermes/OpenClaw bindings use the common v1 path.
     requested_protocol_version: u32,
@@ -850,6 +855,7 @@ impl AcpClient {
             steer_rx: None,
             goose_usage: UsageTracker::default(),
             final_message_capture: None,
+            available_commands: std::collections::BTreeSet::new(),
             requested_protocol_version: requested_protocol_version(command),
         })
     }
@@ -873,6 +879,13 @@ impl AcpClient {
     /// Return the pool slot index for this agent process.
     pub(crate) fn observer_agent_index(&self) -> Option<usize> {
         self.observer_agent_index
+    }
+
+    pub(crate) fn is_advertised_command(&self, command: &str) -> bool {
+        let Some(name) = command.split_whitespace().next() else {
+            return false;
+        };
+        self.available_commands.contains(name)
     }
 
     /// Emit a semantic event to the local observer feed, if enabled.
@@ -2074,12 +2087,27 @@ impl AcpClient {
                 false
             }
             "available_commands_update" => {
-                // Advertised slash commands (ACP slash-commands extension).
-                // Logged for observability; UI surfacing is a follow-up.
-                let names: Vec<&str> = update["availableCommands"]
+                // ACP command updates replace the session-scoped command set.
+                // Missing prefixes are canonical ACP slash commands; explicit
+                // `$` commands (including Codex Skills) remain provider-owned.
+                let names: Vec<String> = update["availableCommands"]
                     .as_array()
-                    .map(|cmds| cmds.iter().filter_map(|c| c["name"].as_str()).collect())
+                    .map(|cmds| {
+                        cmds.iter()
+                            .filter_map(|command| command["name"].as_str())
+                            .map(str::trim)
+                            .filter(|name| !name.is_empty())
+                            .map(|name| {
+                                if name.starts_with(['/', '$']) {
+                                    name.to_owned()
+                                } else {
+                                    format!("/{name}")
+                                }
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
+                self.available_commands = names.iter().cloned().collect();
                 tracing::info!(
                     target: "acp::update",
                     "available_commands_update: {} commands [{}]",

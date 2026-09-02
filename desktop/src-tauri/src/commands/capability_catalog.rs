@@ -55,6 +55,26 @@ pub struct SkillCatalogDetailV1 {
     content: String,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillActivationStatusV1 {
+    Ready,
+    Checking,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillActivationV1 {
+    skill_id: String,
+    resident_pubkey: String,
+    runtime_family: Option<String>,
+    canonical_name: Option<String>,
+    catalog_generation: String,
+    status: SkillActivationStatusV1,
+    reason: Option<String>,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct SkillFrontmatter {
     name: Option<String>,
@@ -85,6 +105,21 @@ struct OpenedSkill {
 }
 
 static SKILL_CACHE: OnceLock<Mutex<BTreeMap<String, CachedSkill>>> = OnceLock::new();
+
+#[tauri::command]
+pub fn get_resident_session_capabilities(
+    resident_pubkey: String,
+) -> Result<Option<luca_protocol::ResidentSessionCapabilityV1>, String> {
+    let resident_pubkey = resident_pubkey.trim().to_ascii_lowercase();
+    if resident_pubkey.len() != 64
+        || !resident_pubkey.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("resident capability identity is invalid".to_owned());
+    }
+    Ok(crate::luca::resident_session_capabilities::current(
+        &resident_pubkey,
+    ))
+}
 
 #[tauri::command]
 pub async fn list_capability_skills() -> Result<Vec<SkillCatalogEntryV1>, String> {
@@ -122,6 +157,170 @@ pub async fn read_capability_skill(skill_id: String) -> Result<SkillCatalogDetai
     })
     .await
     .map_err(|error| format!("skill catalog task failed: {error}"))?
+}
+
+/// Resolve one opaque Library entry against the exact resident session that
+/// would execute it. This performs no Skill loading and returns no Skill body.
+/// The composer calls it both when a chip is selected and immediately before
+/// send so stale or ambiguous mappings fail closed while preserving the draft.
+#[tauri::command]
+pub async fn resolve_capability_skill_activation(
+    skill_id: String,
+    resident_pubkey: String,
+) -> Result<SkillActivationV1, String> {
+    let skill_id = skill_id.trim().to_ascii_lowercase();
+    if skill_id.len() != 64 || !skill_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("skill identifier is invalid".to_owned());
+    }
+    let resident_pubkey = resident_pubkey.trim().to_ascii_lowercase();
+    if resident_pubkey.len() != 64
+        || !resident_pubkey
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err("resident capability identity is invalid".to_owned());
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let skills = catalog(skill_roots())?;
+        replace_skill_cache(&skills)?;
+        let catalog_generation = catalog_generation(&skills);
+        let Some(selected) = skills
+            .iter()
+            .find(|skill| skill_id_for(&skill.canonical_path) == skill_id)
+        else {
+            return Ok(SkillActivationV1 {
+                skill_id,
+                resident_pubkey,
+                runtime_family: None,
+                canonical_name: None,
+                catalog_generation,
+                status: SkillActivationStatusV1::Unavailable,
+                reason: Some("This Skill moved or is no longer installed.".to_owned()),
+            });
+        };
+
+        let Some(snapshot) = crate::luca::resident_session_capabilities::current(&resident_pubkey)
+        else {
+            return Ok(SkillActivationV1 {
+                skill_id,
+                resident_pubkey,
+                runtime_family: None,
+                canonical_name: None,
+                catalog_generation,
+                status: SkillActivationStatusV1::Checking,
+                reason: Some("Waiting for this resident's live capability handshake.".to_owned()),
+            });
+        };
+        let catalog_runtime = catalog_runtime_family(&snapshot.runtime_family);
+        if !selected.runtime_ids.contains(catalog_runtime) {
+            return Ok(SkillActivationV1 {
+                skill_id,
+                resident_pubkey,
+                runtime_family: Some(snapshot.runtime_family),
+                canonical_name: None,
+                catalog_generation,
+                status: SkillActivationStatusV1::Unavailable,
+                reason: Some("This Skill is not installed for the selected resident's runtime.".to_owned()),
+            });
+        }
+
+        let selected_name = normalize_invocation_name(&selected.name);
+        let duplicate_count = skills
+            .iter()
+            .filter(|skill| {
+                skill.runtime_ids.contains(catalog_runtime)
+                    && normalize_invocation_name(&skill.name) == selected_name
+            })
+            .count();
+        if duplicate_count > 1 {
+            return Ok(SkillActivationV1 {
+                skill_id,
+                resident_pubkey,
+                runtime_family: Some(snapshot.runtime_family),
+                canonical_name: None,
+                catalog_generation,
+                status: SkillActivationStatusV1::Unavailable,
+                reason: Some(
+                    "More than one installed Skill has this invocation name. Choose a unique source after the runtime exposes one."
+                        .to_owned(),
+                ),
+            });
+        }
+
+        let matches = snapshot
+            .commands
+            .iter()
+            .filter(|command| {
+                normalize_invocation_name(
+                    command
+                        .canonical_name
+                        .trim_start_matches(['/', '$']),
+                ) == selected_name
+            })
+            .collect::<Vec<_>>();
+        if matches.len() != 1 {
+            return Ok(SkillActivationV1 {
+                skill_id,
+                resident_pubkey,
+                runtime_family: Some(snapshot.runtime_family),
+                canonical_name: None,
+                catalog_generation,
+                status: SkillActivationStatusV1::Unavailable,
+                reason: Some(if matches.is_empty() {
+                    "The live runtime session does not advertise this Skill yet.".to_owned()
+                } else {
+                    "The live runtime advertised an ambiguous Skill command.".to_owned()
+                }),
+            });
+        }
+
+        Ok(SkillActivationV1 {
+            skill_id,
+            resident_pubkey,
+            runtime_family: Some(snapshot.runtime_family),
+            canonical_name: Some(matches[0].canonical_name.clone()),
+            catalog_generation,
+            status: SkillActivationStatusV1::Ready,
+            reason: None,
+        })
+    })
+    .await
+    .map_err(|error| format!("skill activation task failed: {error}"))?
+}
+
+fn catalog_runtime_family(runtime_family: &str) -> &str {
+    match runtime_family {
+        "claude_code" => "claude",
+        other => other,
+    }
+}
+
+fn normalize_invocation_name(value: &str) -> String {
+    value
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|character| match character {
+            '_' | ' ' => '-',
+            other => other,
+        })
+        .filter(|character| character.is_ascii_alphanumeric() || *character == '-')
+        .collect()
+}
+
+fn catalog_generation(skills: &[DiscoveredSkill]) -> String {
+    let mut ids = skills
+        .iter()
+        .map(|skill| skill_id_for(&skill.canonical_path))
+        .collect::<Vec<_>>();
+    ids.sort();
+    let mut digest = Sha256::new();
+    for id in ids {
+        digest.update(id.as_bytes());
+        digest.update([0]);
+    }
+    hex::encode(digest.finalize())
 }
 
 fn replace_skill_cache(skills: &[DiscoveredSkill]) -> Result<(), String> {

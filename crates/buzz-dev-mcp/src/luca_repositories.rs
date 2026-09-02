@@ -18,6 +18,7 @@ use tokio::{
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const BROKER_DEADLINE: Duration = Duration::from_secs(130);
+const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(24 * 60 * 60 + 15 * 60);
 
 #[derive(Clone)]
 struct RepositoryBrokerClient {
@@ -57,6 +58,16 @@ impl RepositoryBrokerClient {
         operation: &'static str,
         arguments: T,
     ) -> Result<CallToolResult, ErrorData> {
+        self.call_with_deadline(operation, arguments, BROKER_DEADLINE)
+            .await
+    }
+
+    async fn call_with_deadline<T: Serialize>(
+        &self,
+        operation: &'static str,
+        arguments: T,
+        deadline: Duration,
+    ) -> Result<CallToolResult, ErrorData> {
         let frame = BrokerFrameV1 {
             protocol: BROKER_PROTOCOL,
             capability: &self.capability,
@@ -73,7 +84,7 @@ impl RepositoryBrokerClient {
             ));
         }
         bytes.push(b'\n');
-        let response = tokio::time::timeout(BROKER_DEADLINE, async {
+        let response = tokio::time::timeout(deadline, async {
             let mut stream = UnixStream::connect(&self.endpoint)
                 .await
                 .map_err(|_| internal_error("repository broker is unavailable"))?;
@@ -133,6 +144,59 @@ struct BrokerResponseV1 {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RepositoriesParams {}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProposeRuntimeTaskParams {
+    /// Runtime that should perform the task. Beta accepts `codex` or `claude_code` only.
+    target_runtime: String,
+    /// Concise owner-facing summary for the confirmation card.
+    summary: String,
+    /// Complete task instruction to deliver only after the owner confirms.
+    task: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RuntimeTaskResultParams {
+    /// Exact completed task ID shown in Polyphonic's durable result receipt.
+    task_id: String,
+}
+
+impl RuntimeTaskResultParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        if is_opaque_id(&self.task_id) {
+            Ok(())
+        } else {
+            Err(ErrorData::invalid_params(
+                "runtime task result reference is invalid",
+                None,
+            ))
+        }
+    }
+}
+
+impl ProposeRuntimeTaskParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        let valid_target = matches!(self.target_runtime.as_str(), "codex" | "claude_code");
+        let valid_summary = !self.summary.trim().is_empty()
+            && self.summary.len() <= 240
+            && !self.summary.chars().any(char::is_control);
+        let valid_task = !self.task.trim().is_empty()
+            && self.task.len() <= 64 * 1024
+            && !self.task.chars().any(|character| {
+                character.is_control() && !matches!(character, '\n' | '\r' | '\t')
+            });
+        if valid_target && valid_summary && valid_task {
+            Ok(())
+        } else {
+            Err(ErrorData::invalid_params(
+                "runtime task proposal is invalid",
+                None,
+            ))
+        }
+    }
+}
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -246,6 +310,32 @@ impl LucaRepositoriesMcp {
         Parameters(params): Parameters<RepositoriesParams>,
     ) -> Result<CallToolResult, ErrorData> {
         self.client.call("operator_status", params).await
+    }
+
+    #[tool(
+        name = "propose_runtime_task",
+        description = "Ask the owner to confirm one new Codex or Claude Code task. This only opens Polyphonic's confirmation card; nothing runs until the owner chooses a working folder, permission mode, and Run. Use after a natural request such as 'send this to Codex'."
+    )]
+    async fn propose_runtime_task(
+        &self,
+        Parameters(params): Parameters<ProposeRuntimeTaskParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.client
+            .call_with_deadline("propose_runtime_task", params, RUNTIME_TASK_BROKER_DEADLINE)
+            .await
+    }
+
+    #[tool(
+        name = "read_runtime_task_result",
+        description = "Read the private result of an already-completed Polyphonic runtime task for this exact resident and conversation. Use only when Polyphonic asks you to retry synthesis; this never reruns the provider task."
+    )]
+    async fn read_runtime_task_result(
+        &self,
+        Parameters(params): Parameters<RuntimeTaskResultParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.client.call("read_runtime_task_result", params).await
     }
 
     #[tool(
@@ -380,6 +470,8 @@ mod tests {
             names,
             vec![
                 "polyphonic_status",
+                "propose_runtime_task",
+                "read_runtime_task_result",
                 "repo_apply_patch",
                 "repo_commit",
                 "repo_diff",
@@ -392,6 +484,31 @@ mod tests {
             ]
         );
         assert!(!names.iter().any(|name| name.contains("push")));
+    }
+
+    #[test]
+    fn runtime_task_proposals_are_bounded_and_explicit() {
+        assert!(ProposeRuntimeTaskParams {
+            target_runtime: "codex".into(),
+            summary: "Inspect the project".into(),
+            task: "Find and report the failing check.".into(),
+        }
+        .validate()
+        .is_ok());
+        assert!(ProposeRuntimeTaskParams {
+            target_runtime: "other".into(),
+            summary: "Inspect the project".into(),
+            task: "Find the failing check.".into(),
+        }
+        .validate()
+        .is_err());
+        assert!(ProposeRuntimeTaskParams {
+            target_runtime: "claude_code".into(),
+            summary: "Inspect\nthe project".into(),
+            task: "Find the failing check.".into(),
+        }
+        .validate()
+        .is_err());
     }
 
     #[test]

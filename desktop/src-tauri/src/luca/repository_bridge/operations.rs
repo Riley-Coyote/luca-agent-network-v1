@@ -123,6 +123,12 @@ pub(super) fn prepare(
         RepositoryToolOperationV1::OperatorStatus => {
             Err("operator status is handled by the broker".into())
         }
+        RepositoryToolOperationV1::ProposeRuntimeTask => {
+            Err("runtime task proposals are handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ReadRuntimeTaskResult => {
+            Err("runtime task results are handled by the broker".into())
+        }
         RepositoryToolOperationV1::List => {
             Err("repositories does not use a source operation".into())
         }
@@ -206,6 +212,12 @@ pub(super) fn execute(
     match operation {
         RepositoryToolOperationV1::OperatorStatus => {
             Err("operator status is handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ProposeRuntimeTask => {
+            Err("runtime task proposals are handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ReadRuntimeTaskResult => {
+            Err("runtime task results are handled by the broker".into())
         }
         RepositoryToolOperationV1::List => Err("repositories is handled by the broker".into()),
         RepositoryToolOperationV1::Tree => tree(root, decode(arguments)?),

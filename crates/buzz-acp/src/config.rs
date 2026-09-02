@@ -291,6 +291,14 @@ impl std::fmt::Display for PermissionMode {
     }
 }
 
+fn effective_permission_mode(managed_identity: bool, requested: PermissionMode) -> PermissionMode {
+    if managed_identity {
+        PermissionMode::Default
+    } else {
+        requested
+    }
+}
+
 /// CLI args for `buzz-acp models` — query available models from an agent.
 ///
 /// This is a standalone `Parser` (not a subcommand variant) because the
@@ -388,6 +396,23 @@ pub struct AssayRunArgs {
     pub idle_timeout_secs: u64,
 
     #[arg(long, default_value_t = 600)]
+    pub max_duration_secs: u64,
+}
+
+/// Relay-free, desktop-confirmed provider root task.
+#[derive(Debug, Parser)]
+#[command(
+    name = "buzz-acp runtime-task",
+    about = "Run one explicit Polyphonic runtime task through an ACP adapter"
+)]
+pub struct RuntimeTaskArgs {
+    #[command(flatten)]
+    pub agent: AuthAgentArgs,
+
+    #[arg(long, default_value_t = 900)]
+    pub idle_timeout_secs: u64,
+
+    #[arg(long, default_value_t = 7200)]
     pub max_duration_secs: u64,
 }
 
@@ -1340,11 +1365,7 @@ impl Config {
             model,
             // Managed permissions are mediated by the desktop-local channel;
             // never ask a runtime to bypass that request flow.
-            permission_mode: if managed_identity {
-                PermissionMode::Default
-            } else {
-                args.permission_mode
-            },
+            permission_mode: effective_permission_mode(managed_identity, args.permission_mode),
             respond_to: args.respond_to,
             respond_to_allowlist,
             allowed_respond_to,
@@ -2504,6 +2525,22 @@ channels = "ALL"
         assert!(!PermissionMode::AcceptEdits.is_default());
         assert!(!PermissionMode::DontAsk.is_default());
         assert!(!PermissionMode::Plan.is_default());
+    }
+
+    #[test]
+    fn managed_identity_always_uses_native_permission_mode() {
+        assert_eq!(
+            effective_permission_mode(true, PermissionMode::BypassPermissions),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            effective_permission_mode(true, PermissionMode::AcceptEdits),
+            PermissionMode::Default
+        );
+        assert_eq!(
+            effective_permission_mode(false, PermissionMode::BypassPermissions),
+            PermissionMode::BypassPermissions
+        );
     }
 
     #[test]

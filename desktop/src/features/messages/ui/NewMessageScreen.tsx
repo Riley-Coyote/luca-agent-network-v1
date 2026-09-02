@@ -64,11 +64,8 @@ import {
 export function NewMessageScreen() {
   const routeSearch = useSearch({ strict: false } as never) as {
     runtime?: string;
-    skill?: string;
+    skillId?: string;
   };
-  const skillPrompt = routeSearch.skill
-    ? `Use the “${routeSearch.skill}” skill for this request:\n\n`
-    : undefined;
   const queryClient = useQueryClient();
   const identityQuery = useIdentityQuery();
   const currentPubkey = identityQuery.data?.pubkey;
@@ -952,12 +949,20 @@ export function NewMessageScreen() {
       ) : null}
 
       <MessageComposer
+        capabilityResidents={selectedUsers
+          .filter((user) =>
+            managedResidentPubkeys.has(normalizePubkey(user.pubkey)),
+          )
+          .map((user) => ({
+            pubkey: normalizePubkey(user.pubkey),
+            name: formatRecipientName(user),
+          }))}
         channelName="new message"
         channelType="dm"
         containerClassName="px-5"
         disabled={isPending || selectedUsers.length === 0}
         isSending={isPending}
-        initialContent={skillPrompt}
+        initialSkillId={routeSearch.skillId}
         onPrepareSendChannel={prepareSendChannel}
         onPreparingMentionSendChange={setIsPreparingMentionSend}
         onSend={sendFirstMessage}

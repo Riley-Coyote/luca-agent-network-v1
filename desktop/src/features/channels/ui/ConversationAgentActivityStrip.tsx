@@ -1,5 +1,5 @@
 import * as React from "react";
-import { RotateCcw, Square, X } from "lucide-react";
+import { ChevronDown, ChevronUp, RotateCcw, Square, X } from "lucide-react";
 
 import type { AgentActivity } from "@/features/agents/lib/activityPhase";
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
@@ -20,6 +20,15 @@ import {
 } from "@/features/messages/lib/managedOperationalStatus";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import {
+  cancelRuntimeTask,
+  retryRuntimeTask,
+  type RuntimeTaskProjection,
+} from "@/shared/api/tauriRuntimeTasks";
+import {
+  runtimeTaskAction,
+  runtimeTaskVisible,
+} from "@/features/capabilities/lib/runtimeTaskPresentation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import {
@@ -63,6 +72,12 @@ export type ConversationAgentActivityStripProps = {
   onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   /** Human typing can occupy the same reserved shelf when no resident works. */
   idleContent?: React.ReactNode;
+  /** Permission authority remains native; this slot only places its existing
+   * cards inside the one visible current-work surface. */
+  permissionContent?: React.ReactNode;
+  /** Explicit provider-root tasks are projected here; this surface never
+   * becomes their execution or persistence authority. */
+  runtimeTasks?: RuntimeTaskProjection[];
 };
 
 /** Shared so an un-narrated item keeps one identity between renders. */
@@ -167,6 +182,145 @@ function ActivityPulse({
   );
 }
 
+function runtimeTaskLabel(task: RuntimeTaskProjection): string {
+  switch (task.state) {
+    case "queued":
+      return "Starting task";
+    case "active":
+      return task.currentStep ?? "Working";
+    case "stopping":
+      return "Stopping task";
+    case "failed":
+      return task.error ?? "Task needs attention";
+    case "interrupted":
+      return "Interrupted when Polyphonic closed";
+    case "succeeded":
+      return "Task complete";
+    default:
+      return "Task stopped";
+  }
+}
+
+function runtimeTaskProvider(task: RuntimeTaskProjection): string {
+  return task.runtimeFamily === "codex" ? "Codex" : "Claude Code";
+}
+
+function RuntimeTaskCompactItem({
+  expanded,
+  onDismiss,
+  onToggle,
+  task,
+}: {
+  expanded: boolean;
+  onDismiss: () => void;
+  onToggle: () => void;
+  task: RuntimeTaskProjection;
+}) {
+  const active =
+    task.state === "queued" ||
+    task.state === "active" ||
+    task.state === "stopping";
+  const action = runtimeTaskAction(task);
+  return (
+    <div
+      className="luca-activity-item luca-runtime-task-item"
+      data-activity-state={task.state}
+    >
+      <ActivityPulse
+        seed={task.taskId}
+        state={
+          active
+            ? "working"
+            : task.state === "failed"
+              ? "needs-attention"
+              : "settled"
+        }
+      />
+      <button
+        className="luca-activity-item__resident"
+        onClick={onToggle}
+        type="button"
+      >
+        <span className="luca-runtime-task-item__identity">
+          <span className="luca-activity-item__name">
+            {runtimeTaskProvider(task)}
+          </span>
+          <span className="luca-runtime-task-item__badge">Task</span>
+          <RuntimeTaskElapsed task={task} />
+        </span>
+        <span className="luca-activity-item__state">
+          {runtimeTaskLabel(task)}
+        </span>
+      </button>
+      {task.completedSteps > 0 ? (
+        <button
+          aria-expanded={expanded}
+          className="luca-activity-item__steps"
+          onClick={onToggle}
+          type="button"
+        >
+          <span>{task.completedSteps}</span>
+          {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+        </button>
+      ) : null}
+      {action === "stop" ? (
+        <button
+          className="luca-activity-item__action"
+          onClick={() => void cancelRuntimeTask(task.taskId)}
+          type="button"
+        >
+          <Square aria-hidden className="size-3" />
+          Stop
+        </button>
+      ) : action === "retry" ? (
+        <button
+          className="luca-activity-item__action"
+          onClick={() => void retryRuntimeTask(task.taskId)}
+          type="button"
+        >
+          <RotateCcw aria-hidden className="size-3" />
+          Retry
+        </button>
+      ) : action === "dismiss" ? (
+        <button
+          className="luca-activity-item__action"
+          onClick={onDismiss}
+          type="button"
+        >
+          <X aria-hidden className="size-3" />
+          Dismiss
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function RuntimeTaskElapsed({ task }: { task: RuntimeTaskProjection }) {
+  const live =
+    task.state === "queued" ||
+    task.state === "active" ||
+    task.state === "stopping";
+  const [now, setNow] = React.useState(() => Date.now());
+  const startedAt = Date.parse(task.startedAt);
+  const completedAt = task.completedAt ? Date.parse(task.completedAt) : now;
+  const elapsed =
+    Number.isFinite(startedAt) && Number.isFinite(completedAt)
+      ? Math.max(0, completedAt - startedAt)
+      : 0;
+  React.useEffect(() => {
+    if (!live) return;
+    const id = window.setTimeout(
+      () => setNow(Date.now()),
+      nextActivityWaitChangeMs(elapsed),
+    );
+    return () => window.clearTimeout(id);
+  }, [elapsed, live]);
+  const label = managedElapsedReadout(elapsed);
+  return label ? (
+    <span className="luca-activity-item__elapsed">{label}</span>
+  ) : null;
+}
+
 /**
  * The shelf's only ticking clock.
  *
@@ -267,45 +421,28 @@ function ActivityStepLine({
 }
 
 /** The work history, kept out of the collapsed line but never discarded. */
-function ActivitySteps({ item }: { item: ActivityShelfItem }) {
-  const live = isLiveState(item.state);
+function ActivitySteps({
+  expanded,
+  item,
+  onToggle,
+}: {
+  expanded: boolean;
+  item: ActivityShelfItem;
+  onToggle: () => void;
+}) {
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button
-          aria-label={`What ${item.name} did: ${item.steps.length} ${
-            item.steps.length === 1 ? "step" : "steps"
-          }`}
-          className="luca-activity-item__steps"
-          type="button"
-        >
-          {item.steps.length}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        aria-label={`What ${item.name} did`}
-        className="luca-activity-popover luca-activity-steps w-96 p-2"
-        side="top"
-        sideOffset={8}
-      >
-        <div className="luca-activity-popover__heading">
-          <span>{item.name}</span>
-          <span>
-            {item.steps.length} {item.steps.length === 1 ? "step" : "steps"}
-          </span>
-        </div>
-        <div className="luca-activity-steps__list">
-          {item.steps.map((step) => (
-            <ActivityStepLine
-              key={`${step.step}:${step.label}`}
-              live={live}
-              step={step}
-            />
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      aria-expanded={expanded}
+      aria-label={`${expanded ? "Collapse" : "Review"} ${item.name}'s ${item.steps.length} ${
+        item.steps.length === 1 ? "step" : "steps"
+      }`}
+      className="luca-activity-item__steps"
+      onClick={onToggle}
+      type="button"
+    >
+      <span>{item.steps.length}</span>
+      {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+    </button>
   );
 }
 
@@ -325,19 +462,23 @@ function settledStateLabel(item: ActivityShelfItem): string {
 
 function ActivityItem({
   compact = false,
+  expanded = false,
   item,
   onDismiss,
   onOpenResident,
   onRetryResident,
   onStop,
+  onToggleDetails,
   replacement = false,
 }: {
   compact?: boolean;
+  expanded?: boolean;
   item: ActivityShelfItem;
   onDismiss: (item: ActivityShelfItem) => void;
   onOpenResident: (pubkey: string) => void;
   onRetryResident?: (target: ActivityShelfRetryTarget) => void;
   onStop: (pubkey: string) => void;
+  onToggleDetails?: () => void;
   replacement?: boolean;
 }) {
   const terminal = isTerminalConversationActivity(item.state);
@@ -381,7 +522,13 @@ function ActivityItem({
           </span>
         )}
       </button>
-      {item.steps.length > 0 ? <ActivitySteps item={item} /> : null}
+      {item.steps.length > 0 && onToggleDetails ? (
+        <ActivitySteps
+          expanded={expanded}
+          item={item}
+          onToggle={onToggleDetails}
+        />
+      ) : null}
       {item.retryTarget && onRetryResident ? (
         <button
           aria-label={`Retry ${item.name}`}
@@ -514,6 +661,8 @@ export function ConversationAgentActivityStrip({
   presentationStateByPubkey,
   onRetryResident,
   idleContent,
+  permissionContent,
+  runtimeTasks = [],
 }: ConversationAgentActivityStripProps) {
   const slotState = React.useRef(EMPTY_ACTIVITY_SHELF_SLOTS);
   const announcedChannelId = React.useRef(channelId);
@@ -521,6 +670,30 @@ export function ConversationAgentActivityStrip({
     new Map<string, ActivityAnnouncementItem>(),
   );
   const [liveAnnouncement, setLiveAnnouncement] = React.useState("");
+  const [expanded, setExpanded] = React.useState(false);
+  const [dismissedRuntimeTasks, setDismissedRuntimeTasks] = React.useState(
+    () => new Set<string>(),
+  );
+  const [runtimeNow, setRuntimeNow] = React.useState(() => Date.now());
+  const visibleRuntimeTasks = runtimeTasks.filter((task) =>
+    runtimeTaskVisible(task, dismissedRuntimeTasks, runtimeNow),
+  );
+
+  React.useEffect(() => {
+    const nextExpiry = runtimeTasks
+      .filter((task) => task.state === "succeeded" && task.completedAt)
+      .map(
+        (task) => Date.parse(task.completedAt as string) + 4_000 - Date.now(),
+      )
+      .filter((remaining) => remaining > 0)
+      .sort((left, right) => left - right)[0];
+    if (nextExpiry === undefined) return;
+    const id = window.setTimeout(
+      () => setRuntimeNow(Date.now()),
+      nextExpiry + 16,
+    );
+    return () => window.clearTimeout(id);
+  }, [runtimeTasks]);
 
   const sessions = React.useMemo(
     () =>
@@ -702,7 +875,18 @@ export function ConversationAgentActivityStrip({
   // A retained work summary is background information. Someone typing right
   // now is not, so the settled row yields the shelf back for the duration.
   const liveItems = orderedItems.filter((item) => item.state !== "settled");
-  const showIdleContent = liveItems.length === 0 && Boolean(idleContent);
+  const showIdleContent =
+    liveItems.length === 0 &&
+    visibleRuntimeTasks.length === 0 &&
+    Boolean(idleContent);
+  const hasWorkTrayContent =
+    orderedItems.length > 0 ||
+    visibleRuntimeTasks.length > 0 ||
+    Boolean(permissionContent);
+
+  React.useEffect(() => {
+    if (!hasWorkTrayContent) setExpanded(false);
+  }, [hasWorkTrayContent]);
 
   const handleStopResident = React.useCallback(
     (pubkey: string) => void stopResidents([pubkey]),
@@ -750,13 +934,14 @@ export function ConversationAgentActivityStrip({
 
   return (
     <section
-      aria-label="Resident activity"
-      className="luca-activity-shelf"
-      data-active-count={orderedItems.length}
+      aria-label="Current work"
+      className="luca-activity-shelf luca-work-tray"
+      data-active-count={orderedItems.length + visibleRuntimeTasks.length}
+      data-expanded={expanded ? "true" : "false"}
       data-state={
         showIdleContent
           ? "typing"
-          : orderedItems.length > 0
+          : hasWorkTrayContent
             ? "active"
             : idleContent
               ? "typing"
@@ -765,8 +950,35 @@ export function ConversationAgentActivityStrip({
       data-testid="conversation-activity-shelf"
     >
       <div className="luca-activity-shelf__inner">
+        {permissionContent &&
+        orderedItems.length === 0 &&
+        visibleRuntimeTasks.length === 0 ? (
+          <button
+            aria-expanded={expanded}
+            className="luca-work-tray__permission-trigger"
+            onClick={() => setExpanded((value) => !value)}
+            type="button"
+          >
+            <span>Permission needed</span>
+            {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
+          </button>
+        ) : null}
         {showIdleContent ? (
           <div className="luca-activity-shelf__idle-content">{idleContent}</div>
+        ) : null}
+        {visibleRuntimeTasks[0] ? (
+          <RuntimeTaskCompactItem
+            expanded={expanded}
+            onDismiss={() =>
+              setDismissedRuntimeTasks((current) => {
+                const next = new Set(current);
+                next.add(visibleRuntimeTasks[0]?.taskId ?? "");
+                return next;
+              })
+            }
+            onToggle={() => setExpanded((value) => !value)}
+            task={visibleRuntimeTasks[0]}
+          />
         ) : null}
         <div
           className="luca-activity-shelf__slots"
@@ -787,6 +999,7 @@ export function ConversationAgentActivityStrip({
             >
               {slot.residentKey && itemsByKey.has(slot.residentKey) ? (
                 <ActivityItem
+                  expanded={expanded}
                   item={itemsByKey.get(slot.residentKey) as ActivityShelfItem}
                   key={slot.residentKey}
                   onDismiss={handleDismissResident}
@@ -795,6 +1008,7 @@ export function ConversationAgentActivityStrip({
                     onRetryResident ? handleRetryResident : undefined
                   }
                   onStop={handleStopResident}
+                  onToggleDetails={() => setExpanded((value) => !value)}
                   replacement={slot.replacement}
                 />
               ) : null}
@@ -847,6 +1061,100 @@ export function ConversationAgentActivityStrip({
           </div>
         ) : null}
       </div>
+      {expanded ? (
+        <div
+          className="luca-work-tray__expanded"
+          data-testid="conversation-work-tray-expanded"
+        >
+          <div className="luca-work-tray__heading">
+            <span>Current work</span>
+            <button
+              aria-label="Collapse current work"
+              onClick={() => setExpanded(false)}
+              type="button"
+            >
+              <ChevronDown aria-hidden />
+            </button>
+          </div>
+          {permissionContent ? (
+            <div className="luca-work-tray__permissions">
+              {permissionContent}
+            </div>
+          ) : null}
+          <div className="luca-work-tray__runs">
+            {visibleRuntimeTasks.map((task) => (
+              <section className="luca-work-tray__run" key={task.taskId}>
+                <div className="luca-work-tray__run-heading">
+                  <span>{task.summary}</span>
+                  <span>{runtimeTaskProvider(task)}</span>
+                </div>
+                <div className="luca-runtime-task-run__meta">
+                  <span>
+                    {task.permissionMode === "full_access"
+                      ? "Full Access"
+                      : "Ask when needed"}
+                  </span>
+                  <span>{task.completedSteps} completed</span>
+                  <RuntimeTaskElapsed task={task} />
+                </div>
+                {task.steps.length > 0 ? (
+                  <ol className="luca-runtime-task-run__steps">
+                    {task.steps.map((step) => (
+                      <li data-state={step.state} key={step.label}>
+                        <span
+                          aria-hidden
+                          className="luca-runtime-task-run__step-dot"
+                        />
+                        <span>{step.label}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="luca-work-tray__empty-step">
+                    {runtimeTaskLabel(task)}
+                  </p>
+                )}
+                {task.error ? (
+                  <p className="luca-runtime-task-run__error">{task.error}</p>
+                ) : null}
+                {task.state === "queued" || task.state === "active" ? (
+                  <button
+                    className="luca-activity-item__action luca-runtime-task-run__action"
+                    onClick={() => void cancelRuntimeTask(task.taskId)}
+                    type="button"
+                  >
+                    <Square aria-hidden className="size-3" />
+                    Stop task
+                  </button>
+                ) : null}
+              </section>
+            ))}
+            {orderedItems.map((item) => (
+              <section className="luca-work-tray__run" key={item.key}>
+                <div className="luca-work-tray__run-heading">
+                  <span>{item.name}</span>
+                  <span>{conversationActivityLabel(item.state)}</span>
+                </div>
+                {item.steps.length > 0 ? (
+                  <div className="luca-activity-steps__list">
+                    {item.steps.map((step) => (
+                      <ActivityStepLine
+                        key={`${step.step}:${step.label}`}
+                        live={isLiveState(item.state)}
+                        step={step}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="luca-work-tray__empty-step">
+                    {item.detail ?? conversationActivityLabel(item.state)}
+                  </p>
+                )}
+              </section>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <span aria-live="polite" className="sr-only">
         {liveAnnouncement}
       </span>

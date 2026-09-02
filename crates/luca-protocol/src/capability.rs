@@ -11,6 +11,109 @@ use crate::{Hex64, OpaqueId, SafeU53, Sha256Ref};
 pub const MANAGED_PERMISSION_V2_PROTOCOL: &str = "luca.managed.permission.v2";
 /// Stable wire identifier for body-free capability receipts.
 pub const CAPABILITY_RECEIPT_PROTOCOL: &str = "luca.capability.receipt.v1";
+/// Stable wire identifier for live, body-free resident session capability facts.
+pub const RESIDENT_SESSION_CAPABILITY_PROTOCOL: &str = "luca.resident-session-capability.v1";
+pub const MAX_RESIDENT_SESSION_COMMANDS: usize = 64;
+pub const MAX_RESIDENT_SESSION_COMMAND_NAME_BYTES: usize = 160;
+pub const MAX_RESIDENT_SESSION_COMMAND_DESCRIPTION_BYTES: usize = 512;
+
+/// Evidence strength for one capability fact. Declared support never silently
+/// becomes proof that the current provider session can execute it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilitySupportV1 {
+    Declared,
+    Discovered,
+    LiveVerified,
+    Unavailable,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityConfigurationV1 {
+    Configured,
+    NeedsAttention,
+    Absent,
+    NotApplicable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityAuthorityV1 {
+    Granted,
+    ApprovalRequired,
+    Denied,
+    RuntimeManaged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityExecutionV1 {
+    Available,
+    Active,
+    Failed,
+    Cancelled,
+    Unavailable,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidentCapabilityFactV1 {
+    pub capability_id: String,
+    pub provider: String,
+    pub support: CapabilitySupportV1,
+    pub configuration: CapabilityConfigurationV1,
+    pub authority: CapabilityAuthorityV1,
+    pub execution: CapabilityExecutionV1,
+    pub evidence_kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<String>,
+}
+
+/// One exact command advertised by the active ACP session. The canonical name
+/// includes its provider-owned prefix (`/` or `$`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidentSessionCommandV1 {
+    pub canonical_name: String,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_hint: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct NativeTaskFactsV1 {
+    pub root_dispatch: CapabilitySupportV1,
+    pub child_events: CapabilitySupportV1,
+    pub stable_child_ids: CapabilitySupportV1,
+    pub root_cancel: CapabilitySupportV1,
+    pub native_visibility: CapabilitySupportV1,
+    pub nonpersistent_internal_sessions: CapabilitySupportV1,
+}
+
+/// Native source of truth for one managed resident session. This frame is
+/// local-only and contains no command body, prompt, tool payload, or secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResidentSessionCapabilityV1 {
+    pub protocol: String,
+    pub resident_pubkey: Hex64,
+    pub runtime_family: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    pub session_epoch: SafeU53,
+    pub observed_at: String,
+    pub capabilities: Vec<ResidentCapabilityFactV1>,
+    pub commands: Vec<ResidentSessionCommandV1>,
+    pub native_task_facts: NativeTaskFactsV1,
+}
 
 /// Persistent access posture for one stable resident identity.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -115,6 +218,8 @@ pub enum CapabilityContractError {
     Protocol,
     #[error("capability text is outside its bound")]
     Bounds,
+    #[error("resident session capability shape is invalid")]
+    SessionCapability,
 }
 
 fn bounded(value: &str, max: usize, allow_empty: bool) -> bool {
@@ -149,6 +254,61 @@ impl CapabilityReceiptV1 {
     pub fn validate(&self) -> Result<(), CapabilityContractError> {
         if self.protocol != CAPABILITY_RECEIPT_PROTOCOL || !bounded(&self.summary, 512, false) {
             return Err(CapabilityContractError::Protocol);
+        }
+        Ok(())
+    }
+}
+
+impl ResidentSessionCapabilityV1 {
+    pub fn validate(&self) -> Result<(), CapabilityContractError> {
+        if self.protocol != RESIDENT_SESSION_CAPABILITY_PROTOCOL
+            || self.runtime_family.is_empty()
+            || self.runtime_family.len() > 64
+            || self.commands.len() > MAX_RESIDENT_SESSION_COMMANDS
+            || self.capabilities.len() > 256
+        {
+            return Err(CapabilityContractError::SessionCapability);
+        }
+        let mut command_names = std::collections::BTreeSet::new();
+        for command in &self.commands {
+            let name_ok = !command.canonical_name.is_empty()
+                && command.canonical_name.len() <= MAX_RESIDENT_SESSION_COMMAND_NAME_BYTES
+                && matches!(
+                    command.canonical_name.as_bytes().first(),
+                    Some(b'/') | Some(b'$')
+                )
+                && !command
+                    .canonical_name
+                    .chars()
+                    .any(|character| character.is_control() || character.is_whitespace());
+            let description_ok = command.description.len()
+                <= MAX_RESIDENT_SESSION_COMMAND_DESCRIPTION_BYTES
+                && !command
+                    .description
+                    .chars()
+                    .any(|character| character.is_control());
+            let input_hint_ok = command.input_hint.as_ref().is_none_or(|hint| {
+                hint.len() <= MAX_RESIDENT_SESSION_COMMAND_DESCRIPTION_BYTES
+                    && !hint.chars().any(|character| character.is_control())
+            });
+            if !name_ok
+                || !description_ok
+                || !input_hint_ok
+                || !command_names.insert(command.canonical_name.as_str())
+            {
+                return Err(CapabilityContractError::SessionCapability);
+            }
+        }
+        if self.capabilities.iter().any(|fact| {
+            !bounded(&fact.capability_id, 128, false)
+                || !bounded(&fact.provider, 64, false)
+                || !bounded(&fact.evidence_kind, 128, false)
+                || fact
+                    .reason_code
+                    .as_ref()
+                    .is_some_and(|reason| !bounded(reason, 128, false))
+        }) {
+            return Err(CapabilityContractError::SessionCapability);
         }
         Ok(())
     }

@@ -5,7 +5,9 @@
 
 use crate::{
     app_state::AppState,
-    luca::{connected_brain, owner_brain_store, resident_registry},
+    luca::{
+        connected_brain, owner_brain_store, resident_registry, runtime_session_purpose,
+    },
 };
 use luca_protocol::{
     BrainGrantStateV1, ConnectedBrainSourceKindV1, ConnectedBrainSourceStatusV1, Hex64, OpaqueId,
@@ -217,6 +219,8 @@ fn recall_state_value(state: BrainGrantStateV1) -> &'static str {
 fn operation_value(operation: RepositoryToolOperationV1) -> &'static str {
     match operation {
         RepositoryToolOperationV1::OperatorStatus => "polyphonic_status",
+        RepositoryToolOperationV1::ProposeRuntimeTask => "propose_runtime_task",
+        RepositoryToolOperationV1::ReadRuntimeTaskResult => "read_runtime_task_result",
         RepositoryToolOperationV1::List => "repositories",
         RepositoryToolOperationV1::Tree => "repo_tree",
         RepositoryToolOperationV1::Search => "repo_search",
@@ -445,6 +449,12 @@ pub async fn list_connected_runtime_sessions(
         };
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|_| "connected-runtime-session-store-unavailable".to_owned())?;
+        let excluded_provider_session_ids =
+            runtime_session_purpose::excluded_provider_session_ids(&app_data_dir, &runtime_id);
         let catalog = state
             .read_connected_brain_catalog(&owner)
             .map_err(|error| error.code().to_owned())?;
@@ -482,6 +492,7 @@ pub async fn list_connected_runtime_sessions(
                 &owner,
                 &source.source.source_id,
                 &mut read_budget,
+                &excluded_provider_session_ids,
             ) {
                 Ok(listed) => listed,
                 Err(error) => {
@@ -550,6 +561,12 @@ pub async fn get_connected_runtime_session_context(
             .map_err(|_| "connected-runtime-session-invalid".to_owned())?;
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
+        let app_data_dir = app
+            .path()
+            .app_data_dir()
+            .map_err(|_| "connected-runtime-session-store-unavailable".to_owned())?;
+        let excluded_provider_session_ids =
+            runtime_session_purpose::excluded_provider_session_ids(&app_data_dir, &input.runtime_id);
         let catalog = state
             .read_connected_brain_catalog(&owner)
             .map_err(|error| error.code().to_owned())?;
@@ -561,6 +578,7 @@ pub async fn get_connected_runtime_session_context(
                 &owner,
                 &source.source.source_id,
                 &session_id,
+                &excluded_provider_session_ids,
             ) {
                 Ok(context) => context,
                 Err(error) => {

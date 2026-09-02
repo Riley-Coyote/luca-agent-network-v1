@@ -38,11 +38,203 @@
   width: 100%;
 }
 
+:root[data-luca-shell] .luca-work-tray__expanded {
+  background: hsl(var(--mn-raised) / 0.98);
+  border: 1px solid hsl(var(--mn-border-strong) / 0.72);
+  border-radius: 16px;
+  bottom: 54px;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.24);
+  left: max(8px, calc((100% - var(--mn-reading-measure)) / 2 + 8px));
+  max-height: min(40vh, 28rem);
+  overflow-y: auto;
+  padding: 10px;
+  pointer-events: auto;
+  position: absolute;
+  right: max(8px, calc((100% - var(--mn-reading-measure)) / 2 + 8px));
+  transform-origin: bottom center;
+  z-index: 20;
+}
+
+:root[data-luca-shell] .luca-work-tray__heading,
+:root[data-luca-shell] .luca-work-tray__run-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+:root[data-luca-shell] .luca-work-tray__heading {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  padding: 2px 4px 9px;
+  text-transform: uppercase;
+}
+
+:root[data-luca-shell] .luca-work-tray__heading button,
+:root[data-luca-shell] .luca-work-tray__permission-trigger {
+  pointer-events: auto;
+}
+
+:root[data-luca-shell] .luca-work-tray__heading svg,
+:root[data-luca-shell] .luca-work-tray__permission-trigger svg,
+:root[data-luca-shell] .luca-activity-item__steps svg {
+  height: 13px;
+  width: 13px;
+}
+
+:root[data-luca-shell] .luca-work-tray__permissions {
+  border-bottom: 1px solid hsl(var(--mn-border) / 0.64);
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+}
+
+:root[data-luca-shell] .luca-work-tray__runs {
+  display: grid;
+  gap: 8px;
+}
+
+:root[data-luca-shell] .luca-work-tray__run {
+  background: hsl(var(--mn-floor) / 0.42);
+  border: 1px solid hsl(var(--mn-border) / 0.56);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+:root[data-luca-shell] .luca-work-tray__run-heading {
+  color: hsl(var(--mn-ink));
+  font-size: var(--type-label-size);
+  font-weight: 500;
+  padding-bottom: 8px;
+}
+
+:root[data-luca-shell] .luca-work-tray__run-heading span:last-child,
+:root[data-luca-shell] .luca-work-tray__empty-step {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+:root[data-luca-shell] .luca-work-tray__permission-trigger {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: var(--type-body-size);
+  gap: 8px;
+  height: 100%;
+  justify-content: space-between;
+  padding: 0 8px;
+  width: 100%;
+}
+
 :root[data-luca-shell] .luca-activity-shelf__slots {
   display: grid;
   flex: 1 1 auto;
   gap: 4px;
   min-width: 0;
+}
+
+:root[data-luca-shell] .luca-runtime-task-item {
+  flex: 1 1 20rem;
+  max-width: 28rem;
+}
+
+:root[data-luca-shell] .luca-runtime-task-item__identity {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  min-width: 0;
+}
+
+:root[data-luca-shell] .luca-runtime-task-item__badge {
+  border: 1px solid hsl(var(--mn-border-strong) / 0.62);
+  border-radius: 999px;
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  line-height: 1;
+  padding: 3px 6px;
+  text-transform: uppercase;
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__meta {
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  gap: 10px;
+  margin: -3px 0 9px;
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__steps {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__steps li {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 8px;
+  list-style: none;
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__step-dot {
+  background: hsl(var(--mn-ink-faint));
+  border-radius: 999px;
+  height: 6px;
+  width: 6px;
+}
+
+:root[data-luca-shell]
+  .luca-runtime-task-run__steps li[data-state="active"]
+  .luca-runtime-task-run__step-dot {
+  animation: luca-runtime-task-step-pulse 1.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  .luca-runtime-task-run__steps li[data-state="done"]
+  .luca-runtime-task-run__step-dot {
+  background: hsl(var(--mn-ink-muted));
+}
+
+:root[data-luca-shell]
+  .luca-runtime-task-run__steps li[data-state="failed"] {
+  color: hsl(var(--destructive) / 0.86);
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__error {
+  color: hsl(var(--destructive) / 0.86);
+  font-size: 0.75rem;
+  margin-top: 9px;
+}
+
+:root[data-luca-shell] .luca-runtime-task-run__action {
+  margin-top: 10px;
+}
+
+@keyframes luca-runtime-task-step-pulse {
+  0%,
+  100% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell]
+    .luca-runtime-task-run__steps li[data-state="active"]
+    .luca-runtime-task-run__step-dot {
+    animation: none;
+  }
 }
 
 :root[data-luca-shell] .luca-activity-shelf__idle-content {
@@ -155,6 +347,16 @@
   transition:
     color 120ms var(--motion-ease-standard),
     opacity 120ms var(--motion-ease-standard);
+}
+
+:root[data-luca-shell] .luca-activity-item__steps {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  gap: 3px;
+  pointer-events: auto;
 }
 
 :root[data-luca-shell] .luca-activity-item__action {

@@ -6,8 +6,9 @@ use std::{
 };
 
 use luca_protocol::{
-    Hex64, ManagedPresentationFrameV1, ManagedPresentationKindV1, SafeU53,
-    MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    Hex64, ManagedPresentationFrameV1, ManagedPresentationKindV1,
+    ResidentSessionCapabilityV1, SafeU53, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    RESIDENT_SESSION_CAPABILITY_PROTOCOL,
 };
 use tauri::{AppHandle, Emitter};
 
@@ -161,6 +162,10 @@ fn serve(
                 self.resident_pubkey.as_str(),
                 self.session_epoch.get(),
             );
+            super::resident_session_capabilities::clear_session(
+                self.resident_pubkey.as_str(),
+                self.session_epoch.get(),
+            );
         }
     }
 
@@ -169,7 +174,7 @@ fn serve(
         session_epoch,
     };
     let mut reader = BufReader::new(stream);
-    let mut gate = PresentationFrameGate::new(resident_pubkey, session_epoch);
+    let mut gate = PresentationFrameGate::new(resident_pubkey.clone(), session_epoch);
     loop {
         let mut line = Vec::new();
         let read = {
@@ -185,7 +190,24 @@ fn serve(
         if line.len() > MAX_MANAGED_PRESENTATION_FRAME_BYTES || line.last() != Some(&b'\n') {
             break;
         }
-        let Ok(frame) = serde_json::from_slice::<ManagedPresentationFrameV1>(&line) else {
+        let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if value.get("protocol").and_then(|protocol| protocol.as_str())
+            == Some(RESIDENT_SESSION_CAPABILITY_PROTOCOL)
+        {
+            let Ok(snapshot) = serde_json::from_value::<ResidentSessionCapabilityV1>(value) else {
+                continue;
+            };
+            super::resident_session_capabilities::observe(
+                &app,
+                &resident_pubkey,
+                session_epoch,
+                snapshot,
+            );
+            continue;
+        }
+        let Ok(frame) = serde_json::from_value::<ManagedPresentationFrameV1>(value) else {
             continue;
         };
         let mut candidate_gate = gate.clone();

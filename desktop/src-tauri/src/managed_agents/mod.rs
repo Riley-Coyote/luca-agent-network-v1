@@ -12,7 +12,7 @@ mod env_vars;
 pub(crate) mod git_bash;
 pub(crate) mod global_config;
 #[cfg(unix)]
-mod inherited_fds;
+pub(crate) mod inherited_fds;
 mod managed_node_paths;
 mod native_runtime;
 mod nest;

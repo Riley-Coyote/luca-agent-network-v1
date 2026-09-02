@@ -18,6 +18,8 @@ mod pool;
 mod queue;
 mod relay;
 mod repository_mcp;
+mod runtime_session_purpose;
+mod runtime_task_runner;
 mod setup_mode;
 mod usage;
 
@@ -40,7 +42,7 @@ use buzz_core::observer::{
 use clap::Parser;
 use config::{
     AssayRunArgs, AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
-    MultipleEventHandling, RespondTo, SubscribeMode,
+    MultipleEventHandling, RespondTo, RuntimeTaskArgs, SubscribeMode,
 };
 use filter::SubscriptionRule;
 use futures_util::FutureExt;
@@ -1306,6 +1308,16 @@ async fn tokio_main() -> Result<()> {
         return assay_runner::run(args).await;
     }
 
+    if is_subcommand("runtime-task") {
+        let filtered: Vec<String> = std::env::args()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, a)| a)
+            .collect();
+        let args = RuntimeTaskArgs::parse_from(&filtered);
+        return runtime_task_runner::run(args).await;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("buzz_acp=info")),
@@ -1789,6 +1801,9 @@ async fn tokio_main() -> Result<()> {
             .ok()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
+        runtime_session_purpose_store:
+            runtime_session_purpose::RuntimeSessionPurposeStore::from_environment()
+                .map_err(anyhow::Error::msg)?,
         managed_final_publisher,
     });
 

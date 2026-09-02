@@ -71,7 +71,7 @@ export function SkillLibraryPanel() {
       );
       setSelectedSkill(null);
       void goNewMessage({
-        skill: skill.name,
+        skillId: skill.skillId,
         runtime,
       });
     },

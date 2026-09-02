@@ -4,7 +4,7 @@ import { NewMessageScreen } from "@/features/messages/ui/NewMessageScreen";
 
 export type NewMessageRouteSearch = {
   runtime?: string;
-  skill?: string;
+  skillId?: string;
 };
 
 function boundedSearchString(value: unknown, maxLength: number) {
@@ -16,7 +16,7 @@ function boundedSearchString(value: unknown, maxLength: number) {
 export const Route = createFileRoute("/messages/new")({
   validateSearch: (search: Record<string, unknown>): NewMessageRouteSearch => ({
     runtime: boundedSearchString(search.runtime, 64),
-    skill: boundedSearchString(search.skill, 160),
+    skillId: boundedSearchString(search.skillId, 64),
   }),
   component: NewMessageScreen,
 });

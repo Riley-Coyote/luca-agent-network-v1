@@ -15,6 +15,10 @@ import { toast } from "sonner";
 
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import {
+  startManagedAgent,
+  stopManagedAgent,
+} from "@/shared/api/tauriManagedAgents";
+import {
   deleteLucaMcpConnection,
   listLucaMcpRegistry,
   listRuntimeOwnedMcpCatalog,
@@ -143,6 +147,9 @@ export function ConnectionsMcpSettings() {
   const [showForm, setShowForm] = React.useState(false);
   const [pendingId, setPendingId] = React.useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [restartSuggestedPubkeys, setRestartSuggestedPubkeys] = React.useState<
+    Set<string>
+  >(() => new Set());
 
   const refresh = React.useCallback(async (announce = false) => {
     setIsRefreshing(true);
@@ -549,6 +556,17 @@ export function ConnectionsMcpSettings() {
                           granted,
                         ),
                       );
+                      setRestartSuggestedPubkeys((current) => {
+                        const next = new Set(current);
+                        next.add(pubkey);
+                        return next;
+                      });
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Resident connection access could not be changed.",
+                      );
                     } finally {
                       setPendingId(null);
                     }
@@ -605,7 +623,35 @@ export function ConnectionsMcpSettings() {
                       setPendingId(null);
                     }
                   }}
+                  onRestart={async (pubkey) => {
+                    const resident = agentsQuery.data?.find(
+                      (agent) => agent.pubkey === pubkey,
+                    );
+                    if (resident?.status !== "running") return;
+                    setPendingId(`restart:${pubkey}`);
+                    setError(null);
+                    try {
+                      await stopManagedAgent(pubkey);
+                      await startManagedAgent(pubkey);
+                      await agentsQuery.refetch();
+                      setRestartSuggestedPubkeys((current) => {
+                        const next = new Set(current);
+                        next.delete(pubkey);
+                        return next;
+                      });
+                      toast.success(`${resident.name} restarted`);
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : `${resident.name} could not be restarted.`,
+                      );
+                    } finally {
+                      setPendingId(null);
+                    }
+                  }}
                   pendingId={pendingId}
+                  restartSuggestedPubkeys={restartSuggestedPubkeys}
                   separated={index > 0}
                 />
               ))
@@ -699,11 +745,17 @@ function ConnectionRow({
   onEdit,
   onEnabledChange,
   onGrant,
+  onRestart,
   onTest,
   pendingId,
+  restartSuggestedPubkeys,
   separated,
 }: {
-  agents: Array<{ pubkey: string; name: string }>;
+  agents: Array<{
+    pubkey: string;
+    name: string;
+    status: "running" | "stopped" | "deployed" | "not_deployed";
+  }>;
   connection: LucaMcpConnectionV1;
   grants: string[];
   health: string;
@@ -711,8 +763,10 @@ function ConnectionRow({
   onEdit: () => void;
   onEnabledChange: (enabled: boolean) => Promise<void>;
   onGrant: (pubkey: string, granted: boolean) => Promise<void>;
+  onRestart: (pubkey: string) => Promise<void>;
   onTest: () => Promise<void>;
   pendingId: string | null;
+  restartSuggestedPubkeys: ReadonlySet<string>;
   separated: boolean;
 }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -779,20 +833,46 @@ function ConnectionRow({
           <div className="space-y-1">
             {agents.map((agent) => {
               const granted = grants.includes(agent.pubkey);
+              const canRestartNow =
+                restartSuggestedPubkeys.has(agent.pubkey) &&
+                agent.status === "running";
               return (
                 <div
                   className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 hover:bg-muted/30"
                   key={agent.pubkey}
                 >
                   <span className="text-sm">{agent.name}</span>
-                  <Switch
-                    aria-label={`Grant ${connection.name} to ${agent.name}`}
-                    checked={granted}
-                    disabled={
-                      pendingId === `${connection.connectionId}:${agent.pubkey}`
-                    }
-                    onCheckedChange={(next) => void onGrant(agent.pubkey, next)}
-                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canRestartNow ? (
+                      <Button
+                        disabled={pendingId === `restart:${agent.pubkey}`}
+                        onClick={() => void onRestart(agent.pubkey)}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <RefreshCw
+                          className={
+                            pendingId === `restart:${agent.pubkey}`
+                              ? "size-3.5 animate-spin"
+                              : "size-3.5"
+                          }
+                        />
+                        Restart session
+                      </Button>
+                    ) : null}
+                    <Switch
+                      aria-label={`Grant ${connection.name} to ${agent.name}`}
+                      checked={granted}
+                      disabled={
+                        pendingId ===
+                          `${connection.connectionId}:${agent.pubkey}` ||
+                        pendingId === `restart:${agent.pubkey}`
+                      }
+                      onCheckedChange={(next) =>
+                        void onGrant(agent.pubkey, next)
+                      }
+                    />
+                  </div>
                 </div>
               );
             })}

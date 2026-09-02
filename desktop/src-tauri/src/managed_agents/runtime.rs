@@ -2413,6 +2413,11 @@ fn spawn_agent_child_unix(
             .app_data_dir()
             .map_err(|error| format!("resolve managed agent data directory: {error}"))?
     };
+    let runtime_session_purpose_store =
+        crate::luca::runtime_session_purpose::prepare_resident_store(
+            &app_data_dir,
+            resident_pubkey.as_str(),
+        )?;
     let relay_query_url = format!(
         "{}/query",
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
@@ -2468,6 +2473,19 @@ fn spawn_agent_child_unix(
         }
     }
     let runtime_meta = known_acp_runtime(&effective_command);
+    let runtime_family = match runtime_meta.map(|runtime| runtime.id) {
+        Some("claude") => "claude_code",
+        Some(runtime) => runtime,
+        None => "unknown",
+    };
+    command.env(
+        crate::luca::runtime_session_purpose::SESSION_PURPOSE_STORE_ENV,
+        &runtime_session_purpose_store,
+    );
+    command.env(
+        crate::luca::runtime_session_purpose::SESSION_RUNTIME_FAMILY_ENV,
+        runtime_family,
+    );
     // Never inherit a stale desktop-shell bootstrap. Only this spawn's
     // successfully created lease may expose the communications broker.
     command.env_remove("BUZZ_ACP_COMMUNICATIONS_MCP_COMMAND");

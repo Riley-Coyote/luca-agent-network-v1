@@ -1,4 +1,4 @@
-import { ArrowUp } from "lucide-react";
+import { ArrowUp, X } from "lucide-react";
 import * as React from "react";
 
 import { Button } from "@/shared/ui/button";
@@ -70,6 +70,27 @@ import { usePersistentAgentMentionHydration } from "./usePersistentAgentMentionH
 import { useComposerContentState } from "./useComposerContentState";
 import { useDraftPersistLifecycle } from "./useDraftPersistSnapshot";
 import type { MessageComposerSendContext } from "./messageComposerTypes";
+import {
+  ComposerCapabilityPalette,
+  type CapabilityResidentOption,
+  type ComposerCapabilitySelection,
+} from "@/features/capabilities/ui/ComposerCapabilityPalette";
+import {
+  RuntimeTaskConfirmationCard,
+  type RuntimeTaskDraft,
+} from "@/features/capabilities/ui/RuntimeTaskConfirmationCard";
+import {
+  getResidentSessionCapabilities,
+  resolveCapabilitySkillActivation,
+} from "@/shared/api/tauriCapabilities";
+import {
+  listLucaMcpRegistry,
+  listRuntimeOwnedMcpCatalog,
+} from "@/shared/api/tauriMcp";
+import {
+  resolveRuntimeTaskProjectFolder,
+  startRuntimeTask,
+} from "@/shared/api/tauriRuntimeTasks";
 
 type MessageComposerAudienceContext = {
   type: "thread";
@@ -87,6 +108,7 @@ type MessageComposerProps = {
   channelName: string;
   channelType?: ChannelType | null;
   conversationContext?: ConversationContextComposerConfig | null;
+  capabilityResidents?: CapabilityResidentOption[];
   containerClassName?: string;
   disabled?: boolean;
   draftKey?: string;
@@ -122,6 +144,7 @@ type MessageComposerProps = {
    * a restored draft or text the owner has already entered.
    */
   initialContent?: string;
+  initialSkillId?: string;
   isSending?: boolean;
   mediaController?: MediaUploadController;
   onCancelEdit?: () => void;
@@ -171,6 +194,7 @@ function MessageComposerImpl({
   channelId = null,
   channelType = null,
   conversationContext = null,
+  capabilityResidents = [],
   containerClassName,
   disabled = false,
   draftKey,
@@ -178,6 +202,7 @@ function MessageComposerImpl({
   onAutoSubmitComplete,
   editTarget = null,
   initialContent,
+  initialSkillId,
   isSending = false,
   onCancelEdit,
   onCancelReply,
@@ -207,6 +232,16 @@ function MessageComposerImpl({
   const [isEmojiPickerOpen, setIsEmojiPickerOpen] = React.useState(false);
   const [isFormattingOpen, setIsFormattingOpen] = React.useState(false);
   const [isContextOpen, setIsContextOpen] = React.useState(false);
+  const [isCapabilityPaletteOpen, setIsCapabilityPaletteOpen] =
+    React.useState(false);
+  const [capabilitySelection, setCapabilitySelection] =
+    React.useState<ComposerCapabilitySelection | null>(null);
+  const [capabilityError, setCapabilityError] = React.useState<string | null>(
+    null,
+  );
+  const [runtimeTaskDraft, setRuntimeTaskDraft] =
+    React.useState<RuntimeTaskDraft | null>(null);
+  const conversationProjectSourceIds = conversationContext?.project?.sourceIds;
   const contextAddButtonRef = React.useRef<HTMLButtonElement>(null);
   const [isContextSendBlocked, setIsContextSendBlocked] = React.useState(false);
   const isContextSendBlockedRef = React.useRef(false);
@@ -224,6 +259,55 @@ function MessageComposerImpl({
     if (pressed) setIsEmojiPickerOpen(false);
     setIsFormattingOpen(pressed);
   }, []);
+
+  const seededInitialSkillRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!initialSkillId || capabilityResidents.length !== 1) return;
+    const residentPubkey = capabilityResidents[0]?.pubkey ?? "";
+    const seedKey = `${initialSkillId}:${residentPubkey}`;
+    if (seededInitialSkillRef.current === seedKey) return;
+    seededInitialSkillRef.current = seedKey;
+    let cancelled = false;
+    void resolveCapabilitySkillActivation(initialSkillId, residentPubkey)
+      .then((activation) => {
+        if (cancelled) return;
+        if (
+          activation.status !== "ready" ||
+          !activation.canonicalName ||
+          !activation.runtimeFamily
+        ) {
+          setCapabilityError(
+            activation.reason ??
+              "This Skill is not available to the selected resident session.",
+          );
+          return;
+        }
+        setCapabilitySelection({
+          kind: "skill",
+          residentPubkey: activation.residentPubkey,
+          runtimeFamily: activation.runtimeFamily,
+          catalogId: activation.skillId,
+          catalogGeneration: activation.catalogGeneration,
+          canonicalName: activation.canonicalName,
+          label: activation.canonicalName.slice(1),
+        });
+        setCapabilityError(null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCapabilityError(
+            "Polyphonic could not verify this Skill for the selected resident session.",
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    capabilityResidents.length,
+    capabilityResidents[0]?.pubkey,
+    initialSkillId,
+  ]);
 
   const drafts = useDrafts();
   const identityQuery = useIdentityQuery();
@@ -378,6 +462,10 @@ function MessageComposerImpl({
     onUpdate: ({ cursor, text }) => {
       setComposerContentFromText(text);
 
+      if (/^\s*\/$/.test(text)) {
+        setIsCapabilityPaletteOpen(true);
+      }
+
       mentions.updateMentionQuery(text, cursor);
       channelLinks.updateChannelQuery(text, cursor);
       emojiAutocomplete.updateEmojiQuery(text, cursor);
@@ -407,6 +495,81 @@ function MessageComposerImpl({
     setComposerContent,
     syncComposerContentFromEditor,
   ]);
+
+  const handleCapabilityCommand = React.useCallback(
+    (selection: ComposerCapabilitySelection) => {
+      if (selection.kind !== "command") return;
+      const current = richText.getMarkdown();
+      if (/^\s*\/\s*$/.test(current)) {
+        const next = `${selection.canonicalName} `;
+        setComposerContent(next);
+        richText.setContent(next);
+        requestAnimationFrame(() => richText.focusEnd());
+      } else {
+        richText.editor
+          ?.chain()
+          .focus()
+          .insertContent(`${selection.canonicalName} `)
+          .run();
+      }
+      setCapabilitySelection(selection);
+      setCapabilityError(null);
+      setIsCapabilityPaletteOpen(false);
+    },
+    [
+      richText.editor,
+      richText.focusEnd,
+      richText.getMarkdown,
+      richText.setContent,
+      setComposerContent,
+    ],
+  );
+
+  const handleCapabilitySelection = React.useCallback(
+    (selection: ComposerCapabilitySelection) => {
+      setCapabilitySelection(selection);
+      setCapabilityError(null);
+      setIsCapabilityPaletteOpen(false);
+      if (/^\s*\/\s*$/.test(richText.getMarkdown())) {
+        setComposerContent("");
+        richText.clearContent();
+      }
+      requestAnimationFrame(() => richText.focusEnd());
+    },
+    [
+      richText.clearContent,
+      richText.focusEnd,
+      richText.getMarkdown,
+      setComposerContent,
+    ],
+  );
+
+  const beginRuntimeTask = React.useCallback(() => {
+    if (capabilityResidents.length !== 1) {
+      setIsCapabilityPaletteOpen(true);
+      return;
+    }
+    const resident = capabilityResidents[0];
+    if (!resident) return;
+    void getResidentSessionCapabilities(resident.pubkey)
+      .then((snapshot) => {
+        const runtimeFamily =
+          snapshot?.runtimeFamily === "claude_code" ? "claude_code" : "codex";
+        setCapabilitySelection({
+          kind: "runtime_task",
+          residentPubkey: resident.pubkey,
+          runtimeFamily,
+          label: "Run task",
+        });
+        setCapabilityError(null);
+        requestAnimationFrame(() => richText.focusEnd());
+      })
+      .catch(() => {
+        setCapabilityError(
+          "Polyphonic could not verify this resident's runtime session. Try again after it reconnects.",
+        );
+      });
+  }, [capabilityResidents, richText.focusEnd]);
 
   const linkEditor = useLinkEditor(richText);
   syncContentRefFromEditorRef.current = () => {
@@ -719,6 +882,70 @@ function MessageComposerImpl({
     // Normal send
     const currentPendingImeta = media.pendingImetaRef.current;
     const hasMedia = currentPendingImeta.length > 0;
+    const typedRuntimeTask = /^\/task(?:\s+|$)/i.test(trimmed);
+    const selectedRuntimeTask =
+      capabilitySelection?.kind === "runtime_task" ? capabilitySelection : null;
+    if (typedRuntimeTask || selectedRuntimeTask) {
+      if (
+        disabledRef.current ||
+        isSendingRef.current ||
+        isUploadingRef.current ||
+        runtimeTaskDraft
+      ) {
+        return;
+      }
+      if (hasMedia) {
+        setCapabilityError(
+          "Runtime task attachments are not part of the beta. Describe the task and choose its working folder.",
+        );
+        return;
+      }
+      const residentPubkey =
+        selectedRuntimeTask?.residentPubkey ??
+        (capabilityResidents.length === 1
+          ? capabilityResidents[0]?.pubkey
+          : undefined);
+      const resident = capabilityResidents.find(
+        (candidate) => candidate.pubkey === residentPubkey,
+      );
+      const prompt = typedRuntimeTask
+        ? trimmed.replace(/^\/task(?:\s+|$)/i, "").trim()
+        : trimmed;
+      if (!channelId || !residentPubkey || !resident || !prompt) {
+        setCapabilityError(
+          residentPubkey
+            ? "Describe the task before continuing."
+            : "Choose the resident initiating this task from Skills and tools.",
+        );
+        return;
+      }
+      let runtimeFamily = selectedRuntimeTask?.runtimeFamily;
+      if (!runtimeFamily) {
+        const snapshot = await getResidentSessionCapabilities(
+          residentPubkey,
+        ).catch(() => null);
+        runtimeFamily =
+          snapshot?.runtimeFamily === "claude_code" ? "claude_code" : "codex";
+      }
+      const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() || "Runtime task";
+      const workingFolder = conversationProjectSourceIds?.length
+        ? await resolveRuntimeTaskProjectFolder(
+            conversationProjectSourceIds,
+          ).catch(() => null)
+        : null;
+      setRuntimeTaskDraft({
+        conversationId: channelId,
+        residentPubkey,
+        residentName: resident.name,
+        runtimeFamily,
+        summary:
+          firstLine.length > 120 ? `${firstLine.slice(0, 117)}…` : firstLine,
+        prompt,
+        workingFolder,
+      });
+      setCapabilityError(null);
+      return;
+    }
     if (
       (!trimmed && !hasMedia) ||
       disabledRef.current ||
@@ -728,6 +955,98 @@ function MessageComposerImpl({
       mentionSendFlow.isPreparingMentionSend
     ) {
       return;
+    }
+
+    let outboundText = trimmed;
+    if (capabilitySelection) {
+      setCapabilityError(null);
+      if (capabilitySelection.kind === "command") {
+        const snapshot = await getResidentSessionCapabilities(
+          capabilitySelection.residentPubkey,
+        ).catch(() => null);
+        const firstToken = trimmed.split(/\s+/, 1)[0];
+        if (
+          !snapshot ||
+          snapshot.runtimeFamily !== capabilitySelection.runtimeFamily ||
+          snapshot.sessionEpoch !== capabilitySelection.sessionEpoch ||
+          firstToken !== capabilitySelection.canonicalName ||
+          !snapshot.commands.some(
+            (command) =>
+              command.canonicalName === capabilitySelection.canonicalName,
+          )
+        ) {
+          setCapabilityError(
+            "This command changed before Send. Your draft is intact; choose it again after the resident reconnects.",
+          );
+          return;
+        }
+      } else if (capabilitySelection.kind === "skill") {
+        const activation = await resolveCapabilitySkillActivation(
+          capabilitySelection.catalogId,
+          capabilitySelection.residentPubkey,
+        ).catch(() => null);
+        if (
+          activation?.status !== "ready" ||
+          !activation.canonicalName ||
+          activation.canonicalName !== capabilitySelection.canonicalName ||
+          activation.runtimeFamily !== capabilitySelection.runtimeFamily ||
+          activation.catalogGeneration !== capabilitySelection.catalogGeneration
+        ) {
+          setCapabilityError(
+            activation?.reason ??
+              "This Skill changed before send. Refresh Skills and choose it again.",
+          );
+          return;
+        }
+        outboundText = `${activation.canonicalName}\n\n${trimmed}`;
+      } else if (capabilitySelection.kind === "mcp_preference") {
+        const snapshot = await getResidentSessionCapabilities(
+          capabilitySelection.residentPubkey,
+        ).catch(() => null);
+        if (
+          !snapshot ||
+          snapshot.runtimeFamily !== capabilitySelection.runtimeFamily
+        ) {
+          setCapabilityError(
+            "This resident's runtime session changed. Choose the connection again.",
+          );
+          return;
+        }
+        let available = false;
+        if (capabilitySelection.catalogId.startsWith("runtime:")) {
+          const catalogs = await listRuntimeOwnedMcpCatalog().catch(() => []);
+          available = catalogs.some(
+            (catalog) =>
+              catalog.runtimeId === capabilitySelection.runtimeFamily &&
+              catalog.servers.some(
+                (server) =>
+                  server.name === capabilitySelection.canonicalName &&
+                  server.status === "configured",
+              ),
+          );
+        } else {
+          const registry = await listLucaMcpRegistry().catch(() => null);
+          available = Boolean(
+            registry?.connections.some(
+              (connection) =>
+                connection.connectionId === capabilitySelection.catalogId &&
+                connection.enabled,
+            ) &&
+              registry?.grants.some(
+                (grant) =>
+                  grant.connectionId === capabilitySelection.catalogId &&
+                  grant.residentPubkey === capabilitySelection.residentPubkey,
+              ),
+          );
+        }
+        if (!available) {
+          setCapabilityError(
+            "This connection is no longer available to the selected resident. Open Connections to repair it.",
+          );
+          return;
+        }
+        outboundText = `Use the ${capabilitySelection.label} connection if it is appropriate for this request.\n\n${trimmed}`;
+      }
     }
 
     const capturedThreadContext = onCaptureSendContext?.() ?? null;
@@ -750,15 +1069,18 @@ function MessageComposerImpl({
           drafts.loadDraft,
         ),
         spoileredAttachmentUrls,
-        trimmed,
+        trimmed: outboundText,
         audienceGeneration: persistentAudience.generation,
         audienceRevision: audienceScope ? persistentAudience.revision : null,
       });
+      setCapabilitySelection(null);
+      setCapabilityError(null);
     } finally {
       persistentMentionHydration.endSubmit();
       onPreparingMentionSendChange?.(false);
     }
   }, [
+    capabilityResidents,
     channelId,
     channelLinks.clearChannels,
     customEmoji,
@@ -780,6 +1102,9 @@ function MessageComposerImpl({
     persistentMentionHydration,
     persistentAudience.generation,
     persistentAudience.revision,
+    capabilitySelection,
+    conversationProjectSourceIds,
+    runtimeTaskDraft,
   ]);
   submitMessageRef.current = submitMessage;
 
@@ -1058,6 +1383,35 @@ function MessageComposerImpl({
             onCancelEdit={onCancelEdit}
             onCancelReply={onCancelReply}
           />
+          {runtimeTaskDraft ? (
+            <RuntimeTaskConfirmationCard
+              draft={runtimeTaskDraft}
+              onCancel={() => {
+                setRuntimeTaskDraft(null);
+                requestAnimationFrame(() => richText.focusEnd());
+              }}
+              onConfirm={(details) =>
+                startRuntimeTask({
+                  conversationId: runtimeTaskDraft.conversationId,
+                  residentPubkey: runtimeTaskDraft.residentPubkey,
+                  runtimeFamily: details.runtimeFamily,
+                  summary: runtimeTaskDraft.summary,
+                  prompt: runtimeTaskDraft.prompt,
+                  workingFolder: details.workingFolder,
+                  permissionMode: details.permissionMode,
+                })
+              }
+              onConfirmed={() => {
+                setRuntimeTaskDraft(null);
+                setCapabilitySelection(null);
+                setCapabilityError(null);
+                setComposerContent("");
+                richText.clearContent();
+                if (effectiveDraftKey) drafts.clearDraft(effectiveDraftKey);
+                requestAnimationFrame(() => richText.focusEnd());
+              }}
+            />
+          ) : null}
           {/* The card carries no `transition-colors`: that moves ten
            * properties at once, and on this card only the focus border is
            * allowed to move — the background must hold still and the height
@@ -1080,6 +1434,17 @@ function MessageComposerImpl({
               handleSubmit(event);
             }}
           >
+            <ComposerCapabilityPalette
+              onClose={() => {
+                setIsCapabilityPaletteOpen(false);
+                requestAnimationFrame(() => richText.focusEnd());
+              }}
+              onCommand={handleCapabilityCommand}
+              onError={setCapabilityError}
+              onSelection={handleCapabilitySelection}
+              open={isCapabilityPaletteOpen}
+              residents={capabilityResidents}
+            />
             {ownsDropZone && media.isDragOver && <DropZoneOverlay />}
             <EmojiAutocomplete
               onSelect={applyEmojiInsert}
@@ -1105,6 +1470,41 @@ function MessageComposerImpl({
               selectedIndex={mentions.mentionSelectedIndex}
               suggestions={mentions.isMentionOpen ? mentions.suggestions : []}
             />
+            {capabilitySelection ? (
+              <div className="mb-2 flex items-center gap-2">
+                <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-foreground/[0.07] py-1 pl-2.5 pr-1 text-xs text-foreground">
+                  <span className="truncate">
+                    {capabilitySelection.kind === "command"
+                      ? "Command"
+                      : capabilitySelection.kind === "skill"
+                        ? "Skill"
+                        : capabilitySelection.kind === "runtime_task"
+                          ? "Task"
+                          : "Use"}{" "}
+                    {capabilitySelection.label}
+                  </span>
+                  <button
+                    aria-label={`Remove ${capabilitySelection.label}`}
+                    className="grid size-5 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
+                    onClick={() => {
+                      setCapabilitySelection(null);
+                      setCapabilityError(null);
+                    }}
+                    type="button"
+                  >
+                    <X aria-hidden className="size-3" />
+                  </button>
+                </span>
+              </div>
+            ) : null}
+            {capabilityError ? (
+              <div
+                className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                {capabilityError}
+              </div>
+            ) : null}
             {media.uploadState.status === "error" ? (
               <div
                 className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
@@ -1211,6 +1611,8 @@ function MessageComposerImpl({
               conversationContext ? () => setIsContextOpen(true) : undefined
             }
             onOpenMentionPicker={openMentionPicker}
+            onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
+            onRunTask={beginRuntimeTask}
             onPaperclip={handlePaperclipClick}
           />
         </div>

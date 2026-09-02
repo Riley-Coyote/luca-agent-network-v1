@@ -160,6 +160,7 @@ const ACTIVITY_KINDS = new Set<ManagedActivityKind>([
   "command",
   "search",
   "thinking",
+  "delegation",
   "other",
 ]);
 const ACTIVITY_STATUSES = new Set<ManagedActivityStatus>([
@@ -307,6 +308,9 @@ function countSuffix(step: ManagedTurnActivityStep): string {
   // thought the number is real but its unit is not ours to name.
   if (step.kind === "web" || step.kind === "search") {
     return ` — ${step.count} ${step.count === 1 ? "result" : "results"}`;
+  }
+  if (step.kind === "delegation") {
+    return ` — ${step.count} ${step.count === 1 ? "worker" : "workers"}`;
   }
   return ` — ${step.count}`;
 }

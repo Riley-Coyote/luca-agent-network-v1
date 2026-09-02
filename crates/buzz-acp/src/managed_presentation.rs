@@ -5,12 +5,15 @@
 use std::{collections::HashMap, sync::Arc};
 
 use luca_protocol::{
+    CapabilityAuthorityV1, CapabilityConfigurationV1, CapabilityExecutionV1, CapabilitySupportV1,
     Hex64, ManagedPresentationActivityKindV1, ManagedPresentationActivityStatusV1,
     ManagedPresentationActivityV1, ManagedPresentationFailureV1, ManagedPresentationFrameV1,
-    ManagedPresentationKindV1, ManagedPresentationPhaseV1, OpaqueId, SafeU53,
+    ManagedPresentationKindV1, ManagedPresentationPhaseV1, NativeTaskFactsV1, OpaqueId,
+    ResidentCapabilityFactV1, ResidentSessionCapabilityV1, ResidentSessionCommandV1, SafeU53,
     MANAGED_PRESENTATION_PROTOCOL, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES,
     MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES, MAX_MANAGED_PRESENTATION_CHUNK_BYTES,
-    MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    MAX_MANAGED_PRESENTATION_FRAME_BYTES, MAX_RESIDENT_SESSION_COMMANDS,
+    RESIDENT_SESSION_CAPABILITY_PROTOCOL,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -35,6 +38,7 @@ pub(crate) struct ManagedPresentationPublisher {
     writer: Arc<tokio::sync::Mutex<ManagedPresentationStream>>,
     resident_pubkey: Hex64,
     session_epoch: SafeU53,
+    runtime_family: String,
 }
 
 struct TurnState {
@@ -170,12 +174,24 @@ impl ManagedPresentationPublisher {
             .and_then(|value| value.parse::<u64>().ok())
             .and_then(|value| SafeU53::new(value).ok())
             .ok_or_else(|| anyhow::anyhow!("managed presentation epoch is missing"))?;
+        let runtime_family = std::env::var("LUCA_MANAGED_RUNTIME_FAMILY")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| {
+                !value.is_empty()
+                    && value.len() <= 64
+                    && value.bytes().all(|byte| {
+                        byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_'
+                    })
+            })
+            .ok_or_else(|| anyhow::anyhow!("managed presentation runtime family is missing"))?;
         Ok(Some(Self {
             writer: Arc::new(tokio::sync::Mutex::new(tokio::net::UnixStream::from_std(
                 stream,
             )?)),
             resident_pubkey,
             session_epoch,
+            runtime_family,
         }))
     }
 
@@ -242,13 +258,20 @@ impl ManagedPresentationPublisher {
                 turns.insert(turn_id.to_owned(), state);
             }
             "acp_read" => {
+                let update = &event.payload["params"]["update"];
+                if update.get("sessionUpdate").and_then(|value| value.as_str())
+                    == Some("available_commands_update")
+                {
+                    self.emit_capabilities(event.session_id.as_deref(), update)
+                        .await;
+                    return;
+                }
                 let Some(turn_id) = event.turn_id.as_deref() else {
                     return;
                 };
                 let Some(state) = turns.get_mut(turn_id) else {
                     return;
                 };
-                let update = &event.payload["params"]["update"];
                 match update.get("sessionUpdate").and_then(|value| value.as_str()) {
                     Some("agent_message_chunk") => {
                         let Some(chunk) = update["content"]["text"].as_str() else {
@@ -501,6 +524,89 @@ impl ManagedPresentationPublisher {
         let _ = writer.write_all(&bytes).await;
         let _ = writer.flush().await;
     }
+
+    async fn emit_capabilities(&self, session_id: Option<&str>, update: &serde_json::Value) {
+        let mut commands = update
+            .get("availableCommands")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|value| {
+                let raw_name = value.get("name")?.as_str()?.trim();
+                if raw_name.is_empty() {
+                    return None;
+                }
+                let canonical_name = if raw_name.starts_with(['/', '$']) {
+                    raw_name.to_owned()
+                } else {
+                    format!("/{raw_name}")
+                };
+                let description = value
+                    .get("description")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or_default()
+                    .trim()
+                    .to_owned();
+                let input_hint = value
+                    .get("inputHint")
+                    .or_else(|| value.get("input_hint"))
+                    .and_then(|item| item.as_str())
+                    .map(str::trim)
+                    .filter(|item| !item.is_empty())
+                    .map(str::to_owned);
+                Some(ResidentSessionCommandV1 {
+                    canonical_name,
+                    description,
+                    input_hint,
+                })
+            })
+            .take(MAX_RESIDENT_SESSION_COMMANDS)
+            .collect::<Vec<_>>();
+        commands.sort_by(|left, right| left.canonical_name.cmp(&right.canonical_name));
+        commands.dedup_by(|left, right| left.canonical_name == right.canonical_name);
+        let frame = ResidentSessionCapabilityV1 {
+            protocol: RESIDENT_SESSION_CAPABILITY_PROTOCOL.into(),
+            resident_pubkey: self.resident_pubkey.clone(),
+            runtime_family: self.runtime_family.clone(),
+            runtime_version: None,
+            adapter_version: None,
+            session_id: session_id.map(str::to_owned),
+            session_epoch: self.session_epoch,
+            observed_at: chrono::Utc::now().to_rfc3339(),
+            capabilities: vec![ResidentCapabilityFactV1 {
+                capability_id: "runtime_commands".into(),
+                provider: "runtime".into(),
+                support: CapabilitySupportV1::LiveVerified,
+                configuration: CapabilityConfigurationV1::Configured,
+                authority: CapabilityAuthorityV1::RuntimeManaged,
+                execution: CapabilityExecutionV1::Available,
+                evidence_kind: "acp_available_commands_update".into(),
+                reason_code: None,
+            }],
+            commands,
+            native_task_facts: NativeTaskFactsV1 {
+                root_dispatch: CapabilitySupportV1::Declared,
+                child_events: CapabilitySupportV1::Unknown,
+                stable_child_ids: CapabilitySupportV1::Unknown,
+                root_cancel: CapabilitySupportV1::LiveVerified,
+                native_visibility: CapabilitySupportV1::Unknown,
+                nonpersistent_internal_sessions: CapabilitySupportV1::Discovered,
+            },
+        };
+        if frame.validate().is_err() {
+            return;
+        }
+        let Ok(mut bytes) = serde_json::to_vec(&frame) else {
+            return;
+        };
+        if bytes.len() > MAX_MANAGED_PRESENTATION_FRAME_BYTES {
+            return;
+        }
+        bytes.push(b'\n');
+        let mut writer = self.writer.lock().await;
+        let _ = writer.write_all(&bytes).await;
+        let _ = writer.flush().await;
+    }
 }
 
 fn managed_dispatch_receipt_id(payload: &serde_json::Value) -> Option<&str> {
@@ -698,6 +804,8 @@ fn activity_kind_for_token(token: &str) -> Option<ManagedPresentationActivityKin
         "web_search" | "websearch" | "web_fetch" | "webfetch" | "browse" | "fetch_url"
         | "url_fetch" | "http_fetch" => ManagedPresentationActivityKindV1::Web,
         "reason" | "thinking" | "thought" => ManagedPresentationActivityKindV1::Thinking,
+        "spawn_agent" | "delegate" | "delegation" | "subagent" | "sub_agent" | "parallel_agent"
+        | "create_agent" => ManagedPresentationActivityKindV1::Delegation,
         _ => return None,
     };
     Some(kind)
@@ -741,9 +849,9 @@ fn activity_detail(
                 "/rawInput/search",
             ],
         ),
-        ManagedPresentationActivityKindV1::Thinking | ManagedPresentationActivityKindV1::Other => {
-            None
-        }
+        ManagedPresentationActivityKindV1::Thinking
+        | ManagedPresentationActivityKindV1::Delegation
+        | ManagedPresentationActivityKindV1::Other => None,
     };
     raw.as_deref()
         .and_then(|value| bounded_text(value, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES))
@@ -846,6 +954,7 @@ fn activity_label(
             None => "Searching the web".to_owned(),
         },
         ManagedPresentationActivityKindV1::Thinking => "Thinking".to_owned(),
+        ManagedPresentationActivityKindV1::Delegation => "Delegating work".to_owned(),
         // Nothing was recognised and the runtime wrote no prose. A bare tool
         // name is better than a phase word, but an empty title is not.
         ManagedPresentationActivityKindV1::Other => title?,
@@ -1520,6 +1629,7 @@ mod tests {
             )),
             resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
             session_epoch: SafeU53::new(7).unwrap(),
+            runtime_family: "codex".into(),
         };
 
         fn observer_event(kind: &str, payload: serde_json::Value) -> ObserverEvent {

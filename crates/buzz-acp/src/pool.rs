@@ -554,6 +554,10 @@ pub struct PromptContext {
     /// Exact imported OpenClaw identity. Required for the OpenClaw harness;
     /// never inferred as the native default agent.
     pub openclaw_agent_id: Option<String>,
+    /// Managed-only local ledger used to keep provider-owned internal sessions
+    /// out of Polyphonic's runtime-session catalogue.
+    pub runtime_session_purpose_store:
+        Option<crate::runtime_session_purpose::RuntimeSessionPurposeStore>,
     /// Managed-only typed final-publication client. Ordinary legacy Buzz keeps
     /// this unset and retains its existing key-backed behavior.
     pub managed_final_publisher: Option<crate::luca_final_publisher::ManagedFinalPublisherContext>,
@@ -991,6 +995,20 @@ async fn create_session_and_apply_model(
         Err(error) => return Err(error),
     };
 
+    if let Some(store) = &ctx.runtime_session_purpose_store {
+        let purpose = match source {
+            PromptSource::Channel(_) => {
+                crate::runtime_session_purpose::RuntimeSessionPurposeV1::ResidentConversation
+            }
+            PromptSource::Heartbeat | PromptSource::Continuity(_) => {
+                crate::runtime_session_purpose::RuntimeSessionPurposeV1::ContinuityInternal
+            }
+        };
+        store
+            .record_created(&resp.session_id, purpose)
+            .map_err(AcpError::Protocol)?;
+    }
+
     if is_goose && agent.goose_system_prompt_supported != Some(false) {
         if let Some(prompt) = combined_system_prompt.as_deref() {
             match agent
@@ -1082,7 +1100,7 @@ async fn create_session_and_apply_model(
     // Apply permission mode if not the agent's built-in default AND the agent
     // advertises the requested mode in session/new. Agents that don't support
     // the mode (e.g., goose crashes on unrecognized set_config_option values)
-    // are safely skipped — the harness auto-approves via handle_permission_request.
+    // are safely skipped and remain governed by their native permission flow.
     if !ctx.permission_mode.is_default()
         && agent_supports_mode(&resp.raw, ctx.permission_mode.as_wire_str())
     {
@@ -1250,7 +1268,7 @@ async fn apply_model_switch(
 /// Check if the agent's `session/new` response advertises a given mode ID
 /// in `result.modes.availableModes[].id`. Returns `false` if the modes
 /// field is absent or the mode isn't listed.
-fn agent_supports_mode(session_new_result: &serde_json::Value, mode_wire: &str) -> bool {
+pub(crate) fn agent_supports_mode(session_new_result: &serde_json::Value, mode_wire: &str) -> bool {
     session_new_result
         .get("modes")
         .and_then(|m| m.get("availableModes"))
@@ -1267,7 +1285,7 @@ fn agent_supports_mode(session_new_result: &serde_json::Value, mode_wire: &str) 
 ///
 /// **Fatal exception:** if the agent process exits (e.g., goose crashes on
 /// unrecognized methods), returns `Err(AgentExited)` so the caller can respawn.
-async fn apply_permission_mode(
+pub(crate) async fn apply_permission_mode(
     acp: &mut AcpClient,
     session_id: &str,
     mode: &PermissionMode,
@@ -2913,7 +2931,8 @@ pub async fn run_prompt_task(
             .flat_map(|p| [p.display_name.as_deref(), p.nip05_handle.as_deref()])
             .flatten()
             .collect();
-        slash_command = crate::queue::slash_command_for_batch(b, &known_names);
+        slash_command = crate::queue::slash_command_for_batch(b, &known_names)
+            .filter(|command| agent.acp.is_advertised_command(command));
         if let Some(ref cmd) = slash_command {
             tracing::info!(
                 target: "pool::prompt",
@@ -7869,6 +7888,7 @@ while read -r _; do :; done
             memory_enabled: false,
             harness_name: "goose".to_string(),
             openclaw_agent_id: None,
+            runtime_session_purpose_store: None,
             managed_final_publisher: None,
         }
     }

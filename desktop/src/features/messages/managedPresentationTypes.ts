@@ -49,6 +49,7 @@ export type ManagedActivityKind =
   | "command"
   | "search"
   | "thinking"
+  | "delegation"
   | "other";
 
 export type ManagedActivityStatus = "active" | "done" | "failed";

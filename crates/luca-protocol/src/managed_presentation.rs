@@ -66,6 +66,7 @@ pub enum ManagedPresentationActivityKindV1 {
     Command,
     Search,
     Thinking,
+    Delegation,
     Other,
 }
 

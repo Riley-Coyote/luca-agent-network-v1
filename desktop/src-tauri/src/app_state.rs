@@ -567,6 +567,7 @@ impl AppState {
         owner_pubkey: &luca_protocol::Hex64,
         source_id: &luca_protocol::OpaqueId,
         budget: &mut crate::luca::connected_brain::SessionReadBudget,
+        excluded_provider_session_ids: &std::collections::HashSet<String>,
     ) -> Result<crate::luca::connected_brain::IndexedSessionListV1, OwnerBrainStoreError> {
         crate::luca::owner_brain_store::read_connected_sessions(
             &self.continuity_lifecycle,
@@ -574,6 +575,7 @@ impl AppState {
             owner_pubkey,
             source_id,
             budget,
+            excluded_provider_session_ids,
         )
     }
 
@@ -584,6 +586,7 @@ impl AppState {
         owner_pubkey: &luca_protocol::Hex64,
         source_id: &luca_protocol::OpaqueId,
         session_id: &luca_protocol::OpaqueId,
+        excluded_provider_session_ids: &std::collections::HashSet<String>,
     ) -> Result<Option<crate::luca::connected_brain::IndexedSessionContextV1>, OwnerBrainStoreError>
     {
         crate::luca::owner_brain_store::read_connected_session_context(
@@ -592,6 +595,7 @@ impl AppState {
             owner_pubkey,
             source_id,
             session_id,
+            excluded_provider_session_ids,
         )
     }
 

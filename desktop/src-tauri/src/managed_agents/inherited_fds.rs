@@ -52,6 +52,52 @@ pub(crate) fn install_managed_descriptors(
     Ok(())
 }
 
+/// Install the two capabilities an explicit runtime-task host may inherit.
+/// It receives neither signing, continuity, cognition nor presentation
+/// authority from the resident's long-lived conversation host.
+pub(crate) fn install_runtime_task_descriptors(
+    permission_fd: RawFd,
+    mcp_fd: Option<RawFd>,
+) -> io::Result<()> {
+    let sources = [Some(permission_fd), mcp_fd];
+    let targets = [3, 6];
+    let mut copies = [-1; 2];
+    for (index, source) in sources.into_iter().enumerate() {
+        let Some(source) = source else { continue };
+        let copy = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 10) };
+        if copy == -1 {
+            for copy in copies {
+                if copy != -1 {
+                    unsafe { libc::close(copy) };
+                }
+            }
+            return Err(io::Error::last_os_error());
+        }
+        copies[index] = copy;
+    }
+    for (index, copy) in copies.into_iter().enumerate() {
+        if copy == -1 {
+            continue;
+        }
+        if unsafe { libc::dup2(copy, targets[index]) } == -1
+            || unsafe { libc::fcntl(targets[index], libc::F_SETFD, 0) } == -1
+        {
+            for copy in copies {
+                if copy != -1 {
+                    unsafe { libc::close(copy) };
+                }
+            }
+            return Err(io::Error::last_os_error());
+        }
+    }
+    for copy in copies {
+        if copy != -1 {
+            unsafe { libc::close(copy) };
+        }
+    }
+    Ok(())
+}
+
 fn close_copies(copies: [RawFd; 5]) {
     for copy in copies {
         if copy != -1 {

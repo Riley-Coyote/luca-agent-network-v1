@@ -1,7 +1,7 @@
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -28,6 +28,7 @@ const MAX_RAIL_SESSION_LINES: usize = 100_000;
 const MAX_CONTEXT_SESSION_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CONTEXT_SESSION_LINES: usize = 50_000;
 const SESSION_STREAM_BUFFER_BYTES: usize = 64 * 1024;
+const SESSION_PURPOSE_SCAN_BYTES: u64 = 1024 * 1024;
 
 static HTTP_URL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)https?://[^\s<>\"'`]+"#).expect("HTTP URL preservation regex must compile")
@@ -147,10 +148,22 @@ pub(super) fn session_file_metadata(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
 ) -> Result<Vec<SessionFileMetadata>, String> {
+    session_file_metadata_excluding(root, kind, &HashSet::new())
+}
+
+pub(super) fn session_file_metadata_excluding(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+) -> Result<Vec<SessionFileMetadata>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    let mut files = session_files(&canonical_root, kind)?
+    let mut files = session_files_excluding(
+        &canonical_root,
+        kind,
+        excluded_provider_session_ids,
+    )?
         .into_iter()
         .filter_map(|path| {
             let relative = path.strip_prefix(&canonical_root).ok()?;
@@ -297,10 +310,21 @@ fn resolved_session_path(
     {
         return Err("subagent histories are excluded".to_owned());
     }
+    if session_is_polyphonic_internal(&canonical) {
+        return Err("Polyphonic internal sessions are excluded".to_owned());
+    }
     Ok(canonical)
 }
 
 fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<PathBuf>, String> {
+    session_files_excluding(root, kind, &HashSet::new())
+}
+
+fn session_files_excluding(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+) -> Result<Vec<PathBuf>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
@@ -338,6 +362,8 @@ fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<Pa
                 }
             } else if file_type.is_file()
                 && path.extension().and_then(|value| value.to_str()) == Some("jsonl")
+                && !session_file_is_excluded(&path, excluded_provider_session_ids)
+                && !session_is_polyphonic_internal(&path)
             {
                 files.push(path);
             }
@@ -345,6 +371,33 @@ fn session_files(root: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<Pa
     }
     files.sort();
     Ok(files)
+}
+
+fn session_file_is_excluded(path: &Path, excluded_provider_session_ids: &HashSet<String>) -> bool {
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    excluded_provider_session_ids.iter().any(|session_id| {
+        stem == session_id || stem.strip_suffix(session_id).is_some_and(|prefix| prefix.ends_with('-'))
+    })
+}
+
+fn session_is_polyphonic_internal(path: &Path) -> bool {
+    let Ok(file) = fs::File::open(path) else {
+        return false;
+    };
+    let mut bytes = Vec::new();
+    if file
+        .take(SESSION_PURPOSE_SCAN_BYTES)
+        .read_to_end(&mut bytes)
+        .is_err()
+    {
+        return false;
+    }
+    let lower = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+    lower.contains("you are performing one private luca continuity handoff")
+        || lower.contains("# luca managed resident")
+        || lower.contains("[base] luca managed resident")
 }
 
 fn parse_file(path: &Path, kind: ConnectedBrainSourceKindV1) -> Result<Vec<String>, String> {
@@ -760,9 +813,13 @@ pub(super) fn parse_claude_fixture(value: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{self, BufReader, Cursor, Read};
+    use std::{
+        fs,
+        io::{self, BufReader, Cursor, Read},
+    };
 
     use serde_json::json;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -772,6 +829,48 @@ mod tests {
         fn read(&mut self, _buffer: &mut [u8]) -> io::Result<usize> {
             Err(io::Error::other("stream read continued into the tail"))
         }
+    }
+
+    #[test]
+    fn catalogue_excludes_polyphonic_internal_sessions_and_explicit_provider_ids() {
+        let root = tempdir().unwrap();
+        let visible = |message: &str| {
+            serde_json::to_string(&json!({
+                "type": "event_msg",
+                "payload": {"type": "user_message", "message": message}
+            }))
+            .unwrap()
+        };
+        fs::write(
+            root.path().join("rollout-visible-session.jsonl"),
+            visible("A user-owned Codex session."),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("rollout-continuity-session.jsonl"),
+            visible("You are performing one private Luca continuity handoff for your resident."),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("rollout-conversation-session.jsonl"),
+            visible("# Luca managed resident\nRespond to this conversation normally."),
+        )
+        .unwrap();
+        fs::write(
+            root.path().join("rollout-explicitly-recorded.jsonl"),
+            visible("A provider session filtered by the body-free purpose ledger."),
+        )
+        .unwrap();
+
+        let files = session_file_metadata_excluding(
+            root.path(),
+            ConnectedBrainSourceKindV1::CodexHistory,
+            &HashSet::from(["explicitly-recorded".to_owned()]),
+        )
+        .unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].relative_locator, "rollout-visible-session.jsonl");
     }
 
     #[test]

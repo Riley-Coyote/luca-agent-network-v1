@@ -326,6 +326,7 @@ pub(crate) fn read_connected_sessions(
     owner_pubkey: &Hex64,
     source_id: &OpaqueId,
     budget: &mut SessionReadBudget,
+    excluded_provider_session_ids: &std::collections::HashSet<String>,
 ) -> Result<IndexedSessionListV1, OwnerBrainStoreError> {
     let (canonical_root, kind) = {
         let _guard = lifecycle
@@ -338,7 +339,13 @@ pub(crate) fn read_connected_sessions(
         let runtime = ready_runtime(&state, owner_pubkey)?;
         connected_session_source(&root, runtime, source_id)?
     };
-    list_native_sessions(&canonical_root, kind, source_id, budget)
+    list_native_sessions(
+        &canonical_root,
+        kind,
+        source_id,
+        budget,
+        excluded_provider_session_ids,
+    )
         .map_err(|_| OwnerBrainStoreError::Invalid)
 }
 
@@ -351,6 +358,7 @@ pub(crate) fn read_connected_session_context(
     owner_pubkey: &Hex64,
     source_id: &OpaqueId,
     session_id: &OpaqueId,
+    excluded_provider_session_ids: &std::collections::HashSet<String>,
 ) -> Result<Option<IndexedSessionContextV1>, OwnerBrainStoreError> {
     let (canonical_root, kind) = {
         let _guard = lifecycle
@@ -363,7 +371,13 @@ pub(crate) fn read_connected_session_context(
         let runtime = ready_runtime(&state, owner_pubkey)?;
         connected_session_source(&root, runtime, source_id)?
     };
-    context_for_native_session(&canonical_root, kind, source_id, session_id)
+    context_for_native_session(
+        &canonical_root,
+        kind,
+        source_id,
+        session_id,
+        excluded_provider_session_ids,
+    )
         .map_err(|_| OwnerBrainStoreError::Stale)
 }
 

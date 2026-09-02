@@ -1,6 +1,6 @@
 use super::*;
 use serde_json::json;
-use std::{fs, process::Command};
+use std::{collections::HashSet, fs, process::Command};
 
 #[test]
 fn discovery_is_bounded_and_does_not_follow_symlinks() {
@@ -263,6 +263,7 @@ fn native_session_catalog_is_not_limited_to_search_index_entries() {
         ConnectedBrainSourceKindV1::CodexHistory,
         &source_id,
         &mut budget,
+        &HashSet::new(),
     )
     .unwrap();
 
