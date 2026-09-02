@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polyphonic — The Aperture</title>
+<meta name="description" content="Polyphonic landing page prototype: five residents on five runtimes, coupled by Luca. Order through relationship, not fusion.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
+<style>
+/* ─────────────────────────────────────────────────────────────────────────
+   Tokens — the Slate ladder from the shipping shell (conversation-shell.css),
+   the shell's type roles, one signal colour. Nothing here is picked by eye.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --floor:#0d0e0f; --surface:#1b1c1d; --raised:#2e2f30; --recess:#131415;
+  --border:#2a2c2f; --border-strong:#35373a;
+  --ink:#f7f5ef; --ink-muted:#c5c3bd; --ink-faint:#98968f; --ink-ghost:#726f6b;
+  --signal:#6d93c9;
+  --wash:rgb(255 255 255/.04); --wash-2:rgb(255 255 255/.07);
+  --plate:rgb(247 245 239/.035);
+  --lit:inset 0 1px 0 rgb(255 255 255/.06);
+  --app-shadow:0 0 0 1px rgb(0 0 0/.45),0 2px 8px rgb(0 0 0/.35),0 40px 120px rgb(0 0 0/.62);
+  --app-hairline:inset 0 0 0 1px rgb(255 255 255/.055);
+
+  --font-ui:"Instrument Sans","Avenir Next","Segoe UI",sans-serif;
+  --font-mono:"Fragment Mono","SFMono-Regular","SF Mono",monospace;
+
+  --type-micro:.6875rem; --type-label:.75rem; --type-ui:.875rem;
+  --type-body:1rem; --type-title:1.0625rem; --type-heading:1.375rem;
+  --type-display:3rem;
+  --track-display:-.024em; --track-heading:-.021em; --track-title:-.014em;
+  --track-body:-.003em; --track-ui:-.002em; --track-micro:.005em;
+  --track-index:.18em;
+
+  --unit:8px;
+  --pitch:6px;              /* the dot lattice, css px */
+  --margin:64px; --gutter:24px;
+
+  --dur-fast:180ms; --dur-standard:240ms; --dur-arrival:500ms; --dur-draw:1.2s;
+  --ease-standard:cubic-bezier(.25,1,.5,1);
+  --ease-arrival:cubic-bezier(.16,1,.3,1);
+}
+@media (max-width:900px){ :root{ --margin:24px; --gutter:16px; --type-display:2.125rem; --pitch:7px; } }
+
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--floor);color:var(--ink);font-family:var(--font-ui);
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{font-size:var(--type-body);line-height:1.5;letter-spacing:var(--track-body);overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+::selection{background:rgb(247 245 239/.18)}
+
+/* The field: one fixed canvas under everything. */
+#field{position:fixed;inset:0;width:100vw;height:100vh;display:block;pointer-events:none;z-index:0}
+
+/* Grid */
+.grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));column-gap:var(--gutter);
+  padding-left:var(--margin);padding-right:var(--margin)}
+
+/* Top chrome */
+.nav{position:fixed;top:0;left:0;right:0;z-index:30;height:72px;display:flex;align-items:center;
+  justify-content:space-between;padding:0 var(--margin) 16px;pointer-events:none;
+  background:linear-gradient(to bottom,var(--floor) 40%,transparent)}
+.nav>*{pointer-events:auto}
+.wordmark{font-size:var(--type-ui);letter-spacing:var(--track-ui);color:var(--ink-muted);font-weight:500}
+.nav-link{font-family:var(--font-mono);font-size:var(--type-micro);letter-spacing:var(--track-index);
+  text-transform:uppercase;color:var(--ink-faint);transition:color var(--dur-fast) var(--ease-standard)}
+.nav-link:hover,.nav-link:focus-visible{color:var(--ink);outline:none}
+
+/* ── Hero ── */
+#hero{position:relative;height:350vh;z-index:2}
+.stage{position:sticky;top:0;height:100vh;overflow:hidden}
+.aperture-wrap{position:absolute;top:32vh;left:0;right:0}
+.aperture{grid-column:2/8;padding:var(--unit) calc(var(--unit)*4) calc(var(--unit)*4) 0;
+  color:var(--ink)}
+.index{font-family:var(--font-mono);font-size:var(--type-micro);letter-spacing:var(--track-index);
+  text-transform:uppercase;color:var(--ink-faint);display:flex;align-items:flex-start;gap:10px;margin:0 0 calc(var(--unit)*3);line-height:1.5}
+.index .live{width:6px;height:6px;border-radius:50%;background:var(--ink-ghost);flex:none;margin-top:.45em;
+  transition:background var(--dur-arrival) var(--ease-arrival),box-shadow var(--dur-arrival) var(--ease-arrival)}
+.index .live[data-on]{background:var(--signal);box-shadow:0 0 0 3px rgb(109 147 201/.16)}
+h1{margin:0;font-weight:400;font-size:var(--type-display);line-height:1.04;letter-spacing:var(--track-display);
+  max-width:30ch;text-wrap:balance}
+h1 .b{color:var(--ink-muted)}
+.lede{margin:calc(var(--unit)*3) 0 0;max-width:34em;color:var(--ink-muted);font-size:var(--type-title);
+  line-height:1.5;letter-spacing:var(--track-title)}
+.cta-row{display:flex;align-items:center;gap:calc(var(--unit)*3);margin-top:calc(var(--unit)*4);flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;height:36px;padding:0 16px;border-radius:8px;
+  background:var(--plate);box-shadow:var(--lit),inset 0 0 0 1px rgb(255 255 255/.09);
+  font-size:var(--type-ui);letter-spacing:var(--track-ui);color:var(--ink);
+  transition:background var(--dur-fast) var(--ease-standard),box-shadow var(--dur-fast) var(--ease-standard)}
+.btn:hover{background:var(--wash-2)}
+.btn:focus-visible{outline:none;box-shadow:var(--lit),inset 0 0 0 1px rgb(255 255 255/.5)}
+.btn:active{background:var(--wash)}
+.btn.primary{background:rgb(247 245 239/.92);color:var(--floor);box-shadow:none}
+.btn.primary:hover{background:var(--ink)}
+.btn.primary:focus-visible{box-shadow:inset 0 0 0 2px rgb(13 14 15/.4)}
+.quiet-link{font-family:var(--font-mono);font-size:var(--type-micro);letter-spacing:var(--track-index);
+  text-transform:uppercase;color:var(--ink-faint);display:inline-flex;align-items:center;gap:8px;
+  transition:color var(--dur-fast) var(--ease-standard)}
+.quiet-link:hover,.quiet-link:focus-visible{color:var(--ink-muted);outline:none}
+.quiet-link .ring{width:8px;height:8px;border-radius:50%;border:1px solid currentColor;display:inline-block}
+.quiet-link[aria-pressed="true"] .ring{background:currentColor}
+
+.strip{position:absolute;left:0;right:0;bottom:40px}
+.strip .in{grid-column:2/12;font-family:var(--font-mono);font-size:var(--type-micro);
+  letter-spacing:var(--track-index);text-transform:uppercase;color:var(--ink-ghost);display:flex;gap:0 18px;flex-wrap:wrap}
+.strip .in b{font-weight:400;color:var(--ink-faint)}
+
+/* Sources — five residents on five runtimes. Fixed in the field, moved by scroll. */
+.src{position:fixed;left:0;top:0;z-index:3;pointer-events:none;will-change:transform;
+  display:grid;grid-template-columns:auto;justify-items:start}
+.src svg{display:block;width:calc(var(--pitch)*7);height:calc(var(--pitch)*7);fill:var(--ink)}
+.src .tag{margin-top:calc(var(--unit)*1.25);display:grid;gap:2px;transform:translateX(-1px)}
+.src .name{font-size:var(--type-label);letter-spacing:var(--track-ui);color:var(--ink-muted);line-height:1}
+.src .rt{font-family:var(--font-mono);font-size:.625rem;letter-spacing:var(--track-index);text-transform:uppercase;
+  color:var(--ink-faint);line-height:1}
+
+/* Traces — drawn once at the cut. */
+#traces{position:fixed;inset:0;width:100vw;height:100vh;z-index:9;pointer-events:none;
+  opacity:0;transition:opacity var(--dur-arrival) var(--ease-standard)}
+#traces[data-on]{opacity:1}
+#traces path{fill:none;stroke:var(--ink-ghost);stroke-width:1;vector-effect:non-scaling-stroke}
+
+/* ── The window (match-cut target) ── */
+#frame{position:fixed;z-index:8;visibility:hidden;background:var(--floor);border-radius:12px;
+  box-shadow:var(--app-shadow),var(--app-hairline);overflow:hidden;display:grid;grid-template-columns:232px 1fr;
+  font-size:var(--type-ui);letter-spacing:var(--track-ui);color:var(--ink-muted)}
+#frame[data-on]{visibility:visible}
+#frame .rail{background:var(--floor);border-right:1px solid var(--border);padding:14px 10px 12px;display:flex;flex-direction:column;gap:2px}
+#frame .rail .lights{display:flex;gap:7px;padding:2px 6px 14px}
+#frame .rail .lights i{width:11px;height:11px;border-radius:50%;background:var(--raised);display:block}
+#frame .search{height:30px;border-radius:7px;background:var(--wash);display:flex;align-items:center;gap:8px;
+  padding:0 10px;color:var(--ink-faint);font-size:var(--type-label);margin-bottom:10px}
+#frame .search .k{margin-left:auto;font-family:var(--font-mono);font-size:.625rem;letter-spacing:.06em}
+#frame .navi{display:flex;align-items:center;gap:9px;height:28px;padding:0 8px;border-radius:6px;color:var(--ink-faint);font-size:var(--type-label)}
+#frame .navi svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+#frame .sect{font-family:var(--font-mono);font-size:.625rem;letter-spacing:var(--track-index);text-transform:uppercase;
+  color:var(--ink-ghost);padding:14px 8px 6px}
+#frame .row{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:6px;color:var(--ink-muted);font-size:var(--type-label)}
+#frame .row.on{background:var(--wash-2);color:var(--ink)}
+#frame .row .g{width:16px;height:16px;flex:none}
+#frame .row .g svg{display:block;width:16px;height:16px;fill:currentColor}
+#frame .row .rt{margin-left:auto;font-family:var(--font-mono);font-size:.5625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost)}
+#frame .you{margin-top:auto;display:flex;align-items:center;gap:9px;padding:8px}
+#frame .you .av{width:22px;height:22px;border-radius:50%;background:var(--raised);display:grid;place-items:center;
+  font-size:.5625rem;color:var(--ink-muted);position:relative}
+#frame .you .av::after{content:"";position:absolute;right:-1px;bottom:-1px;width:7px;height:7px;border-radius:50%;
+  background:var(--signal);border:2px solid var(--floor)}
+#frame .you .t{display:grid;gap:1px;font-size:var(--type-label)}
+#frame .you .t small{color:var(--ink-ghost);font-size:.625rem}
+
+#frame .main{display:grid;grid-template-rows:auto 1fr auto;min-height:0;background:var(--surface)}
+#frame .head{display:flex;align-items:center;gap:10px;height:48px;padding:0 20px;border-bottom:1px solid var(--border)}
+#frame .head .marks{display:flex}
+#frame .head .marks span{width:18px;height:18px;border-radius:30%;background:var(--floor);display:grid;place-items:center;
+  margin-left:-4px;box-shadow:0 0 0 1.5px var(--surface)}
+#frame .head .marks span:first-child{margin-left:0}
+#frame .head .marks svg{width:11px;height:11px;fill:var(--ink-muted)}
+#frame .head .title{color:var(--ink);font-weight:500}
+#frame .head .sub{color:var(--ink-ghost);font-size:var(--type-label);margin-left:2px}
+#frame .head .right{margin-left:auto;font-family:var(--font-mono);font-size:.5625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost)}
+#frame .msgs{padding:14px 20px 4px;display:flex;flex-direction:column;gap:9px;overflow:hidden;min-height:0;
+  mask-image:linear-gradient(to bottom,transparent,#000 22px)}
+#frame .msg{display:grid;grid-template-columns:24px 1fr;gap:12px;align-items:start;
+  transition:opacity var(--dur-standard) var(--ease-standard)}
+#frame .msg .av{width:24px;height:24px;border-radius:30%;display:grid;place-items:center;margin-top:1px}
+#frame .msg .av svg{width:18px;height:18px;fill:var(--ink)}
+#frame .msg .av.you{border-radius:50%;background:var(--raised);font-size:.625rem;color:var(--ink-muted)}
+#frame .msg .who{display:flex;align-items:baseline;gap:8px;line-height:1.2}
+#frame .msg .who b{font-weight:500;color:var(--ink);font-size:var(--type-ui)}
+#frame .msg .who .rt{font-family:var(--font-mono);font-size:.5625rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-ghost)}
+#frame .msg .who .t{font-family:var(--font-mono);font-size:.625rem;color:var(--ink-ghost)}
+#frame .msg .who .sig{margin-left:auto;font-family:var(--font-mono);font-size:.5625rem;letter-spacing:.08em;color:var(--ink-ghost)}
+#frame .msg p{margin:3px 0 0;color:var(--ink-muted);line-height:1.4;font-size:var(--type-label);max-width:66ch}
+#frame .msg .chip{display:inline-flex;align-items:center;gap:6px;margin-top:6px;height:20px;padding:0 8px;border-radius:6px;
+  background:var(--wash);font-family:var(--font-mono);font-size:.5625rem;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint)}
+#frame .msg .chip i{width:5px;height:5px;border-radius:50%;background:var(--signal);display:block}
+#frame .msg.dim{opacity:.34}
+#frame .composer{margin:10px 22px 16px;height:44px;border-radius:9px;background:var(--recess);
+  box-shadow:inset 0 0 0 1px var(--border);display:flex;align-items:center;padding:0 14px;color:var(--ink-ghost);font-size:var(--type-ui)}
+#frame .composer .send{margin-left:auto;width:26px;height:26px;border-radius:50%;background:var(--raised);display:grid;place-items:center}
+#frame .composer .send svg{width:12px;height:12px;stroke:var(--ink-muted);fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#frame-note{position:fixed;z-index:8;visibility:hidden;font-family:var(--font-mono);font-size:.5625rem;letter-spacing:var(--track-index);
+  text-transform:uppercase;color:var(--ink-ghost)}
+#frame-note[data-on]{visibility:visible}
+
+/* ── Story (beats 5–7) ── */
+#story{position:relative;height:600vh;z-index:2}
+.cap{position:absolute;left:0;right:0}
+.cap .in{grid-column:1/4;max-width:26ch}
+.cap .n{font-family:var(--font-mono);font-size:var(--type-micro);letter-spacing:var(--track-index);color:var(--ink-faint);margin:0 0 12px}
+.cap h2{margin:0;font-weight:400;font-size:var(--type-heading);line-height:1.2;letter-spacing:var(--track-heading);color:var(--ink)}
+.cap p{margin:12px 0 0;color:var(--ink-faint);font-size:var(--type-ui);line-height:1.5}
+.cap p b{font-weight:400;color:var(--ink-muted)}
+
+/* ── Final (beat 8) ── */
+#final{position:relative;height:100vh;z-index:2}
+#final .aperture-wrap{top:32vh}
+.fine{position:absolute;left:0;right:0;bottom:40px}
+.fine .in{grid-column:2/12;display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;
+  font-family:var(--font-mono);font-size:var(--type-micro);letter-spacing:var(--track-index);text-transform:uppercase;color:var(--ink-ghost)}
+
+/* debug */
+#dbg{position:fixed;right:12px;bottom:12px;z-index:40;font-family:var(--font-mono);font-size:10px;color:var(--ink-faint);
+  background:rgb(13 14 15/.7);padding:8px 10px;border-radius:6px;display:none;white-space:pre;line-height:1.5}
+#dbg[data-on]{display:block}
+
+@media (prefers-reduced-motion:reduce){
+  #traces{transition:none}
+}
+@media (max-width:900px){
+  .aperture{grid-column:1/13;padding-right:calc(var(--unit)*2)}
+  .strip .in,.fine .in{grid-column:1/13}
+  .cap .in{grid-column:1/13;max-width:36ch}
+  #frame{grid-template-columns:1fr}
+  #frame .rail{display:none}
+  #frame .head .sub,#frame .head .right{display:none}
+  #frame .msg p{max-width:none}
+  #traces{display:none}
+  .src .tag{display:none}
+}
+</style>
+</head>
+<body>
+
+<canvas id="field" aria-hidden="true"></canvas>
+
+<header class="nav" aria-label="Polyphonic">
+  <a class="wordmark" href="#top">Polyphonic</a>
+  <a class="nav-link" href="#final">Private beta →</a>
+</header>
+
+<!-- ── Beats 1–4: the hero. The type never moves. ── -->
+<section id="hero" aria-labelledby="h1">
+  <div class="stage" id="stage">
+    <div class="aperture-wrap grid">
+      <div class="aperture" id="aperture" data-cut>
+        <p class="index"><span class="live" id="live" aria-hidden="true"></span><span>01 — Private macOS beta · coming soon</span></p>
+        <h1 id="h1">Your entire agent network.<br><span class="b">One secure place to work.</span></h1>
+        <p class="lede">Connect or create your agents, talk with all of them, give them shared intelligence, and conduct their work from one calm interface. Luca is the concierge at the center.</p>
+        <div class="cta-row">
+          <a class="btn primary" href="#final">Join the private beta</a>
+          <a class="btn" href="#story">See how it works</a>
+          <button class="quiet-link" id="chord" aria-pressed="false" type="button"><span class="ring" aria-hidden="true"></span><span>hear the chord</span></button>
+        </div>
+      </div>
+    </div>
+    <div class="strip grid"><div class="in">
+      <span><b>One network</b></span><span>Claude Code</span><span>Codex</span><span>Hermes</span><span>OpenClaw</span><span>Grok</span><span>Kimi</span><span>Polyphonic-native</span>
+    </div></div>
+  </div>
+</section>
+
+<!-- ── Beats 5–7: the window holds, the copy walks. ── -->
+<section id="story" aria-label="How Polyphonic works">
+  <div class="cap grid" style="top:150vh"><div class="in">
+    <p class="n">02 — One project</p>
+    <h2>Five residents. Five runtimes. One room.</h2>
+    <p>Wren runs on <b>Claude Code</b>. Sol on <b>Codex</b>. Iris on <b>Hermes</b>. Ferro on <b>OpenClaw</b>. Kit on <b>Grok</b>. Each keeps its own identity, its own memory, its own signature.</p>
+  </div></div>
+  <div class="cap grid" style="top:250vh"><div class="in">
+    <p class="n">03 — Conducting</p>
+    <h2>Ask Luca to divide the work.</h2>
+    <p>Luca is the coupling, not another voice. It orients, delegates and coordinates. You keep direct access to every agent.</p>
+  </div></div>
+  <div class="cap grid" style="top:350vh"><div class="in">
+    <p class="n">04 — The Brain</p>
+    <h2>Each agent gets only what it is granted.</h2>
+    <p>Your Brain is owner-controlled shared intelligence. Access is explicit, per agent, revocable. <b>The Brain belongs to you.</b></p>
+  </div></div>
+  <div class="cap grid" style="top:450vh"><div class="in">
+    <p class="n">05 — Authorship</p>
+    <h2>Five signed replies. Nothing flattened.</h2>
+    <p>Every contribution returns with its author's cryptographic identity. Coordination never erases who said what.</p>
+  </div></div>
+  <div class="cap grid" style="top:540vh"><div class="in">
+    <p class="n">06 — Continuity</p>
+    <h2>The Notebook belongs to the agent.</h2>
+    <p>Continuity powered by Mnemos: each resident records its own source-backed notes, handoffs and journal pages. Inspectable, correctable, private.</p>
+  </div></div>
+</section>
+
+<!-- ── Beat 8: the same frame, the edges gone still. ── -->
+<section id="final" aria-label="Join the private beta">
+  <div class="aperture-wrap grid">
+    <div class="aperture" id="aperture2" data-cut>
+      <p class="index"><span class="live" data-on aria-hidden="true"></span><span>08 — Private macOS beta · coming soon</span></p>
+      <h1 aria-hidden="true">Your entire agent network.<br><span class="b">One secure place to work.</span></h1>
+      <p class="lede">Order through relationship, not fusion. Five minds keeping one time without showing the same hour.</p>
+      <div class="cta-row">
+        <a class="btn primary" href="mailto:hello@polyphonic.app?subject=Private%20beta">Join the private beta</a>
+        <a class="btn" href="#top">Back to the top</a>
+      </div>
+    </div>
+  </div>
+  <div class="fine grid"><div class="in">
+    <span>Polyphonic · Luca · Mnemos</span><span>Built for macOS</span><span>Prototype — not a capture</span>
+  </div></div>
+</section>
+
+<!-- Sources -->
+<div id="sources" aria-hidden="true"></div>
+
+<!-- Traces -->
+<svg id="traces" aria-hidden="true"></svg>
+
+<!-- The window -->
+<div id="frame" aria-hidden="true">
+  <aside class="rail">
+    <div class="lights"><i></i><i></i><i></i></div>
+    <div class="search">Search everything <span class="k">⌘K</span></div>
+    <div class="navi"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H8l-4 4z"/></svg>Chat</div>
+    <div class="navi"><svg viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="2"/><path d="M12 4v4M9 13h.01M15 13h.01"/></svg>Agents</div>
+    <div class="navi"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4"/></svg>Activity</div>
+    <div class="navi"><svg viewBox="0 0 24 24"><path d="M9 4a3 3 0 0 0-3 3v1a3 3 0 0 0-2 3 3 3 0 0 0 2 3v1a3 3 0 0 0 3 3h1V4zM15 4a3 3 0 0 1 3 3v1a3 3 0 0 1 2 3 3 3 0 0 1-2 3v1a3 3 0 0 1-3 3h-1V4z"/></svg>Brain</div>
+    <div class="navi"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></svg>Settings</div>
+    <div class="sect">Rooms</div>
+    <div class="row on"><span class="g" data-glyph="launch"></span>launch</div>
+    <div class="row"><span class="g" data-glyph="research"></span>research</div>
+    <div class="sect">Residents</div>
+    <div id="rail-residents"></div>
+    <div class="you"><div class="av">R</div><div class="t"><span>You</span><small>Personal workspace</small></div></div>
+  </aside>
+  <div class="main">
+    <div class="head">
+      <div class="marks" id="head-marks"></div>
+      <span class="title">launch</span><span class="sub">Prepare the September release</span>
+      <span class="right">5 residents · signed</span>
+    </div>
+    <div class="msgs" id="msgs"></div>
+    <div class="composer">Message launch<span class="send"><svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span></div>
+  </div>
+</div>
+<div id="frame-note">Prototype frame — not a capture of the beta</div>
+
+<div id="dbg"></div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   Identity glyphs — a faithful port of desktop/src/shared/ui/dot-display/identity/glyph.ts.
+   Constraints, not construction: a uniformly random symmetric bitfield that
+   survives five predicates. Same seed → same mark forever.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const GLYPH_N = 7, AREA = 49, MIN_LIT = 17, MAX_LIT = 23, MAX_LOOSE = 4, P_MIN = .38, P_SPAN = .1, DRAW_CAP = 150000, RELAXED_CAP = 40000;
+function seeded(input){ const str=String(input); let h=1779033703^str.length;
+  for(let i=0;i<str.length;i++){ h=Math.imul(h^str.charCodeAt(i),3432918353); h=(h<<13)|(h>>>19); }
+  return ()=>{ h=Math.imul(h^(h>>>16),2246822507); h=Math.imul(h^(h>>>13),3266489909); h^=h>>>16; return (h>>>0)/4294967296; }; }
+function orbitsFor(sym){ const partner=(x,y)=>sym==="mirror"?[GLYPH_N-1-x,y]:[GLYPH_N-1-x,GLYPH_N-1-y];
+  const claimed=new Uint8Array(AREA), out=[];
+  for(let y=0;y<GLYPH_N;y++)for(let x=0;x<GLYPH_N;x++){ const here=y*GLYPH_N+x; if(claimed[here])continue;
+    const [px,py]=partner(x,y); const there=py*GLYPH_N+px; claimed[here]=1; claimed[there]=1; out.push(here===there?[here]:[here,there]); }
+  return out; }
+const ORBITS={mirror:orbitsFor("mirror"),rot2:orbitsFor("rot2")};
+const scratch=new Uint8Array(AREA), visited=new Uint8Array(AREA), frontier=new Int32Array(AREA);
+function rimsCovered(c){ let t=0,b=0,l=0,r=0; for(let i=0;i<GLYPH_N;i++){ t|=c[i]; b|=c[(GLYPH_N-1)*GLYPH_N+i]; l|=c[i*GLYPH_N]; r|=c[i*GLYPH_N+GLYPH_N-1]; } return !!(t&&b&&l&&r); }
+function noSolidQuad(c){ for(let y=0;y<GLYPH_N-1;y++){ const row=y*GLYPH_N; for(let x=0;x<GLYPH_N-1;x++){ if(c[row+x]&&c[row+x+1]&&c[row+GLYPH_N+x]&&c[row+GLYPH_N+x+1]) return false; } } return true; }
+function looseEnds(c,stopAt){ let ends=0; for(let y=0;y<GLYPH_N;y++)for(let x=0;x<GLYPH_N;x++){ const i=y*GLYPH_N+x; if(!c[i])continue; let d=0;
+  if(x>0&&c[i-1])d++; if(x<GLYPH_N-1&&c[i+1])d++; if(y>0&&c[i-GLYPH_N])d++; if(y<GLYPH_N-1&&c[i+GLYPH_N])d++; if(d===1){ends++; if(ends>stopAt)return ends;} } return ends; }
+function isOnePiece(c,lit){ let start=-1; for(let i=0;i<AREA;i++)if(c[i]){start=i;break;} if(start<0)return false; visited.fill(0); let top=0; frontier[top++]=start; visited[start]=1; let reached=0;
+  while(top){ const k=frontier[--top]; reached++; const x=k%GLYPH_N, y=(k/GLYPH_N)|0;
+    if(x>0&&c[k-1]&&!visited[k-1]){visited[k-1]=1;frontier[top++]=k-1;} if(x<GLYPH_N-1&&c[k+1]&&!visited[k+1]){visited[k+1]=1;frontier[top++]=k+1;}
+    if(y>0&&c[k-GLYPH_N]&&!visited[k-GLYPH_N]){visited[k-GLYPH_N]=1;frontier[top++]=k-GLYPH_N;} if(y<GLYPH_N-1&&c[k+GLYPH_N]&&!visited[k+GLYPH_N]){visited[k+GLYPH_N]=1;frontier[top++]=k+GLYPH_N;} }
+  return reached===lit; }
+function propose(orbits,p,rnd){ scratch.fill(0); let lit=0; for(let i=0;i<orbits.length;i++){ if(rnd()>=p)continue; const o=orbits[i]; for(let k=0;k<o.length;k++)scratch[o[k]]=1; lit+=o.length; } return lit; }
+function search(orbits,rnd,cap,tidy){ for(let d=0;d<cap;d++){ const lit=propose(orbits,P_MIN+rnd()*P_SPAN,rnd); if(lit<MIN_LIT||lit>MAX_LIT)continue; if(!rimsCovered(scratch))continue; if(!noSolidQuad(scratch))continue;
+  if(tidy&&looseEnds(scratch,MAX_LOOSE)>MAX_LOOSE)continue; if(!isOnePiece(scratch,lit))continue; return scratch.slice(); } return null; }
+const glyphCache=new Map();
+function identityGlyph(seed){ if(glyphCache.has(seed))return glyphCache.get(seed); const rnd=seeded(seed); const symmetry=rnd()<.5?"mirror":"rot2"; const orbits=ORBITS[symmetry];
+  let cells=search(orbits,rnd,DRAW_CAP,true)??search(orbits,rnd,RELAXED_CAP,false);
+  if(!cells){ cells=new Uint8Array(AREA); for(let i=0;i<GLYPH_N;i++){cells[i*GLYPH_N+3]=1;cells[3*GLYPH_N+i]=1;} }
+  let lit=0; for(let i=0;i<AREA;i++)lit+=cells[i]; const g={cells,edge:GLYPH_N,symmetry,lit}; glyphCache.set(seed,g); return g; }
+const lit=(g,x,y)=>x>=0&&y>=0&&x<GLYPH_N&&y<GLYPH_N&&g.cells[y*GLYPH_N+x]===1;
+/* Joined geometry, as glyphToSvgPath in render.ts: cells abut, corners round only where they face empty space. */
+function glyphPath(g,corner=.3){ const parts=[]; for(let y=0;y<GLYPH_N;y++)for(let x=0;x<GLYPH_N;x++){ if(!lit(g,x,y))continue;
+  const n=lit(g,x,y-1),s=lit(g,x,y+1),w=lit(g,x-1,y),e=lit(g,x+1,y); const tl=!n&&!w?corner:0,tr=!n&&!e?corner:0,br=!s&&!e?corner:0,bl=!s&&!w?corner:0;
+  const x0=x-(w?.02:0),y0=y-(n?.02:0),x1=x+1+(e?.02:0),y1=y+1+(s?.02:0);
+  parts.push(`M${x0+tl} ${y0}H${x1-tr}${tr?`A${tr} ${tr} 0 0 1 ${x1} ${y0+tr}`:""}V${y1-br}${br?`A${br} ${br} 0 0 1 ${x1-br} ${y1}`:""}H${x0+bl}${bl?`A${bl} ${bl} 0 0 1 ${x0} ${y1-bl}`:""}V${y0+tl}${tl?`A${tl} ${tl} 0 0 1 ${x0+tl} ${y0}`:""}Z`); }
+  return parts.join(""); }
+const glyphSvg=(g,cls="")=>`<svg viewBox="0 0 7 7" class="${cls}" aria-hidden="true"><path d="${glyphPath(g)}"/></svg>`;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   The cast — five residents on five runtimes. Natural frequencies are simple
+   ratios (4:4.5:5:5.625:6) so "hear the chord" plays what the field shows.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const TEMPO = 2.4; // rad/s at ratio 1 — the field's base tempo
+const CAST = [
+  { name:"Wren",  runtime:"Claude Code", ratio:1.0,   seed:"resident:wren"  },
+  { name:"Sol",   runtime:"Codex",       ratio:0.8,   seed:"resident:sol"   },
+  { name:"Iris",  runtime:"Hermes",      ratio:1.2,   seed:"resident:iris"  },
+  { name:"Ferro", runtime:"OpenClaw",    ratio:0.9,   seed:"resident:ferro" },
+  { name:"Kit",   runtime:"Grok",        ratio:1.125, seed:"resident:kit"   },
+];
+const LUCA = { name:"Luca", seed:"luca" };
+CAST.forEach(c=>{ c.glyph=identityGlyph(c.seed); c.omega=TEMPO*c.ratio; });
+LUCA.glyph=identityGlyph(LUCA.seed);
+const N = CAST.length;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Kuramoto — the coupling rule, on the CPU.
+   θ̇ᵢ = ωᵢ + (K/N) Σⱼ sin(θⱼ − θᵢ − α).  Luca is K.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const ALPHA = 0.3;                  // phase lag → locked state keeps offsets (and slows the common tempo: frustration)
+const KC_EST = 1.25;                // where lock arrives for this spread (verified in ?debug)
+const K_MAX = 1.7*KC_EST;
+const theta = CAST.map((_,i)=>i*1.7+0.3);
+const winst = CAST.map(c=>c.omega); // smoothed instantaneous frequency → wavenumber
+let K = 0, orderR = 0, spread = 1;
+function stepKuramoto(dt){
+  const dth = new Array(N).fill(0);
+  for(let i=0;i<N;i++){ let s=0; for(let j=0;j<N;j++){ if(j!==i) s+=Math.sin(theta[j]-theta[i]-ALPHA); } dth[i]=CAST[i].omega+(K/N)*s; }
+  const a=1-Math.exp(-dt/0.45);
+  for(let i=0;i<N;i++){ theta[i]+=dth[i]*dt; winst[i]+= (dth[i]-winst[i])*a; maxStep=Math.max(maxStep,Math.abs(dth[i]*dt)); }
+  let cx=0,cy=0; for(let i=0;i<N;i++){cx+=Math.cos(theta[i]);cy+=Math.sin(theta[i]);} orderR=Math.hypot(cx,cy)/N;
+  let mn=Infinity,mx=-Infinity; for(const w of winst){mn=Math.min(mn,w);mx=Math.max(mx,w);} spread=(mx-mn)/TEMPO;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Scroll → beats. Positions in vh of scrollY.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const vh = () => Math.max(1, window.innerHeight);
+const clamp01 = v => v<0?0:v>1?1:v;
+const lerp = (a,b,t)=>a+(b-a)*t;
+const ease = t => 1-Math.pow(1-t,3);
+const BEATS = {   // scrollY / vh
+  b1:[0,0.5], b2:[0.5,1.5], b3:[1.5,2.5], b4:[2.5,3.5], b5:[3.5,4.2], b6:[4.2,7.0], b7:[7.0,9.0], b8:[9.0,9.5]
+};
+const between=(s,[a,b])=>clamp01((s-a)/(b-a));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   WebGL — two passes. Pass A computes the lit wavefield at lattice resolution
+   with two persistence timescales. Pass B draws one phosphor dot per cell and
+   carves the cutout with iso-contour edges quantized to the dot pitch.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const canvas=document.getElementById("field");
+const gl=canvas.getContext("webgl2",{alpha:true,antialias:false,premultipliedAlpha:false,preserveDrawingBuffer:false});
+const reduced=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const dbgOn=new URLSearchParams(location.search).has("debug");
+if(dbgOn) document.getElementById("dbg").dataset.on="1";
+
+const VS=`#version 300 es
+in vec2 aPos; void main(){ gl_Position=vec4(aPos,0.,1.); }`;
+
+const FS_FIELD=`#version 300 es
+precision highp float;
+uniform sampler2D uPrev;
+uniform vec2 uLattice; uniform float uPitch; uniform vec2 uOrigin;
+uniform int uCellCount; uniform vec4 uCells[128];
+uniform float uKw[5]; uniform float uPhase[5]; uniform float uAmp[5];
+uniform float uDecayFast, uEmaSlow, uSlope, uGain, uAtten, uAmbient; uniform vec3 uLight;
+out vec4 o;
+float field(vec2 p){ float h=0.0;
+  for(int i=0;i<128;i++){ if(i>=uCellCount) break; vec4 c=uCells[i]; int s=int(c.z+0.5);
+    float r=length(p-c.xy); float att=inversesqrt(1.0+r*uAtten);
+    h+=uAmp[s]*c.w*sin(uKw[s]*r-uPhase[s])*att; }
+  return h; }
+void main(){
+  vec2 cell=floor(gl_FragCoord.xy);
+  float jTop=uLattice.y-1.0-cell.y;
+  vec2 p=uOrigin+vec2(cell.x+0.5,jTop+0.5)*uPitch;
+  float e=uPitch*0.5;
+  float h=field(p);
+  float hx=(field(p+vec2(e,0.))-field(p-vec2(e,0.)))/(2.0*e);
+  float hy=(field(p+vec2(0.,e))-field(p-vec2(0.,e)))/(2.0*e);
+  vec3 n=normalize(vec3(-hx*uSlope,-hy*uSlope,1.0));
+  // One hard cold key, grazing. Flat ground sits at the ambient; slopes facing
+  // the light catch a rim; slopes facing away fall below the ambient to black.
+  float lam=dot(n,uLight);
+  float v=clamp(uAmbient+(lam-uLight.z)*uGain,0.0,1.0);
+  vec4 prev=texelFetch(uPrev,ivec2(cell),0);
+  float fast=max(prev.r*uDecayFast,v);
+  float slow=prev.g+(v-prev.g)*uEmaSlow;
+  o=vec4(fast,slow,h*0.25+0.5,1.0);
+}`;
+
+const FS_DOTS=`#version 300 es
+precision highp float;
+uniform sampler2D uField;
+uniform vec2 uLattice; uniform float uPitch; uniform vec2 uOrigin; uniform float uDpr; uniform float uCssH;
+uniform vec4 uCut; uniform ivec3 uBand; uniform float uThresh; uniform float uCutOn;
+uniform vec4 uMask[12]; uniform int uMaskCount;
+uniform float uOpacity; uniform vec3 uInk;
+out vec4 o;
+bool inRect(vec2 p, vec4 r){ return p.x>=r.x && p.x<r.x+r.z && p.y>=r.y && p.y<r.y+r.w; }
+void main(){
+  vec2 css=vec2(gl_FragCoord.x/uDpr, uCssH-gl_FragCoord.y/uDpr);
+  vec2 rel=(css-uOrigin)/uPitch; vec2 cell=floor(rel);
+  if(cell.x<0.0||cell.y<0.0||cell.x>=uLattice.x||cell.y>=uLattice.y) discard;
+  vec2 center=uOrigin+(cell+0.5)*uPitch;
+  ivec2 tx=ivec2(int(cell.x), int(uLattice.y)-1-int(cell.y));
+  vec4 f=texelFetch(uField,tx,0);
+  float fast=f.r, slow=f.g;
+  for(int i=0;i<12;i++){ if(i>=uMaskCount) break; if(inRect(center,uMask[i])) discard; }
+  if(uCutOn>0.5){
+    bool inX=center.x>=uCut.x && center.x<uCut.x+uCut.z;
+    bool inY=center.y>=uCut.y && center.y<uCut.y+uCut.w;
+    if(inX&&inY){
+      float dt=(center.y-uCut.y)/uPitch, db=(uCut.y+uCut.w-center.y)/uPitch, dr=(uCut.x+uCut.z-center.x)/uPitch;
+      bool band=dt<float(uBand.x)||db<float(uBand.y)||dr<float(uBand.z);
+      if(!band) discard;
+      if(slow<uThresh) discard;
+    } else {
+      float dt=(uCut.y-center.y)/uPitch, db=(center.y-(uCut.y+uCut.w))/uPitch, dr=(center.x-(uCut.x+uCut.z))/uPitch;
+      bool nt=inX&&dt>0.0&&dt<float(uBand.x);
+      bool nb=inX&&db>0.0&&db<float(uBand.y);
+      bool nr=inY&&dr>0.0&&dr<float(uBand.z);
+      if((nt||nb||nr)&&slow<uThresh) discard;
+    }
+  }
+  float lum=clamp(fast*0.55+slow*1.0,0.0,1.0);
+  float d=length(css-center)/uPitch;
+  float radius=mix(0.12,0.40,sqrt(lum));
+  float a=1.0-smoothstep(radius-0.09,radius+0.09,d);
+  float alpha=a*pow(lum,1.1)*uOpacity;
+  if(alpha<0.003) discard;
+  o=vec4(uInk,alpha);
+}`;
+
+function compile(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+function program(fs){ const p=gl.createProgram(); gl.attachShader(p,compile(gl.VERTEX_SHADER,VS)); gl.attachShader(p,compile(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const u={}; const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS); for(let i=0;i<n;i++){ const info=gl.getActiveUniform(p,i); u[info.name.replace(/\[0\]$/,"")]=gl.getUniformLocation(p,info.name); } return {p,u}; }
+const progField=program(FS_FIELD), progDots=program(FS_DOTS);
+const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+const vao=gl.createVertexArray(); gl.bindVertexArray(vao); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+const floatOK=!!gl.getExtension("EXT_color_buffer_float");
+
+let W=0,H=0,dpr=1,pitch=6,originX=0,originY=0,LW=0,LH=0;
+let fbo=[null,null], tex=[null,null], ping=0;
+function makeTex(){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t);
+  gl.texImage2D(gl.TEXTURE_2D,0,floatOK?gl.RGBA16F:gl.RGBA8,LW,LH,0,gl.RGBA,floatOK?gl.HALF_FLOAT:gl.UNSIGNED_BYTE,null);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE); return t; }
+
+const col2 = () => { // css px of grid column 2's left line
+  const m=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--margin"));
+  const g=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gutter"));
+  const colW=(W-2*m-11*g)/12; return { x:m+colW+g, colW, g, m }; };
+const snap = v => Math.round((v-originX)/pitch)*pitch+originX;
+
+function resize(){
+  W=window.innerWidth; H=window.innerHeight; dpr=Math.min(window.devicePixelRatio||1,1.5);
+  pitch=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pitch"))||6;
+  canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr);
+  const c2=col2().x;                     // the lattice is laid so column 2's line is a cell boundary
+  originX=((c2%pitch)+pitch)%pitch-pitch; originY=-pitch;
+  LW=Math.ceil((W-originX)/pitch)+1; LH=Math.ceil((H-originY)/pitch)+1;
+  for(let i=0;i<2;i++){ if(tex[i])gl.deleteTexture(tex[i]); if(fbo[i])gl.deleteFramebuffer(fbo[i]);
+    tex[i]=makeTex(); fbo[i]=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fbo[i]); gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,tex[i],0); }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+  layoutFrame(); layoutSources(true);
+}
+
+/* ── Sources in the DOM ── */
+const srcEls=[]; const srcRoot=document.getElementById("sources");
+CAST.forEach((c,i)=>{ const el=document.createElement("div"); el.className="src"; el.innerHTML=glyphSvg(c.glyph)+`<div class="tag"><span class="name">${c.name}</span><span class="rt">${c.runtime}</span></div>`; srcRoot.appendChild(el); srcEls.push(el); });
+// hero positions (fractions of viewport), gutter positions for the window, baseline positions at the end
+const HERO_POS=[[0.72,0.24],[0.90,0.42],[0.63,0.60],[0.84,0.79],[0.30,0.81]];
+const srcPos=CAST.map(()=>({x:0,y:0}));   // current cell-snapped centre (css px)
+let gutterPos=[], basePos=[];
+function cellCenter(x,y){ const i=Math.round((x-originX)/pitch-0.5), j=Math.round((y-originY)/pitch-0.5); return {x:originX+(i+0.5)*pitch, y:originY+(j+0.5)*pitch}; }
+const MOBILE_X=[0.14,0.32,0.50,0.68,0.86];
+const isMobile=()=>W<900;
+function layoutSources(){ /* recompute the keyframes that depend on layout */
+  const fr=frameRect();
+  if(isMobile()){ gutterPos=CAST.map((_,i)=>[MOBILE_X[i]*W, fr.y-pitch*8]); return; }   // a row above the window
+  const gx=Math.max(24,fr.x-pitch*17);   // a column just outside the window's left edge
+  const y0=fr.y+pitch*4, step=(fr.height-pitch*8-pitch*7)/(N-1);
+  gutterPos=CAST.map((_,i)=>[gx,y0+i*step+pitch*3.5]);
+}
+function placeSources(s){
+  // beat 1–3: hero. beat 4: → gutter. beat 8: → baseline of the final headline.
+  const t4=ease(between(s,BEATS.b4)); const t8=ease(between(s,BEATS.b8));
+  const ap2=document.getElementById("aperture2").getBoundingClientRect();
+  const h1b=document.querySelector("#aperture2 h1").getBoundingClientRect();
+  const mobile=isMobile(); const ap=document.getElementById("aperture").getBoundingClientRect();
+  for(let i=0;i<N;i++){
+    let x=HERO_POS[i][0]*W, y=HERO_POS[i][1]*H;
+    if(mobile){ x=MOBILE_X[i]*W; y=Math.max(pitch*8, ap.top-pitch*14); }   // a row in the field above the type
+    if(t4>0){ x=lerp(x,gutterPos[i][0],t4); y=lerp(y,gutterPos[i][1],t4); }
+    if(t8>0){ // on the headline's baseline, extended right; spaced by each resident's natural tempo, so unequally
+      const u=(CAST[i].ratio-0.8)/0.4; let bx,by;
+      if(mobile){ bx=MOBILE_X[i]*W; by=ap2.bottom+pitch*6; }
+      else { const span=(W-parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--margin")))-ap2.right-pitch*16;
+        bx=ap2.right+pitch*2+u*span; by=h1b.bottom-pitch*3.5; }
+      x=lerp(x,bx,t8); y=lerp(y,by,t8); }
+    const c=cellCenter(x,y); srcPos[i]=c;
+    srcEls[i].style.transform=`translate(${c.x-pitch*3.5}px,${c.y-pitch*3.5}px)`;
+  }
+}
+
+/* ── The window ── */
+const frame=document.getElementById("frame"), frameNote=document.getElementById("frame-note");
+function layoutFrame(){
+  const mobile=W<900;
+  const left=snap(mobile? 24 : Math.round(W*0.37)); const right=snap(W-Math.max(24,W*0.03));
+  const width=right-left; const height=mobile? Math.round(H*0.62) : Math.min(Math.round(width*0.72), Math.round(H*0.84));
+  const top=Math.round((H-height)/2/pitch)*pitch+ (originY%pitch);
+  Object.assign(frame.style,{left:left+"px",top:top+"px",width:width+"px",height:height+"px"});
+  Object.assign(frameNote.style,{left:left+"px",top:(top+height+10)+"px"});
+}
+const frameRect=()=>frame.getBoundingClientRect();
+
+/* Frame content — the blueprint's launch scenario, five signed replies. */
+(function buildFrame(){
+  const rail=document.getElementById("rail-residents");
+  rail.innerHTML=CAST.map(c=>`<div class="row" data-res="${c.name}"><span class="g">${glyphSvg(c.glyph)}</span>${c.name}<span class="rt">${c.runtime}</span></div>`).join("");
+  document.querySelectorAll("[data-glyph]").forEach(el=>{ el.innerHTML=glyphSvg(identityGlyph("room:"+el.dataset.glyph)); });
+  document.getElementById("head-marks").innerHTML=CAST.slice(0,3).map(c=>`<span>${glyphSvg(c.glyph)}</span>`).join("");
+  const msgs=[
+    {you:true, name:"You", t:"9:14", text:"Let's prepare the September release. Luca, divide the work."},
+    {luca:true, name:"Luca", t:"9:14", text:"Wren takes the changelog and the release narrative. Sol audits the checklist. Iris drafts the announcement. Ferro packages and signs the build. Kit reviews the demo script. Each of you has only the sources you've been granted.", chip:"Brain · 3 sources granted · per agent"},
+    {c:CAST[0], t:"9:16", text:"Changelog drafted from the last fourteen merged PRs. Two items I'd flag as breaking — both in the room-resume path."},
+    {c:CAST[1], t:"9:17", text:"Checklist: eleven of twelve green. Notarization needs the renewed certificate before the 2 p.m. window."},
+    {c:CAST[2], t:"9:19", text:"Announcement draft, 140 words. I kept the continuity claim inside the verified boundary — handoff, not full session restoration."},
+    {c:CAST[3], t:"9:21", text:"Build 1.1.0 (412) packaged and signed. Ready when the certificate lands."},
+    {c:CAST[4], t:"9:22", text:"Demo script reviewed. The room-resume beat lands; cut the second Brain aside, it repeats the first."},
+  ];
+  document.getElementById("msgs").innerHTML=msgs.map((m,i)=>{
+    const av=m.you?`<div class="av you">R</div>`:`<div class="av">${glyphSvg(m.luca?LUCA.glyph:m.c.glyph)}</div>`;
+    const who=m.you?`<b>You</b>`:m.luca?`<b>Luca</b><span class="rt">Polyphonic</span>`:`<b>${m.c.name}</b><span class="rt">${m.c.runtime}</span>`;
+    const sig=m.you?"":`<span class="sig">signed ✓</span>`;
+    return `<div class="msg" data-i="${i}">${av}<div><div class="who">${who}<span class="t">${m.t}</span>${sig}</div><p>${m.text}</p>${m.chip?`<div class="chip"><i></i>${m.chip}</div>`:""}</div></div>`;
+  }).join("");
+})();
+
+/* ── Traces: five lines from the sources into the rail ── */
+const traces=document.getElementById("traces");
+function drawTraces(){
+  traces.setAttribute("viewBox",`0 0 ${W} ${H}`);
+  const rows=[...document.querySelectorAll("#rail-residents .row")];
+  traces.innerHTML=CAST.map((c,i)=>{ const r=rows[i].getBoundingClientRect(); const s=srcPos[i];
+    const x1=s.x+pitch*3.5+6, y1=s.y, x2=r.left+16, y2=r.top+r.height/2; const mx=lerp(x1,x2,0.5);
+    return `<path d="M${x1} ${y1}C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"/>`; }).join("");
+}
+
+/* ── Audio: hear the chord. Off on load, always. ── */
+let audio=null, oscs=[];
+const chordBtn=document.getElementById("chord");
+chordBtn.addEventListener("click",()=>{
+  if(!audio){ audio=new (window.AudioContext||window.webkitAudioContext)(); }
+  if(oscs.length){ oscs.forEach(({g})=>{ g.gain.setTargetAtTime(0,audio.currentTime,0.25); }); const old=oscs; oscs=[]; setTimeout(()=>old.forEach(({o})=>o.stop()),900); chordBtn.setAttribute("aria-pressed","false"); chordBtn.lastElementChild.textContent="hear the chord"; return; }
+  audio.resume(); const base=220;
+  oscs=CAST.map(c=>{ const o=audio.createOscillator(); o.type="sine"; o.frequency.value=base*c.ratio; const g=audio.createGain(); g.gain.value=0; o.connect(g); g.connect(audio.destination); o.start(); g.gain.setTargetAtTime(0.028,audio.currentTime,0.6); return {o,g}; });
+  chordBtn.setAttribute("aria-pressed","true"); chordBtn.lastElementChild.textContent="quiet";
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Frame loop
+   ═══════════════════════════════════════════════════════════════════════════ */
+const cells=new Float32Array(128*4); let cellCount=0;
+const kw=new Float32Array(5), ph=new Float32Array(5), amp=new Float32Array(5);
+const masks=new Float32Array(12*4); let maskCount=0;
+// Wavelength at ratio 1 (px). Must stay ≳2× the 42px glyph aperture or the emitters cancel in-plane. Live in TUNE.lambda.
+const cWave = () => TUNE.lambda*TEMPO/(2*Math.PI); // px/s
+const LIGHT=(()=>{ const a=8*Math.PI/180; const v=[-Math.cos(a)*0.7071,-Math.cos(a)*0.7071,Math.sin(a)]; const l=Math.hypot(...v); return v.map(x=>x/l); })();
+const live=document.getElementById("live");
+// Field tuning — exposed on window.__tune so the look can be dialled live in the browser.
+const TUNE = window.__tune = { lambda:110, slope:7.0, gain:1.6, ambient:0.12, atten:0.006, amp:1.6, thresh:0.2, fastTau:0.28, slowTau:2.6 };
+let heroRect=null, releaseRect=null, lastT=performance.now(), fps=60, frameOn=false, tracesDrawn=false, prevBeat="", ticks=0, maxStep=0;
+const dbg=document.getElementById("dbg");
+
+function fieldParams(s){
+  // K by beat
+  let k=0;
+  if(s<BEATS.b2[0]) k=0;
+  else if(s<BEATS.b3[0]) k=lerp(0,0.72*KC_EST,between(s,BEATS.b2));
+  else if(s<BEATS.b4[0]) k=lerp(0.72*KC_EST,K_MAX,ease(between(s,BEATS.b3)));
+  else k=K_MAX;
+  if(reduced) k=K_MAX;
+  // field opacity by beat
+  let op=1;
+  if(s<BEATS.b3[0]) op=1;
+  else if(s<BEATS.b4[0]) op=lerp(1,0.9,between(s,BEATS.b3));
+  else if(s<BEATS.b5[0]) op=lerp(0.9,0.55,between(s,BEATS.b4));
+  else if(s<BEATS.b6[0]) op=0.55;
+  else if(s<BEATS.b7[0]) op=lerp(0.55,0.12,ease(between(s,[BEATS.b6[0],BEATS.b6[0]+0.6])));
+  else if(s<BEATS.b8[0]) op=lerp(0.12,0.06,between(s,BEATS.b7));
+  else op=lerp(0.06,0.7,ease(between(s,BEATS.b8)));
+  return {k,op};
+}
+
+function tick(now){
+  // rAF stamps the frame's *start*, which can precede a wall-clock lastT set during a long script (priming);
+  // a negative dt walks the phases backwards and flips the sign of the frequency smoothing. Clamp to (0, 50ms].
+  const raw=(now-lastT)/1000; const dt=raw>0?Math.min(0.05,raw):0.016; lastT=now;
+  fps+= (1/Math.max(dt,1e-3)-fps)*0.05;
+  const s=window.scrollY/vh();
+  const {k,op}=fieldParams(s); K=k;
+  stepKuramoto(dt);
+
+  // ── beat bookkeeping
+  const beat = s<BEATS.b2[0]?"1":s<BEATS.b3[0]?"2":s<BEATS.b4[0]?"3":s<BEATS.b5[0]?"4":s<BEATS.b6[0]?"5":s<BEATS.b7[0]?"6":s<BEATS.b8[0]?"7":"8";
+  const locked = orderR>0.9 && spread<0.03;
+  if(locked) live.dataset.on="1"; else delete live.dataset.on;
+
+  // ── cutout rect
+  const ap=document.getElementById("aperture").getBoundingClientRect();
+  const ap2=document.getElementById("aperture2").getBoundingClientRect();
+  const fr=frameRect();
+  if(s<BEATS.b4[0]) heroRect={x:ap.left,y:ap.top,w:ap.width,h:ap.height}, releaseRect=heroRect;
+  let cut;
+  if(s<BEATS.b3[0]) cut={...heroRect};
+  else if(s<BEATS.b4[0]){ const t=ease(between(s,BEATS.b3)); cut={...heroRect, w:heroRect.w+ (col2().colW+col2().g)*t}; }
+  else if(s<BEATS.b8[0]-0.35){ const t=ease(between(s,BEATS.b4)); const r0=releaseRect||{x:ap.left,y:ap.top,w:ap.width,h:ap.height};
+    cut={x:lerp(r0.x,fr.left,t), y:lerp(r0.y,fr.top,t), w:lerp(r0.w,fr.width,t), h:lerp(r0.h,fr.height,t)}; }
+  else cut={x:ap2.left,y:ap2.top,w:ap2.width,h:ap2.height};
+  cut.x=snap(cut.x);
+
+  // ── window on/off (a cut, not a fade)
+  const showFrame = s>=BEATS.b5[0] && s<BEATS.b8[0]-0.35;
+  if(showFrame!==frameOn){ frameOn=showFrame; if(frameOn){ frame.dataset.on="1"; frameNote.dataset.on="1"; } else { delete frame.dataset.on; delete frameNote.dataset.on; delete traces.dataset.on; tracesDrawn=false; } }
+  if(frameOn && !tracesDrawn && s<BEATS.b6[0]){ placeSources(s); drawTraces(); traces.dataset.on="1"; tracesDrawn=true; }
+  if(frameOn && s>=BEATS.b6[0]+0.3) delete traces.dataset.on;
+  // dim messages by story step
+  if(frameOn){ const step = s<BEATS.b6[0]+0.7?0 : s<BEATS.b6[0]+1.6?1 : s<BEATS.b6[0]+2.4?2 : s<BEATS.b7[0]+1.0?3 : 4;
+    document.querySelectorAll("#frame .msg").forEach((m,i)=>{ const on = step===0 ? true : step===1 ? i<=1 : step===2 ? i===1 : step===3 ? i>=2 : true; m.classList.toggle("dim",!on); }); }
+
+  placeSources(s);
+
+  // ── emitters: each resident's glyph cells radiate at that resident's phase
+  cellCount=0;
+  for(let i=0;i<N;i++){ const g=CAST[i].glyph; const w=1/g.lit; const c=srcPos[i];
+    for(let y=0;y<7;y++)for(let x=0;x<7;x++){ if(!g.cells[y*7+x])continue; const o=cellCount*4;
+      cells[o]=c.x+(x-3)*pitch; cells[o+1]=c.y+(y-3)*pitch; cells[o+2]=i; cells[o+3]=w; cellCount++; }
+    kw[i]=winst[i]/cWave(); ph[i]=theta[i]; amp[i]=TUNE.amp; }
+  // ── masks: the glyph boxes (+1 quiet cell) and the labels
+  maskCount=0;
+  for(let i=0;i<N;i++){ const c=srcPos[i]; const o=maskCount*4; masks[o]=c.x-pitch*4.5; masks[o+1]=c.y-pitch*4.5; masks[o+2]=pitch*9; masks[o+3]=pitch*9; maskCount++;
+    if(W>=900){ const tr=srcEls[i].querySelector(".tag").getBoundingClientRect(); const o2=maskCount*4; masks[o2]=tr.left-pitch; masks[o2+1]=tr.top-pitch*0.5; masks[o2+2]=tr.width+pitch*2; masks[o2+3]=tr.height+pitch; maskCount++; } }
+
+  // ── pass A: field at lattice resolution, with persistence
+  gl.bindVertexArray(vao);
+  gl.disable(gl.BLEND);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fbo[ping^1]); gl.viewport(0,0,LW,LH);
+  gl.useProgram(progField.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ping]); gl.uniform1i(progField.u.uPrev,0);
+  gl.uniform2f(progField.u.uLattice,LW,LH); gl.uniform1f(progField.u.uPitch,pitch); gl.uniform2f(progField.u.uOrigin,originX,originY);
+  gl.uniform1i(progField.u.uCellCount,cellCount); gl.uniform4fv(progField.u.uCells,cells);
+  gl.uniform1fv(progField.u.uKw,kw); gl.uniform1fv(progField.u.uPhase,ph); gl.uniform1fv(progField.u.uAmp,amp);
+  gl.uniform1f(progField.u.uDecayFast,Math.exp(-dt/TUNE.fastTau)); gl.uniform1f(progField.u.uEmaSlow,1-Math.exp(-dt/TUNE.slowTau));
+  gl.uniform1f(progField.u.uSlope,TUNE.slope); gl.uniform1f(progField.u.uGain,TUNE.gain); gl.uniform1f(progField.u.uAtten,TUNE.atten); gl.uniform1f(progField.u.uAmbient,TUNE.ambient);
+  gl.uniform3f(progField.u.uLight,LIGHT[0],LIGHT[1],LIGHT[2]);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  ping^=1;
+
+  // ── pass B: the dots
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,canvas.width,canvas.height);
+  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA);
+  gl.useProgram(progDots.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex[ping]); gl.uniform1i(progDots.u.uField,0);
+  gl.uniform2f(progDots.u.uLattice,LW,LH); gl.uniform1f(progDots.u.uPitch,pitch); gl.uniform2f(progDots.u.uOrigin,originX,originY);
+  gl.uniform1f(progDots.u.uDpr,dpr); gl.uniform1f(progDots.u.uCssH,H);
+  gl.uniform4f(progDots.u.uCut,cut.x,cut.y,cut.w,cut.h); gl.uniform3i(progDots.u.uBand,1,3,3); gl.uniform1f(progDots.u.uThresh,TUNE.thresh);
+  gl.uniform1f(progDots.u.uCutOn, frameOn?0:1);
+  gl.uniform4fv(progDots.u.uMask,masks); gl.uniform1i(progDots.u.uMaskCount,maskCount);
+  gl.uniform1f(progDots.u.uOpacity,op); gl.uniform3f(progDots.u.uInk,247/255,245/255,239/255);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+
+  if(dbgOn){ dbg.textContent=`beat ${beat}  s ${s.toFixed(2)}vh\nK ${K.toFixed(2)}  r ${orderR.toFixed(3)}  spread ${spread.toFixed(3)} ${locked?"LOCKED":""}\nω ${winst.map(w=>(w/TEMPO).toFixed(3)).join(" ")}\nlattice ${LW}×${LH} @${pitch}px  dpr ${dpr}  emitters ${cellCount}\nfps ${fps.toFixed(0)}  op ${op.toFixed(2)}`; }
+  ticks++;
+  window.__aperture={beat,s,K,r:orderR,spread,fps,locked,cut,LW,LH,pitch,dpr,cellCount,ticks,maxStep};
+  prevBeat=beat;
+}
+function loop(now){ tick(now); requestAnimationFrame(loop); }
+
+window.addEventListener("resize",resize);
+resize();
+// Prime the oscillators and the persistence so the first paint is a field, not a fade-in.
+for(let i=0;i<40;i++) stepKuramoto(1/30);
+if(reduced){ // one settled frame, re-rendered on scroll only
+  for(let i=0;i<220;i++){ K=K_MAX; stepKuramoto(1/30); }
+  let lt=performance.now(); for(let i=0;i<60;i++) tick(lt+=33);
+  window.addEventListener("scroll",()=>tick(lt+=33),{passive:true});
+} else {
+  { let lt=performance.now()-2000; lastT=lt; for(let i=0;i<60;i++) tick(lt+=33); }
+  requestAnimationFrame(loop);
+}
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) lastT=performance.now(); });
+</script>
+</body>
+</html>
