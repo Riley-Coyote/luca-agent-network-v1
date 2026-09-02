@@ -616,42 +616,40 @@ void main(){
 const VS_POINTS=`#version 300 es
 precision highp float;
 uniform sampler2D uPos; uniform vec2 uSize; uniform float uPointSize,uTime; uniform vec4 uEddy[5]; uniform float uEddyGlow[5]; uniform int uPW;
-uniform vec3 uLightPos;    // the source, in screen space, held above the plane
-uniform vec4 uSpec;        // x threshold, y softness, z slab depth, w tumble rate
-uniform vec2 uSpecK;       // x flash strength, y the barely-there floor every grain keeps
+uniform vec4 uLight;            // xy centre, z radius, w strength — the drifting lamp
+uniform vec2 uGlint;            // x rate, y amount
+uniform float uWarm;            // how far brightness is allowed to pull toward gold
 out float vA; out float vE; out float vB; out vec2 vP;
 void main(){
   ivec2 tc=ivec2(gl_VertexID % uPW, gl_VertexID / uPW);
   vec4 P=texelFetch(uPos,tc,0); vec2 p=P.xy; float seed=P.w; float age=P.z;
   vec2 clip=(p/uSize)*2.0-1.0; clip.y=-clip.y; gl_Position=vec4(clip,0.,1.);
   float z=fract(seed*0.731);
-  gl_PointSize=uPointSize*(0.55+z*0.95);
+  gl_PointSize=uPointSize*(0.55+z*0.95);   // size varies with the grain's own layer
+  float zz=z*z;
+  float layer=0.35+z*0.55;                                   // how much of the light this grain can take
+  float tw=0.82+0.18*sin(uTime*(0.7+z*1.3)+seed*6.2831);
   float born=clamp(age*1.6,0.0,1.0);
+  // A gentler skew than pow(z,3): that one left almost every grain at 0.018 alpha, so there
+  // was no mid-bright population left to catch anything, and the field read as sand.
+  float a=(0.02+pow(z,2.0)*0.34*layer)*tw*born;
 
-  // Every grain is a facet suspended in the slab, tumbling slowly in the flow. Its normal
-  // sweeps the sphere at its own rate and phase, so each one passes through the angle that
-  // catches the source at its own moment — all of them reflecting the same light, none of
-  // them at the same time. The previous model gave every grain a share of a soft glow in
-  // proportion to its distance, which is diffuse lighting: flat, by construction.
-  float t1=seed*6.2831+uTime*uSpec.w*(0.6+z*0.8);
-  float t2=seed*17.31 +uTime*uSpec.w*(0.4+fract(seed*0.37)*0.7);
-  vec3 N=vec3(sin(t1)*cos(t2), sin(t1)*sin(t2), cos(t1));
+  // the lamp — a slow drifting source. Grains near it brighten and warm; this is the thing
+  // that makes the field read as lit rather than merely present.
+  float lit=uLight.w*pow(clamp(1.0-distance(p,uLight.xy)/max(uLight.z,1.0),0.0,1.0),2.0)*layer;
 
-  vec3 wp=vec3(p,(z-0.5)*uSpec.z);
-  vec3 Ld=uLightPos-wp; float dist=length(Ld);
-  vec3 H=normalize(Ld/max(dist,1.0)+vec3(0.0,0.0,1.0));   // viewer straight on
-  // A threshold, not a ramp. Specular reflection is a threshold phenomenon — a facet either
-  // catches the source or it does not — and that is what puts the empty middle in the
-  // reference histogram: 29% almost invisible, nothing between, 69% brilliant.
-  float spec=smoothstep(uSpec.x,uSpec.x+uSpec.y,dot(N,H));
-  float atten=0.62+0.38/(1.0+dist*dist/(uLightPos.z*uLightPos.z*3.0));
-  float caught=spec*atten*uSpecK.x;
+  // the marks — five minds, each a small source of its own
+  float E=0.0; for(int k=0;k<5;k++){ float r=distance(p,uEddy[k].xy); E=max(E, uEddyGlow[k]*clamp(1.0-r/(uEddy[k].w*0.85),0.0,1.0)); }
+  E*=0.65+0.55*zz;
 
-  float E=0.0; for(int k=0;k<5;k++){ float r=distance(p,uEddy[k].xy); E=max(E,uEddyGlow[k]*clamp(1.0-r/(uEddy[k].w*0.85),0.0,1.0)); }
+  // the glint — each grain keeps its own slow beat and flares briefly as it comes round.
+  // Stateless, so it costs nothing; the sharp exponent makes a catch of light, not a pulse.
+  float sp=sin(uTime*(0.35+fract(seed*0.917)*uGlint.x)+seed*17.3);
+  float glint=pow(max(sp,0.0),36.0)*(0.35+0.65*z)*uGlint.y;
 
-  vA=(uSpecK.y*(0.25+z*0.9)+caught+E*0.030)*born;
-  vE=clamp(caught*0.85+E*0.30,0.0,1.0);
-  vB=caught;
+  vA=a+lit*0.34+E*0.10+glint*0.5;
+  vE=clamp(E*0.8+lit*0.7+glint*0.9,0.0,1.0)*uWarm;           // warmth rides brightness, as a highlight does
+  vB=lit+E*0.5+glint;                                        // who has earned a halo
   vP=p; }`;
 
 const FS_POINTS=`#version 300 es
@@ -663,14 +661,14 @@ void main(){
   // why the field read as sand rather than as grains catching light.
   vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc);
   if(d2>0.25) discard;
-  float fall = uBloom>0.5 ? exp(-d2*17.0) : 1.0;   // soft round glow on the halo pass
+  float fall = uBloom>0.5 ? exp(-d2*11.0) : 1.0;   // soft round glow on the halo pass
   float m=texture(uObst,vP/uSize).r*uOcclude;
   if(m>0.9) discard;
   float a=vA*smoothstep(0.9,0.05,m)*uOpacity*fall;
   // The halo used to be gated on nearness to a mark, so every grain in open space was a bare
   // dot — which is what made it sand. A halo is what tells the eye a thing is catching light.
-  if(uBloom>0.5){ if(vB<0.08) discard; a*=uBloomK*clamp(vB,0.0,1.6); }
-  vec3 c=mix(uIvory,uGold,clamp(vE,0.0,1.0)*0.42)*(1.0+vE*0.75);
+  if(uBloom>0.5){ if(vB<0.05) discard; a*=uBloomK*clamp(vB,0.0,1.4); }
+  vec3 c=mix(uIvory,uGold,clamp(vE,0.0,1.0))*(1.0+vE*0.6);
   o=vec4(c*a,a); }`;
 
 function compile(type,src){ const sh=gl.createShader(type); gl.shaderSource(sh,src); gl.compileShader(sh); if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)+"\n"+src.split("\n").slice(0,3).join("\n")); return sh; }
@@ -856,8 +854,7 @@ function dustDraw(now,o){
   gl.uniform4fv(u.uEddy,eddy); gl.uniform1fv(u.uEddyGlow,eddyGlow);
   gl.uniform3f(u.uIvory,172/255,168/255,162/255); gl.uniform3f(u.uGold,232/255,196/255,147/255);
   gl.uniform1f(u.uOpacity,o.opacity*TUNE.bright);
-  gl.uniform3f(u.uLightPos,lampX,lampY,TUNE.lightZ);
-  gl.uniform4f(u.uSpec,TUNE.specThresh,TUNE.specSoft,TUNE.slab,TUNE.tumble); gl.uniform2f(u.uSpecK,TUNE.specK,TUNE.floorLit);
+  gl.uniform4f(u.uLight,lampX,lampY,TUNE.lightR,TUNE.lightK); gl.uniform2f(u.uGlint,TUNE.glintRate,TUNE.glint); gl.uniform1f(u.uWarm,TUNE.warm);
   gl.uniform1f(u.uBloomK,TUNE.bloomK); gl.uniform1f(u.uOcclude,TUNE.occlude);
   gl.uniform1f(u.uPointSize,TUNE.pointSize*dpr); gl.uniform1f(u.uBloom,0); gl.drawArrays(gl.POINTS,0,PN);
   gl.uniform1f(u.uPointSize,TUNE.pointSize*dpr*TUNE.bloomSize); gl.uniform1f(u.uBloom,1); gl.drawArrays(gl.POINTS,0,PN);
@@ -985,7 +982,7 @@ chordBtn.addEventListener("click",()=>{
 const EMIT_N=9, EMIT_MAX=34, EMIT_SCALE=0.5;   // 9×9 cells at half pitch: a 27px footprint, so a 78px wave does not cancel across it
 const live=document.getElementById("live");
 // Field tuning — live on window.__tune. Count is ?n= (reload).
-const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:1, respawn:0.004, push:900, dissipation:0.35, vorticity:0.0, viscosity:2500, viscIter:22, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:2.6, homeK:0.16, homeSigma:190, homeInner:64, free:0.4, pressDecay:0.82, lightZ:820, specThresh:0.915, specSoft:0.028, slab:700, tumble:0.30, specK:1.25, floorLit:0.014, bloomK:0.60, bloomSize:2.7, occlude:0.9, dilate:0.15 };
+const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:1, respawn:0.004, push:900, dissipation:0.35, vorticity:0.0, viscosity:2500, viscIter:22, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:2.6, homeK:0.16, homeSigma:190, homeInner:64, free:0.4, pressDecay:0.82, lightR:380, lightK:0.30, glint:0.65, glintRate:0.5, bloomK:0.46, warm:0.55, bloomSize:4.0, occlude:0.9, dilate:0.15 };
 let T0=performance.now();
 let heroRect=null, releaseRect=null, lastT=performance.now(), fps=60, frameOn=false, tracesDrawn=false, prevBeat="", ticks=0, maxStep=0;
 let lastScrollY=window.scrollY, scrollVel=0;
