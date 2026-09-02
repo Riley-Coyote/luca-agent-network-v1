@@ -1,0 +1,15 @@
+import { createRequire } from "node:module";
+const require = createRequire("/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/desktop/package.json");
+const { chromium } = require("@playwright/test");
+const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"] });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+const errors=[]; page.on("pageerror",e=>errors.push(String(e)));
+await page.goto("file:///Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/design-artifacts/landing/chamber.html?n=260000");
+await page.waitForFunction(() => window.__aperture, null, { timeout: 20000 });
+await page.waitForTimeout(11000);
+await page.screenshot({ path: "./chamber-hero2x.png" });
+const h1 = await page.evaluate(() => { const r=document.querySelector("#aperture h1").getBoundingClientRect(); return {x:r.x,y:r.y,w:r.width,h:r.height}; });
+await page.screenshot({ path: "./chamber-crop-type.png", clip: { x: h1.x+h1.w*0.55, y: h1.y-40, width: 420, height: 260 } });
+const src = await page.evaluate(() => { const r=document.querySelector(".src").getBoundingClientRect(); return {x:r.x,y:r.y}; });
+await page.screenshot({ path: "./chamber-crop-src.png", clip: { x: src.x-160, y: src.y-140, width: 380, height: 330 } });
+console.log("errors", JSON.stringify(errors)); await browser.close();

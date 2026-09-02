@@ -1,0 +1,11 @@
+import { createRequire } from "node:module";
+const require = createRequire("/Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/desktop/package.json");
+const { chromium } = require("@playwright/test");
+const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader"] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const errors=[]; page.on("pageerror",e=>errors.push(String(e)));
+await page.goto("file:///Users/rileycoyote/Documents/Repositories/luca-agent-network-v1/design-artifacts/landing/chamber.html");
+await page.waitForFunction(() => window.__aperture, null, { timeout: 20000 }); await page.waitForTimeout(6000);
+const st=await page.evaluate(()=>({particles:window.__aperture.particles, grid:window.__aperture.grid, ticks:window.__aperture.ticks, scrollW:[document.documentElement.scrollWidth, innerWidth]}));
+await page.screenshot({ path: "./chamber-mobile.png" });
+console.log(JSON.stringify(st), "errors", JSON.stringify(errors)); await browser.close();
