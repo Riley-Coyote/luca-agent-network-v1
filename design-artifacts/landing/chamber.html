@@ -128,7 +128,8 @@ h1 .b{color:var(--ink-muted)}
 .src .chip{display:grid;place-items:center;width:calc(var(--pitch)*7);height:calc(var(--pitch)*7);border-radius:30%;
   background:var(--plate);box-shadow:var(--lit),inset 0 0 0 1px rgb(232 196 140/.28)}
 .src .chip svg{display:block;width:calc(var(--pitch)*5);height:calc(var(--pitch)*5);fill:var(--ink)}
-.src .tag{margin-top:calc(var(--unit)*1.25);display:grid;gap:3px;transform:translateX(3px);text-shadow:0 1px 3px rgb(13 14 15/.85),0 0 12px rgb(13 14 15/.6)}
+.src .tag{display:none}
+.src .tag-unused{margin-top:calc(var(--unit)*1.25);display:grid;gap:3px;transform:translateX(3px);text-shadow:0 1px 3px rgb(13 14 15/.85),0 0 12px rgb(13 14 15/.6)}
 .src .rt{display:inline-flex;align-items:center;gap:6px}
 .src .rt svg{width:10px;height:10px;fill:var(--ink-faint);flex:none}
 .grain{position:fixed;inset:-20%;z-index:24;pointer-events:none;opacity:.016;mix-blend-mode:screen;
@@ -281,16 +282,7 @@ h1 .b{color:var(--ink-muted)}
         </div>
       </div>
     </div>
-    <div class="strip grid"><div class="in" data-solid>
-      <span class="lbl">One network</span>
-      <span class="rt"><svg><use href="#m-claude-color"/></svg>Claude Code</span>
-      <span class="rt"><svg><use href="#m-openai"/></svg>Codex</span>
-      <span class="rt"><svg><use href="#m-nousresearch"/></svg>Hermes</span>
-      <span class="rt"><svg><use href="#m-openclaw-color"/></svg>OpenClaw</span>
-      <span class="rt"><svg><use href="#m-grok"/></svg>Grok</span>
-      <span class="rt"><svg><use href="#m-kimi-color"/></svg>Kimi</span>
-      <span class="rt" data-luca><span class="lg"></span>Polyphonic-native</span>
-    </div></div>
+    <!-- the runtime strip used to sit here; the marks already say this -->
   </div>
 </section>
 
@@ -890,7 +882,8 @@ function finalRow(){
   const ap2=document.getElementById("aperture2").getBoundingClientRect();
   const margin=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--margin"));
   const key=`${W}|${Math.round(ap2.right)}`; if(finalRowCache&&finalRowKey===key) return finalRowCache;
-  const tagW=srcEls.map(el=>el.querySelector(".tag").getBoundingClientRect().width+pitch*2);
+  const tagW=srcEls.map(el=>{ const f=el.querySelector(".mark").hidden? el.querySelector(".chip"): el.querySelector(".mark");
+    return f.getBoundingClientRect().width+pitch*3; });
   const left=ap2.right+pitch*2, right=W-margin; const span=right-left-Math.max(...tagW);
   const order=CAST.map((c,i)=>i).sort((a,b)=>CAST[a].ratio-CAST[b].ratio);
   const xs=new Array(N); let prev=-Infinity, prevW=0;
