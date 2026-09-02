@@ -46,6 +46,25 @@ Mixed, deliberately:
   and *What to build* below specify it; the screens have not been designed yet.
   Building them is the next design task, not a recreation task.
 
+## Status (2026-09-02)
+
+The book shell now exists, next to the engine:
+
+- `index.html` — the sketchbook: a spine of page thumbnails, an open spread
+  (notes, lineage and source on the left, the drawing on the right). A page
+  animates the first time you reach it and is flat thereafter.
+- `book/` — the book itself: `book.json` is the index, `pages/NNN.json` a page
+  (meta, the module source, the marks). A folder you can hand to someone.
+- `book.mjs` — the agent-facing tool: `list`, `read <n>`, `write <module.js>
+  [--refs a,b]`, `blank`. Writing is the only way marks get into the book; the
+  viewer only reads.
+- `pages/` — page modules written so far, and `pages/lib.js`, the shading
+  helpers they share (lit parametric surfaces, hatching, tone→passes).
+- `page.html?p=<name>` — replay one module without the book; `harness.html` is
+  the original engine harness.
+
+Not built yet: sandboxing (step 6 below), a cover, page one as its own source.
+
 ## Run it first
 
 ```bash

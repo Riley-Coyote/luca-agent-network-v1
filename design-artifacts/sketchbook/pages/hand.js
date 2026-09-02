@@ -21,7 +21,7 @@ export default {
 
 const W = 880, H = 660;
 
-export function buildHand() {
+export function buildHand(opts = {}) {
   const ops = [];
   const wob = 1.15;
   const S = 1.75;                          /* hand units → page px */
@@ -42,7 +42,15 @@ export function buildHand() {
 
   /* wrist and palm */
   add(tube(P(-58, 0, 9), P(0, 0, 12), 27 * S, 31 * S, 12 * S, n), 12, 42, 'wrist');
-  add(ellipsoid(P(50, 1, 16), f, n, s, 66 * S, 11 * S, 44 * S), 56, 44, 'palm');
+  if (opts.palm === 'plates') {
+    /* the back of a hand is nearly flat and widest at the knuckles: a flat
+     * plate for the metacarpals, a rounder heel, and the mound under the thumb */
+    add(ellipsoid(P(62, 2, 14), f, n, s, 42 * S, 7.5 * S, 47 * S), 56, 40, 'palm');
+    add(ellipsoid(P(16, 4, 12), f, n, s, 30 * S, 11 * S, 37 * S), 48, 34, 'heel');
+    add(ellipsoid(P(30, -30, 8), f, n, s, 26 * S, 9 * S, 17 * S), 40, 26, 'mound');
+  } else {
+    add(ellipsoid(P(50, 1, 16), f, n, s, 66 * S, 11 * S, 44 * S), 56, 44, 'palm');
+  }
 
   /* fingers: base b across the knuckles, lengths and radii per finger, curl
    * increasing toward the little finger. nothing regular: seed everything. */
@@ -98,12 +106,21 @@ export function buildHand() {
 
   /* -------------------------------------------------- shade everything, then sort by depth */
   const shaded = forms.map((fm) => {
-    const modulate = fm.fi !== undefined && fm.fi > 0 && fm.fi < 4
+    const base = fm.fi !== undefined && fm.fi > 0 && fm.fi < 4
       ? (p, nn) => 1 - 0.45 * Math.max(0, -dot3(nn, s) - 0.1)
-      : fm.kind === 'palm' ? () => 0.82 : null;
+      : fm.kind === 'palm' || fm.kind === 'heel' || fm.kind === 'mound' ? () => 0.84 : () => 1;
+    const skin = (p) => {
+      const gx = p[0] / 14, gy = p[1] / 14, ix = Math.floor(gx), iy = Math.floor(gy);
+      const fx = gx - ix, fy = gy - iy;
+      const v = (a, b) => seed(a + 3, b + 7);
+      const top = v(ix, iy) * (1 - fx) + v(ix + 1, iy) * fx;
+      const bot = v(ix, iy + 1) * (1 - fx) + v(ix + 1, iy + 1) * fx;
+      return 0.86 + 0.28 * (top * (1 - fy) + bot * fy);
+    };
+    const modulate = opts.skin ? (p, nn) => base(p, nn) * skin(p) : base;
     const r = shadeParam(fm.sample, fm.uN, fm.vN, L, wob, { ...light, modulate, proj: (p) => [p[0], p[1]] });
     /* cross-contour on the tubes, light, only where lit */
-    if (fm.kind === 'phalanx' || fm.kind === 'palm') {
+    if (fm.kind === 'phalanx' || fm.kind === 'palm' || fm.kind === 'heel') {
       const x = shadeParam((u, v) => fm.sample(v, u), fm.vN, Math.round(fm.uN * 0.5), L, wob * 1.1, {
         ...light, modulate, passes: (l) => (l > 0.5 ? [['brush', 0.1 + (l - 0.5) * 0.35, 'accent']] : []),
       });
@@ -130,7 +147,7 @@ export function buildHand() {
   ops.push(OP('g', jitter([[P(-60, 0, 0)[0], P(-60, 0, 0)[1]], [P(150, 0, 0)[0], P(150, 0, 0)[1]]], wob * 1.4), 'under', 'brush'));
   ops.push(OP('g', jitter([P(92, -48, 26).slice(0, 2), P(92, 48, 26).slice(0, 2)], wob * 1.4), 'under', 'brush'));
   for (const fm of shaded) if (fm.kind === 'phalanx') ops.push(OP('g', jitter([P(...fm.J).slice(0, 2), P(...fm.J2).slice(0, 2)], wob), 'under', 'brush'));
-  ops.push(OP('g', jitter(hull(shaded.find((x) => x.kind === 'palm').pts2).concat([]), wob * 1.6), 'under', 'brush'));
+  for (const fm of shaded) if (['palm', 'heel', 'mound'].includes(fm.kind)) ops.push(OP('g', jitter(hull(fm.pts2).concat([]), wob * 1.6), 'under', 'brush'));
   ops.push(PAUSE(320));
 
   /* -------------------------------------------------- table, first */
@@ -152,7 +169,7 @@ export function buildHand() {
   /* -------------------------------------------------- the hand, far to near */
   let lastKind = null;
   for (const fm of shaded) {
-    const label = fm.kind === 'palm' ? 'Palm' : fm.kind === 'wrist' ? 'Wrist' : fm.fi === 4 ? 'Thumb' : ['Index', 'Middle', 'Ring', 'Little'][fm.fi];
+    const label = fm.kind === 'palm' || fm.kind === 'heel' || fm.kind === 'mound' ? 'Palm' : fm.kind === 'wrist' ? 'Wrist' : fm.fi === 4 ? 'Thumb' : ['Index', 'Middle', 'Ring', 'Little'][fm.fi];
     if (label !== lastKind) { ops.push(PHASE(label)); lastKind = label; }
     ops.push(OCCLUDE(hull(fm.pts2), 0.96));
     ops.push(...fm.ops);
@@ -190,14 +207,15 @@ export function buildHand() {
     }
     if (fm.kind === 'palm') {
       /* tendons fanning from the wrist to each knuckle, faint, on the top of the egg */
-      const C = P(50, 1, 16);
+      const plates = opts.palm === 'plates';
+      const [ca, cc, la, lb, lc] = plates ? [62, 14, 42, 47, 7.5] : [50, 16, 66, 44, 11];
       for (const fg of fingers) {
         const pts = [];
         for (let i = 0; i <= 12; i++) {
-          const a = 20 + 66 * (i / 12), b = fg.b * (0.25 + 0.75 * (i / 12));
-          const da = (a - 50) / 66, db = (b - 1) / 44;
-          const h = Math.sqrt(Math.max(0, 1 - da * da - db * db)) * 11;
-          pts.push(P(a, b, 16 + h - 0.5).slice(0, 2));
+          const a = (plates ? 34 : 20) + (plates ? 54 : 66) * (i / 12), b = fg.b * (0.3 + 0.7 * (i / 12));
+          const da = (a - ca) / la, db = (b - 1) / lb;
+          const h = Math.sqrt(Math.max(0, 1 - da * da - db * db)) * lc;
+          pts.push(P(a, b, cc + h - 0.5).slice(0, 2));
         }
         ops.push(OP('s', jitter(pts, wob * 0.8), 'accent', 'chalk', 0.16 + Math.max(0, -fg.b) * 0.004));
       }
@@ -209,8 +227,8 @@ export function buildHand() {
 
   /* -------------------------------------------------- margin */
   ops.push(PHASE('Margin'));
-  ops.push(...textOps('a hand, resting', 48, 44, 18, 'line', 'liner', 0.6, 0.45));
-  ops.push(...textOps('tubes, spheres, an egg', 48, 70, 11, 'line', 'liner', 0.6, 0.32));
+  ops.push(...textOps(opts.title || 'a hand, resting', 48, 44, 18, 'line', 'liner', 0.6, 0.45));
+  ops.push(...textOps(opts.sub || 'tubes, spheres, an egg', 48, 70, 11, 'line', 'liner', 0.6, 0.32));
   ops.push(...textOps('02.09.26', 48, 92, 11, 'line', 'liner', 0.6, 0.3));
   ops.push(...textOps('one light, upper left', W - 250, H - 40, 11, 'line', 'liner', 0.6, 0.3));
   return ops;
