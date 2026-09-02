@@ -238,7 +238,13 @@ h1 .b{color:var(--ink-muted)}
   #traces{transition:none}
 }
 @media (max-width:900px){
-  .aperture{grid-column:1/13;padding-right:calc(var(--unit)*2)}
+  .aperture-wrap{top:24vh}
+  .aperture{grid-column:1/13;padding-right:calc(var(--unit)*2);padding-bottom:calc(var(--unit)*2)}
+  .index{font-size:.625rem;margin-bottom:calc(var(--unit)*2)}
+  .lede{font-size:1rem;margin-top:calc(var(--unit)*2.5)}
+  .cta-row{margin-top:calc(var(--unit)*3);gap:calc(var(--unit)*2)}
+  .strip{bottom:14px}
+  .strip .lbl{padding-right:12px;margin-right:12px}
   .strip .in,.fine .in{grid-column:1/13}
   .cap .in{grid-column:1/13;max-width:36ch}
   #frame{grid-template-columns:1fr}
