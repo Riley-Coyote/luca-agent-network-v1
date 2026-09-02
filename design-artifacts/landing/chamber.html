@@ -504,6 +504,7 @@ const PN=(()=>{ const q=parseInt(new URLSearchParams(location.search).get("n")||
   const area=window.innerWidth*window.innerHeight; const scale=Math.min(1.25,Math.max(0.3,area/(1440*900))); return Math.round(524288*scale/1024)*1024; })();
 const PHh=Math.ceil(PN/PW);
 const GW=256;
+const OW=512; let OH=320;   // the solids mask, at its own resolution — the fluid grid is too coarse to carry a soft edge
 
 const VS_QUAD=`#version 300 es
 in vec2 aPos; out vec2 vUv; void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.,1.); }`;
@@ -610,8 +611,10 @@ out float vA; out float vE; out float vB; out vec2 vP;
 void main(){
   ivec2 tc=ivec2(gl_VertexID % uPW, gl_VertexID / uPW);
   vec4 P=texelFetch(uPos,tc,0); vec2 p=P.xy; float seed=P.w; float age=P.z;
-  vec2 clip=(p/uSize)*2.0-1.0; clip.y=-clip.y; gl_Position=vec4(clip,0.,1.); gl_PointSize=uPointSize;
-  float z=fract(seed*0.731); float zz=z*z;
+  vec2 clip=(p/uSize)*2.0-1.0; clip.y=-clip.y; gl_Position=vec4(clip,0.,1.);
+  float z=fract(seed*0.731);
+  gl_PointSize=uPointSize*(0.55+z*0.95);   // size varies with the grain's own layer
+  float zz=z*z;
   float layer=0.35+z*0.55;                                   // how much of the light this grain can take
   float tw=0.82+0.18*sin(uTime*(0.7+z*1.3)+seed*6.2831);
   float born=clamp(age*1.6,0.0,1.0);
@@ -639,7 +642,7 @@ void main(){
 
 const FS_POINTS=`#version 300 es
 precision highp float;
-uniform sampler2D uObst; uniform vec2 uSize; uniform float uOpacity,uBloom,uBloomK; uniform vec3 uIvory,uGold;
+uniform sampler2D uObst; uniform vec2 uSize; uniform float uOpacity,uBloom,uBloomK,uOcclude; uniform vec3 uIvory,uGold;
 in float vA; in float vE; in float vB; in vec2 vP; out vec4 o;
 void main(){
   // GL points rasterise as squares. Without this the halos are 3-4px blocks, which is most of
@@ -647,7 +650,8 @@ void main(){
   vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc);
   if(d2>0.25) discard;
   float fall = uBloom>0.5 ? exp(-d2*11.0) : 1.0;   // soft round glow on the halo pass
-  float m=texture(uObst,vP/uSize).r; if(m>0.9) discard;
+  float m=texture(uObst,vP/uSize).r*uOcclude;
+  if(m>0.9) discard;
   float a=vA*smoothstep(0.9,0.05,m)*uOpacity*fall;
   // The halo used to be gated on nearness to a mark, so every grain in open space was a bare
   // dot — which is what made it sand. A halo is what tells the eye a thing is catching light.
@@ -689,26 +693,81 @@ function resize(){
   const F=gl.RGBA16F, T=gl.HALF_FLOAT;
   vel=pair(GW,GH,F,gl.RGBA,T,gl.LINEAR); prs=pair(GW,GH,F,gl.RGBA,T,gl.NEAREST);
   divT=makeTex(GW,GH,F,gl.RGBA,T,gl.NEAREST); divF=makeFbo(divT); curlT=makeTex(GW,GH,F,gl.RGBA,T,gl.NEAREST); curlF=makeFbo(curlT);
-  obst.width=GW; obst.height=GH; obstTex=makeTex(GW,GH,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,gl.LINEAR);
+  OH=Math.max(64,Math.round(OW*H/W)); obst.width=OW; obst.height=OH; obstTex=makeTex(OW,OH,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,gl.LINEAR);
   if(!pos){ pos=pair(PW,PHh,gl.RGBA32F,gl.RGBA,gl.FLOAT,gl.NEAREST); initParticles(); particlesReady=true; }
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
   if(lampX===0&&lampY===0){ lampX=W*0.5; lampY=H*0.5; }
   layoutFrame(); layoutSources(true);
 }
 
-/* solids: every element with data-solid that is on screen, plus the marks */
+/* Solids: what the dust flows around.
+   Line boxes and real objects only — never a container's bounding box. A container's box
+   bridges the gaps between its children, so .cta-row cut one 723px bar across three buttons
+   and the empty space after them, and the runtime strip cut a 1089px band. Those read as
+   plates laid on the field, which is the one thing this page must not do. */
+const styleCache=new WeakMap(), maskCache=new WeakMap();
+function solidStyle(el){ let v=styleCache.get(el); if(v) return v;
+  const cs=getComputedStyle(el), m=/rgba?\(([^)]+)\)/.exec(cs.backgroundColor);
+  const a=m? (m[1].split(",").map(parseFloat)[3] ?? 1) : 0;
+  v={ filled:a>0.06, radius:parseFloat(cs.borderRadius)||4 }; styleCache.set(el,v); return v; }
+
 function drawObstacles(){
-  octx.clearRect(0,0,GW,GH); octx.fillStyle="#fff"; octx.shadowColor="#fff"; octx.shadowBlur=TUNE.feather;
-  const sx=GW/W, sy=GH/H;
-  const put=(r,inset)=>{ if(r.bottom<0||r.top>H||r.right<0||r.left>W) return; const x=(r.left-inset)*sx, y=(r.top-inset)*sy, w=(r.width+inset*2)*sx, h=(r.height+inset*2)*sy; if(w<0.5||h<0.5) return; octx.fillRect(x,y,w,h); };
-  document.querySelectorAll("[data-solid]").forEach(el=>{ if(el.id==="frame"&&!el.dataset.on) return; if(el.offsetParent===null&&el.id!=="frame") return;
-    if(el.matches("h1,p,.cap .in")){ // text: the solid is each line box, not the element's box
-      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT); let node; const range=document.createRange();
-      while((node=walker.nextNode())){ if(!node.textContent.trim()) continue; range.selectNodeContents(node); for(const r of range.getClientRects()) put(r,1); }
-      el.querySelectorAll("svg,.live").forEach(x=>put(x.getBoundingClientRect(),1));
-    } else put(el.getBoundingClientRect(),1); });
-  srcEls.forEach(el=>{ const face=el.querySelector(".mark").hidden? el.querySelector(".chip"): el.querySelector(".mark"); const r=face.getBoundingClientRect(); if(r.bottom>0&&r.top<H){ octx.beginPath(); octx.ellipse((r.left+r.width/2)*sx,(r.top+r.height/2)*sy,r.width*0.62*sx,r.height*0.62*sy,0,0,Math.PI*2); octx.fill(); }
-    if(W>=900){ const tg=el.querySelector(".tag"); const range=document.createRange(); tg.querySelectorAll(".name,.rt").forEach(x=>{ range.selectNodeContents(x); for(const rr of range.getClientRects()) put(rr,1); }); } });
+  octx.clearRect(0,0,OW,OH); octx.fillStyle="#fff"; octx.shadowColor="#fff"; octx.shadowBlur=TUNE.feather;
+  const sx=OW/W, sy=OH/H;
+  const put=(r,inset,rad,shrinkY)=>{ if(r.bottom<0||r.top>H||r.right<0||r.left>W) return;
+    const iy=(shrinkY||0)*r.height;   // pull the box in to the glyphs, not the leading
+    const x=(r.left-inset)*sx, y=(r.top-inset+iy)*sy, w=(r.width+inset*2)*sx, h=(r.height+inset*2-iy*2)*sy;
+    if(w<0.5||h<0.5) return;
+    octx.beginPath(); octx.roundRect(x,y,w,h,Math.min(rad*sx,w/2,h/2)); octx.fill(); };
+  // The letterforms themselves, not their line boxes.
+  //
+  // A line box is a bar, and a bar clears a rectangle however softly you feather it. Character
+  // rects do not help either — a character's rect is the full line height, and adjacent ones
+  // merge straight back into the same bar. The only thing that clears a letter-shaped hole is
+  // the letter. So each text element is painted once into its own small canvas with the real
+  // font, then blitted at its current position; layout inside an element never changes on
+  // scroll, so the paint is cached and the per-frame cost is one drawImage.
+  const textMask=(el,dilate)=>{
+    const host=el.getBoundingClientRect();
+    if(host.bottom<-40||host.top>H+40||host.width<1) return;
+    const pad=10;
+    const sig=el.textContent+"|"+Math.round(host.width)+"|"+Math.round(host.height)+"|"+OW;
+    let c=maskCache.get(el);
+    if(!c||c.sig!==sig){
+      const cw=Math.max(1,Math.ceil((host.width+pad*2)*sx)), ch=Math.max(1,Math.ceil((host.height+pad*2)*sy));
+      const cv=document.createElement("canvas"); cv.width=cw; cv.height=ch;
+      const cx2=cv.getContext("2d");
+      cx2.fillStyle="#fff"; cx2.strokeStyle="#fff"; cx2.textBaseline="middle";
+      cx2.lineJoin="round";
+      const walker=document.createTreeWalker(el,NodeFilter.SHOW_TEXT); let node; const r=document.createRange();
+      while((node=walker.nextNode())){
+        const t=node.textContent; if(!t.trim()) continue;
+        const ps=getComputedStyle(node.parentElement);
+        const fs=parseFloat(ps.fontSize);
+        cx2.font=`${ps.fontStyle} ${ps.fontWeight} ${fs*sy}px ${ps.fontFamily}`;
+        // the clearing has to scale with the type — a constant spread turns 9px labels into blobs
+        cx2.lineWidth=Math.max(1.4,Math.min(11,fs*dilate))*sx;
+        for(let i=0;i<t.length;i++){ if(!t[i].trim()) continue;
+          r.setStart(node,i); r.setEnd(node,i+1); const b=r.getBoundingClientRect();
+          if(b.width<0.1) continue;
+          const gx=(b.left-host.left+pad)*sx, gy=(b.top+b.height/2-host.top+pad)*sy;
+          cx2.strokeText(t[i],gx,gy); cx2.fillText(t[i],gx,gy); }
+      }
+      c={sig,cv}; maskCache.set(el,c);
+    }
+    octx.drawImage(c.cv,(host.left-pad)*sx,(host.top-pad)*sy);
+  };
+
+  document.querySelectorAll("[data-solid]").forEach(el=>{
+    if(el.id==="frame"&&!el.dataset.on) return; if(el.offsetParent===null&&el.id!=="frame") return;
+    if(el.id==="frame"){ put(el.getBoundingClientRect(),1,12); return; }   // a window is a genuine object
+    textMask(el,TUNE.dilate);                                              // the dust parts around the letters
+    el.querySelectorAll("svg,.live,.ring,.lg").forEach(x=>put(x.getBoundingClientRect(),1,99));
+    const own=solidStyle(el); if(own.filled) put(el.getBoundingClientRect(),1,own.radius);
+    el.querySelectorAll("*").forEach(x=>{ const st=solidStyle(x); if(st.filled) put(x.getBoundingClientRect(),1,st.radius); });
+  });
+  srcEls.forEach(el=>{ const face=el.querySelector(".mark").hidden? el.querySelector(".chip"): el.querySelector(".mark"); const r=face.getBoundingClientRect(); if(r.bottom>0&&r.top<H){ octx.beginPath(); octx.ellipse((r.left+r.width/2)*sx,(r.top+r.height/2)*sy,r.width*0.46*sx,r.height*0.46*sy,0,0,Math.PI*2); octx.fill(); }
+    if(W>=900) textMask(el.querySelector(".tag"),TUNE.dilate*0.7); });
   gl.bindTexture(gl.TEXTURE_2D,obstTex); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,obst);
 }
 
@@ -765,7 +824,7 @@ function dustDraw(now,o){
   gl.uniform3f(u.uIvory,172/255,168/255,162/255); gl.uniform3f(u.uGold,232/255,196/255,147/255);
   gl.uniform1f(u.uOpacity,o.opacity*TUNE.bright);
   gl.uniform4f(u.uLight,lampX,lampY,TUNE.lightR,TUNE.lightK); gl.uniform2f(u.uGlint,TUNE.glintRate,TUNE.glint); gl.uniform1f(u.uWarm,TUNE.warm);
-  gl.uniform1f(u.uBloomK,TUNE.bloomK);
+  gl.uniform1f(u.uBloomK,TUNE.bloomK); gl.uniform1f(u.uOcclude,TUNE.occlude);
   gl.uniform1f(u.uPointSize,TUNE.pointSize*dpr); gl.uniform1f(u.uBloom,0); gl.drawArrays(gl.POINTS,0,PN);
   gl.uniform1f(u.uPointSize,TUNE.pointSize*dpr*TUNE.bloomSize); gl.uniform1f(u.uBloom,1); gl.drawArrays(gl.POINTS,0,PN);
 }
@@ -892,7 +951,7 @@ chordBtn.addEventListener("click",()=>{
 const EMIT_N=9, EMIT_MAX=34, EMIT_SCALE=0.5;   // 9×9 cells at half pitch: a 27px footprint, so a 78px wave does not cancel across it
 const live=document.getElementById("live");
 // Field tuning — live on window.__tune. Count is ?n= (reload).
-const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:14, respawn:0.004, push:900, dissipation:0.35, vorticity:6.0, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:1.6, homeK:0.45, homeSigma:130, homeInner:64, free:0.12, pressDecay:0.82, lightR:380, lightK:0.30, glint:0.65, glintRate:0.5, bloomK:0.46, warm:0.55, bloomSize:4.0 };
+const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:14, respawn:0.004, push:900, dissipation:0.35, vorticity:6.0, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:2.6, homeK:0.45, homeSigma:130, homeInner:64, free:0.12, pressDecay:0.82, lightR:380, lightK:0.30, glint:0.65, glintRate:0.5, bloomK:0.46, warm:0.55, bloomSize:4.0, occlude:0.9, dilate:0.15 };
 let T0=performance.now();
 let heroRect=null, releaseRect=null, lastT=performance.now(), fps=60, frameOn=false, tracesDrawn=false, prevBeat="", ticks=0, maxStep=0;
 let lastScrollY=window.scrollY, scrollVel=0;
