@@ -7,6 +7,8 @@ import {
   useResidentSessionCapabilities,
 } from "@/features/capabilities/hooks";
 import {
+  type CapabilityPaletteStatus,
+  capabilitySkillStatus,
   filterCapabilityPaletteItems,
   nextCapabilityPaletteIndex,
 } from "@/features/capabilities/lib/capabilityPalette";
@@ -62,7 +64,7 @@ type PaletteItem = {
   section: "Commands" | "Skills" | "Connections";
   name: string;
   description: string;
-  status: "Ready" | "Needs setup" | "Unavailable" | "Checking";
+  status: CapabilityPaletteStatus | null;
   disabled: boolean;
   run: () => void | Promise<void>;
   icon: React.ReactNode;
@@ -234,12 +236,11 @@ export function ComposerCapabilityPalette({
         section: "Skills",
         name: skill.name,
         description: skill.description,
-        status:
-          !selectedResident || checking
-            ? "Checking"
-            : ready
-              ? "Ready"
-              : "Unavailable",
+        status: capabilitySkillStatus({
+          residentSelected: Boolean(selectedResident),
+          checking,
+          ready,
+        }),
         disabled: !ready || pendingId === skill.skillId,
         run: async () => {
           if (!selectedResident) return;
@@ -494,9 +495,11 @@ export function ComposerCapabilityPalette({
                         {item.description}
                       </span>
                     </span>
-                    <span className="shrink-0 text-2xs text-muted-foreground">
-                      {item.status}
-                    </span>
+                    {item.status ? (
+                      <span className="shrink-0 text-2xs text-muted-foreground">
+                        {item.status}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}

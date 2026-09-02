@@ -3,6 +3,26 @@ export type CapabilityPaletteSearchable = {
   description: string;
 };
 
+export type CapabilityPaletteStatus =
+  | "Ready"
+  | "Needs setup"
+  | "Unavailable"
+  | "Checking";
+
+export function capabilitySkillStatus({
+  residentSelected,
+  checking,
+  ready,
+}: {
+  residentSelected: boolean;
+  checking: boolean;
+  ready: boolean;
+}): CapabilityPaletteStatus | null {
+  if (!residentSelected) return null;
+  if (checking) return "Checking";
+  return ready ? "Ready" : "Unavailable";
+}
+
 export function filterCapabilityPaletteItems<
   T extends CapabilityPaletteSearchable,
 >(items: T[], query: string): T[] {

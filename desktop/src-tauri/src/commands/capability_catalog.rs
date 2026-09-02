@@ -84,7 +84,8 @@ struct SkillFrontmatter {
 
 #[derive(Debug, Clone)]
 struct DiscoveredSkill {
-    canonical_path: PathBuf,
+    skill_id: String,
+    canonical_paths: BTreeSet<PathBuf>,
     name: String,
     description: String,
     source_labels: BTreeSet<String>,
@@ -93,7 +94,7 @@ struct DiscoveredSkill {
 
 #[derive(Debug, Clone)]
 struct CachedSkill {
-    canonical_path: PathBuf,
+    canonical_paths: BTreeSet<PathBuf>,
     source_labels: BTreeSet<String>,
     runtime_ids: BTreeSet<String>,
 }
@@ -111,8 +112,7 @@ pub fn get_resident_session_capabilities(
     resident_pubkey: String,
 ) -> Result<Option<luca_protocol::ResidentSessionCapabilityV1>, String> {
     let resident_pubkey = resident_pubkey.trim().to_ascii_lowercase();
-    if resident_pubkey.len() != 64
-        || !resident_pubkey.bytes().all(|byte| byte.is_ascii_hexdigit())
+    if resident_pubkey.len() != 64 || !resident_pubkey.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         return Err("resident capability identity is invalid".to_owned());
     }
@@ -139,13 +139,18 @@ pub async fn read_capability_skill(skill_id: String) -> Result<SkillCatalogDetai
         return Err("skill identifier is invalid".to_owned());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let skill = resolve_cached_skill(&skill_id)?;
-        let opened = open_skill_bounded(&skill.canonical_path, &skill_roots())
-            .map_err(|_| "skill is no longer available".to_owned())?;
-        if opened.canonical_path != skill.canonical_path {
-            return Err("skill is no longer available".to_owned());
+        let roots = skill_roots();
+        let mut skill = resolve_cached_skill(&skill_id)?;
+        let mut opened = open_cached_skill(&skill_id, &skill, &roots);
+        if opened.is_none() {
+            let skills = catalog(roots.clone())?;
+            replace_skill_cache(&skills)?;
+            skill = cached_skill(&skill_id)?
+                .ok_or_else(|| "skill is no longer available".to_owned())?;
+            opened = open_cached_skill(&skill_id, &skill, &roots);
         }
-        let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
+        let (opened, name, description) =
+            opened.ok_or_else(|| "skill is no longer available".to_owned())?;
         Ok(SkillCatalogDetailV1 {
             skill_id,
             name,
@@ -173,10 +178,7 @@ pub async fn resolve_capability_skill_activation(
         return Err("skill identifier is invalid".to_owned());
     }
     let resident_pubkey = resident_pubkey.trim().to_ascii_lowercase();
-    if resident_pubkey.len() != 64
-        || !resident_pubkey
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
+    if resident_pubkey.len() != 64 || !resident_pubkey.bytes().all(|byte| byte.is_ascii_hexdigit())
     {
         return Err("resident capability identity is invalid".to_owned());
     }
@@ -187,7 +189,7 @@ pub async fn resolve_capability_skill_activation(
         let catalog_generation = catalog_generation(&skills);
         let Some(selected) = skills
             .iter()
-            .find(|skill| skill_id_for(&skill.canonical_path) == skill_id)
+            .find(|skill| skill.skill_id == skill_id)
         else {
             return Ok(SkillActivationV1 {
                 skill_id,
@@ -310,15 +312,27 @@ fn normalize_invocation_name(value: &str) -> String {
 }
 
 fn catalog_generation(skills: &[DiscoveredSkill]) -> String {
-    let mut ids = skills
+    let mut identities = skills
         .iter()
-        .map(|skill| skill_id_for(&skill.canonical_path))
+        .map(|skill| {
+            (
+                skill.skill_id.as_str(),
+                skill
+                    .runtime_ids
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>(),
+            )
+        })
         .collect::<Vec<_>>();
-    ids.sort();
+    identities.sort();
     let mut digest = Sha256::new();
-    for id in ids {
-        digest.update(id.as_bytes());
-        digest.update([0]);
+    digest.update(b"polyphonic-skill-catalog-generation-v2\0");
+    for (skill_id, runtime_ids) in identities {
+        digest_part(&mut digest, skill_id.as_bytes());
+        for runtime_id in runtime_ids {
+            digest_part(&mut digest, runtime_id.as_bytes());
+        }
     }
     hex::encode(digest.finalize())
 }
@@ -331,9 +345,9 @@ fn replace_skill_cache(skills: &[DiscoveredSkill]) -> Result<(), String> {
     cache.clear();
     cache.extend(skills.iter().map(|skill| {
         (
-            skill_id_for(&skill.canonical_path),
+            skill.skill_id.clone(),
             CachedSkill {
-                canonical_path: skill.canonical_path.clone(),
+                canonical_paths: skill.canonical_paths.clone(),
                 source_labels: skill.source_labels.clone(),
                 runtime_ids: skill.runtime_ids.clone(),
             },
@@ -361,7 +375,7 @@ fn resolve_cached_skill(skill_id: &str) -> Result<CachedSkill, String> {
 
 fn entry_view(skill: DiscoveredSkill) -> SkillCatalogEntryV1 {
     SkillCatalogEntryV1 {
-        skill_id: skill_id_for(&skill.canonical_path),
+        skill_id: skill.skill_id,
         name: skill.name,
         description: skill.description,
         source_labels: skill.source_labels.into_iter().collect(),
@@ -605,29 +619,32 @@ fn add_prefixed_openclaw_roots(roots: &mut Vec<SkillRoot>, home: &Path) {
 }
 
 fn catalog(roots: Vec<SkillRoot>) -> Result<Vec<DiscoveredSkill>, String> {
-    let mut by_path = BTreeMap::<PathBuf, DiscoveredSkill>::new();
+    let mut by_identity = BTreeMap::<String, DiscoveredSkill>::new();
     let mut remaining_walk_entries = MAX_WALK_ENTRIES;
     for root in roots {
         if remaining_walk_entries == 0 {
             break;
         }
         for skill_path in skill_files(&root, &mut remaining_walk_entries) {
-            if by_path.len() >= MAX_SKILLS {
-                break;
-            }
             let Ok(opened) = open_skill_bounded(&skill_path, std::slice::from_ref(&root)) else {
                 continue;
             };
-            if let Some(existing) = by_path.get_mut(&opened.canonical_path) {
+            let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
+            let skill_id = semantic_skill_id(&name, &description, &opened.content);
+            if let Some(existing) = by_identity.get_mut(&skill_id) {
+                existing.canonical_paths.insert(opened.canonical_path);
                 existing.source_labels.insert(root.source_label.clone());
                 existing.runtime_ids.insert(root.runtime_id.clone());
                 continue;
             }
-            let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
-            by_path.insert(
-                opened.canonical_path.clone(),
+            if by_identity.len() >= MAX_SKILLS {
+                break;
+            }
+            by_identity.insert(
+                skill_id.clone(),
                 DiscoveredSkill {
-                    canonical_path: opened.canonical_path,
+                    skill_id,
+                    canonical_paths: BTreeSet::from([opened.canonical_path]),
                     name,
                     description,
                     source_labels: BTreeSet::from([root.source_label.clone()]),
@@ -636,14 +653,31 @@ fn catalog(roots: Vec<SkillRoot>) -> Result<Vec<DiscoveredSkill>, String> {
             );
         }
     }
-    let mut skills = by_path.into_values().collect::<Vec<_>>();
+    let mut skills = by_identity.into_values().collect::<Vec<_>>();
     skills.sort_by(|left, right| {
         left.name
             .to_lowercase()
             .cmp(&right.name.to_lowercase())
-            .then_with(|| left.canonical_path.cmp(&right.canonical_path))
+            .then_with(|| left.skill_id.cmp(&right.skill_id))
     });
     Ok(skills)
+}
+
+fn open_cached_skill(
+    skill_id: &str,
+    skill: &CachedSkill,
+    roots: &[SkillRoot],
+) -> Option<(OpenedSkill, String, String)> {
+    for path in &skill.canonical_paths {
+        let Ok(opened) = open_skill_bounded(path, roots) else {
+            continue;
+        };
+        let (name, description) = skill_metadata(&opened.canonical_path, &opened.content);
+        if semantic_skill_id(&name, &description, &opened.content) == skill_id {
+            return Some((opened, name, description));
+        }
+    }
+    None
 }
 
 /// Open a skill exactly once, then prove the opened file is the same file as a
@@ -817,11 +851,18 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     truncated
 }
 
-fn skill_id_for(path: &Path) -> String {
+fn semantic_skill_id(name: &str, description: &str, content: &str) -> String {
     let mut digest = Sha256::new();
-    digest.update(b"polyphonic-skill-catalog-v1\0");
-    digest.update(path.as_os_str().as_encoded_bytes());
+    digest.update(b"polyphonic-skill-catalog-v2\0");
+    digest_part(&mut digest, name.as_bytes());
+    digest_part(&mut digest, description.as_bytes());
+    digest_part(&mut digest, content.as_bytes());
     hex::encode(digest.finalize())
+}
+
+fn digest_part(digest: &mut Sha256, value: &[u8]) {
+    digest.update((value.len() as u64).to_be_bytes());
+    digest.update(value);
 }
 
 #[cfg(test)]
@@ -860,10 +901,156 @@ mod tests {
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].name, "Deep research");
         assert_eq!(skills[0].description, "Search carefully and cite sources.");
+        assert_eq!(skills[0].canonical_paths.len(), 1);
         assert_eq!(
             skills[0].runtime_ids.iter().cloned().collect::<Vec<_>>(),
             vec!["claude", "codex"]
         );
+    }
+
+    #[test]
+    fn catalog_merges_byte_identical_copies_and_their_provenance() {
+        let temp = tempfile::tempdir().unwrap();
+        let content =
+            "---\nname: Agent development\ndescription: Build agents safely.\n---\n\n# Guide\n";
+        for provider in ["codex", "claude"] {
+            let skill_dir = temp.path().join(provider).join("skills/agent-development");
+            fs::create_dir_all(&skill_dir).unwrap();
+            fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+        }
+
+        let skills = catalog(vec![
+            SkillRoot {
+                path: temp.path().join("codex/skills"),
+                canonical_boundary: None,
+                source_label: "Codex plugins".into(),
+                runtime_id: "codex".into(),
+                max_depth: 3,
+            },
+            SkillRoot {
+                path: temp.path().join("claude/skills"),
+                canonical_boundary: None,
+                source_label: "Claude Code plugins".into(),
+                runtime_id: "claude".into(),
+                max_depth: 3,
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].canonical_paths.len(), 2);
+        assert_eq!(
+            skills[0].source_labels.iter().cloned().collect::<Vec<_>>(),
+            vec!["Claude Code plugins", "Codex plugins"]
+        );
+        assert_eq!(
+            skills[0].runtime_ids.iter().cloned().collect::<Vec<_>>(),
+            vec!["claude", "codex"]
+        );
+    }
+
+    #[test]
+    fn catalog_keeps_same_named_skills_separate_when_their_bodies_differ() {
+        let temp = tempfile::tempdir().unwrap();
+        for (provider, body) in [("one", "First behavior"), ("two", "Second behavior")] {
+            let skill_dir = temp.path().join(provider).join("skills/shared-name");
+            fs::create_dir_all(&skill_dir).unwrap();
+            fs::write(
+                skill_dir.join("SKILL.md"),
+                format!("---\nname: Shared name\ndescription: Same description.\n---\n\n{body}\n"),
+            )
+            .unwrap();
+        }
+
+        let skills = catalog(vec![
+            SkillRoot {
+                path: temp.path().join("one/skills"),
+                canonical_boundary: None,
+                source_label: "One".into(),
+                runtime_id: "codex".into(),
+                max_depth: 3,
+            },
+            SkillRoot {
+                path: temp.path().join("two/skills"),
+                canonical_boundary: None,
+                source_label: "Two".into(),
+                runtime_id: "codex".into(),
+                max_depth: 3,
+            },
+        ])
+        .unwrap();
+
+        assert_eq!(skills.len(), 2);
+        assert_ne!(skills[0].skill_id, skills[1].skill_id);
+        assert!(skills.iter().all(|skill| skill.name == "Shared name"));
+    }
+
+    #[test]
+    fn semantic_identity_is_path_independent_and_generation_tracks_runtime_access() {
+        let content = "---\nname: Stable\ndescription: Stable skill.\n---\n\n# Stable\n";
+        let skill_id = semantic_skill_id("Stable", "Stable skill.", content);
+        let base = DiscoveredSkill {
+            skill_id: skill_id.clone(),
+            canonical_paths: BTreeSet::from([PathBuf::from("/first/SKILL.md")]),
+            name: "Stable".into(),
+            description: "Stable skill.".into(),
+            source_labels: BTreeSet::from(["Codex".into()]),
+            runtime_ids: BTreeSet::from(["codex".into()]),
+        };
+        let redundant_copy = DiscoveredSkill {
+            canonical_paths: BTreeSet::from([
+                PathBuf::from("/first/SKILL.md"),
+                PathBuf::from("/second/SKILL.md"),
+            ]),
+            ..base.clone()
+        };
+        assert_eq!(base.skill_id, skill_id);
+        assert_eq!(
+            catalog_generation(&[base.clone()]),
+            catalog_generation(&[redundant_copy])
+        );
+
+        let expanded_runtime = DiscoveredSkill {
+            runtime_ids: BTreeSet::from(["claude".into(), "codex".into()]),
+            ..base.clone()
+        };
+        assert_ne!(
+            catalog_generation(&[base]),
+            catalog_generation(&[expanded_runtime])
+        );
+    }
+
+    #[test]
+    fn cached_skill_can_fall_back_to_an_equivalent_copy() {
+        let temp = tempfile::tempdir().unwrap();
+        let content =
+            "---\nname: Portable\ndescription: Survives cache cleanup.\n---\n\n# Portable\n";
+        let mut roots = Vec::new();
+        for provider in ["a", "b"] {
+            let root = temp.path().join(provider).join("skills");
+            let skill_dir = root.join("portable");
+            fs::create_dir_all(&skill_dir).unwrap();
+            fs::write(skill_dir.join("SKILL.md"), content).unwrap();
+            roots.push(SkillRoot {
+                path: root,
+                canonical_boundary: None,
+                source_label: provider.into(),
+                runtime_id: "codex".into(),
+                max_depth: 3,
+            });
+        }
+        let skills = catalog(roots.clone()).unwrap();
+        let cached = CachedSkill {
+            canonical_paths: skills[0].canonical_paths.clone(),
+            source_labels: skills[0].source_labels.clone(),
+            runtime_ids: skills[0].runtime_ids.clone(),
+        };
+        let first_path = cached.canonical_paths.first().unwrap().clone();
+        fs::remove_file(&first_path).unwrap();
+
+        let (opened, _, _) = open_cached_skill(&skills[0].skill_id, &cached, &roots).unwrap();
+        assert_ne!(opened.canonical_path, first_path);
+        assert_eq!(opened.content, content);
     }
 
     #[test]

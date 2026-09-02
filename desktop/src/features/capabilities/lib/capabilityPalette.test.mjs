@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  capabilitySkillStatus,
   filterCapabilityPaletteItems,
   nextCapabilityPaletteIndex,
 } from "./capabilityPalette.ts";
@@ -26,5 +27,40 @@ describe("capability palette", () => {
     assert.equal(nextCapabilityPaletteIndex(0, 3, 1), 1);
     assert.equal(nextCapabilityPaletteIndex(2, 3, 1), 2);
     assert.equal(nextCapabilityPaletteIndex(4, 0, -1), 0);
+  });
+
+  it("does not imply a capability check before a resident is chosen", () => {
+    assert.equal(
+      capabilitySkillStatus({
+        residentSelected: false,
+        checking: false,
+        ready: false,
+      }),
+      null,
+    );
+    assert.equal(
+      capabilitySkillStatus({
+        residentSelected: true,
+        checking: true,
+        ready: false,
+      }),
+      "Checking",
+    );
+    assert.equal(
+      capabilitySkillStatus({
+        residentSelected: true,
+        checking: false,
+        ready: true,
+      }),
+      "Ready",
+    );
+    assert.equal(
+      capabilitySkillStatus({
+        residentSelected: true,
+        checking: false,
+        ready: false,
+      }),
+      "Unavailable",
+    );
   });
 });
