@@ -24,14 +24,11 @@ export function passesFor(lum, opts = {}) {
   const k = opts.gain || 1;
   const l = Math.min(1, lum);
   const out = [];
-  /* wash: width IS the gradient. thin strokes barely overlap (near-black),
-   * wide ones stack to the ceiling. the tone layer is clamped, so it can
-   * never carry anything brighter than the ceiling. */
-  if (l > 0.02) out.push(['wash', (0.12 + l * 0.5) * k, 'tone']);
-  /* brush on ACCENT — above the clamp. this is the halftone-to-light ramp. */
-  if (l > 0.45) out.push(['brush', (0.1 + (l - 0.45) * 0.75) * k, 'accent']);
-  /* chalk last, sparse: it is grainy by nature (dry media breaks on speed) */
-  if (l > 0.85) out.push(['chalk', (0.2 + (l - 0.85) * 2) * k, 'accent']);
+  /* every stroke thins to ~half width at its ends (the hand slows there), so
+   * these widths are set for the ends to still touch their neighbours. */
+  if (l > 0.02) out.push(['wash', (0.25 + l * 0.75) * k, 'tone']);
+  if (l > 0.45) out.push(['brush', (0.2 + (l - 0.45) * 0.9) * k, 'accent']);
+  if (l > 0.86) out.push(['chalk', (0.2 + (l - 0.86) * 2) * k, 'accent']);
   return out;
 }
 
@@ -181,4 +178,134 @@ export function highlight(x, y, r, count = 9) {
     ops.push(DOT(x + Math.cos(a) * d, y + Math.sin(a) * d, 1.2 + (1 - d / r) * 2.2, 'accent', 'chalk'));
   }
   return ops;
+}
+
+/* ------------------------------------------------ parametric surfaces */
+
+/** Convex hull (monotone chain) of 2D points — silhouettes of straight forms. */
+export function hull(points) {
+  const pts = points.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return pts;
+  const cr = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower = [];
+  for (const p of pts) { while (lower.length >= 2 && cr(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+  const upper = [];
+  for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (upper.length >= 2 && cr(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+
+/** Brightness of a surface point under key light L (+ambient, +bounce). */
+export function shade(n, L, opts = {}, p = null) {
+  let dir = L, k = 1;
+  if (opts.lamp && p) {
+    /* a lamp at a place, not a direction: light falls off across the subject */
+    const v = [opts.lamp[0] - p[0], opts.lamp[1] - p[1], opts.lamp[2] - p[2]];
+    const d = Math.hypot(...v);
+    dir = v.map((c) => c / d);
+    const D = opts.lampFall || 700;
+    k = 1 / (0.55 + 0.45 * (d / D) * (d / D));
+  }
+  let lum = Math.max(0, dot3(n, dir)) * k + (opts.ambient ?? 0.03);
+  if (opts.bounce) lum += Math.max(0, dot3(n, norm(opts.bounce.dir))) * opts.bounce.amt;
+  if (opts.modulate && p) lum *= opts.modulate(p, n);
+  if (opts.gamma) lum = Math.pow(Math.min(1, lum), opts.gamma);
+  return lum;
+}
+
+/**
+ * Shade any parametric surface with strokes along u at fixed v.
+ *   sample(u, v) → { p: [x, y, z], n: [nx, ny, nz] }   z toward the viewer
+ * Each stroke is split into front-facing runs, and each run into segments of
+ * roughly one brightness, so the passes can change along a stroke. Returns
+ * { ops, pts2 } — pts2 is every projected sample, for the silhouette.
+ */
+export function shadeParam(sample, uN, vN, L, wob, opts = {}) {
+  const ops = [];
+  const pts2 = [];
+  let zSum = 0, zN = 0;
+  const bucket = opts.bucket || 0.09;
+  const proj = opts.proj || ((p) => [p[0], p[1]]);
+  for (let j = 0; j <= vN; j++) {
+    const v = j / vN;
+    let run = []; /* [ [x,y], lum ] */
+    const flush = () => {
+      if (run.length > 2) {
+        /* split by brightness bucket, with one point of overlap */
+        let seg = [run[0]];
+        let b0 = Math.floor(run[0][1] / bucket);
+        for (let k = 1; k < run.length; k++) {
+          const b = Math.floor(run[k][1] / bucket);
+          seg.push(run[k]);
+          if (b !== b0 || k === run.length - 1) {
+            if (seg.length > 1) {
+              const lum = seg.reduce((s, q) => s + q[1], 0) / seg.length;
+              const pts = seg.map((q) => q[0]);
+              const passes = opts.passes ? opts.passes(lum) : passesFor(lum, opts);
+              const noise = 0.8 + seed(j, k) * 0.4; /* no two strokes weigh the same */
+              for (const [brush, w, layer] of passes) ops.push(OP('s', jitter(pts, wob), layer, brush, w * noise));
+            }
+            seg = [run[k]];
+            b0 = b;
+          }
+        }
+      }
+      run = [];
+    };
+    for (let i = 0; i <= uN; i++) {
+      const u = i / uN;
+      const { p, n } = sample(u, v);
+      const q = proj(p);
+      if (n[2] > (opts.facing ?? 0.04)) { pts2.push(q); run.push([q, shade(n, L, opts, p)]); zSum += p[2]; zN++; } else flush();
+    }
+    flush();
+  }
+  return { ops, pts2, z: zN ? zSum / zN : -1e9 };
+}
+
+/** A straight tube from A to B, radius r0→r1, elliptical if ry given. */
+export function tube(A, B, r0, r1 = r0, ry = null, hint = null) {
+  const axis = norm([B[0] - A[0], B[1] - A[1], B[2] - A[2]]);
+  let [e1, e2] = basis(axis);
+  if (hint) {
+    const d = dot3(hint, axis);
+    e1 = norm([hint[0] - axis[0] * d, hint[1] - axis[1] * d, hint[2] - axis[2] * d]);
+    e2 = cross(axis, e1);
+  }
+  const L = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
+  return (u, v) => {
+    const th = v * Math.PI * 2;
+    const r = r0 + (r1 - r0) * u;
+    const rr = ry ? ry * (r / r0) : r;
+    const c = Math.cos(th), s = Math.sin(th);
+    const p = [0, 1, 2].map((k) => A[k] + axis[k] * u * L + e1[k] * c * r + e2[k] * s * rr);
+    /* normal of an ellipse cross-section */
+    const n = norm([0, 1, 2].map((k) => e1[k] * c / r + e2[k] * s / rr));
+    return { p, n };
+  };
+}
+
+/** An ellipsoid: centre C, orthonormal axes with semi-lengths. */
+export function ellipsoid(C, ax, ay, az, la, lb, lc) {
+  return (u, v) => {
+    const th = u * Math.PI * 2, ph = v * Math.PI;
+    const q = [Math.sin(ph) * Math.cos(th), Math.sin(ph) * Math.sin(th), Math.cos(ph)];
+    const p = [0, 1, 2].map((k) => C[k] + ax[k] * q[0] * la + ay[k] * q[1] * lb + az[k] * q[2] * lc);
+    const n = norm([0, 1, 2].map((k) => ax[k] * q[0] / la + ay[k] * q[1] / lb + az[k] * q[2] / lc));
+    return { p, n };
+  };
+}
+
+/** Rings on a sphere around an axis (for joints: cheap, few ops). */
+export function sphere(C, r, axis = [0, 0, 1]) {
+  const az = norm(axis);
+  const [ax, ay] = basis(az);
+  return ellipsoid(C, ax, ay, az, r, r, r);
+}
+
+/** Where a point's shadow lands on the plane through O with normal n, lit from L. */
+export function castOnPlane(p, O, n, L) {
+  const d = dot3(n, [p[0] - O[0], p[1] - O[1], p[2] - O[2]]);
+  const t = -d / dot3(n, L);
+  return [p[0] + L[0] * t, p[1] + L[1] * t, p[2] + L[2] * t];
 }

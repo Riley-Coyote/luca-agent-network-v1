@@ -97,6 +97,7 @@ export function buildStudy() {
   ops.push(OCCLUDE(arc(sx, sy, sr * 1.01, sr * 1.01, 0, Math.PI * 2, 48), 0.98));
   ops.push(...sphereRings(sx, sy, sr, L, wob, {
     step: 3.1,
+    gain: 0.78, /* the sphere likes thinner strokes than the hand does */
     ambient: 0.02,
     bounce: { dir: [0.15, 1, 0.35], amt: 0.34 }, /* off the table, from below */
   }));
