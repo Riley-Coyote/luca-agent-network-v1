@@ -37,6 +37,44 @@ narrative principles, sections 02–14) still governs.
   phase step larger than the equation can produce — simulate the equation alone to
   separate physics from plumbing.
 
+## Critique round (2026-09-02, evening) — what changed after Riley saw it
+
+Riley: "the best first attempt I've seen"; three notes — the 7×7 glyphs at the sources
+read as placeholders (use the runtimes' real marks, transparent, full fidelity); beat 4
+is a black box; the traces vanish before caption 02 lands. A second council (Sculptor,
+Swiss Critic, Motion Director — polychat room "Aperture critique — the built page")
+looked at the 2× frames.
+
+- **Brand marks are the emitters.** Claude, OpenAI, Nous Research, OpenClaw, xAI/Grok and
+  Kimi marks from the open-source `@lobehub/icons-static-svg` set, inlined as `<symbol>`s,
+  one ink. Each mark is rasterized at load into a 9×9 half-pitch grid (≤34 cells, weight
+  1/n so every resident emits equal power) — the logo radiates. The marks are the labs'
+  trademarks used nominatively; swap in licensed assets if the page ships.
+- **The sources resolve to residents at the end.** Hero and gutter show the runtime mark
+  with the resident's name; the final row shows the resident's identity chip (the app's
+  squircle treatment) with the runtime mark in the tag. The Director's argument: brand
+  enters the system, identity is what survives it. The Critic dissented (*"Wren is not
+  Anthropic"*) and would keep improved 9×9 identity glyphs in the hero with logos only in
+  the strip — Riley decides; it is a one-line flip (`setSourceFace`).
+- **The light, per the Sculptor, then restrained.** The instant is the picture (fast 1.0,
+  slow 0.55); troughs floored (0.015) not crushed; one specular. Taken literally his gain
+  and slope produced a zebra that buried the type on a real GPU — the rim now follows a
+  curve (`pow(dl, 1.6)`) so only the steepest facing slopes catch, at gain 1.7, slope 8,
+  λ 96, ambient 0.085, atten 0.007.
+- **Beat 4 is an aperture, not a void.** The field stays luminous while the hole opens over
+  the last 0.45vh, and *swells* — attenuation drops toward 0.002 and amplitude rises 45%
+  as the sources reach the gutter — so the rectangle is carved out of bright radiating
+  arcs. The window lands in it; the field dims after the cut, not before.
+- **Traces belong to caption 02.** They draw on (620 ms, 70 ms stagger) as the caption
+  enters at 4.3vh, hold through it, fade as 03 begins at 5.3vh; message emphasis waits.
+- **Composition, per the Critic.** The five sources on one arc bending around the aperture
+  (.665/.205 · .845/.345 · .905/.545 · .815/.745 · .645/.865), nothing left of 0.60,
+  labels flush to the stem. CTA row: one filled square action and a text link (a light
+  pill beside a bordered pill is stock dark-mode hero). Lede at ~56ch. "One network" gets
+  a hairline. The strip is a logo row at a common 14px on one ink.
+- **The cast is the harmonic series** 6:7:8:9:10 (natural frequencies 0.75–1.25), locked
+  by K = 2.6 in ~3.5 s; "hear the chord" plays 165–275 Hz, the overtones of A0.
+
 ## Verified (2026-09-02, Playwright, real Chromium, software GL)
 
 Desktop 1440×900 at every beat; 390×844 mobile (no horizontal overflow, sources
