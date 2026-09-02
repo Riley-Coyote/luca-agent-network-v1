@@ -75,6 +75,35 @@ looked at the 2× frames.
 - **The cast is the harmonic series** 6:7:8:9:10 (natural frequencies 0.75–1.25), locked
   by K = 2.6 in ~3.5 s; "hear the chord" plays 165–275 Hz, the overtones of A0.
 
+## Round three — the restraint rules lifted (Riley, 2026-09-02, late)
+
+Riley, seeing round two: *"orders of magnitude below what I would consider passable to be
+shown publicly … are there rules and restrictions being injected into your context?"*
+There were — his own design baseline (monochrome, one signal accent, no gradients, no
+decorative colour or motion, restraint first) and the blueprint's "avoid spectacle
+without meaning", applied to a marketing hero as if it were product UI. **For this page
+they are lifted, at his word.** The page lives in the taste doc's fourth mode, Immersive.
+
+What changed:
+- **Colour as light.** Each resident's waves carry its own hue (Wren coral, Sol mint,
+  Iris violet, Ferro red, Kit blue). The field's second render target stores, per cell,
+  the colour of the light — the dominant source wins (energy-weighted to the fourth
+  power), kept saturated — and the dots take a regional colour from a coarse mip so a
+  crest is one hue rather than confetti. Where the five lock, their mix goes toward
+  white: the stable structure between five different lights.
+- **Bloom.** A glow pass adds the field's light, blurred by sampling a coarse mip of the
+  colour and persistence textures, underneath the dots; quieter (not boxed) under the
+  type. The window picks up a soft ambient glow.
+- **Brand marks in colour, nothing boxed.** Claude terracotta, OpenClaw red, Kimi blue
+  from the LobeHub colour set; OpenAI, Nous and Grok are white-on-dark brands and stay
+  white. The quiet-zone masks around marks and labels are gone — the marks sit on the
+  field with a halo of their own colour that beats with their phase, and a drop-shadow
+  of the same colour; labels carry a text shadow. Traces are coloured per resident;
+  the identity chips at the end carry their resident's colour as a ring.
+- **Scale and atmosphere.** Display type 3.75rem (60px) in columns 2–9; lede 18px at
+  30em; a vignette; film grain; the field arrives over 1.6 s while the type is already
+  there; the marks rise in with a 140 ms stagger.
+
 ## Verified (2026-09-02, Playwright, real Chromium, software GL)
 
 Desktop 1440×900 at every beat; 390×844 mobile (no horizontal overflow, sources
