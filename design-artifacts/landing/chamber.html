@@ -550,12 +550,24 @@ void main(){ float L=texture(uVel,vUv-vec2(uTexel.x,0.)).x, R=texture(uVel,vUv+v
 
 const FS_PRESS=`#version 300 es
 precision highp float; uniform sampler2D uPress; uniform sampler2D uDiv; uniform vec2 uTexel; in vec2 vUv; out vec4 o;
-void main(){ float L=texture(uPress,vUv-vec2(uTexel.x,0.)).x, R=texture(uPress,vUv+vec2(uTexel.x,0.)).x, B=texture(uPress,vUv-vec2(0.,uTexel.y)).x, T=texture(uPress,vUv+vec2(0.,uTexel.y)).x; float d=texture(uDiv,vUv).x; o=vec4((L+R+B+T-d)*0.25,0.,0.,1.); }`;
+void main(){ float L=texture(uPress,vUv-vec2(uTexel.x,0.)).x, R=texture(uPress,vUv+vec2(uTexel.x,0.)).x, B=texture(uPress,vUv-vec2(0.,uTexel.y)).x, T=texture(uPress,vUv+vec2(0.,uTexel.y)).x; float d=texture(uDiv,vUv).x;
+  // Jacobi has a null space (p and p+c both solve it), so any mean divergence walks the
+  // whole field upward every frame. In RGBA16F that reaches inf in about six seconds and
+  // R-L becomes NaN, which poisons velocity, then positions, and the dust never comes back.
+  // The decay pass below removes the drift; this clamp is the hard floor under it.
+  o=vec4(clamp((L+R+B+T-d)*0.25,-2000.0,2000.0),0.,0.,1.); }`;
+
+const FS_SCALE=`#version 300 es
+precision highp float; uniform sampler2D uSrc; uniform float uK; in vec2 vUv; out vec4 o;
+void main(){ vec4 v=texture(uSrc,vUv); if(any(isnan(v))||any(isinf(v))) v=vec4(0.); o=v*uK; }`;
 
 const FS_GRAD=`#version 300 es
 precision highp float; uniform sampler2D uPress; uniform sampler2D uVel; uniform sampler2D uObst; uniform vec2 uTexel; uniform vec2 uObstVel; in vec2 vUv; out vec4 o;
 void main(){ float L=texture(uPress,vUv-vec2(uTexel.x,0.)).x, R=texture(uPress,vUv+vec2(uTexel.x,0.)).x, B=texture(uPress,vUv-vec2(0.,uTexel.y)).x, T=texture(uPress,vUv+vec2(0.,uTexel.y)).x;
-  vec2 v=texture(uVel,vUv).xy - 0.5*vec2(R-L,T-B); float m=texture(uObst,vUv).r; v=mix(v,uObstVel,m); o=vec4(v,0.,1.); }`;
+  vec2 v=texture(uVel,vUv).xy - 0.5*vec2(R-L,T-B); float m=texture(uObst,vUv).r; v=mix(v,uObstVel,m);
+  if(any(isnan(v))||any(isinf(v))) v=vec2(0.);            // never let one bad texel spread
+  v=clamp(v,vec2(-4000.),vec2(4000.));                    // px/s — far above anything the design asks for
+  o=vec4(v,0.,1.); }`;
 
 const FS_PART=`#version 300 es
 precision highp float;
@@ -582,6 +594,9 @@ void main(){
   age+=uDt;
   // a slow trickle of rebirth keeps the density even under the wind
   if(hash(seed*0.77+t)<uRespawn*uDt){ p=vec2(hash(seed*9.1+t),hash(seed*4.7+t+1.0))*uSize; age=0.0; }
+  // mod(NaN) is NaN and the point is discarded forever, so a poisoned grain would be gone
+  // for the life of the page. Rebirth instead: whatever happens upstream, the dust returns.
+  if(any(isnan(p))||any(isinf(p))){ p=vec2(hash(seed*2.3+t),hash(seed*6.1+t+3.0))*uSize; age=0.0; }
   p=mod(p,uSize);
   o=vec4(p,age,seed); }`;
 
@@ -614,6 +629,7 @@ void main(){
 function compile(type,src){ const sh=gl.createShader(type); gl.shaderSource(sh,src); gl.compileShader(sh); if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)+"\n"+src.split("\n").slice(0,3).join("\n")); return sh; }
 function program(vs,fs){ const pr=gl.createProgram(); gl.attachShader(pr,compile(gl.VERTEX_SHADER,vs)); gl.attachShader(pr,compile(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(pr); if(!gl.getProgramParameter(pr,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
   const u={}; const n=gl.getProgramParameter(pr,gl.ACTIVE_UNIFORMS); for(let i=0;i<n;i++){ const info=gl.getActiveUniform(pr,i); u[info.name.replace(/\[0\]$/,"")]=gl.getUniformLocation(pr,info.name); } return {p:pr,u}; }
+const P_SCL=program(VS_QUAD,FS_SCALE);
 const P_ADV=program(VS_QUAD,FS_ADVECT), P_FRC=program(VS_QUAD,FS_FORCES), P_CURL=program(VS_QUAD,FS_CURL), P_VORT=program(VS_QUAD,FS_VORT), P_DIV=program(VS_QUAD,FS_DIV), P_PRS=program(VS_QUAD,FS_PRESS), P_GRD=program(VS_QUAD,FS_GRAD), P_PART=program(VS_QUAD,FS_PART), P_PTS=program(VS_POINTS,FS_POINTS);
 const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 const vao=gl.createVertexArray(); gl.bindVertexArray(vao); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
@@ -688,7 +704,8 @@ function dustStep(dt, now, o){
   // vorticity confinement
   runQuad(P_CURL,curlF,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform2f(u.uTexel,texel[0],texel[1]); });
   runQuad(P_VORT,vel.write,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform1i(u.uCurl,tex(1,curlT)); gl.uniform2f(u.uTexel,texel[0],texel[1]); gl.uniform1f(u.uConf,TUNE.vorticity); gl.uniform1f(u.uDt,dt); }); vel.swap();
-  // project
+  // project — decay the carried-over pressure first so its mean cannot walk away
+  runQuad(P_SCL,prs.write,GW,GH,u=>{ gl.uniform1i(u.uSrc,tex(0,prs.read)); gl.uniform1f(u.uK,TUNE.pressDecay); }); prs.swap();
   runQuad(P_DIV,divF,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform2f(u.uTexel,texel[0],texel[1]); });
   for(let i=0;i<TUNE.jacobi;i++){ runQuad(P_PRS,prs.write,GW,GH,u=>{ gl.uniform1i(u.uPress,tex(0,prs.read)); gl.uniform1i(u.uDiv,tex(1,divT)); gl.uniform2f(u.uTexel,texel[0],texel[1]); }); prs.swap(); }
   runQuad(P_GRD,vel.write,GW,GH,u=>{ gl.uniform1i(u.uPress,tex(0,prs.read)); gl.uniform1i(u.uVel,tex(1,vel.read)); gl.uniform1i(u.uObst,tex(2,obstTex)); gl.uniform2f(u.uTexel,texel[0],texel[1]); gl.uniform2f(u.uObstVel,0,o.obstVy); }); vel.swap();
@@ -833,7 +850,7 @@ chordBtn.addEventListener("click",()=>{
 const EMIT_N=9, EMIT_MAX=34, EMIT_SCALE=0.5;   // 9×9 cells at half pitch: a 27px footprint, so a 78px wave does not cancel across it
 const live=document.getElementById("live");
 // Field tuning — live on window.__tune. Count is ?n= (reload).
-const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:14, respawn:0.004, push:900, dissipation:0.35, vorticity:6.0, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:1.6, homeK:0.45, homeSigma:130, homeInner:64, free:0.12 };
+const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:14, respawn:0.004, push:900, dissipation:0.35, vorticity:6.0, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:1.6, homeK:0.45, homeSigma:130, homeInner:64, free:0.12, pressDecay:0.82 };
 let T0=performance.now();
 let heroRect=null, releaseRect=null, lastT=performance.now(), fps=60, frameOn=false, tracesDrawn=false, prevBeat="", ticks=0, maxStep=0;
 let lastScrollY=window.scrollY, scrollVel=0;
