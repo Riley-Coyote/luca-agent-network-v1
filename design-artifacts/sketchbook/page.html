@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sketchbook — page</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #07070a; color: rgba(255,255,255,.95);
+    font: 13px/1.6 -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+    display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 32px 24px 60px; }
+  #stage { position: relative; width: 880px; height: 660px; border-radius: 22px;
+    border: .5px solid rgba(255,255,255,.09);
+    background: radial-gradient(120% 100% at 30% 12%, #14151a 0%, #0b0b0f 52%, #07070a 100%); overflow: hidden; }
+  canvas { position: absolute; inset: 0; width: 880px; height: 660px; display: block; }
+  #hud { position: absolute; left: 20px; bottom: 16px; font-size: 10.5px; letter-spacing: .04em; color: rgba(255,255,255,.46); }
+  #note { max-width: 880px; color: rgba(255,255,255,.55); font-size: 12px; }
+  button { font: inherit; font-size: 11.5px; color: rgba(255,255,255,.62); cursor: pointer; padding: 8px 14px;
+    border-radius: 999px; background: transparent; border: .5px solid rgba(255,255,255,.13); }
+</style>
+</head>
+<body>
+  <div id="stage"><canvas id="cv"></canvas><div id="hud">Ready</div></div>
+  <div><button id="replay">Draw it again</button> <button id="finish">Jump to finished</button></div>
+  <p id="note"></p>
+<script type="module">
+  const name = new URLSearchParams(location.search).get('p') || 'moth';
+  const { MarkEngine } = await import('./mark-engine.js');
+  const mod = await import(`./pages/${name}.js`);
+  const page = mod.default;
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const engine = new MarkEngine({ width: 880, height: 660, dpr: 2 });
+  cv.width = 1760; cv.height = 1320;
+  const ops = page.build();
+  engine.load(ops).replay();
+  window.engine = engine; window.ops = ops;
+  document.getElementById('note').textContent = `${page.title} — ${page.date} — ${page.note}`;
+  document.getElementById('replay').onclick = () => engine.replay();
+  document.getElementById('finish').onclick = () => engine.finish();
+  const hud = document.getElementById('hud');
+  let last = performance.now();
+  (function frame() {
+    requestAnimationFrame(frame);
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    engine.tick(dt, 3);
+    engine.composite(ctx);
+    hud.textContent = engine.phase || (engine.done ? `${ops.length} ops` : 'Ready');
+  })();
+</script>
+</body>
+</html>

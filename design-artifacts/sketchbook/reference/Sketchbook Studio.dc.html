@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin: 0; background: #08080a; -webkit-font-smoothing: antialiased; }
+  a { color: rgb(206,196,255); text-decoration: none; }
+  a:hover { color: #fff; }
+</style>
+</helmet>
+
+<div style="width: 1480px; background: #08080a; color: rgba(255,255,255,.95); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif; font-feature-settings: 'tnum' 1; display: flex; flex-direction: column; padding-bottom: 48px;">
+
+  <div style="display: flex; align-items: flex-end; justify-content: space-between; padding: 34px 44px 8px;">
+    <div style="display: flex; align-items: flex-end; gap: 16px;">
+      <div style="font-size: 23px; font-weight: 600; letter-spacing: -.024em;">Studio</div>
+      <div style="font-size: 12px; color: rgba(255,255,255,.36); padding-bottom: 3px;">Layers · seven brushes · it looks at its own work and tries again</div>
+    </div>
+    <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 10.5px; color: rgba(255,255,255,.26);">{{ readout }}</div>
+  </div>
+
+  <div style="max-width: 900px; font-size: 13px; line-height: 1.62; color: rgba(255,255,255,.5); padding: 0 44px 26px;">Five attempts at the same subject. The drawing is not authored five times &mdash; it is generated from an <em>approach</em>, so what changes between attempts is the decision: whether to lay construction first, when to commit tone, whether to hold the darks back, whether to cut highlights out with the eraser. Every number under every attempt is measured off the finished pixels, not asserted.</div>
+
+  <div style="display: flex; gap: 26px; padding: 0 44px; align-items: flex-start;">
+
+    <div style="display: flex; flex-direction: column; gap: 13px;">
+      <div style="position: relative; width: 460px; height: 460px; border-radius: 18px; overflow: hidden; border: .5px solid rgba(255,255,255,.08); background: radial-gradient(124% 108% at 50% -6%, #171a20 0%, #0b0c10 48%, #040406 100%);">
+        <canvas ref="{{ canvasRef }}" onPointerDown="{{ onDown }}" style="position: absolute; left: 20px; top: 20px; width: 420px; height: 420px; display: block; touch-action: none;"></canvas>
+        <div style="position: absolute; left: 18px; top: 16px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: .04em; color: rgba(255,255,255,.3);">{{ passLabel }}</div>
+        <div style="position: absolute; right: 18px; top: 16px; font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: .04em; color: {{ brushColor }};">{{ brushLabel }}</div>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; opacity: {{ lookingOpacity }}; transition: opacity 220ms ease-out; background: linear-gradient(0deg, rgba(0,0,0,.6), transparent);">
+          <div style="font-size: 10.5px; color: rgba(226,238,255,.8);">stepping back to look</div>
+          <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 10px; color: rgba(226,238,255,.55);">{{ lookNote }}</div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 6px;">
+        <div onClick="{{ onWatch }}" style="flex: 1; padding: 10px 0; border-radius: 11px; text-align: center; font-size: 11.5px; background-color: {{ watchBg }}; border: .5px solid rgba(255,255,255,.13); color: rgba(255,255,255,.9);">{{ watchLabel }}</div>
+        <div onClick="{{ onSlow }}" style="padding: 10px 14px; border-radius: 11px; font-size: 11.5px; background-color: {{ slowBg }}; border: .5px solid {{ slowBc }}; color: rgba(255,255,255,.74);">Half speed</div>
+      </div>
+    </div>
+
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 22px;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: rgba(255,255,255,.3);">Layers</div>
+        <div style="display: flex; flex-direction: column; gap: 5px;">
+          <sc-for list="{{ layers }}" as="ly" hint-placeholder-count="4">
+            <div onClick="{{ ly.toggle }}" style="display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 10px; background-color: {{ ly.bg }}; border: .5px solid {{ ly.bc }};">
+              <div style="width: 22px; height: 22px; border-radius: 5px; flex-shrink: 0; background-color: {{ ly.swatch }}; border: .5px solid rgba(255,255,255,.14);"></div>
+              <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px;">
+                <div style="font-size: 11.5px; font-weight: 500; color: {{ ly.nameColor }};">{{ ly.name }}</div>
+                <div style="font-size: 9.5px; color: rgba(255,255,255,.34);">{{ ly.note }}</div>
+              </div>
+              <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 9.5px; color: rgba(255,255,255,.32);">{{ ly.pct }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-size: 10.5px; line-height: 1.5; color: rgba(255,255,255,.34);">Hide the line layer and the tone survives on its own. That is what makes revision non-destructive.</div>
+      </div>
+
+      <div style="height: .5px; background: rgba(255,255,255,.07);"></div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: rgba(255,255,255,.3);">Brushes</div>
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">
+          <sc-for list="{{ brushes }}" as="b" hint-placeholder-count="7">
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 9px 10px 8px; border-radius: 10px; background-color: {{ b.bg }}; border: .5px solid {{ b.bc }};">
+              <canvas ref="{{ b.ref }}" width="132" height="30" style="width: 66px; height: 15px; display: block;"></canvas>
+              <div style="font-size: 10px; font-weight: 500; color: {{ b.nameColor }};">{{ b.name }}</div>
+              <div style="font-size: 8.5px; line-height: 1.35; color: rgba(255,255,255,.32);">{{ b.note }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div style="height: .5px; background: rgba(255,255,255,.07);"></div>
+
+      <div style="display: flex; flex-direction: column; gap: 11px;">
+        <div style="display: flex; align-items: baseline; justify-content: space-between;">
+          <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: rgba(255,255,255,.3);">What it sees</div>
+          <div style="font-size: 9px; color: rgba(255,255,255,.28);">measured off the pixels</div>
+        </div>
+        <div style="display: flex; gap: 18px; align-items: flex-start;">
+          <canvas ref="{{ thumbRef }}" width="168" height="168" style="width: 84px; height: 84px; display: block; border-radius: 7px; border: .5px solid rgba(255,255,255,.1); flex-shrink: 0;"></canvas>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;">
+            <sc-for list="{{ metrics }}" as="m" hint-placeholder-count="5">
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div style="display: flex; align-items: baseline; justify-content: space-between;">
+                  <div style="font-size: 10.5px; color: rgba(255,255,255,.6);">{{ m.name }}</div>
+                  <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 10px; color: {{ m.color }};">{{ m.value }}</div>
+                </div>
+                <div style="height: 3px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden;">
+                  <div style="height: 100%; border-radius: 2px; width: {{ m.pct }}; background-color: {{ m.color }};"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 14px; padding: 40px 44px 0;">
+    <div style="display: flex; align-items: baseline; justify-content: space-between;">
+      <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: rgba(255,255,255,.3);">Five attempts · the same subject</div>
+      <div style="font-size: 10.5px; color: rgba(255,255,255,.32);">Click one to watch it get drawn</div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px;">
+      <sc-for list="{{ attempts }}" as="a" hint-placeholder-count="5">
+        <div onClick="{{ a.select }}" style="display: flex; flex-direction: column; gap: 11px; padding: 13px; border-radius: 18px; background-color: {{ a.bg }}; border: .5px solid {{ a.bc }};">
+          <div style="display: flex; align-items: baseline; justify-content: space-between;">
+            <div style="font-size: 11px; font-weight: 600; color: {{ a.titleColor }};">{{ a.title }}</div>
+            <div style="font-family: 'SF Mono', ui-monospace, Menlo, monospace; font-size: 9px; color: {{ a.gradeColor }};">{{ a.grade }}</div>
+          </div>
+          <canvas ref="{{ a.ref }}" width="480" height="480" style="width: 100%; aspect-ratio: 1; display: block; border-radius: 10px; background: radial-gradient(124% 108% at 50% -6%, #141720 0%, #0a0b0f 48%, #030305 100%);"></canvas>
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <sc-for list="{{ a.bars }}" as="bar" hint-placeholder-count="3">
+              <div style="display: flex; align-items: center; gap: 7px;">
+                <div style="width: 34px; flex-shrink: 0; font-size: 8.5px; color: rgba(255,255,255,.3);">{{ bar.name }}</div>
+                <div style="flex: 1; height: 3px; border-radius: 2px; background: rgba(255,255,255,.07); overflow: hidden;">
+                  <div style="height: 100%; border-radius: 2px; width: {{ bar.pct }}; background-color: {{ bar.color }};"></div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+          <div style="font-size: 9.5px; line-height: 1.48; color: rgba(255,255,255,.44); text-wrap: pretty;">{{ a.note }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="max-width: 900px; font-size: 11.5px; line-height: 1.6; color: rgba(255,255,255,.38); padding-top: 8px;">The journal entries are the agent's own account of what it changed. The bars beside them are not &mdash; every one is computed from the finished bitmap, so the record and the evidence stay independent. Attempt three is the instructive one: reaching for the wash lifts tonal range sharply, yet dark commitment barely moves, because a wash has a density ceiling and cannot stand in for commitment. That only arrives in attempt four, with the chalk held back to the end.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 1480, &quot;height&quot;: 1180}}">
+// ---------------------------------------------------------------- brushes
+// A brush is a parameter set, not code. swell drives how much width follows
+// velocity; sub makes it subtractive, which is how highlights get cut back in.
+const BRUSHES = {
+  liner:    { w: 1.0, alpha: 0.4,  swell: 0.26, taper: 1.7, spacing: 1.4, scatter: 0.05, note: 'even weight, commits' },
+  brush:    { w: 2.2, alpha: 0.33, swell: 1.6,  taper: 0.5, spacing: 1.3, scatter: 0.3, note: 'swells with speed' },
+  chalk:    { w: 2.6, alpha: 0.38, swell: 0.8,  taper: 0.9, spacing: 1.7, scatter: 1.7, brk: 0.34, note: 'breaks up when fast' },
+  // a real wash has a maximum density; it cannot be built into a dark
+  wash:     { w: 9.5, alpha: 0.032, swell: 0.3, taper: 1.2, spacing: 1.8, scatter: 3.6, ceiling: 0.36, note: 'builds tone, cannot go dark' },
+  stipple:  { w: 0.85, alpha: 0.34, swell: 0.2, taper: 1,   spacing: 6.2, scatter: 2.9, note: 'discrete, textural' },
+  charcoal: { w: 2.4, alpha: 0.3,  swell: 0.9,  taper: 0.8, spacing: 1.6, scatter: 1.1, dir: 0.55, note: 'directional edge' },
+  eraser:   { w: 3.4, alpha: 0.62, swell: 0.42, taper: 1,   spacing: 1.3, scatter: 0.18, sub: true, note: 'subtractive, draws light' },
+};
+const BRUSH_ORDER = ['liner', 'brush', 'chalk', 'wash', 'stipple', 'charcoal', 'eraser'];
+
+const LAYERS = [
+  { key: 'under',  name: 'Underdrawing', note: 'construction, kept on purpose', op: 1 },
+  { key: 'tone',   name: 'Tone',         note: 'wash, and highlights cut back out', op: 1 },
+  { key: 'line',   name: 'Line',         note: 'contour and commitment', op: 1 },
+  { key: 'accent', name: 'Accent',       note: 'darks, held back to the end', op: 1 },
+];
+
+const CW = 420, CH = 420;
+const INK = [236, 243, 255];
+
+// ---------------------------------------------------------------- geometry
+const arc = (cx, cy, rx, ry, a0, a1, n) => {
+  const pts = [];
+  const steps = n || 24;
+  for (let i = 0; i <= steps; i++) {
+    const a = a0 + (a1 - a0) * (i / steps);
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+  }
+  return pts;
+};
+const ellipse = (cx, cy, rx, ry) => arc(cx, cy, rx, ry, -0.5, Math.PI * 2 - 0.5, 34);
+// The subject is a droplet, not a circle: the base flattens and settles.
+const droplet = (cx, cy, rx, ry, a0, a1, n) => {
+  const pts = [];
+  const steps = n || 30;
+  for (let i = 0; i <= steps; i++) {
+    const a = a0 + (a1 - a0) * (i / steps);
+    const s = Math.sin(a), c = Math.cos(a);
+    const below = Math.max(0, s), above = Math.max(0, -s);
+    const wx = 1 - 0.05 * below * below - 0.085 * above * above;
+    const wy = 1 - 0.1 * below * below;
+    pts.push([cx + c * rx * wx, cy + s * ry * wy + ry * 0.06 * below * below]);
+  }
+  return pts;
+};
+const jitter = (pts, amt) => pts.map((p, i) => {
+  const t = i / (pts.length - 1 || 1);
+  return [
+    p[0] + (Math.sin(t * 7.3) * 0.6 + Math.sin(t * 17.1) * 0.4) * amt,
+    p[1] + (Math.sin(t * 11.7) * 0.55 + Math.sin(t * 23.3) * 0.45) * amt,
+  ];
+});
+
+const OP = (k, pts, layer, brush, w) => ({ k, pts, layer, brush, w: w || 1 });
+const DOT = (x, y, r, layer, brush) => ({ k: 'd', x, y, r, layer, brush });
+const P = (ms) => ({ k: 'p', ms });
+const LOOK = (ms, note) => ({ k: 'look', ms, note });
+
+// horizontal sweeps that fill an ellipse — how a wash actually goes down
+// A wash is laid in overlapping beads and then crossed — a single sweep direction
+// always bands. It also has to fall off toward the light, or it reads as flat fill.
+function washPass(cx, cy, rx, ry, layer, brush, wob) {
+  const ops = [];
+  const passes = [{ n: 32, a: 0, w: 1 }, { n: 21, a: 1.06, w: 0.8 }];
+  passes.forEach((ps) => {
+    const ca = Math.cos(ps.a), sa = Math.sin(ps.a);
+    const rot = (p) => {
+      const dx = p[0] - cx, dy = p[1] - cy;
+      return [cx + dx * ca - dy * sa, cy + dx * sa + dy * ca];
+    };
+    for (let i = 0; i < ps.n; i++) {
+      const t = (i + 0.5) / ps.n + Math.sin(i * 2.3) * 0.014;
+      const y = cy - ry + t * ry * 2;
+      const half = rx * Math.sqrt(Math.max(0, 1 - Math.pow((y - cy) / ry, 2)));
+      if (half < 6) continue;
+      const dir = i % 2 === 0 ? 1 : -1;
+      const lead = Math.sin(i * 1.7) * 5;
+      const a = rot([cx - half * dir - lead, y + Math.sin(i * 3.1) * 1.6]);
+      const b = rot([cx + half * dir + lead, y - Math.sin(i * 2.7) * 1.6]);
+      // light sits upper-left: thin the bead there, drop rows entirely in the lit band
+      const g = ((a[1] + b[1]) / 2 - (cy - ry)) / (ry * 2);
+      if (g < 0.26 && i % 2 === 0) continue;
+      ops.push(OP('s', jitter([a, b], wob), layer, brush, Math.min(1.4, 0.16 + g * 1.25) * ps.w));
+    }
+  });
+  const br = BRUSHES[brush];
+  if (br && br.ceiling) ops.push({ k: 'clamp', layer, max: br.ceiling });
+  return ops;
+}
+
+// ---------------------------------------------------------------- the subject
+// One parametric drawing. What differs between attempts is the APPROACH,
+// never the hand-authoring — so improvement is a consequence, not a fiction.
+function buildAttempt(c) {
+  const ops = [];
+  const S = c.skill;
+  // even a skilled hand keeps a floor of wobble — zero jitter reads as machine
+  const wob = (1 - S) * 3.2 + 1.45;
+  const cx = c.cx, cy = c.cy, r = c.r;
+  const ry = r * (1 + (1 - S) * 0.13);
+  const err = (1 - S) * 15;
+
+  if (c.construction) {
+    ops.push(OP('g', jitter(droplet(cx, cy, r, ry, -0.5, Math.PI * 2 - 0.5, 34), wob * 1.7), 'under', 'brush'));
+    ops.push(OP('g', jitter([[cx, cy - ry - 16], [cx, cy + ry + 16]], wob * 1.2), 'under', 'brush'));
+    ops.push(OP('g', jitter([[cx - r - 16, cy - r * 0.07], [cx + r + 16, cy - r * 0.07]], wob * 1.2), 'under', 'brush'));
+    ops.push(LOOK(360, 'proportion holds'));
+  }
+
+  if (c.washFirst) {
+    ops.push(...washPass(cx, cy, r * 0.95, ry * 0.95, 'tone', 'wash', wob * 1.6));
+    ops.push(LOOK(340, 'tone is in — maybe too soon'));
+  }
+
+  const bm = c.brushMain;
+  // two strokes that overshoot at the base and leave a small gap near the top —
+  // an unclosed contour is one of the strongest tells of a hand
+  ops.push(OP('s', jitter(droplet(cx, cy, r, ry, -Math.PI * 0.5, Math.PI * 0.58, 30), wob), 'line', bm, 1.25));
+  ops.push(OP('s', jitter(droplet(cx, cy, r, ry, Math.PI * 0.52, Math.PI * 1.43, 28), wob * 1.15), 'line', bm, 1.15));
+  ops.push(P(200));
+
+  const ex = r * 0.37, ey = -r * 0.05 + err * 0.5;
+  ops.push(DOT(cx - ex + err * 0.55, cy + ey, r * 0.1, 'line', bm));
+  ops.push(DOT(cx + ex + err * 0.2, cy + ey - err * 0.3, r * 0.096, 'line', bm));
+  ops.push(LOOK(320, c.construction ? 'eyes sit right' : 'eyes are off'));
+
+  if (!c.washFirst && c.tone) {
+    // shadow sits lower-right, following the form away from the light
+    ops.push(...washPass(cx + r * 0.2, cy + ry * 0.3, r * 0.7, ry * 0.62, 'tone', 'wash', wob * 1.5));
+    ops.push(P(200));
+  }
+
+  if (c.darks) {
+    // concentrated in the base shadow so the passes genuinely accumulate into a
+    // dark, rather than spreading thin across the whole form
+    for (let i = 0; i < 7; i++) {
+      const k = i / 6;
+      ops.push(OP('s', jitter(arc(cx + r * 0.1, cy + r * 0.1, r * (0.84 - k * 0.16), ry * (0.86 - k * 0.14), 0.34 + k * 0.16, Math.PI - 0.6 + k * 0.14, 18), wob * 0.65), 'accent', 'chalk', 1.1));
+    }
+    ops.push(LOOK(340, 'range opened up'));
+  }
+
+  if (c.erase) {
+    // one more push into the base before lifting light back out — the darkest dark
+    // and the brightest light get set against each other in the same pass
+    ops.push(OP('s', jitter(arc(cx + r * 0.1, cy + r * 0.12, r * 0.7, ry * 0.76, 0.5, Math.PI - 0.72, 16), wob * 0.6), 'accent', 'charcoal', 1.2));
+    ops.push(LOOK(300, 'now take the light back'));
+    // The eraser must cut the layer that HOLDS the tone — destination-out only
+    // affects its own buffer, so erasing on 'accent' would lift nothing.
+    // The sheen has to sit INSIDE the wash to lift anything — the tone is centred
+    // at cy + ry*0.3, so anything authored above cy has no pigment beneath it.
+    // Physically this is the right place anyway: light catches the shoulder of the
+    // form where the shadow begins, not out on the empty lit side.
+    ops.push(OP('s', jitter(arc(cx - r * 0.14, cy + ry * 0.08, r * 0.4, ry * 0.11, Math.PI * 1.04, Math.PI * 1.96, 20), wob * 0.34), 'tone', 'eraser', 1.35));
+    ops.push(OP('s', jitter(arc(cx - r * 0.16, cy + ry * 0.24, r * 0.26, ry * 0.07, Math.PI * 1.08, Math.PI * 1.92, 14), wob * 0.3), 'tone', 'eraser', 1));
+    ops.push(DOT(cx - r * 0.34, cy + ry * 0.14, r * 0.075, 'tone', 'eraser'));
+    ops.push(P(200));
+  }
+
+  // caustic pooling under the form
+  ops.push(OP('s', jitter(arc(cx, cy + ry * 0.9, r * 0.46, ry * 0.1, 0.3, Math.PI - 0.3, 14), wob * 0.6), 'accent', 'stipple', 1));
+  return ops;
+}
+
+const ATTEMPTS = [
+  {
+    title: 'Attempt 1', skill: 0.26, cx: 216, cy: 202, r: 100, brushMain: 'liner',
+    construction: false, washFirst: false, tone: false, darks: false, erase: false,
+    note: 'Straight in with the liner, no construction. The head came out lopsided and there is not one true dark anywhere on the page.',
+  },
+  {
+    title: 'Attempt 2', skill: 0.46, cx: 212, cy: 206, r: 104, brushMain: 'liner',
+    construction: true, washFirst: false, tone: false, darks: false, erase: false,
+    note: 'Laid construction first and the proportion came right — the scaffolding is still on the page. Tonally no further on than the first: outline only, no dark anywhere.',
+  },
+  {
+    title: 'Attempt 3', skill: 0.58, cx: 210, cy: 204, r: 106, brushMain: 'brush',
+    construction: true, washFirst: true, tone: false, darks: false, erase: false,
+    note: 'Reached for the wash to get tone in sooner. Range opened right up — but a wash has a ceiling and cannot go dark, so almost nothing is actually committed.',
+  },
+  {
+    title: 'Attempt 4', skill: 0.76, cx: 194, cy: 206, r: 106, brushMain: 'brush',
+    construction: true, washFirst: false, tone: true, darks: true, erase: false,
+    note: 'Held the chalk back for the end. Real darks at last, and the range holds. The composition drifted left while I was working.',
+  },
+  {
+    title: 'Attempt 5', skill: 0.93, cx: 210, cy: 204, r: 108, brushMain: 'brush',
+    construction: true, washFirst: false, tone: true, darks: true, erase: true,
+    note: 'Brought it back to centre after last time, darks last, then cut the highlights out with the eraser. Drawing light instead of dark was the move I had been missing.',
+  },
+];
+
+class Component extends DCLogic {
+  canvasRef = React.createRef();
+  thumbRef = React.createRef();
+  // ref callbacks fire on the first commit, before componentDidMount
+  brushEls = [];
+  thumbEls = [];
+
+  state = { sel: 4, slow: false, hidden: {}, animating: false, tick: 0, looking: null, brush: null, pass: 'idle' };
+
+  componentDidMount() {
+    this.dpr = 2;
+    this.attempts = ATTEMPTS.map((a) => ({ ...a, ops: buildAttempt(a), metrics: null }));
+
+    this.layerC = {};
+    LAYERS.forEach((l) => {
+      const cv = document.createElement('canvas');
+      cv.width = CW * this.dpr; cv.height = CH * this.dpr;
+      const ctx = cv.getContext('2d');
+      ctx.scale(this.dpr, this.dpr);
+      this.layerC[l.key] = { cv, ctx };
+    });
+    this.flat = document.createElement('canvas');
+    this.flat.width = CW * this.dpr; this.flat.height = CH * this.dpr;
+    this.flatCtx = this.flat.getContext('2d');
+
+    // render all five instantly so the contact sheet is the artifact on arrival
+    for (let i = 0; i < this.attempts.length; i++) this.renderInstant(i);
+    this.select(4, false);
+    this.paintBrushSwatches();
+
+    this.onMove = (e) => {
+      if (!this.userStroke) return;
+      const p = this.localPt(e);
+      const last = this.userStroke[this.userStroke.length - 1];
+      const d = Math.hypot(p[0] - last[0], p[1] - last[1]);
+      if (d < 2) return;
+      this.mark(p[0], p[1], Math.min(1, d / 24), BRUSHES.brush, 'accent', [176, 208, 255], 1);
+      this.userStroke.push(p);
+      this.composite();
+    };
+    this.onUp = () => {
+      if (!this.userStroke) return;
+      this.userStroke = null;
+      this.measure(this.state.sel);
+      this.blitThumb(this.state.sel);
+      this.blitLook();
+    };
+    window.addEventListener('pointermove', this.onMove, { passive: true });
+    window.addEventListener('pointerup', this.onUp);
+
+    this.last = performance.now();
+    this.loop = () => {
+      if (this.dead) return;
+      this.raf = requestAnimationFrame(this.loop);
+      const now = performance.now();
+      let dt = (now - this.last) / 1000;
+      this.last = now;
+      if (dt > 0.05) dt = 0.05;
+      if (this.cursor) { this.step(dt); this.composite(); }
+    };
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  componentWillUnmount() {
+    this.dead = true;
+    cancelAnimationFrame(this.raf);
+    window.removeEventListener('pointermove', this.onMove);
+    window.removeEventListener('pointerup', this.onUp);
+  }
+
+  clearLayers() {
+    LAYERS.forEach((l) => this.layerC[l.key].ctx.clearRect(0, 0, CW, CH));
+  }
+
+  localPt(e) {
+    const c = this.canvasRef.current;
+    const r = c.getBoundingClientRect();
+    return [(e.clientX - r.left) * (CW / (r.width || 1)), (e.clientY - r.top) * (CH / (r.height || 1))];
+  }
+
+  // one mark. every brush goes through here; nothing else touches pixels.
+  mark(x, y, vel, br, layer, rgb, wmul) {
+    const L = this.layerC[layer] || this.layerC.line;
+    const ctx = L.ctx;
+    // Dry breakup must THIN the stroke, not delete its middle: drop marks with a
+    // probability that rises with speed, using a deterministic hash of position.
+    if (br.brk && vel > br.brk) {
+      const over = (vel - br.brk) / (1 - br.brk);
+      const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+      if (h < Math.min(0.8, over * 0.85)) return;
+    }
+    const sc = br.scatter;
+    const gx = x + (sc ? (Math.sin(x * 12.9 + y * 4.1) * sc) : 0);
+    const gy = y + (sc ? (Math.sin(y * 9.7 + x * 7.3) * sc) : 0);
+    const w = Math.max(0.35, br.w * (wmul || 1) * (0.34 + Math.pow(vel, br.taper) * br.swell));
+    ctx.save();
+    if (br.sub) {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,' + br.alpha.toFixed(3) + ')';
+    } else {
+      ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + br.alpha.toFixed(3) + ')';
+    }
+    ctx.beginPath();
+    if (br.dir) {
+      ctx.ellipse(gx, gy, w * (1 + br.dir), w * (1 - br.dir * 0.5), 0.7, 0, Math.PI * 2);
+    } else {
+      ctx.arc(gx, gy, w, 0, Math.PI * 2);
+    }
+    ctx.fill();
+    ctx.restore();
+  }
+
+  resample(pts) {
+    const out = [];
+    let len = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const n = Math.max(2, Math.ceil(d / 1.4));
+      for (let j = 0; j < n; j++) {
+        const t = j / n;
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+      len += d;
+    }
+    out.push(pts[pts.length - 1]);
+    return { pts: out, len };
+  }
+
+  // A wash saturating to black would make the muddy approach score well, which
+  // is physically wrong — cap the layer's density once the pass is laid down.
+  clampLayer(layer, max) {
+    const L = this.layerC[layer];
+    if (!L) return;
+    const im = L.ctx.getImageData(0, 0, L.cv.width, L.cv.height);
+    const d = im.data;
+    const cap = Math.round(max * 255);
+    for (let i = 3; i < d.length; i += 4) if (d[i] > cap) d[i] = cap;
+    L.ctx.putImageData(im, 0, 0);
+  }
+
+  runOp(op, from, to) {
+    const br = BRUSHES[op.brush] || BRUSHES.brush;
+    if (op.k === 'clamp') { if (from === 0) this.clampLayer(op.layer, op.max); return; }
+    if (op.k === 'd') {
+      // one radial pass, not concentric rings — rings band visibly at this scale
+      const L = this.layerC[op.layer] || this.layerC.line;
+      const ctx = L.ctx;
+      const R = op.r * 1.55;
+      ctx.save();
+      const g = ctx.createRadialGradient(op.x, op.y, 0, op.x, op.y, R);
+      if (br.sub) {
+        ctx.globalCompositeOperation = 'destination-out';
+        g.addColorStop(0, 'rgba(0,0,0,.92)');
+        g.addColorStop(0.52, 'rgba(0,0,0,.6)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+      } else {
+        g.addColorStop(0, 'rgba(248,251,255,.97)');
+        g.addColorStop(0.42, 'rgba(238,245,255,.88)');
+        g.addColorStop(0.68, 'rgba(206,228,255,.34)');
+        g.addColorStop(0.86, 'rgba(184,212,252,.1)');
+        g.addColorStop(1, 'rgba(176,206,250,0)');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(op.x, op.y, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      this.penX = op.x; this.penY = op.y;
+      return;
+    }
+    if (!op._p) op._p = this.resample(op.pts);
+    const P0 = op._p.pts;
+    const n = P0.length;
+    const i0 = Math.max(0, Math.floor(from * (n - 1)));
+    const i1 = Math.min(n - 1, Math.floor(to * (n - 1)));
+    const stepEvery = Math.max(1, Math.round(br.spacing / 1.4));
+    const isG = op.k === 'g';
+    for (let i = i0; i <= i1; i += stepEvery) {
+      const u = i / (n - 1);
+      const vel = Math.pow(Math.sin(Math.PI * u), 0.55);
+      const g = isG ? BRUSHES.brush : br;
+      const alphaBr = isG ? { ...g, alpha: 0.09, w: g.w * 0.5 } : g;
+      this.mark(P0[i][0], P0[i][1], vel, alphaBr, op.layer, INK, op.w);
+      this.penX = P0[i][0]; this.penY = P0[i][1];
+    }
+  }
+
+  opDur(op) {
+    if (op.k === 'p' || op.k === 'look') return op.ms / 1000;
+    if (op.k === 'clamp') return 0.02;
+    if (op.k === 'd') return 0.14;
+    if (!op._p) op._p = this.resample(op.pts);
+    const br = BRUSHES[op.brush] || BRUSHES.brush;
+    const px = op.k === 'g' ? 900 : br === BRUSHES.wash ? 780 : 430;
+    return Math.max(0.09, op._p.len / px);
+  }
+
+  step(dt) {
+    const a = this.attempts[this.state.sel];
+    let budget = dt * (this.state.slow ? 0.5 : 1);
+    let guard = 0;
+    while (budget > 0 && this.cursor && this.cursor.i < a.ops.length && guard++ < 300) {
+      const op = a.ops[this.cursor.i];
+      const dur = this.opDur(op);
+      const room = dur * (1 - this.cursor.u);
+      const use = Math.min(budget, room);
+      const u0 = this.cursor.u, u1 = u0 + use / dur;
+
+      if (op.k === 'p' || op.k === 'look') {
+        if (op.k === 'look' && this.state.looking !== op.note) this.setState({ looking: op.note });
+      } else {
+        if (this.state.looking) this.setState({ looking: null });
+        if (this.state.brush !== op.brush) this.setState({ brush: op.brush, pass: op.layer });
+        this.runOp(op, u0, Math.min(1, u1));
+      }
+
+      budget -= use;
+      this.cursor.u = u1;
+      if (this.cursor.u >= 1) { this.cursor.i++; this.cursor.u = 0; }
+    }
+    if (this.cursor && this.cursor.i >= a.ops.length) {
+      this.cursor = null;
+      this.measure(this.state.sel);
+      this.setState({ animating: false, looking: null, pass: 'done' });
+    }
+  }
+
+  renderInstant(i) {
+    this.clearLayers();
+    const a = this.attempts[i];
+    a.ops.forEach((op) => {
+      if (op.k === 'p' || op.k === 'look') return;
+      this.runOp(op, 0, 1);
+    });
+    this.measure(i);
+    this.blitThumb(i);
+  }
+
+  composite() {
+    const c = this.canvasRef.current;
+    if (!c) return;
+    if (c.width !== CW * this.dpr) { c.width = CW * this.dpr; c.height = CH * this.dpr; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    LAYERS.forEach((l) => {
+      if (this.state.hidden[l.key]) return;
+      ctx.globalAlpha = l.op;
+      ctx.drawImage(this.layerC[l.key].cv, 0, 0);
+    });
+    ctx.globalAlpha = 1;
+    if (this.cursor && this.penX != null) {
+      ctx.save();
+      ctx.scale(this.dpr, this.dpr);
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.moveTo(this.penX, this.penY - 4);
+      ctx.lineTo(this.penX - 4, this.penY - 24);
+      ctx.lineTo(this.penX + 4, this.penY - 24);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(226,238,255,.85)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  flatten(keys) {
+    this.flatCtx.setTransform(1, 0, 0, 1, 0, 0);
+    this.flatCtx.clearRect(0, 0, this.flat.width, this.flat.height);
+    LAYERS.forEach((l) => {
+      if (keys && keys.indexOf(l.key) < 0) return;
+      this.flatCtx.globalAlpha = l.op;
+      this.flatCtx.drawImage(this.layerC[l.key].cv, 0, 0);
+    });
+    this.flatCtx.globalAlpha = 1;
+    return this.flat;
+  }
+
+  sample(keys, N) {
+    const tmp = document.createElement('canvas');
+    tmp.width = N; tmp.height = N;
+    const tc = tmp.getContext('2d');
+    tc.drawImage(this.flatten(keys), 0, 0, N, N);
+    return tc.getImageData(0, 0, N, N).data;
+  }
+
+  // The critique. Every number here comes from the finished bitmap.
+  measure(i) {
+    const N = 84;
+    // Each judgement samples only the layers it is actually about. Reading the
+    // whole composite for everything is what made brush thickness look like tone
+    // and construction lines look like tonal content.
+    const d = this.sample(null, N);                          // geometry, coverage
+    const dArt = this.sample(['tone', 'accent', 'line'], N); // no scaffolding
+    const dPaint = this.sample(['tone', 'accent'], N);        // tonal marks only
+    const dLine = this.sample(['line'], N);                   // the subject itself
+
+    const vmap = new Float32Array(N * N);
+    let lit = 0;
+    let minX = N, maxX = 0, minY = N, maxY = 0, leftM = 0, rightM = 0;
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const a = d[(y * N + x) * 4 + 3];
+        vmap[y * N + x] = a / 255;
+        if (a > 8) {
+          lit++;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+          if (x < N / 2) leftM += a; else rightM += a;
+        }
+      }
+    }
+    const total = N * N;
+    let m;
+    if (!lit) {
+      m = { coverage: 0, range: 0, commit: 0, mush: 0, offset: 0, frame: 0, modelling: 0, darkN: 0, clarity: 0, frameN: 0, centred: 0, score: 0 };
+    } else {
+      // Centring asks where the SUBJECT sits, so it reads the contour alone. Off
+      // the full composite, directional shading drags the centre of mass sideways
+      // and the term penalises the very technique this whole sheet advocates.
+      let ls = 0, lsx = 0, lsy = 0;
+      for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+          const a = dLine[(y * N + x) * 4 + 3];
+          if (a > 8) { ls += a; lsx += x * a; lsy += y * a; }
+        }
+      }
+      const offset = ls ? Math.hypot(lsx / ls - N / 2, lsy / ls - N / 2) / (N / 2) : 1;
+      const frame = ((maxX - minX) * (maxY - minY)) / total;
+
+      // Everything tonal is measured against the SUBJECT'S AREA, not against ink.
+      // Dividing by lit pixels rewards sparse work: a bare saturated outline is
+      // almost entirely "dark" by that reading, which is exactly backwards.
+      const bboxArea = Math.max(1, (maxX - minX + 1) * (maxY - minY + 1));
+      let mid = 0, dark = 0;
+      const bands = [0, 0, 0, 0, 0];
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          const o = (y * N + x) * 4 + 3;
+          const v = dArt[o] / 255;
+          if (v > 0.08) {
+            if (v >= 0.3 && v <= 0.72) mid++;
+            bands[Math.min(4, Math.floor((v - 0.08) / (0.92 / 5)))]++;
+          }
+          if (dPaint[o] / 255 > 0.8) dark++;
+        }
+      }
+      // tonal range: how many distinct tonal bands are actually in play
+      const occupied = bands.filter((b) => b / bboxArea > 0.015).length;
+      const range = occupied / 5;
+
+      // Modelling: mean local gradient inside the subject. Flat outline drawings
+      // and evenly flooded washes are both smooth; a form with tone AND a highlight
+      // cut back out of it is not. This is what the eraser actually buys.
+      let grad = 0, gn = 0;
+      for (let y = minY; y < maxY; y++) {
+        for (let x = minX; x < maxX; x++) {
+          const v = vmap[y * N + x];
+          grad += Math.abs(v - vmap[y * N + x + 1]) + Math.abs(v - vmap[(y + 1) * N + x]);
+          gn++;
+        }
+      }
+      const modelling = gn ? Math.min(1, (grad / gn) / 0.22) : 0;
+      const commit = dark / bboxArea;
+      const mush = Math.min(1, (mid / bboxArea) / 0.34);
+      const balance = Math.abs(leftM - rightM) / (leftM + rightM);
+      // Every reported figure is normalised 0..1 where higher is better, so the
+      // number and its bar are the same quantity and the score is readable off them.
+      // Divisor is the achievable ceiling in this medium (chalk at alpha .38 over
+      // seven arcs tops out near 3% of bbox), not an a priori 10%.
+      const darkN = Math.min(1, commit / 0.035);
+      const clarity = 1 - mush;
+      const frameN = Math.min(1, frame / 0.34);
+      const centred = 1 - Math.min(1, offset * 2.2);
+      m = {
+        coverage: lit / total,
+        range, commit, mush, offset, frame, balance, modelling,
+        darkN, clarity, frameN, centred,
+        score: Math.max(0, Math.min(1,
+          range * 0.22 + darkN * 0.24 + modelling * 0.18 + clarity * 0.12
+          + frameN * 0.1 + centred * 0.14)),
+      };
+    }
+    this.attempts[i].metrics = m;
+    this.setState((s) => ({ tick: s.tick + 1 }));
+  }
+
+  blitThumb(i) {
+    const el = this.thumbEls[i];
+    if (!el) return;
+    const ctx = el.getContext('2d');
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.drawImage(this.flatten(), 0, 0, el.width, el.height);
+  }
+
+  blitLook() {
+    const el = this.thumbRef.current;
+    if (!el) return;
+    const ctx = el.getContext('2d');
+    ctx.clearRect(0, 0, el.width, el.height);
+    ctx.drawImage(this.flatten(), 0, 0, el.width, el.height);
+  }
+
+  select(i, animate) {
+    this.setState({ sel: i, animating: !!animate, looking: null, pass: animate ? 'gesture' : 'done' }, () => {
+      if (animate) {
+        this.clearLayers();
+        this.cursor = { i: 0, u: 0 };
+        this.penX = CW / 2; this.penY = 60;
+      } else {
+        this.renderInstant(i);
+        this.cursor = null;
+      }
+      this.composite();
+      this.blitLook();
+    });
+  }
+
+  paintBrushSwatches() {
+    BRUSH_ORDER.forEach((key, idx) => {
+      const el = this.brushEls[idx];
+      if (!el) return;
+      const ctx = el.getContext('2d');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, el.width, el.height);
+      const br = BRUSHES[key];
+      const midY = el.height / 2;
+      for (let x = 6; x < el.width - 6; x += Math.max(1, br.spacing)) {
+        const u = (x - 6) / (el.width - 12);
+        const vel = Math.pow(Math.sin(Math.PI * u), 0.55);
+        if (br.brk && vel > br.brk) {
+          const over = (vel - br.brk) / (1 - br.brk);
+          const h = Math.abs(Math.sin(x * 12.9898) * 43758.5453) % 1;
+          if (h < Math.min(0.8, over * 0.85)) continue;
+        }
+        const w = Math.max(0.4, br.w * (0.34 + Math.pow(vel, br.taper) * br.swell)) * 1.5;
+        const sc = br.scatter;
+        const gx = x + (sc ? Math.sin(x * 12.9) * sc : 0);
+        const gy = midY + Math.sin(u * 3.4) * 3 + (sc ? Math.sin(x * 9.7) * sc : 0);
+        ctx.beginPath();
+        if (br.dir) ctx.ellipse(gx, gy, w * (1 + br.dir), w * (1 - br.dir * 0.5), 0.7, 0, Math.PI * 2);
+        else ctx.arc(gx, gy, w, 0, Math.PI * 2);
+        ctx.fillStyle = br.sub
+          ? 'rgba(150,190,250,' + (br.alpha * 0.5).toFixed(3) + ')'
+          : 'rgba(236,243,255,' + br.alpha.toFixed(3) + ')';
+        ctx.fill();
+      }
+    });
+  }
+
+  renderVals() {
+    const st = this.state;
+    const sel = this.attempts ? this.attempts[st.sel] : null;
+    const m = sel && sel.metrics ? sel.metrics : { coverage: 0, range: 0, commit: 0, offset: 0, frame: 0, score: 0 };
+    const pct = (v) => Math.round(Math.max(0, Math.min(1, v)) * 100) + '%';
+    const hue = (v) => (v > 0.66 ? 'rgb(140,225,180)' : v > 0.36 ? 'rgb(242,184,92)' : 'rgb(228,130,116)');
+
+    setTimeout(() => { if (!this.dead && this.brushEls && this.brushEls.length) this.paintBrushSwatches(); }, 0);
+
+    return {
+      canvasRef: this.canvasRef,
+      thumbRef: this.thumbRef,
+      readout: (sel ? sel.title.toLowerCase() : '—') + ' · ' + LAYERS.length + ' layers · ' + BRUSH_ORDER.length + ' brushes · score ' + pct(m.score),
+      passLabel: st.animating ? 'pass · ' + st.pass : 'finished',
+      brushLabel: st.brush ? 'brush · ' + st.brush : '—',
+      brushColor: st.brush === 'eraser' ? 'rgb(150,190,250)' : 'rgba(255,255,255,.42)',
+      lookingOpacity: st.looking ? 1 : 0,
+      lookNote: st.looking || '',
+      watchLabel: st.animating ? 'Drawing…' : 'Watch it draw this again',
+      watchBg: st.animating ? 'rgba(143,123,240,.26)' : 'rgba(255,255,255,.05)',
+      slowBg: st.slow ? 'rgba(255,255,255,.1)' : 'rgba(255,255,255,.03)',
+      slowBc: st.slow ? 'rgba(255,255,255,.22)' : 'rgba(255,255,255,.08)',
+      onWatch: () => this.select(st.sel, true),
+      onSlow: () => this.setState({ slow: !st.slow }),
+      onDown: (e) => { e.stopPropagation(); this.userStroke = [this.localPt(e)]; },
+
+      layers: LAYERS.map((l) => {
+        const on = !st.hidden[l.key];
+        return {
+          name: l.name,
+          note: l.note,
+          pct: on ? Math.round(l.op * 100) + '%' : 'off',
+          bg: on ? 'rgba(255,255,255,.055)' : 'rgba(255,255,255,.018)',
+          bc: on ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.06)',
+          nameColor: on ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.38)',
+          swatch: on ? 'rgba(226,238,255,.16)' : 'rgba(255,255,255,.03)',
+          toggle: () => this.setState(
+            (s) => ({ hidden: { ...s.hidden, [l.key]: !s.hidden[l.key] } }),
+            () => { this.composite(); this.blitLook(); }
+          ),
+        };
+      }),
+
+      brushes: BRUSH_ORDER.map((k, i) => {
+        const active = st.brush === k;
+        return {
+          name: k,
+          note: BRUSHES[k].note,
+          ref: (el) => { this.brushEls[i] = el; },
+          bg: active ? 'rgba(143,123,240,.18)' : 'rgba(255,255,255,.028)',
+          bc: active ? 'rgba(176,158,255,.4)' : 'rgba(255,255,255,.07)',
+          nameColor: active ? 'rgb(206,196,255)' : 'rgba(255,255,255,.72)',
+        };
+      }),
+
+      metrics: [
+        { name: 'Tonal range', value: pct(m.range), pct: pct(m.range), color: hue(m.range) },
+        { name: 'Dark commitment', value: pct(m.darkN), pct: pct(m.darkN), color: hue(m.darkN) },
+        { name: 'Modelling', value: pct(m.modelling), pct: pct(m.modelling), color: hue(m.modelling) },
+        { name: 'Tone clarity', value: pct(m.clarity), pct: pct(m.clarity), color: hue(m.clarity) },
+        { name: 'Frame used', value: pct(m.frameN), pct: pct(m.frameN), color: hue(m.frameN) },
+        { name: 'Centred', value: pct(m.centred), pct: pct(m.centred), color: hue(m.centred) },
+      ],
+
+      attempts: (this.attempts || ATTEMPTS).map((a, i) => {
+        const am = a.metrics || { range: 0, commit: 0, offset: 0, frame: 0, score: 0 };
+        const on = st.sel === i;
+        return {
+          title: a.title,
+          note: a.note,
+          grade: pct(am.score),
+          gradeColor: hue(am.score),
+          ref: (el) => {
+            if (el && this.thumbEls[i] !== el) { this.thumbEls[i] = el; setTimeout(() => { if (!this.dead) { this.renderInstant(i); this.select(this.state.sel, false); } }, 0); }
+            this.thumbEls[i] = el;
+          },
+          select: () => this.select(i, true),
+          bg: on ? 'rgba(255,255,255,.055)' : 'rgba(255,255,255,.018)',
+          bc: on ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.06)',
+          titleColor: on ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.6)',
+          bars: [
+            { name: 'range', pct: pct(am.range), color: hue(am.range) },
+            { name: 'darks', pct: pct(am.darkN), color: hue(am.darkN) },
+            { name: 'centre', pct: pct(am.centred), color: hue(am.centred) },
+          ],
+        };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

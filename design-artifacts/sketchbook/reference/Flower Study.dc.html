@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body { margin: 0; background: #07070a; -webkit-font-smoothing: antialiased; }
+  a { color: rgb(226,236,255); text-decoration: none; border-bottom: 1px solid rgba(226,236,255,.28); }
+  a:hover { color: #fff; border-bottom-color: rgba(255,255,255,.6); }
+</style>
+</helmet>
+
+<div style="width: 1320px; padding: 52px 60px 96px; background: #07070a; color: rgba(255,255,255,.95); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', sans-serif; text-wrap: pretty; box-sizing: border-box;">
+
+  <div style="display: flex; align-items: flex-end; gap: 18px; padding-bottom: 10px;">
+    <div style="font-size: 29px; font-weight: 600; letter-spacing: -.026em;">Flower Study</div>
+    <div style="font-size: 12.5px; color: rgba(255,255,255,.42); padding-bottom: 5px;">Same hand, harder subject — a detail-ceiling test</div>
+  </div>
+  <div style="max-width: 860px; font-size: 13px; line-height: 1.65; color: rgba(255,255,255,.55); padding-bottom: 34px;">The sketchbook engine drawing something with real structure instead of a droplet: three rings of petals in perspective, each one turned and creased, a stamen crown, sepals, a stem that leaves the frame, two leaves with midribs and veins. Nothing here is a filled shape — it is {{ strokeCount }} strokes and {{ dotCount }} pressure dots going down in order, on the same four layers, with the same seven brushes. Stem and leaves go down first because the bloom will cover them, then the petals, back ring to front, each one clearing the layers behind it before it takes its own contour, wash, creases and base dark.</div>
+
+  <div style="display: flex; gap: 30px; align-items: flex-start;">
+
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="position: relative; width: 880px; height: 660px; border-radius: 26px; border: .5px solid rgba(255,255,255,.09); background: radial-gradient(120% 100% at 30% 12%, #14151a 0%, #0b0b0f 52%, #07070a 100%); overflow: hidden;">
+        <canvas ref="{{ canvasRef }}" style="position: absolute; inset: 0; width: 880px; height: 660px; display: block;"></canvas>
+        <div style="position: absolute; left: 22px; bottom: 18px; display: flex; align-items: center; gap: 10px; font-size: 10.5px; letter-spacing: .04em; color: rgba(255,255,255,.44);">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: {{ dotColor }};"></div>
+          <div>{{ statusLine }}</div>
+        </div>
+        <div style="position: absolute; right: 22px; bottom: 18px; font-size: 10.5px; letter-spacing: .04em; color: rgba(255,255,255,.3);">{{ progressLine }}</div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <div onClick="{{ onReplay }}" style="cursor: pointer; padding: 9px 16px; border-radius: 999px; border: .5px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); font-size: 11.5px; font-weight: 500;" style-hover="background: rgba(255,255,255,.13);">Draw it again</div>
+        <div onClick="{{ onFinish }}" style="cursor: pointer; padding: 9px 16px; border-radius: 999px; border: .5px solid rgba(255,255,255,.12); font-size: 11.5px; color: rgba(255,255,255,.62);" style-hover="color: #fff; border-color: rgba(255,255,255,.3);">Jump to finished</div>
+        <div style="width: 1px; height: 20px; background: rgba(255,255,255,.1); margin: 0 4px;"></div>
+        <sc-for list="{{ speeds }}" as="sp" hint-placeholder-count="3">
+          <div onClick="{{ sp.onPick }}" style="cursor: pointer; padding: 8px 13px; border-radius: 999px; border: .5px solid {{ sp.border }}; background: {{ sp.bg }}; font-size: 11px; color: {{ sp.fg }};">{{ sp.label }}</div>
+        </sc-for>
+        <div style="width: 1px; height: 20px; background: rgba(255,255,255,.1); margin: 0 4px;"></div>
+        <sc-for list="{{ layerChips }}" as="ly" hint-placeholder-count="4">
+          <div onClick="{{ ly.onToggle }}" style="cursor: pointer; padding: 8px 13px; border-radius: 999px; border: .5px solid {{ ly.border }}; background: {{ ly.bg }}; font-size: 11px; color: {{ ly.fg }};">{{ ly.name }}</div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="width: 300px; display: flex; flex-direction: column; gap: 26px; padding-top: 4px;">
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.32);">The order of work</div>
+        <sc-for list="{{ phases }}" as="ph" hint-placeholder-count="6">
+          <div style="display: flex; gap: 11px; align-items: flex-start;">
+            <div style="width: 5px; height: 5px; border-radius: 50%; margin-top: 6px; flex: none; background: {{ ph.dot }};"></div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <div style="font-size: 11.5px; font-weight: 500; color: {{ ph.fg }};">{{ ph.name }}</div>
+              <div style="font-size: 10.5px; line-height: 1.5; color: rgba(255,255,255,.46);">{{ ph.note }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px;">
+        <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.32);">Where the detail comes from</div>
+        <div style="font-size: 11px; line-height: 1.6; color: rgba(255,255,255,.44);">Petal edges are two strokes that overshoot at the base and leave the tip open, so the contour never closes cleanly. Each petal gets its own wash laid in beads across the axis, heaviest at the throat, and its creases run under the wash rather than over it. Value is set by one key light from the upper left: a petal turned into it takes more pigment, one turned away is left nearer the bare paper. And because the ink here is light on black, the eraser draws shadow rather than highlight — it is used for the dark gap a front petal throws onto the one behind it, while the rim light is chalk going on.</div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 7px;">
+        <div style="font-size: 9.5px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: rgba(255,255,255,.32);">Limits worth knowing</div>
+        <div style="font-size: 11px; line-height: 1.6; color: rgba(255,255,255,.44);">The wash still has a ceiling, so every true dark is chalk or charcoal. There is no colour in the system and no cast light beyond a single upper-left key. Petal count, ring twist and stem lean are parameters — say a number and it redraws.</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1320,&quot;height&quot;:900}}">
+const BRUSHES = {
+  liner:    { w: 1.0, alpha: 0.4,  swell: 0.26, taper: 1.7, spacing: 1.4, scatter: 0.05 },
+  brush:    { w: 2.2, alpha: 0.33, swell: 1.6,  taper: 0.5, spacing: 1.3, scatter: 0.3 },
+  chalk:    { w: 2.6, alpha: 0.38, swell: 0.8,  taper: 0.9, spacing: 1.7, scatter: 1.7, brk: 0.34 },
+  wash:     { w: 9.5, alpha: 0.032, swell: 0.3, taper: 1.2, spacing: 1.8, scatter: 3.6, ceiling: 0.4 },
+  stipple:  { w: 0.85, alpha: 0.34, swell: 0.2, taper: 1,   spacing: 6.2, scatter: 2.9 },
+  charcoal: { w: 2.4, alpha: 0.3,  swell: 0.9,  taper: 0.8, spacing: 1.6, scatter: 1.1, dir: 0.55 },
+  eraser:   { w: 3.4, alpha: 0.62, swell: 0.42, taper: 1,   spacing: 1.3, scatter: 0.18, sub: true },
+};
+
+const LAYERS = [
+  { key: 'under',  name: 'Underdrawing', op: 0.42 },
+  { key: 'tone',   name: 'Tone',         op: 1 },
+  { key: 'line',   name: 'Line',         op: 1 },
+  { key: 'accent', name: 'Accent',       op: 1 },
+];
+
+const CW = 880, CH = 660;
+const INK = [236, 243, 255];
+
+const OP = (k, pts, layer, brush, w) => ({ k, pts, layer, brush, w: w || 1 });
+// A petal in front is opaque. Clearing its silhouette out of the layers behind
+// it before drawing it is what stops the bloom reading as a wireframe — held
+// just short of full so a trace of the petal behind still shows through.
+const OCCLUDE = (poly, a) => ({ k: 'occ', poly, a: a == null ? 0.9 : a });
+const DOT = (x, y, r, layer, brush) => ({ k: 'd', x, y, r, layer, brush });
+const P = (ms) => ({ k: 'p', ms });
+const PHASE = (name) => ({ k: 'phase', name, ms: 240 });
+
+const arc = (cx, cy, rx, ry, a0, a1, n) => {
+  const pts = [];
+  const steps = n || 24;
+  for (let i = 0; i <= steps; i++) {
+    const a = a0 + (a1 - a0) * (i / steps);
+    pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]);
+  }
+  return pts;
+};
+
+const jitter = (pts, amt) => pts.map((p, i) => {
+  const t = i / (pts.length - 1 || 1);
+  return [
+    p[0] + (Math.sin(t * 7.3 + p[1] * 0.03) * 0.6 + Math.sin(t * 17.1) * 0.4) * amt,
+    p[1] + (Math.cos(t * 6.1 + p[0] * 0.03) * 0.6 + Math.sin(t * 13.7) * 0.4) * amt,
+  ];
+});
+
+// A petal is an axis that bends, with a width profile across it. Everything
+// about the petal — edges, creases, wash beads, the turned rim — is sampled
+// from this one frame, which is why the parts stay registered to each other.
+const frac = (v) => v - Math.floor(v);
+const seed = (a, b) => frac(Math.sin(a * 12.9898 + b * 78.233) * 43758.5453);
+
+// A petal is an axis that bends, with a width profile across it. The whole
+// bloom is then squashed about its own horizon, which is what turns a flat
+// rosette into a disc seen at an angle — the single biggest tell.
+function petalFrame(cx, cy, ang, L, W, curl, twist, squash, oy) {
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  const px = -dy, py = dx;
+  const sq = squash == null ? 1 : squash;
+  const hz = oy == null ? cy : oy;
+  const half = (u) => W * Math.pow(Math.sin(Math.PI * Math.min(1, 0.08 + u * 0.92)), 0.5) * (1 - 0.1 * u);
+  const at = (u, vf) => {
+    const bend = curl * u * u * L;
+    const ax = cx + dx * (u * L) + px * bend;
+    const ay = cy + dy * (u * L) + py * bend;
+    const v = vf * half(u) * (1 + twist * (vf > 0 ? u : -u) * 0.5);
+    const x = ax + px * v, y = ay + py * v;
+    return [x, hz + (y - hz) * sq];
+  };
+  return { at, half };
+}
+
+function petalSilhouette(f, grow) {
+  const g = grow == null ? 1.07 : grow;
+  const poly = [];
+  for (let i = 0; i <= 24; i++) poly.push(f.at(-0.03 + 1.03 * (i / 24), -g));
+  for (let i = 0; i <= 24; i++) poly.push(f.at(1 - 1.03 * (i / 24), g));
+  return poly;
+}
+
+function petalOps(f, layer, brush, wob, opts) {
+  const ops = [];
+  const o = opts || {};
+  const edge = (sign, from, to, n) => {
+    const pts = [];
+    for (let i = 0; i <= n; i++) pts.push(f.at(from + (to - from) * (i / n), sign));
+    return pts;
+  };
+  // Overshoot the base, stop short of the tip, and carry the tip round on ONE
+  // of the two edges only — a symmetrical closed outline is what made this read
+  // as a diagram. The weaker edge stays open.
+  const w = o.w || 0.62;
+  ops.push(OP('s', jitter(edge(-1, -0.05, 1.0, 26).concat(edge(1, 1.0, 0.72, 8)), wob), layer, brush, w));
+  ops.push(OP('s', jitter(edge(1, -0.03, 0.88, 22), wob * 1.15), layer, brush, w * 0.8));
+  return ops;
+}
+
+function petalCreases(f, wob, count, layer, brush) {
+  const ops = [];
+  for (let k = 0; k < count; k++) {
+    const s = count === 1 ? 0 : -0.62 + 1.24 * (k / (count - 1));
+    const pts = [];
+    for (let i = 0; i <= 14; i++) {
+      const u = 0.07 + 0.78 * (i / 14);
+      pts.push(f.at(u, s * (0.35 + 0.55 * u)));
+    }
+    ops.push(OP('s', jitter(pts, wob * 0.7), layer, brush, 0.34));
+  }
+  return ops;
+}
+
+// Beads laid across the petal axis, heaviest at the throat and thinning toward
+// the light. Same physics as the droplet wash, following a curved form instead.
+function petalWash(f, wob, rows, layer, brush, weight) {
+  const ops = [];
+  for (let i = 0; i < rows; i++) {
+    const u = 0.05 + 0.88 * ((i + 0.5) / rows) + Math.sin(i * 2.3) * 0.012;
+    const dir = i % 2 === 0 ? 1 : -1;
+    const a = f.at(u, -0.98 * dir);
+    const b = f.at(u, 0.98 * dir);
+    // Beads must be wider than their spacing or the pass dries as stripes, and
+    // stripes from petals at different angles cross into a visible weave.
+    const g = 1 - u;
+    ops.push(OP('s', jitter([a, b], wob), layer, brush, (1.1 + g * 1.5) * (weight || 1)));
+  }
+  return ops;
+}
+
+function leafOps(cx, cy, ang, L, W, curl, wob) {
+  const ops = [];
+  const f = petalFrame(cx, cy, ang, L, W, curl, 0, 1);
+  const dx = Math.cos(ang), dy = Math.sin(ang);
+  const serrate = (sign) => {
+    const pts = [];
+    for (let i = 0; i <= 64; i++) {
+      const u = -0.02 + 0.98 * (i / 64);
+      const notch = 1 + (i % 8 === 0 ? -0.03 : i % 8 === 4 ? 0.022 : 0);
+      pts.push(f.at(u, sign * notch));
+    }
+    return pts;
+  };
+  ops.push(OP('s', jitter(serrate(-1), wob), 'line', 'brush', 0.42));
+  ops.push(OP('s', jitter(serrate(1), wob * 1.1), 'line', 'brush', 0.36));
+  ops.push(OP('s', jitter([f.at(-0.02, 0), f.at(0.4, 0.02), f.at(0.99, 0)], wob * 0.8), 'line', 'brush', 0.34));
+  for (let k = 0; k < 7; k++) {
+    const u0 = 0.1 + 0.78 * (k / 6);
+    [-1, 1].forEach((sg) => {
+      const pts = [];
+      for (let i = 0; i <= 8; i++) {
+        const t = i / 8;
+        const u = u0 + 0.16 * t;
+        pts.push(f.at(Math.min(0.97, u), sg * 0.92 * t));
+      }
+      ops.push(OP('s', jitter(pts, wob * 0.6), 'line', 'liner', 0.24));
+    });
+  }
+  ops.push(...petalWash(f, wob * 0.4, 30, 'tone', 'wash', 0.34));
+  // the underside half sits away from the key light
+  for (let i = 0; i < 5; i++) {
+    const pts = [];
+    for (let j = 0; j <= 12; j++) {
+      const u = 0.12 + 0.72 * (j / 12);
+      pts.push(f.at(u, 0.28 + i * 0.16));
+    }
+    ops.push(OP('s', jitter(pts, wob * 0.6), 'accent', 'chalk', 0.3));
+  }
+  return ops;
+}
+
+function buildFlower(cfg) {
+  const ops = [];
+  const S = cfg.skill;
+  const wob = (1 - S) * 3.2 + 1.5;
+  const cx = cfg.cx, cy = cfg.cy, R = cfg.R;
+  const rings = cfg.rings;
+
+  // ---- construction ----
+  ops.push(PHASE('Construction'));
+  const sq = cfg.squash;
+  ops.push(OP('g', jitter(arc(cx, cy, R * 1.02, R * 1.02 * sq, -0.5, Math.PI * 2 - 0.5, 40), wob * 1.8), 'under', 'brush'));
+  ops.push(OP('g', jitter(arc(cx, cy, R * 0.3, R * 0.3 * sq, -0.5, Math.PI * 2 - 0.5, 26), wob * 1.6), 'under', 'brush'));
+  ops.push(OP('g', jitter([[cx - R * 0.55, cy], [cx + R * 0.55, cy]], wob * 1.3), 'under', 'brush'));
+  ops.push(OP('g', jitter([[cx, cy - R * 1.1 * sq], [cx + 26, cy + R * 2.6]], wob * 1.4), 'under', 'brush'));
+  for (let k = 0; k < 8; k++) {
+    const a = -1.9 + Math.PI * 2 * (k / 8);
+    ops.push(OP('g', jitter([[cx, cy], [cx + Math.cos(a) * R * 1.05, cy + Math.sin(a) * R * 1.05 * sq]], wob * 1.2), 'under', 'brush'));
+  }
+  ops.push(P(320));
+
+  // ---- petal frames, back to front ----
+  const frames = [];
+  rings.forEach((ring, ri) => {
+    for (let k = 0; k < ring.n; k++) {
+      const j1 = seed(ri * 3.1 + 1, k + 2);
+      const j2 = seed(ri * 7.7 + 5, k * 1.7 + 3);
+      const j3 = seed(ri * 2.3 + 9, k * 2.9 + 7);
+      // uneven angular spacing, uneven length: a flower is not a gear
+      const a = ring.a0 + Math.PI * 2 * ((k + (j1 - 0.5) * 0.5) / ring.n);
+      // One key light, upper-left. A petal turned into it takes more pigment;
+      // one turned away is left closer to the bare paper. Without this every
+      // petal carries the same weight and the bloom stays flat.
+      const lam = Math.cos(a - cfg.light);
+      const lit = Math.max(0, lam);
+      frames.push({
+        ri,
+        lit,
+        tone: 0.42 + lit * 0.95,
+        lw: 0.72 + lit * 0.6,
+        f: petalFrame(
+          cx + Math.cos(a) * ring.inset, cy + Math.sin(a) * ring.inset * 0.7,
+          a,
+          ring.L * (0.78 + j2 * 0.42),
+          ring.W * (0.84 + j3 * 0.32),
+          ring.curl * (0.5 + j1 * 1.1),
+          ring.twist * (0.3 + j2 * 1.3) * (j3 > 0.5 ? 1 : -1),
+          cfg.squash, cy
+        ),
+        ring,
+        depth: ri,
+      });
+    }
+  });
+
+  // ---- stem and leaves go down FIRST, so the petals occlude them ----
+  ops.push(PHASE('Stem'));
+  const sx = cx + 6, sy = cy + R * 0.82 * cfg.squash;
+  const stem = [];
+  for (let i = 0; i <= 26; i++) {
+    const t = i / 26;
+    stem.push([sx + 26 * Math.sin(t * 1.5) + t * t * 30, sy - 40 + t * (CH - sy + 30)]);
+  }
+  const off = (pts, d) => pts.map((p, i) => {
+    const q = pts[Math.min(pts.length - 1, i + 1)];
+    const a = Math.atan2(q[1] - p[1], q[0] - p[0]) + Math.PI / 2;
+    return [p[0] + Math.cos(a) * d, p[1] + Math.sin(a) * d];
+  });
+  ops.push(OP('s', jitter(off(stem, -7), wob * 0.9), 'line', 'brush', 0.45));
+  ops.push(OP('s', jitter(off(stem, 7), wob * 0.9), 'line', 'brush', 0.3));
+  // the stem is a cylinder: tone up its shaded side only
+  for (let i = 0; i < 4; i++) {
+    ops.push(OP('s', jitter(off(stem, 1.5 + i * 1.8), wob * 0.5), 'tone', 'wash', 0.5));
+  }
+  [-1, 1].forEach((sg) => {
+    const pts = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      pts.push([sx + sg * (36 * Math.sin(t * 2.1)) - 4 * t, sy + 10 * t + 34 * t * t]);
+    }
+    ops.push(OP('s', jitter(pts, wob), 'line', 'brush', 0.4));
+  });
+  ops.push(P(200));
+
+  ops.push(PHASE('Leaves'));
+  ops.push(...leafOps(stem[13][0] - 6, stem[13][1], Math.PI * 0.9, 176, 26, 0.26, wob));
+  ops.push(...leafOps(stem[21][0] + 6, stem[21][1], Math.PI * 0.12, 142, 22, -0.3, wob));
+  ops.push(P(240));
+
+  // Petal by petal, back ring to front. Each one clears the layers behind it,
+  // then gets its contour, its own wash, creases and base dark before the next
+  // petal goes over the top — the order a layered bloom is actually painted in.
+  rings.forEach((ring, ri) => {
+    ops.push(PHASE(ring.phase));
+    frames.filter((fr) => fr.ri === ri).forEach((fr, i) => {
+      ops.push(OCCLUDE(petalSilhouette(fr.f), ring.occ));
+      ops.push(...petalOps(fr.f, 'line', ring.brush, wob, { w: ring.lw * fr.lw }));
+      ops.push(...petalWash(fr.f, wob * 0.45, ring.rows, 'tone', 'wash', ring.tone * fr.tone));
+      ops.push(...petalCreases(fr.f, wob, ring.creases, 'line', 'liner'));
+      for (let d = 0; d < 3; d++) {
+        const pts = [];
+        for (let j = 0; j <= 10; j++) {
+          const s = -0.85 + 1.7 * (j / 10);
+          pts.push(fr.f.at(0.05 + d * 0.075, s * (0.9 - d * 0.12)));
+        }
+        ops.push(OP('s', jitter(pts, wob * 0.6), 'accent', d === 0 ? 'charcoal' : 'chalk', (0.46 - d * 0.11) * (1 + ri * 0.2) * (0.5 + fr.lit * 0.8)));
+      }
+      if (i % 2 === 1) ops.push(P(110));
+    });
+    ops.push(P(220));
+  });
+  ops.push({ k: 'clamp', layer: 'tone', max: BRUSHES.wash.ceiling });
+
+  // ---- throat ----
+  ops.push(PHASE('Throat'));
+  for (let i = 0; i < 7; i++) {
+    const k = i / 6;
+    ops.push(OP('s', jitter(arc(cx + 6, cy + 2, R * (0.28 - k * 0.1), R * (0.28 - k * 0.1) * cfg.squash, 0.1 + k * 0.9, Math.PI * 2.1 - k * 0.5, 24), wob * 0.55), 'accent', 'charcoal', 0.26));
+  }
+  ops.push(P(260));
+
+  // ---- stamen crown ----
+  ops.push(PHASE('Stamens'));
+  for (let k = 0; k < cfg.stamens; k++) {
+    const a = -1.4 + Math.PI * 2 * (k / cfg.stamens) + Math.sin(k * 3.1) * 0.08;
+    const len = R * (0.2 + 0.12 * Math.abs(Math.sin(k * 1.7)));
+    const pts = [];
+    for (let i = 0; i <= 7; i++) {
+      const t = i / 7;
+      const rr = len * t;
+      const lift = -16 * Math.sin(Math.PI * t) * (0.5 + 0.5 * Math.sin(k * 2.3));
+      pts.push([cx + 6 + Math.cos(a) * rr, cy + 2 + Math.sin(a) * rr * cfg.squash + lift]);
+    }
+    ops.push(OP('s', jitter(pts, wob * 0.5), 'accent', 'liner', 0.32));
+    const e = pts[pts.length - 1];
+    ops.push(DOT(e[0], e[1], 1.3 + 0.7 * Math.abs(Math.sin(k * 2.9)), 'accent', 'brush'));
+  }
+  // pollen on a phyllotactic spiral, thinning outward
+  for (let k = 0; k < 54; k++) {
+    const a = k * 2.39996;
+    const rr = R * 0.26 * Math.sqrt(k / 54);
+    const x = cx + 6 + Math.cos(a) * rr, y = cy + 2 + Math.sin(a) * rr * cfg.squash;
+    ops.push(OP('s', [[x, y], [x + 1, y + 1]], 'accent', 'stipple', 0.5));
+  }
+  ops.push(P(260));
+
+  // ---- light taken back out ----
+  // On black paper the eraser draws SHADOW, not light — it takes pigment away.
+  // So the rim light has to be laid on in chalk, and the eraser is saved for
+  // the dark gap a front petal throws onto the one behind it.
+  ops.push(PHASE('Rim light'));
+  frames.forEach((fr) => {
+    if (fr.lit < 0.25) return;
+    const pts = [];
+    for (let i = 0; i <= 18; i++) {
+      const u = 0.22 + 0.7 * (i / 18);
+      pts.push(fr.f.at(u, -0.86));
+    }
+    ops.push(OP('s', jitter(pts, wob * 0.4), 'accent', 'chalk', 0.34 + fr.lit * 0.5));
+  });
+  ops.push(P(180));
+
+  ops.push(PHASE('Separation'));
+  frames.filter((fr) => fr.ri > 0).forEach((fr) => {
+    const pts = [];
+    for (let i = 0; i <= 18; i++) {
+      const u = 0.1 + 0.82 * (i / 18);
+      pts.push(fr.f.at(u, 1.14));
+    }
+    ops.push(OP('s', jitter(pts, wob * 0.4), 'tone', 'eraser', 0.5 + fr.lit * 0.5));
+  });
+  ops.push(P(200));
+
+  // ---- settle ----
+  ops.push(PHASE('Ground'));
+  for (let i = 0; i < 4; i++) {
+    ops.push(OP('s', jitter(arc(cx + 60, CH - 26 - i * 5, 150 - i * 26, 9 - i * 1.4, 0.25, Math.PI - 0.25, 16), wob * 0.7), 'accent', 'stipple', 0.9));
+  }
+  return ops;
+}
+
+const CONFIG = {
+  skill: 0.9, cx: 404, cy: 236, R: 178, stamens: 18, squash: 0.6, light: -2.36,
+  rings: [
+    { phase: 'Back ring',   n: 6, a0: -2.05, inset: 22, L: 190, W: 74, curl: 0.14, twist: 0.34, rows: 34, creases: 2, tone: 0.5,  brush: 'brush', lw: 0.32, lift: 0,    occ: 0.94 },
+    { phase: 'Middle ring', n: 6, a0: -1.34, inset: 13, L: 148, W: 66, curl: 0.22, twist: -0.3, rows: 27, creases: 3, tone: 0.44, brush: 'brush', lw: 0.4,  lift: 0.55, occ: 0.96 },
+    { phase: 'Front ring',  n: 5, a0: -0.62, inset: 34, L: 78,  W: 44, curl: 0.4,  twist: 0.4,  rows: 16, creases: 2, tone: 0.34, brush: 'liner', lw: 0.5,  lift: 0.7,  occ: 0.97 },
+  ],
+};
+
+const PHASES = [
+  { name: 'Construction', note: 'squashed bloom ellipse, throat, eight spokes' },
+  { name: 'Stem', note: 'goes down first — the petals will cover it' },
+  { name: 'Leaves', note: 'serrated edge, midrib, seven vein pairs each' },
+  { name: 'Back ring', note: 'six petals, softest weight, furthest away' },
+  { name: 'Middle ring', note: 'each petal clears the ones behind it' },
+  { name: 'Front ring', note: 'five petals, crispest line, most curl' },
+  { name: 'Throat', note: 'charcoal — the wash cannot go this dark' },
+  { name: 'Stamens', note: 'filaments, anthers, phyllotactic pollen' },
+  { name: 'Rim light', note: 'chalk on the lit edge — ink IS light here' },
+  { name: 'Separation', note: 'eraser, cutting the shadow a petal throws' },
+  { name: 'Ground', note: 'stipple, so it is standing on something' },
+];
+
+class Component extends DCLogic {
+  canvasRef = React.createRef();
+  state = { speed: 2, hidden: {}, phase: null, animating: false, done: false, pct: 0 };
+
+  componentDidMount() {
+    this.dpr = 2;
+    this.ops = buildFlower(CONFIG);
+    this.layerC = {};
+    LAYERS.forEach((l) => {
+      const cv = document.createElement('canvas');
+      cv.width = CW * this.dpr; cv.height = CH * this.dpr;
+      const ctx = cv.getContext('2d');
+      ctx.scale(this.dpr, this.dpr);
+      this.layerC[l.key] = { cv, ctx };
+    });
+    this.total = this.ops.reduce((s, o) => s + this.opDur(o), 0);
+    this.last = performance.now();
+    this.loop = () => {
+      if (this.dead) return;
+      this.raf = requestAnimationFrame(this.loop);
+      const now = performance.now();
+      let dt = (now - this.last) / 1000;
+      this.last = now;
+      if (dt > 0.05) dt = 0.05;
+      if (this.cursor) this.step(dt);
+      this.composite();
+    };
+    this.start();
+    this.loop();
+  }
+
+  componentWillUnmount() {
+    this.dead = true;
+    if (this.raf) cancelAnimationFrame(this.raf);
+  }
+
+  clearLayers() {
+    LAYERS.forEach((l) => {
+      const L = this.layerC[l.key];
+      L.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      L.ctx.clearRect(0, 0, L.cv.width, L.cv.height);
+      L.ctx.scale(this.dpr, this.dpr);
+    });
+    this.ops.forEach((o) => { o._done = false; });
+  }
+
+  start() {
+    this.clearLayers();
+    this.cursor = { i: 0, u: 0, elapsed: 0 };
+    this.penX = null;
+    this.setState({ animating: true, done: false, phase: null, pct: 0 });
+  }
+
+  finish() {
+    this.clearLayers();
+    this.ops.forEach((op) => {
+      if (op.k === 'p' || op.k === 'phase') return;
+      op._p = op._p || null;
+      this.runOp(op, 0, 1);
+    });
+    this.cursor = null;
+    this.penX = null;
+    this.setState({ animating: false, done: true, phase: null, pct: 1 });
+  }
+
+  mark(x, y, vel, br, layer, rgb, wmul) {
+    const L = this.layerC[layer] || this.layerC.line;
+    const ctx = L.ctx;
+    if (br.brk && vel > br.brk) {
+      const over = (vel - br.brk) / (1 - br.brk);
+      const h = Math.abs(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453) % 1;
+      if (h < Math.min(0.8, over * 0.85)) return;
+    }
+    // Scatter has to be NOISE. A smooth sin() offset is a wave, and across a
+    // wash the size of a petal it beats against the bead spacing and shows up
+    // as a woven checkerboard — the one artifact that gave the whole thing away.
+    const sc = br.scatter;
+    const gx = x + (sc ? (frac(Math.sin(x * 127.1 + y * 311.7) * 43758.5453) - 0.5) * sc * 2 : 0);
+    const gy = y + (sc ? (frac(Math.sin(x * 269.5 + y * 183.3) * 43758.5453) - 0.5) * sc * 2 : 0);
+    const w = Math.max(0.35, br.w * (wmul || 1) * (0.34 + Math.pow(vel, br.taper) * br.swell));
+    ctx.save();
+    if (br.sub) {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,' + br.alpha.toFixed(3) + ')';
+    } else {
+      ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + br.alpha.toFixed(3) + ')';
+    }
+    ctx.beginPath();
+    if (br.dir) ctx.ellipse(gx, gy, w * (1 + br.dir), w * (1 - br.dir * 0.5), 0.7, 0, Math.PI * 2);
+    else ctx.arc(gx, gy, w, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  resample(pts) {
+    const out = [];
+    let len = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const n = Math.max(2, Math.ceil(d / 1.4));
+      for (let j = 0; j < n; j++) {
+        const t = j / n;
+        out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      }
+      len += d;
+    }
+    out.push(pts[pts.length - 1]);
+    return { pts: out, len };
+  }
+
+  clampLayer(layer, max) {
+    const L = this.layerC[layer];
+    if (!L) return;
+    const im = L.ctx.getImageData(0, 0, L.cv.width, L.cv.height);
+    const d = im.data;
+    const cap = Math.round(max * 255);
+    for (let i = 3; i < d.length; i += 4) if (d[i] > cap) d[i] = cap;
+    L.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    L.ctx.putImageData(im, 0, 0);
+    L.ctx.scale(this.dpr, this.dpr);
+  }
+
+  runOp(op, from, to) {
+    const br = BRUSHES[op.brush] || BRUSHES.brush;
+    if (op.k === 'clamp') { if (from === 0) this.clampLayer(op.layer, op.max); return; }
+    if (op.k === 'occ') {
+      if (from !== 0) return;
+      ['tone', 'line', 'accent'].forEach((key) => {
+        const ctx = this.layerC[key].ctx;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0,0,0,' + op.a + ')';
+        ctx.beginPath();
+        op.poly.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      });
+      return;
+    }
+    if (op.k === 'd') {
+      const L = this.layerC[op.layer] || this.layerC.line;
+      const ctx = L.ctx;
+      const R = op.r * 1.55;
+      ctx.save();
+      const g = ctx.createRadialGradient(op.x, op.y, 0, op.x, op.y, R);
+      if (br.sub) {
+        ctx.globalCompositeOperation = 'destination-out';
+        g.addColorStop(0, 'rgba(0,0,0,.92)');
+        g.addColorStop(0.52, 'rgba(0,0,0,.6)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+      } else {
+        g.addColorStop(0, 'rgba(248,251,255,.97)');
+        g.addColorStop(0.42, 'rgba(238,245,255,.88)');
+        g.addColorStop(0.68, 'rgba(206,228,255,.34)');
+        g.addColorStop(0.86, 'rgba(184,212,252,.1)');
+        g.addColorStop(1, 'rgba(176,206,250,0)');
+      }
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(op.x, op.y, R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      this.penX = op.x; this.penY = op.y;
+      return;
+    }
+    if (!op._p) op._p = this.resample(op.pts);
+    const P0 = op._p.pts;
+    const n = P0.length;
+    const i0 = Math.max(0, Math.floor(from * (n - 1)));
+    const i1 = Math.min(n - 1, Math.floor(to * (n - 1)));
+    const stepEvery = Math.max(1, Math.round(br.spacing / 1.4));
+    const isG = op.k === 'g';
+    for (let i = i0; i <= i1; i += stepEvery) {
+      const u = i / (n - 1);
+      const vel = Math.pow(Math.sin(Math.PI * u), 0.55);
+      const g = isG ? BRUSHES.brush : br;
+      const use = isG ? Object.assign({}, g, { alpha: 0.075, w: g.w * 0.5 }) : g;
+      this.mark(P0[i][0], P0[i][1], vel, use, op.layer, INK, op.w);
+      this.penX = P0[i][0]; this.penY = P0[i][1];
+    }
+  }
+
+  opDur(op) {
+    if (op.k === 'p' || op.k === 'phase') return op.ms / 1000;
+    if (op.k === 'clamp') return 0.02;
+    if (op.k === 'occ') return 0.03;
+    if (op.k === 'd') return 0.12;
+    if (!op._p) op._p = this.resample(op.pts);
+    const br = BRUSHES[op.brush] || BRUSHES.brush;
+    const px = op.k === 'g' ? 1300 : br === BRUSHES.wash ? 1500 : 620;
+    return Math.max(0.05, op._p.len / px);
+  }
+
+  step(dt) {
+    let budget = dt * this.state.speed;
+    let guard = 0;
+    while (budget > 0 && this.cursor && this.cursor.i < this.ops.length && guard++ < 900) {
+      const op = this.ops[this.cursor.i];
+      const dur = this.opDur(op);
+      const room = dur * (1 - this.cursor.u);
+      const use = Math.min(budget, room);
+      const u0 = this.cursor.u, u1 = u0 + use / dur;
+      if (op.k === 'phase') {
+        if (this.state.phase !== op.name) this.setState({ phase: op.name });
+      } else if (op.k !== 'p') {
+        this.runOp(op, u0, Math.min(1, u1));
+      }
+      budget -= use;
+      this.cursor.u = u1;
+      this.cursor.elapsed += use;
+      if (this.cursor.u >= 1) { this.cursor.i++; this.cursor.u = 0; }
+    }
+    if (this.cursor) {
+      const pct = Math.min(1, this.cursor.elapsed / this.total);
+      if (Math.abs(pct - this.state.pct) > 0.01) this.setState({ pct });
+      if (this.cursor.i >= this.ops.length) {
+        this.cursor = null;
+        this.penX = null;
+        this.setState({ animating: false, done: true, phase: null, pct: 1 });
+      }
+    }
+  }
+
+  composite() {
+    const c = this.canvasRef.current;
+    if (!c) return;
+    if (c.width !== CW * this.dpr) { c.width = CW * this.dpr; c.height = CH * this.dpr; }
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    LAYERS.forEach((l) => {
+      if (this.state.hidden[l.key]) return;
+      ctx.globalAlpha = l.op;
+      ctx.drawImage(this.layerC[l.key].cv, 0, 0);
+    });
+    ctx.globalAlpha = 1;
+    if (this.cursor && this.penX != null) {
+      ctx.save();
+      ctx.scale(this.dpr, this.dpr);
+      ctx.beginPath();
+      ctx.moveTo(this.penX, this.penY - 4);
+      ctx.lineTo(this.penX - 4, this.penY - 24);
+      ctx.lineTo(this.penX + 4, this.penY - 24);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(226,238,255,.8)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  renderVals() {
+    const st = this.state;
+    const strokeCount = this.ops ? this.ops.filter((o) => o.k === 's' || o.k === 'g').length : 0;
+    const dotCount = this.ops ? this.ops.filter((o) => o.k === 'd').length : 0;
+    const activeIdx = PHASES.findIndex((p) => p.name === st.phase);
+    return {
+      canvasRef: this.canvasRef,
+      strokeCount, dotCount,
+      dotColor: st.animating ? 'rgb(150,205,255)' : 'rgba(255,255,255,.3)',
+      statusLine: st.phase ? st.phase : st.done ? 'Finished — 4 layers, 7 brushes' : 'Ready',
+      progressLine: st.animating ? Math.round(st.pct * 100) + '%' : st.done ? String(strokeCount + dotCount) + ' marks' : '',
+      onReplay: () => this.start(),
+      onFinish: () => this.finish(),
+      speeds: [
+        { label: '1×', v: 1 }, { label: '2×', v: 2 }, { label: '6×', v: 6 },
+      ].map((s) => ({
+        label: s.label,
+        bg: st.speed === s.v ? 'rgba(255,255,255,.12)' : 'transparent',
+        border: st.speed === s.v ? 'rgba(255,255,255,.26)' : 'rgba(255,255,255,.1)',
+        fg: st.speed === s.v ? '#fff' : 'rgba(255,255,255,.5)',
+        onPick: () => this.setState({ speed: s.v }),
+      })),
+      layerChips: LAYERS.map((l) => {
+        const on = !st.hidden[l.key];
+        return {
+          name: l.name,
+          bg: on ? 'rgba(255,255,255,.08)' : 'transparent',
+          border: on ? 'rgba(255,255,255,.2)' : 'rgba(255,255,255,.08)',
+          fg: on ? 'rgba(255,255,255,.86)' : 'rgba(255,255,255,.34)',
+          onToggle: () => this.setState((s) => ({ hidden: Object.assign({}, s.hidden, { [l.key]: !s.hidden[l.key] }) })),
+        };
+      }),
+      phases: PHASES.map((p, i) => ({
+        name: p.name, note: p.note,
+        dot: i === activeIdx ? 'rgb(150,205,255)' : i < activeIdx || st.done ? 'rgba(255,255,255,.34)' : 'rgba(255,255,255,.12)',
+        fg: i === activeIdx ? '#fff' : i < activeIdx || st.done ? 'rgba(255,255,255,.68)' : 'rgba(255,255,255,.3)',
+      })),
+    };
+  }
+}
+</script>
+</body>
+</html>
