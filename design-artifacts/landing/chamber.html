@@ -558,6 +558,18 @@ void main(){ float L=texture(uPress,vUv-vec2(uTexel.x,0.)).x, R=texture(uPress,v
   // The decay pass below removes the drift; this clamp is the hard floor under it.
   o=vec4(clamp((L+R+B+T-d)*0.25,-2000.0,2000.0),0.,0.,1.); }`;
 
+const FS_VISC=`#version 300 es
+precision highp float; uniform sampler2D uVel; uniform sampler2D uVel0; uniform vec2 uTexel; uniform float uAlpha; in vec2 vUv; out vec4 o;
+void main(){
+  vec2 L=texture(uVel,vUv-vec2(uTexel.x,0.)).xy, R=texture(uVel,vUv+vec2(uTexel.x,0.)).xy;
+  vec2 B=texture(uVel,vUv-vec2(0.,uTexel.y)).xy, T=texture(uVel,vUv+vec2(0.,uTexel.y)).xy;
+  vec2 c=texture(uVel0,vUv).xy;
+  // implicit diffusion, Jacobi: (I - nu dt grad^2) u = u0. Unconditionally stable, so the
+  // viscosity can go as high as we like without the sim exploding.
+  vec2 v=(c+uAlpha*(L+R+B+T))/(1.0+4.0*uAlpha);
+  if(any(isnan(v))||any(isinf(v))) v=vec2(0.);
+  o=vec4(v,0.,1.); }`;
+
 const FS_SCALE=`#version 300 es
 precision highp float; uniform sampler2D uSrc; uniform float uK; in vec2 vUv; out vec4 o;
 void main(){ vec4 v=texture(uSrc,vUv); if(any(isnan(v))||any(isinf(v))) v=vec4(0.); o=v*uK; }`;
@@ -662,7 +674,7 @@ void main(){
 function compile(type,src){ const sh=gl.createShader(type); gl.shaderSource(sh,src); gl.compileShader(sh); if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)+"\n"+src.split("\n").slice(0,3).join("\n")); return sh; }
 function program(vs,fs){ const pr=gl.createProgram(); gl.attachShader(pr,compile(gl.VERTEX_SHADER,vs)); gl.attachShader(pr,compile(gl.FRAGMENT_SHADER,fs)); gl.linkProgram(pr); if(!gl.getProgramParameter(pr,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
   const u={}; const n=gl.getProgramParameter(pr,gl.ACTIVE_UNIFORMS); for(let i=0;i<n;i++){ const info=gl.getActiveUniform(pr,i); u[info.name.replace(/\[0\]$/,"")]=gl.getUniformLocation(pr,info.name); } return {p:pr,u}; }
-const P_SCL=program(VS_QUAD,FS_SCALE);
+const P_SCL=program(VS_QUAD,FS_SCALE), P_VIS=program(VS_QUAD,FS_VISC);
 const P_ADV=program(VS_QUAD,FS_ADVECT), P_FRC=program(VS_QUAD,FS_FORCES), P_CURL=program(VS_QUAD,FS_CURL), P_VORT=program(VS_QUAD,FS_VORT), P_DIV=program(VS_QUAD,FS_DIV), P_PRS=program(VS_QUAD,FS_PRESS), P_GRD=program(VS_QUAD,FS_GRAD), P_PART=program(VS_QUAD,FS_PART), P_PTS=program(VS_POINTS,FS_POINTS);
 const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
 const vao=gl.createVertexArray(); gl.bindVertexArray(vao); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
@@ -674,7 +686,7 @@ function makeFbo(tex){ const f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRA
 function pair(w,h,internal,format,type,filter){ const a=makeTex(w,h,internal,format,type,filter), b=makeTex(w,h,internal,format,type,filter); return {t:[a,b],f:[makeFbo(a),makeFbo(b)],i:0, get read(){return this.t[this.i];}, get write(){return this.f[this.i^1];}, swap(){this.i^=1;} }; }
 
 let W=0,H=0,dpr=1,pitch=6,originX=0,originY=0,GH=0;
-let vel,prs,divT,divF,curlT,curlF,pos,obstTex; const obst=document.createElement("canvas"); const octx=obst.getContext("2d",{willReadFrequently:false});
+let vel,prs,divT,divF,curlT,curlF,vel0T,vel0F,pos,obstTex; const obst=document.createElement("canvas"); const octx=obst.getContext("2d",{willReadFrequently:false});
 const col2 = () => { const m=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--margin")); const g=parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--gutter")); const colW=(W-2*m-11*g)/12; return { x:m+colW+g, colW, g, m }; };
 const snap = v => Math.round((v-originX)/pitch)*pitch+originX;
 
@@ -693,6 +705,7 @@ function resize(){
   const F=gl.RGBA16F, T=gl.HALF_FLOAT;
   vel=pair(GW,GH,F,gl.RGBA,T,gl.LINEAR); prs=pair(GW,GH,F,gl.RGBA,T,gl.NEAREST);
   divT=makeTex(GW,GH,F,gl.RGBA,T,gl.NEAREST); divF=makeFbo(divT); curlT=makeTex(GW,GH,F,gl.RGBA,T,gl.NEAREST); curlF=makeFbo(curlT);
+  vel0T=makeTex(GW,GH,F,gl.RGBA,T,gl.NEAREST); vel0F=makeFbo(vel0T);
   OH=Math.max(64,Math.round(OW*H/W)); obst.width=OW; obst.height=OH; obstTex=makeTex(OW,OH,gl.RGBA8,gl.RGBA,gl.UNSIGNED_BYTE,gl.LINEAR);
   if(!pos){ pos=pair(PW,PHh,gl.RGBA32F,gl.RGBA,gl.FLOAT,gl.NEAREST); initParticles(); particlesReady=true; }
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);
@@ -805,7 +818,20 @@ function dustStep(dt, now, o){
   runQuad(P_FRC,vel.write,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform1i(u.uObst,tex(1,obstTex)); gl.uniform2f(u.uSize,W,H); gl.uniform1f(u.uDt,dt); gl.uniform1f(u.uTime,now/1000);
     gl.uniform2f(u.uObstVel,0,o.obstVy); gl.uniform2f(u.uDrift,0,o.obstVy*TUNE.drift - TUNE.rise); gl.uniform4fv(u.uEddy,eddy); gl.uniform1fv(u.uEddyDir,eddyDir);
     gl.uniform4f(u.uCursor,cursorX,cursorY,cursorOn?TUNE.cursorR:0,TUNE.cursorK); gl.uniform2f(u.uCursorVel,cursorVX,cursorVY); gl.uniform1f(u.uAmbient,TUNE.ambient); }); vel.swap();
-  // vorticity confinement
+  // viscosity — the term that was missing. Without it this is the thinnest fluid that can
+  // exist, which is why it behaved like water and carried its grains like debris.
+  if(TUNE.viscosity>0.0001){
+    runQuad(P_SCL,vel0F,GW,GH,u=>{ gl.uniform1i(u.uSrc,tex(0,vel.read)); gl.uniform1f(u.uK,1.0); });
+    // alpha carries dt so the thickness is physical, but Jacobi convergence depends on the
+    // iteration count, so an uncapped alpha makes the fluid look thinner at low frame rates.
+    // Capped, the look holds from 30fps to 120.
+    const alpha=Math.min(TUNE.viscosity*dt,26);
+    for(let i=0;i<TUNE.viscIter;i++){
+      runQuad(P_VIS,vel.write,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform1i(u.uVel0,tex(1,vel0T));
+        gl.uniform2f(u.uTexel,texel[0],texel[1]); gl.uniform1f(u.uAlpha,alpha); }); vel.swap(); }
+  }
+  // vorticity confinement — an anti-viscosity hack: it re-injects the small swirls the solver
+  // smooths away. Turned down hard now that the fluid has real thickness to smooth with.
   runQuad(P_CURL,curlF,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform2f(u.uTexel,texel[0],texel[1]); });
   runQuad(P_VORT,vel.write,GW,GH,u=>{ gl.uniform1i(u.uVel,tex(0,vel.read)); gl.uniform1i(u.uCurl,tex(1,curlT)); gl.uniform2f(u.uTexel,texel[0],texel[1]); gl.uniform1f(u.uConf,TUNE.vorticity); gl.uniform1f(u.uDt,dt); }); vel.swap();
   // project — decay the carried-over pressure first so its mean cannot walk away
@@ -956,7 +982,7 @@ chordBtn.addEventListener("click",()=>{
 const EMIT_N=9, EMIT_MAX=34, EMIT_SCALE=0.5;   // 9×9 cells at half pitch: a 27px footprint, so a 78px wave does not cancel across it
 const live=document.getElementById("live");
 // Field tuning — live on window.__tune. Count is ?n= (reload).
-const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:14, respawn:0.004, push:900, dissipation:0.35, vorticity:6.0, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:2.6, homeK:0.45, homeSigma:130, homeInner:64, free:0.12, pressDecay:0.82, lightR:380, lightK:0.30, glint:0.65, glintRate:0.5, bloomK:0.46, warm:0.55, bloomSize:4.0, occlude:0.9, dilate:0.15 };
+const TUNE = window.__tune = { pointSize:1.0, bright:0.75, advect:1.0, jitter:1, respawn:0.004, push:900, dissipation:0.35, vorticity:0.0, viscosity:2500, viscIter:22, jacobi:14, ambient:26, drift:0.35, rise:5, eddyK:420, eddyR:240, cursorR:110, cursorK:0.9, feather:2.6, homeK:0.16, homeSigma:190, homeInner:64, free:0.4, pressDecay:0.82, lightR:380, lightK:0.30, glint:0.65, glintRate:0.5, bloomK:0.46, warm:0.55, bloomSize:4.0, occlude:0.9, dilate:0.15 };
 let T0=performance.now();
 let heroRect=null, releaseRect=null, lastT=performance.now(), fps=60, frameOn=false, tracesDrawn=false, prevBeat="", ticks=0, maxStep=0;
 let lastScrollY=window.scrollY, scrollVel=0;
