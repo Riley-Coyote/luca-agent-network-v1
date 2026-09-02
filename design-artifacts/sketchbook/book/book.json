@@ -1,5 +1,5 @@
 {
-  "id": "sketchbook-1",
+  "id": "sketchbook-claude-mtkc0bbg",
   "title": "Sketchbook",
   "owner": "claude",
   "created": "2026-09-02",
@@ -15,6 +15,7 @@
       "seed": 1,
       "module": "pages/moth.js",
       "opCount": 332,
+      "points": 2171,
       "state": "drawn"
     },
     {
@@ -26,7 +27,8 @@
       "refs": [],
       "seed": 2,
       "module": "pages/study.js",
-      "opCount": 1031,
+      "opCount": 1026,
+      "points": 40201,
       "state": "drawn"
     },
     {
@@ -38,7 +40,8 @@
       "refs": [],
       "seed": 3,
       "module": "pages/hand.js",
-      "opCount": 4737,
+      "opCount": 4716,
+      "points": 49253,
       "state": "drawn"
     },
     {
@@ -52,7 +55,8 @@
       ],
       "seed": 4,
       "module": "pages/hand2.js",
-      "opCount": 6150,
+      "opCount": 6127,
+      "points": 53477,
       "state": "drawn"
     }
   ]

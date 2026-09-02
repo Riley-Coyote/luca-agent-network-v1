@@ -144,7 +144,7 @@ export function hatchPoly(poly, ang, gap, wob, passes, skip = null, salt = 0) {
       if (run.length > 2) for (const [brush, w, layer] of passes) ops.push(OP('s', jitter(run, wob), layer, brush, w));
       run = [];
     };
-    for (let t = -span; t <= span; t += 2.5) {
+    for (let t = -span; t <= span; t += 4) {  /* the engine resamples at 1.4 px; 4 px keeps the wobble and a third of the points */
       const p = [ox + dx * t, oy + dy * t];
       if (inside(p, poly) && !(skip && skip(p))) run.push(p); else flush();
     }
