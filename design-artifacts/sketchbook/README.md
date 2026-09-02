@@ -46,24 +46,46 @@ Mixed, deliberately:
   and *What to build* below specify it; the screens have not been designed yet.
   Building them is the next design task, not a recreation task.
 
-## Status (2026-09-02)
+## Status (2026-09-02) — ready to hand over
 
-The book shell now exists, next to the engine:
+Everything the brief listed as "what to build" now exists, except a cover.
+The folder is self-contained and framework-free.
 
-- `index.html` — the sketchbook: a spine of page thumbnails, an open spread
-  (notes, lineage and source on the left, the drawing on the right). A page
-  animates the first time you reach it and is flat thereafter.
-- `book/` — the book itself: `book.json` is the index, `pages/NNN.json` a page
-  (meta, the module source, the marks). A folder you can hand to someone.
-- `book.mjs` — the agent-facing tool: `list`, `read <n>`, `write <module.js>
-  [--refs a,b]`, `blank`. Writing is the only way marks get into the book; the
-  viewer only reads.
-- `pages/` — page modules written so far, and `pages/lib.js`, the shading
-  helpers they share (lit parametric surfaces, hatching, tone→passes).
-- `page.html?p=<name>` — replay one module without the book; `harness.html` is
-  the original engine harness.
+**For a mind that will draw in it:** read `PAGE_PROTOCOL.md`. That is the whole
+contract — the page module shape, the brushes and layers, the limits, the
+rules, and how to save a page. Then:
 
-Not built yet: sandboxing (step 6 below), a cover, page one as its own source.
+```bash
+node book.mjs init --owner <name>          # a book of 48 blank pages, one folder per mind
+node book.mjs write pages/<page>.js        # runs the page in the sealed box, checks the marks, appends it
+node book.mjs write pages/<page>.js --refs 3   # …as a rework of page 3
+node book.mjs list · read <n> [--source] · blank
+```
+
+**For an app that will show it:** `sketch-page.js` is a drawing as one tag
+(`<sketch-page src="book/pages/002.json" autoplay controls>`, or `el.ops = …`),
+and `sandbox-browser.js` runs page source a model wrote inside a sealed frame
+and returns checked marks. `embed.html` shows both in a chat. Every list of
+marks, from anywhere, passes `validate.js` before the engine draws it.
+
+**For a person:** `index.html` is the book — a spine of thumbnails, an open
+spread with the note, the lineage of reworks both ways, and the source beside
+the drawing. `?book=<dir>` opens another mind's book.
+
+**How it is sealed.** A page module is code another mind wrote. It runs in a
+bare context with no globals beyond the language (node: `vm` with hand-linked
+imports; browser: a worker inside an opaque-origin `<iframe sandbox>` under
+`default-src 'none'`, network functions removed), may import only the engine,
+the helpers and earlier pages, has 15 s of CPU and a wall-clock kill, and can
+only return JSON. The marks are then checked for kind, brush, layer, range and
+count. `node test.mjs` and `node tests/browser.mjs` prove all of this against
+six hostile pages.
+
+**Pages so far:** 1 moth · 2 sphere and cube (the tonal study, four attempts)
+· 3 a hand at rest · 4 the hand again, reworking 3. `screenshots/` has them.
+
+**Not built:** a cover; thinning page files further (0.6–1 MB each: hatch
+strokes carry a point every 4 px); a page-turn between spreads.
 
 ## Run it first
 
@@ -311,21 +333,24 @@ The prototype UI uses the system sans stack only.
 ```
 mark-engine.js          the hand. Engine, brushes, layers, ops, vocabulary,
                         handwriting font. Working source, no dependencies.
-subjects/flower.js      a worked page — pure function, config → ops. The
-                        reference for what an agent writes. All five rules
-                        annotated in place.
-index.html              runnable harness. Replay, speed, layer toggles.
-PAGE_PROTOCOL.md        draft of the agent-facing instructions that ship
-                        inside the book.
+validate.js             checks and strips any list of marks. node + browser.
+sandbox.mjs             runs a page module in a bare V8 context (node).
+sandbox-browser.js      runs page source in a sealed worker (browser).
+book.mjs                the agent-facing tool: init, list, read, write, blank.
+sketch-page.js          <sketch-page>: a drawing as one tag, for apps.
+index.html              the book viewer (spine, spread, lineage, source).
+embed.html              a chat with drawings inline + a studio that runs source.
+page.html               replay one module by name, without the book.
+harness.html            the original engine harness (replay, layers, speed).
+test.mjs                node tests: validator, hostile pages, every page, the tool.
+tests/                  hostile page modules and the browser test.
+PAGE_PROTOCOL.md        the agent-facing instructions that ship inside the book.
 README.md               this file.
 
-reference/
-  Flower Study.dc.html      the design this was extracted from — engine plus
-                            the surrounding UI (phase list, controls, copy).
-  Sketchbook Studio.dc.html earlier: five attempts at one subject at rising
-                            skill, with tonal-analysis metrics read back off
-                            the canvas. Worth reading for the metrics idea.
-  Sketchbook.dc.html        earliest: multi-page sketchbook, source of the
-                            single-stroke handwriting font.
-  support.js                runtime the three .dc.html files need to open.
+book/                   the first book (owner: claude). book.json + pages/NNN.json.
+pages/                  page modules written so far, and lib.js, their shared
+                        drawing helpers (lit surfaces, hatching, tone→passes).
+subjects/flower.js      the original worked page from the handoff.
+screenshots/            renders of each page, the book, the embed demo.
+reference/              the .dc.html design prototypes this came from.
 ```
