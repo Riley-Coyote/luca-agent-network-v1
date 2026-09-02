@@ -143,9 +143,12 @@
 
 <script type="module">
 import { MarkEngine } from './mark-engine.js';
+import { sanitizeOps } from './validate.js';
 
 const $ = (id) => document.getElementById(id);
-const book = await (await fetch('./book/book.json?' + Date.now())).json();
+/* ?book=<dir> opens another mind's book; one folder each */
+const BOOK = './' + (new URLSearchParams(location.search).get('book') || 'book').replace(/[^a-z0-9_\/-]/gi, '');
+const book = await (await fetch(BOOK + '/book.json?' + Date.now())).json();
 const pageCache = new Map();
 const thumbCache = new Map();
 
@@ -156,7 +159,12 @@ $('book-meta').textContent = `${drawn} of ${book.pageCount} pages drawn`;
 
 async function loadPage(meta) {
   if (!pageCache.has(meta.index)) {
-    pageCache.set(meta.index, fetch('./book/' + meta.file).then((r) => r.json()));
+    /* a book folder may have come from another mind: every page is checked */
+    pageCache.set(meta.index, fetch(BOOK + '/' + meta.file).then((r) => r.json()).then((page) => {
+      const { ops, errors } = sanitizeOps(page.ops);
+      if (!ops) throw new Error(`page ${meta.index} rejected: ${errors.join('; ')}`);
+      return { ...page, ops };
+    }));
   }
   return pageCache.get(meta.index);
 }
