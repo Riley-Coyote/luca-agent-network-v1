@@ -114,6 +114,40 @@ discs again (edge 0.035), and instead of boxes or halos the field simply goes qu
 each mark, its label and the runtime strip — a feathered dimming in the shader (dimAmt
 0.28 over ~18px), no edge, nothing opaque.
 
+## The Chamber — the dust variant (2026-09-02, night)
+
+Riley: use the brand's particle family, on the GPU, way past 50k; preserve the
+Aperture's layout and core flow, but the field is fair game; the Aperture file must not
+be lost. So: `design-artifacts/landing/chamber.html` is a **copy** of the Aperture with
+the same DOM, type, cards, window and beats, and a new engine underneath. See
+`PARTICLE_LINEAGE.md` for the family it descends from.
+
+- **Half a million grains in textures.** Positions live in an RGBA32F texture (one
+  texel per particle); a fragment pass moves them; they draw as `gl.POINTS`, one device
+  pixel each, additive, ivory `(172,168,162)` warming to gold `(232,196,147)` where
+  excited — the family's exact rendering. Count scales with viewport area (≈524k at
+  1440×900, ~180k on a phone); `?n=` overrides.
+- **A real fluid.** Stable-fluids on a 256-wide grid (advect → forces → vorticity
+  confinement → divergence → 14 Jacobi → project). Every solid on the page is drawn into
+  an obstacle mask from its DOM geometry each frame — text as its **line boxes**
+  (`Range.getClientRects`), marks as ellipses, the window, the strips, captions — and
+  inside a solid the fluid takes the solid's velocity, so a card scrolling through the
+  chamber displaces the dust and sheds a wake. Scrolling is wind: the obstacles move at
+  `−scrollVel`, plus a fraction of that as global drift, plus a slow rise.
+- **Density has structure.** Incompressible flow keeps a uniform field uniform, which
+  reads as static; so 88% of the grains have a home on an **annulus around one of the
+  five marks** (inner 64px, σ 130) with a weak spring the eddies and the wind can
+  overpower — nebulae with the mind in a clearing, spun into arms. 12% are free ambient
+  dust. Brightness is skewed faint (`0.018 + z³·0.62`).
+- **The marks are eddies** (tangential force, radius 240, alternating spin) whose
+  strength breathes with the Kuramoto phase — the lock survives as five eddies falling
+  into one rhythm. The cursor stirs. Dust inside a solid is pushed out along the mask
+  gradient and fades over a feathered edge, never a hard box.
+- **No borrowed colour.** Brand marks keep their own colours; traces and chip rings are
+  the family's gold on ivory; no hue is derived from a lab anywhere else.
+- Dials live on `window.__tune` (advect, jitter, vorticity, ambient, drift, rise, eddyK,
+  eddyR, homeK, homeSigma, homeInner, free, feather, bright, pointSize).
+
 ## Handing off to Claude Design
 
 Riley takes the page into Claude Design next. What survives a design canvas and what
