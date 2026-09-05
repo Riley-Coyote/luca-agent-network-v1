@@ -67,7 +67,9 @@ async function createAndJoinSharedStream(
   await openCreateChannelDialog(ownerPage);
   await ownerPage.getByTestId("create-channel-name").fill(channelName);
   await ownerPage.getByTestId("create-channel-submit").click();
-  await expect(ownerPage.getByTestId("stream-list")).toContainText(channelName);
+  await expect(ownerPage.getByTestId("chat-channels")).toContainText(
+    channelName,
+  );
   await expect(ownerPage.getByTestId("chat-title")).toHaveText(channelName);
   await expect(ownerPage.getByTestId("message-input")).toBeEnabled();
 
@@ -82,7 +84,7 @@ async function createAndJoinSharedStream(
     .getByRole("button", { name: "Join" })
     .click();
   await expect(memberPage.getByTestId("chat-title")).toHaveText(channelName);
-  await expect(memberPage.getByTestId("stream-list")).toContainText(
+  await expect(memberPage.getByTestId("chat-channels")).toContainText(
     channelName,
   );
 
@@ -193,10 +195,12 @@ test("loads channels from the relay", async ({ page }) => {
   await installRelayBridge(page, "tyler");
   await page.goto("/");
 
-  await expect(page.getByTestId("stream-list")).toContainText("general");
-  await expect(page.getByTestId("stream-list")).toContainText("random");
-  await expect(page.getByTestId("forum-list")).toContainText("watercooler");
-  await expect(page.getByTestId("dm-list")).toContainText("alice-tyler");
+  await expect(page.getByTestId("chat-channels")).toContainText("general");
+  await expect(page.getByTestId("chat-channels")).toContainText("random");
+  await expect(page.getByTestId("chat-channels")).toContainText("watercooler");
+  await expect(page.getByTestId("chat-direct-messages")).toContainText(
+    "alice-tyler",
+  );
 });
 
 test("loads the home feed from the relay", async ({ browser }) => {
@@ -514,8 +518,8 @@ test("keeps scroll position when new messages arrive above the fold", async ({
       content: incomingMessage,
     });
 
-    await expect(pageTwo.getByTestId("message-scroll-to-latest")).toContainText(
-      "1 new message",
+    await expect(pageTwo.getByTestId("message-scroll-to-latest")).toHaveText(
+      "New response",
     );
     await expect
       .poll(async () => (await getTimelineMetrics(pageTwo)).distanceFromBottom)
