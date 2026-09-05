@@ -92,9 +92,11 @@ test("desktop shell preserves hierarchy, keyboard reachability, and visual fidel
 
   await page.getByTestId("open-activity-view").click();
   await expect(page).toHaveURL(/#\/pulse$/);
-  await expect(
-    page.getByTestId(`owner-activity-resident-${RESIDENT_PUBKEY}`),
-  ).toContainText("Runtime ready");
+  const activityResident = page.getByTestId(
+    `owner-activity-resident-${RESIDENT_PUBKEY}`,
+  );
+  await expect(activityResident).toContainText("Started");
+  await expect(activityResident).toContainText("Connection not yet verified");
   await expect(page.getByText(/public pulse/i)).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
 

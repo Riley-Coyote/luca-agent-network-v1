@@ -626,6 +626,8 @@ test("a lost finish acknowledgment retries the verified result without reconnect
       (before) =>
         window.__REPOSITORY_PROPOSAL_TEST__?.calls
           .slice(before)
+          // The workspace may finish its independent read-only catalog query.
+          .filter((c) => c.command !== "list_channel_templates")
           .map((c) => c.command),
       before,
     ),
