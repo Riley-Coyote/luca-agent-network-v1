@@ -66,7 +66,7 @@ export function AgentManagementDialogs() {
           initialName={management.request.request.displayName}
           initialPrompt={management.request.request.systemPrompt}
           initialRuntime={nativeRuntime}
-          onComplete={management.dismiss}
+          onComplete={management.completeNativeCreate}
           onOpenChange={(open) => {
             if (!open) management.dismiss();
           }}

@@ -28,6 +28,11 @@ import { useChannelsQuery } from "@/features/channels/hooks";
 import { resolveManagedAgentAvatarUrl } from "./ui/managedAgentAvatar";
 import type { AgentCreateIntent } from "./ui/agentCreateIntent";
 import { editPersonaDialogState } from "./ui/personaDialogState";
+import {
+  agentManagementCompletionMessage,
+  type NativeAgentCompletion,
+} from "./lib/agentManagementCompletion";
+import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
 import type {
   CreatePersonaInput,
   UpdatePersonaInput,
@@ -114,9 +119,9 @@ export function useAgentManagement() {
     }
   }, [channelsQuery.data, managedAgentsQuery.data]);
 
-  React.useEffect(
-    () =>
-      subscribeAgentManagementRequests((agentPubkey, next) => {
+  React.useEffect(() => {
+    const unsubscribe = subscribeAgentManagementRequests(
+      (agentPubkey, next) => {
         // Observer frames are owner-scoped and authenticated. Any managed agent
         // this Desktop owns may draft a change; defer the ownership decision
         // until the managed-agent query has initialized so ephemeral requests
@@ -136,9 +141,14 @@ export function useAgentManagement() {
           return;
         }
         acceptOwnedRequest(agentPubkey, next);
-      }),
-    [],
-  );
+      },
+    );
+    return () => {
+      unsubscribe();
+      pendingRequestId.current = null;
+      sourceAgentPubkey.current = null;
+    };
+  }, []);
 
   const matchingPersonas = React.useMemo(() => {
     if (request?.action !== "update") return [];
@@ -182,11 +192,44 @@ export function useAgentManagement() {
     }
   }
 
-  function authorizePendingCreate() {
-    if (request?.action !== "create") {
+  async function authorizePendingCreate() {
+    const requestingPubkey = sourceAgentPubkey.current;
+    if (
+      request?.action !== "create" ||
+      pendingRequestId.current !== request.requestId ||
+      !requestingPubkey
+    ) {
       throw new Error("This agent creation request is no longer available.");
     }
-    assertAgentCanActFromOrigin(request.request.channelId);
+    const [agents, channels] = await Promise.all([
+      managedAgentsQuery.refetch({ throwOnError: true }),
+      channelsQuery.refetch({ throwOnError: true }),
+    ]);
+    if (
+      pendingRequestId.current !== request.requestId ||
+      sourceAgentPubkey.current !== requestingPubkey ||
+      classifyAgentManagementOrigin(
+        agents.data,
+        channels.data,
+        requestingPubkey,
+        request.request.channelId,
+      ) !== "accept"
+    ) {
+      throw new Error(
+        "This request requires an owned agent and a conversation you both still belong to.",
+      );
+    }
+  }
+
+  async function completeNativeCreate(completion: NativeAgentCompletion) {
+    const requestingPubkey = sourceAgentPubkey.current;
+    if (!request || !requestingPubkey) {
+      throw new Error("This agent creation request is no longer available.");
+    }
+    await authorizePendingCreate();
+    await sendManagedAgentChannelMessage(
+      agentManagementCompletionMessage(request, requestingPubkey, completion),
+    );
   }
 
   async function submitCreate(
@@ -319,6 +362,7 @@ export function useAgentManagement() {
 
   return {
     authorizePendingCreate,
+    completeNativeCreate,
     request,
     createTargetChannel,
     createInitialValues,

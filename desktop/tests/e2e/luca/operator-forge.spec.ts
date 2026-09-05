@@ -1,6 +1,7 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
 const AGENTS_CHANNEL_ID = "94a444a4-c0a3-5966-ab05-530c6ddc2301";
 const OWNED_AGENT_PUBKEY =
@@ -40,6 +41,91 @@ async function installDefaultBridge(page: import("@playwright/test").Page) {
   });
 }
 
+async function requestOwnedNativeCreate(
+  page: Page,
+  runtime: "hermes" | "openclaw" = "hermes",
+) {
+  await page.goto(`/?e2e=mock#/channels/${AGENTS_CHANNEL_ID}`);
+  await expect(page.getByRole("heading", { name: "agents" })).toBeVisible();
+  await page.waitForFunction(() =>
+    window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName: "agents" }),
+  );
+  await page.evaluate(
+    ({ agentPubkey, channelId, runtime }) => {
+      window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__?.({
+        agentPubkey,
+        events: [
+          {
+            seq: 1,
+            timestamp: new Date().toISOString(),
+            kind: "agent_management_request",
+            agentIndex: 0,
+            channelId,
+            sessionId: "completion-session",
+            turnId: "completion-turn",
+            payload: {
+              type: "agent_management_request",
+              action: "create",
+              requestId: "native-completion-1",
+              request: {
+                channelId,
+                displayName: "Completion Scout",
+                systemPrompt:
+                  "Investigate this project and report sourced findings.",
+                requestedRuntimeFamily: runtime,
+                provisioningIntent: "fresh",
+              },
+            },
+          },
+        ],
+      });
+    },
+    { agentPubkey: OWNED_AGENT_PUBKEY, channelId: AGENTS_CHANNEL_ID, runtime },
+  );
+  await expect(page.getByLabel("Runtime")).toHaveValue(runtime);
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await expect(
+    page.getByRole("region", { name: "Provisioning review" }),
+  ).toBeVisible();
+}
+
+// Intercept only the mock IPC send in this test page. No shared bridge change
+// is needed to model a failed send or a reply lost after successful delivery.
+async function failFirstCompletionSend(page: Page, afterDelivery = false) {
+  await page.evaluate((afterDelivery) => {
+    const target = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          payload?: unknown,
+          options?: unknown,
+        ) => Promise<unknown>;
+      };
+      completionSendAttempts?: number;
+    };
+    const original = target.__TAURI_INTERNALS__.invoke.bind(
+      target.__TAURI_INTERNALS__,
+    );
+    target.completionSendAttempts = 0;
+    target.__TAURI_INTERNALS__.invoke = async (command, payload, options) => {
+      if (command === "send_managed_agent_channel_message") {
+        target.completionSendAttempts =
+          (target.completionSendAttempts ?? 0) + 1;
+        if (target.completionSendAttempts === 1) {
+          if (afterDelivery) await original(command, payload, options);
+          throw new Error(
+            "The conversation update acknowledgment was interrupted.",
+          );
+        }
+      }
+      return original(command, payload, options);
+    };
+  }, afterDelivery);
+}
+
+const completionReceipt = (page: Page) =>
+  page.getByText(/^Polyphonic setup update:/);
+
 test("manual native creation commits only after its review sheet", async ({
   page,
 }) => {
@@ -78,10 +164,9 @@ test("an owned Luca chat proposal uses the same native review sheet", async ({
     () => typeof window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__ === "function",
   );
   await expect(page.getByRole("heading", { name: "agents" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Open Luca details" }),
-  ).toBeVisible();
-  await page.waitForTimeout(100);
+  await page.waitForFunction(() =>
+    window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName: "agents" }),
+  );
   await page.evaluate(
     ({ agentPubkey, channelId }) => {
       window.__BUZZ_E2E_SEED_OBSERVER_EVENTS__?.({
@@ -131,6 +216,7 @@ test("an owned Luca chat proposal uses the same native review sheet", async ({
   );
   expect(commands).toContain("preview_native_agent_provisioning");
   expect(commands).not.toContain("execute_native_agent_provisioning");
+  expect(commands).not.toContain("send_managed_agent_channel_message");
 });
 
 test("an authenticated Brain review request opens discovery without connecting", async ({
@@ -320,3 +406,289 @@ test("room attachment failure retries membership without rerunning native creati
   expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
   expect(commandCount(commands, "add_channel_members")).toBe(2);
 });
+
+for (const runtime of ["hermes", "openclaw"] as const) {
+  test(`${runtime} proposal returns the exact created resident outcome to its original conversation`, async ({
+    page,
+  }, testInfo) => {
+    await installDefaultBridge(page);
+    await requestOwnedNativeCreate(page, runtime);
+    await page.getByRole("button", { name: "Create agent" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Create a native agent" }),
+    ).not.toBeVisible();
+    await expect(completionReceipt(page)).toHaveCount(1);
+    await expect(completionReceipt(page)).toContainText(
+      runtime === "hermes" ? "its Hermes profile" : "its OpenClaw agent",
+    );
+    await expect(completionReceipt(page)).toContainText(
+      "Its runtime process was started.",
+    );
+    await expect(completionReceipt(page)).toContainText(
+      "An authenticated reply has not been verified.",
+    );
+
+    const payloads = await page.evaluate(
+      () => window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
+    );
+    const sends = payloads.filter(
+      (entry) => entry.command === "send_managed_agent_channel_message",
+    );
+    expect(sends).toHaveLength(1);
+    expect(sends[0].payload).toMatchObject({
+      agentPubkey: OWNED_AGENT_PUBKEY,
+      channelId: AGENTS_CHANNEL_ID,
+      marker: "polyphonic-agent-creation.v1:native-completion-1",
+      markerScope: "agent",
+      mentionPubkeys: null,
+    });
+    const residents = await page.evaluate(
+      async () =>
+        (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+          "list_managed_agents",
+        )) as Array<{ name: string; pubkey: string }>,
+    );
+    const created = residents.filter(
+      (resident) => resident.name === "Completion Scout",
+    );
+    expect(created).toHaveLength(1);
+    expect(
+      payloads.filter((entry) => entry.command === "start_managed_agent"),
+    ).toEqual([
+      {
+        command: "start_managed_agent",
+        payload: { pubkey: created[0].pubkey },
+      },
+    ]);
+    expect(
+      payloads.find((entry) => entry.command === "add_channel_members")
+        ?.payload,
+    ).toMatchObject({
+      channelId: AGENTS_CHANNEL_ID,
+      pubkeys: [created[0].pubkey],
+    });
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: testInfo.outputPath(`${runtime}-completion.png`),
+    });
+  });
+}
+
+test("navigation during review keeps attachment and completion in the original conversation", async ({
+  page,
+}) => {
+  await installDefaultBridge(page);
+  await requestOwnedNativeCreate(page);
+  await page.evaluate(() => {
+    window.location.hash = "/channels/9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+  });
+  await expect(
+    page.getByRole("heading", {
+      name: "general",
+      exact: true,
+      includeHidden: true,
+    }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).not.toBeVisible();
+  await expect(completionReceipt(page)).toHaveCount(0);
+  const payloads = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
+  );
+  expect(
+    payloads.find(
+      (entry) => entry.command === "send_managed_agent_channel_message",
+    )?.payload,
+  ).toMatchObject({
+    channelId: AGENTS_CHANNEL_ID,
+  });
+  await page.evaluate((channelId) => {
+    window.location.hash = `/channels/${channelId}`;
+  }, AGENTS_CHANNEL_ID);
+  await expect(completionReceipt(page)).toHaveCount(1);
+});
+
+test("native startup failure preserves the resident and sends no completion until retry succeeds", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    startManagedAgentErrors: ["Hermes authentication needs attention."],
+    managedAgents: [
+      {
+        channelNames: ["agents"],
+        name: "Luca",
+        pubkey: OWNED_AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await requestOwnedNativeCreate(page);
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("region", { name: "Room attachment needs attention" }),
+  ).toContainText("Hermes authentication needs attention.");
+  await expect(completionReceipt(page)).toHaveCount(0);
+  await page.getByRole("button", { name: "Try room again" }).click();
+  await expect(completionReceipt(page)).toHaveCount(1);
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commandCount(commands, "create_persona")).toBe(1);
+  expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+  expect(commandCount(commands, "add_channel_members")).toBe(1);
+  expect(commandCount(commands, "start_managed_agent")).toBe(2);
+  expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(1);
+});
+
+test("a lost completion acknowledgment retries only delivery and deduplicates the conversation receipt", async ({
+  page,
+}, testInfo) => {
+  await installDefaultBridge(page);
+  await requestOwnedNativeCreate(page);
+  await failFirstCompletionSend(page, true);
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("region", { name: "Conversation update needs attention" }),
+  ).toContainText("already saved");
+  await expect(completionReceipt(page)).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Create agent", exact: true }),
+  ).not.toBeVisible();
+  await waitForAnimations(page);
+  await page
+    .getByRole("dialog")
+    .screenshot({ path: testInfo.outputPath("receipt-delivery-retry.png") });
+  await page.getByRole("button", { name: "Retry conversation update" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).not.toBeVisible();
+  await expect(completionReceipt(page)).toHaveCount(1);
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commandCount(commands, "create_persona")).toBe(1);
+  expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+  expect(commandCount(commands, "add_channel_members")).toBe(1);
+  expect(commandCount(commands, "start_managed_agent")).toBe(1);
+  expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(2);
+});
+
+test("room retry refreshes revoked membership before adding the resident or sending a receipt", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    addChannelMembersErrors: ["The room is temporarily unavailable.", null],
+    managedAgents: [
+      {
+        channelNames: ["agents"],
+        name: "Luca",
+        pubkey: OWNED_AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  await requestOwnedNativeCreate(page);
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("region", { name: "Room attachment needs attention" }),
+  ).toBeVisible();
+  // Leave React Query stale: the owner action itself must refresh membership.
+  await page.evaluate(
+    ({ channelId, pubkey }) => {
+      window.__BUZZ_E2E_MUTATE_CHANNEL__?.({
+        channelId,
+        removeMemberPubkey: pubkey,
+      });
+    },
+    { channelId: AGENTS_CHANNEL_ID, pubkey: OWNED_AGENT_PUBKEY },
+  );
+  await page.getByRole("button", { name: "Try room again" }).click();
+  await expect(
+    page.getByRole("region", { name: "Room attachment needs attention" }),
+  ).toContainText("both still belong to");
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+  expect(commandCount(commands, "add_channel_members")).toBe(1);
+  expect(commandCount(commands, "start_managed_agent")).toBe(0);
+  expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(0);
+});
+
+test("receipt retry refreshes revoked ownership and leaves completed native work intact", async ({
+  page,
+}) => {
+  await installDefaultBridge(page);
+  await requestOwnedNativeCreate(page);
+  await failFirstCompletionSend(page);
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("region", { name: "Conversation update needs attention" }),
+  ).toBeVisible();
+  await page.evaluate(async (pubkey) => {
+    await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("delete_managed_agent", {
+      pubkey,
+    });
+  }, OWNED_AGENT_PUBKEY);
+  await page.getByRole("button", { name: "Retry conversation update" }).click();
+  await expect(
+    page.getByRole("region", { name: "Conversation update needs attention" }),
+  ).toContainText("owned agent");
+  await expect(completionReceipt(page)).toHaveCount(0);
+  const commands = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+  );
+  expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+  expect(commandCount(commands, "add_channel_members")).toBe(1);
+  expect(commandCount(commands, "start_managed_agent")).toBe(1);
+  expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(0);
+});
+
+for (const recovery of ["Reconcile", "Roll back"] as const) {
+  test(`a proposed native transaction ${recovery === "Reconcile" ? "returns its reconciled outcome" : "never reports success after rollback"}`, async ({
+    page,
+  }) => {
+    await installMockBridge(page, {
+      createManagedAgentErrors: [
+        "Native identity exists; resident linking was interrupted.",
+      ],
+      managedAgents: [
+        {
+          channelNames: ["agents"],
+          name: "Luca",
+          pubkey: OWNED_AGENT_PUBKEY,
+          status: "running",
+        },
+      ],
+    });
+    await requestOwnedNativeCreate(page);
+    await page.getByRole("button", { name: "Create agent" }).click();
+    await expect(
+      page.getByRole("button", { name: recovery, exact: true }),
+    ).toBeVisible();
+    await expect(completionReceipt(page)).toHaveCount(0);
+    await page.getByRole("button", { name: recovery, exact: true }).click();
+    if (recovery === "Roll back") {
+      await expect(
+        page.getByRole("region", { name: "Provisioning rolled back" }),
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+    }
+    await expect(
+      page.getByRole("heading", { name: "Create a native agent" }),
+    ).not.toBeVisible();
+    await expect(completionReceipt(page)).toHaveCount(
+      recovery === "Reconcile" ? 1 : 0,
+    );
+    const commands = await page.evaluate(
+      () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+    );
+    expect(commandCount(commands, "create_persona")).toBe(1);
+    expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+    expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(
+      recovery === "Reconcile" ? 1 : 0,
+    );
+  });
+}
