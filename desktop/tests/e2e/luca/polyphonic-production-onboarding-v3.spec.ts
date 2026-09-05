@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import type { NativeResidentDiscoveryOutcome } from "../../../src/shared/api/types";
 import { installMockBridge } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 import { LARGE_NATIVE_RESIDENT_DISCOVERY } from "./onboarding-agent-import-fixture";
 
 const NO_AGENTS: NativeResidentDiscoveryOutcome = { runtimes: [] };
@@ -133,6 +134,143 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
   ).toMatchObject({
     marker: "polyphonic-onboarding.luca-greeting.v1",
     markerScope: "channel",
+  });
+});
+
+test("a saved Luca survives a failed managed refresh and retries only the handoff", async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: NO_AGENTS,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await begin(page);
+  await page.evaluate(() => {
+    const target = window as typeof window & {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          payload?: unknown,
+          options?: unknown,
+        ) => Promise<unknown>;
+      };
+      __EXP04_HANDOFF_TEST__?: {
+        allowRefresh: boolean;
+        pubkey: string | null;
+        failedRefreshes: number;
+      };
+    };
+    const state = {
+      allowRefresh: false,
+      pubkey: null as string | null,
+      failedRefreshes: 0,
+    };
+    target.__EXP04_HANDOFF_TEST__ = state;
+    const invoke = target.__TAURI_INTERNALS__.invoke.bind(
+      target.__TAURI_INTERNALS__,
+    );
+    target.__TAURI_INTERNALS__.invoke = async (command, payload, options) => {
+      if (
+        command === "list_managed_agents" &&
+        state.pubkey &&
+        !state.allowRefresh
+      ) {
+        state.failedRefreshes += 1;
+        throw new Error(
+          "Luca's saved setup could not be refreshed. Try again.",
+        );
+      }
+      const result = await invoke(command, payload, options);
+      if (command === "create_luca_resident") {
+        state.pubkey = (
+          result as { resident: { residentPubkey: string } }
+        ).resident.residentPubkey;
+      }
+      return result;
+    };
+  });
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Luca's saved setup could not be refreshed",
+    { timeout: 15000 },
+  );
+  await expect(page).not.toHaveURL(/#\/channels\//);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("saved-luca-refresh-error.png"),
+  });
+  const saved = await page.evaluate(async () => {
+    const state = (
+      window as typeof window & {
+        __EXP04_HANDOFF_TEST__?: {
+          allowRefresh: boolean;
+          pubkey: string | null;
+          failedRefreshes: number;
+        };
+      }
+    ).__EXP04_HANDOFF_TEST__;
+    if (!state?.pubkey) throw new Error("No Luca was prepared.");
+    const before = window.__BUZZ_E2E_COMMANDS__?.length ?? 0;
+    state.allowRefresh = true;
+    return {
+      pubkey: state.pubkey,
+      failedRefreshes: state.failedRefreshes,
+      before,
+    };
+  });
+  expect(saved.failedRefreshes).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(page).toHaveURL(/#\/channels\//);
+  await page
+    .getByRole("button", { name: "Open conversation details", exact: true })
+    .click();
+  await expect(
+    page.getByTestId(`drawer-context-agent-${saved.pubkey}`),
+  ).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("resident-drawer")).toBeVisible();
+  await page.getByRole("tab", { name: "Conversation", exact: true }).click();
+  const resident = page.getByTestId(`conversation-resident-${saved.pubkey}`);
+  await expect(resident).toContainText("Notebook available");
+  await expect(resident).not.toContainText("External agent");
+  await page.getByTestId(`drawer-context-agent-${saved.pubkey}`).click();
+  await expect(page.getByTestId("resident-drawer")).toBeVisible();
+  const evidence = await page.evaluate(
+    (before) => ({
+      all: window.__BUZZ_E2E_COMMANDS__ ?? [],
+      retried: window.__BUZZ_E2E_COMMANDS__?.slice(before) ?? [],
+      greeting: (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+        (entry) => entry.command === "send_managed_agent_channel_message",
+      ),
+    }),
+    saved.before,
+  );
+  expect(
+    evidence.all.filter((command) => command === "create_luca_resident"),
+  ).toHaveLength(1);
+  expect(evidence.greeting).toHaveLength(1);
+  expect(evidence.greeting[0].payload).toMatchObject({
+    agentPubkey: saved.pubkey,
+    marker: "polyphonic-onboarding.luca-greeting.v1",
+  });
+  expect(evidence.retried).toContain("list_managed_agents");
+  for (const command of [
+    "create_luca_resident",
+    "execute_native_agent_provisioning",
+    "open_dm",
+    "send_managed_agent_channel_message",
+    "get_managed_agent_log",
+  ]) {
+    expect(evidence.retried).not.toContain(command);
+  }
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("saved-luca-managed-drawer.png"),
   });
 });
 

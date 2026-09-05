@@ -58,7 +58,7 @@ test("returns a host setup receipt to the originating conversation, without an a
   assert.equal(message.markerScope, "agent");
   assert.equal(
     message.content,
-    "Polyphonic setup update: Scout was linked to its Hermes profile and added to this conversation. Its runtime process was started. An authenticated reply has not been verified.",
+    "Polyphonic setup update: Scout was added to this conversation with Hermes. Send a first message to check the connection.",
   );
   assert.equal(message.mentionPubkeys, undefined);
   assert.equal(message.parentEventId, undefined);
@@ -76,7 +76,7 @@ test("uses the actual resident name and native family after owner review", () =>
   );
   assert.match(
     message.content,
-    /Reviewed Scout was linked to its OpenClaw agent/,
+    /Reviewed Scout was added to this conversation with OpenClaw/,
   );
 });
 
@@ -116,7 +116,7 @@ test("a receipt delivery retry uses the same marker even when the transaction wa
     retried,
   );
   assert.equal(first.marker, retry.marker);
-  assert.match(retry.content, /process was already running/);
+  assert.equal(retry.content, first.content);
   const another = agentManagementCompletionMessage(
     { ...request, requestId: "create-scout-2" },
     sourcePubkey,
@@ -138,21 +138,25 @@ test("marker identity is unambiguous and source identity is normalized", () => {
   assert.equal(message.agentPubkey, sourcePubkey);
 });
 
-test("a non-running status is reported without claiming process startup or readiness", () => {
-  const result = completion();
-  result.attachment.agent.status = "stopped";
-  const message = agentManagementCompletionMessage(
-    request,
-    sourcePubkey,
-    result,
-  );
-  assert.match(message.content, /runtime reports stopped/);
-  assert.doesNotMatch(
-    message.content,
-    /was started|already running|ready to use/,
-  );
-  assert.match(message.content, /authenticated reply has not been verified/);
-});
+for (const status of ["stopped", "error"])
+  test(`${status}: the receipt points to saved setup without claiming readiness`, () => {
+    const result = completion();
+    result.attachment.agent.status = status;
+    const message = agentManagementCompletionMessage(
+      request,
+      sourcePubkey,
+      result,
+    );
+    assert.ok(message.content.includes(`Its status is ${status}.`));
+    assert.doesNotMatch(
+      message.content,
+      /was started|already running|ready to use|Send a first message/,
+    );
+    assert.match(
+      message.content,
+      /Review its setup in Agents before sending a message/,
+    );
+  });
 
 test("refuses an update request, unfinished transaction, missing attachment, or changed origin", () => {
   const invalid = [

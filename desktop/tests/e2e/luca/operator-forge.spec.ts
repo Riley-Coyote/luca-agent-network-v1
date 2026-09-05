@@ -454,7 +454,7 @@ test("room attachment failure retries membership without rerunning native creati
     page.getByRole("region", {
       name: "Conversation attachment needs attention",
     }),
-  ).toContainText("Retry setup for the same resident");
+  ).toContainText("with the same agent");
 
   await page.getByRole("button", { name: "Try conversation again" }).click();
   await expect(
@@ -481,14 +481,12 @@ for (const runtime of ["hermes", "openclaw"] as const) {
     ).not.toBeVisible();
     await expect(completionReceipt(page)).toHaveCount(1);
     await expect(completionReceipt(page)).toContainText(
-      runtime === "hermes" ? "its Hermes profile" : "its OpenClaw agent",
+      runtime === "hermes" ? "with Hermes" : "with OpenClaw",
     );
     await expect(completionReceipt(page)).toContainText(
-      "Its runtime process was started.",
+      "Send a first message to check the connection.",
     );
-    await expect(completionReceipt(page)).toContainText(
-      "An authenticated reply has not been verified.",
-    );
+    await expect(completionReceipt(page)).not.toContainText("ready to use");
 
     const payloads = await page.evaluate(
       () => window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
@@ -593,7 +591,12 @@ test("canonical Luca DM commissioning preserves the pair and links the actual gr
 for (const failure of ["startup", "delivery"] as const) {
   test(`canonical Luca DM ${failure} retry reuses the exact resident and group`, async ({
     page,
-  }) => {
+  }, testInfo) => {
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.addInitScript(() =>
+      localStorage.setItem("buzz:text-scale", "1.5"),
+    );
     await installMockBridge(page, {
       ...(failure === "startup"
         ? {
@@ -612,27 +615,37 @@ for (const failure of ["startup", "delivery"] as const) {
     const origin = await openCanonicalLucaDm(page);
     await requestOwnedNativeCreate(page, "hermes", origin);
     if (failure === "delivery") await failFirstCompletionSend(page, true);
+    const review = page.getByRole("region", { name: "Provisioning review" });
+    await expect(review).toBeFocused();
+    await expect(review).toBeInViewport({ ratio: 1 });
     const before = await page.evaluate(
       () => window.__BUZZ_E2E_COMMANDS__?.length ?? 0,
     );
-    await page.getByRole("button", { name: "Create agent" }).click();
     await expect(
-      page.getByRole("region", {
-        name:
-          failure === "startup"
-            ? "Conversation attachment needs attention"
-            : "Conversation update needs attention",
-      }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Create agent" }),
+    ).toBeInViewport({ ratio: 1 });
+    await page.getByRole("button", { name: "Create agent" }).click();
+    const recovery = page.getByRole("region", {
+      name:
+        failure === "startup"
+          ? "Conversation attachment needs attention"
+          : "Conversation update needs attention",
+    });
+    await expect(recovery).toBeFocused();
+    await expect(recovery).toBeInViewport({ ratio: 1 });
     const first = await assertExpandedNativeConversation(page, origin);
-    await page
-      .getByRole("button", {
-        name:
-          failure === "startup"
-            ? "Try conversation again"
-            : "Retry conversation update",
-      })
-      .click();
+    const retry = page.getByRole("button", {
+      name:
+        failure === "startup"
+          ? "Try conversation again"
+          : "Retry conversation update",
+    });
+    await expect(retry).toBeInViewport({ ratio: 1 });
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: testInfo.outputPath(`${failure}-compact-recovery.png`),
+    });
+    await retry.click();
     await expect(
       page.getByRole("heading", { name: "Create a native agent" }),
     ).not.toBeVisible();
@@ -650,7 +663,7 @@ for (const failure of ["startup", "delivery"] as const) {
     });
     await expect(completionReceipt(page)).toHaveCount(1);
     await expect(completionReceipt(page)).toContainText(
-      "Its runtime process was started.",
+      "Send a first message to check the connection.",
     );
     await expect(
       page.getByRole("link", { name: "Open group conversation" }),

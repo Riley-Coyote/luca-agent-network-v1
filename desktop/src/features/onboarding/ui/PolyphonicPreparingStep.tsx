@@ -70,6 +70,9 @@ export function PolyphonicPreparingStep({
   const settings = useOperatorForgeSettingsQuery();
   const [attempt, setAttempt] = React.useState(0);
   const preparationRef = React.useRef<Promise<string> | null>(null);
+  const preparedChannelRef = React.useRef<string | null>(null);
+  const handoffRef = React.useRef<Promise<string> | null>(null);
+  const refetchManaged = managed.refetch;
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(true);
   const visibleError =
@@ -173,9 +176,17 @@ export function PolyphonicPreparingStep({
     // same preparation, then attach the current completion callback to it.
     // Cancelling a React effect must never start a second resident transaction.
     preparationRef.current ??= prepare();
+    handoffRef.current ??= preparationRef.current.then(async (channelId) => {
+      preparedChannelRef.current = channelId;
+      // Raw creation saves the resident without updating React Query. Refresh
+      // before the DM mounts so its first render recognizes our managed Luca.
+      // Keep this handoff promise through query-driven effect rerenders.
+      await refetchManaged({ throwOnError: true });
+      return channelId;
+    });
     setWorking(true);
     setError(null);
-    void preparationRef.current
+    void handoffRef.current
       .then((channelId) => {
         if (!cancelled) onComplete(channelId);
       })
@@ -195,6 +206,7 @@ export function PolyphonicPreparingStep({
     managed.isPending,
     onComplete,
     personas.data,
+    refetchManaged,
     settings.data,
   ]);
 
@@ -222,14 +234,29 @@ export function PolyphonicPreparingStep({
                 settings.isFetching || personas.isFetching || managed.isFetching
               }
               onClick={() => {
-                void Promise.all([
-                  settings.refetch(),
-                  personas.refetch(),
-                  managed.refetch(),
-                ]).then(() => {
-                  preparationRef.current = null;
+                if (preparedChannelRef.current) {
+                  // Preparation already succeeded. Retry only the failed
+                  // refresh/handoff, preserving the resident, DM and greeting.
+                  handoffRef.current = null;
                   setAttempt((value) => value + 1);
-                });
+                  return;
+                }
+                void Promise.all([
+                  settings.refetch({ throwOnError: true }),
+                  personas.refetch({ throwOnError: true }),
+                  refetchManaged({ throwOnError: true }),
+                ])
+                  .then(() => {
+                    preparationRef.current = null;
+                    handoffRef.current = null;
+                    setAttempt((value) => value + 1);
+                  })
+                  .catch((cause) => {
+                    setError(
+                      cause instanceof Error ? cause.message : String(cause),
+                    );
+                    setWorking(false);
+                  });
               }}
               type="button"
               variant="outline"

@@ -105,6 +105,20 @@ export function NativeAgentProvisioningDialog({
   const resolvedTarget = React.useRef<{ id: string; name: string } | null>(
     null,
   );
+  const attentionRef = React.useRef<HTMLElement>(null);
+  const reviewRef = React.useRef<HTMLElement>(null);
+
+  React.useEffect(() => {
+    // Only the owner's successful review action sets a new preview. Keep
+    // background refreshes from moving focus after the owner starts reading.
+    if (preview) reviewRef.current?.focus();
+  }, [preview]);
+
+  React.useEffect(() => {
+    if (open && !busy && (attachmentError || deliveryError)) {
+      attentionRef.current?.focus();
+    }
+  }, [open, busy, attachmentError, deliveryError]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -384,260 +398,294 @@ export function NativeAgentProvisioningDialog({
       }}
       open={open}
     >
-      <DialogContent className="max-h-[min(720px,calc(100vh-2rem))] max-w-xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(720px,calc(100vh-2rem))] max-w-xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 px-6 pb-4 pt-6 pr-12">
           <DialogTitle>Create a native agent</DialogTitle>
           <DialogDescription>
-            Review every native change before Luca creates or links anything.
+            {completion?.status === "complete"
+              ? "Your agent is saved. Finish the remaining step below."
+              : "Review every native change before Luca creates or links anything."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <label
-            className="block space-y-1.5 text-sm"
-            htmlFor="native-agent-name"
-          >
-            <span className="font-medium">Name</span>
-            <Input
-              disabled={creationLocked}
-              id="native-agent-name"
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
-          <label
-            className="block space-y-1.5 text-sm"
-            htmlFor="native-agent-purpose"
-          >
-            <span className="font-medium">Purpose and instructions</span>
-            <Textarea
-              disabled={creationLocked}
-              id="native-agent-purpose"
-              onChange={(event) => setPrompt(event.target.value)}
-              rows={5}
-              value={prompt}
-            />
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Runtime</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                disabled={creationLocked}
-                onChange={(event) =>
-                  setRuntime(event.target.value as NativeRuntimeFamilyV1)
-                }
-                value={runtime}
-              >
-                <option value="hermes">Hermes</option>
-                <option value="openclaw">OpenClaw</option>
-              </select>
-            </label>
-            <label className="space-y-1.5 text-sm">
-              <span className="font-medium">Starting point</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                disabled={creationLocked}
-                onChange={(event) =>
-                  setMode(event.target.value as AgentProvisioningModeV1)
-                }
-                value={mode}
-              >
-                <option value="fresh">Fresh</option>
-                <option value="template">Safe template</option>
-                <option value="advanced">Advanced clone</option>
-              </select>
-            </label>
-          </div>
-          {mode !== "fresh" ? (
-            <label
-              className="block space-y-1.5 text-sm"
-              htmlFor="native-agent-source"
-            >
-              <span className="font-medium">Native source</span>
-              <select
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                disabled={creationLocked}
-                id="native-agent-source"
-                onChange={(event) => setSourceSemanticId(event.target.value)}
-                value={sourceSemanticId}
-              >
-                <option value="">Choose locally…</option>
-                {matchingSources.map((candidate) => (
-                  <option
-                    key={candidate.semanticId}
-                    value={candidate.semanticId}
-                  >
-                    {candidate.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {mode !== "fresh" ? (
-            <label
-              className="block space-y-1.5 text-sm"
-              htmlFor="native-agent-skills"
-            >
-              <span className="font-medium">Skills to copy</span>
-              <Input
-                disabled={creationLocked}
-                id="native-agent-skills"
-                onChange={(event) => setSkills(event.target.value)}
-                placeholder="research, coding"
-                value={skills}
-              />
-              <span className="block text-xs text-muted-foreground">
-                Comma-separated safe relative names.
-              </span>
-            </label>
-          ) : null}
-          {mode === "advanced" ? (
-            <div className="space-y-3 rounded-lg border border-border/60 p-3">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  checked={includeMemory}
-                  disabled={creationLocked}
-                  onChange={(event) => setIncludeMemory(event.target.checked)}
-                  type="checkbox"
-                />{" "}
-                Include selected source memory
-              </label>
-              <label
-                className="block space-y-1.5 text-sm"
-                htmlFor="native-agent-documents"
-              >
-                <span className="font-medium">Workspace documents</span>
-                <Input
-                  disabled={creationLocked}
-                  id="native-agent-documents"
-                  onChange={(event) => setDocuments(event.target.value)}
-                  placeholder="README.md, docs/guide.md"
-                  value={documents}
-                />
-              </label>
-            </div>
-          ) : null}
-          {preview ? (
-            <section
-              aria-label="Provisioning review"
-              className="rounded-lg border border-border/70 bg-muted/20 p-4"
-            >
-              <p className="text-sm font-medium">Review these changes</p>
-              <ul className="mt-3 space-y-2">
-                {preview.changes.map((change) => (
-                  <li
-                    className="flex gap-2 text-sm"
-                    key={`${change.subject}-${change.action}`}
-                  >
-                    <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <span>
-                      <span className="font-medium">{change.subject}</span> ·{" "}
-                      {change.detail}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-xs text-muted-foreground">
-                {preview.permissionDefaults}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Recovery: {preview.recoveryAction}
-              </p>
-            </section>
-          ) : null}
-          {error ? (
-            <p className="flex gap-2 text-sm text-destructive" role="alert">
-              <AlertCircle className="mt-0.5 size-4 shrink-0" />
-              {error}
-            </p>
-          ) : null}
-          {completion?.status === "rolled_back" ? (
-            <section
-              aria-label="Provisioning rolled back"
-              className="rounded-lg border border-border/70 bg-muted/20 p-4"
-            >
-              <p className="text-sm font-medium">Creation rolled back</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                No completed resident was linked. Start a new reviewed creation
-                when you are ready.
-              </p>
-            </section>
-          ) : null}
-          {attachmentError && completion?.status === "complete" ? (
-            <section
-              aria-label="Conversation attachment needs attention"
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
-            >
-              <p className="text-sm font-medium">
-                Agent created; conversation attachment needs attention
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {attachmentError} Retry setup for the same resident in{" "}
-                {resolvedTarget.current?.name ?? targetChannel?.name}.
-              </p>
-            </section>
-          ) : null}
-          {deliveryError ? (
-            <section
-              aria-label="Conversation update needs attention"
-              className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
-            >
-              <p className="text-sm font-medium">
-                Agent created; conversation update needs attention
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {deliveryError} Retry the update to the original conversation.
-                The agent and its conversation attachment are already saved.
-              </p>
-            </section>
-          ) : null}
-          <div className="flex justify-end gap-2">
-            <Button disabled={busy} onClick={closeCompleted} variant="ghost">
-              {recoveryTransactionId || completion ? "Close" : "Cancel"}
-            </Button>
-            {deliveryError ? (
-              <Button disabled={busy} onClick={() => void retryDelivery()}>
-                {busy ? <LoaderCircle className="animate-spin" /> : null}
-                Retry conversation update
-              </Button>
-            ) : attachmentError && completion?.status === "complete" ? (
-              <Button disabled={busy} onClick={() => void retryAttachment()}>
-                {busy ? <LoaderCircle className="animate-spin" /> : null}Try
-                conversation again
-              </Button>
-            ) : recoveryTransactionId ? (
-              <>
-                <Button
-                  disabled={busy}
-                  onClick={() => void rollback()}
-                  variant="outline"
+        <div className="min-h-0 overflow-y-auto px-6">
+          <div className="space-y-4 py-1">
+            {completion?.status !== "complete" ? (
+              <div className="space-y-4">
+                <label
+                  className="block space-y-1.5 text-sm"
+                  htmlFor="native-agent-name"
                 >
-                  Roll back
-                </Button>
-                <Button disabled={busy} onClick={() => void reconcile()}>
-                  {busy ? <LoaderCircle className="animate-spin" /> : null}
-                  Reconcile
-                </Button>
-              </>
-            ) : completion?.status === "rolled_back" ? (
-              <Button disabled={busy} onClick={closeCompleted}>
-                Done
-              </Button>
-            ) : preview ? (
-              <Button disabled={busy} onClick={() => void execute()}>
-                {busy ? <LoaderCircle className="animate-spin" /> : null}Create
-                agent
-              </Button>
-            ) : (
-              <Button
-                disabled={busy || !canPreview}
-                onClick={() => void review()}
+                  <span className="font-medium">Name</span>
+                  <Input
+                    disabled={creationLocked}
+                    id="native-agent-name"
+                    onChange={(event) => setName(event.target.value)}
+                    value={name}
+                  />
+                </label>
+                <label
+                  className="block space-y-1.5 text-sm"
+                  htmlFor="native-agent-purpose"
+                >
+                  <span className="font-medium">Purpose and instructions</span>
+                  <Textarea
+                    disabled={creationLocked}
+                    id="native-agent-purpose"
+                    onChange={(event) => setPrompt(event.target.value)}
+                    rows={5}
+                    value={prompt}
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="space-y-1.5 text-sm">
+                    <span className="font-medium">Runtime</span>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={creationLocked}
+                      onChange={(event) =>
+                        setRuntime(event.target.value as NativeRuntimeFamilyV1)
+                      }
+                      value={runtime}
+                    >
+                      <option value="hermes">Hermes</option>
+                      <option value="openclaw">OpenClaw</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm">
+                    <span className="font-medium">Starting point</span>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={creationLocked}
+                      onChange={(event) =>
+                        setMode(event.target.value as AgentProvisioningModeV1)
+                      }
+                      value={mode}
+                    >
+                      <option value="fresh">Fresh</option>
+                      <option value="template">Safe template</option>
+                      <option value="advanced">Advanced clone</option>
+                    </select>
+                  </label>
+                </div>
+                {mode !== "fresh" ? (
+                  <label
+                    className="block space-y-1.5 text-sm"
+                    htmlFor="native-agent-source"
+                  >
+                    <span className="font-medium">Native source</span>
+                    <select
+                      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                      disabled={creationLocked}
+                      id="native-agent-source"
+                      onChange={(event) =>
+                        setSourceSemanticId(event.target.value)
+                      }
+                      value={sourceSemanticId}
+                    >
+                      <option value="">Choose locally…</option>
+                      {matchingSources.map((candidate) => (
+                        <option
+                          key={candidate.semanticId}
+                          value={candidate.semanticId}
+                        >
+                          {candidate.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {mode !== "fresh" ? (
+                  <label
+                    className="block space-y-1.5 text-sm"
+                    htmlFor="native-agent-skills"
+                  >
+                    <span className="font-medium">Skills to copy</span>
+                    <Input
+                      disabled={creationLocked}
+                      id="native-agent-skills"
+                      onChange={(event) => setSkills(event.target.value)}
+                      placeholder="research, coding"
+                      value={skills}
+                    />
+                    <span className="block text-xs text-muted-foreground">
+                      Comma-separated safe relative names.
+                    </span>
+                  </label>
+                ) : null}
+                {mode === "advanced" ? (
+                  <div className="space-y-3 rounded-lg border border-border/60 p-3">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        checked={includeMemory}
+                        disabled={creationLocked}
+                        onChange={(event) =>
+                          setIncludeMemory(event.target.checked)
+                        }
+                        type="checkbox"
+                      />{" "}
+                      Include selected source memory
+                    </label>
+                    <label
+                      className="block space-y-1.5 text-sm"
+                      htmlFor="native-agent-documents"
+                    >
+                      <span className="font-medium">Workspace documents</span>
+                      <Input
+                        disabled={creationLocked}
+                        id="native-agent-documents"
+                        onChange={(event) => setDocuments(event.target.value)}
+                        placeholder="README.md, docs/guide.md"
+                        value={documents}
+                      />
+                    </label>
+                  </div>
+                ) : null}
+                {preview ? (
+                  <section
+                    aria-label="Provisioning review"
+                    className="rounded-lg border border-border/70 bg-muted/20 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    ref={reviewRef}
+                    tabIndex={-1}
+                  >
+                    <p className="text-sm font-medium">Review these changes</p>
+                    <ul className="mt-3 space-y-2">
+                      {preview.changes.map((change) => (
+                        <li
+                          className="flex gap-2 text-sm"
+                          key={`${change.subject}-${change.action}`}
+                        >
+                          <Check className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                          <span>
+                            <span className="font-medium">
+                              {change.subject}
+                            </span>{" "}
+                            · {change.detail}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {preview.permissionDefaults}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Recovery: {preview.recoveryAction}
+                    </p>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+            {error ? (
+              <p className="flex gap-2 text-sm text-destructive" role="alert">
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+                {error}
+              </p>
+            ) : null}
+            {completion?.status === "rolled_back" ? (
+              <section
+                aria-label="Provisioning rolled back"
+                className="rounded-lg border border-border/70 bg-muted/20 p-4"
               >
-                {busy ? <LoaderCircle className="animate-spin" /> : null}Review
-                changes
-              </Button>
-            )}
+                <p className="text-sm font-medium">Creation rolled back</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  No completed resident was linked. Start a new reviewed
+                  creation when you are ready.
+                </p>
+              </section>
+            ) : null}
+            {attachmentError && completion?.status === "complete" ? (
+              <section
+                aria-label="Conversation attachment needs attention"
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                ref={attentionRef}
+                tabIndex={-1}
+              >
+                <p className="text-sm font-medium">Finish setting up {name}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {attachmentError} Try again to finish setup in{" "}
+                  {resolvedTarget.current?.name ?? targetChannel?.name} with the
+                  same agent.
+                </p>
+              </section>
+            ) : null}
+            {deliveryError ? (
+              <section
+                aria-label="Conversation update needs attention"
+                className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                ref={attentionRef}
+                tabIndex={-1}
+              >
+                <p className="text-sm font-medium">Send the setup update</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {deliveryError} Retry the update to the original conversation.{" "}
+                  {name} and its conversation are already saved.
+                </p>
+              </section>
+            ) : null}
+            {completion?.status === "complete" &&
+            !attachmentError &&
+            !deliveryError ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                Finishing setup for {name}…
+              </p>
+            ) : null}
           </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border/60 px-6 py-4">
+          <Button disabled={busy} onClick={closeCompleted} variant="ghost">
+            {recoveryTransactionId || completion ? "Close" : "Cancel"}
+          </Button>
+          {deliveryError ? (
+            <Button disabled={busy} onClick={() => void retryDelivery()}>
+              {busy ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Retry conversation update
+            </Button>
+          ) : attachmentError && completion?.status === "complete" ? (
+            <Button disabled={busy} onClick={() => void retryAttachment()}>
+              {busy ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Try conversation again
+            </Button>
+          ) : recoveryTransactionId ? (
+            <>
+              <Button
+                disabled={busy}
+                onClick={() => void rollback()}
+                variant="outline"
+              >
+                Roll back
+              </Button>
+              <Button disabled={busy} onClick={() => void reconcile()}>
+                {busy ? (
+                  <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+                ) : null}
+                Reconcile
+              </Button>
+            </>
+          ) : completion?.status === "rolled_back" ? (
+            <Button disabled={busy} onClick={closeCompleted}>
+              Done
+            </Button>
+          ) : preview ? (
+            <Button disabled={busy} onClick={() => void execute()}>
+              {busy ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Create agent
+            </Button>
+          ) : (
+            <Button
+              disabled={busy || !canPreview}
+              onClick={() => void review()}
+            >
+              {busy ? (
+                <LoaderCircle className="animate-spin motion-reduce:animate-none" />
+              ) : null}
+              Review changes
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>

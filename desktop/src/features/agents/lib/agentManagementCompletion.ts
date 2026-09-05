@@ -42,15 +42,12 @@ export function agentManagementCompletionMessage(
     );
   }
 
-  const runtimeName =
-    receipt.runtime === "hermes" ? "Hermes profile" : "OpenClaw agent";
-  const processState =
+  const runtimeName = receipt.runtime === "hermes" ? "Hermes" : "OpenClaw";
+  const nextStep =
     attachment.agent.status === "running" ||
     attachment.agent.status === "deployed"
-      ? attachment.started
-        ? "Its runtime process was started."
-        : "Its runtime process was already running."
-      : `Its runtime reports ${attachment.agent.status}.`;
+      ? "Send a first message to check the connection."
+      : `Its status is ${attachment.agent.status}. Review its setup in Agents before sending a message.`;
   const expandedDm = attachment.channelId !== completion.originChannelId;
   const targetName = attachment.channelName
     .replace(/[\r\n]+/g, " ")
@@ -65,7 +62,7 @@ export function agentManagementCompletionMessage(
   return {
     agentPubkey: sourcePubkey,
     channelId: request.request.channelId,
-    content: `Polyphonic setup update: ${attachment.agent.name} was linked to its ${runtimeName} and added to ${destination}. ${processState} An authenticated reply has not been verified.${targetLink}`,
+    content: `Polyphonic setup update: ${attachment.agent.name} was added to ${destination} with ${runtimeName}. ${nextStep}${targetLink}`,
     marker: `polyphonic-agent-creation.v1:${encodeURIComponent(request.requestId)}`,
     markerScope: "agent" as const,
   };
