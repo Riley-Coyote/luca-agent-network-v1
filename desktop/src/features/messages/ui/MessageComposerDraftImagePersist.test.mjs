@@ -166,6 +166,12 @@ function installDOMShim() {
   }
 
   globalThis.document = new MinimalDocument();
+  const windowEvents = new MinimalEventTarget();
+  globalThis.addEventListener =
+    windowEvents.addEventListener.bind(windowEvents);
+  globalThis.removeEventListener =
+    windowEvents.removeEventListener.bind(windowEvents);
+  globalThis.dispatchEvent = windowEvents.dispatchEvent.bind(windowEvents);
   // HTMLIFrameElement is referenced in react-dom's getActiveElementDeep; stub it.
   globalThis.HTMLIFrameElement = MinimalNode;
   globalThis.HTMLElement = MinimalNode;
@@ -239,6 +245,7 @@ import {
   clearAllDrafts,
   initDraftStore,
   loadDraftEntry,
+  markDraftSentEntry,
   persistDraftEntry,
 } from "../lib/useDrafts.ts";
 
@@ -310,7 +317,7 @@ test("strictmode_draft_restore_cleanup_preserves_images_via_production_hook", as
   setupStore("pubkey-lifecycle-fixed");
 
   // Seed: saved draft has an image.
-  persistDraftEntry(DRAFT_KEY, "hello from A", DRAFT_KEY, [IMG_A], []);
+  persistDraftEntry(DRAFT_KEY, "hello from A", DRAFT_KEY, [IMG_A], [IMG_A.url]);
   assert.equal(
     loadDraftEntry(DRAFT_KEY)?.pendingImeta.length,
     1,
@@ -361,6 +368,7 @@ test("strictmode_draft_restore_cleanup_preserves_images_via_production_hook", as
     "image must survive StrictMode simulate-unmount cleanup — requires the synchronous ref write in useDraftPersistLifecycle's effect body",
   );
   assert.equal(afterMount.pendingImeta[0].url, IMG_A.url);
+  assert.deepEqual(afterMount.spoileredAttachmentUrls, [IMG_A.url]);
 
   await handle.unmount();
 });
@@ -578,4 +586,201 @@ test("draft_lifecycle_empty_target_clears_stale_mention_refs", async () => {
   assert.equal(loadDraftEntry("chan-empty"), undefined);
 
   await handle.unmount();
+});
+
+// A mutable editor is intentional: ordinary Tiptap updates need not trigger a
+// React render. Exercise the hook against the real store, not a replica of its
+// lifecycle, and keep the editor's independent update boundary visible.
+async function mountLiveComposer() {
+  const state = {
+    draftKey: "thread:restart-a",
+    channelId: "channel-a",
+    content: "",
+    pendingImeta: [],
+    mentionRefs: [],
+    spoileredRef: { current: new Set() },
+    beforeEdit: null,
+    schedule: () => {},
+  };
+  function Composer() {
+    state.schedule = useDraftPersistLifecycle({
+      effectiveDraftKey: state.draftKey,
+      channelId: state.channelId,
+      loadDraft: loadDraftEntry,
+      persistDraft: persistDraftEntry,
+      getMentionRefs: (content) =>
+        state.mentionRefs.filter((ref) =>
+          content.includes(`@${ref.displayName}`),
+        ),
+      restoreMentionRefs: (refs) => {
+        state.mentionRefs = [...refs];
+      },
+      getDraftBeforeEdit: () => state.beforeEdit,
+      livePendingImeta: state.pendingImeta,
+      setPendingImeta: (imeta) => {
+        state.pendingImeta = imeta;
+      },
+      setContent: (content) => {
+        state.content = content;
+      },
+      clearContent: () => {
+        state.content = "";
+      },
+      setSpoileredAttachmentUrls: (urls) => {
+        state.spoileredRef.current = urls;
+      },
+      spoileredAttachmentUrlsRef: state.spoileredRef,
+      syncComposerContentFromEditor: () => state.content,
+    });
+    return null;
+  }
+  return { state, ...(await mountStrictMode(Composer)) };
+}
+
+test("mounted composer saves the latest text without a React rerender", async (t) => {
+  setupStore("pubkey-autosave");
+  const { state, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+
+  state.content = "First keystrokes";
+  state.schedule();
+  t.mock.timers.tick(200);
+  state.content = "Latest keystrokes";
+  state.schedule();
+  assert.equal(loadDraftEntry(state.draftKey), undefined);
+  // Continuous typing does not postpone durability indefinitely.
+  t.mock.timers.tick(100);
+  assert.equal(loadDraftEntry(state.draftKey)?.content, "Latest keystrokes");
+  assert.equal(loadDraftEntry(state.draftKey)?.channelId, "channel-a");
+
+  await unmount();
+});
+
+test("page lifecycle flushes pending text, media, spoilers, and mention identities", async (t) => {
+  setupStore("pubkey-page-lifecycle");
+  const { state, rerender, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const mentionRefs = [
+    { displayName: "Agent Ada", pubkey: "aaaaaaaa", isAgent: true },
+  ];
+  state.pendingImeta = [IMG_A];
+  state.spoileredRef.current = new Set([IMG_A.url]);
+  state.mentionRefs = mentionRefs;
+  await rerender();
+
+  for (const event of ["pagehide", "beforeunload", "visibilitychange"]) {
+    state.content = `${event}: hello @Agent Ada`;
+    state.schedule();
+    if (event === "visibilitychange") {
+      document.visibilityState = "hidden";
+      document.dispatchEvent({ type: event });
+      document.visibilityState = "visible";
+    } else {
+      window.dispatchEvent({ type: event });
+    }
+    const saved = loadDraftEntry(state.draftKey);
+    assert.equal(saved?.content, state.content);
+    assert.deepEqual(saved?.pendingImeta, [IMG_A]);
+    assert.deepEqual(saved?.spoileredAttachmentUrls, [IMG_A.url]);
+    assert.deepEqual(saved?.mentionRefs, mentionRefs);
+  }
+
+  await unmount();
+});
+
+test("a queued save reads the cleared composer and cannot resurrect a sent draft", async (t) => {
+  setupStore("pubkey-send-lifecycle");
+  const { state, rerender, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  state.content = "A message with an image";
+  state.pendingImeta = [IMG_A];
+  await rerender();
+  state.schedule();
+  t.mock.timers.tick(300);
+  assert.equal(loadDraftEntry(state.draftKey)?.content, state.content);
+
+  state.schedule();
+  markDraftSentEntry(
+    state.draftKey,
+    state.content,
+    state.channelId,
+    [IMG_A],
+    [],
+  );
+  state.content = "";
+  state.pendingImeta = [];
+  await rerender();
+  t.mock.timers.tick(300);
+  window.dispatchEvent({ type: "pagehide" });
+  assert.equal(loadDraftEntry(state.draftKey), undefined);
+  await unmount();
+});
+
+test("reload during editing persists the original draft and its mention identities", async (t) => {
+  setupStore("pubkey-edit-lifecycle");
+  const { state, rerender, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const original = {
+    content: "Unsent draft for @Agent Ada",
+    pendingImeta: [IMG_A],
+    spoileredAttachmentUrls: [IMG_A.url],
+    mentionRefs: [
+      { displayName: "Agent Ada", pubkey: "aaaaaaaa", isAgent: true },
+    ],
+  };
+  state.beforeEdit = original;
+  state.content = "An unrelated message being edited";
+  state.pendingImeta = [];
+  state.mentionRefs = [];
+  await rerender();
+  state.schedule();
+  window.dispatchEvent({ type: "beforeunload" });
+  const saved = loadDraftEntry(state.draftKey);
+  for (const key of Object.keys(original)) {
+    assert.deepEqual(saved?.[key], original[key]);
+  }
+  await unmount();
+});
+
+test("key changes flush the outgoing channel and cancel old scheduled saves", async (t) => {
+  setupStore("pubkey-channel-lifecycle");
+  const { state, rerender, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  state.content = "Draft A";
+  state.schedule();
+  state.draftKey = "thread:restart-b";
+  state.channelId = "channel-b";
+  await rerender();
+  assert.equal(loadDraftEntry("thread:restart-a")?.content, "Draft A");
+  assert.equal(loadDraftEntry("thread:restart-a")?.channelId, "channel-a");
+  assert.equal(state.content, "");
+  state.content = "Draft B";
+  state.schedule();
+  t.mock.timers.tick(300);
+  assert.equal(loadDraftEntry("thread:restart-b")?.content, "Draft B");
+  assert.equal(loadDraftEntry("thread:restart-b")?.channelId, "channel-b");
+  assert.equal(loadDraftEntry("thread:restart-a")?.content, "Draft A");
+  await unmount();
+});
+
+test("unmounted composer leaves no timers or page listeners in the next account", async (t) => {
+  setupStore("pubkey-outgoing-owner");
+  const { state, unmount } = await mountLiveComposer();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  state.content = "Private outgoing draft";
+  state.schedule();
+  await unmount();
+  clearAllDrafts();
+  initDraftStore("pubkey-next-owner");
+  state.schedule();
+  t.mock.timers.tick(1_000);
+  window.dispatchEvent({ type: "pagehide" });
+  window.dispatchEvent({ type: "beforeunload" });
+  assert.equal(loadDraftEntry(state.draftKey), undefined);
+  clearAllDrafts();
+  initDraftStore("pubkey-outgoing-owner");
+  assert.equal(
+    loadDraftEntry(state.draftKey)?.content,
+    "Private outgoing draft",
+  );
 });

@@ -11,7 +11,7 @@ type UseDraftPersistLifecycleParams = {
   channelId: string | null | undefined;
   /** Load a saved draft from the store. */
   loadDraft: (draftKey: string) => DraftState | undefined;
-  /** Persist the current draft to the store (called in effect cleanup). */
+  /** Persist the current draft to the existing owner/relay-scoped store. */
   persistDraft: (
     draftKey: string,
     content: string,
@@ -24,6 +24,13 @@ type UseDraftPersistLifecycleParams = {
   getMentionRefs: (content: string) => DraftMentionRef[];
   /** Replace mention routing/highlight state when a draft is restored or cleared. */
   restoreMentionRefs: (refs: readonly DraftMentionRef[]) => void;
+  /** An edit temporarily replaces the editor; retain the original draft. */
+  getDraftBeforeEdit?: (
+    draftKey: string,
+  ) => Pick<
+    DraftState,
+    "content" | "pendingImeta" | "spoileredAttachmentUrls" | "mentionRefs"
+  > | null;
   /** Live `pendingImeta` from React state — used for render-time ref sync. */
   livePendingImeta: ImetaMedia[];
   /** Async setter for pendingImeta — called after the synchronous snapshot. */
@@ -47,7 +54,9 @@ type UseDraftPersistLifecycleParams = {
 };
 
 /**
- * Owns the draft-persist lifecycle for `MessageComposer`.
+ * Owns draft restoration, scheduled saves, and lifecycle flushes for
+ * `MessageComposer`. The returned callback schedules a save without reading
+ * or serializing the editor on the typing path.
  *
  * This hook:
  * - Holds `pendingImetaForPersistRef` — the ref the cleanup reads when
@@ -57,6 +66,9 @@ type UseDraftPersistLifecycleParams = {
  * - Runs a `useEffect` keyed on `effectiveDraftKey` that restores a saved
  *   draft into the composer (content + imeta + spoilered urls) or clears it,
  *   and whose cleanup persists the outgoing draft before the key changes.
+ * - Saves at most once per 300 ms during updates, and flushes synchronously
+ *   when the document hides, unloads, or the composer unmounts. Reload/quit
+ *   does not reliably run React cleanup.
  *
  * **The StrictMode fix lives here.**
  * When the restore effect body calls `setPendingImeta(saved.pendingImeta)`,
@@ -78,6 +90,7 @@ export function useDraftPersistLifecycle({
   persistDraft,
   getMentionRefs,
   restoreMentionRefs,
+  getDraftBeforeEdit,
   livePendingImeta,
   setPendingImeta,
   setContent,
@@ -85,8 +98,13 @@ export function useDraftPersistLifecycle({
   setSpoileredAttachmentUrls,
   spoileredAttachmentUrlsRef,
   syncComposerContentFromEditor,
-}: UseDraftPersistLifecycleParams): void {
+}: UseDraftPersistLifecycleParams): () => void {
   const pendingImetaForPersistRef = React.useRef<ImetaMedia[]>([]);
+  const schedulePersistRef = React.useRef<() => void>(() => {});
+  const schedulePersist = React.useCallback(
+    () => schedulePersistRef.current(),
+    [],
+  );
   // Render-time update: keep the ref in sync with committed state so the
   // cleanup always reads the latest value during normal mounted operation.
   pendingImetaForPersistRef.current = livePendingImeta;
@@ -109,28 +127,64 @@ export function useDraftPersistLifecycle({
       // correct value instead of the stale [].
       pendingImetaForPersistRef.current = saved.pendingImeta;
       setPendingImeta(saved.pendingImeta);
-      setSpoileredAttachmentUrls(new Set(saved.spoileredAttachmentUrls));
+      spoileredAttachmentUrlsRef.current = new Set(
+        saved.spoileredAttachmentUrls,
+      );
+      setSpoileredAttachmentUrls(spoileredAttachmentUrlsRef.current);
     } else {
       clearContent();
       restoreMentionRefs([]);
       // Same synchronous snapshot on the empty path.
       pendingImetaForPersistRef.current = [];
       setPendingImeta([]);
-      setSpoileredAttachmentUrls(new Set());
+      spoileredAttachmentUrlsRef.current = new Set();
+      setSpoileredAttachmentUrls(spoileredAttachmentUrlsRef.current);
     }
 
-    return () => {
+    let pendingSave: ReturnType<typeof setTimeout> | null = null;
+    const flushDraft = () => {
+      if (pendingSave !== null) {
+        clearTimeout(pendingSave);
+        pendingSave = null;
+      }
       if (effectiveDraftKey) {
-        const content = syncComposerContentFromEditor();
+        const beforeEdit = getDraftBeforeEdit?.(effectiveDraftKey);
+        // Read at flush time, never from the triggering keystroke: a send or
+        // clear may have emptied the composer while a save was queued.
+        const content = beforeEdit?.content ?? syncComposerContentFromEditor();
         persistDraft(
           effectiveDraftKey,
           content,
           channelId ?? effectiveDraftKey,
-          [...pendingImetaForPersistRef.current],
-          [...spoileredAttachmentUrlsRef.current],
-          getMentionRefs(content),
+          [...(beforeEdit?.pendingImeta ?? pendingImetaForPersistRef.current)],
+          [
+            ...(beforeEdit?.spoileredAttachmentUrls ??
+              spoileredAttachmentUrlsRef.current),
+          ],
+          beforeEdit ? (beforeEdit.mentionRefs ?? []) : getMentionRefs(content),
         );
       }
     };
+    schedulePersistRef.current = () => {
+      if (effectiveDraftKey && pendingSave === null) {
+        pendingSave = setTimeout(flushDraft, 300);
+      }
+    };
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") flushDraft();
+    };
+    window.addEventListener("pagehide", flushDraft);
+    window.addEventListener("beforeunload", flushDraft);
+    document.addEventListener("visibilitychange", flushWhenHidden);
+
+    return () => {
+      schedulePersistRef.current = () => {};
+      window.removeEventListener("pagehide", flushDraft);
+      window.removeEventListener("beforeunload", flushDraft);
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      flushDraft();
+    };
   }, [effectiveDraftKey]);
+
+  return schedulePersist;
 }

@@ -8,7 +8,10 @@ import { useChannelLinks } from "@/features/messages/lib/useChannelLinks";
 import { handleAgentSnapshotPaste } from "@/features/messages/lib/agentSnapshotClipboard";
 import { useComposerAutofocus } from "@/features/messages/lib/useComposerAutofocus";
 import type { ChannelSuggestion } from "@/features/messages/lib/useChannelLinks";
-import { useDrafts } from "@/features/messages/lib/useDrafts";
+import {
+  type DraftMentionRef,
+  useDrafts,
+} from "@/features/messages/lib/useDrafts";
 import { resolveSentDraftKey } from "@/features/messages/ui/draftSubmitKey";
 import { useEmojiAutocomplete } from "@/features/messages/lib/useEmojiAutocomplete";
 import type { EmojiSuggestion } from "@/features/messages/lib/useEmojiAutocomplete";
@@ -333,9 +336,11 @@ function MessageComposerImpl({
   effectiveDraftKeyRef.current = effectiveDraftKey;
   // Snapshot composer state before edit mode so cancel can restore it.
   const preEditSnapshotRef = React.useRef<{
+    draftKey: string | null | undefined;
     content: string;
     pendingImeta: ImetaMedia[];
     spoileredAttachmentUrls: Set<string>;
+    mentionRefs: DraftMentionRef[];
   } | null>(null);
   const mentions = useMentions(channelId, undefined, profiles, {
     channelType,
@@ -359,16 +364,24 @@ function MessageComposerImpl({
     uploadFile: media.uploadFile,
   });
 
-  // Draft-persist lifecycle: restore/clear content + imeta + spoilered urls on
-  // key change, and persist the outgoing draft in the cleanup. The StrictMode
-  // fix lives inside this hook — see useDraftPersistSnapshot.ts.
-  useDraftPersistLifecycle({
+  // Keep draft writes out of the typing path, but flush before reload/exit
+  // and preserve the outgoing conversation before a key change.
+  const scheduleDraftPersist = useDraftPersistLifecycle({
     effectiveDraftKey,
     channelId,
     loadDraft: drafts.loadDraft,
     persistDraft: drafts.persistDraft,
     getMentionRefs: mentions.getDraftMentionRefs,
     restoreMentionRefs: mentions.restoreDraftMentionRefs,
+    getDraftBeforeEdit: (key) => {
+      const snapshot = preEditSnapshotRef.current;
+      return snapshot?.draftKey === key
+        ? {
+            ...snapshot,
+            spoileredAttachmentUrls: [...snapshot.spoileredAttachmentUrls],
+          }
+        : null;
+    },
     livePendingImeta: media.pendingImeta,
     setPendingImeta: media.setPendingImeta,
     setContent: (content) => {
@@ -383,6 +396,10 @@ function MessageComposerImpl({
     spoileredAttachmentUrlsRef,
     syncComposerContentFromEditor,
   });
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attachment changes trigger a save; the flush reads their latest refs
+  React.useEffect(() => {
+    scheduleDraftPersist();
+  }, [media.pendingImeta, spoileredAttachmentUrls, scheduleDraftPersist]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: effectiveDraftKey is the sole trigger
   React.useEffect(() => {
     media.setUploadState({ status: "idle" });
@@ -474,6 +491,7 @@ function MessageComposerImpl({
     },
     onUpdate: ({ cursor, text }) => {
       setComposerContentFromText(text);
+      scheduleDraftPersist();
 
       if (/^\s*\/$/.test(text)) {
         if (!dismissedCapabilitySlashRef.current) {
@@ -661,11 +679,19 @@ function MessageComposerImpl({
       // Snapshot the current draft (text + attachments) so the user's
       // in-flight work survives the edit-mode hijack and is restored on
       // edit-cancel/exit.
-      preEditSnapshotRef.current = {
-        content: syncComposerContentFromEditor(),
-        pendingImeta: [...media.pendingImetaRef.current],
-        spoileredAttachmentUrls: new Set(spoileredAttachmentUrls),
-      };
+      if (
+        !preEditSnapshotRef.current ||
+        preEditSnapshotRef.current.draftKey !== effectiveDraftKey
+      ) {
+        const content = syncComposerContentFromEditor();
+        preEditSnapshotRef.current = {
+          draftKey: effectiveDraftKey,
+          content,
+          pendingImeta: [...media.pendingImetaRef.current],
+          spoileredAttachmentUrls: new Set(spoileredAttachmentUrls),
+          mentionRefs: mentions.getDraftMentionRefs(content),
+        };
+      }
       // Strip the trailing `![image|video](url)` lines that correspond to
       // imeta attachments — the user manages those via the attachments row,
       // not via raw markdown in the editor.
@@ -693,17 +719,21 @@ function MessageComposerImpl({
       return () => cancelAnimationFrame(rafId);
     } else if (preEditSnapshotRef.current !== null) {
       const {
+        draftKey: restoredDraftKey,
         content: restoredContent,
         pendingImeta: restoredImeta,
         spoileredAttachmentUrls: restoredSpoileredAttachmentUrls,
+        mentionRefs: restoredMentionRefs,
       } = preEditSnapshotRef.current;
       preEditSnapshotRef.current = null;
+      if (restoredDraftKey !== effectiveDraftKey) return;
       setComposerContent(restoredContent);
       restoredContent
         ? richText.setContent(restoredContent)
         : richText.clearContent();
       media.setPendingImeta(restoredImeta);
       setSpoileredAttachmentUrls(restoredSpoileredAttachmentUrls);
+      mentions.restoreDraftMentionRefs(restoredMentionRefs);
     }
   }, [editTarget?.id]);
 
