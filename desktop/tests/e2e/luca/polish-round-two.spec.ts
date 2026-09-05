@@ -30,6 +30,13 @@ async function openConversation(page: Page, names = false) {
   });
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-alice-tyler").click();
+  await expect(page).toHaveURL(
+    /#\/channels\/f48efb06-0c93-5025-aac9-2e646bb6bfa8$/,
+  );
+  // A changed URL can precede the lazy route's first committed conversation.
+  await expect(page.getByTestId("conversation-workspace")).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByTestId("message-input")).toBeVisible();
   await expect
     .poll(() =>
