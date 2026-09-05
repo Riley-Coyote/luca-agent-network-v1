@@ -9,7 +9,7 @@
 //! F15 neither widens that access nor redesigns the existing storage contract.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::OnceLock,
 };
 
@@ -32,6 +32,7 @@ const REGISTRY_SCHEMA: &str = "luca.resident-registry.v1";
 const MAX_RESIDENTS: usize = 256;
 const MAX_DISPLAY_NAME_BYTES: usize = 256;
 const MAX_BINDING_BYTES: usize = 512;
+const MAX_MENTION_ALIASES: usize = MAX_RESIDENTS * 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResidentNameResolutionError {
@@ -199,6 +200,128 @@ pub(crate) fn resolve_owned_resident_name_from_records(
         [resident] => Ok(resident.clone()),
         _ => Err(ResidentNameResolutionError::Ambiguous),
     }
+}
+
+/// Prove that the desktop-held key derives the recorded resident identity.
+pub(crate) fn resident_custody_pubkey(record: &ManagedAgentRecord) -> Option<Hex64> {
+    let pubkey = Hex64::parse(record.pubkey.to_ascii_lowercase()).ok()?;
+    let keys = nostr::Keys::parse(record.private_key_nsec.trim()).ok()?;
+    (keys.public_key().to_hex() == pubkey.as_str()).then_some(pubkey)
+}
+
+/// Verify the owner signature separately from custody; callers require both.
+pub(crate) fn resident_attested_to_owner(
+    record: &ManagedAgentRecord,
+    pubkey: &Hex64,
+    owner: &Hex64,
+) -> bool {
+    let Some(auth_tag) = record.auth_tag.as_deref() else {
+        return false;
+    };
+    let Ok(public_key) = nostr::PublicKey::from_hex(pubkey.as_str()) else {
+        return false;
+    };
+    buzz_sdk_pkg::nip_oa::verify_auth_tag(auth_tag, &public_key)
+        .is_ok_and(|attested| attested.to_hex() == owner.as_str())
+}
+
+/// A bounded public label, never a native backend locator or generated alias.
+pub(crate) fn public_resident_name(value: &str) -> Option<&str> {
+    let name = value.trim();
+    (!name.is_empty()
+        && name.len() <= MAX_DISPLAY_NAME_BYTES
+        && !name.chars().any(char::is_control))
+    .then_some(name)
+}
+
+/// Existing public aliases eligible for newly recognized complete-name mentions.
+pub(crate) fn owned_resident_mention_aliases_from_records<'a>(
+    records: &'a [ManagedAgentRecord],
+    custody: &BTreeSet<Hex64>,
+    owner: &Hex64,
+) -> Result<Vec<&'a str>, ResidentNameResolutionError> {
+    let mut seen = BTreeSet::new();
+    let mut aliases = Vec::new();
+    for record in records {
+        let Some(pubkey) = resident_custody_pubkey(record) else {
+            continue;
+        };
+        if !custody.contains(&pubkey) || !resident_attested_to_owner(record, &pubkey, owner) {
+            continue;
+        }
+        for alias in [
+            Some(record.name.as_str()),
+            record.display_name.as_deref(),
+            record.slug.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(public_resident_name)
+        {
+            if seen.insert(alias.to_lowercase()) {
+                aliases.push(alias);
+                if aliases.len() > MAX_MENTION_ALIASES {
+                    return Err(ResidentNameResolutionError::Unavailable);
+                }
+            }
+        }
+    }
+    Ok(aliases)
+}
+
+/// Recognize and resolve targets against the same immutable verified snapshot.
+pub(crate) fn owned_resident_mentions_from_records(
+    records: &[ManagedAgentRecord],
+    custody: &BTreeSet<Hex64>,
+    owner: &Hex64,
+    draft: &str,
+) -> Result<Vec<(String, Hex64)>, ResidentNameResolutionError> {
+    let aliases = owned_resident_mention_aliases_from_records(records, custody, owner)?;
+    let mut resolved = Vec::new();
+    for name in super::exchange_plan::mentioned_names_with_aliases(draft, &aliases) {
+        match resolve_owned_resident_name_from_records(records, custody, &name) {
+            Ok(pubkey) => resolved.push((name, pubkey)),
+            Err(ResidentNameResolutionError::Unavailable) => {
+                return Err(ResidentNameResolutionError::Unavailable);
+            }
+            Err(_) => {}
+        }
+    }
+    Ok(resolved)
+}
+
+/// Read one owner-checked mention snapshot; hydrated keys never leave the desktop.
+pub(crate) fn read_owned_resident_mentions(
+    app: &AppHandle,
+    custody: &BTreeSet<Hex64>,
+    owner: &Hex64,
+    draft: &str,
+) -> Result<Vec<(String, Hex64)>, ResidentNameResolutionError> {
+    let state = app.state::<AppState>();
+    let current_owner = || {
+        state
+            .signing_keys()
+            .map(|keys| keys.public_key().to_hex())
+            .map_err(|_| ResidentNameResolutionError::Unavailable)
+    };
+    if current_owner()? != owner.as_str() {
+        return Err(ResidentNameResolutionError::Unavailable);
+    }
+    let _guard = state
+        .managed_agents_store_lock
+        .lock()
+        .map_err(|_| ResidentNameResolutionError::Unavailable)?;
+    let mut records =
+        load_managed_agents(app).map_err(|_| ResidentNameResolutionError::Unavailable)?;
+    let resolved = owned_resident_mentions_from_records(&records, custody, owner, draft);
+    for record in &mut records {
+        record.private_key_nsec.zeroize();
+    }
+    drop(_guard);
+    if current_owner()? != owner.as_str() {
+        return Err(ResidentNameResolutionError::Unavailable);
+    }
+    resolved
 }
 
 /// Return the key-safe resident registry to renderer consumers.

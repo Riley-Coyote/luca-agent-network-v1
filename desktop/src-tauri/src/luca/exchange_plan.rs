@@ -35,6 +35,8 @@ use super::visits::settle_visit_grants;
 
 /// Longest `@name` token the mention scanner will consider.
 const MAX_MENTION_NAME_BYTES: usize = 64;
+/// Complete known public names share the resident registry's display-name bound.
+const MAX_KNOWN_MENTION_NAME_BYTES: usize = 256;
 /// Most distinct `@name` tokens one draft can address.
 const MAX_MENTIONS_PER_DRAFT: usize = 8;
 
@@ -593,28 +595,26 @@ impl<'a> ExchangeResolver<'a> {
         &self,
         request: &ManagedMessagePublishRequestV1,
     ) -> Result<Vec<(String, Hex64)>, ExchangeDenial> {
-        let names = mentioned_names(&request.final_draft);
-        if names.is_empty() {
+        if !request.final_draft.match_indices('@').any(|(index, _)| {
+            mention_start(&request.final_draft, index, false)
+                && request.final_draft[index + 1..]
+                    .chars()
+                    .next()
+                    .is_some_and(|character| !character.is_whitespace() && !character.is_control())
+        }) {
             return Ok(Vec::new());
         }
         let owned = self.relay.owned_residents().map_err(|error| {
             eprintln!("luca-exchange: the resident registry could not be read — {error}");
             ExchangeDenial::Unavailable
         })?;
+        let resolved = self
+            .relay
+            .resolve_resident_mentions(&owned, &request.owner_pubkey, &request.final_draft)
+            .map_err(|_| ExchangeDenial::Unavailable)?;
         let mut matched = Vec::new();
         let mut seen = BTreeSet::new();
-        for name in names {
-            let resolved = self
-                .relay
-                .resolve_resident_name(&owned, &name)
-                .map_err(|error| {
-                    eprintln!("luca-exchange: the resident registry could not be read — {error}");
-                    ExchangeDenial::Unavailable
-                })?;
-            let Some(pubkey) = resolved else {
-                eprintln!("luca-exchange: \"@{name}\" is not one of this house's residents");
-                continue;
-            };
+        for (name, pubkey) in resolved {
             if pubkey == request.resident_pubkey || pubkey == request.owner_pubkey {
                 continue;
             }
@@ -639,6 +639,18 @@ fn first_free_turn(record: &ExchangeRecordV1, spent: &BTreeSet<u8>) -> Option<u8
 /// trimmed, so `"ask @Vektor."` addresses `Vektor`. Multi-word display names
 /// cannot be written as a single token and therefore do not match.
 pub(crate) fn mentioned_names(draft: &str) -> Vec<String> {
+    scan_mentions(draft, &[], false)
+}
+
+/// Scan literal verified public names before the unchanged generic-token fallback.
+///
+/// Registry callers bound the inventory and verify ownership. A longest known
+/// prefix that lacks a boundary is not reinterpreted as a shorter resident.
+pub(crate) fn mentioned_names_with_aliases(draft: &str, aliases: &[&str]) -> Vec<String> {
+    scan_mentions(draft, aliases, true)
+}
+
+fn scan_mentions(draft: &str, aliases: &[&str], known_names: bool) -> Vec<String> {
     let bytes = draft.as_bytes();
     let mut names: Vec<String> = Vec::new();
     let mut seen: BTreeSet<String> = BTreeSet::new();
@@ -648,24 +660,34 @@ pub(crate) fn mentioned_names(draft: &str) -> Vec<String> {
             index += 1;
             continue;
         }
-        let preceded_by_word = index
-            .checked_sub(1)
-            .is_some_and(|previous| is_word_byte(bytes[previous]));
-        if preceded_by_word {
+        if !mention_start(draft, index, known_names) {
             index += 1;
             continue;
         }
         let start = index + 1;
-        let mut end = start;
-        while end < bytes.len() && is_mention_byte(bytes[end]) {
-            end += 1;
-        }
-        let mut name = &draft[start..end];
-        name = name.trim_end_matches(['.', '-', '_']);
-        index = end.max(start + 1);
-        if name.is_empty() || name.len() > MAX_MENTION_NAME_BYTES {
-            continue;
-        }
+        let known_length = aliases
+            .iter()
+            .filter(|alias| known_alias(alias))
+            .filter_map(|alias| known_prefix_length(&draft[start..], alias))
+            .max();
+        let name = if let Some(length) = known_length {
+            index = start + length;
+            if !known_name_boundary(draft[index..].chars().next()) {
+                continue;
+            }
+            &draft[start..index]
+        } else {
+            let mut end = start;
+            while end < bytes.len() && is_mention_byte(bytes[end]) {
+                end += 1;
+            }
+            let name = draft[start..end].trim_end_matches(['.', '-', '_']);
+            index = end.max(start + 1);
+            if name.is_empty() || name.len() > MAX_MENTION_NAME_BYTES {
+                continue;
+            }
+            name
+        };
         if seen.insert(name.to_lowercase()) {
             names.push(name.to_owned());
             if names.len() == MAX_MENTIONS_PER_DRAFT {
@@ -674,6 +696,56 @@ pub(crate) fn mentioned_names(draft: &str) -> Vec<String> {
         }
     }
     names
+}
+
+fn mention_start(draft: &str, index: usize, unicode_boundary: bool) -> bool {
+    if unicode_boundary {
+        !draft[..index]
+            .chars()
+            .next_back()
+            .is_some_and(|character| character.is_alphanumeric() || character == '_')
+    } else {
+        !index
+            .checked_sub(1)
+            .is_some_and(|previous| is_word_byte(draft.as_bytes()[previous]))
+    }
+}
+
+fn known_alias(alias: &str) -> bool {
+    !alias.is_empty() && alias.trim() == alias && alias.len() <= MAX_KNOWN_MENTION_NAME_BYTES
+        && !alias.chars().any(char::is_control)
+        // Simple ASCII handles keep their exact existing token/punctuation rules.
+        && alias.chars().any(|character| character == ' ' || !character.is_ascii())
+}
+
+fn known_prefix_length(text: &str, alias: &str) -> Option<usize> {
+    let mut expected = alias.chars().flat_map(char::to_lowercase);
+    let mut next = expected.next();
+    for (index, character) in text.char_indices() {
+        if index + character.len_utf8() > MAX_KNOWN_MENTION_NAME_BYTES {
+            return None;
+        }
+        for lower in character.to_lowercase() {
+            if next != Some(lower) {
+                return None;
+            }
+            next = expected.next();
+        }
+        if next.is_none() {
+            return Some(index + character.len_utf8());
+        }
+    }
+    None
+}
+
+fn known_name_boundary(next: Option<char>) -> bool {
+    next.is_none_or(|character| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                ',' | ';' | '.' | '!' | '?' | ':' | ')' | ']' | '}'
+            )
+    })
 }
 
 fn is_word_byte(byte: u8) -> bool {

@@ -15,8 +15,10 @@ use zeroize::Zeroize;
 use crate::{
     app_state::AppState,
     luca::{
-        exchange_plan::mentioned_names,
+        exchange_plan::mentioned_names_with_aliases,
         resident_registry::{
+            owned_resident_mention_aliases_from_records, public_resident_name as public_name,
+            resident_attested_to_owner, resident_custody_pubkey as custody_pubkey,
             resolve_owned_resident_name_from_records, ResidentNameResolutionError,
         },
     },
@@ -24,7 +26,6 @@ use crate::{
 };
 
 const MAX_RESIDENTS: usize = 64;
-const MAX_NAME_BYTES: usize = 256;
 const ROUTING_HINT: &str = "Use only a supplied exact mention in an ordinary final reply for a bounded task in this conversation. A resident's final can return through the existing exchange; this directory does not start residents, expose task progress, or provide Stop. Do not guess aliases or public-key mentions. Process status is not authentication or proof that a task will answer.";
 
 /// Clear hydrated resident signing material on every operator-status exit path.
@@ -191,12 +192,6 @@ fn record_process_status(
         })
 }
 
-fn custody_pubkey(record: &ManagedAgentRecord) -> Option<Hex64> {
-    let pubkey = Hex64::parse(record.pubkey.to_ascii_lowercase()).ok()?;
-    let keys = nostr::Keys::parse(record.private_key_nsec.trim()).ok()?;
-    (keys.public_key().to_hex() == pubkey.as_str()).then_some(pubkey)
-}
-
 fn from_records(
     records: &[ManagedAgentRecord],
     personas: &[AgentDefinition],
@@ -216,16 +211,15 @@ fn from_records(
     // public rows by verified owner attestation before applying the output cap.
     let custody = records.iter().map(custody_pubkey).collect::<Vec<_>>();
     let routable = custody.iter().flatten().cloned().collect::<BTreeSet<_>>();
+    let Ok(aliases) = owned_resident_mention_aliases_from_records(records, &routable, owner) else {
+        return Directory::unavailable("resident_name_inventory_unavailable");
+    };
     let mut residents = records
         .iter()
         .zip(&custody)
         .filter_map(|(record, pubkey)| {
             let pubkey = pubkey.as_ref()?;
-            let public_key = nostr::PublicKey::from_hex(pubkey.as_str()).ok()?;
-            let attested_owner =
-                buzz_sdk_pkg::nip_oa::verify_auth_tag(record.auth_tag.as_deref()?, &public_key)
-                    .ok()?;
-            if attested_owner.to_hex() != owner.as_str() {
+            if !resident_attested_to_owner(record, pubkey, owner) {
                 return None;
             }
             let name = record
@@ -234,12 +228,12 @@ fn from_records(
                 .and_then(public_name)
                 .or_else(|| public_name(&record.name));
             let name_status = name
-                .map(|name| alias_status(records, &routable, pubkey, name))
+                .map(|name| alias_status(records, &routable, &aliases, pubkey, name))
                 .unwrap_or(MentionStatus::Unmentionable);
             let (mention_status, mention) = if pubkey == caller {
                 (MentionStatus::SelfResident, None)
             } else {
-                public_mention(records, &routable, pubkey, record)
+                public_mention(records, &routable, &aliases, pubkey, record)
             };
             Some(Resident {
                 name: name.map(str::to_owned),
@@ -271,19 +265,14 @@ fn from_records(
     }
 }
 
-fn public_name(value: &str) -> Option<&str> {
-    let name = value.trim();
-    (!name.is_empty() && name.len() <= MAX_NAME_BYTES && !name.chars().any(char::is_control))
-        .then_some(name)
-}
-
 fn alias_status(
     records: &[ManagedAgentRecord],
     routable: &BTreeSet<Hex64>,
+    aliases: &[&str],
     target: &Hex64,
     alias: &str,
 ) -> MentionStatus {
-    if mentioned_names(&format!("@{alias}")) != [alias] {
+    if mentioned_names_with_aliases(&format!("@{alias}"), aliases) != [alias] {
         return MentionStatus::Unmentionable;
     }
     match resolve_owned_resident_name_from_records(records, routable, alias) {
@@ -296,6 +285,7 @@ fn alias_status(
 fn public_mention(
     records: &[ManagedAgentRecord],
     routable: &BTreeSet<Hex64>,
+    aliases: &[&str],
     target: &Hex64,
     record: &ManagedAgentRecord,
 ) -> (MentionStatus, Option<String>) {
@@ -311,9 +301,9 @@ fn public_mention(
     .flatten()
     .filter_map(public_name)
     {
-        match alias_status(records, routable, target, alias) {
+        match alias_status(records, routable, aliases, target, alias) {
             MentionStatus::Available => {
-                return (MentionStatus::Available, Some(format!("@{alias}")))
+                return (MentionStatus::Available, Some(format!("@{alias}")));
             }
             MentionStatus::Ambiguous => status = MentionStatus::Ambiguous,
             _ => {}
@@ -384,6 +374,7 @@ pub(super) fn runtime_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::luca::exchange_plan::mentioned_names;
     use nostr::ToBech32;
     use std::process::{Command, Stdio};
 
@@ -482,7 +473,7 @@ mod tests {
         let foreign_owner = nostr::Keys::generate();
         let exact = record(&owner, "Vektor");
         let multiword = record(&owner, "Research Helper");
-        let mut aliased = record(&owner, "Existing Helper");
+        let mut aliased = record(&owner, "Existing-");
         aliased.slug = Some("existing-helper".into());
         let ambiguous = record(&owner, "Shared");
         let mut hidden = record(&foreign_owner, "Hidden Foreign Name");
@@ -499,22 +490,29 @@ mod tests {
         assert_eq!(by_name("Vektor").mention.as_deref(), Some("@Vektor"));
         assert_eq!(
             by_name("Research Helper").mention_status,
+            MentionStatus::Available
+        );
+        assert_eq!(
+            by_name("Research Helper").mention.as_deref(),
+            Some("@Research Helper")
+        );
+        assert_eq!(
+            by_name("Existing-").name_status,
             MentionStatus::Unmentionable
         );
         assert_eq!(
-            by_name("Existing Helper").name_status,
-            MentionStatus::Unmentionable
-        );
-        assert_eq!(
-            by_name("Existing Helper").mention.as_deref(),
+            by_name("Existing-").mention.as_deref(),
             Some("@existing-helper")
         );
         assert_eq!(by_name("Shared").mention_status, MentionStatus::Ambiguous);
         assert!(by_name("Shared").mention.is_none());
         let custody = records.iter().filter_map(custody_pubkey).collect();
+        let aliases =
+            owned_resident_mention_aliases_from_records(&records, &custody, &identity(&owner))
+                .expect("bounded names");
         for row in &result.residents {
             if let Some(mention) = &row.mention {
-                let tokens = mentioned_names(mention);
+                let tokens = mentioned_names_with_aliases(mention, &aliases);
                 assert_eq!(tokens.len(), 1);
                 assert_eq!(
                     resolve_owned_resident_name_from_records(&records, &custody, &tokens[0]),
@@ -544,8 +542,6 @@ mod tests {
     fn invalid_names_and_identity_references_never_become_guessed_aliases() {
         let owner = nostr::Keys::generate();
         let records = vec![
-            record(&owner, "Research Helper"),
-            record(&owner, "Écho"),
             record(&owner, "trailing-"),
             record(&owner, &"a".repeat(65)),
             record(&owner, "line\nbreak"),
@@ -567,6 +563,9 @@ mod tests {
         );
         let target = custody_pubkey(&records[0]).expect("target");
         let custody = records.iter().filter_map(custody_pubkey).collect();
+        let aliases =
+            owned_resident_mention_aliases_from_records(&records, &custody, &identity(&owner))
+                .expect("bounded names");
         let npub = nostr::PublicKey::from_hex(target.as_str())
             .expect("public key")
             .to_bech32()
@@ -578,10 +577,43 @@ mod tests {
                 Err(ResidentNameResolutionError::NotFound)
             );
             assert_eq!(
-                alias_status(&records, &custody, &target, alias),
+                alias_status(&records, &custody, &aliases, &target, alias),
                 MentionStatus::Unmentionable
             );
         }
+    }
+
+    #[test]
+    fn multiword_collisions_and_unavailable_inventory_never_advertise_a_target() {
+        let owner = nostr::Keys::generate();
+        let foreign_owner = nostr::Keys::generate();
+        let full = record(&owner, "Research Helper");
+        let mut hidden = record(&foreign_owner, "Hidden");
+        hidden.backend_agent_id = Some("Research Helper".into());
+        let result = directory(&[record(&owner, "Research"), full.clone(), hidden], &owner);
+        let full_row = result
+            .residents
+            .iter()
+            .find(|row| row.name.as_deref() == Some("Research Helper"))
+            .expect("full name");
+        assert_eq!(full_row.mention_status, MentionStatus::Ambiguous);
+        assert!(full_row.mention.is_none());
+        let unicode = directory(&[record(&owner, "Écho Bleu")], &owner);
+        assert_eq!(unicode.residents[0].mention.as_deref(), Some("@Écho Bleu"));
+        let records = (0..1025)
+            .map(|index| {
+                let mut record = full.clone();
+                record.name = format!("Known Name {index}");
+                record
+            })
+            .collect::<Vec<_>>();
+        let unavailable = directory(&records, &owner);
+        assert_eq!(unavailable.status, "unavailable");
+        assert_eq!(
+            unavailable.reason,
+            Some("resident_name_inventory_unavailable")
+        );
+        assert!(unavailable.residents.is_empty());
     }
 
     #[test]

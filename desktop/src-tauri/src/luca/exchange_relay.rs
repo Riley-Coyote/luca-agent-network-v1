@@ -120,6 +120,22 @@ pub(crate) trait ExchangeRelay: Send {
     /// Residents this desktop holds verified keys for.
     fn owned_residents(&self) -> Result<BTreeSet<Hex64>, ExchangeRelayError>;
 
+    /// Resolve a read-only mention snapshot; legacy implementations retain token scanning.
+    fn resolve_resident_mentions(
+        &self,
+        owned: &BTreeSet<Hex64>,
+        _owner: &Hex64,
+        draft: &str,
+    ) -> Result<Vec<(String, Hex64)>, ExchangeRelayError> {
+        let mut resolved = Vec::new();
+        for name in super::exchange_plan::mentioned_names(draft) {
+            if let Some(pubkey) = self.resolve_resident_name(owned, &name)? {
+                resolved.push((name, pubkey));
+            }
+        }
+        Ok(resolved)
+    }
+
     /// Resolve one `@Name` against the resident registry. An unknown or
     /// ambiguous name is `Ok(None)` — not an error, just not a resident.
     fn resolve_resident_name(
@@ -247,12 +263,12 @@ impl ExchangeRelay for AppExchangeRelay {
                 Ok(_) => {
                     return Err(ExchangeRelayError::Unavailable(
                         "relay returned a row without this exchange's turn tag".to_owned(),
-                    ))
+                    ));
                 }
                 Err(error) => {
                     return Err(ExchangeRelayError::Unavailable(format!(
                         "relay returned a malformed exchange turn tag: {error}"
-                    )))
+                    )));
                 }
             }
         }
@@ -363,6 +379,18 @@ impl ExchangeRelay for AppExchangeRelay {
 
     fn owned_residents(&self) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
         verified_owned_residents(&self.app)
+    }
+
+    fn resolve_resident_mentions(
+        &self,
+        owned: &BTreeSet<Hex64>,
+        owner: &Hex64,
+        draft: &str,
+    ) -> Result<Vec<(String, Hex64)>, ExchangeRelayError> {
+        super::resident_registry::read_owned_resident_mentions(&self.app, owned, owner, draft)
+            .map_err(|_| {
+                ExchangeRelayError::Unavailable("resident mention inventory is unavailable".into())
+            })
     }
 
     fn resolve_resident_name(

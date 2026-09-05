@@ -18,6 +18,8 @@ const NOW: u64 = 1_700_000_000;
 /// An offline stand-in for the owner's relay, registry and rooms.
 #[derive(Default)]
 struct FakeExchangeRelay {
+    registry: Mutex<Option<Vec<crate::managed_agents::ManagedAgentRecord>>>,
+    registry_unavailable: Mutex<bool>,
     heads: Mutex<BTreeMap<String, ExchangeHead>>,
     spent: Mutex<BTreeMap<String, BTreeSet<u8>>>,
     room: Mutex<BTreeSet<Hex64>>,
@@ -181,11 +183,62 @@ impl ExchangeRelay for FakeExchangeRelay {
         Ok(self.owned.lock().expect("owned").clone())
     }
 
+    fn resolve_resident_mentions(
+        &self,
+        owned: &BTreeSet<Hex64>,
+        owner: &Hex64,
+        draft: &str,
+    ) -> Result<Vec<(String, Hex64)>, ExchangeRelayError> {
+        if *self.registry_unavailable.lock().expect("flag") {
+            return Err(ExchangeRelayError::Unavailable(
+                "synthetic unavailable registry".into(),
+            ));
+        }
+        let registry = self.registry.lock().expect("registry");
+        if let Some(records) = registry.as_ref() {
+            return crate::luca::resident_registry::owned_resident_mentions_from_records(
+                records, owned, owner, draft,
+            )
+            .map_err(|_| {
+                ExchangeRelayError::Unavailable("synthetic unavailable inventory".into())
+            });
+        }
+        let names = self.names.lock().expect("names");
+        let aliases = names
+            .iter()
+            .filter(|(_, pubkey)| owned.contains(*pubkey))
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>();
+        Ok(mentioned_names_with_aliases(draft, &aliases)
+            .into_iter()
+            .filter_map(|name| {
+                names
+                    .get(&name.to_lowercase())
+                    .filter(|pubkey| owned.contains(*pubkey))
+                    .cloned()
+                    .map(|pubkey| (name, pubkey))
+            })
+            .collect())
+    }
+
     fn resolve_resident_name(
         &self,
         owned: &BTreeSet<Hex64>,
         name: &str,
     ) -> Result<Option<Hex64>, ExchangeRelayError> {
+        if let Some(records) = self.registry.lock().expect("registry").as_ref() {
+            return match crate::luca::resident_registry::resolve_owned_resident_name_from_records(
+                records, owned, name,
+            ) {
+                Ok(pubkey) => Ok(Some(pubkey)),
+                Err(crate::luca::resident_registry::ResidentNameResolutionError::Unavailable) => {
+                    Err(ExchangeRelayError::Unavailable(
+                        "synthetic registry unavailable".into(),
+                    ))
+                }
+                Err(_) => Ok(None),
+            };
+        }
         Ok(self
             .names
             .lock()
@@ -204,6 +257,9 @@ impl ExchangeRelay for FakeExchangeRelay {
             .unwrap_or_else(|| "resident".to_owned())
     }
 }
+
+#[path = "exchange_plan_tests/multiword_mentions.rs"]
+mod multiword_mentions;
 
 struct Fixture {
     owner: Hex64,
