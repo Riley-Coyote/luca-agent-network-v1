@@ -670,7 +670,9 @@ export function ConversationAgentActivityStrip({
     new Map<string, ActivityAnnouncementItem>(),
   );
   const [liveAnnouncement, setLiveAnnouncement] = React.useState("");
-  const [expanded, setExpanded] = React.useState(false);
+  const permissionActive = Boolean(permissionContent);
+  const previousPermissionActive = React.useRef(permissionActive);
+  const [expanded, setExpanded] = React.useState(permissionActive);
   const [dismissedRuntimeTasks, setDismissedRuntimeTasks] = React.useState(
     () => new Set<string>(),
   );
@@ -882,7 +884,17 @@ export function ConversationAgentActivityStrip({
   const hasWorkTrayContent =
     orderedItems.length > 0 ||
     visibleRuntimeTasks.length > 0 ||
-    Boolean(permissionContent);
+    permissionActive;
+
+  // Permission is the one Work Tray state that cannot wait behind disclosure.
+  // Open it in the layout phase so the decision controls are present in the
+  // first paint, while still letting the owner collapse it afterwards.
+  React.useLayoutEffect(() => {
+    if (permissionActive && !previousPermissionActive.current) {
+      setExpanded(true);
+    }
+    previousPermissionActive.current = permissionActive;
+  }, [permissionActive]);
 
   React.useEffect(() => {
     if (!hasWorkTrayContent) setExpanded(false);
@@ -1064,6 +1076,7 @@ export function ConversationAgentActivityStrip({
       {expanded ? (
         <div
           className="luca-work-tray__expanded"
+          data-priority={permissionActive ? "permission" : undefined}
           data-testid="conversation-work-tray-expanded"
         >
           <div className="luca-work-tray__heading">

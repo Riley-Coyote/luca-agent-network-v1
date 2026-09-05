@@ -384,10 +384,67 @@
   flex-shrink: 0;
   min-height: 0;
   padding: var(--mn-card-lip) var(--mn-card-lip) var(--mn-card-lip) 0;
+  transition: padding-right var(--motion-duration-standard)
+    var(--motion-ease-standard);
+}
+
+:root[data-luca-shell]
+  [data-luca-right-cards]:has([data-panel-open="false"]):not(
+    :has([data-panel-open="true"])
+  ) {
+  padding-right: 0;
+}
+
+.luca-panel-frame {
+  transition: width var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.luca-panel-overlay {
+  transition:
+    transform var(--motion-duration-standard) var(--motion-ease-standard),
+    opacity var(--motion-duration-standard) var(--motion-ease-standard);
+}
+
+.luca-panel-overlay[data-panel-open="false"] {
+  opacity: 0;
+  transform: translateX(1rem);
+  pointer-events: none;
+}
+
+:root[data-panel-resizing="true"] .luca-panel-frame {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-panel-frame,
+  .luca-panel-overlay,
+  :root[data-luca-shell] [data-luca-right-cards] {
+    transition: none;
+  }
 }
 
 :root[data-luca-shell] [data-luca-right-cards]:empty {
   display: none;
+}
+
+.luca-message-runtime {
+  opacity: 0;
+  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+[data-testid="message-row"]:focus-within .luca-message-runtime {
+  opacity: 0.65;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-testid="message-row"]:hover .luca-message-runtime {
+    opacity: 0.65;
+  }
+}
+
+:root[data-luca-shell] .luca-capability-search:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 :root[data-luca-shell] [data-luca-card] {
@@ -1272,6 +1329,14 @@
 
   :root[data-luca-shell] [data-testid="chat-header"] {
     padding-inline: 14px;
+  }
+}
+
+/* The mobile sidebar is a sheet, so the desktop offcanvas sibling selector
+   cannot reserve space for the floating window navigation. */
+@media (max-width: 767px) {
+  :root[data-luca-shell]:not([data-luca-popout]) [data-testid="chat-header"] {
+    padding-left: 140px;
   }
 }
 

@@ -3,7 +3,7 @@ import { ArrowDown } from "lucide-react";
 
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { orderMentionPubkeysByText } from "@/features/messages/lib/orderMentionPubkeys";
-import { useResidentMarksInMessages } from "@/features/messages/lib/conversationAppearancePreference";
+import { useAgentNamesInMessages } from "@/features/messages/lib/conversationAppearancePreference";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { resolveMentionProps } from "@/shared/lib/resolveMentionNames";
 import {
@@ -229,7 +229,7 @@ export function MessageThreadPanel({
   autoSendDraftKey = null,
   onAutoSubmitComplete,
 }: MessageThreadPanelProps) {
-  const residentMarksEnabled = useResidentMarksInMessages(currentPubkey);
+  const agentNamesEnabled = useAgentNamesInMessages(currentPubkey);
   const threadBodyRef = React.useRef<HTMLDivElement>(null);
   const threadContentRef = React.useRef<HTMLDivElement>(null);
   const threadComposerWrapperRef = React.useRef<HTMLDivElement>(null);
@@ -581,7 +581,7 @@ export function MessageThreadPanel({
                 onUnfollowThread ? (_msg) => onUnfollowThread() : undefined
               }
               profiles={profiles}
-              residentMarksEnabled={residentMarksEnabled}
+              agentNamesEnabled={agentNamesEnabled}
               showDepthGuides={shouldShowThreadBranchGuides}
               videoReviewContext={threadHeadVideoReviewContext}
             />
@@ -738,7 +738,7 @@ export function MessageThreadPanel({
                         onReply={onSelectReplyTarget}
                         onToggleReaction={onToggleReaction}
                         profiles={profiles}
-                        residentMarksEnabled={residentMarksEnabled}
+                        agentNamesEnabled={agentNamesEnabled}
                         showDepthGuides={shouldShowThreadBranchGuides}
                       />
                       {entry.summary ? (

@@ -28,3 +28,18 @@ test("conversation arrival has a reduced-motion treatment", () => {
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.motion-enter-conversation/,
   );
 });
+
+test("capability palette arrival uses the approved local-surface timing", () => {
+  assert.match(
+    motionCss,
+    /\.motion-enter-capability-palette\s*\{[\s\S]*var\(--motion-duration-fast\)[\s\S]*var\(--motion-ease-standard\)/,
+  );
+  assert.match(
+    motionCss,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.motion-enter-capability-palette[\s\S]*animation-duration:\s*1ms/,
+  );
+  assert.match(
+    motionCss,
+    /@keyframes motion-enter-capability-palette\s*\{[\s\S]*opacity:\s*0[\s\S]*translateY\(4px\)[\s\S]*opacity:\s*1[\s\S]*translateY\(0\)/,
+  );
+});

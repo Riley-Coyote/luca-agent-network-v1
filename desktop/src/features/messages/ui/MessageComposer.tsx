@@ -79,6 +79,7 @@ import {
   RuntimeTaskConfirmationCard,
   type RuntimeTaskDraft,
 } from "@/features/capabilities/ui/RuntimeTaskConfirmationCard";
+import { runtimeTaskTargetForFamily } from "@/features/capabilities/lib/runtimeTaskPresentation";
 import {
   getResidentSessionCapabilities,
   resolveCapabilitySkillActivation,
@@ -221,6 +222,11 @@ function MessageComposerImpl({
   typingParentEventId = null,
   typingRootEventId = null,
 }: MessageComposerProps) {
+  React.useEffect(() => {
+    if (window.__BUZZ_E2E__) {
+      performance.mark("luca:message-composer-commit");
+    }
+  });
   const {
     contentRef,
     isContentEmpty,
@@ -234,6 +240,7 @@ function MessageComposerImpl({
   const [isContextOpen, setIsContextOpen] = React.useState(false);
   const [isCapabilityPaletteOpen, setIsCapabilityPaletteOpen] =
     React.useState(false);
+  const dismissedCapabilitySlashRef = React.useRef(false);
   const [capabilitySelection, setCapabilitySelection] =
     React.useState<ComposerCapabilitySelection | null>(null);
   const [capabilityError, setCapabilityError] = React.useState<string | null>(
@@ -380,6 +387,8 @@ function MessageComposerImpl({
   React.useEffect(() => {
     media.setUploadState({ status: "idle" });
     setIsEmojiPickerOpen(false);
+    setIsCapabilityPaletteOpen(false);
+    dismissedCapabilitySlashRef.current = false;
     channelLinks.clearChannels();
     emojiAutocomplete.clearEmojis();
   }, [effectiveDraftKey]);
@@ -459,12 +468,25 @@ function MessageComposerImpl({
     onEditLink: (info) => onEditLinkRef.current?.(info),
     onLinkSelectionChange: (info) => onLinkSelectionChangeRef.current?.(info),
     onLinkShortcut: () => onLinkShortcutRef.current?.() ?? false,
+    onLeadingSlash: () => {
+      dismissedCapabilitySlashRef.current = false;
+      setIsCapabilityPaletteOpen(true);
+    },
     onUpdate: ({ cursor, text }) => {
       setComposerContentFromText(text);
 
       if (/^\s*\/$/.test(text)) {
-        setIsCapabilityPaletteOpen(true);
+        if (!dismissedCapabilitySlashRef.current) {
+          setIsCapabilityPaletteOpen(true);
+        }
+        // The leading slash belongs exclusively to the capability palette.
+        // Avoid waking the mention/channel/emoji reconcilers in the same
+        // frame as the palette acknowledgment; they cannot match this input
+        // and made the first command keystroke exceed the P0 frame budget on
+        // throttled hardware.
+        return;
       }
+      dismissedCapabilitySlashRef.current = false;
 
       mentions.updateMentionQuery(text, cursor);
       channelLinks.updateChannelQuery(text, cursor);
@@ -553,8 +575,15 @@ function MessageComposerImpl({
     if (!resident) return;
     void getResidentSessionCapabilities(resident.pubkey)
       .then((snapshot) => {
-        const runtimeFamily =
-          snapshot?.runtimeFamily === "claude_code" ? "claude_code" : "codex";
+        const runtimeFamily = runtimeTaskTargetForFamily(
+          snapshot?.runtimeFamily,
+        );
+        if (!runtimeFamily) {
+          setCapabilityError(
+            "Polyphonic could not verify a supported runtime for this resident. Try again after it reconnects.",
+          );
+          return;
+        }
         setCapabilitySelection({
           kind: "runtime_task",
           residentPubkey: resident.pubkey,
@@ -925,7 +954,13 @@ function MessageComposerImpl({
           residentPubkey,
         ).catch(() => null);
         runtimeFamily =
-          snapshot?.runtimeFamily === "claude_code" ? "claude_code" : "codex";
+          runtimeTaskTargetForFamily(snapshot?.runtimeFamily) ?? undefined;
+        if (!runtimeFamily) {
+          setCapabilityError(
+            "Polyphonic could not verify a supported runtime for this resident. Try again after it reconnects.",
+          );
+          return;
+        }
       }
       const firstLine = prompt.split(/\r?\n/, 1)[0]?.trim() || "Runtime task";
       const workingFolder = conversationProjectSourceIds?.length
@@ -1435,9 +1470,10 @@ function MessageComposerImpl({
             }}
           >
             <ComposerCapabilityPalette
-              onClose={() => {
+              onClose={(reason) => {
+                dismissedCapabilitySlashRef.current = true;
                 setIsCapabilityPaletteOpen(false);
-                requestAnimationFrame(() => richText.focusEnd());
+                if (reason !== "outside") richText.editor?.commands.focus();
               }}
               onCommand={handleCapabilityCommand}
               onError={setCapabilityError}

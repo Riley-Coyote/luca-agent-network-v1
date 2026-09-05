@@ -212,7 +212,15 @@ export function ChannelScreenHeader({
             viewModel={projectRoomNavigation.viewModel}
           />
         ) : showResidentMote ? (
-          <ResidentMote count={presentResidentPubkeys.size} />
+          <div className="flex min-w-0 items-center gap-2.5">
+            <ResidentMote count={presentResidentPubkeys.size} />
+            <h1
+              className="min-w-0 truncate text-chat font-medium leading-6"
+              data-testid="chat-title"
+            >
+              {activeChannelTitle}
+            </h1>
+          </div>
         ) : undefined
       }
       subtitle={null}

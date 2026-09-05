@@ -203,9 +203,11 @@ pub(crate) fn capsule_wake_orientation(
 {
     let state = loaded.envelope.current_state();
     let segments = state.segments_in_order();
-    let identity = segments
-        .iter()
-        .find_map(|(name, body)| matches!(*name, "core" | "self_model").then_some(*body).flatten());
+    let identity = segments.iter().find_map(|(name, body)| {
+        matches!(*name, "core" | "self_model")
+            .then_some(*body)
+            .flatten()
+    });
     let relationship = segments
         .iter()
         .find_map(|(name, body)| (*name == "owner_relationship").then_some(*body).flatten());

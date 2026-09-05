@@ -274,6 +274,33 @@ describe("conversationAgentActivityShelf", () => {
     assert.ok(Number(minimumHeight[1]) >= 28);
   });
 
+  it("never animates Work Tray layout geometry", async () => {
+    const css = await readFile(
+      new URL("./conversationAgentActivityShelf.css", import.meta.url),
+      "utf8",
+    );
+    const shelfRule = css.match(/\.luca-activity-shelf\s*\{([\s\S]*?)\}/);
+
+    assert.ok(shelfRule);
+    const transition = shelfRule[1].match(/transition:\s*([^;]+);/)?.[1] ?? "";
+    assert.match(transition, /opacity/);
+    assert.doesNotMatch(transition, /flex-basis|height|min-height/);
+  });
+
+  it("renders blocking permission content without an entrance animation", async () => {
+    const css = await readFile(
+      new URL("./conversationAgentActivityShelf.css", import.meta.url),
+      "utf8",
+    );
+    const permissionRule = css.match(
+      /\.luca-work-tray__expanded\[data-priority="permission"\]\s*\{([\s\S]*?)\}/,
+    );
+
+    assert.ok(permissionRule);
+    assert.match(permissionRule[1], /animation:\s*none/);
+    assert.match(permissionRule[1], /transform:\s*none/);
+  });
+
   it("still announces the reply when the work summary stays behind", () => {
     const working = new Map([["luca", { name: "Luca", state: "writing" }]]);
     assert.equal(

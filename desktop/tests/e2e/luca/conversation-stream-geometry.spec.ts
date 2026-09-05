@@ -199,7 +199,11 @@ test("managed growth follows at presentation cadence and retires on scroll-away"
     sequence: 1,
     turnId: "tail-follow-turn",
   });
-  for (let sequence = 2; sequence <= 121; sequence += 1) {
+  await page.waitForTimeout(50);
+  await page.evaluate(() => {
+    performance.clearMarks("luca:message-composer-commit");
+  });
+  for (let sequence = 2; sequence <= 201; sequence += 1) {
     await emitFrame(page, {
       kind: "public_chunk",
       publicChunk: "x\n",
@@ -224,11 +228,17 @@ test("managed growth follows at presentation cadence and retires on scroll-away"
         (element) => element.textContent?.match(/x/g)?.length ?? 0,
       ),
     )
-    .toBeGreaterThanOrEqual(120);
+    .toBeGreaterThanOrEqual(200);
+  const composerCommits = await page.evaluate(
+    () => performance.getEntriesByName("luca:message-composer-commit").length,
+  );
+  expect(composerCommits).toBeLessThanOrEqual(3);
   const followedAtTail = Number(
     (await timeline.getAttribute("data-managed-tail-follow-count")) ?? 0,
   );
-  expect(followedAtTail).toBeLessThanOrEqual(42);
+  // Preserve the established 120-chunk cadence budget (42 follows) while
+  // exercising the longer 200-chunk stream used by the composer-render gate.
+  expect(followedAtTail).toBeLessThanOrEqual(70);
 
   const followedScrollTop = await timeline.evaluate(
     (element) => element.scrollTop,
@@ -242,7 +252,7 @@ test("managed growth follows at presentation cadence and retires on scroll-away"
   const countAfterScrollAway = Number(
     (await timeline.getAttribute("data-managed-tail-follow-count")) ?? 0,
   );
-  for (let sequence = 122; sequence <= 241; sequence += 1) {
+  for (let sequence = 202; sequence <= 321; sequence += 1) {
     await emitFrame(page, {
       kind: "public_chunk",
       publicChunk: "y\n",

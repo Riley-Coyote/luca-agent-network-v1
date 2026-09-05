@@ -3,12 +3,13 @@ import * as React from "react";
 import {
   isDeferredTimelineSnapshotStale,
   isRenderedTimelineBehindHistoryPrepend,
+  mergeUrgentOwnSendSuffix,
   selectTimelineBodySurface,
   selectTimelineIntroSurface,
 } from "@/features/messages/lib/timelineSnapshot";
 import { preloadTimelineImages } from "@/features/messages/lib/timelineImagePreload";
 import { openVisitors } from "@/features/messages/lib/visitSpans";
-import { useResidentMarksInMessages } from "@/features/messages/lib/conversationAppearancePreference";
+import { useAgentNamesInMessages } from "@/features/messages/lib/conversationAppearancePreference";
 import type { TimelineMessage } from "@/features/messages/types";
 import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
 import type { MainTimelineEntry } from "@/features/messages/lib/threadPanel";
@@ -208,7 +209,7 @@ const MessageTimelineBase = React.forwardRef<
   }: MessageTimelineProps,
   ref,
 ) {
-  const residentMarksEnabled = useResidentMarksInMessages(currentPubkey);
+  const agentNamesEnabled = useAgentNamesInMessages(currentPubkey);
   const visitorPubkeys = React.useMemo(
     () => openVisitors(messages),
     [messages],
@@ -256,6 +257,22 @@ const MessageTimelineBase = React.forwardRef<
     EMPTY_TIMELINE_SNAPSHOT,
   );
   const deferredMessages = deferredSnapshot.messages;
+  const renderMessages = React.useMemo(
+    () =>
+      mergeUrgentOwnSendSuffix({
+        currentPubkey,
+        deferred: deferredMessages,
+        live: messages,
+        sameChannel: deferredSnapshot.channelId === liveSnapshot.channelId,
+      }),
+    [
+      currentPubkey,
+      deferredMessages,
+      deferredSnapshot.channelId,
+      liveSnapshot.channelId,
+      messages,
+    ],
+  );
   const imagePreloadStateRef = React.useRef({
     activeImages: new Set<HTMLImageElement>(),
     requestedUrls: new Set<string>(),
@@ -288,7 +305,7 @@ const MessageTimelineBase = React.forwardRef<
   }, [scrollContainerRef, scrollContainerDomKey]);
 
   const timelineBodySurface = selectTimelineBodySurface({
-    deferredCount: deferredMessages.length,
+    deferredCount: renderMessages.length,
     hasPersistentIntro: channelIntro !== null || directMessageIntro !== null,
     isLoading: isLoading || isDeferredSnapshotStale,
     liveCount: messages.length,
@@ -311,7 +328,7 @@ const MessageTimelineBase = React.forwardRef<
       isSemanticallyAtBottom ||
       targetMessageId !== null ||
       searchActiveMessageId !== null,
-    messages: deferredMessages,
+    messages: renderMessages,
   });
   // Hold older-page render commits until the scroller is at rest: WKWebView
   // can drop scrollTop compensation writes during live trackpad momentum.
@@ -697,7 +714,7 @@ const MessageTimelineBase = React.forwardRef<
       onAtBottomStateChange={handleVirtualizerAtBottomStateChange}
       personaLookup={personaLookup}
       profiles={profiles}
-      residentMarksEnabled={residentMarksEnabled}
+      agentNamesEnabled={agentNamesEnabled}
       ownerProfiles={ownerProfiles}
       searchActiveMessageId={searchActiveMessageId}
       searchMatchingMessageIds={searchMatchingMessageIds}

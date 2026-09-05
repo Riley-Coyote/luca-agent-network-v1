@@ -1,4 +1,5 @@
 import * as React from "react";
+import { CircleAlert, RefreshCw } from "lucide-react";
 import {
   consumePendingSnapshotImport,
   subscribeSnapshotImport,
@@ -24,6 +25,7 @@ import { useManagedAgentActions } from "./useManagedAgentActions";
 import { usePersonaActions } from "./usePersonaActions";
 import { useTeamActions } from "./useTeamActions";
 import { Button } from "@/shared/ui/button";
+import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 import { NativeResidentImportSection } from "./NativeResidentImportSection";
@@ -239,6 +241,47 @@ export function AgentsView({
       }
     });
   }, []);
+
+  const libraryQueries = [
+    agents.managedAgentsQuery,
+    personas.personasQuery,
+  ] as const;
+  const isLibraryLoading = libraryQueries.some(
+    (queryState) => queryState.data === undefined && queryState.isFetching,
+  );
+  const hasLibraryError = libraryQueries.some(
+    (queryState) => queryState.error !== null,
+  );
+  const isLibraryRetrying =
+    hasLibraryError &&
+    libraryQueries.some((queryState) => queryState.isFetching);
+
+  if (isLibraryLoading && !hasLibraryError) {
+    return (
+      <div
+        aria-busy="true"
+        className="flex min-h-0 min-w-0 flex-1"
+        data-testid="agents-data-loading"
+        role="status"
+      >
+        <span className="sr-only">Loading agents…</span>
+        <ViewLoadingFallback delayMs={0} kind="agents" />
+      </div>
+    );
+  }
+
+  if (hasLibraryError) {
+    return (
+      <AgentLibraryUnavailable
+        isRetrying={isLibraryRetrying}
+        onRetry={() => {
+          void Promise.all(
+            libraryQueries.map((queryState) => queryState.refetch()),
+          );
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -786,5 +829,92 @@ export function AgentsView({
         }}
       />
     </>
+  );
+}
+
+function AgentLibraryUnavailable({
+  isRetrying,
+  onRetry,
+}: {
+  isRetrying: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40"
+      data-luca-floor-host
+      data-testid="agents-library-unavailable"
+    >
+      <div
+        className="relative z-10 flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+        data-luca-conversation-surface
+      >
+        <aside className="flex min-h-0 w-full shrink-0 flex-col border-border/60 bg-card/45 md:w-[292px] md:border-r">
+          <header className="border-b border-border/55 px-4 pb-4 pt-11 md:pt-5">
+            <h1 className="text-lg font-medium tracking-tight">Agents</h1>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Library unavailable
+            </p>
+          </header>
+        </aside>
+        <main className="hidden min-h-0 min-w-0 flex-1 items-center justify-center bg-card/60 px-8 text-center md:flex">
+          <div className="max-w-md" role="alert">
+            <span className="mx-auto flex size-10 items-center justify-center rounded-full border border-destructive/30 bg-destructive/8 text-destructive">
+              <CircleAlert aria-hidden="true" className="size-5" />
+            </span>
+            <h2 className="mt-4 text-lg font-medium">
+              Couldn’t load your agents
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Luca couldn’t read the local agent library. Your residents have
+              not been changed.
+            </p>
+            <Button
+              aria-busy={isRetrying || undefined}
+              className="mt-5"
+              disabled={isRetrying}
+              onClick={onRetry}
+              size="sm"
+              variant="outline"
+            >
+              <RefreshCw
+                aria-hidden="true"
+                className={
+                  isRetrying ? "animate-spin motion-reduce:animate-none" : ""
+                }
+              />
+              {isRetrying ? "Trying again…" : "Try again"}
+            </Button>
+          </div>
+        </main>
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center px-6 text-center md:hidden">
+          <div className="max-w-sm" role="alert">
+            <CircleAlert
+              aria-hidden="true"
+              className="mx-auto size-5 text-destructive"
+            />
+            <h2 className="mt-3 text-base font-medium">
+              Couldn’t load your agents
+            </h2>
+            <Button
+              aria-busy={isRetrying || undefined}
+              className="mt-4"
+              disabled={isRetrying}
+              onClick={onRetry}
+              size="sm"
+              variant="outline"
+            >
+              <RefreshCw
+                aria-hidden="true"
+                className={
+                  isRetrying ? "animate-spin motion-reduce:animate-none" : ""
+                }
+              />
+              {isRetrying ? "Trying again…" : "Try again"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

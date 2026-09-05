@@ -8,6 +8,7 @@ import {
 } from "@/shared/layout/auxiliaryPanelContext";
 import { getAuxiliaryPanelMode } from "@/shared/layout/AuxiliaryPanelHeader";
 import { cn } from "@/shared/lib/cn";
+import { usePanelPresence } from "@/shared/layout/PanelPresence";
 import {
   OverlayPanelBackdrop,
   PANEL_BASE_CLASS,
@@ -71,6 +72,7 @@ export function AuxiliaryPanel({
   widthPx,
 }: AuxiliaryPanelProps) {
   const isOverlay = useIsAuxiliaryPanelOverlay();
+  const presence = usePanelPresence();
   const isFloatingOverlay = isOverlay && !isSinglePanelView;
   const isSplitLayout = layout === "split";
   const mode = getAuxiliaryPanelMode(isSplitLayout, isFloatingOverlay);
@@ -146,15 +148,22 @@ export function AuxiliaryPanel({
 
   return (
     <AuxiliaryPanelContext.Provider value={contextValue}>
-      {isFloatingOverlay ? <OverlayPanelBackdrop onClose={onClose} /> : null}
+      {isFloatingOverlay && presence !== false ? (
+        <OverlayPanelBackdrop onClose={onClose} />
+      ) : null}
       <aside
         className={cn(
-          enterMotion ? PANEL_ENTER_BASE_CLASS : PANEL_BASE_CLASS,
+          enterMotion && presence === null
+            ? PANEL_ENTER_BASE_CLASS
+            : PANEL_BASE_CLASS,
+          presence !== null && "luca-panel-overlay",
           isSinglePanelView && "border-l-0",
           isFloatingOverlay && PANEL_OVERLAY_CLASS,
           className,
         )}
         data-testid={testId}
+        data-panel-open={presence ?? true}
+        inert={presence === false}
         style={{ width: panelWidth }}
       >
         {resizeHandle}

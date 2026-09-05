@@ -16,7 +16,7 @@ export const POLYPHONIC_CARD_WIDTH = 960;
 export const POLYPHONIC_CARD_HEIGHT = 544;
 export const POLYPHONIC_PANE_WIDTH = 416;
 /** The pane gives way on narrow windows; the field scales with it. */
-export const POLYPHONIC_PANE_TRACK = `min(${POLYPHONIC_PANE_WIDTH}px, 44%)`;
+export const POLYPHONIC_PANE_TRACK = `min(${POLYPHONIC_PANE_WIDTH}px, 44%, max(12rem, calc(100vw - 38rem)))`;
 
 export const polyphonicCardFrameStyle: React.CSSProperties = {
   width: `min(${POLYPHONIC_CARD_WIDTH}px, calc(100vw - 2rem))`,

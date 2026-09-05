@@ -145,10 +145,31 @@ test("activity shelf keeps three stable residents and discloses the rest", async
   page,
 }) => {
   await openConversation(page);
+  const composerBefore = await page
+    .getByTestId("message-composer")
+    .boundingBox();
   await seedResidentActivity(page);
 
   const shelf = page.getByTestId("conversation-activity-shelf");
   await expect(shelf).toHaveAttribute("data-active-count", "4");
+  await expect(shelf).toHaveCSS("transition-property", "opacity");
+  const composerAfter = await page
+    .getByTestId("message-composer")
+    .boundingBox();
+  expect(composerAfter).toEqual(composerBefore);
+  const shelfHeights = await shelf.evaluate(
+    (element) =>
+      new Promise<number[]>((resolve) => {
+        const heights: number[] = [];
+        const sample = () => {
+          heights.push(element.getBoundingClientRect().height);
+          if (heights.length === 4) resolve(heights);
+          else requestAnimationFrame(sample);
+        };
+        sample();
+      }),
+  );
+  expect(new Set(shelfHeights)).toEqual(new Set([60]));
   await expect(shelf).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(shelf).toHaveCSS("pointer-events", "none");
   await expect(

@@ -25,20 +25,33 @@ async function withStorage(storage, run) {
   }
 }
 
-test("missing, corrupt, and unsupported preferences default marks on", async () => {
+test("missing, corrupt, and unsupported preferences default agent names off", async () => {
   for (const stored of [
     null,
     "{bad-json",
-    JSON.stringify({ version: 2, residentMarksInMessages: false }),
-    JSON.stringify({ version: 1, residentMarksInMessages: "no" }),
+    JSON.stringify({ version: 1, residentMarksInMessages: true }),
+    JSON.stringify({ version: 1, agentNamesInMessages: "no" }),
+    JSON.stringify({ version: 2, agentNamesInMessages: "yes" }),
+    JSON.stringify({ version: 3, agentNamesInMessages: true }),
   ]) {
     await withStorage(
       { getItem: () => stored, setItem() {} },
-      ({ getResidentMarksInMessages }) => {
-        assert.equal(getResidentMarksInMessages(OWNER), true);
+      ({ getAgentNamesInMessages }) => {
+        assert.equal(getAgentNamesInMessages(OWNER), false);
       },
     );
   }
+});
+
+test("an explicit name choice survives a cold read", async () => {
+  await withStorage(
+    {
+      getItem: () => JSON.stringify({ version: 2, agentNamesInMessages: true }),
+      setItem() {},
+    },
+    ({ getAgentNamesInMessages }) =>
+      assert.equal(getAgentNamesInMessages(OWNER), true),
+  );
 });
 
 test("preference is scoped to the normalized owner pubkey", async () => {
@@ -51,18 +64,18 @@ test("preference is scoped to the normalized owner pubkey", async () => {
     },
     ({
       conversationAppearanceStorageKey,
-      getResidentMarksInMessages,
-      setResidentMarksInMessages,
+      getAgentNamesInMessages,
+      setAgentNamesInMessages,
     }) => {
-      setResidentMarksInMessages(OWNER.toUpperCase(), false);
-      assert.equal(getResidentMarksInMessages(OWNER), false);
-      assert.equal(getResidentMarksInMessages(secondOwner), true);
+      setAgentNamesInMessages(OWNER.toUpperCase(), true);
+      assert.equal(getAgentNamesInMessages(OWNER), true);
+      assert.equal(getAgentNamesInMessages(secondOwner), false);
 
       const key = conversationAppearanceStorageKey(OWNER);
       assert.ok(key);
       assert.deepEqual(JSON.parse(storedByKey.get(key)), {
-        version: 1,
-        residentMarksInMessages: false,
+        version: 2,
+        agentNamesInMessages: true,
       });
       assert.equal(conversationAppearanceStorageKey("not-a-pubkey"), null);
     },
@@ -77,10 +90,10 @@ test("the live value changes even when persistence is unavailable", async () => 
         throw new Error("quota exceeded");
       },
     },
-    ({ getResidentMarksInMessages, setResidentMarksInMessages }) => {
-      assert.equal(getResidentMarksInMessages(OWNER), true);
-      assert.doesNotThrow(() => setResidentMarksInMessages(OWNER, false));
-      assert.equal(getResidentMarksInMessages(OWNER), false);
+    ({ getAgentNamesInMessages, setAgentNamesInMessages }) => {
+      assert.equal(getAgentNamesInMessages(OWNER), false);
+      assert.doesNotThrow(() => setAgentNamesInMessages(OWNER, true));
+      assert.equal(getAgentNamesInMessages(OWNER), true);
     },
   );
 });

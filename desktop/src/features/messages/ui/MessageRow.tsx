@@ -15,7 +15,8 @@ import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoic
 import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
-import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import type { ResidentMarkLiveState } from "@/features/channels/ui/ResidentIdentityMark";
+import { AgentMessageRuntime } from "./AgentMessageRuntime";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
@@ -158,7 +159,7 @@ export const MessageRow = React.memo(
     quotedParent = null,
     collapseLongBody = true,
     quickReactions = true,
-    residentMarksEnabled = true,
+    agentNamesEnabled = false,
     showDepthGuides = true,
     videoReviewContext,
   }: {
@@ -220,7 +221,7 @@ export const MessageRow = React.memo(
     collapseLongBody?: boolean;
     /** One-tap emoji row in the hover bar; off in direct conversations. */
     quickReactions?: boolean;
-    residentMarksEnabled?: boolean;
+    agentNamesEnabled?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
   }) {
@@ -526,11 +527,11 @@ export const MessageRow = React.memo(
     };
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
-    // One gutter for everyone who speaks: residents wear their identity glyph,
-    // people wear the lettered circle they carry in the sidebar. Otherwise the
-    // owner's rows start a column early and read as a hole in the timeline.
+    const quietAgent = Boolean(message.isAgent && !agentNamesEnabled);
+    // Agent replies read directly on the conversation plane. Human contacts
+    // keep their avatar; the owner's aligned bubble needs no empty gutter.
     const showResidentMarkGutter = Boolean(
-      residentMarksEnabled && message.pubkey,
+      !message.isAgent && !ownBubble && message.pubkey,
     );
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
@@ -649,11 +650,13 @@ export const MessageRow = React.memo(
       );
     })();
 
-    // While a reply is coming and no text has arrived, one quiet word beside
-    // the name says what — "thinking", "reading files". Identity marks remain
-    // identity; the activity shelf's sandpile is the single animated state cue.
+    // While a reply is coming, the resident's own mark carries the continuous
+    // live signal and one quiet word beside the name says what — "thinking",
+    // "reading files", "writing". This row owns that state in a direct
+    // conversation, where the multi-resident activity shelf stands down.
     const managedPhase = message.managedPresentation?.phase;
-    const managedActivityState = !message.managedPresentation?.streaming
+    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
+      ?.streaming
       ? null
       : managedPhase === "waking" ||
           managedPhase === "thinking" ||
@@ -666,7 +669,7 @@ export const MessageRow = React.memo(
     // the owner's behalf: nothing is thinking yet, and saying so is what
     // keeps a longer wait from reading as a broken one.
     const activityWord =
-      managedActivityState === "thinking"
+      residentMarkLive === "thinking"
         ? (message.managedPresentation?.activityLabel ??
           (managedPhase === "waking"
             ? "waking"
@@ -678,7 +681,7 @@ export const MessageRow = React.memo(
           // The runtime's own narration wins here for the same reason it wins
           // above: it says what is being written, and the phase word only says
           // that something is. Falls back when nothing was narrated.
-          managedActivityState === "writing" && message.body === ""
+          residentMarkLive === "writing" && message.body === ""
           ? (message.managedPresentation?.activityLabel ?? "writing")
           : null;
 
@@ -769,30 +772,46 @@ export const MessageRow = React.memo(
         </div>
       ) : null;
 
+    const hasVisibleMetadata = Boolean(
+      managedWorkDuration ||
+        authorVisiting ||
+        statusMetadataNode ||
+        activityWord ||
+        stopNode,
+    );
     const headerNode = isContinuation ? null : (
-      <MessageHeaderRow className="luca-msg-header">
+      <MessageHeaderRow
+        className={cn(
+          "luca-msg-header",
+          quietAgent && !hasVisibleMetadata && "sr-only",
+        )}
+      >
         {/* Anchored right, the owner's turn needs no name: position says whose
             it is. The words stay in the markup — a screen reader still hears
             who spoke — but the popover trigger goes, because an invisible
             control that can still take focus is worse than no control. */}
-        {message.pubkey && !ownBubble ? (
+        {quietAgent ? (
+          <span className="sr-only">{authorNode}</span>
+        ) : message.pubkey && !ownBubble ? (
           <UserProfilePopover
             pubkey={message.pubkey}
             role={profilePopoverRole}
             botIdenticonValue={message.author}
           >
-            <button
-              className="truncate rounded leading-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
-              type="button"
-            >
-              {authorNode}
-            </button>
+            {authorNode}
           </UserProfilePopover>
         ) : (
           authorNode
         )}
+        {message.isAgent && agentNamesEnabled && message.pubkey ? (
+          <AgentMessageRuntime
+            publicKey={message.pubkey}
+            personaId={message.residentPersonaId}
+          />
+        ) : null}
         {inlineMetadataNode}
-        {message.personaDisplayName &&
+        {!quietAgent &&
+        message.personaDisplayName &&
         message.personaDisplayName !== message.author ? (
           <span className="text-xs text-muted-foreground">
             {message.personaDisplayName}
@@ -801,7 +820,10 @@ export const MessageRow = React.memo(
         {stopNode}
       </MessageHeaderRow>
     );
-    const bodyContainerClass = isContinuation ? "mt-0" : bodyOffsetClass;
+    const bodyContainerClass =
+      isContinuation || (quietAgent && !hasVisibleMetadata)
+        ? "mt-0"
+        : bodyOffsetClass;
 
     const messageBodyNode = (
       <>
@@ -1093,6 +1115,12 @@ export const MessageRow = React.memo(
             message.managedPresentation?.finalMessageId ?? undefined
           }
           data-testid="message-row"
+          aria-label={`${message.author}, ${formatFullDateTime(message.createdAt)}`}
+          title={
+            quietAgent
+              ? `${message.author} · ${formatFullDateTime(message.createdAt)}`
+              : undefined
+          }
           onAnimationEnd={handleEntranceAnimationEnd}
         >
           {isThreadReplyLayout ? (
@@ -1117,14 +1145,6 @@ export const MessageRow = React.memo(
                 // sits; a disc on the far left of the same row would be an
                 // orphan pointing back at a column the words no longer use.
                 <span aria-hidden className="size-[21px]" />
-              ) : message.isAgent ? (
-                <ResidentIdentityMark
-                  accessibleName={message.author}
-                  decorative
-                  personaId={message.residentPersonaId}
-                  publicKey={message.pubkey}
-                  size={21}
-                />
               ) : (
                 <UserAvatar
                   avatarUrl={message.avatarUrl ?? null}
@@ -1232,7 +1252,7 @@ export const MessageRow = React.memo(
     prev.onEntranceComplete === next.onEntranceComplete &&
     prev.playEntrance === next.playEntrance &&
     prev.profiles === next.profiles &&
-    prev.residentMarksEnabled === next.residentMarksEnabled &&
+    prev.agentNamesEnabled === next.agentNamesEnabled &&
     prev.searchQuery === next.searchQuery &&
     prev.videoReviewContext === next.videoReviewContext,
 );

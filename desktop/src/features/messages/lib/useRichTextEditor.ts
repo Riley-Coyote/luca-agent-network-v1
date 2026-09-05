@@ -123,6 +123,12 @@ export type RichTextEditorOptions = {
    * app-wide ⌘K muscle memory.
    */
   onLinkShortcut?: () => boolean;
+  /**
+   * Called for a leading `/` in an otherwise-empty editor. Handling that
+   * shortcut at the raw keydown layer lets command surfaces acknowledge it
+   * before ProseMirror walks the general keymap path.
+   */
+  onLeadingSlash?: () => void;
 };
 
 const PASTED_LINK_AT_END_RE =
@@ -205,6 +211,7 @@ export function useRichTextEditor({
   onEditLink,
   onLinkSelectionChange,
   onLinkShortcut,
+  onLeadingSlash,
 }: RichTextEditorOptions) {
   const onUpdateRef = React.useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -223,6 +230,9 @@ export function useRichTextEditor({
 
   const onLinkShortcutRef = React.useRef(onLinkShortcut);
   onLinkShortcutRef.current = onLinkShortcut;
+
+  const onLeadingSlashRef = React.useRef(onLeadingSlash);
+  onLeadingSlashRef.current = onLeadingSlash;
 
   const placeholderRef = React.useRef(placeholder);
   placeholderRef.current = placeholder;
@@ -508,6 +518,31 @@ export function useRichTextEditor({
         // command/caret logic, fires regardless of selection state, and works
         // the same across browser engines. Returning `true` consumes the key.
         handleKeyDown: (view, event) => {
+          if (
+            event.key === "/" &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            !event.repeat &&
+            !event.isComposing &&
+            view.state.selection.empty &&
+            view.state.doc.childCount <= 1 &&
+            view.state.doc.textContent.length === 0
+          ) {
+            onLeadingSlashRef.current?.();
+            window.setTimeout(() => {
+              if (!view.dom.isConnected || view.state.doc.textContent === "/")
+                return;
+              const insertAt = Math.min(1, view.state.doc.content.size);
+              view.dispatch(
+                view.state.tr
+                  .insertText("/", insertAt, insertAt)
+                  .scrollIntoView(),
+              );
+            }, 0);
+            return true;
+          }
+
           // Chromium handles Ctrl-A/E as whole-content movement before the
           // keymap on macOS. Claim them at the raw DOM layer so hard breaks
           // behave like actual line boundaries.

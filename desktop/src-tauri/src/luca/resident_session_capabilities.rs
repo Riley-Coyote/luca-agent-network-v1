@@ -1,6 +1,9 @@
 //! Current native capability facts for managed resident sessions.
 
-use std::{collections::HashMap, sync::{Mutex, OnceLock}};
+use std::{
+    collections::HashMap,
+    sync::{Mutex, OnceLock},
+};
 
 use luca_protocol::{Hex64, ResidentSessionCapabilityV1, SafeU53};
 use tauri::{AppHandle, Emitter};

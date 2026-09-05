@@ -19,9 +19,9 @@ use luca_continuity::{
 };
 use luca_protocol::{
     canonical_sha256, ContinuityContextRequestV1, ContinuityLayerStatusV1,
-    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1,
-    ContinuityWakeHandoffV1, ContinuityWakeItemV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId,
-    SafeU53, Sha256Ref, CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
+    ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, ContinuityWakeHandoffV1,
+    ContinuityWakeItemV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId, SafeU53, Sha256Ref,
+    CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -315,8 +315,7 @@ where
                     current_handoff: resident_ready.then_some(current_handoff).flatten(),
                     resident_items: resident_ready.then_some(resident_items).unwrap_or_default(),
                     capsule_identity_orientation: supplement.capsule_identity_orientation,
-                    capsule_relationship_orientation: supplement
-                        .capsule_relationship_orientation,
+                    capsule_relationship_orientation: supplement.capsule_relationship_orientation,
                     owner_brain_references: supplement.owner_brain_references,
                 };
                 (snapshot, wake)
@@ -327,10 +326,7 @@ where
                 callback_receipt = Some(resolve_snapshot_to_receipt(
                     &request,
                     Err(error),
-                    empty_wake_material(
-                        relationship_scope_ref.clone(),
-                        cue_ref.clone(),
-                    ),
+                    empty_wake_material(relationship_scope_ref.clone(), cue_ref.clone()),
                     now_unix_ms,
                     &mut sink,
                     false,
@@ -581,16 +577,21 @@ fn empty_wake_material(
 
 fn cue_ref(cue: &RetrievalText) -> Sha256Ref {
     let digest = Sha256::digest(cue.as_str().as_bytes());
-    let hex = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    Sha256Ref::parse(format!("sha256:{hex}"))
-        .expect("sha-256 digest is always a valid reference")
+    let hex = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    Sha256Ref::parse(format!("sha256:{hex}")).expect("sha-256 digest is always a valid reference")
 }
 
 fn assemble_resident_wake_material(
     active_records: &[ContinuityActiveLeaseRecordV1],
     retrieval: &RetrievalResult,
 ) -> Result<
-    (Option<ContinuityWakeHandoffV1>, Vec<ContinuityWakeSourceItem>),
+    (
+        Option<ContinuityWakeHandoffV1>,
+        Vec<ContinuityWakeSourceItem>,
+    ),
     luca_continuity::ContinuityError,
 > {
     let retrieval_ranks = retrieval
@@ -645,12 +646,7 @@ fn assemble_resident_wake_material(
         }
     }
     selected.sort_by_key(|(rank, _, _)| *rank);
-    ambient.sort_by(|left, right| {
-        right
-            .0
-            .cmp(&left.0)
-            .then_with(|| left.1.cmp(&right.1))
-    });
+    ambient.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
     let mut resident_items = Vec::with_capacity(selected.len() + ambient.len());
     for (rank, active, item) in selected {
         let rank = SafeU53::new(rank as u64)

@@ -81,6 +81,7 @@ export function PolyphonicOnboardingFlow({
     return isIdentityKeyLabel(seed, pubkey) ? "" : seed;
   });
   const [busy, setBusy] = React.useState(false);
+  const continuingRef = React.useRef(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
   const [agentsContinueLabel, setAgentsContinueLabel] =
     React.useState("Continue");
@@ -136,7 +137,9 @@ export function PolyphonicOnboardingFlow({
   };
 
   async function continueForward() {
-    if (busy) return;
+    if (busy || continuingRef.current) return;
+    continuingRef.current = true;
+    setBusy(true);
     setError(null);
     try {
       if (transaction.chapter === "welcome") {
@@ -162,6 +165,9 @@ export function PolyphonicOnboardingFlow({
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      continuingRef.current = false;
+      setBusy(false);
     }
   }
 

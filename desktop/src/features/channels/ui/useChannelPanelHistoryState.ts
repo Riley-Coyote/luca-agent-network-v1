@@ -251,15 +251,23 @@ export function LocalChannelPanelStateProvider({
 
   const value = React.useMemo<ChannelPanelHistoryState>(
     () => ({
-      channelManagementOpen,
+      channelManagementOpen: focused
+        ? urlState.channelManagementOpen
+        : channelManagementOpen,
       clearAutoSend,
       clearMessageRouteTarget,
-      openAgentSessionChannelId,
-      openAgentSessionPubkey,
-      openThreadHeadId,
-      profilePanelPubkey,
-      profilePanelTab,
-      profilePanelView,
+      openAgentSessionChannelId: focused
+        ? urlState.openAgentSessionChannelId
+        : openAgentSessionChannelId,
+      openAgentSessionPubkey: focused
+        ? urlState.openAgentSessionPubkey
+        : openAgentSessionPubkey,
+      openThreadHeadId: focused ? urlState.openThreadHeadId : openThreadHeadId,
+      profilePanelPubkey: focused
+        ? urlState.profilePanelPubkey
+        : profilePanelPubkey,
+      profilePanelTab: focused ? urlState.profilePanelTab : profilePanelTab,
+      profilePanelView: focused ? urlState.profilePanelView : profilePanelView,
       setChannelManagementOpen,
       setOpenAgentSessionChannelId,
       setOpenAgentSessionPubkey,
@@ -272,6 +280,7 @@ export function LocalChannelPanelStateProvider({
       channelManagementOpen,
       clearAutoSend,
       clearMessageRouteTarget,
+      focused,
       openAgentSessionChannelId,
       openAgentSessionPubkey,
       openThreadHeadId,
@@ -285,6 +294,13 @@ export function LocalChannelPanelStateProvider({
       setProfilePanelTab,
       setProfilePanelPubkey,
       setProfilePanelView,
+      urlState.channelManagementOpen,
+      urlState.openAgentSessionChannelId,
+      urlState.openAgentSessionPubkey,
+      urlState.openThreadHeadId,
+      urlState.profilePanelPubkey,
+      urlState.profilePanelTab,
+      urlState.profilePanelView,
     ],
   );
 

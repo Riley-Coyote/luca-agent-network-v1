@@ -74,10 +74,16 @@ test("provider marks reuse transparent source assets without baked tiles", async
     assert.doesNotMatch(source, /object-cover|rounded-\[/);
   }
 
-  // Activity has one animated owner in the product: the shelf sandpile. The
-  // former runtime-mark murmur remains inspectable in the design lab, but the
-  // identity component can no longer turn it on accidentally.
-  assert.doesNotMatch(markSource, /FilamentMark|data-resident-mark-live/);
+  // A direct conversation deliberately has no activity shelf, so its response
+  // row owns the approved live state: the resident's key-derived mark murmurs
+  // until the complete response settles. Runtime contacts remain provider
+  // marks and never receive this custom-resident treatment.
+  assert.match(markSource, /data-resident-mark-live/);
+  assert.match(markSource, /kind === "custom" && live/);
+  assert.match(markSource, /<FilamentMark/);
+  assert.match(markSource, /motion="murmur"/);
+  assert.match(markSource, /fit="box"/);
+  assert.match(markSource, /bloom=\{false\}/);
   assert.match(thinkingLabSource, /archived-runtime-mark-thinking/);
   assert.match(thinkingLabSource, /motion="murmur"/);
   assert.match(thinkingLabSource, /bloom=\{false\}/);

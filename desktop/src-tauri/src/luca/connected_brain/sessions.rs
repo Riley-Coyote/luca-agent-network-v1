@@ -159,11 +159,7 @@ pub(super) fn session_file_metadata_excluding(
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    let mut files = session_files_excluding(
-        &canonical_root,
-        kind,
-        excluded_provider_session_ids,
-    )?
+    let mut files = session_files_excluding(&canonical_root, kind, excluded_provider_session_ids)?
         .into_iter()
         .filter_map(|path| {
             let relative = path.strip_prefix(&canonical_root).ok()?;
@@ -378,7 +374,10 @@ fn session_file_is_excluded(path: &Path, excluded_provider_session_ids: &HashSet
         return false;
     };
     excluded_provider_session_ids.iter().any(|session_id| {
-        stem == session_id || stem.strip_suffix(session_id).is_some_and(|prefix| prefix.ends_with('-'))
+        stem == session_id
+            || stem
+                .strip_suffix(session_id)
+                .is_some_and(|prefix| prefix.ends_with('-'))
     })
 }
 

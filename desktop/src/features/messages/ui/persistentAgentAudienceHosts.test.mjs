@@ -46,12 +46,12 @@ test("composer never derives audience context from draft keys", async () => {
   assert.match(composer, /audienceContext\?\.threadRootId/);
 });
 
-test("every thread message row honors the owner-scoped mark preference", async () => {
+test("every thread message row honors the owner-scoped name preference", async () => {
   const threadPanel = await source("./MessageThreadPanel.tsx");
   const rows = [...threadPanel.matchAll(/<MessageRow[\s\S]*?\/>/g)];
 
   assert.equal(rows.length, 2);
   for (const [row] of rows) {
-    assert.match(row, /residentMarksEnabled=\{residentMarksEnabled\}/);
+    assert.match(row, /agentNamesEnabled=\{agentNamesEnabled\}/);
   }
 });

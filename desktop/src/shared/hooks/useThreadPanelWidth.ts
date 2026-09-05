@@ -46,6 +46,8 @@ function getInitialThreadPanelWidth(): number {
 }
 
 export function useThreadPanelWidth() {
+  const finishResizeRef = React.useRef<(() => void) | null>(null);
+  React.useEffect(() => () => finishResizeRef.current?.(), []);
   const [widthPx, setWidthPx] = React.useState<number>(() =>
     getInitialThreadPanelWidth(),
   );
@@ -68,6 +70,7 @@ export function useThreadPanelWidth() {
   const onResizeStart = React.useCallback(
     (event: React.PointerEvent<HTMLButtonElement>) => {
       event.preventDefault();
+      finishResizeRef.current?.();
 
       const startX = event.clientX;
       const startWidth = widthPx;
@@ -76,6 +79,7 @@ export function useThreadPanelWidth() {
 
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
+      document.documentElement.dataset.panelResizing = "true";
 
       const handlePointerMove = (moveEvent: PointerEvent) => {
         const deltaX = startX - moveEvent.clientX;
@@ -86,11 +90,19 @@ export function useThreadPanelWidth() {
       const handlePointerUp = () => {
         document.body.style.cursor = previousCursor;
         document.body.style.userSelect = previousUserSelect;
+        delete document.documentElement.dataset.panelResizing;
         window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+        window.removeEventListener("pointercancel", handlePointerUp);
+        window.removeEventListener("blur", handlePointerUp);
+        finishResizeRef.current = null;
       };
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp, { once: true });
+      window.addEventListener("pointercancel", handlePointerUp, { once: true });
+      window.addEventListener("blur", handlePointerUp, { once: true });
+      finishResizeRef.current = handlePointerUp;
     },
     [widthPx],
   );

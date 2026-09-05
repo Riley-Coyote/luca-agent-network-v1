@@ -7,7 +7,6 @@ import {
   type ProfilePanelTab,
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
-import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
 const PulseScreen = React.lazy(async () => {
@@ -40,7 +39,6 @@ export const Route = createFileRoute("/pulse")({
 });
 
 function PulseRouteComponent() {
-  usePreviewFeatureWarning("pulse");
   return (
     <React.Suspense
       fallback={<ViewLoadingFallback includeHeader kind="pulse" />}

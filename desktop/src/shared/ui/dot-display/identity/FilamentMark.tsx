@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useReducedMotion } from "motion/react";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { glyphLit, type IdentityGlyph, identityGlyph } from "./glyph";
@@ -248,6 +249,7 @@ export function FilamentMark({
   className?: string;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const shouldReduceMotion = useReducedMotion();
   const { isDark } = useTheme();
   const ink = isDark ? INK_DARK : INK_LIGHT;
   const glyph = React.useMemo(() => identityGlyph(seed), [seed]);
@@ -284,21 +286,26 @@ export function FilamentMark({
     const start = performance.now();
     let last = start;
     const targetLevel =
-      mode === "current"
+      shouldReduceMotion && mode === "current"
+        ? 0.86
+        : mode === "current"
         ? BASE
         : mode === "lit"
           ? 1
           : mode === "speaking"
             ? 0.86
             : 0.92;
-    const running = mode === "current" || mode === "speaking";
+    const running =
+      !shouldReduceMotion && (mode === "current" || mode === "speaking");
     // Speaking keeps a faint current under a mostly-lit glyph.
     const amplitude = mode === "speaking" ? 0.16 : 1;
 
     const frame = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      levelRef.current += (targetLevel - levelRef.current) * 0.08;
+      levelRef.current = shouldReduceMotion
+        ? targetLevel
+        : levelRef.current + (targetLevel - levelRef.current) * 0.08;
       const level = levelRef.current;
       const t = (now - start) / 1000;
 
@@ -432,11 +439,13 @@ export function FilamentMark({
         }
       }
       paint(ctx, glyph, size, dpr, ink, alphaFor, bloom, fit);
-      raf = requestAnimationFrame(frame);
+      if (running || Math.abs(level - targetLevel) > 0.002) {
+        raf = requestAnimationFrame(frame);
+      }
     };
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [bloom, fit, glyph, graph, ink, mode, motion, size]);
+  }, [bloom, fit, glyph, graph, ink, mode, motion, shouldReduceMotion, size]);
 
   return (
     <canvas

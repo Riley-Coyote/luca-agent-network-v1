@@ -34,7 +34,19 @@ export function useComposerHeightPadding(
         : scrollEl;
 
     let lastPadding: number | null = null;
+    let deferredPaddingDecrease: number | null = null;
     let followBottomFrame: number | null = null;
+    const initialActivityShelfState = composerEl.querySelector<HTMLElement>(
+      '[data-testid="conversation-activity-shelf"]',
+    )?.dataset.state;
+    let lastActivityShelfVisible =
+      initialActivityShelfState !== undefined &&
+      initialActivityShelfState !== "idle";
+
+    const physicalBottomDistance = (): number => {
+      const target = getScrollElement();
+      return target.scrollHeight - target.scrollTop - target.clientHeight;
+    };
 
     const isNearBottom = (): boolean => {
       const target = getScrollElement();
@@ -55,15 +67,8 @@ export function useComposerHeightPadding(
       target.scrollTop = target.scrollHeight;
     };
 
-    const applyPadding = (height: number) => {
-      const padding = Math.ceil(height + trailingClearance);
-      if (lastPadding !== null && Math.abs(padding - lastPadding) <= 1) {
-        return;
-      }
-
+    const commitPadding = (padding: number, wasAtBottom: boolean) => {
       const previousPadding = lastPadding;
-      const wasAtBottom = isNearBottom();
-
       if (mode === "css-variable") {
         scrollEl.style.setProperty("--composer-overlay-height", `${padding}px`);
       } else {
@@ -86,10 +91,62 @@ export function useComposerHeightPadding(
       }
     };
 
+    const applyPadding = (height: number) => {
+      const padding = Math.ceil(height + trailingClearance);
+      const activityShelfState = composerEl.querySelector<HTMLElement>(
+        '[data-testid="conversation-activity-shelf"]',
+      )?.dataset.state;
+      const activityShelfVisible =
+        activityShelfState !== undefined && activityShelfState !== "idle";
+      const activityShelfJustClosed =
+        lastActivityShelfVisible && !activityShelfVisible;
+      lastActivityShelfVisible = activityShelfVisible;
+      if (lastPadding !== null && Math.abs(padding - lastPadding) <= 1) {
+        deferredPaddingDecrease = null;
+        return;
+      }
+
+      const wasAtBottom = isNearBottom();
+      // Removing a composer-owned row while the transcript is physically at
+      // the bottom lowers scrollHeight and forces the browser to clamp
+      // scrollTop. That makes the answer jump by exactly the removed row's
+      // height. Hold that trailing space until the owner scrolls away, where
+      // releasing it cannot move any visible content.
+      if (
+        lastPadding !== null &&
+        padding < lastPadding &&
+        activityShelfJustClosed &&
+        physicalBottomDistance() < 1
+      ) {
+        deferredPaddingDecrease = padding;
+        return;
+      }
+
+      deferredPaddingDecrease = null;
+      commitPadding(padding, wasAtBottom);
+    };
+
+    const releaseDeferredPadding = () => {
+      if (deferredPaddingDecrease === null || physicalBottomDistance() <= 32) {
+        return;
+      }
+      const padding = deferredPaddingDecrease;
+      deferredPaddingDecrease = null;
+      commitPadding(padding, false);
+    };
+
     const disconnect = observeElementBlockSize(composerEl, applyPadding);
+    const observedScrollElement = getScrollElement();
+    observedScrollElement.addEventListener("scroll", releaseDeferredPadding, {
+      passive: true,
+    });
 
     return () => {
       disconnect();
+      observedScrollElement.removeEventListener(
+        "scroll",
+        releaseDeferredPadding,
+      );
       if (followBottomFrame !== null) {
         cancelAnimationFrame(followBottomFrame);
       }

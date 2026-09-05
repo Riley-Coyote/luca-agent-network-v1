@@ -1,4 +1,5 @@
 import type { Page } from "@playwright/test";
+import type { RuntimeTargetOptionV1 } from "../../src/shared/api/tauriOperatorForge";
 import type {
   NativeResidentDiscoveryOutcome,
   RuntimeBinding,
@@ -190,6 +191,8 @@ type MockBridgeOptions = {
     archived_at?: string | null;
   }>;
   acpRuntimesCatalog?: Record<string, unknown>[];
+  operatorForgeRuntimeOptionsSequence?: RuntimeTargetOptionV1[][];
+  operatorForgeSettingsError?: string;
   /** Catalog returned after a successful mocked install. */
   acpRuntimesCatalogAfterInstall?: Record<string, unknown>[];
   /** Catalog responses after install for testing later sign-in completion. */
@@ -277,10 +280,16 @@ type MockBridgeOptions = {
   capabilitySkills?: MockCapabilitySkillSeed[];
   /** Fail skill catalog reads without affecting ordinary agent messaging. */
   capabilitySkillsError?: string;
+  /** Hold local session-index reads so loading and delayed states are observable. */
+  runtimeSessionsDelayMs?: number;
+  /** Sequenced failures for `list_connected_runtime_sessions`; null entries succeed. */
+  runtimeSessionListErrors?: (string | null)[];
   /** Hold context retrieval so a runtime/community switch can supersede it. */
   runtimeSessionContextDelayMs?: number;
   relayAgents?: MockRelayAgentSeed[];
   agentListDelayMs?: number;
+  /** Sequenced failures for `list_managed_agents`; null entries succeed. */
+  managedAgentListErrors?: (string | null)[];
   createManagedAgentDelayMs?: number;
   addChannelMembersDelayMs?: number;
   /** Sequenced add-member failures. A string fails that call; null succeeds. */

@@ -83,7 +83,7 @@
   .luca-conversation-veil-top {
     background: linear-gradient(
       to bottom,
-      hsl(var(--background)) calc(100% - 3rem),
+      hsl(var(--background)) calc(100% - 1rem),
       hsl(var(--background) / 0)
     );
   }
@@ -123,9 +123,9 @@
     transition:
       bottom var(--motion-duration-drawer) var(--buzz-huddle-drawer-ease),
       border-bottom-left-radius var(--motion-duration-drawer)
-        var(--buzz-huddle-drawer-ease),
+      var(--buzz-huddle-drawer-ease),
       border-bottom-right-radius var(--motion-duration-drawer)
-        var(--buzz-huddle-drawer-ease),
+      var(--buzz-huddle-drawer-ease),
       box-shadow var(--motion-duration-drawer) var(--buzz-huddle-drawer-ease);
     will-change:
       bottom, border-bottom-left-radius, border-bottom-right-radius, box-shadow;

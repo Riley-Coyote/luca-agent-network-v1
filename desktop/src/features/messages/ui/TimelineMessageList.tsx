@@ -112,7 +112,7 @@ type TimelineMessageListProps = {
   personaLookup?: Map<string, string>;
   profiles?: UserProfileLookup;
   ownerProfiles?: UserProfileLookup;
-  residentMarksEnabled?: boolean;
+  agentNamesEnabled?: boolean;
   /** The message ID of the currently active find-in-channel match. */
   searchActiveMessageId?: string | null;
   /** Set of message IDs that match the current find-in-channel query. */
@@ -169,7 +169,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onToggleReaction,
   profiles,
   ownerProfiles,
-  residentMarksEnabled = true,
+  agentNamesEnabled = false,
   searchActiveMessageId = null,
   searchMatchingMessageIds,
   searchQuery,
@@ -321,7 +321,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               expandedThreadHeadId={expandedThreadHeadId}
               onToggleReaction={onToggleReaction}
               profiles={profiles}
-              residentMarksEnabled={residentMarksEnabled}
+              agentNamesEnabled={agentNamesEnabled}
               collapseLongBody={!isDirectConversation}
               quickReactions={!isDirectConversation}
               searchActiveMessageId={searchActiveMessageId}
@@ -359,7 +359,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
       expandedThreadHeadId,
       onToggleReaction,
       profiles,
-      residentMarksEnabled,
+      agentNamesEnabled,
       isDirectConversation,
       ownerProfiles,
       searchActiveMessageId,
@@ -507,12 +507,13 @@ function VirtualizedTimelineRows({
   const { cancel: cancelBottomSettle, settle: settleAtBottom } =
     useVirtualizedBottomSettle(hostRef, listRef, itemsLengthRef);
   const scrollGrowingTailToBottom = React.useCallback(() => {
-    cancelBottomSettle();
-    const lastIndex = itemsLengthRef.current - 1;
-    if (lastIndex >= 0) {
-      listRef.current?.scrollToIndex(lastIndex, { align: "end" });
-    }
-  }, [cancelBottomSettle]);
+    // A managed response resize can land in the same frame as an optimistic
+    // owner append. It must join the existing bottom transaction instead of
+    // cancelling it and issuing a one-shot spacer-index jump; the latter lets
+    // Virtua's following measurement restore the old anchor and hide the
+    // acknowledgement below the viewport.
+    settleAtBottom();
+  }, [settleAtBottom]);
   const updateGrowingTailPosition = useFollowGrowingTimelineTail(
     hostRef,
     scrollGrowingTailToBottom,
@@ -696,7 +697,11 @@ function VirtualizedTimelineRows({
       const distanceFromBottom = list.scrollSize - list.viewportSize - offset;
       const atBottom = distanceFromBottom <= 32;
       updateGrowingTailPosition(distanceFromBottom);
-      if (distanceFromBottom > 32) cancelBottomSettle();
+      // A data append reports the old offset against the newly-grown scroll
+      // size before the pending bottom settle corrects it. Treating that
+      // transient distance as user intent cancels the settle and strands the
+      // optimistic row beneath the composer. Wheel, touch, pointer, and
+      // transcript-focused scroll keys already retire the settle explicitly.
       onAtBottomStateChange?.(atBottom);
       if (
         prependAnchorRef.current !== null ||
@@ -711,7 +716,6 @@ function VirtualizedTimelineRows({
     },
     [
       armUpwardMomentum,
-      cancelBottomSettle,
       capturePrependAnchor,
       onAtBottomStateChange,
       onStartReached,
@@ -725,12 +729,9 @@ function VirtualizedTimelineRows({
       <PreserveVirtualizedItemVisibilityContext value={isPrepend}>
         <VList
           ref={listRef}
-          // This scroller pads its own top by the chrome height, and sticky
-          // offsets are measured from the padding edge — so the day pill's
-          // header clearance has to be discounted by that padding or the two
-          // stack and the pill parks a whole chrome-height below the header it
-          // is supposed to hug. `scripts/lab-shots.mjs` checks it to 12px.
-          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[var(--channel-top-chrome-height,4.5rem)] [--buzz-day-pill-sticky-top:calc(var(--buzz-channel-content-top-padding,5.75rem)_-_var(--channel-top-chrome-height,4.5rem))]"
+          // Clear the measured header, including a resident companion or a
+          // wrapped status line. Sticky offsets start at this padding edge.
+          className="h-full min-h-0 w-full overflow-y-auto overflow-x-hidden overscroll-contain px-2 pt-[var(--buzz-channel-content-top-padding,5.75rem)] [--buzz-day-pill-sticky-top:0px]"
           data={items}
           item={VirtualizedTimelineItemShell}
           itemSize={estimateItemSize}
@@ -870,7 +871,7 @@ type MessageRowItemProps = Pick<
   | "expandedThreadHeadId"
   | "onToggleReaction"
   | "profiles"
-  | "residentMarksEnabled"
+  | "agentNamesEnabled"
   | "searchActiveMessageId"
   | "searchMatchingMessageIds"
   | "searchQuery"
@@ -916,7 +917,7 @@ function MessageRowItem({
   expandedThreadHeadId,
   onToggleReaction,
   profiles,
-  residentMarksEnabled = true,
+  agentNamesEnabled = false,
   collapseLongBody = true,
   quickReactions = true,
   searchActiveMessageId,
@@ -981,7 +982,7 @@ function MessageRowItem({
               : undefined
           }
           profiles={profiles}
-          residentMarksEnabled={residentMarksEnabled}
+          agentNamesEnabled={agentNamesEnabled}
           collapseLongBody={collapseLongBody}
           quickReactions={quickReactions}
           showDepthGuides={isFocusedThreadLayout}
@@ -1038,7 +1039,7 @@ function MessageRowItem({
           message.id === expandedThreadHeadId ? undefined : onToggleThread
         }
         profiles={profiles}
-        residentMarksEnabled={residentMarksEnabled}
+        agentNamesEnabled={agentNamesEnabled}
         collapseLongBody={collapseLongBody}
         quickReactions={quickReactions}
         quotedParent={quotedParent}

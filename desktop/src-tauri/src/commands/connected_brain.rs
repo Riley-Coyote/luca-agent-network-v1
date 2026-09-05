@@ -5,9 +5,7 @@
 
 use crate::{
     app_state::AppState,
-    luca::{
-        connected_brain, owner_brain_store, resident_registry, runtime_session_purpose,
-    },
+    luca::{connected_brain, owner_brain_store, resident_registry, runtime_session_purpose},
 };
 use luca_protocol::{
     BrainGrantStateV1, ConnectedBrainSourceKindV1, ConnectedBrainSourceStatusV1, Hex64, OpaqueId,
@@ -565,8 +563,10 @@ pub async fn get_connected_runtime_session_context(
             .path()
             .app_data_dir()
             .map_err(|_| "connected-runtime-session-store-unavailable".to_owned())?;
-        let excluded_provider_session_ids =
-            runtime_session_purpose::excluded_provider_session_ids(&app_data_dir, &input.runtime_id);
+        let excluded_provider_session_ids = runtime_session_purpose::excluded_provider_session_ids(
+            &app_data_dir,
+            &input.runtime_id,
+        );
         let catalog = state
             .read_connected_brain_catalog(&owner)
             .map_err(|error| error.code().to_owned())?;

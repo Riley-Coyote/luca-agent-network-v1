@@ -70,6 +70,7 @@ function supportedAuthMethods(
 
 function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
   const runtimes = useAcpRuntimesQuery();
+  const settings = useOperatorForgeSettingsQuery();
   const install = useInstallAcpRuntimeMutation();
   const methods = useAcpAuthMethodsQuery(runtime.id, {
     enabled:
@@ -77,70 +78,152 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
       runtime.authStatus.status === "logged_out",
   });
   const connect = useConnectAcpRuntimeMutation();
+  const [actionError, setActionError] = React.useState<string | null>(null);
+  const [checking, setChecking] = React.useState(false);
+  const refetchSettings = settings.refetch;
+  const refetchRuntimes = runtimes.refetch;
+  const refresh = React.useCallback(async () => {
+    setChecking(true);
+    try {
+      await Promise.all([refetchSettings(), refetchRuntimes()]);
+    } finally {
+      setChecking(false);
+    }
+  }, [refetchSettings, refetchRuntimes]);
 
-  if (runtimeIsReadyForOnboarding(runtime)) return null;
-  if (
+  // Sign-in launches an external flow. Refresh the authoritative readiness
+  // while this recovery is visible so returning to Luca needs no extra click.
+  React.useEffect(() => {
+    if (!connect.data?.launched) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof window.setTimeout>;
+    const check = async () => {
+      await Promise.all([refetchSettings(), refetchRuntimes()]);
+      if (!cancelled) timer = window.setTimeout(() => void check(), 1500);
+    };
+    timer = window.setTimeout(() => void check(), 1500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [connect.data?.launched, refetchSettings, refetchRuntimes]);
+
+  const pending = install.isPending || connect.isPending;
+  const error = actionError ?? connect.error?.message ?? install.error?.message;
+  const needsSignIn =
     runtime.availability === "available" &&
-    runtime.authStatus.status === "logged_out"
-  ) {
-    return (
-      <Button
-        className="h-8"
-        disabled={connect.isPending}
-        onClick={() => {
-          const method = supportedAuthMethods(
-            runtime,
-            methods.data?.methods ?? [],
-          )[0];
-          if (method) {
-            connect.mutate({ runtimeId: runtime.id, methodId: method.id });
-          } else {
-            void methods.refetch();
-          }
-        }}
-        type="button"
-        variant="outline"
-      >
-        {connect.isPending ? <Spinner className="h-3.5 w-3.5" /> : null}
-        Sign in
-      </Button>
-    );
+    runtime.authStatus.status === "logged_out";
+
+  async function recover() {
+    setActionError(null);
+    try {
+      if (needsSignIn) {
+        const result = await methods.refetch();
+        if (result.error) throw result.error;
+        const method = supportedAuthMethods(
+          runtime,
+          result.data?.methods ?? [],
+        )[0];
+        if (!method) {
+          throw new Error(
+            "Sign-in isn’t available yet. Open the setup guide, then check again.",
+          );
+        }
+        const resultOfConnect = await connect.mutateAsync({
+          runtimeId: runtime.id,
+          methodId: method.id,
+        });
+        if (!resultOfConnect.launched)
+          throw new Error("Sign-in couldn’t open. Try again.");
+      } else if (
+        runtime.canAutoInstall &&
+        !runtimeIsReadyForOnboarding(runtime)
+      ) {
+        const result = await install.mutateAsync(runtime.id);
+        if (!result.success) {
+          throw new Error(
+            result.steps.find((step) => !step.success)?.hint ||
+              "Installation didn’t finish. Try again or open the setup guide.",
+          );
+        }
+      } else if (
+        runtime.installInstructionsUrl &&
+        !runtimeIsReadyForOnboarding(runtime)
+      ) {
+        await openUrl(runtime.installInstructionsUrl);
+      }
+      await refresh();
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
-  if (runtime.canAutoInstall) {
-    return (
-      <Button
-        className="h-8"
-        disabled={install.isPending}
-        onClick={() => install.mutate(runtime.id)}
-        type="button"
-        variant="outline"
-      >
-        {install.isPending ? <Spinner className="h-3.5 w-3.5" /> : null}
-        Install
-      </Button>
-    );
-  }
-  if (runtime.installInstructionsUrl) {
-    return (
-      <Button
-        className="h-8"
-        onClick={() => void openUrl(runtime.installInstructionsUrl)}
-        type="button"
-        variant="outline"
-      >
-        Open setup guide
-      </Button>
-    );
-  }
+
   return (
-    <Button
-      className="h-8"
-      onClick={() => void runtimes.refetch()}
-      type="button"
-      variant="outline"
-    >
-      Check again
-    </Button>
+    <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {!runtimeIsReadyForOnboarding(runtime) &&
+        (needsSignIn ||
+          runtime.canAutoInstall ||
+          runtime.installInstructionsUrl) ? (
+          <Button
+            className="h-8"
+            disabled={pending || methods.isFetching}
+            onClick={() => void recover()}
+            type="button"
+            variant="outline"
+          >
+            {pending || methods.isFetching ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : null}
+            {needsSignIn
+              ? connect.isPending
+                ? "Opening sign-in…"
+                : "Sign in"
+              : runtime.canAutoInstall
+                ? install.isPending
+                  ? "Installing…"
+                  : "Install"
+                : "Open setup guide"}
+          </Button>
+        ) : null}
+        <Button
+          className="h-8"
+          disabled={pending || checking}
+          onClick={() => void refresh()}
+          type="button"
+          variant="ghost"
+        >
+          {checking ? "Checking…" : "Check again"}
+        </Button>
+      </div>
+      {connect.data?.launched && !error ? (
+        <p role="status">
+          Finish signing in in the window that opened. Luca will continue
+          checking here.
+        </p>
+      ) : null}
+      {error ? (
+        <p className="break-words text-destructive" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {error && runtime.installInstructionsUrl ? (
+        <Button
+          className="h-8 self-start"
+          onClick={() =>
+            void openUrl(runtime.installInstructionsUrl).catch(() =>
+              setActionError(
+                "The setup guide couldn’t open. Please try again.",
+              ),
+            )
+          }
+          type="button"
+          variant="outline"
+        >
+          Open setup guide
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -151,6 +234,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   const settings = useOperatorForgeSettingsQuery();
   const runtimes = useAcpRuntimesQuery();
   const save = useSaveOperatorForgePreferencesMutation();
+  const savePreferences = save.mutateAsync;
   const [selected, setSelected] = React.useState<AgentRuntimeTargetV1 | null>(
     null,
   );
@@ -176,13 +260,13 @@ export const PolyphonicRuntimeStep = React.forwardRef<
 
   const commit = React.useCallback(async () => {
     if (!selected || !ready) return undefined;
-    await save.mutateAsync({
+    await savePreferences({
       defaultRuntimeTarget: selected,
       runtimeConfirmed: true,
       lucaEnabled: true,
     });
     return selected;
-  }, [ready, save, selected]);
+  }, [ready, savePreferences, selected]);
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
   const options = settings.data?.runtimeOptions ?? [];
@@ -215,7 +299,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         data-testid="polyphonic-runtime-scroll"
       >
         <div
-          aria-busy={!settings.data}
+          aria-busy={settings.isPending}
           aria-label="Luca runtime"
           className={cn(
             "grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1",
@@ -227,7 +311,39 @@ export const PolyphonicRuntimeStep = React.forwardRef<
           role="radiogroup"
         >
           {!settings.data ? (
-            <Spinner className="h-4 w-4 text-[var(--prototype-muted)]" />
+            settings.isError ? (
+              <div className="flex flex-col items-start gap-3 p-4" role="alert">
+                <p className="text-sm text-[var(--prototype-ink)]">
+                  Couldn’t check the AI available on this Mac.
+                </p>
+                <Button
+                  disabled={settings.isFetching}
+                  onClick={() => void settings.refetch()}
+                  type="button"
+                  variant="outline"
+                >
+                  {settings.isFetching ? "Checking…" : "Try again"}
+                </Button>
+              </div>
+            ) : (
+              <Spinner className="h-4 w-4 text-[var(--prototype-muted)]" />
+            )
+          ) : null}
+          {settings.data && options.length === 0 ? (
+            <div className="flex flex-col items-start gap-3 p-4" role="status">
+              <p className="text-sm text-[var(--prototype-ink)]">
+                No AI connections are available yet. Check again after setting
+                one up.
+              </p>
+              <Button
+                disabled={settings.isFetching}
+                onClick={() => void settings.refetch()}
+                type="button"
+                variant="outline"
+              >
+                Check again
+              </Button>
+            </div>
           ) : null}
           {visibleOptions.map((option) => {
             const runtime = matchingRuntime(option, runtimes.data ?? []);
@@ -300,7 +416,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
             onClick={() => setShowOtherRuntimes(true)}
             type="button"
           >
-            Show other runtimes
+            Show other options
             <ChevronDown aria-hidden="true" className="size-3" />
           </button>
         ) : null}
@@ -312,12 +428,15 @@ export const PolyphonicRuntimeStep = React.forwardRef<
           </p>
         ) : null}
         {selectedOption && selectedOption.readiness !== "ready" ? (
-          <div className="mt-4 flex items-start justify-between gap-4 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+          <div className="mt-4 flex flex-col items-start gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]">
             <span>
               {selectedOption.reason ?? "This runtime needs attention."}
             </span>
             {selectedRuntime ? (
-              <ManagedRecovery runtime={selectedRuntime} />
+              <ManagedRecovery
+                key={selectedRuntime.id}
+                runtime={selectedRuntime}
+              />
             ) : (
               <Button
                 className="h-8"

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 
 const READY_CODEX_RUNTIME = {
@@ -31,13 +32,27 @@ async function openDoor(page: import("@playwright/test").Page) {
   );
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await expect(page.getByRole("heading", { name: "Polyphonic" })).toBeVisible();
+  await expect(page.getByTestId("onboarding-footer-scrim")).toHaveCount(0);
 }
 
 test("the door names the application and the name field never seeds a key label", async ({
   page,
-}) => {
+}, testInfo) => {
   await openDoor(page);
   await expect(page.getByRole("heading", { name: "Luca" })).toHaveCount(0);
+  const evidenceDirectory = process.env.LUCA_VISUAL_EVIDENCE_DIR?.trim();
+  if (evidenceDirectory) {
+    await waitForAnimations(page);
+    await page.screenshot({
+      animations: "allow",
+      path: `${evidenceDirectory}/onboarding-door-without-bottom-gradient.png`,
+    });
+  } else {
+    await testInfo.attach("onboarding door", {
+      body: await page.screenshot({ animations: "allow" }),
+      contentType: "image/png",
+    });
+  }
   await page.getByTestId("polyphonic-door-begin").click();
   // The mock identity's display name is a shortened npub; the field must not
   // ask a new owner to delete their own key.

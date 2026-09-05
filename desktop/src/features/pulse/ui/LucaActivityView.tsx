@@ -16,6 +16,7 @@ import type { TranscriptItem } from "@/features/agents/ui/agentSessionTypes";
 import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
 import { useOpenAgentActivity } from "@/features/agents/useOpenAgentActivity";
 import type { ManagedAgent, RelayAgent } from "@/shared/api/types";
+import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -176,13 +177,68 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
   const runtimeError =
     resident.managed?.lastError !== null &&
     resident.managed?.lastError !== undefined;
+  const activityGroup = working.working
+    ? "active"
+    : activity
+      ? "recent"
+      : "idle";
+
+  if (!activity) {
+    return (
+      <article
+        className="order-[6] rounded-xl border border-border/55 bg-background/35 p-3 transition-colors hover:border-border"
+        data-activity-group={activityGroup}
+        data-activity-state="idle"
+        data-testid={`owner-activity-resident-${normalizePubkey(resident.pubkey)}`}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <UserAvatar
+            avatarUrl={resident.managed?.avatarUrl ?? null}
+            displayName={resident.name}
+            size="sm"
+          />
+          <div className="min-w-32 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-sm font-medium text-foreground">
+                {resident.name}
+              </h2>
+              <Badge variant="secondary">{runtimeLabel(resident)}</Badge>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {runtimeError
+                ? "Runtime needs attention"
+                : "Ready for a conversation"}
+            </p>
+          </div>
+          <Button
+            className="shrink-0"
+            disabled={!canOpen}
+            onClick={() => openAgentActivity(resident.pubkey)}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            <span>
+              {canOpen ? "Open activity" : "No accessible conversation"}
+            </span>
+            <ArrowUpRight aria-hidden className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article
-      className="rounded-xl border border-border/60 bg-background/45 p-4 transition-colors hover:border-border"
+      className={cn(
+        "rounded-xl border border-border/60 bg-background/45 p-4 transition-colors hover:border-border",
+        activityGroup === "active" ? "order-[2]" : "order-[4]",
+      )}
+      data-activity-group={activityGroup}
       data-activity-state={
         working.working ? "working" : (activity?.tone ?? "idle")
       }
+      data-has-recorded-activity="true"
       data-testid={`owner-activity-resident-${normalizePubkey(resident.pubkey)}`}
     >
       <div className="flex items-start gap-3">
@@ -207,45 +263,25 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
       </div>
 
       <div className="mt-4 min-h-24 rounded-lg border border-border/50 bg-muted/15 px-3 py-3">
-        {activity ? (
-          <>
-            <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-              {activity.tone === "error" ? (
-                <AlertTriangle
-                  aria-hidden
-                  className="h-3.5 w-3.5 text-destructive"
-                />
-              ) : activity.tone === "success" ? (
-                <CircleCheck
-                  aria-hidden
-                  className="h-3.5 w-3.5 text-emerald-500"
-                />
-              ) : (
-                <Clock3
-                  aria-hidden
-                  className="h-3.5 w-3.5 text-muted-foreground"
-                />
-              )}
-              <span>{activity.label}</span>
-            </div>
-            <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
-              {activity.detail}
-            </p>
-            <p className="mt-2 font-mono text-2xs text-ink-faint">
-              {formatActivityTime(activity.timestamp)}
-            </p>
-          </>
-        ) : (
-          <div className="flex min-h-16 items-center gap-3 text-muted-foreground">
-            <Clock3 aria-hidden className="h-4 w-4 shrink-0" />
-            <div>
-              <p className="text-sm">No recorded activity</p>
-              <p className="mt-1 text-xs">
-                New runtime updates will appear here.
-              </p>
-            </div>
-          </div>
-        )}
+        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+          {activity.tone === "error" ? (
+            <AlertTriangle
+              aria-hidden
+              className="h-3.5 w-3.5 text-destructive"
+            />
+          ) : activity.tone === "success" ? (
+            <CircleCheck aria-hidden className="h-3.5 w-3.5 text-emerald-500" />
+          ) : (
+            <Clock3 aria-hidden className="h-3.5 w-3.5 text-muted-foreground" />
+          )}
+          <span>{activity.label}</span>
+        </div>
+        <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">
+          {activity.detail}
+        </p>
+        <p className="mt-2 font-mono text-2xs text-ink-faint">
+          {formatActivityTime(activity.timestamp)}
+        </p>
       </div>
 
       <Button
@@ -260,6 +296,50 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
         <ArrowUpRight aria-hidden className="h-3.5 w-3.5" />
       </Button>
     </article>
+  );
+}
+
+function ActivityGroupHeading({
+  group,
+  title,
+}: {
+  group: "active" | "idle" | "recent";
+  title: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "col-span-full hidden items-center gap-3",
+        group === "active" &&
+          "order-[1] group-has-[[data-activity-group=active]]/activity:flex",
+        group === "recent" &&
+          "order-[3] group-has-[[data-activity-group=recent]]/activity:flex",
+        group === "idle" &&
+          "order-[5] group-has-[[data-activity-group=idle]]/activity:flex",
+      )}
+      data-testid={`owner-activity-group-${group}`}
+    >
+      <h2 className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
+        {title}
+      </h2>
+      <span aria-hidden className="h-px flex-1 bg-border/50" />
+    </div>
+  );
+}
+
+function QuietActivityState() {
+  return (
+    <div
+      className="order-[0] col-span-full rounded-xl border border-dashed border-border/70 px-5 py-10 text-center group-has-[[data-activity-group=active]]/activity:hidden group-has-[[data-activity-group=recent]]/activity:hidden"
+      data-testid="owner-activity-empty-history"
+    >
+      <Clock3 aria-hidden className="mx-auto h-5 w-5 text-muted-foreground" />
+      <h2 className="mt-3 text-sm font-medium">No resident activity yet</h2>
+      <p className="mx-auto mt-1 max-w-lg text-sm leading-6 text-muted-foreground">
+        When a resident starts working, live updates will appear here. Completed
+        work will move into Recent automatically.
+      </p>
+    </div>
   );
 }
 
@@ -315,7 +395,10 @@ export function LucaActivityView() {
         className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden bg-background"
         data-luca-conversation-surface
       >
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+          data-testid="owner-activity-scroll"
+        >
           <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
             <header className="border-b border-border/60 pb-5">
               <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
@@ -372,9 +455,13 @@ export function LucaActivityView() {
             ) : (
               <section
                 aria-label="Resident activity"
-                className="mt-6 grid gap-3 md:grid-cols-2"
+                className="group/activity mt-6 grid gap-3 md:grid-cols-2"
                 data-testid="owner-activity-list"
               >
+                <QuietActivityState />
+                <ActivityGroupHeading group="active" title="Active now" />
+                <ActivityGroupHeading group="recent" title="Recent" />
+                <ActivityGroupHeading group="idle" title="Residents ready" />
                 {residents.map((resident) => (
                   <ResidentActivityCard
                     key={normalizePubkey(resident.pubkey)}

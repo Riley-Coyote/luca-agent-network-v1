@@ -7,8 +7,7 @@ use luca_continuity::{
 };
 use luca_protocol::{
     CanonicalTimestamp, ContinuityContextResultV1, ContinuityNamespaceV1, ContinuityScopeV1,
-    ProviderEgressV1, ResidentHandoffV1, SafeU53, CONTINUITY_PROTOCOL,
-    MAX_CONTINUITY_PACKET_BYTES,
+    ProviderEgressV1, ResidentHandoffV1, SafeU53, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -105,7 +104,11 @@ fn retrieval(address: &NamespaceScope) -> (RetrievalResult, Vec<ContinuityActive
     let specs = vec![
         ("01-handoff", "handoff", handoff),
         ("04-journal", "journal", "journal-private-body".into()),
-        ("06-commitment", "commitment", "associative-private-body".into()),
+        (
+            "06-commitment",
+            "commitment",
+            "associative-private-body".into(),
+        ),
         ("07-note", "memory-note", "memory-note-private-1".into()),
         ("08-note", "memory-note", "memory-note-private-2".into()),
         ("09-note", "memory-note", "memory-note-private-3".into()),
@@ -174,7 +177,9 @@ struct FakeLeaseReader {
 }
 
 impl FakeLeaseReader {
-    fn ready((retrieval, active_records): (RetrievalResult, Vec<ContinuityActiveLeaseRecordV1>)) -> Self {
+    fn ready(
+        (retrieval, active_records): (RetrievalResult, Vec<ContinuityActiveLeaseRecordV1>),
+    ) -> Self {
         Self {
             status: ContinuityLayerStatusV1::Ready,
             retrieval: Some(retrieval),
@@ -618,12 +623,9 @@ fn ambient_rank_is_independent_of_active_lineage_order() {
             .filter(|active| active.record.record_type().as_str() == "memory-note")
             .take(3)
             .collect::<Vec<_>>();
-        records[0].canonical_timestamp =
-            CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
-        records[1].canonical_timestamp =
-            CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
-        records[2].canonical_timestamp =
-            CanonicalTimestamp::parse("2026-08-29T01:00:00Z").unwrap();
+        records[0].canonical_timestamp = CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
+        records[1].canonical_timestamp = CanonicalTimestamp::parse("2026-08-29T02:00:00Z").unwrap();
+        records[2].canonical_timestamp = CanonicalTimestamp::parse("2026-08-29T01:00:00Z").unwrap();
         if reverse {
             records.reverse();
         }

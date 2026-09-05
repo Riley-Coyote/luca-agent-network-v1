@@ -121,7 +121,7 @@ export function MachineOnboardingFlow({
           total={4}
         />
       ) : null}
-      <OnboardingFooterProvider>
+      <OnboardingFooterProvider showScrim={page !== "identity"}>
         <div
           className={`relative flex w-full flex-col items-center text-center ${
             page === "identity"

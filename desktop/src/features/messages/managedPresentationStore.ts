@@ -34,7 +34,10 @@ import {
   settleManagedActivitySteps,
 } from "@/features/messages/lib/managedOperationalStatus";
 import type { ManagedConversationOperationalStatus } from "@/shared/api/types";
-import { ManagedPresentationScheduler } from "@/features/messages/managedPresentationScheduler";
+import {
+  MANAGED_PRESENTATION_PAINT_INTERVAL_MS,
+  ManagedPresentationScheduler,
+} from "@/features/messages/managedPresentationScheduler";
 import {
   managedPresentationUiKey,
   type ManagedPresentationDisplayPhase,
@@ -50,6 +53,10 @@ export type { ManagedPresentationRow } from "@/features/messages/managedPresenta
 const turns = new Map<string, ManagedPresentationTurn>();
 const pendingGraphemes = new Map<string, string[]>();
 const terminalDrainDeadlines = new Map<string, number>();
+// Smooth bursts without making the owner wait behind an artificial typing
+// speed. A live reveal window never moves forward when more text arrives.
+const liveDrainDeadlines = new Map<string, number>();
+const LIVE_DRAIN_TARGET_MS = 240;
 const lookupToUiKey = new Map<string, string>();
 const creationOrdinals = new Map<string, number>();
 const terminalUiKeys = new Set<string>();
@@ -343,15 +350,19 @@ function hasStagedPublications(): boolean {
   );
 }
 
-function terminalDrainQuota(
+function presentationDrainQuota(
   uiKey: string,
   backlog: number,
   now: number,
 ): number {
   const base = managedPresentationDrainQuota(backlog);
-  const deadline = terminalDrainDeadlines.get(uiKey);
+  const deadline =
+    terminalDrainDeadlines.get(uiKey) ?? liveDrainDeadlines.get(uiKey);
   if (deadline === undefined) return base;
-  const remainingTicks = Math.max(1, Math.ceil((deadline - now) / 40));
+  const remainingTicks = Math.max(
+    1,
+    Math.ceil((deadline - now) / MANAGED_PRESENTATION_PAINT_INTERVAL_MS),
+  );
   return Math.max(base, Math.ceil(backlog / remainingTicks));
 }
 
@@ -363,9 +374,10 @@ function flushManagedPresentationPublications(now: number): boolean {
     if (!current || backlog.length === 0) {
       pendingGraphemes.delete(uiKey);
       terminalDrainDeadlines.delete(uiKey);
+      liveDrainDeadlines.delete(uiKey);
       continue;
     }
-    const quota = terminalDrainQuota(uiKey, backlog.length, now);
+    const quota = presentationDrainQuota(uiKey, backlog.length, now);
     const reveal = backlog.splice(0, quota).join("");
     let next: ManagedPresentationTurn = {
       ...current,
@@ -382,6 +394,7 @@ function flushManagedPresentationPublications(now: number): boolean {
     if (backlog.length === 0) {
       pendingGraphemes.delete(uiKey);
       terminalDrainDeadlines.delete(uiKey);
+      liveDrainDeadlines.delete(uiKey);
     }
   }
 
@@ -458,6 +471,7 @@ function processDeadlines(now = Date.now()): void {
 function clearPending(uiKey: string): void {
   pendingGraphemes.delete(uiKey);
   terminalDrainDeadlines.delete(uiKey);
+  liveDrainDeadlines.delete(uiKey);
 }
 
 function markTerminalFrame(key: string, uiKey: string): void {
@@ -510,6 +524,9 @@ function ingestPublicChunk(
   const receivedText = turn.receivedText + chunk;
   if (!withinManagedPresentationPublicTextLimit(receivedText)) return null;
   const graphemes = pendingGraphemes.get(turn.uiKey) ?? [];
+  if (graphemes.length === 0 && chunk.length > 0) {
+    liveDrainDeadlines.set(turn.uiKey, Date.now() + LIVE_DRAIN_TARGET_MS);
+  }
   graphemes.push(...segmentManagedPresentationText(chunk));
   pendingGraphemes.set(turn.uiKey, graphemes);
   scheduler.requestPaint();
@@ -893,6 +910,7 @@ function mergeReceiptRace(
   const authenticatedPending = pendingGraphemes.get(authenticatedUiKey);
   const authenticatedDrainDeadline =
     terminalDrainDeadlines.get(authenticatedUiKey);
+  const authenticatedLiveDeadline = liveDrainDeadlines.get(authenticatedUiKey);
   turns.delete(authenticatedUiKey);
   turns.set(optimisticUiKey, merged);
   if (authenticatedPending) {
@@ -901,6 +919,9 @@ function mergeReceiptRace(
   clearPending(authenticatedUiKey);
   if (authenticatedDrainDeadline !== undefined) {
     terminalDrainDeadlines.set(optimisticUiKey, authenticatedDrainDeadline);
+  }
+  if (authenticatedLiveDeadline !== undefined) {
+    liveDrainDeadlines.set(optimisticUiKey, authenticatedLiveDeadline);
   }
   creationOrdinals.delete(authenticatedUiKey);
   removeManagedPresentationActivity(
@@ -1262,6 +1283,7 @@ export function resetManagedPresentationStore(): void {
   turns.clear();
   pendingGraphemes.clear();
   terminalDrainDeadlines.clear();
+  liveDrainDeadlines.clear();
   lookupToUiKey.clear();
   creationOrdinals.clear();
   terminalUiKeys.clear();

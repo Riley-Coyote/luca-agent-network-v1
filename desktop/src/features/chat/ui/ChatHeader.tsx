@@ -247,6 +247,12 @@ export function ChatHeader({
         channelChrome.negativeMargin,
       )}
     >
+      {transparentChrome ? (
+        <div
+          aria-hidden="true"
+          className="luca-conversation-veil-top pointer-events-none absolute inset-x-0 top-0 -z-10 h-[calc(100%+1rem)]"
+        />
+      ) : null}
       {header}
     </div>
   );

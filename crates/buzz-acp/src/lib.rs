@@ -2197,6 +2197,11 @@ async fn tokio_main() -> Result<()> {
                                             tracing::warn!("failed to subscribe to new channel {ch}: {e}");
                                         } else {
                                             subscribed_channel_ids.insert(ch);
+                                            // Keep the dynamic-membership readiness boundary
+                                            // identical to the startup-discovery path above.
+                                            // Desktop onboarding waits for this durable marker
+                                            // before it opens Luca's first conversation.
+                                            tracing::info!("subscribed to channel {ch}");
                                         }
                                     } else {
                                         tracing::debug!(channel_id = %ch, "membership notification: no matching rules — skipping");

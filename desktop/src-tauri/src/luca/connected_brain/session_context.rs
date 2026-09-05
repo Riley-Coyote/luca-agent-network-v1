@@ -51,11 +51,8 @@ pub(crate) fn list_native_sessions(
     if kind == ConnectedBrainSourceKindV1::Repository {
         return Err("repository sources do not contain runtime sessions".to_owned());
     }
-    let files = sessions::session_file_metadata_excluding(
-        root,
-        kind,
-        excluded_provider_session_ids,
-    )?;
+    let files =
+        sessions::session_file_metadata_excluding(root, kind, excluded_provider_session_ids)?;
     let total_sessions = files.len();
     let mut projected = Vec::with_capacity(total_sessions.min(MAX_LISTED_SESSIONS));
     for file in files.into_iter().take(MAX_LISTED_SESSIONS) {
@@ -104,16 +101,13 @@ pub(crate) fn context_for_native_session(
     if kind == ConnectedBrainSourceKindV1::Repository {
         return Err("repository sources do not contain runtime sessions".to_owned());
     }
-    let selected = sessions::session_file_metadata_excluding(
-        root,
-        kind,
-        excluded_provider_session_ids,
-    )?
-        .into_iter()
-        .find_map(|file| {
-            let candidate = session_id(source_id, &file.relative_locator).ok()?;
-            (candidate == *requested_session_id).then_some((file, candidate))
-        });
+    let selected =
+        sessions::session_file_metadata_excluding(root, kind, excluded_provider_session_ids)?
+            .into_iter()
+            .find_map(|file| {
+                let candidate = session_id(source_id, &file.relative_locator).ok()?;
+                (candidate == *requested_session_id).then_some((file, candidate))
+            });
     let Some((file, selected_session_id)) = selected else {
         return Ok(None);
     };

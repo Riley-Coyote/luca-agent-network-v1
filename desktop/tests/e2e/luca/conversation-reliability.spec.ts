@@ -72,6 +72,15 @@ async function lastSendPayload(page: Page) {
   });
 }
 
+async function sendPayloadCount(page: Page) {
+  return page.evaluate(
+    () =>
+      (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+        (entry) => entry.command === "send_channel_message",
+      ).length,
+  );
+}
+
 function managedResponseRows(page: Page): Locator {
   return page.locator("[data-managed-response-ui-key]");
 }
@@ -186,11 +195,14 @@ test("group activation streams independently and settles into linear signed turn
   const receiptId = await ownerRow.getAttribute("data-message-id");
   if (!receiptId) throw new Error("Expected an owner event ID.");
 
-  // A reply is coming, here: each thinking resident already has its row at
-  // the tail — mark carrying the state, one word beside the name — which the
-  // reply will stream into. No text yet.
-  await expect(managedResponseRows(page)).toHaveCount(2);
-  await expect(page.getByTestId("resident-activity-word")).toHaveCount(2);
+  // Before public text exists, the room's single Work Tray owns the wait.
+  // Empty response rows would duplicate the same state in the transcript.
+  await expect(managedResponseRows(page)).toHaveCount(0);
+  await expect(
+    page
+      .getByTestId("conversation-activity-shelf")
+      .locator(".luca-activity-item"),
+  ).toHaveCount(2);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "2",
@@ -565,8 +577,9 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     resident_pubkeys: [CLAUDE],
   });
   expect(payload?.responseSurface).toBe("timeline");
-  // The named resident's reply row is already at the tail, thinking.
-  await expect(managedResponseRows(page)).toHaveCount(1);
+  // The room's Work Tray owns the pre-text wait; a response row appears only
+  // once Claude contributes public text.
+  await expect(managedResponseRows(page)).toHaveCount(0);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "1",
@@ -818,6 +831,7 @@ test("a focused broadcast reply hydrates its canonical-root branch after reopen"
 test("agent mentions activate exactly the named resident subset", async ({
   page,
 }) => {
+  const initialSendCount = await sendPayloadCount(page);
   const input = page.getByTestId("message-input");
   await input.fill("Please compare @Cla");
   await page
@@ -829,13 +843,19 @@ test("agent mentions activate exactly the named resident subset", async ({
   await input.pressSequentially("only.");
   await page.getByTestId("send-message").click();
 
+  // A click resolves before an async React handler necessarily reaches the
+  // mock bridge. Wait for this send rather than accidentally inspecting an
+  // earlier page-start command when the full suite is under load.
+  await expect.poll(() => sendPayloadCount(page)).toBe(initialSendCount + 1);
+
   const payload = await lastSendPayload(page);
   expect(payload?.managedAudience).toEqual({
     mode: "directed",
     resident_pubkeys: [CLAUDE, CODEX].sort(),
   });
-  // Both named residents have their reply rows at the tail, thinking.
-  await expect(managedResponseRows(page)).toHaveCount(2);
+  // Both named residents are represented once in the Work Tray until either
+  // one contributes public text.
+  await expect(managedResponseRows(page)).toHaveCount(0);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
     "2",

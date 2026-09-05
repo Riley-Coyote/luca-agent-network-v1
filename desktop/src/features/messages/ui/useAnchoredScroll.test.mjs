@@ -3,12 +3,37 @@ import test from "node:test";
 
 import {
   getPinnedCenterDrift,
+  isExactTimelinePrepend,
   settleProgrammaticBottomPin,
   shouldIgnorePinnedCenterScroll,
   shouldRepeatMountBottomPin,
   shouldSettleForSplitPanel,
   shouldSettleVirtualizedBottom,
 } from "./useAnchoredScroll.ts";
+
+test("own-send gating distinguishes a pure prepend from a prepend plus inserted send", () => {
+  const previous = [{ id: "a" }, { id: "b" }];
+
+  assert.equal(
+    isExactTimelinePrepend({
+      current: [{ id: "older" }, ...previous],
+      previous,
+    }),
+    true,
+  );
+  assert.equal(
+    isExactTimelinePrepend({
+      current: [
+        { id: "older" },
+        { id: "a" },
+        { id: "queued-own-send" },
+        { id: "b" },
+      ],
+      previous,
+    }),
+    false,
+  );
+});
 
 test("mount settle preserves a router-restored conversation position", () => {
   assert.equal(

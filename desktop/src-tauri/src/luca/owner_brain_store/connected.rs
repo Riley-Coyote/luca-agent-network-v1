@@ -346,7 +346,7 @@ pub(crate) fn read_connected_sessions(
         budget,
         excluded_provider_session_ids,
     )
-        .map_err(|_| OwnerBrainStoreError::Invalid)
+    .map_err(|_| OwnerBrainStoreError::Invalid)
 }
 
 /// Resolve one opaque session selection into a bounded visible context
@@ -378,7 +378,7 @@ pub(crate) fn read_connected_session_context(
         session_id,
         excluded_provider_session_ids,
     )
-        .map_err(|_| OwnerBrainStoreError::Stale)
+    .map_err(|_| OwnerBrainStoreError::Stale)
 }
 
 fn connected_session_source(

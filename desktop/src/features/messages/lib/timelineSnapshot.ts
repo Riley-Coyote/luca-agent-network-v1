@@ -262,6 +262,83 @@ export function isDeferredTimelineSnapshotStale({
   return deferredSnapshot.channelId !== liveSnapshot.channelId;
 }
 
+function timelineMessageIdentity(
+  message: Pick<TimelineMessage, "id" | "renderKey">,
+): string {
+  return message.renderKey ?? message.id;
+}
+
+function isUrgentOwnSend(
+  message: TimelineMessage,
+  currentPubkey: string,
+): boolean {
+  return (
+    message.pubkey?.toLowerCase() === currentPubkey.toLowerCase() &&
+    (message.pending === true ||
+      message.sendFailed === true ||
+      message.renderKey?.startsWith("optimistic-") === true)
+  );
+}
+
+/**
+ * Admits the smallest live suffix that contains a new optimistic owner send.
+ *
+ * The transcript intentionally rides `useDeferredValue` because formatting a
+ * large history is expensive. A local send is different: it is the user's
+ * acknowledgement that Enter worked and must paint on the urgent render path.
+ * Keeping the suffix contiguous preserves chronological order if another small
+ * event landed immediately before the send, while leaving the rest of the
+ * deferred snapshot (and its history-exhaustion proof) untouched.
+ */
+export function mergeUrgentOwnSendSuffix({
+  currentPubkey,
+  deferred,
+  live,
+  sameChannel,
+}: {
+  currentPubkey?: string;
+  deferred: TimelineMessage[];
+  live: TimelineMessage[];
+  sameChannel: boolean;
+}): TimelineMessage[] {
+  if (!sameChannel || !currentPubkey || deferred === live) return deferred;
+
+  const deferredIdentities = new Set(deferred.map(timelineMessageIdentity));
+  let lastUrgentIndex = -1;
+  for (let index = live.length - 1; index >= 0; index -= 1) {
+    const message = live[index];
+    if (
+      !deferredIdentities.has(timelineMessageIdentity(message)) &&
+      isUrgentOwnSend(message, currentPubkey)
+    ) {
+      lastUrgentIndex = index;
+      break;
+    }
+  }
+  if (lastUrgentIndex === -1) return deferred;
+
+  let suffixStart = 0;
+  if (deferred.length > 0) {
+    const lastDeferredIdentity = timelineMessageIdentity(
+      deferred[deferred.length - 1],
+    );
+    const lastDeferredIndex = live.findIndex(
+      (message) => timelineMessageIdentity(message) === lastDeferredIdentity,
+    );
+    if (lastDeferredIndex === -1 || lastDeferredIndex >= lastUrgentIndex) {
+      return deferred;
+    }
+    suffixStart = lastDeferredIndex + 1;
+  }
+
+  const suffix = live
+    .slice(suffixStart, lastUrgentIndex + 1)
+    .filter(
+      (message) => !deferredIdentities.has(timelineMessageIdentity(message)),
+    );
+  return suffix.length > 0 ? [...deferred, ...suffix] : deferred;
+}
+
 // True when an older page merged into the live cache but the deferred render
 // hasn't painted it yet; false on the initial empty-to-loaded settle.
 export function isRenderedTimelineBehindHistoryPrepend(

@@ -31,8 +31,8 @@ import {
   type ThreadViewMode,
 } from "@/features/channels/lib/threadViewModePreference";
 import {
-  setResidentMarksInMessages,
-  useResidentMarksInMessages,
+  setAgentNamesInMessages,
+  useAgentNamesInMessages,
 } from "@/features/messages/lib/conversationAppearancePreference";
 import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
 import { cn } from "@/shared/lib/cn";
@@ -654,7 +654,7 @@ function ConversationAppearanceSettings({
 }: {
   currentPubkey?: string;
 }) {
-  const residentMarksInMessages = useResidentMarksInMessages(currentPubkey);
+  const agentNamesInMessages = useAgentNamesInMessages(currentPubkey);
 
   return (
     <div className="mt-8">
@@ -664,21 +664,22 @@ function ConversationAppearanceSettings({
           <div className="min-w-0">
             <label
               className="text-sm font-medium"
-              htmlFor="resident-marks-in-messages-switch"
+              htmlFor="agent-names-in-messages-switch"
             >
-              Resident marks in messages
+              Show agent names in messages
             </label>
             <p className="text-sm font-normal text-muted-foreground">
-              Show each resident’s identity beside their messages.
+              Show who sent each agent reply. Hover a message to see its
+              runtime.
             </p>
           </div>
           <Switch
-            checked={residentMarksInMessages}
-            data-testid="resident-marks-in-messages-toggle"
+            checked={agentNamesInMessages}
+            data-testid="agent-names-in-messages-toggle"
             disabled={!currentPubkey}
-            id="resident-marks-in-messages-switch"
+            id="agent-names-in-messages-switch"
             onCheckedChange={(enabled) =>
-              setResidentMarksInMessages(currentPubkey, enabled)
+              setAgentNamesInMessages(currentPubkey, enabled)
             }
           />
         </SettingsOptionRow>

@@ -76,7 +76,7 @@ export function PolyphonicPresentationHeading({
   return (
     <header data-testid="polyphonic-step-origin">
       <h1
-        className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)] outline-none"
+        className="text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)] !outline-none"
         id={id}
         ref={headingRef}
         tabIndex={-1}

@@ -12,6 +12,7 @@ import {
   provisionChannelManagedAgent,
 } from "@/features/agents/channelAgents";
 import { resolveSnapshotAvatarPng } from "@/features/agents/ui/snapshotAvatarPng";
+import { operatorForgeSettingsQueryKey } from "./operatorForgeQueries";
 import {
   channelsQueryKey,
   upsertCachedChannelMember,
@@ -223,6 +224,9 @@ export function useConnectAcpRuntimeMutation() {
       void queryClient.invalidateQueries({ queryKey: acpRuntimesQueryKey });
       void queryClient.invalidateQueries({ queryKey: acpAuthMethodsQueryKey });
       void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
+      void queryClient.invalidateQueries({
+        queryKey: operatorForgeSettingsQueryKey,
+      });
     },
   });
 }
@@ -234,6 +238,9 @@ export function useInstallAcpRuntimeMutation() {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: acpRuntimesQueryKey });
       void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
+      void queryClient.invalidateQueries({
+        queryKey: operatorForgeSettingsQueryKey,
+      });
     },
   });
 }

@@ -13,6 +13,8 @@ import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
  */
 
 const ALICE = TEST_IDENTITIES.alice.pubkey;
+const DEEP_HISTORY_CHANNEL_ID = "feedf00d-0000-4000-8000-000000000007";
+const MANAGED_PRESENTATION_EVENT = "luca://managed-presentation";
 
 test("own message paints instantly and the composer clears", async ({
   page,
@@ -73,9 +75,188 @@ test("own message paints instantly and the composer clears", async ({
   const ms = await page.evaluate(
     () => (window as { __feel?: { ms?: number } }).__feel?.ms ?? Infinity,
   );
-  // Measured ~44ms on the built bundle; 150 is a real margin, not a squeeze.
-  expect(ms).toBeLessThan(150);
+  // The approved acknowledgement contract is <=100ms from Enter to the
+  // optimistic owner row joining the transcript.
+  expect(ms).toBeLessThanOrEqual(100);
   await expect(input).toHaveText("");
+
+  const ownRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-own-message" });
+  await expect
+    .poll(() =>
+      ownRow.evaluate((row) => {
+        const timeline = row.closest('[data-testid="message-timeline"]');
+        const composer = document.querySelector<HTMLElement>(
+          '[data-testid="channel-composer-overlay"]',
+        );
+        if (!(timeline instanceof HTMLElement) || !composer) return false;
+        const rowRect = row.getBoundingClientRect();
+        const timelineRect = timeline.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
+        return (
+          rowRect.bottom > timelineRect.top &&
+          rowRect.top < Math.min(timelineRect.bottom, composerRect.top)
+        );
+      }),
+    )
+    .toBe(true);
+});
+
+test("an own send stays visible at the end of a long virtualized transcript", async ({
+  page,
+}) => {
+  await installMockBridge(page, { deepHistoryMessageCount: 600 });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-deep-history").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("deep-history");
+
+  const input = page.getByTestId("message-input");
+  await input.fill("feel-gate-long-transcript-send");
+  await page.keyboard.press("Enter");
+
+  const ownRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-long-transcript-send" });
+  await expect(ownRow).toHaveCount(1);
+  await expect
+    .poll(() =>
+      ownRow.evaluate((row) => {
+        const timeline = row.closest('[data-testid="message-timeline"]');
+        const composer = document.querySelector<HTMLElement>(
+          '[data-testid="channel-composer-overlay"]',
+        );
+        if (!(timeline instanceof HTMLElement) || !composer) return false;
+        const rowRect = row.getBoundingClientRect();
+        const timelineRect = timeline.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
+        return (
+          rowRect.bottom > timelineRect.top &&
+          rowRect.top < Math.min(timelineRect.bottom, composerRect.top)
+        );
+      }),
+    )
+    .toBe(true);
+});
+
+test("an own send returns a scrolled-up virtualized transcript to its physical floor", async ({
+  page,
+}) => {
+  await installMockBridge(page, { deepHistoryMessageCount: 600 });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-deep-history").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("deep-history");
+
+  const timeline = page.getByTestId("message-timeline");
+  await expect(timeline.locator("[data-message-id]").first()).toBeVisible();
+  await timeline.evaluate((element) => {
+    element.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, deltaY: -900 }),
+    );
+    element.scrollTop = Math.max(
+      0,
+      element.scrollHeight - element.clientHeight - 900,
+    );
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(page.getByTestId("message-scroll-to-latest")).toBeVisible();
+
+  const input = page.getByTestId("message-input");
+  await input.fill("feel-gate-scrolled-up-own-send");
+  await page.keyboard.press("Enter");
+
+  const ownRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-scrolled-up-own-send" });
+  await expect(ownRow).toBeVisible();
+  await expect
+    .poll(() =>
+      timeline.evaluate(
+        (element) =>
+          element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+  await expect(page.getByTestId("message-scroll-to-latest")).toHaveCount(0);
+});
+
+test("a queued own send remains visible while the current resident row is writing", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    deepHistoryMessageCount: 600,
+    managedAgents: [
+      {
+        channelNames: ["deep-history"],
+        name: "Luca",
+        pubkey: ALICE,
+        status: "running",
+      },
+    ],
+    searchProfiles: [{ displayName: "Luca", isAgent: true, pubkey: ALICE }],
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-deep-history").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("deep-history");
+
+  const input = page.getByTestId("message-input");
+  await input.fill("feel-gate-active-turn-first-send");
+  await page.keyboard.press("Enter");
+  const firstRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-active-turn-first-send" });
+  await expect(firstRow).toBeVisible();
+  const receiptId = await firstRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+
+  await page.evaluate(
+    ({ eventName, frame }) => {
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
+    },
+    {
+      eventName: MANAGED_PRESENTATION_EVENT,
+      frame: {
+        protocol: "luca.managed.presentation.v1",
+        kind: "turn_started",
+        resident_pubkey: ALICE,
+        conversation_id: DEEP_HISTORY_CHANNEL_ID,
+        turn_id: "feel-gate-active-turn",
+        dispatch_receipt_id: receiptId,
+        session_epoch: 1,
+        sequence: 1,
+        phase: "writing",
+      },
+    },
+  );
+  await expect(page.getByTestId("channel-composer-overlay")).toContainText(
+    "Thinking",
+  );
+
+  const timeline = page.getByTestId("message-timeline");
+  await timeline.evaluate((element) => {
+    element.dispatchEvent(
+      new WheelEvent("wheel", { bubbles: true, deltaY: -900 }),
+    );
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(page.getByTestId("message-scroll-to-latest")).toBeVisible();
+
+  await input.fill("feel-gate-active-turn-queued-send");
+  await page.keyboard.press("Enter");
+  const queuedRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: "feel-gate-active-turn-queued-send" });
+  await expect(queuedRow).toBeVisible();
+  await expect
+    .poll(() =>
+      timeline.evaluate(
+        (element) =>
+          element.scrollHeight - element.clientHeight - element.scrollTop,
+      ),
+    )
+    .toBeLessThanOrEqual(1);
+  await expect(page.getByTestId("message-scroll-to-latest")).toHaveCount(0);
 });
 
 test("a rejected send stays in place and retries without duplicating", async ({

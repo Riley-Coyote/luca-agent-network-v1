@@ -347,12 +347,61 @@ describe("managedPresentationStore", () => {
 
     flushManagedPresentationSchedulerForTests();
     assert.equal(rowNotifications, 1);
-    assert.equal(getManagedPresentationTurn(uiKey).visibleText, "xxxxxxx");
+    assert.ok(getManagedPresentationTurn(uiKey).visibleText.length > 0);
+    assert.ok(getManagedPresentationTurn(uiKey).bufferedText.length > 0);
     assert.equal(
       getManagedPresentationSchedulerStatsForTests().legacySnapshotRebuilds,
       rebuildsBefore + 1,
     );
     dispose();
+  });
+
+  it("reveals a large live burst within 240ms without waiting for completion", (t) => {
+    let now = 10_000;
+    t.mock.method(Date, "now", () => now);
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    const body = "A👨‍👩‍👧‍👦e\u0301 ".repeat(160);
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: body }),
+    );
+    flushManagedPresentationSchedulerForTests(now);
+    assert.ok(turn().visibleText.length > 0);
+    assert.ok(turn().bufferedText.length > 0);
+    for (let tick = 1; tick <= 6; tick += 1) {
+      now += 40;
+      flushManagedPresentationSchedulerForTests(now);
+    }
+    assert.equal(turn().visibleText, body);
+    assert.equal(turn().bufferedText, "");
+    assert.equal(turn().phase, "writing");
+    assert.equal(turn().finalMessageId, null);
+  });
+
+  it("new chunks cannot keep postponing the live reveal window", (t) => {
+    let now = 20_000;
+    t.mock.method(Date, "now", () => now);
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    let received = "";
+    for (let tick = 0; tick <= 24; tick += 1) {
+      const chunk = `burst-${tick} `.repeat(80);
+      received += chunk;
+      ingestManagedPresentationFrame(
+        frame("public_chunk", tick + 2, { public_chunk: chunk }),
+      );
+      flushManagedPresentationSchedulerForTests(now);
+      if (tick % 6 === 0 && tick > 0) {
+        assert.ok(
+          turn().visibleText.length >= received.length - chunk.length * 6,
+        );
+      }
+      now += 40;
+    }
+    now += 240;
+    flushManagedPresentationSchedulerForTests(now);
+    assert.equal(turn().visibleText, received);
+    assert.equal(turn().bufferedText, "");
   });
 
   it("coalesces bursty lifecycle and activity publications into one paint", () => {
@@ -619,8 +668,9 @@ describe("managedPresentationStore", () => {
     // verified but still queued behind the 40ms reveal cadence.
     flushManagedPresentationSchedulerForTests();
     flushManagedPresentationSchedulerForTests();
-    assert.equal(turn().visibleText, "Part");
-    assert.equal(turn().bufferedText, "ial backlog");
+    assert.ok(turn().visibleText.length > 0);
+    assert.ok(turn().bufferedText.length > 0);
+    assert.equal(turn().visibleText + turn().bufferedText, "Partial backlog");
 
     ingestManagedPresentationFrame(frame("cancelled", 3));
     assert.equal(turn().phase, "stopped");
@@ -648,7 +698,8 @@ describe("managedPresentationStore", () => {
     );
     flushManagedPresentationSchedulerForTests();
     flushManagedPresentationSchedulerForTests();
-    assert.equal(turn().visibleText, "Part");
+    assert.ok(turn().visibleText.length > 0);
+    assert.ok(turn().bufferedText.length > 0);
 
     ingestManagedPresentationFrame(
       frame("failed", 3, { failure: "publication" }),

@@ -14,9 +14,9 @@ use std::{
 use luca_continuity::{ContinuityLayerMaterial, ContinuityReferenceItem, RetrievalText};
 use luca_protocol::{
     canonical_sha256, canonicalize, ContinuityContextRequestV1, ContinuityContextResultV1,
-    ContinuityLayerResultV1, ContinuityLayerStatusV1, Hex64, OpaqueId, ProviderEgressV1, SafeU53,
-    ContinuityWorkingReferenceV1, Sha256Ref, CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES,
-    MAX_CONTINUITY_REFS,
+    ContinuityLayerResultV1, ContinuityLayerStatusV1, ContinuityWorkingReferenceV1, Hex64,
+    OpaqueId, ProviderEgressV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -619,13 +619,31 @@ fn load_owner_brain_context(
                 },
             }
         }
-        Ok(result) => OwnerBrainContextV1 { layer: status(result.status), references: Vec::new() },
-        Err(OwnerBrainStoreError::Locked) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Locked), references: Vec::new() },
-        Err(OwnerBrainStoreError::Timeout) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Timeout), references: Vec::new() },
-        Err(OwnerBrainStoreError::Stale) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Stale), references: Vec::new() },
-        Err(OwnerBrainStoreError::Unavailable) => OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Unavailable), references: Vec::new() },
+        Ok(result) => OwnerBrainContextV1 {
+            layer: status(result.status),
+            references: Vec::new(),
+        },
+        Err(OwnerBrainStoreError::Locked) => OwnerBrainContextV1 {
+            layer: status(ContinuityLayerStatusV1::Locked),
+            references: Vec::new(),
+        },
+        Err(OwnerBrainStoreError::Timeout) => OwnerBrainContextV1 {
+            layer: status(ContinuityLayerStatusV1::Timeout),
+            references: Vec::new(),
+        },
+        Err(OwnerBrainStoreError::Stale) => OwnerBrainContextV1 {
+            layer: status(ContinuityLayerStatusV1::Stale),
+            references: Vec::new(),
+        },
+        Err(OwnerBrainStoreError::Unavailable) => OwnerBrainContextV1 {
+            layer: status(ContinuityLayerStatusV1::Unavailable),
+            references: Vec::new(),
+        },
         Err(OwnerBrainStoreError::Cancelled | OwnerBrainStoreError::Invalid) => {
-            OwnerBrainContextV1 { layer: status(ContinuityLayerStatusV1::Invalid), references: Vec::new() }
+            OwnerBrainContextV1 {
+                layer: status(ContinuityLayerStatusV1::Invalid),
+                references: Vec::new(),
+            }
         }
     }
 }
@@ -656,8 +674,20 @@ fn load_capsule_context(
             {
                 handle
             }
-            Ok(_) => return CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Denied), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
-            Err(_) => return CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Unavailable), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+            Ok(_) => {
+                return CapsuleContextV1 {
+                    layer: fallback(ContinuityLayerStatusV1::Denied),
+                    identity_orientation: Vec::new(),
+                    relationship_orientation: Vec::new(),
+                }
+            }
+            Err(_) => {
+                return CapsuleContextV1 {
+                    layer: fallback(ContinuityLayerStatusV1::Unavailable),
+                    identity_orientation: Vec::new(),
+                    relationship_orientation: Vec::new(),
+                }
+            }
         };
     let result = tauri::async_runtime::block_on(async {
         tokio::time::timeout(
@@ -669,31 +699,64 @@ fn load_capsule_context(
     match result {
         Ok(Ok(super::continuity_capsule::ContinuityCapsuleLoadState::Ready(loaded))) => {
             let orientation = capsule_wake_orientation(&loaded);
-            let layer = capsule_context_layer(super::continuity_capsule::ContinuityCapsuleLoadState::Ready(loaded));
+            let layer = capsule_context_layer(
+                super::continuity_capsule::ContinuityCapsuleLoadState::Ready(loaded),
+            );
             match (layer, orientation) {
-                (Ok(layer), Ok((identity_orientation, relationship_orientation))) => CapsuleContextV1 { layer, identity_orientation, relationship_orientation },
-                _ => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Invalid), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+                (Ok(layer), Ok((identity_orientation, relationship_orientation))) => {
+                    CapsuleContextV1 {
+                        layer,
+                        identity_orientation,
+                        relationship_orientation,
+                    }
+                }
+                _ => CapsuleContextV1 {
+                    layer: fallback(ContinuityLayerStatusV1::Invalid),
+                    identity_orientation: Vec::new(),
+                    relationship_orientation: Vec::new(),
+                },
             }
         }
-        Ok(Ok(state)) => CapsuleContextV1 { layer: capsule_context_layer(state).unwrap_or_else(|_| fallback(ContinuityLayerStatusV1::Invalid)), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
-        Err(_) | Ok(Err(ContinuityCapsuleDesktopError::Timeout)) => {
-            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Timeout), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
-        }
-        Ok(Err(ContinuityCapsuleDesktopError::OwnerLocked)) => {
-            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Locked), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
-        }
-        Ok(Err(ContinuityCapsuleDesktopError::WrongOwner)) => {
-            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Denied), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
-        }
-        Ok(Err(ContinuityCapsuleDesktopError::StaleBinding)) => {
-            CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Stale), identity_orientation: Vec::new(), relationship_orientation: Vec::new() }
-        }
+        Ok(Ok(state)) => CapsuleContextV1 {
+            layer: capsule_context_layer(state)
+                .unwrap_or_else(|_| fallback(ContinuityLayerStatusV1::Invalid)),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
+        Err(_) | Ok(Err(ContinuityCapsuleDesktopError::Timeout)) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Timeout),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
+        Ok(Err(ContinuityCapsuleDesktopError::OwnerLocked)) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Locked),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
+        Ok(Err(ContinuityCapsuleDesktopError::WrongOwner)) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Denied),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
+        Ok(Err(ContinuityCapsuleDesktopError::StaleBinding)) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Stale),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
         Ok(Err(
             ContinuityCapsuleDesktopError::RelayUnavailable
             | ContinuityCapsuleDesktopError::BrokerBusy
             | ContinuityCapsuleDesktopError::BrokerUnavailable,
-        )) => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Unavailable), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
-        Ok(Err(_)) => CapsuleContextV1 { layer: fallback(ContinuityLayerStatusV1::Invalid), identity_orientation: Vec::new(), relationship_orientation: Vec::new() },
+        )) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Unavailable),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
+        Ok(Err(_)) => CapsuleContextV1 {
+            layer: fallback(ContinuityLayerStatusV1::Invalid),
+            identity_orientation: Vec::new(),
+            relationship_orientation: Vec::new(),
+        },
     }
 }
 

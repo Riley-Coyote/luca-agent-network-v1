@@ -10,11 +10,7 @@
   overflow: hidden;
   position: relative;
   pointer-events: none;
-  transition:
-    flex-basis 160ms var(--motion-ease-standard),
-    height 160ms var(--motion-ease-standard),
-    min-height 160ms var(--motion-ease-standard),
-    opacity 120ms var(--motion-ease-standard);
+  transition: opacity 140ms var(--motion-ease-standard);
   z-index: 12;
 }
 
@@ -39,6 +35,8 @@
 }
 
 :root[data-luca-shell] .luca-work-tray__expanded {
+  animation: luca-work-tray-enter var(--motion-duration-standard)
+    var(--motion-ease-drawer) both;
   background: hsl(var(--mn-raised) / 0.98);
   border: 1px solid hsl(var(--mn-border-strong) / 0.72);
   border-radius: 16px;
@@ -53,6 +51,27 @@
   right: max(8px, calc((100% - var(--mn-reading-measure)) / 2 + 8px));
   transform-origin: bottom center;
   z-index: 20;
+}
+
+@keyframes luca-work-tray-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Blocking permission authority is immediate by contract. The ordinary tray
+ * disclosure keeps its 240ms spatial transition; a newly-arrived decision
+ * never waits for that transition or moves under the pointer. */
+:root[data-luca-shell]
+  .luca-work-tray__expanded[data-priority="permission"] {
+  animation: none;
+  transform: none;
 }
 
 :root[data-luca-shell] .luca-work-tray__heading,
@@ -552,6 +571,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell] .luca-activity-item,
   :root[data-luca-shell] .luca-activity-shelf,
+  :root[data-luca-shell] .luca-work-tray__expanded,
   :root[data-luca-shell]
     .luca-activity-pulse:not([data-state="stopped"]):not(
       [data-state="interrupted"]

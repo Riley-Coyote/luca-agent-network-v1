@@ -3,13 +3,13 @@ import * as React from "react";
 import {
   CONVERSATION_APPEARANCE_VERSION,
   DEFAULT_CONVERSATION_APPEARANCE,
-  type ConversationAppearancePreferenceV1,
+  type ConversationAppearancePreferenceV2,
 } from "@/features/messages/conversationAppearanceTypes";
 
-const STORAGE_PREFIX = "luca.conversation-appearance.v1";
+const STORAGE_PREFIX = "luca.conversation-appearance.v2";
 const OWNER_PUBKEY_PATTERN = /^[0-9a-f]{64}$/;
 
-const residentMarksByOwner = new Map<string, boolean>();
+const agentNamesByOwner = new Map<string, boolean>();
 const listenersByOwner = new Map<string, Set<() => void>>();
 
 function normalizedOwnerPubkey(ownerPubkey?: string | null): string | null {
@@ -26,7 +26,7 @@ export function conversationAppearanceStorageKey(
 
 function parsePreference(
   rawValue: string | null | undefined,
-): ConversationAppearancePreferenceV1 {
+): ConversationAppearancePreferenceV2 {
   if (!rawValue) return DEFAULT_CONVERSATION_APPEARANCE;
   try {
     const parsed: unknown = JSON.parse(rawValue);
@@ -36,39 +36,39 @@ function parsePreference(
       Array.isArray(parsed) ||
       (parsed as { version?: unknown }).version !==
         CONVERSATION_APPEARANCE_VERSION ||
-      typeof (parsed as { residentMarksInMessages?: unknown })
-        .residentMarksInMessages !== "boolean"
+      typeof (parsed as { agentNamesInMessages?: unknown })
+        .agentNamesInMessages !== "boolean"
     ) {
       return DEFAULT_CONVERSATION_APPEARANCE;
     }
     return {
       version: CONVERSATION_APPEARANCE_VERSION,
-      residentMarksInMessages: (parsed as { residentMarksInMessages: boolean })
-        .residentMarksInMessages,
+      agentNamesInMessages: (parsed as { agentNamesInMessages: boolean })
+        .agentNamesInMessages,
     };
   } catch {
     return DEFAULT_CONVERSATION_APPEARANCE;
   }
 }
 
-function readStoredResidentMarks(owner: string): boolean {
+function readStoredAgentNames(owner: string): boolean {
   const key = conversationAppearanceStorageKey(owner);
-  if (!key) return DEFAULT_CONVERSATION_APPEARANCE.residentMarksInMessages;
+  if (!key) return DEFAULT_CONVERSATION_APPEARANCE.agentNamesInMessages;
   try {
     return parsePreference(globalThis.localStorage?.getItem(key))
-      .residentMarksInMessages;
+      .agentNamesInMessages;
   } catch {
-    return DEFAULT_CONVERSATION_APPEARANCE.residentMarksInMessages;
+    return DEFAULT_CONVERSATION_APPEARANCE.agentNamesInMessages;
   }
 }
 
-function getResidentMarksSnapshot(ownerPubkey?: string | null): boolean {
+function getAgentNamesSnapshot(ownerPubkey?: string | null): boolean {
   const owner = normalizedOwnerPubkey(ownerPubkey);
-  if (!owner) return DEFAULT_CONVERSATION_APPEARANCE.residentMarksInMessages;
-  const existing = residentMarksByOwner.get(owner);
+  if (!owner) return DEFAULT_CONVERSATION_APPEARANCE.agentNamesInMessages;
+  const existing = agentNamesByOwner.get(owner);
   if (existing !== undefined) return existing;
-  const stored = readStoredResidentMarks(owner);
-  residentMarksByOwner.set(owner, stored);
+  const stored = readStoredAgentNames(owner);
+  agentNamesByOwner.set(owner, stored);
   return stored;
 }
 
@@ -81,29 +81,41 @@ function subscribeToOwner(
   const listeners = listenersByOwner.get(owner) ?? new Set<() => void>();
   listeners.add(listener);
   listenersByOwner.set(owner, listeners);
+  // Detached windows share storage, but not this module's in-memory cache.
+  const onStorage = (event: StorageEvent) => {
+    if (
+      event.key !== null &&
+      event.key !== conversationAppearanceStorageKey(owner)
+    )
+      return;
+    const value = readStoredAgentNames(owner);
+    if (agentNamesByOwner.get(owner) === value) return;
+    agentNamesByOwner.set(owner, value);
+    for (const notify of listenersByOwner.get(owner) ?? []) notify();
+  };
+  globalThis.window?.addEventListener("storage", onStorage);
   return () => {
+    globalThis.window?.removeEventListener("storage", onStorage);
     listeners.delete(listener);
     if (listeners.size === 0) listenersByOwner.delete(owner);
   };
 }
 
 /** Read the current device-local preference outside React. */
-export function getResidentMarksInMessages(
-  ownerPubkey?: string | null,
-): boolean {
-  return getResidentMarksSnapshot(ownerPubkey);
+export function getAgentNamesInMessages(ownerPubkey?: string | null): boolean {
+  return getAgentNamesSnapshot(ownerPubkey);
 }
 
-/** Persist and immediately publish the resident-mark preference. */
-export function setResidentMarksInMessages(
+/** Persist and immediately publish the agent-name preference. */
+export function setAgentNamesInMessages(
   ownerPubkey: string | null | undefined,
   enabled: boolean,
 ): void {
   const owner = normalizedOwnerPubkey(ownerPubkey);
   if (!owner) return;
-  if (getResidentMarksSnapshot(owner) === enabled) return;
+  if (getAgentNamesSnapshot(owner) === enabled) return;
 
-  residentMarksByOwner.set(owner, enabled);
+  agentNamesByOwner.set(owner, enabled);
   const key = conversationAppearanceStorageKey(owner);
   if (key) {
     try {
@@ -111,8 +123,8 @@ export function setResidentMarksInMessages(
         key,
         JSON.stringify({
           version: CONVERSATION_APPEARANCE_VERSION,
-          residentMarksInMessages: enabled,
-        } satisfies ConversationAppearancePreferenceV1),
+          agentNamesInMessages: enabled,
+        } satisfies ConversationAppearancePreferenceV2),
       );
     } catch {
       // Persistence is best-effort; the live preference remains authoritative.
@@ -122,22 +134,20 @@ export function setResidentMarksInMessages(
   for (const listener of listenersByOwner.get(owner) ?? []) listener();
 }
 
-/** Reactively read the current owner's conversation identity-mark choice. */
-export function useResidentMarksInMessages(
-  ownerPubkey?: string | null,
-): boolean {
+/** Reactively read the current owner's conversation agent-name choice. */
+export function useAgentNamesInMessages(ownerPubkey?: string | null): boolean {
   const subscribe = React.useCallback(
     (listener: () => void) => subscribeToOwner(ownerPubkey, listener),
     [ownerPubkey],
   );
   const getSnapshot = React.useCallback(
-    () => getResidentMarksSnapshot(ownerPubkey),
+    () => getAgentNamesSnapshot(ownerPubkey),
     [ownerPubkey],
   );
 
   return React.useSyncExternalStore(
     subscribe,
     getSnapshot,
-    () => DEFAULT_CONVERSATION_APPEARANCE.residentMarksInMessages,
+    () => DEFAULT_CONVERSATION_APPEARANCE.agentNamesInMessages,
   );
 }

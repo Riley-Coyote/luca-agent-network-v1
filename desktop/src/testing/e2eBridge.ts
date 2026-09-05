@@ -5,6 +5,7 @@ import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { parse as yamlParse } from "yaml";
 
 import { relayClient } from "@/shared/api/relayClient";
+import type { RuntimeTargetOptionV1 } from "@/shared/api/tauriOperatorForge";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 import type {
   NativeResidentDiscoveryOutcome,
@@ -215,6 +216,8 @@ type E2eConfig = {
       archived_at?: string | null;
     };
     acpRuntimesCatalog?: RawAcpRuntimeCatalogEntry[];
+    operatorForgeRuntimeOptionsSequence?: RuntimeTargetOptionV1[][];
+    operatorForgeSettingsError?: string;
     /** Catalog returned after a successful mocked install. */
     acpRuntimesCatalogAfterInstall?: RawAcpRuntimeCatalogEntry[];
     /** Catalog responses after install for testing later sign-in completion. */
@@ -272,9 +275,14 @@ type E2eConfig = {
     teams?: MockTeamSeed[];
     capabilitySkills?: MockCapabilitySkillSeed[];
     capabilitySkillsError?: string;
+    runtimeSessionsDelayMs?: number;
+    /** Sequenced failures for `list_connected_runtime_sessions`; null entries succeed. */
+    runtimeSessionListErrors?: (string | null)[];
     runtimeSessionContextDelayMs?: number;
     relayAgents?: MockRelayAgentSeed[];
     agentListDelayMs?: number;
+    /** Sequenced failures for `list_managed_agents`; null entries succeed. */
+    managedAgentListErrors?: (string | null)[];
     agentMemory?: RawAgentMemoryListing | Record<string, RawAgentMemoryListing>;
     /** Seeded agent folders: resident pubkey → file name → content. */
     residentDocuments?: Record<string, Record<string, string>>;
@@ -7898,6 +7906,7 @@ function withMockRuntimeConfigMetadata(
 }
 
 let runtimeCatalogDiscoveryCount = 0;
+let operatorSettingsDiscoveryCount = 0;
 let mockInstallCompleted = false;
 
 async function handleDiscoverAcpRuntimes(
@@ -8177,6 +8186,8 @@ async function handleListManagedAgents(
   config: E2eConfig | undefined,
 ): Promise<RawManagedAgent[]> {
   await delayAgentList(config);
+  const injectedFailure = config?.mock?.managedAgentListErrors?.shift();
+  if (injectedFailure) throw new Error(injectedFailure);
   return mockManagedAgents.map(cloneManagedAgent);
 }
 
@@ -12527,6 +12538,13 @@ export function maybeInstallE2eTauriMocks() {
         return structuredClone(skill);
       }
       case "list_connected_runtime_sessions": {
+        const delayMs = activeConfig?.mock?.runtimeSessionsDelayMs ?? 0;
+        if (delayMs > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+        }
+        const injectedFailure =
+          activeConfig?.mock?.runtimeSessionListErrors?.shift();
+        if (injectedFailure) throw new Error(injectedFailure);
         const { runtimeId } = payload as {
           runtimeId: "claude_code" | "codex" | "hermes" | "openclaw";
         };
@@ -13066,6 +13084,25 @@ export function maybeInstallE2eTauriMocks() {
         return mockResidentCapabilitySettings;
       }
       case "get_operator_forge_settings": {
+        if (activeConfig?.mock?.operatorForgeSettingsError) {
+          throw new Error(activeConfig.mock.operatorForgeSettingsError);
+        }
+        const sequence =
+          activeConfig?.mock?.operatorForgeRuntimeOptionsSequence;
+        if (sequence?.length) {
+          const runtimeOptions =
+            sequence[
+              Math.min(operatorSettingsDiscoveryCount++, sequence.length - 1)
+            ];
+          return {
+            preferences: mockOperatorPreferences,
+            runtimeOptions,
+            recommendation:
+              runtimeOptions.find((option) => option.recommended)?.target ??
+              runtimeOptions[0]?.target ??
+              null,
+          };
+        }
         const runtimeOptions = [
           {
             target: { kind: "managed", runtimeId: "codex" },

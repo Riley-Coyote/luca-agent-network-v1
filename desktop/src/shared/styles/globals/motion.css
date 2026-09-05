@@ -40,6 +40,12 @@
     var(--motion-ease-standard) both;
 }
 
+/* A local capability surface arriving above the composer. */
+.motion-enter-capability-palette {
+  animation: motion-enter-capability-palette var(--motion-duration-fast)
+    var(--motion-ease-standard) both;
+}
+
 @keyframes motion-enter-conversation {
   from {
     opacity: 0;
@@ -52,13 +58,38 @@
   }
 }
 
+@keyframes motion-enter-capability-palette {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .motion-enter-conversation {
+  .motion-enter-conversation,
+  .motion-enter-capability-palette {
     animation-duration: 1ms;
   }
 
   @keyframes motion-enter-conversation {
     from,
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes motion-enter-capability-palette {
+    from {
+      opacity: 0;
+      transform: none;
+    }
+
     to {
       opacity: 1;
       transform: none;

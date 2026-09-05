@@ -6,8 +6,13 @@ import { pickRuntimeTaskFolder } from "@/shared/api/tauriRuntimeTasks";
 import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
 import { Button } from "@/shared/ui/button";
+import type { RuntimeTaskTarget } from "@/features/capabilities/lib/runtimeTaskPresentation";
 
-type RuntimeTarget = "codex" | "claude_code";
+type RuntimeTarget = RuntimeTaskTarget;
+
+function runtimeTargetLabel(target: RuntimeTarget) {
+  return target === "codex" ? "Codex" : "Claude Code";
+}
 
 export type RuntimeTaskDraft = {
   conversationId: string;
@@ -77,13 +82,6 @@ export function RuntimeTaskConfirmationCard({
   const fullAccessEnabled = residentAccess === "full";
 
   React.useEffect(() => {
-    if (availableTargets.some((runtime) => runtime.runtimeId === target))
-      return;
-    const fallback = availableTargets[0]?.runtimeId;
-    if (fallback) setTarget(fallback);
-  }, [availableTargets, target]);
-
-  React.useEffect(() => {
     if (!fullAccessEnabled && permissionMode === "full_access") {
       setPermissionMode("normal");
     }
@@ -102,10 +100,8 @@ export function RuntimeTaskConfirmationCard({
   return (
     <section
       aria-label="Confirm runtime task"
-      aria-modal="true"
       className="mb-2 rounded-2xl border border-border/55 bg-plate/95 p-4 shadow-xl backdrop-blur-xl"
       data-testid="runtime-task-confirmation"
-      role="dialog"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -131,12 +127,26 @@ export function RuntimeTaskConfirmationCard({
           Runtime
           <select
             className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
-            disabled={isStarting || runtimeQuery.isLoading}
+            disabled={
+              isStarting ||
+              runtimeQuery.isLoading ||
+              availableTargets.length === 0
+            }
             onChange={(event) =>
               setTarget(event.currentTarget.value as RuntimeTarget)
             }
             value={target}
           >
+            {!targetReady ? (
+              <option disabled value={target}>
+                {runtimeTargetLabel(target)} —{" "}
+                {runtimeQuery.isLoading
+                  ? "checking"
+                  : runtimeQuery.isError
+                    ? "could not verify"
+                    : "unavailable"}
+              </option>
+            ) : null}
             {availableTargets.map((runtime) => (
               <option key={runtime.runtimeId} value={runtime.runtimeId}>
                 {runtime.label}
@@ -212,6 +222,12 @@ export function RuntimeTaskConfirmationCard({
       {runtimeQuery.isSuccess && availableTargets.length === 0 ? (
         <p className="mt-3 text-xs text-destructive">
           Connect and authenticate Codex or Claude Code before running a task.
+        </p>
+      ) : null}
+      {runtimeQuery.isSuccess && availableTargets.length > 0 && !targetReady ? (
+        <p className="mt-3 text-xs text-destructive">
+          {runtimeTargetLabel(target)} is not ready. Choose another verified
+          runtime or reconnect it before running this task.
         </p>
       ) : null}
       {error ? (

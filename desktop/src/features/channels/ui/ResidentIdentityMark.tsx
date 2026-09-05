@@ -5,16 +5,26 @@ import {
   residentIdentityPath,
   residentMarkKind,
 } from "@/features/channels/lib/residentIdentity";
-import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
+import {
+  residentGlyphSeed,
+  useCanonicalLucaPubkey,
+} from "@/features/luca/canonicalLucaResident";
 import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
 import { cn } from "@/shared/lib/cn";
+import {
+  FilamentMark,
+  type FilamentMode,
+} from "@/shared/ui/dot-display/identity/FilamentMark";
 import { HarnessLogo, harnessHasLogo } from "@/shared/ui/HarnessLogo";
 
 const PROVIDER_MARKS = {
   claude: claudeLogoUrl,
   codex: chatgptLogoUrl,
 } as const;
+
+/** What the resident is doing right now, if the mark should show it. */
+export type ResidentMarkLiveState = "thinking" | "writing" | null;
 
 /**
  * Which face of the resident to show. The identity glyph says WHO; the
@@ -28,6 +38,8 @@ export type ResidentIdentityMarkProps = {
   accessibleName: string;
   className?: string;
   decorative?: boolean;
+  /** While a reply is coming, light moves through the resident's own mark. */
+  live?: ResidentMarkLiveState;
   personaId?: string | null;
   presentation?: ResidentMarkPresentation;
   publicKey: string;
@@ -47,6 +59,7 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   accessibleName,
   className,
   decorative = false,
+  live = null,
   personaId,
   presentation = "auto",
   publicKey,
@@ -64,6 +77,11 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
     kind === "custom" &&
     harness !== null &&
     (harnessHasLogo(harness) || harness === "hermes" || harness === "openclaw");
+  // Keep the established murmur moving for the whole live turn. Switching it
+  // off when the first words arrive made the resident appear to stop working
+  // before the response was actually complete.
+  const filamentMode: FilamentMode | null =
+    kind === "custom" && live ? "current" : null;
   const path = React.useMemo(
     () =>
       kind === "custom" ? residentIdentityPath(publicKey, lucaPubkey) : null,
@@ -82,12 +100,24 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         "inline-flex shrink-0 items-center justify-center text-foreground",
         className,
       )}
-      data-resident-mark-kind={showHarness ? "harness" : kind}
+      data-resident-mark-kind={
+        filamentMode ? kind : showHarness ? "harness" : kind
+      }
+      data-resident-mark-live={live ?? undefined}
       data-testid={dataTestId}
       style={{ height: size, width: size }}
       {...accessibilityProps}
     >
-      {showHarness && harness ? (
+      {filamentMode ? (
+        <FilamentMark
+          bloom={false}
+          fit="box"
+          mode={filamentMode}
+          motion="murmur"
+          seed={residentGlyphSeed(publicKey, lucaPubkey)}
+          size={size}
+        />
+      ) : showHarness && harness ? (
         <HarnessLogo decorative harness={harness} size={size} />
       ) : kind === "custom" && path ? (
         <svg

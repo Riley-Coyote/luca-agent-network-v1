@@ -6,9 +6,8 @@ use std::{
 };
 
 use luca_protocol::{
-    Hex64, ManagedPresentationFrameV1, ManagedPresentationKindV1,
-    ResidentSessionCapabilityV1, SafeU53, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
-    RESIDENT_SESSION_CAPABILITY_PROTOCOL,
+    Hex64, ManagedPresentationFrameV1, ManagedPresentationKindV1, ResidentSessionCapabilityV1,
+    SafeU53, MAX_MANAGED_PRESENTATION_FRAME_BYTES, RESIDENT_SESSION_CAPABILITY_PROTOCOL,
 };
 use tauri::{AppHandle, Emitter};
 

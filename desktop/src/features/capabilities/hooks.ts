@@ -8,22 +8,27 @@ import {
 
 export const capabilitySkillsQueryKey = ["capability-skills"] as const;
 
-export function useCapabilitySkills() {
+export function useCapabilitySkills(enabled = true) {
   return useQuery({
     queryKey: capabilitySkillsQueryKey,
     queryFn: listCapabilitySkills,
+    enabled,
     retry: false,
     staleTime: 5 * 60_000,
   });
 }
 
-export function useResidentSessionCapabilities(residentPubkey: string | null) {
+export function useResidentSessionCapabilities(
+  residentPubkey: string | null,
+  enabled = true,
+) {
   return useQuery({
     queryKey: ["resident-session-capabilities", residentPubkey],
     queryFn: () => getResidentSessionCapabilities(residentPubkey ?? ""),
-    enabled: Boolean(residentPubkey),
+    enabled: enabled && Boolean(residentPubkey),
     retry: false,
-    refetchInterval: 2_000,
+    refetchInterval: enabled ? 2_000 : false,
+    refetchIntervalInBackground: false,
     staleTime: 1_000,
   });
 }

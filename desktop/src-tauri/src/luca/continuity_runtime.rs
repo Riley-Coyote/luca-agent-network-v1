@@ -14,8 +14,8 @@ use luca_continuity::{
     RetrievalText, RevisionActor, RevisionLifecycle, RevisionOperation, RevisionRequest,
 };
 use luca_protocol::{
-    canonical_sha256, CanonicalTimestamp, Hex64, OpaqueId, ResidentHandoffV1,
-    ResidentMemoryNoteV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    canonical_sha256, CanonicalTimestamp, Hex64, OpaqueId, ResidentHandoffV1, ResidentMemoryNoteV1,
+    SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
 
 use crate::app_state::ContinuityLifecycleLock;
@@ -1587,12 +1587,16 @@ where
 
 fn exact_source_event_ids(record: &RetrievalRecord) -> Result<Vec<Hex64>, ()> {
     let mut source_event_ids = match record.record_type().as_str() {
-        "handoff" => serde_json::from_str::<ResidentHandoffV1>(record.body())
-            .map_err(|_| ())?
-            .source_event_ids,
-        "memory-note" => serde_json::from_str::<ResidentMemoryNoteV1>(record.body())
-            .map_err(|_| ())?
-            .source_event_ids,
+        "handoff" => {
+            serde_json::from_str::<ResidentHandoffV1>(record.body())
+                .map_err(|_| ())?
+                .source_event_ids
+        }
+        "memory-note" => {
+            serde_json::from_str::<ResidentMemoryNoteV1>(record.body())
+                .map_err(|_| ())?
+                .source_event_ids
+        }
         _ => Vec::new(),
     };
     source_event_ids.sort();

@@ -99,7 +99,7 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
   await expect(page).toHaveURL(/#\/channels\//);
   await expect(
     page.getByText(
-      "Hey Riley — I’m Luca. I’ve had a quiet look around this Mac, so whenever you’re ready, tell me what you’re working on, or pick a place to begin.",
+      "Hey Riley — I’m Luca. Tell me what you’re working on, or choose a place to begin.",
       { exact: true },
     ),
   ).toHaveCount(1);

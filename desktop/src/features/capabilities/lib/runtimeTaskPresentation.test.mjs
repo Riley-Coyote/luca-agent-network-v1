@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   runtimeTaskAction,
+  runtimeTaskTargetForFamily,
   runtimeTaskVisible,
+  verifiedRuntimeTaskTarget,
 } from "./runtimeTaskPresentation.ts";
 
 describe("runtime task presentation", () => {
@@ -47,5 +49,25 @@ describe("runtime task presentation", () => {
       false,
     );
     assert.equal(runtimeTaskVisible(base, new Set(["task-1"]), now), false);
+  });
+
+  it("accepts only supported runtime families reported for the resident", () => {
+    assert.equal(runtimeTaskTargetForFamily("codex"), "codex");
+    assert.equal(runtimeTaskTargetForFamily("claude_code"), "claude_code");
+    assert.equal(runtimeTaskTargetForFamily("hermes"), null);
+    assert.equal(runtimeTaskTargetForFamily(null), null);
+  });
+
+  it("never substitutes a different ready runtime for the resident target", () => {
+    assert.equal(
+      verifiedRuntimeTaskTarget("codex", ["codex", "claude_code"]),
+      "codex",
+    );
+    assert.equal(
+      verifiedRuntimeTaskTarget("claude_code", ["codex", "claude_code"]),
+      "claude_code",
+    );
+    assert.equal(verifiedRuntimeTaskTarget("codex", ["claude_code"]), null);
+    assert.equal(verifiedRuntimeTaskTarget(null, ["claude_code"]), null);
   });
 });

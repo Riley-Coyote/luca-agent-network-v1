@@ -228,8 +228,7 @@ pub fn resolve_runtime_task_project_folder(
             selected.contains(&summary.source.source_id)
                 && summary.source.source_kind
                     == luca_protocol::ConnectedBrainSourceKindV1::Repository
-                && summary.source.status
-                    == luca_protocol::ConnectedBrainSourceStatusV1::Current
+                && summary.source.status == luca_protocol::ConnectedBrainSourceStatusV1::Current
         })
         .map(|summary| summary.source.source_id.clone())
         .collect::<Vec<_>>();
@@ -316,12 +315,9 @@ async fn start_runtime_task_internal(
         session_epoch,
     )?;
     #[cfg(unix)]
-    let managed_mcp_fd = super::managed_mcp::create_endpoint(
-        app.clone(),
-        resident_pubkey.clone(),
-        session_epoch,
-    )
-    .ok();
+    let managed_mcp_fd =
+        super::managed_mcp::create_endpoint(app.clone(), resident_pubkey.clone(), session_epoch)
+            .ok();
     let mut process = Command::new(command);
     process
         .arg("runtime-task")
@@ -493,7 +489,9 @@ pub async fn retry_runtime_task(
         .task_inputs
         .get(&task_id)
         .cloned()
-        .ok_or_else(|| "This task can no longer be retried without reviewing its request.".to_owned())?;
+        .ok_or_else(|| {
+            "This task can no longer be retried without reviewing its request.".to_owned()
+        })?;
     start_runtime_task_internal(app, input, Some(task_id)).await
 }
 
@@ -704,8 +702,9 @@ pub(crate) fn propose_runtime_task(
             permission_mode,
         }) => (runtime_family, working_folder, permission_mode),
         Err(mpsc::RecvTimeoutError::Timeout) => {
-            return Ok("The runtime task proposal expired without confirmation. Nothing ran."
-                .to_owned())
+            return Ok(
+                "The runtime task proposal expired without confirmation. Nothing ran.".to_owned(),
+            )
         }
         Err(mpsc::RecvTimeoutError::Disconnected) => {
             return Err("runtime task confirmation became unavailable".to_owned())
@@ -813,10 +812,7 @@ async fn run_task(
 ) {
     projection.state = RuntimeTaskStateV1::Active;
     let runtime_name = runtime_label(&projection.runtime_family);
-    advance_step(
-        &mut projection,
-        format!("Working in {runtime_name}"),
-    );
+    advance_step(&mut projection, format!("Working in {runtime_name}"));
     update_projection(&app, &projection);
     let mut lines = BufReader::new(stdout).lines();
     let stderr_task = stderr.map(|stderr| {
@@ -986,7 +982,12 @@ fn advance_step(projection: &mut RuntimeTaskProjectionV1, label: String) {
     if projection.current_step.as_deref() == Some(label.as_str()) {
         return;
     }
-    if let Some(active) = projection.steps.iter_mut().rev().find(|step| step.state == "active") {
+    if let Some(active) = projection
+        .steps
+        .iter_mut()
+        .rev()
+        .find(|step| step.state == "active")
+    {
         active.state = "done".to_owned();
         projection.completed_steps = projection.completed_steps.saturating_add(1);
     }
@@ -998,7 +999,12 @@ fn advance_step(projection: &mut RuntimeTaskProjectionV1, label: String) {
 }
 
 fn finish_active_step(projection: &mut RuntimeTaskProjectionV1, state: &str) {
-    if let Some(active) = projection.steps.iter_mut().rev().find(|step| step.state == "active") {
+    if let Some(active) = projection
+        .steps
+        .iter_mut()
+        .rev()
+        .find(|step| step.state == "active")
+    {
         active.state = state.to_owned();
         if state == "done" {
             projection.completed_steps = projection.completed_steps.saturating_add(1);
@@ -1096,7 +1102,11 @@ fn bounded_output(value: &str, max: usize) -> String {
 }
 
 fn runtime_label(runtime: &str) -> &'static str {
-    if runtime == "codex" { "Codex" } else { "Claude Code" }
+    if runtime == "codex" {
+        "Codex"
+    } else {
+        "Claude Code"
+    }
 }
 
 fn update_projection(app: &AppHandle, projection: &RuntimeTaskProjectionV1) {
@@ -1116,8 +1126,7 @@ fn receipt_directory(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "runtime task receipt storage is unavailable".to_owned())?
         .join("luca")
         .join(RECEIPT_DIRECTORY);
-    fs::create_dir_all(&directory)
-        .map_err(|_| "create runtime task receipt storage".to_owned())?;
+    fs::create_dir_all(&directory).map_err(|_| "create runtime task receipt storage".to_owned())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -1133,8 +1142,7 @@ fn result_directory(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "runtime task result storage is unavailable".to_owned())?
         .join("luca")
         .join(RESULT_DIRECTORY);
-    fs::create_dir_all(&directory)
-        .map_err(|_| "create runtime task result storage".to_owned())?;
+    fs::create_dir_all(&directory).map_err(|_| "create runtime task result storage".to_owned())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
@@ -1146,8 +1154,8 @@ fn result_directory(app: &AppHandle) -> Result<PathBuf, String> {
 fn persist_projection(app: &AppHandle, projection: &RuntimeTaskProjectionV1) -> Result<(), String> {
     let directory = receipt_directory(app)?;
     let path = directory.join(format!("{}.json", projection.task_id));
-    let bytes = serde_json::to_vec(projection)
-        .map_err(|_| "encode runtime task receipt".to_owned())?;
+    let bytes =
+        serde_json::to_vec(projection).map_err(|_| "encode runtime task receipt".to_owned())?;
     fs::write(&path, bytes).map_err(|_| "write runtime task receipt".to_owned())?;
     #[cfg(unix)]
     {
@@ -1217,9 +1225,7 @@ fn load_receipts_once(app: &AppHandle) -> Result<(), String> {
         projection.can_retry = false;
         if matches!(
             projection.state,
-            RuntimeTaskStateV1::Queued
-                | RuntimeTaskStateV1::Active
-                | RuntimeTaskStateV1::Stopping
+            RuntimeTaskStateV1::Queued | RuntimeTaskStateV1::Active | RuntimeTaskStateV1::Stopping
         ) {
             projection.state = RuntimeTaskStateV1::Interrupted;
             projection.current_step = None;
@@ -1269,7 +1275,9 @@ mod tests {
             "full_access"
         );
         assert!(permission_mode_for_access("full_access", ResidentAccessLevel::Standard).is_err());
-        assert!(permission_mode_for_access("full_access", ResidentAccessLevel::Restricted).is_err());
+        assert!(
+            permission_mode_for_access("full_access", ResidentAccessLevel::Restricted).is_err()
+        );
     }
 
     #[test]

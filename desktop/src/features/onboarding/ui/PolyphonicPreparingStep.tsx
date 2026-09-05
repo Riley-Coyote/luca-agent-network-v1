@@ -47,11 +47,9 @@ async function waitForLucaChannelSubscription(
   );
 }
 
-/** Warm, particular, and honest about what has happened: a read-only look
- *  around this Mac. Luca lives here; this is not an assistant clearing its
- *  throat. */
+/** A brief introduction that leaves room for the conversation to begin. */
 export function lucaGreeting(displayName: string): string {
-  return `Hey ${displayName.trim()} — I’m Luca. I’ve had a quiet look around this Mac, so whenever you’re ready, tell me what you’re working on, or pick a place to begin.`;
+  return `Hey ${displayName.trim()} — I’m Luca. Tell me what you’re working on, or choose a place to begin.`;
 }
 
 export function PolyphonicPreparingStep({
@@ -71,111 +69,122 @@ export function PolyphonicPreparingStep({
   runtimesRef.current = runtimes;
   const settings = useOperatorForgeSettingsQuery();
   const [attempt, setAttempt] = React.useState(0);
+  const preparationRef = React.useRef<Promise<string> | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(true);
+  const visibleError =
+    error ??
+    settings.error?.message ??
+    personas.error?.message ??
+    managed.error?.message;
 
   React.useEffect(() => {
     void attempt;
     let cancelled = false;
-    async function prepare() {
-      if (!settings.data || !personas.data) return;
-      setWorking(true);
-      setError(null);
-      try {
-        const target = settings.data.preferences.defaultRuntimeTarget;
-        if (!settings.data.preferences.runtimeConfirmed || !target) {
-          throw new Error("Choose a ready runtime before continuing.");
-        }
-        const persona = personas.data.find(
-          (candidate) => candidate.id === LUCA_PERSONA_ID,
+    if (!settings.data || !personas.data || managed.isPending) return;
+    const currentSettings = settings.data;
+    const currentPersonas = personas.data;
+    async function prepare(): Promise<string> {
+      const target = currentSettings.preferences.defaultRuntimeTarget;
+      if (!currentSettings.preferences.runtimeConfirmed || !target) {
+        throw new Error("Choose a ready runtime before continuing.");
+      }
+      const persona = currentPersonas.find(
+        (candidate) => candidate.id === LUCA_PERSONA_ID,
+      );
+      if (!persona)
+        throw new Error("Luca's built-in definition is unavailable.");
+      if (!persona.isActive) {
+        await setPersonaActive(LUCA_PERSONA_ID, true);
+      }
+
+      let lucaPubkey = (managed.data ?? []).find(
+        (resident) => resident.personaId === LUCA_PERSONA_ID,
+      )?.pubkey;
+
+      if (!lucaPubkey && target.kind === "managed") {
+        const available = await availableRuntimesForStart(runtimesRef.current);
+        const runtime = available.find(
+          (candidate) => candidate.id === target.runtimeId,
         );
-        if (!persona)
-          throw new Error("Luca's built-in definition is unavailable.");
-        if (!persona.isActive) {
-          await setPersonaActive(LUCA_PERSONA_ID, true);
-        }
+        if (!runtime)
+          throw new Error("The selected runtime is no longer ready.");
+        const baseInput = await buildInstanceInputForDefinition(
+          persona,
+          runtime,
+        );
+        // Luca wakes with the app: the first message of a session should
+        // never wait on a cold start. Every other resident wakes on send.
+        const created = await createLucaResident({
+          ...baseInput,
+          spawnAfterCreate: true,
+          startOnAppLaunch: true,
+        });
+        if (created.profileSyncError) throw new Error(created.profileSyncError);
+        if (created.spawnError) throw new Error(created.spawnError);
+        lucaPubkey = created.resident.residentPubkey;
+      }
 
-        let lucaPubkey = (managed.data ?? []).find(
-          (resident) => resident.personaId === LUCA_PERSONA_ID,
-        )?.pubkey;
+      if (!lucaPubkey && target.kind === "native") {
+        const request: NativeProvisioningRequestV1 = {
+          displayName: "Luca",
+          systemPrompt: persona.systemPrompt,
+          runtime: target.runtime,
+          mode: "fresh",
+          selectedSkills: [],
+          includeMemory: false,
+          workspaceDocuments: [],
+        };
+        const preview = await previewNativeAgentProvisioning(request);
+        const receipt = await executeNativeAgentProvisioning(
+          preview.transactionId,
+          LUCA_PERSONA_ID,
+          request,
+        );
+        lucaPubkey = receipt.residentPubkey ?? undefined;
+      }
 
-        if (!lucaPubkey && target.kind === "managed") {
-          const available = await availableRuntimesForStart(
-            runtimesRef.current,
-          );
-          const runtime = available.find(
-            (candidate) => candidate.id === target.runtimeId,
-          );
-          if (!runtime)
-            throw new Error("The selected runtime is no longer ready.");
-          const baseInput = await buildInstanceInputForDefinition(
-            persona,
-            runtime,
-          );
-          // Luca wakes with the app: the first message of a session should
-          // never wait on a cold start. Every other resident wakes on send.
-          const created = await createLucaResident({
-            ...baseInput,
-            spawnAfterCreate: true,
-            startOnAppLaunch: true,
-          });
-          if (created.profileSyncError)
-            throw new Error(created.profileSyncError);
-          if (created.spawnError) throw new Error(created.spawnError);
-          lucaPubkey = created.resident.residentPubkey;
-        }
-
-        if (!lucaPubkey && target.kind === "native") {
-          const request: NativeProvisioningRequestV1 = {
-            displayName: "Luca",
-            systemPrompt: persona.systemPrompt,
-            runtime: target.runtime,
-            mode: "fresh",
-            selectedSkills: [],
-            includeMemory: false,
-            workspaceDocuments: [],
-          };
-          const preview = await previewNativeAgentProvisioning(request);
-          const receipt = await executeNativeAgentProvisioning(
-            preview.transactionId,
-            LUCA_PERSONA_ID,
-            request,
-          );
-          lucaPubkey = receipt.residentPubkey ?? undefined;
-        }
-
-        if (!lucaPubkey)
-          throw new Error("Luca could not be created on this Mac.");
-        const channel = await openDm({ pubkeys: [lucaPubkey] });
-        const alreadySent = await hasManagedAgentChannelMessageMarker({
+      if (!lucaPubkey)
+        throw new Error("Luca could not be created on this Mac.");
+      const channel = await openDm({ pubkeys: [lucaPubkey] });
+      const alreadySent = await hasManagedAgentChannelMessageMarker({
+        channelId: channel.id,
+        marker: GREETING_MARKER,
+        markerScope: "channel",
+      });
+      if (!alreadySent) {
+        await sendManagedAgentChannelMessage({
+          agentPubkey: lucaPubkey,
           channelId: channel.id,
+          content: lucaGreeting(displayName),
           marker: GREETING_MARKER,
           markerScope: "channel",
         });
-        if (!alreadySent) {
-          await sendManagedAgentChannelMessage({
-            agentPubkey: lucaPubkey,
-            channelId: channel.id,
-            content: lucaGreeting(displayName),
-            marker: GREETING_MARKER,
-            markerScope: "channel",
-          });
-          // The greeting is durable already; the conversation stages its
-          // arrival once so the owner sees Luca about to speak, then speak.
-          markLucaArrival(channel.id);
-        }
-        if (target.kind === "managed") {
-          await waitForLucaChannelSubscription(lucaPubkey, channel.id);
-        }
-        if (!cancelled) onComplete(channel.id);
-      } catch (cause) {
+        // The greeting is durable already; the conversation stages its
+        // arrival once so the owner sees Luca about to speak, then speak.
+        markLucaArrival(channel.id);
+      }
+      if (target.kind === "managed") {
+        await waitForLucaChannelSubscription(lucaPubkey, channel.id);
+      }
+      return channel.id;
+    }
+    // Query refreshes can arrive while native startup is in flight. Reuse the
+    // same preparation, then attach the current completion callback to it.
+    // Cancelling a React effect must never start a second resident transaction.
+    preparationRef.current ??= prepare();
+    setWorking(true);
+    setError(null);
+    void preparationRef.current
+      .then((channelId) => {
+        if (!cancelled) onComplete(channelId);
+      })
+      .catch((cause) => {
         if (!cancelled) {
           setError(cause instanceof Error ? cause.message : String(cause));
           setWorking(false);
         }
-      }
-    }
-    void prepare();
+      });
     return () => {
       cancelled = true;
     };
@@ -183,6 +192,7 @@ export function PolyphonicPreparingStep({
     attempt,
     displayName,
     managed.data,
+    managed.isPending,
     onComplete,
     personas.data,
     settings.data,
@@ -191,28 +201,42 @@ export function PolyphonicPreparingStep({
   return (
     <div className="flex h-full min-h-0 flex-col items-start" role="status">
       {showMark ? <PolyphonicBrandMark /> : null}
-      <h1 className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)]">
+      <h1
+        id="polyphonic-preparing-heading"
+        className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)]"
+      >
         Getting Luca ready…
       </h1>
       <p className="mt-2 text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
         Preparing your resident and opening your conversation.
       </p>
-      {working ? (
+      {working && !visibleError ? (
         <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-[var(--prototype-muted)] motion-reduce:animate-none" />
       ) : null}
-      {error ? (
-        <div
-          className="mt-6 flex items-center justify-between gap-4"
-          role="alert"
-        >
-          <p className="text-sm text-destructive">{error}</p>
-          <Button
-            onClick={() => setAttempt((value) => value + 1)}
-            type="button"
-            variant="outline"
-          >
-            Retry
-          </Button>
+      {visibleError ? (
+        <div className="mt-6 flex flex-col items-start gap-4" role="alert">
+          <p className="break-words text-sm text-destructive">{visibleError}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              disabled={
+                settings.isFetching || personas.isFetching || managed.isFetching
+              }
+              onClick={() => {
+                void Promise.all([
+                  settings.refetch(),
+                  personas.refetch(),
+                  managed.refetch(),
+                ]).then(() => {
+                  preparationRef.current = null;
+                  setAttempt((value) => value + 1);
+                });
+              }}
+              type="button"
+              variant="outline"
+            >
+              Retry
+            </Button>
+          </div>
         </div>
       ) : null}
     </div>

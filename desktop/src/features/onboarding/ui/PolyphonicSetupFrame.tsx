@@ -170,7 +170,13 @@ export function PolyphonicSetupFrame({
           </div>
 
           {/* interaction column */}
-          <div className="grid min-h-0 grid-rows-[3.5rem_minmax(0,1fr)_3.5rem]">
+          <form
+            className="grid min-h-0 grid-rows-[3.5rem_minmax(0,1fr)_3.5rem]"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (showFooter && !continueDisabled) onContinue();
+            }}
+          >
             <header className="flex items-center justify-end px-9">
               {steps ? (
                 <div
@@ -228,8 +234,7 @@ export function PolyphonicSetupFrame({
                       className="min-h-9 min-w-24 rounded-[9px] bg-[var(--prototype-accent)] px-4 py-2 text-[length:var(--prototype-support-size)] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
                       data-testid="polyphonic-setup-continue"
                       disabled={continueDisabled}
-                      onClick={onContinue}
-                      type="button"
+                      type="submit"
                     >
                       {continueLabel}
                     </Button>
@@ -237,7 +242,7 @@ export function PolyphonicSetupFrame({
                 </>
               ) : null}
             </footer>
-          </div>
+          </form>
         </motion.section>
       </div>
     </div>

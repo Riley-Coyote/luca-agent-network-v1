@@ -22,22 +22,26 @@ const OnboardingFooterTargetContext = React.createContext<HTMLElement | null>(
  */
 export function OnboardingFooterProvider({
   children,
+  showScrim = true,
 }: {
   children: React.ReactNode;
+  showScrim?: boolean;
 }) {
   const [target, setTarget] = React.useState<HTMLElement | null>(null);
 
   return (
     <OnboardingFooterTargetContext.Provider value={target}>
       {children}
-      {/* Scrim: on pages taller than the viewport, content scrolls under the
-          docked CTA. This bottom-anchored fade to the shell's bottom color
-          (invisible on short pages and on the flat chartreuse landing) gives
-          the CTA a floor to sit on instead of colliding with form fields. */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-36 bg-[linear-gradient(to_top,var(--buzz-onboarding-shell-bottom)_35%,transparent)]"
-      />
+      {showScrim ? (
+        /* On pages taller than the viewport, content scrolls under the docked
+         * CTA. The opening door has no docked CTA, so its caller disables this
+         * scrim instead of leaving an unrelated wash across the window. */
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-x-0 bottom-0 z-10 h-36 bg-[linear-gradient(to_top,var(--buzz-onboarding-shell-bottom)_35%,transparent)]"
+          data-testid="onboarding-footer-scrim"
+        />
+      ) : null}
       <div
         className="pointer-events-none fixed inset-x-0 bottom-5 z-20 flex justify-center px-4"
         data-testid="onboarding-footer-slot"

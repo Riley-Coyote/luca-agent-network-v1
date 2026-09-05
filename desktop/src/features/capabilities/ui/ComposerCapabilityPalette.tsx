@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Box, BookOpen, Command, Plug, Search, Wrench } from "lucide-react";
+import { Box, BookOpen, Command, Plug, Search, Wrench, X } from "lucide-react";
 import * as React from "react";
 
 import {
@@ -12,6 +12,7 @@ import {
   filterCapabilityPaletteItems,
   nextCapabilityPaletteIndex,
 } from "@/features/capabilities/lib/capabilityPalette";
+import { verifiedRuntimeTaskTarget } from "@/features/capabilities/lib/runtimeTaskPresentation";
 import {
   listLucaMcpRegistry,
   listRuntimeConnectionStatus,
@@ -19,6 +20,7 @@ import {
 } from "@/shared/api/tauriMcp";
 import { resolveCapabilitySkillActivation } from "@/shared/api/tauriCapabilities";
 import { cn } from "@/shared/lib/cn";
+import { useEscapeKey } from "@/shared/hooks/useEscapeKey";
 
 export type CapabilityResidentOption = {
   pubkey: string;
@@ -79,13 +81,16 @@ export function ComposerCapabilityPalette({
   residents,
 }: {
   open: boolean;
-  onClose: () => void;
+  onClose: (reason: "escape" | "outside" | "selection") => void;
   onCommand: (selection: ComposerCapabilitySelection) => void;
   onError: (message: string) => void;
   onSelection: (selection: ComposerCapabilitySelection) => void;
   residents: CapabilityResidentOption[];
 }) {
   const [query, setQuery] = React.useState("");
+  const paletteRef = React.useRef<HTMLDivElement>(null);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  useEscapeKey(() => onClose("escape"), open);
   const [selectedResidentPubkey, setSelectedResidentPubkey] = React.useState(
     residents.length === 1 ? (residents[0]?.pubkey ?? "") : "",
   );
@@ -97,8 +102,9 @@ export function ComposerCapabilityPalette({
     null;
   const capabilityQuery = useResidentSessionCapabilities(
     selectedResident?.pubkey ?? null,
+    open,
   );
-  const skillsQuery = useCapabilitySkills();
+  const skillsQuery = useCapabilitySkills(open);
   const registryQuery = useQuery({
     queryKey: ["luca-mcp-registry", "capability-palette"],
     queryFn: listLucaMcpRegistry,
@@ -136,11 +142,31 @@ export function ComposerCapabilityPalette({
     if (!open) return;
     setQuery("");
     setActiveIndex(0);
-    window.setTimeout(
+    if (listRef.current) listRef.current.scrollTop = 0;
+    const timer = window.setTimeout(
       () => inputRef.current?.focus({ preventScroll: true }),
       0,
     );
+    return () => window.clearTimeout(timer);
   }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const dismissOutside = (event: Event) => {
+      if (
+        event.target instanceof Node &&
+        !paletteRef.current?.contains(event.target)
+      ) {
+        onClose("outside");
+      }
+    };
+    document.addEventListener("pointerdown", dismissOutside);
+    document.addEventListener("focusin", dismissOutside);
+    return () => {
+      document.removeEventListener("pointerdown", dismissOutside);
+      document.removeEventListener("focusin", dismissOutside);
+    };
+  }, [open, onClose]);
 
   const runtimeFamily = capabilityQuery.data?.runtimeFamily ?? null;
   const catalogRuntime =
@@ -167,28 +193,35 @@ export function ComposerCapabilityPalette({
         runtime.authentication === "ready",
     );
     if (selectedResident) {
-      const defaultTarget = taskTargets.some(
-        (runtime) => runtime.runtimeId === runtimeFamily,
-      )
-        ? (runtimeFamily as "codex" | "claude_code")
-        : (taskTargets[0]?.runtimeId as "codex" | "claude_code" | undefined);
+      const verifiedTarget = verifiedRuntimeTaskTarget(
+        runtimeFamily,
+        taskTargets.map((runtime) => runtime.runtimeId),
+      );
+      const checkingTarget =
+        capabilityQuery.isLoading || runtimeStatusQuery.isLoading;
+      const targetCheckFailed =
+        capabilityQuery.isError || runtimeStatusQuery.isError;
       rows.push({
         id: "polyphonic:runtime-task",
         section: "Commands",
         name: "/task",
-        description: "Run a new Codex or Claude Code task",
-        status: runtimeStatusQuery.isLoading
+        description: targetCheckFailed
+          ? "The resident runtime could not be verified. Reconnect and try again."
+          : verifiedTarget
+            ? `Run a new task in ${verifiedTarget === "codex" ? "Codex" : "Claude Code"}`
+            : "Run a new task in this resident's verified runtime",
+        status: checkingTarget
           ? "Checking"
-          : defaultTarget
+          : verifiedTarget
             ? "Ready"
             : "Needs setup",
-        disabled: !defaultTarget,
+        disabled: !verifiedTarget,
         run: () => {
-          if (!defaultTarget) return;
+          if (!verifiedTarget) return;
           onSelection({
             kind: "runtime_task",
             residentPubkey: selectedResident.pubkey,
-            runtimeFamily: defaultTarget,
+            runtimeFamily: verifiedTarget,
             label: "Run task",
           });
         },
@@ -348,6 +381,7 @@ export function ComposerCapabilityPalette({
     return rows;
   }, [
     capabilityQuery.data,
+    capabilityQuery.isError,
     capabilityQuery.isLoading,
     catalogRuntime,
     liveCommands,
@@ -361,6 +395,7 @@ export function ComposerCapabilityPalette({
     runtimeMcpQuery.data,
     runtimeMcpQuery.dataUpdatedAt,
     runtimeStatusQuery.data,
+    runtimeStatusQuery.isError,
     runtimeStatusQuery.isLoading,
     selectedResident,
     skillNameCounts,
@@ -368,7 +403,10 @@ export function ComposerCapabilityPalette({
   ]);
 
   const filtered = React.useMemo(
-    () => filterCapabilityPaletteItems(items, query),
+    () =>
+      filterCapabilityPaletteItems(items, query).sort(
+        (a, b) => Number(a.disabled) - Number(b.disabled),
+      ),
     [items, query],
   );
   const enabledItems = filtered.filter((item) => !item.disabled);
@@ -379,20 +417,35 @@ export function ComposerCapabilityPalette({
     );
   }, [enabledItems.length]);
 
-  if (!open) return null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the selected DOM row changes with keyboard selection and search results
+  React.useEffect(() => {
+    if (!open) return;
+    // Move only the results scroller, never the conversation behind it.
+    const list = listRef.current;
+    const selected = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !selected) return;
+    const bounds = list.getBoundingClientRect();
+    const row = selected.getBoundingClientRect();
+    if (row.top < bounds.top) list.scrollTop += row.top - bounds.top;
+    else if (row.bottom > bounds.bottom)
+      list.scrollTop += row.bottom - bounds.bottom;
+  }, [open, activeIndex, query]);
 
   const runActive = () => {
     const item = enabledItems[activeIndex];
     if (!item) return;
     void item.run();
-    onClose();
+    onClose("selection");
   };
 
   return (
     <div
+      ref={paletteRef}
       aria-label="Skills and tools"
+      aria-hidden={!open}
       className="absolute inset-x-0 bottom-[calc(100%+0.55rem)] z-50 overflow-hidden rounded-2xl border border-border/60 bg-popover/98 shadow-2xl backdrop-blur-xl"
       data-testid="composer-capability-palette"
+      hidden={!open}
       onKeyDown={(event) => {
         if (event.key === "ArrowDown") {
           event.preventDefault();
@@ -409,7 +462,8 @@ export function ComposerCapabilityPalette({
           runActive();
         } else if (event.key === "Escape") {
           event.preventDefault();
-          onClose();
+          event.stopPropagation();
+          onClose("escape");
         }
       }}
       role="dialog"
@@ -418,8 +472,12 @@ export function ComposerCapabilityPalette({
         <Search aria-hidden className="size-4 text-muted-foreground" />
         <input
           aria-label="Search skills and tools"
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-          onChange={(event) => setQuery(event.currentTarget.value)}
+          className="luca-capability-search min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          onChange={(event) => {
+            setQuery(event.currentTarget.value);
+            setActiveIndex(0);
+            if (listRef.current) listRef.current.scrollTop = 0;
+          }}
           placeholder="Search commands, Skills, and connections"
           ref={inputRef}
           value={query}
@@ -441,8 +499,20 @@ export function ComposerCapabilityPalette({
             ))}
           </select>
         ) : null}
+        <button
+          aria-label="Close skills and tools"
+          className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={() => onClose("escape")}
+          type="button"
+        >
+          <X aria-hidden className="size-3.5" />
+        </button>
       </div>
-      <div className="max-h-80 overflow-y-auto p-1.5" role="listbox">
+      <div
+        className="max-h-80 overflow-y-auto p-1.5"
+        role="listbox"
+        ref={listRef}
+      >
         {!selectedResident ? (
           <div className="flex items-center gap-2 px-3 py-4 text-sm text-muted-foreground">
             <Box aria-hidden className="size-4" />
@@ -476,7 +546,7 @@ export function ComposerCapabilityPalette({
                     key={item.id}
                     onClick={() => {
                       void item.run();
-                      onClose();
+                      onClose("selection");
                     }}
                     onMouseEnter={() => {
                       if (enabledIndex >= 0) setActiveIndex(enabledIndex);

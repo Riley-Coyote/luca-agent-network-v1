@@ -153,7 +153,10 @@ export function ArtifactCanvasProvider({
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && presentation) closeCanvas();
+      if (event.key === "Escape" && !event.defaultPrevented && presentation) {
+        event.preventDefault();
+        closeCanvas();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

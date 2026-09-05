@@ -120,7 +120,8 @@ async function installAudioRecorder(
 }
 
 async function openGeneral(page: Page) {
-  await page.goto("/");
+  await page.goto("/?e2e=mock");
+  await expect(page.getByTestId("channel-general")).toBeVisible();
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("message-input")).toBeEditable();
 }
@@ -241,7 +242,7 @@ test("microphone denial is clear and leaves ordinary messaging available", async
   await expect(page.getByTestId("send-message")).toBeDisabled();
 });
 
-test("blackout composer sends, replies, mentions, invites, and activates through ordinary controls", async ({
+test("blackout composer sends, replies, mentions, visits, and activates through ordinary controls", async ({
   page,
 }) => {
   await installMockBridge(page, {
@@ -284,14 +285,12 @@ test("blackout composer sends, replies, mentions, invites, and activates through
 
   await expect
     .poll(async () =>
-      commandCount(await commandLog(page), "add_channel_members"),
-    )
-    .toBeGreaterThan(commandCount(before, "add_channel_members"));
-  await expect
-    .poll(async () =>
       commandCount(await commandLog(page), "start_managed_agent"),
     )
     .toBeGreaterThan(commandCount(before, "start_managed_agent"));
+  expect(commandCount(await commandLog(page), "add_channel_members")).toBe(
+    commandCount(before, "add_channel_members"),
+  );
 
   const sent = page
     .getByTestId("message-row")
@@ -305,9 +304,6 @@ test("blackout composer sends, replies, mentions, invites, and activates through
   const composer = page.getByTestId("message-composer");
   await expect(
     page.getByText("Replying to You", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Loop in @fizz for the preview", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Cancel reply" }),

@@ -15,6 +15,7 @@ import type {
 } from "@/shared/api/tauriRuntimeSessions";
 import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 import { Button } from "@/shared/ui/button";
+import { Skeleton } from "@/shared/ui/skeleton";
 import {
   Sheet,
   SheetContent,
@@ -39,6 +40,8 @@ import {
   runtimeSessionActionLabel,
   type RuntimeSessionStartSnapshot,
 } from "./runtimeSessionModel";
+
+const SLOW_SESSION_READ_MS = 4_000;
 
 export function RuntimeSessionsPanel({
   contextScopeKey,
@@ -143,6 +146,12 @@ function RuntimeSessionsPanelContent({
     null,
   );
   const [search, setSearch] = React.useState("");
+  const [loadAttempt, setLoadAttempt] = React.useState(0);
+  const [isSlowRead, setIsSlowRead] = React.useState(false);
+  const activeReadKey =
+    sessionsQuery.isLoading && !sessionsQuery.data
+      ? `${runtimeKey}:${loadAttempt}`
+      : null;
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -161,8 +170,25 @@ function RuntimeSessionsPanelContent({
     setSelectedSessionId(null);
     setOperationError(null);
     setSearch("");
+    setLoadAttempt(0);
     headingRef.current?.focus({ preventScroll: true });
   }, [contextScopeKey, runtimeKey]);
+
+  React.useEffect(() => {
+    setIsSlowRead(false);
+    if (!activeReadKey) return;
+
+    const timeoutId = globalThis.setTimeout(
+      () => setIsSlowRead(true),
+      SLOW_SESSION_READ_MS,
+    );
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [activeReadKey]);
+
+  function retrySessionRead() {
+    setLoadAttempt((attempt) => attempt + 1);
+    void sessionsQuery.refetch();
+  }
 
   function currentStartSnapshot(): RuntimeSessionStartSnapshot {
     return {
@@ -280,29 +306,18 @@ function RuntimeSessionsPanelContent({
             detail={`${runtime.label} is installed, but Polyphonic does not currently discover or index its local session history.`}
             title="No indexed session source"
           />
-        ) : sessionsQuery.isLoading ? (
-          <div
-            aria-live="polite"
-            className="flex items-center gap-2 px-2 py-8 text-sm text-muted-foreground"
-          >
-            <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-            Loading indexed sessions…
-          </div>
-        ) : sessionsQuery.isError ? (
-          <div className="space-y-3 rounded-xl border border-border/55 bg-card/20 p-4">
-            <p className="text-sm font-medium">Sessions are unavailable</p>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              Polyphonic could not read the existing Brain session index.
-            </p>
-            <Button
-              onClick={() => void sessionsQuery.refetch()}
-              size="xs"
-              type="button"
-              variant="outline"
-            >
-              <RefreshCw /> Retry
-            </Button>
-          </div>
+        ) : sessionsQuery.isLoading && !list ? (
+          <RuntimeSessionsLoadingState
+            isSlow={isSlowRead}
+            onOpenBrain={onOpenBrain}
+            onRetry={retrySessionRead}
+            runtimeLabel={runtime.label}
+          />
+        ) : sessionsQuery.isError && !list ? (
+          <RuntimeSessionsUnavailable
+            onOpenBrain={onOpenBrain}
+            onRetry={retrySessionRead}
+          />
         ) : needsSource ? (
           <div className="space-y-3 rounded-xl border border-border/55 bg-card/20 p-4">
             <p className="text-sm font-medium">Connect session history first</p>
@@ -336,6 +351,23 @@ function RuntimeSessionsPanelContent({
           />
         ) : (
           <div className="space-y-2" data-testid="runtime-session-list">
+            {sessionsQuery.isError ? (
+              <SessionListNotice
+                actionLabel="Try again"
+                detail="The latest refresh failed. Your last indexed results remain available."
+                onAction={retrySessionRead}
+                testId="runtime-sessions-stale-results"
+                title="Showing saved sessions"
+                tone="warning"
+              />
+            ) : sessionsQuery.isFetching ? (
+              <SessionListNotice
+                detail="Your saved sessions remain available while the local index refreshes."
+                testId="runtime-sessions-refreshing"
+                title="Refreshing local history"
+                tone="progress"
+              />
+            ) : null}
             {sourceNeedsAttention ? (
               <div className="mb-3 flex gap-2 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
                 <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
@@ -389,6 +421,157 @@ function RuntimeSessionsPanelContent({
         ) : null}
       </div>
     </>
+  );
+}
+
+function RuntimeSessionsLoadingState({
+  isSlow,
+  onOpenBrain,
+  onRetry,
+  runtimeLabel,
+}: {
+  isSlow: boolean;
+  onOpenBrain: () => void;
+  onRetry: () => void;
+  runtimeLabel: string;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className="space-y-3"
+      data-testid="runtime-sessions-loading"
+      role="status"
+    >
+      {isSlow ? (
+        <div
+          className="space-y-3 rounded-xl border border-amber-400/20 bg-amber-400/5 p-4"
+          data-testid="runtime-sessions-loading-delayed"
+        >
+          <div className="flex gap-2.5">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-400" />
+            <div>
+              <p className="text-sm font-medium">Still loading local history</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {runtimeLabel}’s local index is taking longer than expected.
+                Nothing has been changed.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={onRetry} size="xs" type="button" variant="outline">
+              <RefreshCw /> Try again
+            </Button>
+            <Button
+              onClick={onOpenBrain}
+              size="xs"
+              type="button"
+              variant="ghost"
+            >
+              Open Brain <ArrowRight />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
+          <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+          Loading local history…
+        </div>
+      )}
+      <Skeleton className="h-9 w-full rounded-lg" />
+      {[0, 1].map((index) => (
+        <div
+          className="space-y-3 rounded-xl border border-border/40 p-3"
+          key={index}
+        >
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-3 w-full" />
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="h-7 w-32 rounded-lg" />
+          </div>
+        </div>
+      ))}
+      <span className="sr-only">
+        Reading visible sessions from this device.
+      </span>
+    </div>
+  );
+}
+
+function RuntimeSessionsUnavailable({
+  onOpenBrain,
+  onRetry,
+}: {
+  onOpenBrain: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="space-y-3 rounded-xl border border-border/55 bg-card/20 p-4"
+      data-testid="runtime-sessions-unavailable"
+      role="alert"
+    >
+      <div>
+        <p className="text-sm font-medium">Couldn’t load local sessions</p>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+          The local session index did not respond. Nothing was changed, and you
+          can retry safely.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onRetry} size="xs" type="button" variant="outline">
+          <RefreshCw /> Try again
+        </Button>
+        <Button onClick={onOpenBrain} size="xs" type="button" variant="ghost">
+          Open Brain <ArrowRight />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SessionListNotice({
+  actionLabel,
+  detail,
+  onAction,
+  testId,
+  title,
+  tone,
+}: {
+  actionLabel?: string;
+  detail: string;
+  onAction?: () => void;
+  testId: string;
+  title: string;
+  tone: "progress" | "warning";
+}) {
+  return (
+    <div
+      className={cn(
+        "mb-3 flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs",
+        tone === "warning"
+          ? "border-amber-400/20 bg-amber-400/5"
+          : "border-border/45 bg-card/15",
+      )}
+      data-testid={testId}
+      role="status"
+    >
+      {tone === "warning" ? (
+        <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-400" />
+      ) : (
+        <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none" />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="font-medium text-foreground">{title}</p>
+        <p className="mt-0.5 leading-relaxed text-muted-foreground">{detail}</p>
+      </div>
+      {actionLabel && onAction ? (
+        <Button onClick={onAction} size="xs" type="button" variant="ghost">
+          {actionLabel}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 

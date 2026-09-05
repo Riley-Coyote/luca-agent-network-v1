@@ -1,5 +1,11 @@
 import { useEffect, useEffectEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  defaultScheduler,
+  notifyManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
@@ -667,7 +673,12 @@ export function useSendMessageMutation(
       }
 
       const queryKey = channelMessagesKey(effectiveChannel.id);
-      await queryClient.cancelQueries({ queryKey });
+      // Cancellation starts synchronously, but waiting for its bookkeeping
+      // before publishing the optimistic row makes acknowledgement latency
+      // depend on an unrelated in-flight history request. Paint the local row
+      // in this turn; the cancellation still prevents the stale fetch from
+      // replacing it before the network mutation begins.
+      const cancellation = queryClient.cancelQueries({ queryKey });
 
       const previousMessages =
         queryClient.getQueryData<RelayEvent[]>(queryKey) ?? [];
@@ -755,7 +766,19 @@ export function useSendMessageMutation(
         ? setOptimisticSendState(currentWindow, optimisticMessage.id, "sending")
         : mergeLiveChannelWindowEvent(currentWindow, optimisticMessage);
       queryClient.setQueryData(windowKey, nextWindow);
-      projectChannelWindowMessages(queryClient, effectiveChannel.id);
+      // React Query intentionally batches ordinary cache notifications behind
+      // a timer. For the owner's optimistic row that can burn several frames
+      // before React even sees the new transcript. Queue this one projection
+      // in the current microtask checkpoint; restore the library scheduler
+      // immediately so background query traffic keeps its normal batching.
+      notifyManager.setScheduler(queueMicrotask);
+      try {
+        projectChannelWindowMessages(queryClient, effectiveChannel.id);
+      } finally {
+        notifyManager.setScheduler(defaultScheduler);
+      }
+
+      await cancellation;
 
       return {
         optimisticId: optimisticMessage.id,

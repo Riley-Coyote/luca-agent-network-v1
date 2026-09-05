@@ -8,6 +8,7 @@ import {
   isDeferredTimelineSnapshotStale,
   isNearBottomMetrics,
   isRenderedTimelineBehindHistoryPrepend,
+  mergeUrgentOwnSendSuffix,
   resolveDeepLinkTarget,
   selectDeferredListRenderState,
   selectLatestMessageAutoScrollBehavior,
@@ -161,6 +162,89 @@ test("selectLatestMessageAutoScrollBehavior: target navigation suppresses latest
       targetMessageId: "message-a",
     }),
     null,
+  );
+});
+
+test("mergeUrgentOwnSendSuffix: paints the smallest contiguous suffix through a new own send", () => {
+  const deferred = [message({ id: "a" }), message({ id: "b" })];
+  const live = [
+    ...deferred,
+    message({ id: "resident", pubkey: "resident" }),
+    message({
+      id: "optimistic-1",
+      renderKey: "optimistic-1",
+      pending: true,
+      pubkey: "owner",
+    }),
+    message({ id: "later", pubkey: "resident" }),
+  ];
+
+  assert.deepEqual(
+    mergeUrgentOwnSendSuffix({
+      currentPubkey: "OWNER",
+      deferred,
+      live,
+      sameChannel: true,
+    }).map((entry) => entry.id),
+    ["a", "b", "resident", "optimistic-1"],
+  );
+});
+
+test("mergeUrgentOwnSendSuffix: keeps acknowledged optimistic-origin rows urgent without duplicating them", () => {
+  const deferred = [message({ id: "a" })];
+  const acknowledged = message({
+    id: "signed-1",
+    renderKey: "optimistic-1",
+    pending: false,
+    pubkey: "owner",
+  });
+
+  assert.equal(
+    mergeUrgentOwnSendSuffix({
+      currentPubkey: "owner",
+      deferred,
+      live: [...deferred, acknowledged],
+      sameChannel: true,
+    })[1],
+    acknowledged,
+  );
+  assert.equal(
+    mergeUrgentOwnSendSuffix({
+      currentPubkey: "owner",
+      deferred: [...deferred, acknowledged],
+      live: [...deferred, acknowledged],
+      sameChannel: true,
+    }).length,
+    2,
+  );
+});
+
+test("mergeUrgentOwnSendSuffix: never crosses channel or unrelated live replacement boundaries", () => {
+  const deferred = [message({ id: "a" })];
+  const pending = message({
+    id: "optimistic-1",
+    renderKey: "optimistic-1",
+    pending: true,
+    pubkey: "owner",
+  });
+
+  assert.equal(
+    mergeUrgentOwnSendSuffix({
+      currentPubkey: "owner",
+      deferred,
+      live: [message({ id: "replacement" }), pending],
+      sameChannel: true,
+    }),
+    deferred,
+  );
+  assert.equal(
+    mergeUrgentOwnSendSuffix({
+      currentPubkey: "owner",
+      deferred,
+      live: [...deferred, pending],
+      sameChannel: false,
+    }),
+    deferred,
   );
 });
 

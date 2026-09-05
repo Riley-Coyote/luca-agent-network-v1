@@ -1,4 +1,3 @@
-import { ArrowRight } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 
@@ -13,7 +12,7 @@ import { cn } from "@/shared/lib/cn";
  */
 export const LUCA_GREETING_CHOICES = [
   "Show me what you found",
-  "Connect my projects and past sessions",
+  "Connect projects and chats",
   "Set up or bring in an agent",
   "Show me around",
   "Just chat",
@@ -35,10 +34,7 @@ export function LucaGreetingChoices({
     <motion.div
       animate={{ opacity: 1, y: 0 }}
       aria-label="Places to begin"
-      className={cn(
-        "mt-3 w-full max-w-[28rem] overflow-hidden rounded-lg border border-border/80 bg-transparent",
-        className,
-      )}
+      className={cn("mt-3 flex w-full max-w-xl flex-wrap gap-2", className)}
       data-testid="luca-greeting-choices"
       initial={reduceMotion ? false : { opacity: 0, y: 4 }}
       role="group"
@@ -50,12 +46,10 @@ export function LucaGreetingChoices({
     >
       {LUCA_GREETING_CHOICES.map((choice, index) => {
         const last = index === LUCA_GREETING_CHOICES.length - 1;
-        const isSending = sending === choice;
         return (
           <button
             className={cn(
-              "group flex w-full items-center gap-3 px-3 py-2 text-left text-sm text-ink-muted transition-colors duration-150",
-              index > 0 && "border-t border-border/60",
+              "group flex max-w-full items-center gap-2 rounded-lg border border-border/80 px-3 py-2 text-left text-sm text-ink-muted transition-colors duration-150",
               "hover:bg-accent hover:text-foreground",
               "focus-visible:bg-accent focus-visible:outline-none",
               "disabled:cursor-default disabled:opacity-50",
@@ -72,19 +66,7 @@ export function LucaGreetingChoices({
             }}
             type="button"
           >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "size-2 shrink-0 rounded-full border border-foreground/40 transition-colors",
-                "group-hover:border-foreground/70 group-hover:bg-foreground/70",
-                isSending && "border-foreground bg-foreground",
-              )}
-            />
-            <span className="min-w-0 flex-1">{choice}</span>
-            <ArrowRight
-              aria-hidden="true"
-              className="size-3.5 shrink-0 text-foreground/0 transition-colors group-hover:text-ink-faint"
-            />
+            <span className="min-w-0">{choice}</span>
           </button>
         );
       })}

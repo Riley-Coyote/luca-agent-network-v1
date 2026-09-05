@@ -30,6 +30,7 @@ import { AgentSessionThreadPanel } from "@/features/channels/ui/AgentSessionThre
 import { ChannelManagementAuxiliaryPanel } from "@/features/channels/ui/ChannelManagementAuxiliaryPanel";
 import { ConversationContextPanel } from "@/features/channels/ui/ConversationContextPanel";
 import { RightAuxiliaryPane } from "@/features/channels/ui/RightAuxiliaryPane";
+import { PanelPresence } from "@/shared/layout/PanelPresence";
 import { getManagedPresentationTurn } from "@/features/messages/managedPresentationStore";
 import { useManagedResponseSlots } from "@/features/messages/managedPresentationHooks";
 import { resolveManagedPresentationRetry } from "@/features/messages/lib/managedPresentationRetry";
@@ -385,6 +386,22 @@ export const ChannelPane = React.memo(function ChannelPane({
 
     return pubkeys;
   }, [activityAgents, agentPubkeys, agentSessionAgents]);
+  const capabilityResidents = React.useMemo(() => {
+    const activePubkeys = new Set(
+      activityAgents.map((agent) => normalizePubkey(agent.pubkey)),
+    );
+
+    return agentSessionAgents
+      .filter(
+        (agent) =>
+          agent.agentSource === "managed" &&
+          activePubkeys.has(normalizePubkey(agent.pubkey)),
+      )
+      .map((agent) => ({
+        pubkey: normalizePubkey(agent.pubkey),
+        name: agent.name,
+      }));
+  }, [activityAgents, agentSessionAgents]);
   const completeWelcomeComposerBanner = React.useCallback(() => {
     if (!activeChannelId || !isActiveWelcomeChannel) {
       return;
@@ -497,6 +514,18 @@ export const ChannelPane = React.memo(function ChannelPane({
         (state) => !isTerminalConversationActivity(state),
       ),
     [presentationStateByPubkey],
+  );
+  const composerConversationContext = React.useMemo(
+    () =>
+      activeChannel
+        ? {
+            conversationId: activeChannel.id,
+            conversationName: activeChannel.name,
+            project: projectContext,
+            changesDisabled: contextChangesDisabled,
+          }
+        : null,
+    [activeChannel, contextChangesDisabled, projectContext],
   );
   const managedResponseSlots = useManagedResponseSlots(activeChannelId);
   const handleRetryResident = React.useCallback(
@@ -1194,25 +1223,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                       tasks={runtimeTasksQuery.data ?? []}
                     />
                     <MessageComposer
-                      capabilityResidents={agentSessionAgents
-                        .filter((agent) => agent.agentSource === "managed")
-                        .map((agent) => ({
-                          pubkey: normalizePubkey(agent.pubkey),
-                          name: agent.name,
-                        }))}
+                      capabilityResidents={capabilityResidents}
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}
                       channelType={activeChannel?.channelType ?? null}
-                      conversationContext={
-                        activeChannel
-                          ? {
-                              conversationId: activeChannel.id,
-                              conversationName: activeChannel.name,
-                              project: projectContext,
-                              changesDisabled: contextChangesDisabled,
-                            }
-                          : null
-                      }
+                      conversationContext={composerConversationContext}
                       containerClassName="luca-measure pointer-events-auto px-0"
                       disabled={isComposerDisabled}
                       editTarget={mainEditTarget}
@@ -1295,117 +1310,129 @@ export const ChannelPane = React.memo(function ChannelPane({
             </section>
           ) : null}
 
-          {channelManagementOpen && activeChannel ? (
-            <ChannelManagementAuxiliaryPanel
-              activeChannel={activeChannel}
-              canResetThreadPanelWidth={canResetThreadPanelWidth}
-              currentPubkey={currentPubkey}
-              isSinglePanelView={isSinglePanelView}
-              key="channel-management-panel"
-              onChannelManagementDeleted={onChannelManagementDeleted}
-              onCloseChannelManagement={onCloseChannelManagement}
-              onResetThreadPanelWidth={onResetThreadPanelWidth}
-              onThreadPanelResizeStart={onThreadPanelResizeStart}
-              threadPanelWidthPx={threadPanelWidthPx}
-              useSplitAuxiliaryPane={useSplitAuxiliaryPane}
-              transparentChrome={hasSplitAuxiliaryPane}
-            />
-          ) : conversationContextOpen && activeChannel ? (
-            (() => {
-              const panel = (
-                <ConversationContextPanel
-                  agents={agentSessionAgents}
-                  canResetWidth={canResetThreadPanelWidth}
-                  channel={activeChannel}
-                  currentPubkey={currentPubkey}
-                  isSinglePanelView={
-                    useSplitAuxiliaryPane ? false : isSinglePanelView
-                  }
-                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                  messages={visibleMessages}
-                  onClose={onCloseConversationContext ?? (() => undefined)}
-                  onManageParticipants={onOpenMembers ?? (() => undefined)}
-                  onOpenResident={(pubkey) =>
-                    onOpenProfilePanel(pubkey, { tab: "continuity" })
-                  }
-                  onResetWidth={onResetThreadPanelWidth}
-                  onResizeStart={onThreadPanelResizeStart}
-                  profiles={profiles}
-                  requestedExchangeId={requestedExchangeId}
-                  transparentChrome={useSplitAuxiliaryPane}
-                  widthPx={threadPanelWidthPx}
-                />
-              );
-              return wrapAux(panel, "conversation-context-panel-shell");
-            })()
-          ) : activeChannel && selectedAgent ? (
-            (() => {
-              // When the panel was opened from a different channel than the
-              // currently active one, re-scope it to the active channel so
-              // that both the content/header AND channel-backed actions (e.g.
-              // Stop current turn) operate on the same channel object.
-              const effectiveAgentSessionChannelId =
-                openAgentSessionChannelId &&
-                activeChannel.id !== openAgentSessionChannelId
-                  ? activeChannelId
-                  : openAgentSessionChannelId;
-              const panel = (
-                <AgentSessionThreadPanel
-                  agent={selectedAgent}
-                  canInterruptTurn={selectedAgent.canInterruptTurn}
-                  channel={
-                    effectiveAgentSessionChannelId
-                      ? effectiveAgentSessionChannelId === activeChannel.id
-                        ? activeChannel
-                        : null
-                      : agentSessionSelection.isAgentInActivityList({
-                            activityAgents,
-                            selectedAgent,
-                          })
-                        ? activeChannel
-                        : null
-                  }
-                  channelId={effectiveAgentSessionChannelId}
-                  isSinglePanelView={
-                    useSplitAuxiliaryPane ? false : isSinglePanelView
-                  }
-                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                  transparentChrome={useSplitAuxiliaryPane}
-                  profiles={profiles}
-                  onBack={onBackFromAgentSession}
-                  onClose={onCloseAgentSession}
-                  widthPx={threadPanelWidthPx}
-                />
-              );
-              return wrapAux(panel, "agent-session-thread-panel");
-            })()
-          ) : profilePanelPubkey ? (
-            (() => {
-              const panel = (
-                <UserProfilePanel
-                  currentPubkey={currentPubkey}
-                  callerChannelId={activeChannelId}
-                  isSinglePanelView={
-                    useSplitAuxiliaryPane ? false : isSinglePanelView
-                  }
-                  layout={useSplitAuxiliaryPane ? "split" : "standalone"}
-                  transparentChrome={useSplitAuxiliaryPane}
-                  onClose={onCloseProfilePanel}
-                  onBackToConversation={onBackToConversation}
-                  onOpenDm={onOpenDm}
-                  onOpenProfile={onOpenProfilePanel}
-                  onTabChange={onProfilePanelTabChange}
-                  onViewChange={onProfilePanelViewChange}
-                  pubkey={profilePanelPubkey}
-                  splitPaneClamp
-                  tab={profilePanelTab}
-                  view={profilePanelView}
-                  widthPx={threadPanelWidthPx}
-                />
-              );
-              return wrapAux(panel, "user-profile-panel");
-            })()
-          ) : null}
+          <PanelPresence
+            onClose={
+              channelManagementOpen
+                ? onCloseChannelManagement
+                : conversationContextOpen
+                  ? onCloseConversationContext
+                  : activeChannel && selectedAgent
+                    ? onCloseAgentSession
+                    : onCloseProfilePanel
+            }
+          >
+            {channelManagementOpen && activeChannel ? (
+              <ChannelManagementAuxiliaryPanel
+                activeChannel={activeChannel}
+                canResetThreadPanelWidth={canResetThreadPanelWidth}
+                currentPubkey={currentPubkey}
+                isSinglePanelView={isSinglePanelView}
+                key="channel-management-panel"
+                onChannelManagementDeleted={onChannelManagementDeleted}
+                onCloseChannelManagement={onCloseChannelManagement}
+                onResetThreadPanelWidth={onResetThreadPanelWidth}
+                onThreadPanelResizeStart={onThreadPanelResizeStart}
+                threadPanelWidthPx={threadPanelWidthPx}
+                useSplitAuxiliaryPane={useSplitAuxiliaryPane}
+                transparentChrome={hasSplitAuxiliaryPane}
+              />
+            ) : conversationContextOpen && activeChannel ? (
+              (() => {
+                const panel = (
+                  <ConversationContextPanel
+                    agents={agentSessionAgents}
+                    canResetWidth={canResetThreadPanelWidth}
+                    channel={activeChannel}
+                    currentPubkey={currentPubkey}
+                    isSinglePanelView={
+                      useSplitAuxiliaryPane ? false : isSinglePanelView
+                    }
+                    layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                    messages={visibleMessages}
+                    onClose={onCloseConversationContext ?? (() => undefined)}
+                    onManageParticipants={onOpenMembers ?? (() => undefined)}
+                    onOpenResident={(pubkey) =>
+                      onOpenProfilePanel(pubkey, { tab: "continuity" })
+                    }
+                    onResetWidth={onResetThreadPanelWidth}
+                    onResizeStart={onThreadPanelResizeStart}
+                    profiles={profiles}
+                    requestedExchangeId={requestedExchangeId}
+                    transparentChrome={useSplitAuxiliaryPane}
+                    widthPx={threadPanelWidthPx}
+                  />
+                );
+                return wrapAux(panel, "conversation-context-panel-shell");
+              })()
+            ) : activeChannel && selectedAgent ? (
+              (() => {
+                // When the panel was opened from a different channel than the
+                // currently active one, re-scope it to the active channel so
+                // that both the content/header AND channel-backed actions (e.g.
+                // Stop current turn) operate on the same channel object.
+                const effectiveAgentSessionChannelId =
+                  openAgentSessionChannelId &&
+                  activeChannel.id !== openAgentSessionChannelId
+                    ? activeChannelId
+                    : openAgentSessionChannelId;
+                const panel = (
+                  <AgentSessionThreadPanel
+                    agent={selectedAgent}
+                    canInterruptTurn={selectedAgent.canInterruptTurn}
+                    channel={
+                      effectiveAgentSessionChannelId
+                        ? effectiveAgentSessionChannelId === activeChannel.id
+                          ? activeChannel
+                          : null
+                        : agentSessionSelection.isAgentInActivityList({
+                              activityAgents,
+                              selectedAgent,
+                            })
+                          ? activeChannel
+                          : null
+                    }
+                    channelId={effectiveAgentSessionChannelId}
+                    isSinglePanelView={
+                      useSplitAuxiliaryPane ? false : isSinglePanelView
+                    }
+                    layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                    transparentChrome={useSplitAuxiliaryPane}
+                    profiles={profiles}
+                    onBack={onBackFromAgentSession}
+                    onClose={onCloseAgentSession}
+                    widthPx={threadPanelWidthPx}
+                  />
+                );
+                return wrapAux(panel, "agent-session-thread-panel");
+              })()
+            ) : profilePanelPubkey ? (
+              (() => {
+                const panel = (
+                  <UserProfilePanel
+                    currentPubkey={currentPubkey}
+                    callerChannelId={activeChannelId}
+                    isSinglePanelView={
+                      useSplitAuxiliaryPane ? false : isSinglePanelView
+                    }
+                    layout={useSplitAuxiliaryPane ? "split" : "standalone"}
+                    transparentChrome={useSplitAuxiliaryPane}
+                    onClose={onCloseProfilePanel}
+                    onBackToConversation={onBackToConversation}
+                    onOpenDm={onOpenDm}
+                    onOpenProfile={onOpenProfilePanel}
+                    onTabChange={onProfilePanelTabChange}
+                    onViewChange={onProfilePanelViewChange}
+                    pubkey={profilePanelPubkey}
+                    splitPaneClamp
+                    tab={profilePanelTab}
+                    view={profilePanelView}
+                    widthPx={threadPanelWidthPx}
+                  />
+                );
+                return wrapAux(panel, "user-profile-panel");
+              })()
+            ) : null}
+          </PanelPresence>
         </div>
       </ResidentStopContext.Provider>
     </LucaGreetingChoicesContext.Provider>
