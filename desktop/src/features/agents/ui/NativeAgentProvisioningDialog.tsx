@@ -52,6 +52,7 @@ export function NativeAgentProvisioningDialog({
   onOpenChange,
   open,
   personaId,
+  residentProposalId,
   targetChannel,
 }: {
   beforeOwnerAction?: () => Promise<void> | void;
@@ -63,6 +64,7 @@ export function NativeAgentProvisioningDialog({
   onOpenChange: (open: boolean) => void;
   open: boolean;
   personaId?: string;
+  residentProposalId?: string;
   targetChannel?: { id: string; name: string } | null;
 }) {
   const queryClient = useQueryClient();
@@ -299,6 +301,7 @@ export function NativeAgentProvisioningDialog({
         preview.transactionId,
         resolvedPersonaId,
         approvedRequest,
+        residentProposalId,
       );
       await completeProvisioning(receipt);
     } catch (cause) {

@@ -18,6 +18,7 @@ use tokio::{
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const BROKER_DEADLINE: Duration = Duration::from_secs(130);
+const RESIDENT_PROPOSAL_DEADLINE: Duration = Duration::from_secs(16 * 60);
 const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(24 * 60 * 60 + 15 * 60);
 
 #[derive(Clone)]
@@ -144,6 +145,50 @@ struct BrokerResponseV1 {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RepositoriesParams {}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ProposeResidentParams {
+    /// Short name for the persistent specialist the user wants to create.
+    display_name: String,
+    /// Instructions for the new resident, reviewed by the user before creation.
+    system_prompt: String,
+    /// Optional requested runtime: codex, claude_code, hermes, or openclaw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    runtime_family: Option<String>,
+    /// Optional native setup mode: fresh, template, or advanced. Defaults to fresh.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provisioning_intent: Option<String>,
+}
+
+impl ProposeResidentParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        let name = self.display_name.trim();
+        let prompt = self.system_prompt.trim();
+        if name.is_empty()
+            || name.len() > 120
+            || name.chars().any(char::is_control)
+            || prompt.is_empty()
+            || prompt.len() > 20_000
+            || prompt
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+            || self.runtime_family.as_deref().is_some_and(|runtime| {
+                !matches!(runtime, "codex" | "claude_code" | "hermes" | "openclaw")
+            })
+            || self
+                .provisioning_intent
+                .as_deref()
+                .is_some_and(|intent| !matches!(intent, "fresh" | "template" | "advanced"))
+        {
+            return Err(ErrorData::invalid_params(
+                "Resident proposal arguments are invalid",
+                None,
+            ));
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -313,6 +358,20 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "propose_resident",
+        description = "Create a persistent specialist through Polyphonic's existing owner review after the user asks for one. Supply only a name, instructions and optional runtime family. The host fixes your identity and originating conversation. This tool waits for the actual setup outcome and returns to this conversation; do not claim creation before it returns. A saved definition, created resident, attached conversation and running process are distinct. A running process is not proof of an authenticated reply. If review expires or closes, check the existing receipt before proposing another creation. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
+    )]
+    async fn propose_resident(
+        &self,
+        Parameters(params): Parameters<ProposeResidentParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.client
+            .call_with_deadline("propose_resident", params, RESIDENT_PROPOSAL_DEADLINE)
+            .await
+    }
+
+    #[tool(
         name = "propose_runtime_task",
         description = "Ask the owner to confirm one new Codex or Claude Code task. This only opens Polyphonic's confirmation card; nothing runs until the owner chooses a working folder, permission mode, and Run. Use after a natural request such as 'send this to Codex'."
     )]
@@ -470,6 +529,7 @@ mod tests {
             names,
             vec![
                 "polyphonic_status",
+                "propose_resident",
                 "propose_runtime_task",
                 "read_runtime_task_result",
                 "repo_apply_patch",
@@ -517,5 +577,177 @@ mod tests {
         assert!(!is_sha256_ref("not-a-capability"));
         assert!(is_opaque_id("123e4567-e89b-12d3-a456-426614174000"));
         assert!(!is_opaque_id("../conversation"));
+    }
+
+    fn resident_params() -> ProposeResidentParams {
+        ProposeResidentParams {
+            display_name: "Scout".into(),
+            system_prompt: "Inspect the assigned project.".into(),
+            runtime_family: Some("hermes".into()),
+            provisioning_intent: Some("fresh".into()),
+        }
+    }
+
+    #[test]
+    fn resident_schema_exposes_only_bounded_owner_review_inputs() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "propose_resident")
+            .expect("resident tool");
+        let schema = serde_json::to_value(tool.input_schema).expect("schema");
+        assert_eq!(schema["additionalProperties"], false);
+        let mut fields = schema["properties"]
+            .as_object()
+            .expect("properties")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        fields.sort();
+        assert_eq!(
+            fields,
+            [
+                "display_name",
+                "provisioning_intent",
+                "runtime_family",
+                "system_prompt"
+            ]
+        );
+        for field in [
+            "owner",
+            "resident",
+            "conversation_id",
+            "provider",
+            "model",
+            "api_key",
+            "budget",
+        ] {
+            let mut input = serde_json::to_value(resident_params()).expect("params");
+            input[field] = serde_json::json!("injected");
+            assert!(
+                serde_json::from_value::<ProposeResidentParams>(input).is_err(),
+                "{field}"
+            );
+        }
+        for (field, value) in [
+            ("display_name", "x".repeat(121)),
+            ("system_prompt", "x".repeat(20_001)),
+            ("runtime_family", "shell".into()),
+            ("provisioning_intent", "overwrite".into()),
+        ] {
+            let mut input = serde_json::to_value(resident_params()).expect("params");
+            input[field] = serde_json::json!(value);
+            assert!(serde_json::from_value::<ProposeResidentParams>(input)
+                .expect("shape")
+                .validate()
+                .is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn resident_tool_waits_for_broker_outcome_and_keeps_host_origin_outside_arguments() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let directory = tempfile::tempdir().expect("fixture");
+        let endpoint = directory.path().join("broker.sock");
+        let listener = tokio::net::UnixListener::bind(&endpoint).expect("listener");
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        let broker = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept");
+            let mut line = String::new();
+            BufReader::new(&mut stream)
+                .read_line(&mut line)
+                .await
+                .expect("frame");
+            let frame: Value = serde_json::from_str(&line).expect("json");
+            seen_tx.send(frame).expect("request observed");
+            release_rx.await.expect("owner result gate");
+            let content = serde_json::json!({"status":"resident_created", "requestId":"request-1", "transactionId":"transaction-1", "authenticatedReady":false}).to_string();
+            let response =
+                serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":true,"content":content})
+                    .to_string()
+                    + "\n";
+            stream
+                .write_all(response.as_bytes())
+                .await
+                .expect("outcome");
+        });
+        let server = LucaRepositoriesMcp {
+            client: Arc::new(RepositoryBrokerClient {
+                endpoint,
+                capability: format!("sha256:{}", "a".repeat(64)),
+                conversation_id: "origin-conversation".into(),
+            }),
+            tool_router: LucaRepositoriesMcp::tool_router(),
+        };
+        let call =
+            tokio::spawn(
+                async move { server.propose_resident(Parameters(resident_params())).await },
+            );
+        let frame = seen_rx.await.expect("request");
+        assert_eq!(frame["operation"], "propose_resident");
+        assert_eq!(frame["conversation_id"], "origin-conversation");
+        assert_eq!(
+            frame["arguments"],
+            serde_json::to_value(resident_params()).expect("arguments")
+        );
+        assert!(
+            !call.is_finished(),
+            "opening review cannot complete the tool"
+        );
+        release_tx.send(()).expect("complete review");
+        let result = call.await.expect("call task").expect("tool result");
+        let encoded = serde_json::to_value(result).expect("result encoding");
+        let content: Value =
+            serde_json::from_str(encoded["content"][0]["text"].as_str().expect("text"))
+                .expect("receipt");
+        assert_eq!(content["transactionId"], "transaction-1");
+        assert_eq!(content["authenticatedReady"], false);
+        broker.await.expect("broker");
+    }
+
+    #[tokio::test]
+    async fn resident_tool_preserves_closed_and_busy_results_without_retrying_creation() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        for (ok, content) in [
+            (
+                true,
+                "{\"status\":\"incomplete\",\"reason\":\"review_closed\"}",
+            ),
+            (false, "Another resident creation review is open."),
+        ] {
+            let directory = tempfile::tempdir().expect("fixture");
+            let endpoint = directory.path().join("broker.sock");
+            let listener = tokio::net::UnixListener::bind(&endpoint).expect("listener");
+            let broker = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.expect("one call");
+                let mut line = String::new();
+                BufReader::new(&mut stream)
+                    .read_line(&mut line)
+                    .await
+                    .expect("frame");
+                let response =
+                    serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":ok,"content":content})
+                        .to_string()
+                        + "\n";
+                stream.write_all(response.as_bytes()).await.expect("reply");
+            });
+            let server = LucaRepositoriesMcp {
+                client: Arc::new(RepositoryBrokerClient {
+                    endpoint,
+                    capability: format!("sha256:{}", "a".repeat(64)),
+                    conversation_id: "origin-conversation".into(),
+                }),
+                tool_router: LucaRepositoriesMcp::tool_router(),
+            };
+            let result = server
+                .propose_resident(Parameters(resident_params()))
+                .await
+                .expect("tool result");
+            assert_eq!(result.is_error.unwrap_or(false), !ok);
+            let encoded = serde_json::to_value(result).expect("result");
+            assert_eq!(encoded["content"][0]["text"], content);
+            broker.await.expect("broker");
+        }
     }
 }

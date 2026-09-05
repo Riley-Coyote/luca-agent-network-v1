@@ -48,3 +48,33 @@ fn strict_request_rejects_credentials_and_commands_as_fields() {
         assert!(serde_json::from_value::<NativeProvisioningRequestV1>(value).is_err());
     }
 }
+
+#[test]
+fn instructions_preserve_paragraphs_but_reject_control_sequences() {
+    let mut input = request(AgentProvisioningModeV1::Fresh);
+    input.system_prompt = "Read the project.\n\nReport evidence.\n\tKeep sources.".into();
+    assert_eq!(
+        normalize_request(input.clone())
+            .expect("paragraphs")
+            .system_prompt,
+        input.system_prompt
+    );
+    for control in ['\0', '\u{1b}', '\u{7}'] {
+        input.system_prompt = format!("Instructions{control}");
+        assert!(normalize_request(input.clone()).is_err());
+    }
+}
+
+#[test]
+fn simultaneous_native_mutations_for_one_transaction_are_rejected_and_release_on_exit() {
+    let owner = "guard-test-owner";
+    let transaction = "guard-test-transaction";
+    let held = NativeTransactionGuard::acquire(owner, transaction).expect("first action");
+    let concurrent =
+        std::thread::spawn(move || NativeTransactionGuard::acquire(owner, transaction).is_err());
+    assert!(concurrent.join().expect("concurrent invocation"));
+    assert!(NativeTransactionGuard::acquire(owner, "another-transaction").is_ok());
+    assert!(NativeTransactionGuard::acquire("another-owner", transaction).is_ok());
+    drop(held);
+    assert!(NativeTransactionGuard::acquire(owner, transaction).is_ok());
+}

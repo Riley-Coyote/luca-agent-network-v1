@@ -299,7 +299,15 @@ fn serve_connection(
             serde_json::from_slice::<RepositoryBrokerFrameV1>(&bytes)
                 .map_err(|_| "repository broker request is invalid".to_owned())
                 .and_then(|frame| {
-                    handle_frame(active, app, context, master_capability, approvals, frame)
+                    handle_frame(
+                        active,
+                        app,
+                        context,
+                        master_capability,
+                        approvals,
+                        frame,
+                        &writer,
+                    )
                 })
                 .unwrap_or_else(error_response)
         }
@@ -321,6 +329,7 @@ fn handle_frame(
     master_capability: &Sha256Ref,
     approvals: &Arc<Mutex<BTreeSet<String>>>,
     frame: RepositoryBrokerFrameV1,
+    caller: &UnixStream,
 ) -> Result<RepositoryBrokerResponseV1, String> {
     if !active.load(Ordering::SeqCst)
         || frame.protocol != BROKER_PROTOCOL
@@ -341,6 +350,33 @@ fn handle_frame(
             return Err("operator status arguments are invalid".into());
         }
         return operator_status(app, context);
+    }
+    if frame.operation == RepositoryToolOperationV1::ProposeResident {
+        let mut probe = caller
+            .try_clone()
+            .map_err(|_| "resident proposal caller is unavailable".to_owned())?;
+        probe
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .map_err(|_| "resident proposal caller cannot be monitored".to_owned())?;
+        return crate::luca::resident_proposals::propose_resident(
+            app,
+            crate::luca::resident_proposals::ResidentProposalScope {
+                owner: context.owner_pubkey.clone(),
+                resident: context.resident_pubkey.clone(),
+                session_epoch: context.session_epoch,
+                binding: context.binding_ref.clone(),
+                conversation: frame.conversation_id,
+                active: Arc::clone(active),
+            },
+            frame.arguments,
+            move || crate::luca::resident_proposals::caller_disconnected(&mut probe),
+        )
+        .map(|content| RepositoryBrokerResponseV1 {
+            protocol: BROKER_PROTOCOL,
+            ok: true,
+            content,
+            receipt: None,
+        });
     }
     if frame.operation == RepositoryToolOperationV1::ProposeRuntimeTask {
         return crate::luca::runtime_tasks::propose_runtime_task(

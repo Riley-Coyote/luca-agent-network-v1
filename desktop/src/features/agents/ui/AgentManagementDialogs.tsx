@@ -71,6 +71,7 @@ export function AgentManagementDialogs() {
             if (!open) management.dismiss();
           }}
           open
+          residentProposalId={management.residentProposalId}
           targetChannel={management.createTargetChannel}
         />
       ) : null}

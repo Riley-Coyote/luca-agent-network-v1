@@ -1,12 +1,22 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import {
   createInputFromRequest,
+  parseAgentManagementRequest,
   requestTargetsEditablePersona,
   type AgentManagementRequest,
 } from "./agentManagement";
 import { subscribeAgentManagementRequests } from "./observerRelayStore";
+import {
+  authorizeResidentProposal,
+  finishResidentProposal,
+  listResidentProposals,
+  listenResidentProposals,
+  type ResidentProposal,
+  type ResidentProposalCompletion,
+} from "@/shared/api/tauriResidentProposals";
 import {
   managedAgentsQueryKey,
   personasQueryKey,
@@ -23,6 +33,7 @@ import {
   type BackendIntent,
 } from "./lib/instanceInputForDefinition";
 import { useCreatedAgentChannelAttachment } from "./useCreatedAgentChannelAttachment";
+import { attachManagedAgentToChannel } from "./channelAgents";
 import { classifyAgentManagementOrigin } from "./agentManagementBuffer";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { resolveManagedAgentAvatarUrl } from "./ui/managedAgentAvatar";
@@ -79,6 +90,13 @@ export function useAgentManagement() {
   const seenRequestIds = React.useRef(new Set<string>());
   const pendingRequestId = React.useRef<string | null>(null);
   const sourceAgentPubkey = React.useRef<string | null>(null);
+  const hostRequestIds = React.useRef(new Set<string>());
+  const completedHostRequestIds = React.useRef(new Set<string>());
+  const managedCreateOutcome = React.useRef<{
+    requestId: string;
+    name: string;
+    completion: ResidentProposalCompletion;
+  } | null>(null);
   const managedAgentsRef = React.useRef(managedAgentsQuery.data);
   const channelsRef = React.useRef(channelsQuery.data);
   const bufferedRequestsRef = React.useRef<
@@ -87,20 +105,36 @@ export function useAgentManagement() {
 
   const acceptOwnedRequest = React.useEffectEvent(
     (agentPubkey: string, next: AgentManagementRequest) => {
+      if (seenRequestIds.current.has(next.requestId)) return;
       if (
         classifyAgentManagementOrigin(
           managedAgentsRef.current,
           channelsRef.current,
           agentPubkey,
           next.request.channelId,
-        ) !== "accept" ||
-        seenRequestIds.current.has(next.requestId)
+        ) !== "accept"
       ) {
+        if (hostRequestIds.current.delete(next.requestId)) {
+          void finishResidentProposal(next.requestId, {
+            status: "closed",
+            busy: false,
+          }).catch(() => {});
+        }
         return;
       }
-      seenRequestIds.current.add(next.requestId);
-      setError(null);
+      if (pendingRequestId.current !== null) {
+        if (hostRequestIds.current.has(next.requestId)) {
+          void finishResidentProposal(next.requestId, {
+            status: "closed",
+            busy: true,
+          }).catch(() => {});
+          hostRequestIds.current.delete(next.requestId);
+        }
+        return;
+      }
       if (pendingRequestId.current === null) {
+        seenRequestIds.current.add(next.requestId);
+        setError(null);
         pendingRequestId.current = next.requestId;
         sourceAgentPubkey.current = agentPubkey;
         setRequest(next);
@@ -150,6 +184,78 @@ export function useAgentManagement() {
     };
   }, []);
 
+  React.useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const receive = (proposal: ResidentProposal) => {
+      if (disposed) return;
+      const next = parseAgentManagementRequest({
+        type: "agent_management_request",
+        action: "create",
+        requestId: proposal.requestId,
+        request: {
+          channelId: proposal.conversationId,
+          displayName: proposal.displayName,
+          systemPrompt: proposal.systemPrompt,
+          ...(proposal.runtimeFamily
+            ? { requestedRuntimeFamily: proposal.runtimeFamily }
+            : {}),
+          ...(proposal.provisioningIntent
+            ? { provisioningIntent: proposal.provisioningIntent }
+            : {}),
+        },
+      });
+      if (
+        !next ||
+        !/^[0-9a-f]{64}$/i.test(proposal.residentPubkey) ||
+        seenRequestIds.current.has(next.requestId)
+      )
+        return;
+      hostRequestIds.current.add(next.requestId);
+      const classification = classifyAgentManagementOrigin(
+        managedAgentsRef.current,
+        channelsRef.current,
+        proposal.residentPubkey,
+        proposal.conversationId,
+      );
+      if (classification === "buffer") {
+        if (
+          !bufferedRequestsRef.current.some(
+            (item) => item.request.requestId === next.requestId,
+          )
+        ) {
+          bufferedRequestsRef.current.push({
+            agentPubkey: proposal.residentPubkey,
+            request: next,
+          });
+        }
+      } else if (classification === "accept") {
+        acceptOwnedRequest(proposal.residentPubkey, next);
+      } else {
+        void finishResidentProposal(next.requestId, {
+          status: "closed",
+          busy: false,
+        }).catch(() => {});
+        hostRequestIds.current.delete(next.requestId);
+      }
+    };
+    // Listen before replay so a request cannot disappear during renderer startup.
+    void listenResidentProposals(receive)
+      .then(async (stop) => {
+        if (disposed) {
+          stop();
+          return;
+        }
+        unlisten = stop;
+        for (const proposal of await listResidentProposals()) receive(proposal);
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
   const matchingPersonas = React.useMemo(() => {
     if (request?.action !== "update") return [];
     const target = request.request.agentName.trim().toLocaleLowerCase();
@@ -192,7 +298,7 @@ export function useAgentManagement() {
     }
   }
 
-  async function authorizePendingCreate() {
+  async function authorizePendingCreate(checkHost = true) {
     const requestingPubkey = sourceAgentPubkey.current;
     if (
       request?.action !== "create" ||
@@ -219,6 +325,9 @@ export function useAgentManagement() {
         "This request requires an owned agent and a conversation you both still belong to.",
       );
     }
+    if (checkHost && hostRequestIds.current.has(request.requestId)) {
+      await authorizeResidentProposal(request.requestId);
+    }
   }
 
   async function completeNativeCreate(completion: NativeAgentCompletion) {
@@ -226,10 +335,31 @@ export function useAgentManagement() {
     if (!request || !requestingPubkey) {
       throw new Error("This agent creation request is no longer available.");
     }
-    await authorizePendingCreate();
+    // Creation already happened; current owner/room authority still governs
+    // its receipt, even if the proposing model stopped waiting in the meantime.
+    await authorizePendingCreate(false);
+    await returnHostOutcome({
+      status: "native_created",
+      transactionId: completion.receipt.transactionId,
+      ...(completion.attachment
+        ? { attachedConversationId: completion.attachment.channelId }
+        : {}),
+    });
     await sendManagedAgentChannelMessage(
       agentManagementCompletionMessage(request, requestingPubkey, completion),
     );
+  }
+
+  async function returnHostOutcome(completion: ResidentProposalCompletion) {
+    const requestId = pendingRequestId.current;
+    if (
+      !requestId ||
+      !hostRequestIds.current.has(requestId) ||
+      completedHostRequestIds.current.has(requestId)
+    )
+      return;
+    await finishResidentProposal(requestId, completion);
+    completedHostRequestIds.current.add(requestId);
   }
 
   async function submitCreate(
@@ -241,9 +371,15 @@ export function useAgentManagement() {
       return false;
     }
     setError(null);
-    let createdPersonaName: string | null = null;
     try {
-      assertAgentCanActFromOrigin(request.request.channelId);
+      const previous = managedCreateOutcome.current;
+      if (previous?.requestId === request.requestId) {
+        // Only retry the outcome delivery. The previous save/create already ran.
+        await returnHostOutcome(previous.completion);
+        dismiss();
+        return true;
+      }
+      await authorizePendingCreate();
       const runtimes = await availableRuntimesForStart(runtimesQuery);
       const runtime = runtimes.find(
         (candidate) => candidate.id === input.runtime,
@@ -261,7 +397,11 @@ export function useAgentManagement() {
         ...input,
         avatarUrl,
       });
-      createdPersonaName = persona.displayName;
+      managedCreateOutcome.current = {
+        requestId: request.requestId,
+        name: persona.displayName,
+        completion: { status: "definition_saved", personaId: persona.id },
+      };
 
       if (intent === "definition_start") {
         const created = await createAgentMutation.mutateAsync(
@@ -272,35 +412,56 @@ export function useAgentManagement() {
             backendIntent ?? undefined,
           ),
         );
+        managedCreateOutcome.current.completion = {
+          status: "managed_created",
+          residentPubkey: created.agent.pubkey,
+          personaId: persona.id,
+        };
         if (created.spawnError) throw new Error(created.spawnError);
-        const targetChannel = (channelsQuery.data ?? []).find(
-          (channel) => channel.id === request.request.channelId,
+        await authorizePendingCreate();
+        const attachment = await attachManagedAgentToChannel(
+          request.request.channelId,
+          {
+            agent: created.agent,
+            role: "bot",
+            ensureRunning: true,
+          },
         );
-        await createdAgentAttachment.presentCreatedAgent(created, {
-          id: request.request.channelId,
-          name: targetChannel?.name ?? "this channel",
-        });
-        createdAgentAttachment.dismissCreatedAgent();
+        managedCreateOutcome.current.completion = {
+          status: "managed_created",
+          residentPubkey: created.agent.pubkey,
+          personaId: persona.id,
+          attachedConversationId: attachment.channelId,
+        };
       }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: personasQueryKey }),
         queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey }),
       ]);
+      await returnHostOutcome(managedCreateOutcome.current.completion);
       dismiss();
       return true;
     } catch (cause) {
-      setError(
-        createdPersonaName
-          ? `${createdPersonaName} was saved. Retry resident setup from its Add resident action.`
-          : cause instanceof Error
-            ? cause.message
-            : "Could not save this agent.",
-      );
-      if (createdPersonaName) {
-        dismiss();
-        return true;
+      const saved = managedCreateOutcome.current;
+      const detail =
+        cause instanceof Error ? cause.message : "Could not finish this setup.";
+      if (saved?.requestId === request.requestId) {
+        try {
+          await returnHostOutcome(saved.completion);
+          toast.warning(
+            `${saved.name} was saved. ${detail} Review its existing setup before trying again.`,
+          );
+          dismiss();
+          return true;
+        } catch {
+          setError(
+            `${saved.name} was saved, but its result could not be returned to Luca. Retry to send the same result; this will not create another agent.`,
+          );
+          return false;
+        }
       }
+      setError(detail);
       return false;
     }
   }
@@ -328,8 +489,20 @@ export function useAgentManagement() {
   }
 
   function dismiss() {
+    const requestId = pendingRequestId.current;
+    if (requestId && hostRequestIds.current.has(requestId)) {
+      if (!completedHostRequestIds.current.has(requestId)) {
+        void finishResidentProposal(requestId, {
+          status: "closed",
+          busy: false,
+        }).catch(() => {});
+      }
+      hostRequestIds.current.delete(requestId);
+      completedHostRequestIds.current.delete(requestId);
+    }
     pendingRequestId.current = null;
     sourceAgentPubkey.current = null;
+    managedCreateOutcome.current = null;
     setRequest(null);
   }
 
@@ -363,6 +536,10 @@ export function useAgentManagement() {
   return {
     authorizePendingCreate,
     completeNativeCreate,
+    residentProposalId:
+      request && hostRequestIds.current.has(request.requestId)
+        ? request.requestId
+        : undefined,
     request,
     createTargetChannel,
     createInitialValues,

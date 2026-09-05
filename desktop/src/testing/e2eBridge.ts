@@ -13083,6 +13083,12 @@ export function maybeInstallE2eTauriMocks() {
         };
         return mockResidentCapabilitySettings;
       }
+      case "list_resident_proposals":
+        return [];
+      case "authorize_resident_proposal":
+        throw new Error("This resident setup request is no longer waiting.");
+      case "finish_resident_proposal":
+        return false;
       case "get_operator_forge_settings": {
         if (activeConfig?.mock?.operatorForgeSettingsError) {
           throw new Error(activeConfig.mock.operatorForgeSettingsError);

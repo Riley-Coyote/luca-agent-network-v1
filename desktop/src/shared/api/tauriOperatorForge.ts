@@ -127,9 +127,15 @@ export function executeNativeAgentProvisioning(
   transactionId: string,
   personaId: string,
   request: NativeProvisioningRequestV1,
+  residentProposalId?: string,
 ): Promise<NativeProvisioningReceiptV1> {
   return invoke("execute_native_agent_provisioning", {
-    input: { transactionId, personaId, request },
+    input: {
+      transactionId,
+      personaId,
+      request,
+      ...(residentProposalId ? { residentProposalId } : {}),
+    },
   });
 }
 

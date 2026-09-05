@@ -64,6 +64,7 @@ pub(crate) mod repository_bridge;
 pub(crate) mod resident_capability_authority;
 pub(crate) mod resident_documents;
 pub(crate) mod resident_notebook;
+pub(crate) mod resident_proposals;
 pub(crate) mod resident_registry;
 pub(crate) mod resident_session_capabilities;
 pub(crate) mod runtime_capabilities;

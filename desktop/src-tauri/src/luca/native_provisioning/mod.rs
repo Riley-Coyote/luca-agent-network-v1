@@ -1,10 +1,11 @@
 //! Owner-approved native resident provisioning.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{Read, Seek, SeekFrom},
     path::{Component, Path},
     process::{Command, ExitStatus, Stdio},
+    sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -38,6 +39,36 @@ const MAX_SELECTIONS: usize = 64;
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_CAPTURE_BYTES: usize = 256 * 1024;
 
+struct NativeTransactionGuard {
+    key: (String, String),
+}
+
+fn active_native_transactions() -> &'static Mutex<BTreeSet<(String, String)>> {
+    static ACTIVE: OnceLock<Mutex<BTreeSet<(String, String)>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(BTreeSet::new()))
+}
+
+impl NativeTransactionGuard {
+    fn acquire(owner: &str, transaction: &str) -> Result<Self, String> {
+        let key = (owner.to_owned(), transaction.to_owned());
+        let mut active = active_native_transactions()
+            .lock()
+            .map_err(|_| "Native setup execution state is unavailable.")?;
+        if !active.insert(key.clone()) {
+            return Err("This native setup is already in progress. Wait for its existing result before retrying.".into());
+        }
+        Ok(Self { key })
+    }
+}
+
+impl Drop for NativeTransactionGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active) = active_native_transactions().lock() {
+            active.remove(&self.key);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NativeProvisioningRequestV1 {
@@ -61,6 +92,9 @@ pub struct ExecuteNativeProvisioningInputV1 {
     pub transaction_id: String,
     pub persona_id: String,
     pub request: NativeProvisioningRequestV1,
+    /// Host-issued proposal to correlate an approved conversational creation.
+    #[serde(default)]
+    pub resident_proposal_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -212,8 +246,16 @@ fn normalize_request(
     mut request: NativeProvisioningRequestV1,
 ) -> Result<NativeProvisioningRequestV1, String> {
     request.display_name = required_text(&request.display_name, "display name", MAX_NAME_CHARS)?;
-    request.system_prompt =
-        required_text(&request.system_prompt, "system prompt", MAX_PROMPT_CHARS)?;
+    let prompt = request.system_prompt.trim();
+    if prompt.is_empty()
+        || prompt.chars().count() > MAX_PROMPT_CHARS
+        || prompt
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+    {
+        return Err("system prompt is invalid".into());
+    }
+    request.system_prompt = prompt.to_owned();
     if request.selected_skills.len() > MAX_SELECTIONS
         || request.workspace_documents.len() > MAX_SELECTIONS
     {
@@ -359,7 +401,25 @@ pub async fn execute_native_agent_provisioning(
 ) -> Result<NativeProvisioningReceiptV1, String> {
     let owner = owner_pubkey(&state)?;
     let request = normalize_request(input.request)?;
+    let _execution = NativeTransactionGuard::acquire(&owner, &input.transaction_id)?;
     let transaction = load_native_transaction(&app, &owner, &input.transaction_id)?;
+    crate::luca::resident_proposals::validate_native_execution_link(
+        &app,
+        &transaction,
+        input.resident_proposal_id.as_deref(),
+    )?;
+    if let Some(request_id) = input.resident_proposal_id {
+        if transaction.request_hash != request_hash(&request)? {
+            return Err("Native setup no longer matches the reviewed preview.".into());
+        }
+        crate::luca::resident_proposals::bind_native_transaction(
+            app.clone(),
+            request_id,
+            input.transaction_id.clone(),
+            owner.clone(),
+        )
+        .await?;
+    }
     if transaction.status == NativeProvisioningStatusV1::Complete {
         return Ok(NativeProvisioningReceiptV1 {
             schema_version: 1,
@@ -543,6 +603,7 @@ pub async fn reconcile_native_agent_provisioning(
     input: NativeProvisioningTransactionInputV1,
 ) -> Result<NativeProvisioningReceiptV1, String> {
     let owner = owner_pubkey(&state)?;
+    let _execution = NativeTransactionGuard::acquire(&owner, &input.transaction_id)?;
     let transaction = load_native_transaction(&app, &owner, &input.transaction_id)?;
     if matches!(
         transaction.status,
@@ -618,6 +679,7 @@ pub async fn rollback_native_agent_provisioning(
     input: NativeProvisioningTransactionInputV1,
 ) -> Result<NativeProvisioningReceiptV1, String> {
     let owner = owner_pubkey(&state)?;
+    let _execution = NativeTransactionGuard::acquire(&owner, &input.transaction_id)?;
     let transaction = load_native_transaction(&app, &owner, &input.transaction_id)?;
     if transaction.status == NativeProvisioningStatusV1::RolledBack {
         return Ok(receipt_from_transaction(transaction, true));
