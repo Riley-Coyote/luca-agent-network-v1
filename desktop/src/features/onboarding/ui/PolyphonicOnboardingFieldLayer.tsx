@@ -11,6 +11,7 @@ import { isLightTheme } from "@/shared/theme/theme-loader";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import {
+  readPolyphonicScene,
   setPolyphonicScene,
   usePolyphonicScene,
 } from "../polyphonicOnboardingScene";
@@ -63,15 +64,30 @@ export function PolyphonicOnboardingFieldLayer() {
   React.useEffect(() => {
     if (scene.stage !== "leaving") return;
     const timer = window.setTimeout(
-      () =>
-        setPolyphonicScene({ stage: "off", anchor: null, resolving: false }),
+      () => setPolyphonicScene({ stage: "fading" }),
       reduceMotion ? 0 : 420,
     );
     return () => window.clearTimeout(timer);
   }, [reduceMotion, scene.stage]);
+  const handleExitComplete = React.useCallback(() => {
+    // An old exit must not clear a door or setup scene opened in the meantime.
+    if (readPolyphonicScene().stage !== "fading") return;
+    setPolyphonicScene({ stage: "off", anchor: null, resolving: false });
+  }, []);
+  const mountedScene = React.useRef(scene).current;
+  React.useEffect(() => {
+    // A remounted fading layer has no exiting children left to acknowledge.
+    if (
+      mountedScene.stage === "fading" &&
+      readPolyphonicScene() === mountedScene
+    ) {
+      handleExitComplete();
+    }
+  }, [handleExitComplete, mountedScene]);
 
   const anchor = scene.anchor;
-  const visible = scene.stage !== "off" && anchor !== null;
+  const visible =
+    scene.stage !== "off" && scene.stage !== "fading" && anchor !== null;
   const leaving = scene.stage === "leaving";
   const scale = anchor ? anchor.width / POLYPHONIC_FIELD_SIZE : 1;
   const atDoor = scene.stage === "door";
@@ -87,14 +103,17 @@ export function PolyphonicOnboardingFieldLayer() {
   const palette = fieldIsLight ? polyphonicLightPalette : polyphonicDarkPalette;
 
   return (
-    <AnimatePresence>
+    <AnimatePresence onExitComplete={handleExitComplete}>
       {leaving ? (
         <motion.div
           animate={{ opacity: 1 }}
           aria-hidden
           className="pointer-events-none fixed inset-0 z-[59]"
           data-testid="polyphonic-onboarding-veil"
-          exit={{ opacity: 0, transition: { duration: 0.7, ease: EASE } }}
+          exit={{
+            opacity: 0,
+            transition: { duration: reduceMotion ? 0 : 0.7, ease: EASE },
+          }}
           initial={{ opacity: 0 }}
           key="veil"
           style={{ backgroundColor: palette["--prototype-canvas"] }}
@@ -112,7 +131,10 @@ export function PolyphonicOnboardingFieldLayer() {
           aria-hidden
           className="pointer-events-none fixed left-0 top-0 z-[60] flex items-center justify-center"
           data-testid="polyphonic-onboarding-field"
-          exit={{ opacity: 0, transition: { duration: 0.7, ease: EASE } }}
+          exit={{
+            opacity: 0,
+            transition: { duration: reduceMotion ? 0 : 0.7, ease: EASE },
+          }}
           initial={{
             opacity: 0,
             x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,

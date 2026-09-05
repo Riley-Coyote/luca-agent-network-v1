@@ -57,6 +57,9 @@ type MessageTimelineProps = {
   isLoading?: boolean;
   entranceMessageId?: string | null;
   onEntranceMessageComplete?: (messageId: string) => void;
+  /** Acknowledge this exact admitted row after it has painted in the viewport. */
+  presentationMessageId?: string | null;
+  onMessagePresented?: (messageId: string) => void;
   emptyTitle?: string;
   emptyDescription?: string;
   currentPubkey?: string;
@@ -165,6 +168,8 @@ const MessageTimelineBase = React.forwardRef<
     isLoading = false,
     entranceMessageId = null,
     onEntranceMessageComplete,
+    presentationMessageId = null,
+    onMessagePresented,
     emptyTitle = "No messages yet",
     emptyDescription = "Send the first message to start the thread.",
     currentPubkey,
@@ -485,6 +490,55 @@ const MessageTimelineBase = React.forwardRef<
     timelineBodySurface === "empty" && timelineIntroSurface === null;
   const showMessageList = timelineBodySurface === "list";
   const showChannelIntroOnly = false;
+  const presentationAdmitted =
+    presentationMessageId !== null &&
+    renderedMessages.some((message) => message.id === presentationMessageId);
+  React.useEffect(() => {
+    // Cancel this observer even if another channel reuses the same event ID.
+    void channelId;
+    if (
+      !presentationMessageId ||
+      !onMessagePresented ||
+      !showMessageList ||
+      !presentationAdmitted
+    )
+      return;
+    let frame = 0;
+    let visibleLastFrame = false;
+    const observe = () => {
+      const scroller = activeScrollContainerRef.current;
+      const row = scroller?.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(presentationMessageId)}"]`,
+      );
+      const bounds = row?.getBoundingClientRect();
+      const viewport = scroller?.getBoundingClientRect();
+      const visible = Boolean(
+        bounds &&
+          viewport &&
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          bounds.bottom > Math.max(0, viewport.top) &&
+          bounds.top < Math.min(window.innerHeight, viewport.bottom) &&
+          bounds.right > Math.max(0, viewport.left) &&
+          bounds.left < Math.min(window.innerWidth, viewport.right),
+      );
+      if (visible && visibleLastFrame) {
+        onMessagePresented(presentationMessageId);
+        return;
+      }
+      visibleLastFrame = visible;
+      frame = window.requestAnimationFrame(observe);
+    };
+    frame = window.requestAnimationFrame(observe);
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    activeScrollContainerRef,
+    channelId,
+    onMessagePresented,
+    presentationAdmitted,
+    presentationMessageId,
+    showMessageList,
+  ]);
 
   const prepareForOwnMessage = React.useCallback(() => {
     // The user's own send is the deliberate Zulip exception: release buffered

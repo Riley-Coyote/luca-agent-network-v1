@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type { TimelineMessage } from "@/features/messages/types";
+import { usePolyphonicScene } from "@/features/onboarding/polyphonicOnboardingScene";
 import type { Channel } from "@/shared/api/types";
 import {
   isCanonicalLucaDm,
@@ -31,6 +32,14 @@ export function markLucaArrival(channelId: string) {
     window.sessionStorage.setItem(ARRIVAL_KEY, channelId);
   } catch {
     // Session storage unavailable: the greeting simply appears.
+  }
+}
+
+function hasLucaArrival(channelId: string): boolean {
+  try {
+    return window.sessionStorage.getItem(ARRIVAL_KEY) === channelId;
+  } catch {
+    return false;
   }
 }
 
@@ -66,12 +75,15 @@ export function useLucaArrival({
   activeChannel,
   currentPubkey,
   messages,
+  isLoading,
 }: {
   activeChannel: Channel | null;
   currentPubkey: string | undefined;
   messages: TimelineMessage[];
+  isLoading: boolean;
 }) {
   const lucaPubkey = useCanonicalLucaPubkey();
+  const scene = usePolyphonicScene();
   const channelId = activeChannel?.id ?? null;
   const [arrivingChannel, setArrivingChannel] = React.useState<string | null>(
     null,
@@ -79,15 +91,62 @@ export function useLucaArrival({
   const [startedAt, setStartedAt] = React.useState<number | null>(null);
   const [now, setNow] = React.useState(0);
 
+  const isLucaDm =
+    lucaPubkey !== null &&
+    isCanonicalLucaDm(activeChannel, currentPubkey, lucaPubkey);
+  const greetingId =
+    lucaPubkey !== null
+      ? (messages.find((message) => isLucaGreeting(message, lucaPubkey))?.id ??
+        null)
+      : null;
+  // Object identity fences late acknowledgements, including leaving and then
+  // returning to the same channel before its first presentation was admitted.
+  const presentation = React.useMemo(
+    () => ({ channelId, greetingId }),
+    [channelId, greetingId],
+  );
+  const [presented, setPresented] = React.useState<typeof presentation | null>(
+    null,
+  );
+  const onMessagePresented = React.useCallback(
+    (messageId: string) => {
+      if (messageId === presentation.greetingId) setPresented(presentation);
+    },
+    [presentation],
+  );
+  // Stage the marked row on its first render, before the effect starts its
+  // clock. Keeping the intent pending avoids a flash of the durable body and
+  // lets slow history or canonical identity hydration finish behind loading.
+  const pendingArrival = channelId !== null && hasLucaArrival(channelId);
+  const waitingForCanonicalIdentity = pendingArrival && lucaPubkey === null;
+  const arriving =
+    isLucaDm && (arrivingChannel === channelId || pendingArrival);
+
   // Two effects on purpose: the flag is consumed once, and the beat's clock is
   // owned by the arriving state. Consuming and arming in one effect would lose
   // the clock to StrictMode's rerun and leave the conversation arriving.
   React.useEffect(() => {
-    if (channelId && takeLucaArrival(channelId)) {
+    if (
+      channelId &&
+      isLucaDm &&
+      greetingId &&
+      presented === presentation &&
+      scene.stage === "off" &&
+      !isLoading &&
+      takeLucaArrival(channelId)
+    ) {
       setArrivingChannel(channelId);
       setStartedAt(performance.now());
     }
-  }, [channelId]);
+  }, [
+    channelId,
+    greetingId,
+    isLoading,
+    isLucaDm,
+    presentation,
+    presented,
+    scene.stage,
+  ]);
   React.useEffect(() => {
     if (!arrivingChannel) return;
     const timer = window.setInterval(() => {
@@ -104,13 +163,12 @@ export function useLucaArrival({
     };
   }, [arrivingChannel]);
 
-  const isLucaDm =
-    lucaPubkey !== null &&
-    isCanonicalLucaDm(activeChannel, currentPubkey, lucaPubkey);
-  const arriving = isLucaDm && arrivingChannel === channelId;
   const elapsed = startedAt === null ? 0 : Math.max(0, now - startedAt);
 
   const visibleMessages = React.useMemo<TimelineMessage[]>(() => {
+    // Do not let the timeline retain the durable body in a deferred snapshot
+    // behind loading. The first admitted row must use the verified identity.
+    if (waitingForCanonicalIdentity) return [];
     if (!arriving || !lucaPubkey) return messages;
     const greeting = messages.find((message) =>
       isLucaGreeting(message, lucaPubkey),
@@ -133,7 +191,16 @@ export function useLucaArrival({
       },
     };
     return messages.map((message) => (message === greeting ? staged : message));
-  }, [arriving, elapsed, lucaPubkey, messages]);
+  }, [arriving, elapsed, lucaPubkey, messages, waitingForCanonicalIdentity]);
 
-  return { arriving, isLucaDm, lucaPubkey, visibleMessages };
+  return {
+    arriving,
+    isLucaDm,
+    lucaPubkey,
+    onMessagePresented,
+    presentationMessageId:
+      arriving && scene.stage === "off" ? greetingId : null,
+    visibleMessages,
+    waitingForCanonicalIdentity,
+  };
 }

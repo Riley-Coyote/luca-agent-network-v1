@@ -324,6 +324,8 @@ type MockBridgeOptions = {
   usersBatchDelayMs?: number;
   /** Delay (ms) for older-history fetches; see e2eBridge mock config. */
   channelWindowDelayMs?: number;
+  /** Hold initial history responses until the test explicitly releases them. */
+  holdInitialChannelWindow?: boolean;
   profileReadDelayMs?: number;
   profileReadError?: string;
   profileUpdateError?: string;

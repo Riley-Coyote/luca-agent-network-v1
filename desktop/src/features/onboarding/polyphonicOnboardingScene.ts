@@ -18,7 +18,9 @@ export type PolyphonicSceneStage =
   | "card"
   /** The card is done and the conversation is mounting beneath: the layer
    *  holds a canvas veil over the seam, then fades veil and field together. */
-  | "leaving";
+  | "leaving"
+  /** The veil is exiting; the conversation is exposed when that exit ends. */
+  | "fading";
 
 export interface PolyphonicSceneAnchor {
   /** Centre of the field, viewport px. */

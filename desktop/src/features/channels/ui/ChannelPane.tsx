@@ -230,6 +230,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     activeChannel,
     currentPubkey,
     messages,
+    isLoading: isTimelineLoading,
   });
   const activePermissionRequests = React.useMemo(
     () =>
@@ -1040,9 +1041,13 @@ export const ChannelPane = React.memo(function ChannelPane({
                       : "No messages yet"
                     : "No channel selected"
                 }
-                isLoading={isTimelineLoading}
+                isLoading={
+                  isTimelineLoading || lucaArrival.waitingForCanonicalIdentity
+                }
                 entranceMessageId={entranceMessageId}
                 onEntranceMessageComplete={onEntranceMessageComplete}
+                presentationMessageId={lucaArrival.presentationMessageId}
+                onMessagePresented={lucaArrival.onMessagePresented}
                 mainEntries={mainTimelineEntries}
                 threadSummaries={threadSummaries}
                 messages={projectedTimelineMessages}

@@ -323,6 +323,8 @@ type E2eConfig = {
     /** Delay (ms) applied to continuation channel-window requests so e2e
      *  tests can observe the in-flight prepend window. 0/undefined = instant. */
     channelWindowDelayMs?: number;
+    /** Hold initial history responses until the test explicitly releases them. */
+    holdInitialChannelWindow?: boolean;
     profileReadDelayMs?: number;
     profileReadError?: string;
     profileUpdateError?: string;
@@ -1236,6 +1238,9 @@ declare global {
      *  request is resolved (or rejected) immediately.  Returns the number of
      *  requests released. */
     __BUZZ_E2E_RELEASE_GET_EVENT__?: () => number;
+    /** Initial channel-window reads currently held at the mock command boundary. */
+    __BUZZ_E2E_INITIAL_CHANNEL_WINDOWS_PENDING__?: string[];
+    __BUZZ_E2E_RELEASE_INITIAL_CHANNEL_WINDOWS__?: () => number;
     /** Count of `get_event` invocations for the current defer-target ID since
      *  the last time `__BUZZ_E2E_DEFER_GET_EVENT__` was set. */
     __BUZZ_E2E_GET_EVENT_CALL_COUNT__?: number;
@@ -1582,6 +1587,8 @@ type DeferredGetEvent = {
   run: () => Promise<string>;
 };
 let deferredGetEventQueue: DeferredGetEvent[] = [];
+let holdInitialChannelWindow = false;
+let deferredInitialChannelWindows: Array<() => void> = [];
 
 const mockDisplayNames = new Map<string, string>([
   [MOCK_IDENTITY_PUBKEY, DEFAULT_MOCK_IDENTITY.display_name],
@@ -5588,7 +5595,14 @@ async function handleGetChannelWindow(
   };
 
   if (!args.cursor) {
-    return execute();
+    const result = await execute();
+    if (holdInitialChannelWindow && config?.mode === "mock") {
+      window.__BUZZ_E2E_INITIAL_CHANNEL_WINDOWS_PENDING__?.push(args.channelId);
+      await new Promise<void>((resolve) => {
+        deferredInitialChannelWindows.push(resolve);
+      });
+    }
+    return result;
   }
 
   const probe = window as unknown as {
@@ -10376,6 +10390,16 @@ export function maybeInstallE2eTauriMocks() {
   window.__BUZZ_E2E_GET_EVENT_CALL_COUNT__ = 0;
   window.__BUZZ_E2E_DEFER_GET_EVENT__ = null;
   deferredGetEventQueue = [];
+  holdInitialChannelWindow = config.mock?.holdInitialChannelWindow ?? false;
+  deferredInitialChannelWindows = [];
+  window.__BUZZ_E2E_INITIAL_CHANNEL_WINDOWS_PENDING__ = [];
+  window.__BUZZ_E2E_RELEASE_INITIAL_CHANNEL_WINDOWS__ = () => {
+    holdInitialChannelWindow = false;
+    const queued = deferredInitialChannelWindows.splice(0);
+    window.__BUZZ_E2E_INITIAL_CHANNEL_WINDOWS_PENDING__ = [];
+    for (const resolve of queued) resolve();
+    return queued.length;
+  };
   window.__BUZZ_E2E_RELEASE_GET_EVENT__ = () => {
     const queued = deferredGetEventQueue.splice(0);
     for (const entry of queued) {
