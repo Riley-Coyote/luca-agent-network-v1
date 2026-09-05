@@ -560,7 +560,14 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 24);
+        assert_eq!(migrations.len(), 25);
+        assert_eq!(
+            migrations
+                .iter()
+                .map(|migration| migration.version)
+                .collect::<Vec<_>>(),
+            (1..=25).collect::<Vec<_>>()
+        );
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -879,6 +886,28 @@ mod tests {
             .to_lowercase()
             .contains("for update"));
         assert!(ttl_shared.contains("NEW.kind <> 9007"));
+
+        // Existing DM creators gain lifecycle ownership through the additive
+        // repair, scoped to the same community and live creator membership.
+        assert_eq!(migrations[24].version, 25);
+        assert_eq!(&*migrations[24].description, "dm creator owner");
+        let dm_owner = strip_sql_comments(migrations[24].sql.as_str());
+        for required in [
+            "UPDATE channel_members AS membership",
+            "SET role = 'owner'::member_role",
+            "membership.community_id = channel.community_id",
+            "membership.channel_id = channel.id",
+            "membership.pubkey = channel.created_by",
+            "membership.removed_at IS NULL",
+            "channel.deleted_at IS NULL",
+            "channel.channel_type = 'dm'",
+            "membership.role <> 'owner'::member_role",
+        ] {
+            assert!(
+                dm_owner.contains(required),
+                "missing DM owner guard: {required}"
+            );
+        }
     }
 
     #[test]

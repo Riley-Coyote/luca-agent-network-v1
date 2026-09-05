@@ -266,6 +266,7 @@ test:
 # Run unit tests only (no infra needed)
 test-unit:
     #!/usr/bin/env bash
+    set -euo pipefail
     if command -v cargo-nextest &>/dev/null; then
         cargo nextest run -p buzz-core -p buzz-auth --lib
         # buzz-db migrator/lint tests: pure SQL-parsing unit tests (no infra).
