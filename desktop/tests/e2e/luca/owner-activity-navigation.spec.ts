@@ -19,10 +19,16 @@ const RESIDENTS = [
   },
 ] as const;
 
-async function openActivity(page: Page) {
-  await installMockBridge(page, { managedAgents: [...RESIDENTS] });
-  await page.goto("/?e2e=mock");
-  await page.getByTestId("open-activity-view").click();
+async function openActivity(
+  page: Page,
+  seed: NonNullable<Parameters<typeof installMockBridge>[1]> = {
+    managedAgents: [...RESIDENTS],
+  },
+  direct = false,
+) {
+  await installMockBridge(page, seed);
+  await page.goto(direct ? "/?e2e=mock#/pulse" : "/?e2e=mock");
+  if (!direct) await page.getByTestId("open-activity-view").click();
   await expect(page).toHaveURL(/\/pulse$/);
   await expect(page.getByTestId("owner-activity-view")).toBeVisible();
   await page.waitForTimeout(300);
@@ -134,8 +140,9 @@ test("Activity shows deterministic truthful resident state without legacy Pulse 
       ),
     )
     .toBe(true);
-  await expect(list).toContainText("Runtime stopped");
-  await expect(list).toContainText("Runtime ready");
+  await expect(anima.getByText("Stopped", { exact: true })).toBeVisible();
+  await expect(anima).not.toContainText("Ready for a conversation");
+  await expect(vektor.getByText("Ready", { exact: true })).toBeVisible();
   await expect(page.getByTestId("owner-activity-empty-history")).toBeVisible();
   await expect(page.getByTestId("owner-activity-group-idle")).toBeVisible();
   await expect(page.getByTestId("owner-activity-group-active")).toBeHidden();
@@ -146,6 +153,116 @@ test("Activity shows deterministic truthful resident state without legacy Pulse 
   await expect(page.getByRole("textbox", { name: /post/i })).toHaveCount(0);
   await captureActivity(page, testInfo, "01-activity-quiet");
 });
+
+for (const compact of [false, true]) {
+  test(`Activity distinguishes native process presence from connection readiness${compact ? " at narrow zoom" : " on desktop"}`, async ({
+    page,
+  }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    if (compact) {
+      await page.setViewportSize({ width: 860, height: 900 });
+      await page.addInitScript(() => {
+        localStorage.setItem("buzz:text-scale", "1.5");
+      });
+    }
+    const native = {
+      agentCommand: "hermes",
+      channelNames: ["general"],
+      nativeRuntimeBinding: {
+        kind: "hermes" as const,
+        schemaVersion: 1,
+        profileName: "activity-fixture",
+        hermesHome: "/synthetic/hermes",
+        executablePath: "/synthetic/bin/hermes",
+        runtimeVersion: "0.17.0",
+        defaultWorkspace: "/synthetic/workspace",
+      },
+      status: "running" as const,
+    };
+    await openActivity(
+      page,
+      {
+        managedAgents: [
+          ...RESIDENTS,
+          { ...native, name: "Hermes started", pubkey: "12".repeat(32) },
+          {
+            ...native,
+            name: "Hermes restart",
+            pubkey: "13".repeat(32),
+            needsRestart: true,
+          },
+          {
+            ...native,
+            name: "Hermes error",
+            pubkey: "14".repeat(32),
+            lastError: "Synthetic private runtime error must stay hidden",
+          },
+        ],
+      },
+      true,
+    );
+    const started = page.getByTestId(
+      `owner-activity-resident-${"12".repeat(32)}`,
+    );
+    await expect(started.getByText("Started", { exact: true })).toBeVisible();
+    await expect(started).toContainText("Connection not yet verified");
+    await expect(started).not.toContainText("Ready");
+    const restart = page.getByTestId(
+      `owner-activity-resident-${"13".repeat(32)}`,
+    );
+    await expect(restart).toContainText("Needs attention");
+    await expect(restart).not.toContainText("Ready");
+    const failed = page.getByTestId(
+      `owner-activity-resident-${"14".repeat(32)}`,
+    );
+    await expect(failed).toContainText("Failed");
+    await expect(failed).not.toContainText("Synthetic private runtime error");
+    await expect(failed).not.toContainText("Ready");
+    const stopped = page.getByTestId(
+      `owner-activity-resident-${TEST_IDENTITIES.bob.pubkey}`,
+    );
+    await expect(stopped).toContainText("Stopped");
+    await expect(stopped).not.toContainText("Ready");
+    await expect(page.getByTestId("owner-activity-group-idle")).toHaveText(
+      "No recent activity",
+    );
+    await expect(page.getByTestId("owner-activity-view")).not.toContainText(
+      "runtime publication",
+    );
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      )
+      .toBe(true);
+    await captureActivity(
+      page,
+      testInfo,
+      compact ? "05-activity-native-narrow" : "04-activity-native-desktop",
+    );
+    if (compact) {
+      await expect
+        .poll(() =>
+          started.evaluate((element) => {
+            const list = element.parentElement;
+            return list
+              ? element.getBoundingClientRect().width /
+                  list.getBoundingClientRect().width
+              : 0;
+          }),
+        )
+        .toBeGreaterThan(0.95);
+      await started.scrollIntoViewIfNeeded();
+      await waitForAnimations(page);
+      await started.screenshot({
+        path: testInfo.outputPath("06-activity-native-narrow-card.png"),
+      });
+    }
+    expect(errors).toEqual([]);
+  });
+}
 
 test("Activity projects working and completed or failed resident updates without bodies", async ({
   page,

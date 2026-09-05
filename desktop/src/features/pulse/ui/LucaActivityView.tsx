@@ -13,6 +13,10 @@ import {
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
 import type { TranscriptItem } from "@/features/agents/ui/agentSessionTypes";
+import {
+  managedAgentSummary,
+  residentAvailabilityLabel,
+} from "@/features/agents/ui/agentLibraryViewModel";
 import { useAgentTranscript } from "@/features/agents/ui/useObserverEvents";
 import { useOpenAgentActivity } from "@/features/agents/useOpenAgentActivity";
 import type { ManagedAgent, RelayAgent } from "@/shared/api/types";
@@ -71,8 +75,7 @@ function summarizeActivity(
   if (item.type === "tool") {
     if (item.status === "failed" || item.isError) {
       return {
-        detail:
-          "A resident action failed. Open the protected activity feed for details.",
+        detail: "An action failed. Open activity for details.",
         label: "Action failed",
         timestamp: item.completedAt ?? item.timestamp,
         tone: "error",
@@ -105,16 +108,15 @@ function summarizeActivity(
   }
   if (item.renderClass === "error") {
     return {
-      detail:
-        "The runtime reported a problem. Open the protected activity feed for details.",
+      detail: "The resident reported a problem. Open activity for details.",
       label: "Runtime needs attention",
       timestamp: item.timestamp,
       tone: "error",
     };
   }
   return {
-    detail: "The resident runtime published a status update.",
-    label: "Runtime update",
+    detail: "The resident shared a status update.",
+    label: "Status update",
     timestamp: item.timestamp,
     tone: "muted",
   };
@@ -132,15 +134,10 @@ function formatActivityTime(timestamp: string | null) {
 
 function runtimeLabel(resident: ActivityResident) {
   if (resident.managed) {
-    switch (resident.managed.status) {
-      case "running":
-      case "deployed":
-        return "Runtime ready";
-      case "stopped":
-        return "Runtime stopped";
-      case "not_deployed":
-        return "Not deployed";
-    }
+    const { availability } = managedAgentSummary(resident.managed);
+    return availability === "idle"
+      ? "Stopped"
+      : residentAvailabilityLabel(availability);
   }
   switch (resident.relay?.status) {
     case "online":
@@ -149,6 +146,23 @@ function runtimeLabel(resident: ActivityResident) {
       return "Relay away";
     default:
       return "Relay offline";
+  }
+}
+
+function idleDetail(resident: ActivityResident) {
+  if (!resident.managed) return "No recent activity";
+  switch (managedAgentSummary(resident.managed).availability) {
+    case "started":
+      return "Connection not yet verified";
+    case "ready":
+      return "Ready for a conversation";
+    case "idle":
+      return "You can start this resident in Agents";
+    case "failed":
+    case "degraded":
+      return "Open Agents to check this resident's setup";
+    default:
+      return "Not currently available";
   }
 }
 
@@ -205,9 +219,7 @@ function ResidentActivityCard({ resident }: { resident: ActivityResident }) {
               <Badge variant="secondary">{runtimeLabel(resident)}</Badge>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {runtimeError
-                ? "Runtime needs attention"
-                : "Ready for a conversation"}
+              {idleDetail(resident)}
             </p>
           </div>
           <Button
@@ -403,21 +415,20 @@ export function LucaActivityView() {
             <header className="border-b border-border/60 pb-5">
               <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
                 <Bot aria-hidden className="h-3.5 w-3.5" />
-                Resident runtime publication
+                Your agents at work
               </div>
               <h1 className="mt-2 text-2xl font-light tracking-tight text-foreground">
                 Activity
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Live and recent resident work from Luca's existing protected
-                runtime feeds. Open a resident to inspect its full activity in
-                an accessible conversation.
+                See what your residents are doing and catch up on recent work.
+                Open activity to follow along in the conversation.
               </p>
             </header>
 
             {loading ? (
               <div
-                className="mt-6 grid gap-3 md:grid-cols-2"
+                className="mt-6 grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-3"
                 data-testid="owner-activity-loading"
               >
                 {[0, 1, 2, 3].map((key) => (
@@ -434,8 +445,8 @@ export function LucaActivityView() {
                   Activity is unavailable
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Luca could not load the resident runtime projection. Try again
-                  after the connection recovers.
+                  Luca could not load your residents' activity. Try again after
+                  the connection recovers.
                 </p>
               </section>
             ) : residents.length === 0 ? (
@@ -449,19 +460,19 @@ export function LucaActivityView() {
                 />
                 <h2 className="mt-3 text-sm font-medium">No residents yet</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Add or import a resident to see runtime activity here.
+                  Add or import a resident to see their activity here.
                 </p>
               </section>
             ) : (
               <section
                 aria-label="Resident activity"
-                className="group/activity mt-6 grid gap-3 md:grid-cols-2"
+                className="group/activity mt-6 grid grid-cols-[repeat(auto-fit,minmax(min(100%,22rem),1fr))] gap-3"
                 data-testid="owner-activity-list"
               >
                 <QuietActivityState />
                 <ActivityGroupHeading group="active" title="Active now" />
                 <ActivityGroupHeading group="recent" title="Recent" />
-                <ActivityGroupHeading group="idle" title="Residents ready" />
+                <ActivityGroupHeading group="idle" title="No recent activity" />
                 {residents.map((resident) => (
                   <ResidentActivityCard
                     key={normalizePubkey(resident.pubkey)}
