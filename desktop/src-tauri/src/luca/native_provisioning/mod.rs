@@ -31,6 +31,7 @@ use crate::{
 };
 
 mod hermes;
+mod hermes_journal;
 mod openclaw;
 
 const MAX_NAME_CHARS: usize = 120;
@@ -371,18 +372,36 @@ pub async fn preview_native_agent_provisioning(
     let slug = slug_for_name(&request.display_name)?;
     let candidate = native_candidate(&request.runtime, request.source_semantic_id.as_deref())?;
     match request.runtime {
-        NativeRuntimeFamilyV1::Hermes => hermes::ensure_name_available(&slug)?,
+        NativeRuntimeFamilyV1::Hermes => hermes::ensure_name_available(&candidate, &slug)?,
         NativeRuntimeFamilyV1::Openclaw => openclaw::ensure_name_available(&slug)?,
     }
     let transaction = create_native_transaction(
         &app,
-        owner,
+        owner.clone(),
         request.runtime.clone(),
         request.mode.clone(),
         slug.clone(),
         request_hash(&request)?,
-        source_hash(request.source_semantic_id.as_deref()),
+        if request.runtime == NativeRuntimeFamilyV1::Hermes {
+            source_hash(Some(&candidate.semantic_id))
+        } else {
+            source_hash(request.source_semantic_id.as_deref())
+        },
     )?;
+    if request.runtime == NativeRuntimeFamilyV1::Hermes {
+        let path = hermes_journal::journal_path(&app, &transaction.transaction_id)?;
+        if std::fs::symlink_metadata(&path).is_ok() {
+            return Err("Native setup provenance already exists; request a new preview.".into());
+        }
+        hermes_journal::HermesJournal::prepare(
+            &owner,
+            &transaction.transaction_id,
+            &transaction.request_hash,
+            candidate.binding_preview.clone(),
+            &slug,
+        )?
+        .save(&path)?;
+    }
     Ok(match request.runtime {
         NativeRuntimeFamilyV1::Hermes => {
             hermes::preview(&request, &candidate, transaction.transaction_id, slug)
@@ -436,7 +455,8 @@ pub async fn execute_native_agent_provisioning(
     }
     if transaction.status != NativeProvisioningStatusV1::Planned
         || transaction.request_hash != request_hash(&request)?
-        || transaction.source_hash != source_hash(request.source_semantic_id.as_deref())
+        || (request.runtime != NativeRuntimeFamilyV1::Hermes
+            && transaction.source_hash != source_hash(request.source_semantic_id.as_deref()))
         || transaction.runtime != request.runtime
         || transaction.mode != request.mode
     {
@@ -453,12 +473,12 @@ pub async fn execute_native_agent_provisioning(
         None,
         None,
     )?;
-    let candidate = native_candidate(&request.runtime, request.source_semantic_id.as_deref())?;
     let provisioned_result = match request.runtime {
-        NativeRuntimeFamilyV1::Hermes => {
-            hermes::execute(&request, &candidate, &transaction.intended_slug)
-        }
+        NativeRuntimeFamilyV1::Hermes => load_hermes_journal(&app, &transaction)
+            .and_then(|(mut journal, path)| hermes::execute(&request, &mut journal, &path)),
         NativeRuntimeFamilyV1::Openclaw => {
+            let candidate =
+                native_candidate(&request.runtime, request.source_semantic_id.as_deref())?;
             openclaw::execute(&request, &candidate, &transaction.intended_slug)
         }
     };
@@ -490,7 +510,14 @@ pub async fn execute_native_agent_provisioning(
         Some(expected_semantic_hash.clone()),
         None,
     )?;
-    let discovered = match native_candidate_by_id(&request.runtime, &transaction.intended_slug) {
+    let discovered_result = match request.runtime {
+        NativeRuntimeFamilyV1::Hermes => load_hermes_journal(&app, &transaction)
+            .and_then(|(journal, _)| hermes::candidate(&journal)),
+        NativeRuntimeFamilyV1::Openclaw => {
+            native_candidate_by_id(&request.runtime, &transaction.intended_slug)
+        }
+    };
+    let discovered = match discovered_result {
         Ok(candidate) => candidate,
         Err(error) => {
             update_native_transaction(
@@ -615,9 +642,21 @@ pub async fn reconcile_native_agent_provisioning(
         .persona_id
         .as_deref()
         .ok_or_else(|| "provisioning has not reached resident linking".to_string())?;
-    let candidate = native_candidate_by_id(&transaction.runtime, &transaction.intended_slug)?;
+    let candidate = match transaction.runtime {
+        NativeRuntimeFamilyV1::Hermes => load_hermes_journal(&app, &transaction)
+            .and_then(|(journal, _)| hermes::candidate(&journal))
+            .map_err(|error| native_recovery_error(&app, &transaction, error))?,
+        NativeRuntimeFamilyV1::Openclaw => {
+            native_candidate_by_id(&transaction.runtime, &transaction.intended_slug)?
+        }
+    };
     let discovered_semantic_hash = semantic_hash(&candidate.binding_preview);
-    if transaction.native_semantic_hash.as_deref() != Some(discovered_semantic_hash.as_str()) {
+    // The host journal can close a crash after successful setup but before the
+    // public NativeCreated update. Other runtimes retain their existing check.
+    if transaction.native_semantic_hash.as_deref() != Some(discovered_semantic_hash.as_str())
+        && !(transaction.runtime == NativeRuntimeFamilyV1::Hermes
+            && transaction.native_semantic_hash.is_none())
+    {
         return Err("the discovered native identity no longer matches this transaction".into());
     }
     let display_name = crate::managed_agents::load_personas(&app)?
@@ -649,6 +688,37 @@ pub async fn reconcile_native_agent_provisioning(
         None,
     )?;
     Ok(receipt_from_transaction(updated, resident.reused))
+}
+
+fn load_hermes_journal(
+    app: &AppHandle,
+    transaction: &crate::luca::operator_forge::NativeProvisioningTransactionV1,
+) -> Result<(hermes_journal::HermesJournal, std::path::PathBuf), String> {
+    let path = hermes_journal::journal_path(app, &transaction.transaction_id)?;
+    let journal = hermes_journal::HermesJournal::load(
+        &path,
+        &transaction.owner_pubkey,
+        &transaction.transaction_id,
+        &transaction.request_hash,
+    )?;
+    if journal.slug != transaction.intended_slug
+        || transaction.source_hash
+            != source_hash(Some(&native_runtime_semantic_key(&journal.source)))
+    {
+        return Err("Hermes setup no longer matches its reviewed source. Review the profile; nothing was removed.".into());
+    }
+    Ok((journal, path))
+}
+
+fn native_recovery_error(
+    app: &AppHandle,
+    transaction: &crate::luca::operator_forge::NativeProvisioningTransactionV1,
+    error: String,
+) -> String {
+    let _ = update_native_transaction(app, &transaction.owner_pubkey, &transaction.transaction_id,
+        NativeProvisioningStatusV1::NeedsAttention, None, None,
+        Some(("HERMES_PROVENANCE_REQUIRED", "Review the exact profile and any linked resident in Hermes. Automatic cleanup was not confirmed; inspect native state before retrying.")));
+    error
 }
 
 fn native_candidate_by_id(
@@ -685,17 +755,43 @@ pub async fn rollback_native_agent_provisioning(
         return Ok(receipt_from_transaction(transaction, true));
     }
     let mut retained_workspace = false;
-    if native_candidate_by_id(&transaction.runtime, &transaction.intended_slug).is_ok() {
-        retained_workspace = match transaction.runtime {
-            NativeRuntimeFamilyV1::Hermes => {
-                hermes::rollback(&transaction.intended_slug)?;
-                false
+    match transaction.runtime {
+        NativeRuntimeFamilyV1::Hermes => {
+            let result = (|| {
+                let (mut journal, path) = load_hermes_journal(&app, &transaction)?;
+                // A public transaction key does not establish resident creation
+                // ownership. Linked or reused residents need their normal UI.
+                if transaction.reserved_resident_pubkey.is_some() {
+                    return Err("This profile has a linked resident. Review that resident before native cleanup; nothing was removed.".into());
+                }
+                if !journal.removed {
+                    let identity = native_runtime_semantic_key(&journal.binding()?);
+                    if crate::managed_agents::load_managed_agents(&app)?
+                        .iter()
+                        .any(|record| {
+                            record
+                                .native_runtime_binding
+                                .as_ref()
+                                .is_some_and(|binding| {
+                                    native_runtime_semantic_key(binding) == identity
+                                })
+                        })
+                    {
+                        return Err("A resident uses this native profile. Review it before cleanup; nothing was removed.".into());
+                    }
+                }
+                hermes::rollback(&mut journal, &path)
+            })();
+            result.map_err(|error| native_recovery_error(&app, &transaction, error))?;
+        }
+        NativeRuntimeFamilyV1::Openclaw => {
+            if native_candidate_by_id(&transaction.runtime, &transaction.intended_slug).is_ok() {
+                retained_workspace = openclaw::rollback(&transaction.intended_slug)?;
             }
-            NativeRuntimeFamilyV1::Openclaw => openclaw::rollback(&transaction.intended_slug)?,
-        };
-    }
-    if let Some(pubkey) = transaction.reserved_resident_pubkey.as_ref() {
-        delete_managed_agent(pubkey.clone(), Some(false), app.clone()).await?;
+            if let Some(pubkey) = transaction.reserved_resident_pubkey.as_ref() {
+                delete_managed_agent(pubkey.clone(), Some(false), app.clone()).await?;
+            }
+        }
     }
     let updated = update_native_transaction(
         &app,

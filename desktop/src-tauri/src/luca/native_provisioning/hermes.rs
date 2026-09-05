@@ -3,28 +3,23 @@ use std::{collections::BTreeMap, fs, path::Path};
 use serde_yaml::{Mapping, Value};
 
 use super::{
+    hermes_journal::{HermesJournal, ProfileGuard},
     run_native_command, NativeProvisioningChangeV1, NativeProvisioningPreviewV1,
     NativeProvisioningRequestV1, ProvisionedNative,
 };
 use crate::{
     luca::operator_forge::{AgentProvisioningModeV1, NativeRuntimeFamilyV1},
-    managed_agents::{build_hermes_runtime_binding, DiscoveredResidentCandidate},
+    managed_agents::DiscoveredResidentCandidate,
 };
 
 const MAX_CLONE_FILES: usize = 512;
 const MAX_CLONE_BYTES: u64 = 32 * 1024 * 1024;
 
-pub(super) fn ensure_name_available(slug: &str) -> Result<(), String> {
-    let outcome = crate::managed_agents::discover_native_resident_outcome();
-    if outcome.runtimes.into_iter().any(|runtime| {
-        runtime.candidates.into_iter().any(|candidate| {
-            candidate.native_type == crate::managed_agents::NativeRuntimeKind::Hermes
-                && candidate.native_id == slug
-        })
-    }) {
-        return Err("a Hermes profile with this name already exists".into());
-    }
-    Ok(())
+pub(super) fn ensure_name_available(
+    source: &DiscoveredResidentCandidate,
+    slug: &str,
+) -> Result<(), String> {
+    HermesJournal::prepare("", "", "", source.binding_preview.clone(), slug).map(|_| ())
 }
 
 pub(super) fn preview(
@@ -72,22 +67,6 @@ pub(super) fn preview(
         permission_defaults: "Hermes-owned authentication; no schedules, gateways, or external bindings are created.".into(),
         recovery_action: "If creation fails, remove only the incomplete new profile. The selected source is never modified.".into(),
     }
-}
-
-fn hermes_root(home: &Path) -> Result<std::path::PathBuf, String> {
-    if home
-        .parent()
-        .and_then(Path::file_name)
-        .and_then(|name| name.to_str())
-        == Some("profiles")
-    {
-        return home
-            .parent()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .ok_or_else(|| "Hermes profile root is invalid".into());
-    }
-    Ok(home.to_path_buf())
 }
 
 fn contains_sensitive_key(value: &Value) -> bool {
@@ -236,88 +215,224 @@ fn apply_clone(
     Ok(())
 }
 
+fn native_environment(journal: &HermesJournal) -> BTreeMap<String, String> {
+    BTreeMap::from([("HERMES_HOME".into(), journal.root.display().to_string())])
+}
+
+fn verify_version(journal: &HermesJournal) -> Result<std::path::PathBuf, String> {
+    journal.validate_scope()?;
+    let crate::managed_agents::RuntimeBinding::Hermes {
+        executable_path,
+        runtime_version,
+        ..
+    } = &journal.source
+    else {
+        return Err("Hermes setup provenance is invalid.".into());
+    };
+    let output = run_native_command(
+        executable_path,
+        &["--version".into()],
+        &native_environment(journal),
+    )?;
+    let bytes = if output.stdout.is_empty() {
+        &output.stderr
+    } else {
+        &output.stdout
+    };
+    let plain = strip_ansi_escapes::strip(bytes);
+    if !output.status.success() || String::from_utf8_lossy(&plain).trim() != runtime_version {
+        return Err("Hermes changed since this setup was reviewed. Review the native runtime before retrying.".into());
+    }
+    Ok(executable_path.clone())
+}
+
+fn check_new_profile_writes(destination: &Path) -> Result<(), String> {
+    let mut directories = vec![destination.to_path_buf()];
+    let mut entries = 0;
+    while let Some(directory) = directories.pop() {
+        for entry in
+            fs::read_dir(directory).map_err(|_| "New Hermes profile could not be inspected.")?
+        {
+            let entry = entry.map_err(|_| "New Hermes profile could not be inspected.")?;
+            let metadata = fs::symlink_metadata(entry.path())
+                .map_err(|_| "New Hermes profile could not be inspected.")?;
+            entries += 1;
+            if entries > 10_000 || metadata.file_type().is_symlink() {
+                return Err("New Hermes profile contains links or too many entries for safe setup. Review it in Hermes.".into());
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                if metadata.is_file() && metadata.nlink() != 1 {
+                    return Err(
+                        "New Hermes profile contains a shared file; setup was stopped.".into(),
+                    );
+                }
+            }
+            if metadata.is_dir() {
+                directories.push(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn execute(
     request: &NativeProvisioningRequestV1,
-    source: &DiscoveredResidentCandidate,
-    slug: &str,
+    journal: &mut HermesJournal,
+    path: &Path,
 ) -> Result<ProvisionedNative, String> {
-    let (_, source_home, executable, source_workspace) = source
-        .binding_preview
-        .hermes_provisioning_context()
-        .ok_or_else(|| "selected source is not a Hermes profile".to_string())?;
-    let root = hermes_root(&source_home)?;
+    let _profile = ProfileGuard::acquire(journal)?;
+    journal.ensure_available()?;
+    let executable = verify_version(journal)?;
+    // Persisted before the command; failed/ambiguous creation is never replayed.
+    journal.save(path)?;
     let output = run_native_command(
         &executable,
         &[
             "profile".into(),
             "create".into(),
-            slug.into(),
+            journal.slug.clone(),
             "--no-alias".into(),
             "--description".into(),
-            request.system_prompt.chars().take(240).collect::<String>(),
+            request.system_prompt.chars().take(240).collect(),
         ],
-        &BTreeMap::new(),
+        &native_environment(journal),
     )?;
     if !output.status.success() {
-        let _ = output.stdout.len();
-        let _ = output.stderr.len();
-        return Err("Hermes profile creation failed".into());
+        return Err("Hermes profile creation failed. Review native setup before recovery.".into());
     }
-    let destination_home = root.join("profiles").join(slug);
-    let canonical_destination = destination_home
-        .canonicalize()
-        .map_err(|_| "Hermes created a profile at an unexpected location")?;
-    let canonical_profiles = root
-        .join("profiles")
-        .canonicalize()
-        .map_err(|_| "Hermes profile root is unavailable")?;
-    if !canonical_destination.starts_with(&canonical_profiles) {
-        return Err("Hermes profile escaped its expected root".into());
-    }
-    fs::write(
-        canonical_destination.join("SOUL.md"),
-        &request.system_prompt,
-    )
-    .map_err(|_| "Hermes role instructions could not be saved")?;
+    journal.witness_creation()?;
+    journal.save(path)?;
+    journal.verify_created()?;
+    check_new_profile_writes(&journal.destination)?;
+    fs::write(journal.destination.join("SOUL.md"), &request.system_prompt)
+        .map_err(|_| "Hermes role instructions could not be saved")?;
+    let (_, source_home, _, workspace) = journal
+        .source
+        .hermes_provisioning_context()
+        .ok_or("Selected source is not a Hermes profile.")?;
     apply_clone(
         request,
         &source_home,
-        source_workspace.as_deref(),
-        &canonical_destination,
+        workspace.as_deref(),
+        &journal.destination,
     )?;
-    let binding = build_hermes_runtime_binding(
-        slug.to_string(),
-        canonical_destination,
-        executable,
-        source.runtime_version.clone().unwrap_or_default(),
-        None,
-    );
-    crate::managed_agents::resolve_native_runtime_binding(&binding)?;
+    let binding = journal.binding()?;
+    journal.configured = true;
+    journal.save(path)?;
     Ok(ProvisionedNative { binding })
 }
 
-pub(super) fn rollback(slug: &str) -> Result<(), String> {
-    let outcome = crate::managed_agents::discover_native_resident_outcome();
-    let executable = outcome
-        .runtimes
-        .into_iter()
-        .flat_map(|runtime| runtime.candidates)
-        .find_map(|candidate| {
-            candidate
-                .binding_preview
-                .hermes_provisioning_context()
-                .map(|(_, _, executable, _)| executable)
-        })
-        .ok_or_else(|| "Hermes is unavailable for rollback".to_string())?;
+pub(super) fn candidate(journal: &HermesJournal) -> Result<DiscoveredResidentCandidate, String> {
+    if !journal.configured {
+        return Err(
+            "The native profile has not completed its reviewed setup. Review it before linking."
+                .into(),
+        );
+    }
+    let binding = journal.binding()?;
+    let crate::managed_agents::RuntimeBinding::Hermes {
+        runtime_version, ..
+    } = &binding
+    else {
+        return Err("Expected Hermes provenance.".into());
+    };
+    Ok(DiscoveredResidentCandidate {
+        native_type: crate::managed_agents::NativeRuntimeKind::Hermes,
+        native_id: journal.slug.clone(),
+        semantic_id: crate::managed_agents::native_runtime_semantic_key(&binding),
+        binding_fingerprint: crate::managed_agents::native_runtime_binding_fingerprint(&binding),
+        display_name: journal.slug.clone(),
+        canonical_location: Some(journal.destination.clone()),
+        workspace: None,
+        model_summary: None,
+        runtime_version: Some(runtime_version.clone()),
+        readiness: crate::managed_agents::ResidentReadiness::Discovered {
+            message: "Exact created Hermes profile verified; session readiness is not yet tested."
+                .into(),
+        },
+        warnings: Vec::new(),
+        binding_preview: binding,
+    })
+}
+
+pub(super) fn rollback(journal: &mut HermesJournal, path: &Path) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or(
+        "Native home is unavailable. Remove the incomplete profile in Hermes after review.",
+    )?;
+    rollback_at_home(journal, path, &home)
+}
+
+pub(super) fn rollback_at_home(
+    journal: &mut HermesJournal,
+    path: &Path,
+    home: &Path,
+) -> Result<(), String> {
+    let _profile = ProfileGuard::acquire(journal)?;
+    if journal.removed {
+        return match fs::symlink_metadata(&journal.destination) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            _ => Err(
+                "The removed profile location has been reused. No further cleanup was performed."
+                    .into(),
+            ),
+        };
+    }
+    journal.verify_created()?;
+    let executable = verify_version(journal)?;
+    let crate::managed_agents::RuntimeBinding::Hermes {
+        runtime_version, ..
+    } = &journal.source
+    else {
+        return Err("Expected Hermes provenance.".into());
+    };
+    if !runtime_version
+        .split_whitespace()
+        .any(|part| matches!(part, "0.17.0" | "v0.17.0"))
+    {
+        return Err("Safe automatic cleanup is not verified for this Hermes version. Review and remove the incomplete profile in Hermes.".into());
+    }
+    // Hermes 0.17 delete also removes global slug aliases/services. A profile
+    // created with --no-alias has no authority to remove those shared objects.
+    let conflicts = [
+        home.join(".local/bin").join(&journal.slug),
+        home.join("Library/LaunchAgents")
+            .join(format!("ai.hermes.gateway-{}.plist", journal.slug)),
+        home.join(".config/systemd/user")
+            .join(format!("hermes-gateway-{}.service", journal.slug)),
+        std::path::PathBuf::from("/run/service").join(format!("gateway-{}", journal.slug)),
+        journal.destination.join("gateway.pid"),
+        journal.destination.join("gateway_state.json"),
+        journal.destination.join("processes.json"),
+    ];
+    for conflict in conflicts {
+        match fs::symlink_metadata(conflict) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => return Err("A native alias, service, or runtime activity may share this profile name. Review cleanup in Hermes; nothing was removed.".into()),
+        }
+    }
+    journal.verify_created()?;
     let output = run_native_command(
         &executable,
-        &["profile".into(), "delete".into(), slug.into(), "-y".into()],
-        &BTreeMap::new(),
+        &[
+            "profile".into(),
+            "delete".into(),
+            journal.slug.clone(),
+            "-y".into(),
+        ],
+        &native_environment(journal),
     )?;
-    if !output.status.success() {
-        return Err("Hermes could not remove the incomplete profile".into());
+    if !output.status.success()
+        || !matches!(fs::symlink_metadata(&journal.destination), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return Err(
+            "Hermes cleanup could not be confirmed. Review the incomplete profile before retrying."
+                .into(),
+        );
     }
-    Ok(())
+    journal.removed = true;
+    journal.save(path)
 }
 
 #[cfg(test)]

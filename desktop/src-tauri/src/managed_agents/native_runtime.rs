@@ -256,10 +256,110 @@ pub fn revalidate_native_runtime_binding(
             native_runtime_semantic_key(&candidate.binding_preview)
                 == native_runtime_semantic_key(binding)
         })
-        .map(|candidate| candidate.binding_preview)
-        .ok_or_else(|| "native identity binding no longer matches current discovery".to_string())?;
+        .map(|candidate| candidate.binding_preview);
+    let verified = match verified {
+        Some(verified) => verified,
+        None if matches!(binding, RuntimeBinding::Hermes { .. }) => {
+            // Custom roots may not be visible to ambient profile discovery. The
+            // executable still comes from the app's discovery path, never IPC.
+            let executable = canonical_executable("hermes")
+                .ok_or("Hermes is unavailable for exact profile verification.")?;
+            let path = super::login_shell_path();
+            revalidate_hermes_at_trusted_executable(binding, &executable, path.as_deref())?
+        }
+        None => return Err("native identity binding no longer matches current discovery".into()),
+    };
     resolve_native_runtime_binding(&verified)?;
     Ok(verified)
+}
+
+/// Resolve the profile-operation root using Hermes' standard/custom home layout.
+pub(crate) fn hermes_profile_root(home: &Path) -> Result<PathBuf, String> {
+    let home = home
+        .canonicalize()
+        .map_err(|_| "Hermes profile home is unavailable.")?;
+    if let Some(default) = dirs::home_dir().map(|path| path.join(".hermes")) {
+        if let Ok(default) = default.canonicalize() {
+            if home.starts_with(&default) {
+                return Ok(default);
+            }
+        }
+    }
+    if home
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        == Some("profiles")
+    {
+        return home
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "Hermes profile root is invalid.".into());
+    }
+    Ok(home)
+}
+
+fn revalidate_hermes_at_trusted_executable(
+    binding: &RuntimeBinding,
+    trusted: &Path,
+    child_path: Option<&str>,
+) -> Result<RuntimeBinding, String> {
+    let RuntimeBinding::Hermes {
+        profile_name,
+        hermes_home,
+        executable_path,
+        default_workspace,
+        ..
+    } = binding
+    else {
+        return Err("Expected a Hermes profile binding.".into());
+    };
+    // Check this before any probe: a renderer-supplied executable is not a trust anchor.
+    if executable_path != trusted
+        || checked_executable(trusted)? != trusted
+        || profile_name.is_empty()
+        || profile_name.len() > 64
+        || !profile_name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_".contains(&byte))
+    {
+        return Err("Hermes executable or profile no longer matches trusted discovery. Review the native setup.".into());
+    }
+    resolve_native_runtime_binding(binding)?;
+    let root = hermes_profile_root(hermes_home)?;
+    let environment = BTreeMap::from([("HERMES_HOME".into(), root.display().to_string())]);
+    let shown = run_bounded_with_environment(
+        trusted,
+        &["profile", "show", profile_name],
+        DISCOVERY_TIMEOUT,
+        child_path,
+        &environment,
+    )?;
+    let details = parse_hermes_profile_details(&output_text(&shown));
+    if !shown.status.success() || details.path.as_deref() != Some(hermes_home.as_path()) {
+        return Err(
+            "Hermes did not confirm the exact selected profile. Review the native setup.".into(),
+        );
+    }
+    let version = run_bounded_with_environment(
+        trusted,
+        &["--version"],
+        DISCOVERY_TIMEOUT,
+        child_path,
+        &environment,
+    )?;
+    if !version.status.success() {
+        return Err("Hermes version could not be verified.".into());
+    }
+    let version = output_text(&version);
+    Ok(build_hermes_runtime_binding(
+        profile_name.clone(),
+        hermes_home.clone(),
+        trusted.to_path_buf(),
+        version,
+        default_workspace.clone(),
+    ))
 }
 
 /// Stable, non-secret identity used for idempotent native imports. Full
@@ -397,9 +497,20 @@ fn run_bounded_with_path(
     timeout: Duration,
     child_path: Option<&str>,
 ) -> Result<CapturedOutput, String> {
+    run_bounded_with_environment(binary, args, timeout, child_path, &BTreeMap::new())
+}
+
+fn run_bounded_with_environment(
+    binary: &Path,
+    args: &[&str],
+    timeout: Duration,
+    child_path: Option<&str>,
+    environment: &BTreeMap<String, String>,
+) -> Result<CapturedOutput, String> {
     let mut stdout_file = tempfile::tempfile().map_err(|e| format!("capture stdout: {e}"))?;
     let mut stderr_file = tempfile::tempfile().map_err(|e| format!("capture stderr: {e}"))?;
     let mut command = Command::new(binary);
+    command.envs(environment);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::from(
         stdout_file
             .try_clone()
@@ -1268,5 +1379,58 @@ mod tests {
         let error = resolve_native_runtime_binding(&binding).expect_err("missing workspace");
         assert!(error.contains("workspace"));
         assert!(error.contains("unavailable"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_hermes_revalidation_rejects_forged_executable_before_running_it() {
+        let fixture = tempfile::tempdir().unwrap();
+        let home = fixture.path().canonicalize().unwrap();
+        let trusted = executable_fixture(&home, "trusted-hermes");
+        let forged = executable_fixture(&home, "forged-hermes");
+        let marker = home.join("must-not-run");
+        std::fs::write(
+            &forged,
+            format!("#!/bin/sh\nprintf forbidden > '{}'\n", marker.display()),
+        )
+        .unwrap();
+        let binding = build_hermes_runtime_binding(
+            "default".into(),
+            home.clone(),
+            forged,
+            "0.17.0".into(),
+            None,
+        );
+        let error = revalidate_hermes_at_trusted_executable(&binding, &trusted, None).unwrap_err();
+        assert!(error.contains("trusted discovery"));
+        assert!(!marker.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scoped_hermes_revalidation_requires_native_confirmation_of_the_exact_custom_home() {
+        let fixture = tempfile::tempdir().unwrap();
+        let base = fixture.path().canonicalize().unwrap();
+        let root = base.join("reviewed");
+        let home = root.join("profiles/helper");
+        std::fs::create_dir_all(&home).unwrap();
+        let trusted = executable_fixture(&base, "trusted-hermes");
+        std::fs::write(&trusted, "#!/bin/sh\nif [ \"$1\" = --version ]; then printf '0.17.0\\n'; else printf 'Path: %s/profiles/%s\\n' \"$HERMES_HOME\" \"$3\"; fi\n").unwrap();
+        let binding = build_hermes_runtime_binding(
+            "helper".into(),
+            home.clone(),
+            trusted.clone(),
+            "0.17.0".into(),
+            None,
+        );
+        let verified = revalidate_hermes_at_trusted_executable(&binding, &trusted, None).unwrap();
+        assert_eq!(verified, binding);
+        assert_eq!(hermes_profile_root(&home).unwrap(), root);
+        std::fs::write(
+            &trusted,
+            "#!/bin/sh\nprintf 'Path: /unrelated/profiles/helper\\n'\n",
+        )
+        .unwrap();
+        assert!(revalidate_hermes_at_trusted_executable(&binding, &trusted, None).is_err());
     }
 }
