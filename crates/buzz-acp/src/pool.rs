@@ -5192,10 +5192,7 @@ mod tests {
         use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
 
         for status in [Status::Empty, Status::Denied, Status::Unavailable] {
-            assert_eq!(
-                managed_session_context_status_is_usable(status).expect("fail-open status"),
-                false
-            );
+            assert!(!managed_session_context_status_is_usable(status).expect("fail-open status"));
         }
     }
 
@@ -5204,9 +5201,8 @@ mod tests {
         use crate::continuity_provider::ManagedSessionContextStatusV1 as Status;
 
         for status in [Status::Ready, Status::Degraded] {
-            assert_eq!(
-                managed_session_context_status_is_usable(status).expect("usable context status"),
-                true
+            assert!(
+                managed_session_context_status_is_usable(status).expect("usable context status")
             );
         }
     }
