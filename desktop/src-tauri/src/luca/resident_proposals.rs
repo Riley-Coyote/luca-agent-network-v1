@@ -752,6 +752,8 @@ fn resident_result(
     {
         return Err("The created resident is not owned by this desktop.".into());
     }
+    // A saved definition may be active before it starts or after its child exits.
+    tauri::async_runtime::block_on(crate::commands::list_managed_agents(app.clone()))?;
     let state = app.state::<crate::app_state::AppState>();
     let registry = super::resident_registry::load_resident_registry(app, &state)?;
     let record = registry
@@ -788,15 +790,24 @@ fn resident_result(
     if attached_conversation_id.is_some() && !attached {
         return Err("The resident's current conversation attachment could not be verified.".into());
     }
-    Ok(json!({
-        "status": "resident_available", "residentPubkey": resident,
+    Ok(project_resident_result(scope, record, target, attached))
+}
+
+fn project_resident_result(
+    scope: &ResidentProposalScope,
+    record: &super::resident_registry::ResidentRegistryEntry,
+    target: OpaqueId,
+    attached: bool,
+) -> Value {
+    json!({
+        "status": "resident_available", "residentPubkey": record.resident_pubkey,
         "displayName": record.display_name, "personaId": record.persona_id,
         "conversationId": scope.conversation, "attached": attached,
         "attachedConversationId": if attached { Some(target) } else { None },
-        "runtimeState": record.status, "processRunning": record.active,
+        "runtimeState": record.status, "processRunning": record.status == "running",
         "authenticatedReady": false,
         "message": "This owned resident and definition are available. This result alone does not establish when they were created. Attachment and process state are reported separately; authentication has not been verified."
-    }))
+    })
 }
 
 fn verified_attachment(

@@ -695,6 +695,48 @@ fn active_but_unspawned_import_is_stopped_and_keeps_startup_failure() {
 }
 
 #[test]
+fn created_resident_receipt_preserves_correlation_without_claiming_a_saved_agent_is_running() {
+    let scope = scope();
+    let target = OpaqueId::parse("expanded-conversation").expect("conversation");
+    let mut record = super::super::resident_registry::ResidentRegistryEntry {
+        resident_pubkey: Hex64::parse("d".repeat(64)).expect("key"),
+        display_name: "Research".into(),
+        persona_id: Some("reviewed-persona".into()),
+        runtime: super::super::resident_registry::ResidentRuntimeBinding {
+            runtime_id: None,
+            runtime_command: "hermes".into(),
+            provider_id: None,
+            model_id: None,
+        },
+        status: "stopped".into(),
+        active: true,
+        created_at: "fixture".into(),
+        updated_at: "fixture".into(),
+    };
+    for (status, running) in [("stopped", false), ("running", true), ("error", false)] {
+        record.status = status.into();
+        for active in [true, false] {
+            record.active = active;
+            let result = project_resident_result(&scope, &record, target.clone(), true);
+            assert_eq!(
+                result["processRunning"], running,
+                "{status}, active={active}"
+            );
+            assert_eq!(result["runtimeState"], status);
+            assert_eq!(result["authenticatedReady"], false);
+            assert_eq!(result["residentPubkey"], record.resident_pubkey.as_str());
+            assert_eq!(result["personaId"], "reviewed-persona");
+            assert_eq!(result["conversationId"], scope.conversation.as_str());
+            assert_eq!(result["attachedConversationId"], target.as_str());
+            assert_eq!(result["attached"], true);
+        }
+    }
+    let detached = project_resident_result(&scope, &record, target, false);
+    assert_eq!(detached["attached"], false);
+    assert!(detached["attachedConversationId"].is_null());
+}
+
+#[test]
 fn failed_import_opt_out_persistence_blocks_launch_and_requested_start_on_every_retry() {
     let (mut attempt, _) =
         admit_import(&mut import_proposal(), Some(import_selection()), false).expect("admit");
