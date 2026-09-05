@@ -13,13 +13,15 @@ use std::{
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
     sync::Arc,
+    time::Duration,
 };
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, BufReader},
+    io::{AsyncBufRead, AsyncRead, AsyncReadExt, BufReader},
     sync::{mpsc, watch, Mutex},
+    task::JoinSet,
 };
 
 use crate::{
@@ -32,6 +34,8 @@ const MAX_PROMPT_BYTES: usize = 256 * 1024;
 const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_ISOLATED_CONFIG_BYTES: u64 = 2 * 1024 * 1024;
+const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(1);
+const ADAPTER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const REPOSITORY_SERVER_NAME: &str = "luca-repositories";
 const COMMUNICATIONS_SERVER_NAME: &str = "luca-communications";
 const OPENCLAW_BOOTSTRAP_ENV_KEYS: [&str; 6] = [
@@ -102,6 +106,48 @@ struct CompatApp {
     sessions: Mutex<HashMap<String, CompatSession>>,
 }
 
+struct CompatTurn {
+    session_id: String,
+    cwd: PathBuf,
+    mcp_servers: Vec<McpServerStdio>,
+    prompt: String,
+    cancel_rx: watch::Receiver<bool>,
+}
+
+struct TurnProcess {
+    child: tokio::process::Child,
+}
+
+impl TurnProcess {
+    fn kill(&mut self) {
+        // Use only the still-owned, unreaped leader. Never retain a PGID and
+        // signal it after wait() has released the PID for reuse.
+        if let Some(pid) = self.child.id() {
+            #[cfg(unix)]
+            {
+                use nix::{sys::signal, unistd::Pid};
+                let _ = signal::killpg(Pid::from_raw(pid as i32), signal::Signal::SIGKILL);
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
+            let _ = self.child.start_kill();
+        }
+    }
+
+    async fn stop(&mut self) {
+        self.kill();
+        let _ = tokio::time::timeout(PROCESS_STOP_TIMEOUT, self.child.wait()).await;
+    }
+}
+
+impl Drop for TurnProcess {
+    fn drop(&mut self) {
+        // Also covers aborted prompt tasks and adapter/runtime teardown.
+        self.kill();
+        let _ = self.child.try_wait();
+    }
+}
+
 struct TurnWorkspace {
     directory: PathBuf,
     overlay_path: PathBuf,
@@ -159,7 +205,9 @@ pub(crate) fn run(agent_id: Option<&str>) -> Result<(), Box<dyn std::error::Erro
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(async_main(agent_id))
+    let result = runtime.block_on(async_main(agent_id));
+    runtime.shutdown_timeout(PROCESS_STOP_TIMEOUT);
+    result
 }
 
 async fn async_main(agent_id: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
@@ -173,29 +221,63 @@ async fn async_main(agent_id: Option<&str>) -> Result<(), Box<dyn std::error::Er
         sessions: Mutex::new(HashMap::new()),
     });
     let (wire_tx, wire_rx) = mpsc::channel::<WireMsg>(64);
-    let writer = tokio::spawn(wire::writer_task(wire_rx));
-    let mut stdin = BufReader::new(tokio::io::stdin());
-    while let Some(line) = wire::read_bounded_line(&mut stdin, MAX_FRAME_BYTES).await? {
+    let mut writer = tokio::spawn(wire::writer_task(wire_rx));
+    let result = serve(app, BufReader::new(tokio::io::stdin()), &wire_tx).await;
+    drop(wire_tx);
+    if tokio::time::timeout(ADAPTER_SHUTDOWN_TIMEOUT, &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+    }
+    result.map_err(Into::into)
+}
+
+async fn serve<R: AsyncBufRead + Unpin>(
+    app: Arc<CompatApp>,
+    mut input: R,
+    wire_tx: &wire::WireSender,
+) -> std::io::Result<()> {
+    let mut turns = JoinSet::new();
+    let result = loop {
+        let line = match wire::read_bounded_line(&mut input, MAX_FRAME_BYTES).await {
+            Ok(Some(line)) => line,
+            Ok(None) => break Ok(()),
+            Err(error) => break Err(error),
+        };
+        while turns.try_join_next().is_some() {}
         if line.trim().is_empty() {
             continue;
         }
         match serde_json::from_str::<Value>(&line) {
-            Ok(message) => dispatch(Arc::clone(&app), message, &wire_tx).await,
+            Ok(message) => dispatch(Arc::clone(&app), message, wire_tx, &mut turns).await,
             Err(_) => {
                 wire::send(
-                    &wire_tx,
+                    wire_tx,
                     wire::err(Value::Null, wire::PARSE_ERROR, "jsonrpc: parse failed"),
                 )
                 .await;
             }
         }
-    }
+    };
+    // Every admitted prompt registers its cancellation receiver before it is
+    // spawned, including prompts that have not been polled when stdin closes.
     for session in app.sessions.lock().await.values() {
         let _ = session.cancel_tx.send(true);
     }
-    drop(wire_tx);
-    let _ = writer.await;
-    Ok(())
+    if tokio::time::timeout(ADAPTER_SHUTDOWN_TIMEOUT, async {
+        while turns.join_next().await.is_some() {}
+    })
+    .await
+    .is_err()
+    {
+        turns.abort_all();
+        let _ = tokio::time::timeout(PROCESS_STOP_TIMEOUT, async {
+            while turns.join_next().await.is_some() {}
+        })
+        .await;
+    }
+    result
 }
 
 fn load_config(agent_id: Option<&str>) -> Result<CompatConfig, String> {
@@ -443,15 +525,22 @@ fn valid_agent_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-async fn dispatch(app: Arc<CompatApp>, message: Value, wire_tx: &wire::WireSender) {
+async fn dispatch(
+    app: Arc<CompatApp>,
+    message: Value,
+    wire_tx: &wire::WireSender,
+    turns: &mut JoinSet<()>,
+) {
     match wire::classify(&message) {
         Inbound::Request { id, method, params } => match method.as_str() {
             "initialize" => initialize(id, wire_tx).await,
             "session/new" => session_new(&app, id, params, wire_tx).await,
-            "session/prompt" => {
-                let tx = wire_tx.clone();
-                tokio::spawn(async move { session_prompt(app, id, params, tx).await });
-            }
+            "session/prompt" => match acquire_turn(&app, params).await {
+                Ok(turn) => {
+                    turns.spawn(session_prompt(app, id, turn, wire_tx.clone()));
+                }
+                Err(message) => reject(wire_tx, id, message).await,
+            },
             "session/cancel" => {
                 cancel_session(&app, params).await;
                 wire::send(wire_tx, wire::ok(id, Value::Null)).await;
@@ -716,40 +805,56 @@ fn is_uuid(value: &str) -> bool {
         })
 }
 
-async fn session_prompt(app: Arc<CompatApp>, id: Value, params: Value, wire_tx: wire::WireSender) {
-    let parsed = serde_json::from_value::<SessionPromptParams>(params);
-    let Ok(params) = parsed else {
-        return reject(&wire_tx, id, "session/prompt parameters are invalid").await;
-    };
-    let acquired = {
-        let mut sessions = app.sessions.lock().await;
-        let Some(session) = sessions.get_mut(&params.session_id) else {
-            return reject(&wire_tx, id, "session/prompt session is unavailable").await;
-        };
-        if session.busy {
-            return reject(&wire_tx, id, "session/prompt is already active").await;
-        }
-        let (cancel_tx, cancel_rx) = watch::channel(false);
-        session.cancel_tx = cancel_tx;
-        session.busy = true;
-        (
-            session.cwd.clone(),
-            session.mcp_servers.clone(),
-            session.system_prompt.clone(),
-            cancel_rx,
-        )
-    };
-    let (cwd, mcp_servers, system_prompt, mut cancel_rx) = acquired;
+async fn acquire_turn(app: &CompatApp, params: Value) -> Result<CompatTurn, &'static str> {
+    let params = serde_json::from_value::<SessionPromptParams>(params)
+        .map_err(|_| "session/prompt parameters are invalid")?;
+    let mut sessions = app.sessions.lock().await;
+    let session = sessions
+        .get_mut(&params.session_id)
+        .ok_or("session/prompt session is unavailable")?;
+    // An aborted task drops its receiver, so it cannot leave the session busy.
+    if session.busy && !session.cancel_tx.is_closed() {
+        return Err("session/prompt is already active");
+    }
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    session.cancel_tx = cancel_tx;
+    session.busy = true;
     let mut prompt = prompt_text(&params.prompt);
-    if let Some(system_prompt) = system_prompt.filter(|value| !value.is_empty()) {
+    if let Some(system_prompt) = session
+        .system_prompt
+        .as_ref()
+        .filter(|value| !value.is_empty())
+    {
         prompt = format!("[Base]\n{system_prompt}\n\n{prompt}");
     }
+    Ok(CompatTurn {
+        session_id: params.session_id,
+        cwd: session.cwd.clone(),
+        mcp_servers: session.mcp_servers.clone(),
+        prompt,
+        cancel_rx,
+    })
+}
+
+async fn session_prompt(
+    app: Arc<CompatApp>,
+    id: Value,
+    turn: CompatTurn,
+    wire_tx: wire::WireSender,
+) {
+    let CompatTurn {
+        session_id,
+        cwd,
+        mcp_servers,
+        prompt,
+        mut cancel_rx,
+    } = turn;
     let result = if prompt.len() > MAX_PROMPT_BYTES {
         Err("OpenClaw prompt exceeds the local bound".to_owned())
     } else {
         run_openclaw_turn(
             &app.config,
-            &params.session_id,
+            &session_id,
             &cwd,
             &mcp_servers,
             &prompt,
@@ -757,36 +862,45 @@ async fn session_prompt(app: Arc<CompatApp>, id: Value, params: Value, wire_tx: 
         )
         .await
     };
-    if let Some(session) = app.sessions.lock().await.get_mut(&params.session_id) {
-        session.busy = false;
-    }
-    match result {
-        Ok(Some(text)) => {
-            if !text.is_empty() {
-                wire::send(
-                    &wire_tx,
-                    wire::session_update(
-                        &params.session_id,
-                        json!({
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": { "type": "text", "text": text }
-                        }),
-                    ),
-                )
-                .await;
+    let message_count = match &result {
+        Ok(Some(text)) if !text.is_empty() => 2,
+        _ => 1,
+    };
+    // Reserve before taking the session lock. Cancellation stays responsive
+    // under output backpressure, and its final check plus publication below
+    // are synchronous with respect to cancel_session's same lock.
+    let permits = wire_tx.reserve_many(message_count).await;
+    let mut sessions = app.sessions.lock().await;
+    let result = if *cancel_rx.borrow() {
+        Ok(None)
+    } else {
+        result
+    };
+    if let Ok(mut permits) = permits {
+        let completion = match result {
+            Ok(Some(text)) => {
+                if !text.is_empty() {
+                    if let Some(permit) = permits.next() {
+                        permit.send(WireMsg::Notify(wire::session_update(
+                            &session_id,
+                            json!({
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": { "type": "text", "text": text }
+                            }),
+                        )));
+                    }
+                }
+                wire::ok(id, json!({ "stopReason": "end_turn" }))
             }
-            wire::send(&wire_tx, wire::ok(id, json!({ "stopReason": "end_turn" }))).await;
+            Ok(None) => wire::ok(id, json!({ "stopReason": "cancelled" })),
+            Err(_) => wire::err(id, -32000, "OpenClaw local turn failed"),
+        };
+        if let Some(permit) = permits.next() {
+            permit.send(WireMsg::Notify(completion));
         }
-        Ok(None) => {
-            wire::send(&wire_tx, wire::ok(id, json!({ "stopReason": "cancelled" }))).await;
-        }
-        Err(_) => {
-            wire::send(
-                &wire_tx,
-                wire::err(id, -32000, "OpenClaw local turn failed"),
-            )
-            .await;
-        }
+    }
+    if let Some(session) = sessions.get_mut(&session_id) {
+        session.busy = false;
     }
 }
 
@@ -810,6 +924,9 @@ async fn run_openclaw_turn(
     prompt: &str,
     cancel_rx: &mut watch::Receiver<bool>,
 ) -> Result<Option<String>, String> {
+    if *cancel_rx.borrow() || cancel_rx.has_changed().is_err() {
+        return Ok(None);
+    }
     let turn_workspace = TurnWorkspace::create(config, mcp_servers)?;
     let session_key = openclaw_session_key(&config.agent_id, session_id);
     let command = build_command(
@@ -819,36 +936,47 @@ async fn run_openclaw_turn(
         &session_key,
         prompt,
     );
-    let mut child = tokio::process::Command::from(command)
+    let child = tokio::process::Command::from(command)
         .kill_on_drop(true)
         .spawn()
         .map_err(|_| "OpenClaw local turn failed".to_owned())?;
-    let stdout = child
+    let mut process = TurnProcess { child };
+    let stdout = process
+        .child
         .stdout
         .take()
         .ok_or_else(|| "OpenClaw local turn failed".to_owned())?;
-    let stderr = child
+    let stderr = process
+        .child
         .stderr
         .take()
         .ok_or_else(|| "OpenClaw local turn failed".to_owned())?;
-    let stdout_task = tokio::spawn(read_capped(stdout, MAX_STDOUT_BYTES));
-    let stderr_task = tokio::spawn(read_capped(stderr, MAX_STDERR_BYTES));
-    let status = tokio::select! {
-        status = child.wait() => Some(status.map_err(|_| "OpenClaw local turn failed".to_owned())?),
-        changed = cancel_rx.changed() => {
-            let _ = changed;
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            None
-        }
+    let completed = tokio::select! {
+        biased;
+        _ = cancel_rx.changed() => None,
+        output = async {
+            // Drain both pipes without detached reader tasks. Keep the leader
+            // unreaped until EOF: a descendant holding a pipe must not prevent
+            // Stop/Drop from safely signaling the original process group.
+            let (stdout, _) = tokio::join!(
+                read_capped(stdout, MAX_STDOUT_BYTES),
+                read_capped(stderr, MAX_STDERR_BYTES),
+            );
+            let status = process.child.wait().await
+                .map_err(|_| "OpenClaw local turn failed".to_owned())?;
+            Ok::<_, String>((status, stdout?))
+        } => Some(output),
     };
-    let stdout = stdout_task
-        .await
-        .map_err(|_| "OpenClaw local turn failed".to_owned())??;
-    let _ = stderr_task.await;
-    let Some(status) = status else {
+    let Some(completed) = completed else {
+        // Selecting cancellation dropped the pipe readers before this bounded
+        // group shutdown. No inherited pipe can hold the turn open afterwards.
+        process.stop().await;
         return Ok(None);
     };
+    let (status, stdout) = completed?;
+    if *cancel_rx.borrow() {
+        return Ok(None);
+    }
     if !status.success() {
         return Err("OpenClaw local turn failed".into());
     }
@@ -863,6 +991,11 @@ fn build_command(
     prompt: &str,
 ) -> Command {
     let mut command = Command::new(&config.openclaw_command);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let include_root = config
         .isolation
         .as_ref()
@@ -1083,6 +1216,340 @@ mod tests {
         std::fs::write(path, body).expect("write executable fixture");
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
             .expect("secure executable fixture");
+    }
+
+    #[cfg(unix)]
+    struct ProcessTreeFixture {
+        root: tempfile::TempDir,
+        config: CompatConfig,
+    }
+
+    #[cfg(unix)]
+    impl ProcessTreeFixture {
+        fn new(leader_exits: bool) -> Self {
+            let root = tempfile::tempdir().expect("process tree fixture");
+            let root_path = root.path().canonicalize().expect("canonical fixture");
+            let native_config_path = root_path.join("native.json");
+            fs::write(&native_config_path, "{}\n").expect("native fixture config");
+            let temporary_root = root_path.join("turns");
+            fs::create_dir(&temporary_root).expect("turn root");
+            let command = root_path.join("fake-openclaw");
+            write_executable(
+                &command,
+                r#"#!/bin/sh
+set -eu
+if test -f complete-next; then
+  printf '%s\n' complete > completion-ready
+  printf '%s\n' '{"payloads":[{"text":"next-turn-ok"}]}'
+  exit 0
+fi
+printf '%s\n' "$$" > leader.pid
+/bin/sh -c '
+  trap "" TERM
+  printf "%s\n" "$$" > descendant.pid
+  while ! test -f release; do sleep 0.02; done
+  printf "%s\n" "descendant finished" > descendant-finished
+  printf "%s\n" "late descendant output" >&2
+' &
+if test -f leader-exits; then
+  printf '%s\n' '{"payloads":[{"text":"late-final"}]}'
+  exit 0
+fi
+wait
+printf '%s\n' '{"payloads":[{"text":"late-final"}]}'
+"#,
+            );
+            if leader_exits {
+                fs::write(root_path.join("leader-exits"), "").expect("exit fixture");
+            }
+            Self {
+                root,
+                config: CompatConfig {
+                    openclaw_command: command,
+                    native_config_path,
+                    native_state_dir: root_path,
+                    isolation: None,
+                    agent_id: "main".into(),
+                    temporary_root,
+                },
+            }
+        }
+
+        async fn pid(&self, name: &str) -> nix::unistd::Pid {
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    if let Ok(value) = fs::read_to_string(self.root.path().join(name)) {
+                        if let Ok(pid) = value.trim().parse() {
+                            return nix::unistd::Pid::from_raw(pid);
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("fixture process started")
+        }
+
+        async fn assert_stopped(&self) {
+            let leader = self.pid("leader.pid").await;
+            let descendant = self.pid("descendant.pid").await;
+            tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                while nix::sys::signal::kill(leader, None).is_ok()
+                    || nix::sys::signal::kill(descendant, None).is_ok()
+                {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("native leader and descendant stopped");
+            assert_eq!(
+                fs::read_dir(&self.config.temporary_root).unwrap().count(),
+                0
+            );
+        }
+
+        fn app(&self) -> Arc<CompatApp> {
+            let (cancel_tx, _) = watch::channel(false);
+            Arc::new(CompatApp {
+                config: self.config.clone(),
+                sessions: Mutex::new(HashMap::from([(
+                    "session".into(),
+                    CompatSession {
+                        cwd: self.config.native_state_dir.clone(),
+                        mcp_servers: vec![],
+                        system_prompt: None,
+                        cancel_tx,
+                        busy: false,
+                    },
+                )])),
+            })
+        }
+    }
+
+    #[cfg(unix)]
+    fn fixture_prompt() -> Value {
+        json!({"sessionId": "session", "prompt": [{"type": "text", "text": "hello"}]})
+    }
+
+    #[cfg(unix)]
+    async fn assert_cancelled_only(wire_rx: &mut mpsc::Receiver<WireMsg>) {
+        let WireMsg::Notify(message) = wire_rx.recv().await.expect("cancelled response");
+        assert_eq!(
+            message.pointer("/result/stopReason"),
+            Some(&json!("cancelled"))
+        );
+        assert!(wire_rx.try_recv().is_err(), "no late final message");
+    }
+
+    #[cfg(unix)]
+    impl Drop for ProcessTreeFixture {
+        fn drop(&mut self) {
+            // Even the failing baseline test releases its synthetic orphan.
+            // Never send a cleanup signal to a PID read from an old fixture.
+            let _ = fs::write(self.root.path().join("release"), "");
+            if let Ok(value) = fs::read_to_string(self.root.path().join("descendant.pid")) {
+                if let Ok(pid) = value.trim().parse() {
+                    for _ in 0..100 {
+                        if nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), None).is_err() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_stops_descendants_holding_pipes_and_allows_the_next_turn() {
+        let fixture = ProcessTreeFixture::new(false);
+        let config = fixture.config.clone();
+        let cwd = fixture.config.native_state_dir.clone();
+        let (cancel_tx, mut cancel_rx) = watch::channel(false);
+        let mut turn = tokio::spawn(async move {
+            run_openclaw_turn(&config, "session", &cwd, &[], "hello", &mut cancel_rx).await
+        });
+        fixture.pid("descendant.pid").await;
+        cancel_tx.send(true).expect("cancel turn");
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(2), &mut turn)
+                .await
+                .expect("Stop must not wait on descendant pipes")
+                .expect("turn task")
+                .expect("cancelled turn"),
+            None
+        );
+        fixture.assert_stopped().await;
+
+        fs::write(fixture.root.path().join("complete-next"), "").expect("next turn");
+        let (_cancel_tx, mut cancel_rx) = watch::channel(false);
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            run_openclaw_turn(
+                &fixture.config,
+                "session",
+                &fixture.config.native_state_dir,
+                &[],
+                "next",
+                &mut cancel_rx,
+            ),
+        )
+        .await
+        .expect("next turn bounded")
+        .expect("next turn");
+        assert_eq!(response.as_deref(), Some("next-turn-ok"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_after_leader_exit_stops_inherited_pipes_without_a_late_final() {
+        let fixture = ProcessTreeFixture::new(true);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(64);
+        let turn = acquire_turn(&app, fixture_prompt())
+            .await
+            .expect("acquire turn");
+        let prompt_task = tokio::spawn(session_prompt(Arc::clone(&app), json!(1), turn, wire_tx));
+        let descendant = fixture.pid("descendant.pid").await;
+        let leader = fixture.pid("leader.pid").await;
+        assert_eq!(nix::unistd::getpgid(Some(descendant)).unwrap(), leader);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        cancel_session(&app, json!({"sessionId": "session"})).await;
+        tokio::time::timeout(Duration::from_secs(2), prompt_task)
+            .await
+            .expect("Stop after leader exit is bounded")
+            .expect("prompt task");
+        fixture.assert_stopped().await;
+        assert_cancelled_only(&mut wire_rx).await;
+        assert!(!app.sessions.lock().await["session"].busy);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_a_prompt_task_stops_the_process_group_and_releases_the_session() {
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(64);
+        let turn = acquire_turn(&app, fixture_prompt())
+            .await
+            .expect("acquire turn");
+        let task = tokio::spawn(session_prompt(Arc::clone(&app), json!(1), turn, wire_tx));
+        fixture.pid("descendant.pid").await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        fixture.assert_stopped().await;
+        assert!(wire_rx.try_recv().is_err());
+        assert!(acquire_turn(&app, fixture_prompt()).await.is_ok());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapter_eof_cancels_active_turns_and_reaps_their_process_groups() {
+        use tokio::io::AsyncWriteExt;
+
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(64);
+        let (mut input, reader) = tokio::io::duplex(4096);
+        let task_app = Arc::clone(&app);
+        let adapter =
+            tokio::spawn(async move { serve(task_app, BufReader::new(reader), &wire_tx).await });
+        let request = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": fixture_prompt()
+        });
+        input
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .unwrap();
+        fixture.pid("descendant.pid").await;
+        drop(input);
+        tokio::time::timeout(Duration::from_secs(3), adapter)
+            .await
+            .expect("adapter EOF is bounded")
+            .expect("adapter task")
+            .expect("adapter input");
+        fixture.assert_stopped().await;
+        assert_cancelled_only(&mut wire_rx).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapter_eof_before_prompt_poll_never_launches_a_native_process() {
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(64);
+        let request = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": fixture_prompt()
+        });
+        let input = format!("{request}\n");
+        serve(Arc::clone(&app), input.as_bytes(), &wire_tx)
+            .await
+            .unwrap();
+        assert!(!fixture.root.path().join("leader.pid").exists());
+        assert_cancelled_only(&mut wire_rx).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn dropping_the_adapter_aborts_its_turn_tasks_and_the_native_process_group() {
+        use tokio::io::AsyncWriteExt;
+
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(64);
+        let (mut input, reader) = tokio::io::duplex(4096);
+        let task_app = Arc::clone(&app);
+        let adapter =
+            tokio::spawn(async move { serve(task_app, BufReader::new(reader), &wire_tx).await });
+        let request = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": fixture_prompt()
+        });
+        input
+            .write_all(format!("{request}\n").as_bytes())
+            .await
+            .unwrap();
+        fixture.pid("descendant.pid").await;
+        adapter.abort();
+        assert!(adapter.await.unwrap_err().is_cancelled());
+        fixture.assert_stopped().await;
+        assert!(wire_rx.try_recv().is_err());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_while_final_publication_is_backpressured_suppresses_the_final() {
+        let fixture = ProcessTreeFixture::new(false);
+        fs::write(fixture.root.path().join("complete-next"), "").expect("normal final");
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(2);
+        wire_tx
+            .send(WireMsg::Notify(json!("occupied")))
+            .await
+            .unwrap();
+        let turn = acquire_turn(&app, fixture_prompt())
+            .await
+            .expect("acquire turn");
+        let task = tokio::spawn(session_prompt(Arc::clone(&app), json!(1), turn, wire_tx));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !fixture.root.path().join("completion-ready").exists()
+                || fs::read_dir(&fixture.config.temporary_root)
+                    .unwrap()
+                    .count()
+                    != 0
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("native final ready");
+        cancel_session(&app, json!({"sessionId": "session"})).await;
+        let _ = wire_rx.recv().await;
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("publication unblocked")
+            .expect("prompt task");
+        assert_cancelled_only(&mut wire_rx).await;
     }
 
     fn snapshot_tree(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
