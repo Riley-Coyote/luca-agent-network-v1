@@ -31,6 +31,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager};
 
 mod operations;
+mod resident_directory;
 
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
@@ -606,7 +607,7 @@ fn operator_status(
     app: &AppHandle,
     context: &BrokerContext,
 ) -> Result<RepositoryBrokerResponseV1, String> {
-    let records = crate::managed_agents::load_managed_agents(app)?;
+    let records = resident_directory::HydratedRecords::load(app)?;
     let record = records
         .iter()
         .find(|record| {
@@ -616,42 +617,9 @@ fn operator_status(
         })
         .ok_or_else(|| "managed resident is unavailable".to_string())?;
     let personas = crate::managed_agents::load_personas(app)?;
-    let legacy_persona_runtime = record.persona_id.as_deref().and_then(|persona_id| {
-        personas
-            .iter()
-            .find(|persona| persona.id == persona_id)
-            .and_then(|persona| persona.runtime.as_deref())
-    });
-    let (family, version, native_binding) = match record.native_runtime_binding.as_ref() {
-        Some(crate::managed_agents::RuntimeBinding::Hermes {
-            runtime_version, ..
-        }) => ("hermes", Some(runtime_version.clone()), true),
-        Some(crate::managed_agents::RuntimeBinding::Openclaw {
-            runtime_version, ..
-        }) => ("openclaw", Some(runtime_version.clone()), true),
-        None => (
-            current_managed_runtime_family(
-                record.runtime.as_deref(),
-                record.agent_command_override.as_deref(),
-                legacy_persona_runtime,
-            ),
-            None,
-            false,
-        ),
-    };
-    let running = record.runtime_pid.is_some();
-    let runtime_state = if record.last_error.is_some() {
-        "degraded"
-    } else if running {
-        "ready"
-    } else {
-        "stopped"
-    };
-    let capability_manifest = crate::luca::runtime_capabilities::manifest(family);
-    let surface_navigation = capability_manifest
-        .as_ref()
-        .map(|manifest| manifest.surface_navigation)
-        .unwrap_or("unavailable_unknown_runtime");
+    let (directory, process_status) =
+        resident_directory::snapshot(app, context, &records, &personas);
+    let runtime = resident_directory::runtime_status(record, &personas, process_status);
     let discovery = crate::managed_agents::discover_native_resident_outcome();
     let hermes_candidates = discovery
         .runtimes
@@ -701,16 +669,8 @@ fn operator_status(
             "resumeAction": "open_onboarding",
         },
         "ownerProfile": { "available": true },
-        "runtime": {
-            "family": family,
-            "version": version,
-            "nativeBinding": native_binding,
-            "state": runtime_state,
-            "running": running,
-            "ready": runtime_state == "ready",
-            "capabilityManifest": capability_manifest,
-            "surfaceNavigation": surface_navigation,
-        },
+        "runtime": runtime,
+        "residentDirectory": directory,
         "nativeAgentCandidates": {
             "hermes": hermes_candidates,
             "openclaw": openclaw_candidates,

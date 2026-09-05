@@ -348,7 +348,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "polyphonic_status",
-        description = "Read body-free local setup, runtime, Brain, access, and capability status for this resident. Returns no paths, credentials, source bodies, or machine topology."
+        description = "Read body-free local setup, runtime, Brain, access, capability status, and a bounded directory of cryptographically verified current-owner residents. Use only each directory entry's supplied exact mention in an ordinary final reply to request a bounded same-conversation exchange; never guess aliases or treat a public key as a supported mention. Unavailable or truncated directory results are explicit. Process status and legacy runtime.ready are not verified authentication or proof of a reply. This tool does not start residents, observe task progress, or stop work. Returns no paths, credentials, source bodies, or machine topology."
     )]
     async fn polyphonic_status(
         &self,

@@ -166,7 +166,7 @@ pub(crate) fn resolve_owned_resident_name(
     resolve_owned_resident_name_from_records(&records, owned_resident_pubkeys, requested_name)
 }
 
-fn resolve_owned_resident_name_from_records(
+pub(crate) fn resolve_owned_resident_name_from_records(
     records: &[ManagedAgentRecord],
     owned_resident_pubkeys: &std::collections::BTreeSet<Hex64>,
     requested_name: &str,
