@@ -709,7 +709,7 @@ export function NewMessageScreen() {
             </PopoverAnchor>
             <PopoverContent
               align="start"
-              className="w-[min(36rem,calc(100vw-3rem))] overflow-hidden p-0"
+              className="w-[min(36rem,var(--radix-popover-trigger-width),calc(100vw-3rem))] overflow-hidden p-0"
               data-testid="new-message-recipient-popover"
               onCloseAutoFocus={(event) => event.preventDefault()}
               onInteractOutside={(event) => {

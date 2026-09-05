@@ -277,3 +277,41 @@ test("recipient identity stays readable on hover and can be verified after selec
     page.getByTestId(`new-dm-selected-key-popover-${key}`),
   ).toContainText(key);
 });
+
+test("recipient picker leaves sidebar navigation accessible at narrow zoom", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 860, height: 900 });
+  await page.addInitScript(() => {
+    localStorage.setItem("buzz:text-scale", "1.5");
+    localStorage.setItem("buzz-theme", "buzz-dark");
+  });
+  await installMockBridge(page);
+  await page.goto("/?e2e=mock#/messages/new");
+  const field = page.getByTestId("new-message-to-field");
+  await field.click();
+  const picker = page.getByTestId("new-message-recipient-popover");
+  await expect(picker).toBeVisible();
+  await waitForAnimations(page);
+  await expect
+    .poll(async () => {
+      const [anchor, popup] = await Promise.all([
+        field.boundingBox(),
+        picker.boundingBox(),
+      ]);
+      if (!anchor || !popup) return false;
+      return (
+        popup.width <= anchor.width + 1 &&
+        popup.x >= anchor.x - 1 &&
+        popup.x + popup.width <= 860
+      );
+    })
+    .toBe(true);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("recipient-picker-narrow-dark.png"),
+  });
+  await page.getByTestId("open-activity-view").click();
+  await expect(page).toHaveURL(/#\/pulse$/);
+  await expect(page.getByTestId("owner-activity-view")).toBeVisible();
+});
