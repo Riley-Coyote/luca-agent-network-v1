@@ -2,7 +2,8 @@
 //!
 //! A single `global-agent-config.json` record that applies to ALL managed
 //! agents. Per-agent config always wins; global provides the lowest
-//! user-settable layer below persona.
+//! user-settable layer below persona. Bound Hermes residents keep their native
+//! model/provider defaults unless the resident record explicitly overrides them.
 //!
 //! # Precedence (low → high)
 //!
@@ -39,7 +40,8 @@ use crate::managed_agents::types::{AgentDefinition, ManagedAgentRecord};
 ///
 /// `env_vars` is the lowest user-settable env layer — global < persona < agent.
 /// `provider` / `model` are fallback defaults: effective provider/model =
-/// `agent → persona → global → None`.
+/// `agent → persona → global → None`. Bound Hermes residents use only explicit
+/// per-resident model/provider overrides; their native profile supplies defaults.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct GlobalAgentConfig {
     /// Global env vars injected into ALL agents unconditionally.
@@ -206,6 +208,8 @@ pub fn save_global_agent_config(app: &AppHandle, config: &GlobalAgentConfig) -> 
 
 /// Resolve the effective model and provider for an agent using the
 /// precedence chain: `agent record → linked persona → global defaults → None`.
+/// A saved Hermes binding instead uses only the independent record overrides,
+/// leaving unset fields to that exact native profile.
 ///
 /// This is the single source of truth used by readiness evaluation, spawn,
 /// and deploy-payload construction. All three paths must use this function so
@@ -223,6 +227,13 @@ pub(crate) fn resolve_effective_model_provider<'a>(
     personas: &'a [AgentDefinition],
     global: &'a GlobalAgentConfig,
 ) -> (Option<&'a str>, Option<&'a str>) {
+    if matches!(
+        record.native_runtime_binding.as_ref(),
+        Some(crate::managed_agents::RuntimeBinding::Hermes { .. })
+    ) {
+        return (record.model.as_deref(), record.provider.as_deref());
+    }
+
     let (persona_model, persona_provider) = record
         .persona_id
         .as_deref()

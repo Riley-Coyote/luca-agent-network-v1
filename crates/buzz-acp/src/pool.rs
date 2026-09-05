@@ -5647,6 +5647,132 @@ while read -r _; do :; done
         assert_eq!(session, "conversation-session");
     }
 
+    async fn assert_hermes_native_session_model(desired_model: Option<&str>) {
+        // Synthetic ACP peer only: no Hermes installation, credentials, native
+        // profile, external MCP process or provider request is involved.
+        let script = r#"
+            model=native-default
+            switches=0
+            sessions=0
+            turns=0
+            while IFS= read -r request; do
+                id=$(printf '%s' "$request" | sed -E 's/.*"id":([0-9]+).*/\1/')
+                case "$request" in
+                    *'"method":"initialize"'*)
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1,"agentCapabilities":{}}}\n' "$id"
+                        ;;
+                    *'"method":"session/new"'*)
+                        [[ "$request" == *'"name":"synthetic-native-mcp"'* ]] || exit 41
+                        sessions=$((sessions + 1))
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"hermes-fixture-session","models":{"currentModelId":"native-default","availableModels":[{"modelId":"native-default","name":"Native default"},{"modelId":"owner-override","name":"Owner override"}]}}}\n' "$id"
+                        ;;
+                    *'"method":"session/set_model"'*)
+                        [[ "$request" == *'"modelId":"owner-override"'* ]] || exit 42
+                        model=owner-override
+                        switches=$((switches + 1))
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$id"
+                        ;;
+                    *'"method":"session/prompt"'*)
+                        [[ "$request" == *'"sessionId":"hermes-fixture-session"'* ]] || exit 43
+                        turns=$((turns + 1))
+                        printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hermes-fixture-session","update":{"sessionUpdate":"tool_call","toolCallId":"read-%s","title":"read_file","kind":"read","status":"in_progress"}}}\n' "$turns"
+                        printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hermes-fixture-session","update":{"sessionUpdate":"tool_call_update","toolCallId":"read-%s","status":"completed"}}}\n' "$turns"
+                        printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hermes-fixture-session","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"%s;switches=%s;sessions=%s;turn=%s"}}}}\n' "$model" "$switches" "$sessions" "$turns"
+                        printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$id"
+                        ;;
+                    *) exit 44 ;;
+                esac
+            done
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.agent_name = "hermes".into();
+        agent.protocol_version = 1;
+        agent.desired_model = desired_model.map(str::to_string);
+        let observer = crate::observer::ObserverHandle::in_process();
+        agent.acp.set_observer(Some(observer.clone()), 0);
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.harness_name = "hermes".into();
+        ctx.mcp_servers.push(McpServer {
+            name: "synthetic-native-mcp".into(),
+            command: "synthetic-unused-command".into(),
+            args: vec![],
+            env: vec![],
+        });
+        let result = tokio::time::timeout(Duration::from_secs(10), async {
+            agent.acp.initialize().await?;
+            let session = create_session_and_apply_model(
+                &mut agent,
+                &ctx,
+                &PromptSource::Channel(Uuid::new_v4()),
+                SessionCreationContext::default(),
+            )
+            .await?;
+            let mut stops = Vec::new();
+            for prompt in ["synthetic first turn", "synthetic subsequent turn"] {
+                stops.push(
+                    agent
+                        .acp
+                        .session_prompt_with_idle_timeout(
+                            &session,
+                            prompt,
+                            Duration::from_secs(2),
+                            Duration::from_secs(4),
+                        )
+                        .await?,
+                );
+            }
+            Ok::<_, AcpError>((session, stops))
+        })
+        .await;
+        // Reap even when a protocol assertion fails; never leave a fixture peer
+        // alive because a required response did not arrive.
+        agent.acp.shutdown().await;
+        let (session, stops) = result
+            .expect("bounded synthetic ACP lifecycle")
+            .expect("native session accepts projection and both turns");
+        assert_eq!(session, "hermes-fixture-session");
+        assert_eq!(stops, vec![StopReason::EndTurn, StopReason::EndTurn]);
+        let events = observer.snapshot();
+        let updates: Vec<_> = events
+            .iter()
+            .filter(|event| event.kind == "acp_read")
+            .filter_map(|event| event.payload.get("params")?.get("update"))
+            .collect();
+        for kind in ["tool_call", "tool_call_update"] {
+            assert_eq!(
+                updates
+                    .iter()
+                    .filter(|update| update["sessionUpdate"] == kind)
+                    .count(),
+                2
+            );
+        }
+        let expected_model = desired_model.unwrap_or("native-default");
+        let expected_switches = usize::from(desired_model.is_some());
+        let messages: Vec<_> = updates
+            .iter()
+            .filter(|update| update["sessionUpdate"] == "agent_message_chunk")
+            .map(|update| update["content"]["text"].as_str().expect("synthetic text"))
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                format!("{expected_model};switches={expected_switches};sessions=1;turn=1"),
+                format!("{expected_model};switches={expected_switches};sessions=1;turn=2"),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn hermes_native_default_retains_tools_and_subsequent_turn() {
+        assert_hermes_native_session_model(None).await;
+    }
+
+    #[tokio::test]
+    async fn hermes_explicit_model_override_retains_tools_and_subsequent_turn() {
+        assert_hermes_native_session_model(Some("owner-override")).await;
+    }
+
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):
     // a legacy agent WITH a base_prompt must get [Base] prepended to the user
     // message. This is the exact regression that shipped in the round-2 bug.

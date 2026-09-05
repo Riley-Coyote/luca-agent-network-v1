@@ -574,6 +574,115 @@ fn resolve_each_field_resolves_independently_through_tiers() {
     );
 }
 
+fn hermes_binding() -> crate::managed_agents::RuntimeBinding {
+    crate::managed_agents::RuntimeBinding::Hermes {
+        schema_version: 1,
+        profile_name: "synthetic-resident".into(),
+        hermes_home: "/synthetic/hermes-profile".into(),
+        executable_path: "/synthetic/bin/hermes".into(),
+        runtime_version: "fixture".into(),
+        default_workspace: None,
+    }
+}
+
+#[test]
+fn resolve_hermes_native_defaults_ignore_persona_and_global() {
+    let mut record = bare_record();
+    record.native_runtime_binding = Some(hermes_binding());
+    let personas = vec![persona(
+        "p1",
+        Some("persona-model"),
+        Some("persona-provider"),
+    )];
+    let global = GlobalAgentConfig {
+        model: Some("global-model".into()),
+        provider: Some("global-provider".into()),
+        ..Default::default()
+    };
+    for persona_id in [None, Some("p1"), Some("missing-persona")] {
+        record.persona_id = persona_id.map(str::to_string);
+        assert_eq!(
+            resolve_effective_model_provider(&record, &personas, &global),
+            (None, None)
+        );
+    }
+}
+
+#[test]
+fn resolve_hermes_explicit_overrides_remain_independent() {
+    let mut record = bare_record();
+    record.native_runtime_binding = Some(hermes_binding());
+    record.persona_id = Some("p1".into());
+    let personas = vec![persona(
+        "p1",
+        Some("persona-model"),
+        Some("persona-provider"),
+    )];
+    let global = GlobalAgentConfig {
+        model: Some("global-model".into()),
+        provider: Some("global-provider".into()),
+        ..Default::default()
+    };
+    for expected in [
+        (Some("record-model"), None),
+        (None, Some("record-provider")),
+        (Some("record-model"), Some("record-provider")),
+    ] {
+        record.model = expected.0.map(str::to_string);
+        record.provider = expected.1.map(str::to_string);
+        assert_eq!(
+            resolve_effective_model_provider(&record, &personas, &global),
+            expected
+        );
+    }
+}
+
+#[test]
+fn resolve_non_hermes_and_unbound_commands_keep_app_precedence() {
+    let openclaw: crate::managed_agents::RuntimeBinding =
+        serde_json::from_value(serde_json::json!({
+            "kind": "openclaw", "schemaVersion": 1, "agentId": "synthetic-agent",
+            "executablePath": "/synthetic/bin/openclaw", "runtimeVersion": "fixture",
+            "gatewayIdentity": "synthetic-gateway",
+            "gatewayUrlRef": { "provider": "native_store", "locator": "synthetic.url" }
+        }))
+        .expect("synthetic OpenClaw binding");
+    let personas = vec![persona(
+        "p1",
+        Some("persona-model"),
+        Some("persona-provider"),
+    )];
+    let global = GlobalAgentConfig {
+        model: Some("global-model".into()),
+        provider: Some("global-provider".into()),
+        ..Default::default()
+    };
+    for (command, binding) in [
+        ("hermes", None),
+        ("codex-acp", None),
+        ("claude-agent-acp", None),
+        ("openclaw", Some(openclaw)),
+    ] {
+        let mut record = bare_record();
+        record.agent_command = command.into();
+        record.native_runtime_binding = binding;
+        assert_eq!(
+            resolve_effective_model_provider(&record, &personas, &global),
+            (Some("global-model"), Some("global-provider"))
+        );
+        record.persona_id = Some("p1".into());
+        assert_eq!(
+            resolve_effective_model_provider(&record, &personas, &global),
+            (Some("persona-model"), Some("persona-provider"))
+        );
+        record.model = Some("record-model".into());
+        assert_eq!(
+            resolve_effective_model_provider(&record, &personas, &global),
+            (Some("record-model"), Some("persona-provider"))
+        );
+    }
+}
+
 // ── IPC serialization ─────────────────────────────────────────────────────────
 
 /// A fully-populated `GlobalAgentConfig` must round-trip through JSON without
