@@ -10,11 +10,14 @@ import { resolveManagedAgentAvatarUrl } from "@/features/agents/ui/managedAgentA
 import {
   addChannelMembers,
   createManagedAgent,
+  getChannelDetails,
   getChannelMembers,
   listManagedAgents,
+  openDm,
   updateManagedAgent,
 } from "@/shared/api/tauri";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
+import { getIdentity } from "@/shared/api/tauriIdentity";
 import type {
   AcpRuntime,
   ChannelRole,
@@ -36,6 +39,9 @@ export type AttachManagedAgentToChannelInput = {
 
 export type AttachManagedAgentToChannelResult = {
   agent: ManagedAgent;
+  /** The actual destination; expanding a DM preserves the original channel. */
+  channelId: string;
+  channelName: string;
   membershipAdded: boolean;
   started: boolean;
 };
@@ -111,20 +117,71 @@ export async function attachManagedAgentToChannel(
   const role = input.role ?? "bot";
   const ensureRunning = input.ensureRunning ?? true;
   const agentPubkey = normalizePubkey(input.agent.pubkey);
-  const membershipResult = await addChannelMembers({
-    channelId,
-    pubkeys: [input.agent.pubkey],
-    role,
-  });
-  const membershipError = membershipResult.errors.find(
-    (error) => normalizePubkey(error.pubkey) === agentPubkey,
-  );
-  if (membershipError) {
-    throw new Error(membershipError.error);
+  const source = await getChannelDetails(channelId);
+  let target = { id: source.id, name: source.name };
+  let membershipAdded = false;
+
+  if (source.channelType === "dm") {
+    // Immutable DM participants are authoritative. Current room members can
+    // include temporary visitors and must not define a new DM's audience.
+    const participants = new Set(
+      source.participantPubkeys.map(normalizePubkey).filter(Boolean),
+    );
+    if (participants.size === 0) {
+      throw new Error("The direct conversation participants are unavailable.");
+    }
+    if (!participants.has(agentPubkey)) {
+      const identity = await getIdentity();
+      const ownerPubkey = normalizePubkey(identity.pubkey);
+      if (!participants.has(ownerPubkey)) {
+        throw new Error(
+          "The current owner is not a participant in this direct conversation.",
+        );
+      }
+      participants.add(agentPubkey);
+      // The relay adds the signer itself and limits this input to eight
+      // other participants. Including the owner would spend one of those slots.
+      const expanded = await openDm({
+        pubkeys: [...participants].filter((pubkey) => pubkey !== ownerPubkey),
+      });
+      const returnedParticipants = new Set(
+        expanded.participantPubkeys.map(normalizePubkey),
+      );
+      if (
+        expanded.channelType !== "dm" ||
+        expanded.id === source.id ||
+        returnedParticipants.size !== participants.size ||
+        [...participants].some((pubkey) => !returnedParticipants.has(pubkey))
+      ) {
+        throw new Error(
+          "The expanded conversation participants could not be confirmed.",
+        );
+      }
+      target = expanded;
+      membershipAdded = true;
+    }
+  } else {
+    const members = await getChannelMembers(channelId);
+    const alreadyJoined = members.some(
+      (member) => normalizePubkey(member.pubkey) === agentPubkey,
+    );
+    if (!alreadyJoined) {
+      const membershipResult = await addChannelMembers({
+        channelId,
+        pubkeys: [input.agent.pubkey],
+        role,
+      });
+      const membershipError = membershipResult.errors.find(
+        (error) => normalizePubkey(error.pubkey) === agentPubkey,
+      );
+      if (membershipError) {
+        throw new Error(membershipError.error);
+      }
+      membershipAdded = membershipResult.added.some(
+        (pubkey) => normalizePubkey(pubkey) === agentPubkey,
+      );
+    }
   }
-  const membershipAdded = membershipResult.added.some(
-    (pubkey) => normalizePubkey(pubkey) === agentPubkey,
-  );
 
   let agent = input.agent;
   let started = false;
@@ -150,6 +207,8 @@ export async function attachManagedAgentToChannel(
 
   return {
     agent,
+    channelId: target.id,
+    channelName: target.name,
     membershipAdded,
     started,
   } satisfies AttachManagedAgentToChannelResult;

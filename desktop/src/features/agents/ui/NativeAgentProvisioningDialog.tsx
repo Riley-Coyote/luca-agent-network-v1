@@ -19,7 +19,7 @@ import {
   type NativeProvisioningRequestV1,
   type NativeRuntimeFamilyV1,
 } from "@/shared/api/tauriOperatorForge";
-import { discoverNativeResidents, getChannelMembers } from "@/shared/api/tauri";
+import { discoverNativeResidents } from "@/shared/api/tauri";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
 import type { DiscoveredResidentCandidate } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -100,6 +100,9 @@ export function NativeAgentProvisioningDialog({
   const [completedResult, setCompletedResult] =
     React.useState<NativeAgentCompletion | null>(null);
   const [deliveryError, setDeliveryError] = React.useState<string | null>(null);
+  const resolvedTarget = React.useRef<{ id: string; name: string } | null>(
+    null,
+  );
 
   React.useEffect(() => {
     if (!open) return;
@@ -133,6 +136,7 @@ export function NativeAgentProvisioningDialog({
     setAttachmentError(null);
     setCompletedResult(null);
     setDeliveryError(null);
+    resolvedTarget.current = null;
   }, [previewDraftFingerprint, personaId]);
 
   const matchingSources = candidates.filter(
@@ -174,11 +178,13 @@ export function NativeAgentProvisioningDialog({
   async function attachCompletedResident(
     receipt: NativeProvisioningReceiptV1,
   ): Promise<NativeAgentCompletion> {
-    if (!targetChannel) return { receipt, attachment: null };
+    if (!targetChannel) {
+      return { receipt, originChannelId: null, attachment: null };
+    }
     if (!receipt.residentPubkey) {
       throw new Error("The completed resident identity is unavailable.");
     }
-    const refreshed = await managedAgents.refetch();
+    const refreshed = await managedAgents.refetch({ throwOnError: true });
     const resident = refreshed.data?.find(
       (candidate) =>
         normalizePubkey(candidate.pubkey) ===
@@ -189,20 +195,17 @@ export function NativeAgentProvisioningDialog({
         "The resident was created, but its Library record is not available yet.",
       );
     }
-    // A previous attempt may have joined successfully before startup failed.
-    // Reuse that membership so retrying cannot stop at "Already a member".
-    const members = await getChannelMembers(targetChannel.id);
-    const alreadyJoined = members.some(
-      (member) =>
-        normalizePubkey(member.pubkey) === normalizePubkey(resident.pubkey),
+    await beforeOwnerAction?.();
+    const attached = await attachManagedAgentToChannel(
+      resolvedTarget.current?.id ?? targetChannel.id,
+      { agent: resident, ensureRunning: false, role: "bot" },
     );
-    const attached = alreadyJoined
-      ? { agent: resident, membershipAdded: false, started: false }
-      : await attachManagedAgentToChannel(targetChannel.id, {
-          agent: resident,
-          ensureRunning: false,
-          role: "bot",
-        });
+    // Save the canonical destination before startup, which can fail after a
+    // successful DM expansion. Retry the exact target with the same resident.
+    resolvedTarget.current = {
+      id: attached.channelId,
+      name: attached.channelName,
+    };
     if (resident.status !== "running" && resident.status !== "deployed") {
       await beforeOwnerAction?.();
       attached.agent = await startManagedAgent(resident.pubkey);
@@ -211,7 +214,8 @@ export function NativeAgentProvisioningDialog({
     await queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
     return {
       receipt,
-      attachment: { ...attached, channelId: targetChannel.id },
+      originChannelId: targetChannel.id,
+      attachment: attached,
     };
   }
 
@@ -239,7 +243,7 @@ export function NativeAgentProvisioningDialog({
       setAttachmentError(
         cause instanceof Error
           ? cause.message
-          : `The agent could not be added to #${targetChannel?.name ?? "the room"}.`,
+          : "The agent could not be added to the conversation.",
       );
       return;
     }
@@ -558,15 +562,15 @@ export function NativeAgentProvisioningDialog({
           ) : null}
           {attachmentError && completion?.status === "complete" ? (
             <section
-              aria-label="Room attachment needs attention"
+              aria-label="Conversation attachment needs attention"
               className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
             >
               <p className="text-sm font-medium">
-                Agent created; room attachment needs attention
+                Agent created; conversation attachment needs attention
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {attachmentError} Retrying adds the same resident to #
-                {targetChannel?.name}; it does not create another agent.
+                {attachmentError} Retry setup for the same resident in{" "}
+                {resolvedTarget.current?.name ?? targetChannel?.name}.
               </p>
             </section>
           ) : null}
@@ -580,7 +584,7 @@ export function NativeAgentProvisioningDialog({
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {deliveryError} Retry the update to the original conversation.
-                The agent and its room attachment are already saved.
+                The agent and its conversation attachment are already saved.
               </p>
             </section>
           ) : null}
@@ -596,7 +600,7 @@ export function NativeAgentProvisioningDialog({
             ) : attachmentError && completion?.status === "complete" ? (
               <Button disabled={busy} onClick={() => void retryAttachment()}>
                 {busy ? <LoaderCircle className="animate-spin" /> : null}Try
-                room again
+                conversation again
               </Button>
             ) : recoveryTransactionId ? (
               <>

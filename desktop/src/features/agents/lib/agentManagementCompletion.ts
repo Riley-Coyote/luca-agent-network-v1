@@ -1,13 +1,13 @@
 import type { AgentManagementRequest } from "../agentManagement";
 import type { AttachManagedAgentToChannelResult } from "../channelAgents";
 import type { NativeProvisioningReceiptV1 } from "@/shared/api/tauriOperatorForge";
+import { buildChannelLink } from "@/features/messages/lib/messageLink";
 
 /** The native transaction and the separately completed conversation attachment. */
 export type NativeAgentCompletion = {
   receipt: NativeProvisioningReceiptV1;
-  attachment:
-    | (AttachManagedAgentToChannelResult & { channelId: string })
-    | null;
+  originChannelId: string | null;
+  attachment: AttachManagedAgentToChannelResult | null;
 };
 
 /** Build a host setup update without treating a started process as a ready agent. */
@@ -22,7 +22,7 @@ export function agentManagementCompletionMessage(
     receipt.status !== "complete" ||
     receipt.needsAttention ||
     !attachment ||
-    attachment.channelId !== request.request.channelId
+    completion.originChannelId !== request.request.channelId
   ) {
     throw new Error(
       "The native creation has not completed in its original conversation.",
@@ -51,11 +51,21 @@ export function agentManagementCompletionMessage(
         ? "Its runtime process was started."
         : "Its runtime process was already running."
       : `Its runtime reports ${attachment.agent.status}.`;
+  const expandedDm = attachment.channelId !== completion.originChannelId;
+  const targetName = attachment.channelName
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[\\`*_[\]<>]/g, "\\$&");
+  const destination = expandedDm
+    ? `the group conversation “${targetName}”`
+    : "this conversation";
+  const targetLink = expandedDm
+    ? ` [Open group conversation](${buildChannelLink(attachment.channelId)})`
+    : "";
 
   return {
     agentPubkey: sourcePubkey,
     channelId: request.request.channelId,
-    content: `Polyphonic setup update: ${attachment.agent.name} was linked to its ${runtimeName} and added to this conversation. ${processState} An authenticated reply has not been verified.`,
+    content: `Polyphonic setup update: ${attachment.agent.name} was linked to its ${runtimeName} and added to ${destination}. ${processState} An authenticated reply has not been verified.${targetLink}`,
     marker: `polyphonic-agent-creation.v1:${encodeURIComponent(request.requestId)}`,
     markerScope: "agent" as const,
   };

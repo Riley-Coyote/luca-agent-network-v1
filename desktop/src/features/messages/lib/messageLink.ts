@@ -7,6 +7,28 @@
 const MESSAGE_LINK_SCHEME = "buzz:";
 const MESSAGE_LINK_HOST = "message";
 
+/** Parse a conversation-only link used within the app's message renderer. */
+export function parseChannelLink(
+  href: string,
+): { ok: true; channelId: string } | { ok: false } {
+  const match =
+    /^buzz:\/\/channel\?channel=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(
+      href,
+    );
+  return match && match[0] === href
+    ? { ok: true, channelId: match[1] }
+    : { ok: false };
+}
+
+/** Build a validated in-app conversation link without inventing a message ID. */
+export function buildChannelLink(channelId: string): string {
+  const href = `buzz://channel?channel=${channelId}`;
+  if (!parseChannelLink(href).ok) {
+    throw new Error("buildChannelLink: a valid conversation ID is required");
+  }
+  return href;
+}
+
 export type MessageLinkInput = {
   channelId: string;
   messageId: string;

@@ -44,11 +44,22 @@ async function installDefaultBridge(page: import("@playwright/test").Page) {
 async function requestOwnedNativeCreate(
   page: Page,
   runtime: "hermes" | "openclaw" = "hermes",
+  origin?: { id: string; name: string },
 ) {
-  await page.goto(`/?e2e=mock#/channels/${AGENTS_CHANNEL_ID}`);
-  await expect(page.getByRole("heading", { name: "agents" })).toBeVisible();
-  await page.waitForFunction(() =>
-    window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName: "agents" }),
+  const channelId = origin?.id ?? AGENTS_CHANNEL_ID;
+  const channelName = origin?.name ?? "agents";
+  if (origin) {
+    await page.evaluate((id) => {
+      window.location.hash = `/channels/${id}`;
+    }, channelId);
+  } else {
+    await page.goto(`/?e2e=mock#/channels/${channelId}`);
+    await expect(page.getByRole("heading", { name: "agents" })).toBeVisible();
+  }
+  await page.waitForFunction(
+    (channelName) =>
+      window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName }),
+    channelName,
   );
   await page.evaluate(
     ({ agentPubkey, channelId, runtime }) => {
@@ -80,7 +91,7 @@ async function requestOwnedNativeCreate(
         ],
       });
     },
-    { agentPubkey: OWNED_AGENT_PUBKEY, channelId: AGENTS_CHANNEL_ID, runtime },
+    { agentPubkey: OWNED_AGENT_PUBKEY, channelId, runtime },
   );
   await expect(page.getByLabel("Runtime")).toHaveValue(runtime);
   await page.getByRole("button", { name: "Review changes" }).click();
@@ -125,6 +136,55 @@ async function failFirstCompletionSend(page: Page, afterDelivery = false) {
 
 const completionReceipt = (page: Page) =>
   page.getByText(/^Polyphonic setup update:/);
+
+async function openCanonicalLucaDm(page: Page) {
+  await page.goto("/?e2e=mock#/agents");
+  await page.waitForFunction(
+    () => typeof window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__ === "function",
+  );
+  return page.evaluate(async (pubkey) => {
+    const channel = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "open_dm",
+      { pubkeys: [pubkey] },
+    )) as { id: string; name: string; participant_pubkeys: string[] };
+    await window.__BUZZ_E2E_INVALIDATE_CHANNELS__?.();
+    return channel;
+  }, OWNED_AGENT_PUBKEY);
+}
+
+async function assertExpandedNativeConversation(
+  page: Page,
+  origin: { id: string; participant_pubkeys: string[] },
+) {
+  const state = await page.evaluate(async () => ({
+    channels: (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "get_channels",
+    )) as Array<{ id: string; participant_pubkeys: string[] }>,
+    residents: (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+      "list_managed_agents",
+    )) as Array<{ name: string; pubkey: string }>,
+  }));
+  const residents = state.residents.filter(
+    (resident) => resident.name === "Completion Scout",
+  );
+  expect(residents).toHaveLength(1);
+  const expectedParticipants = [
+    ...origin.participant_pubkeys,
+    residents[0].pubkey,
+  ].sort();
+  expect(
+    state.channels.find((channel) => channel.id === origin.id)
+      ?.participant_pubkeys,
+  ).toEqual(origin.participant_pubkeys);
+  const expanded = state.channels.filter(
+    (channel) =>
+      JSON.stringify([...channel.participant_pubkeys].sort()) ===
+      JSON.stringify(expectedParticipants),
+  );
+  expect(expanded).toHaveLength(1);
+  expect(expanded[0].id).not.toBe(origin.id);
+  return { target: expanded[0], resident: residents[0] };
+}
 
 test("manual native creation commits only after its review sheet", async ({
   page,
@@ -391,10 +451,12 @@ test("room attachment failure retries membership without rerunning native creati
   await page.getByRole("button", { name: "Review changes" }).click();
   await page.getByRole("button", { name: "Create agent" }).click();
   await expect(
-    page.getByRole("region", { name: "Room attachment needs attention" }),
-  ).toContainText("does not create another agent");
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
+  ).toContainText("Retry setup for the same resident");
 
-  await page.getByRole("button", { name: "Try room again" }).click();
+  await page.getByRole("button", { name: "Try conversation again" }).click();
   await expect(
     page.getByRole("heading", { name: "Create a native agent" }),
   ).not.toBeVisible();
@@ -474,6 +536,198 @@ for (const runtime of ["hermes", "openclaw"] as const) {
   });
 }
 
+test("canonical Luca DM commissioning preserves the pair and links the actual group", async ({
+  page,
+}, testInfo) => {
+  await installDefaultBridge(page);
+  const origin = await openCanonicalLucaDm(page);
+  expect(origin.participant_pubkeys).toHaveLength(2);
+  expect(origin.participant_pubkeys).toContain(OWNED_AGENT_PUBKEY);
+  await requestOwnedNativeCreate(page, "hermes", origin);
+  const before = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMAND_PAYLOADS__?.length ?? 0,
+  );
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).not.toBeVisible();
+  const { target, resident } = await assertExpandedNativeConversation(
+    page,
+    origin,
+  );
+  const payloads = await page.evaluate(
+    (before) => window.__BUZZ_E2E_COMMAND_PAYLOADS__?.slice(before) ?? [],
+    before,
+  );
+  expect(
+    payloads.filter((entry) => entry.command === "add_channel_members"),
+  ).toHaveLength(0);
+  expect(payloads.filter((entry) => entry.command === "open_dm")).toEqual([
+    {
+      command: "open_dm",
+      payload: {
+        pubkeys: [OWNED_AGENT_PUBKEY, resident.pubkey],
+      },
+    },
+  ]);
+  expect(
+    payloads.find(
+      (entry) => entry.command === "send_managed_agent_channel_message",
+    )?.payload,
+  ).toMatchObject({ channelId: origin.id });
+  await expect(completionReceipt(page)).toHaveCount(1);
+  await expect(completionReceipt(page)).toContainText("Group DM (3)");
+  const link = page.getByRole("link", { name: "Open group conversation" });
+  await expect(link).toHaveAttribute(
+    "href",
+    `buzz://channel?channel=${target.id}`,
+  );
+  await waitForAnimations(page);
+  await page.screenshot({ path: testInfo.outputPath("dm-completion.png") });
+  await link.click();
+  await expect(page).toHaveURL(new RegExp(`#/channels/${target.id}$`));
+  await expect(page.locator(".tiptap[contenteditable='true']")).toBeVisible();
+  expect(page.context().pages()).toHaveLength(1);
+});
+
+for (const failure of ["startup", "delivery"] as const) {
+  test(`canonical Luca DM ${failure} retry reuses the exact resident and group`, async ({
+    page,
+  }) => {
+    await installMockBridge(page, {
+      ...(failure === "startup"
+        ? {
+            startManagedAgentErrors: ["Hermes authentication needs attention."],
+          }
+        : {}),
+      managedAgents: [
+        {
+          channelNames: ["agents"],
+          name: "Luca",
+          pubkey: OWNED_AGENT_PUBKEY,
+          status: "running",
+        },
+      ],
+    });
+    const origin = await openCanonicalLucaDm(page);
+    await requestOwnedNativeCreate(page, "hermes", origin);
+    if (failure === "delivery") await failFirstCompletionSend(page, true);
+    const before = await page.evaluate(
+      () => window.__BUZZ_E2E_COMMANDS__?.length ?? 0,
+    );
+    await page.getByRole("button", { name: "Create agent" }).click();
+    await expect(
+      page.getByRole("region", {
+        name:
+          failure === "startup"
+            ? "Conversation attachment needs attention"
+            : "Conversation update needs attention",
+      }),
+    ).toBeVisible();
+    const first = await assertExpandedNativeConversation(page, origin);
+    await page
+      .getByRole("button", {
+        name:
+          failure === "startup"
+            ? "Try conversation again"
+            : "Retry conversation update",
+      })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Create a native agent" }),
+    ).not.toBeVisible();
+    const retried = await assertExpandedNativeConversation(page, origin);
+    expect(retried).toMatchObject({
+      target: {
+        id: first.target.id,
+        participant_pubkeys: first.target.participant_pubkeys,
+      },
+      resident: {
+        name: first.resident.name,
+        pubkey: first.resident.pubkey,
+        status: "running",
+      },
+    });
+    await expect(completionReceipt(page)).toHaveCount(1);
+    await expect(completionReceipt(page)).toContainText(
+      "Its runtime process was started.",
+    );
+    await expect(
+      page.getByRole("link", { name: "Open group conversation" }),
+    ).toHaveAttribute("href", `buzz://channel?channel=${first.target.id}`);
+    const commands = await page.evaluate(
+      (before) => window.__BUZZ_E2E_COMMANDS__?.slice(before) ?? [],
+      before,
+    );
+    expect(commandCount(commands, "create_persona")).toBe(1);
+    expect(commandCount(commands, "execute_native_agent_provisioning")).toBe(1);
+    expect(commandCount(commands, "open_dm")).toBe(1);
+    expect(commandCount(commands, "add_channel_members")).toBe(0);
+    expect(commandCount(commands, "start_managed_agent")).toBe(
+      failure === "startup" ? 2 : 1,
+    );
+    expect(commandCount(commands, "send_managed_agent_channel_message")).toBe(
+      failure === "startup" ? 1 : 2,
+    );
+  });
+}
+
+test("a retained group never replaces the original Luca DM authority during startup retry", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    startManagedAgentErrors: ["Hermes authentication needs attention."],
+    managedAgents: [
+      {
+        channelNames: ["agents"],
+        name: "Luca",
+        pubkey: OWNED_AGENT_PUBKEY,
+        status: "running",
+      },
+    ],
+  });
+  const origin = await openCanonicalLucaDm(page);
+  await requestOwnedNativeCreate(page, "hermes", origin);
+  await page.getByRole("button", { name: "Create agent" }).click();
+  await expect(
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
+  ).toContainText("Hermes authentication needs attention.");
+  await assertExpandedNativeConversation(page, origin);
+  const before = await page.evaluate(
+    () => window.__BUZZ_E2E_COMMANDS__?.length ?? 0,
+  );
+  await page.evaluate(
+    ({ channelId, pubkey }) => {
+      window.__BUZZ_E2E_MUTATE_CHANNEL__?.({
+        channelId,
+        removeMemberPubkey: pubkey,
+      });
+    },
+    { channelId: origin.id, pubkey: OWNED_AGENT_PUBKEY },
+  );
+  await page.getByRole("button", { name: "Try conversation again" }).click();
+  await expect(
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
+  ).toContainText("both still belong to");
+  const retriedCommands = await page.evaluate(
+    (before) => window.__BUZZ_E2E_COMMANDS__?.slice(before) ?? [],
+    before,
+  );
+  for (const command of [
+    "execute_native_agent_provisioning",
+    "open_dm",
+    "add_channel_members",
+    "start_managed_agent",
+    "send_managed_agent_channel_message",
+  ]) {
+    expect(commandCount(retriedCommands, command)).toBe(0);
+  }
+});
+
 test("navigation during review keeps attachment and completion in the original conversation", async ({
   page,
 }) => {
@@ -527,10 +781,12 @@ test("native startup failure preserves the resident and sends no completion unti
   await requestOwnedNativeCreate(page);
   await page.getByRole("button", { name: "Create agent" }).click();
   await expect(
-    page.getByRole("region", { name: "Room attachment needs attention" }),
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
   ).toContainText("Hermes authentication needs attention.");
   await expect(completionReceipt(page)).toHaveCount(0);
-  await page.getByRole("button", { name: "Try room again" }).click();
+  await page.getByRole("button", { name: "Try conversation again" }).click();
   await expect(completionReceipt(page)).toHaveCount(1);
   const commands = await page.evaluate(
     () => window.__BUZZ_E2E_COMMANDS__ ?? [],
@@ -592,7 +848,9 @@ test("room retry refreshes revoked membership before adding the resident or send
   await requestOwnedNativeCreate(page);
   await page.getByRole("button", { name: "Create agent" }).click();
   await expect(
-    page.getByRole("region", { name: "Room attachment needs attention" }),
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
   ).toBeVisible();
   // Leave React Query stale: the owner action itself must refresh membership.
   await page.evaluate(
@@ -604,9 +862,11 @@ test("room retry refreshes revoked membership before adding the resident or send
     },
     { channelId: AGENTS_CHANNEL_ID, pubkey: OWNED_AGENT_PUBKEY },
   );
-  await page.getByRole("button", { name: "Try room again" }).click();
+  await page.getByRole("button", { name: "Try conversation again" }).click();
   await expect(
-    page.getByRole("region", { name: "Room attachment needs attention" }),
+    page.getByRole("region", {
+      name: "Conversation attachment needs attention",
+    }),
   ).toContainText("both still belong to");
   const commands = await page.evaluate(
     () => window.__BUZZ_E2E_COMMANDS__ ?? [],

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { requestOpenSnapshotImport } from "@/features/agents/openSnapshotImportFromUrlEvent";
 import {
+  parseChannelLink,
   parseMessageLink,
   resolveMessageLinkRenderTarget,
   type ParsedMessageLink,
@@ -1365,6 +1366,7 @@ function createMarkdownComponents(mediaInset = false): Components {
       channels,
       imetaByUrl,
       interactive,
+      onOpenChannel,
       onOpenMessageLink,
       onImportSnapshotFromUrl,
       snapshotSharedBy,
@@ -1429,6 +1431,22 @@ function createMarkdownComponents(mediaInset = false): Components {
     // in-app instead of opening the URL in the OS browser. http(s) links
     // continue to use the existing target="_blank" behavior.
     if (href) {
+      const channelLink = parseChannelLink(href);
+      if (channelLink.ok) {
+        return (
+          <a
+            {...props}
+            className="font-medium text-primary underline underline-offset-4 transition-colors hover:text-primary/80 cursor-pointer"
+            href={href}
+            onClick={(event) => {
+              event.preventDefault();
+              onOpenChannel(channelLink.channelId);
+            }}
+          >
+            {children}
+          </a>
+        );
+      }
       const messageLinkTarget = resolveMessageLinkRenderTarget({
         href,
         label,

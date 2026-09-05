@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildChannelLink,
   buildMessageLink,
   isMessageLink,
+  parseChannelLink,
   parseMessageLink,
   resolveMessageLinkRenderTarget,
 } from "./messageLink.ts";
@@ -13,6 +15,44 @@ const MESSAGE =
   "b04819ffc1f7c8ffb49c6d30b5899f470198264680d02e78894a658e30a9059f";
 const THREAD =
   "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+
+test("conversation links round-trip the actual channel without a fabricated message ID", () => {
+  const href = buildChannelLink(CHANNEL);
+  assert.equal(href, `buzz://channel?channel=${CHANNEL}`);
+  assert.deepEqual(parseChannelLink(href), { ok: true, channelId: CHANNEL });
+  assert.equal(isMessageLink(href), false);
+  assert.equal(parseMessageLink(href).ok, false);
+});
+
+test("conversation links reject wrong scheme, host, ID, and extra path or arguments", () => {
+  for (const href of [
+    "not a url",
+    `https://channel?channel=${CHANNEL}`,
+    `buzz://message?channel=${CHANNEL}`,
+    `buzz://channel.example?channel=${CHANNEL}`,
+    `buzz://owner@channel?channel=${CHANNEL}`,
+    `buzz://channel:80?channel=${CHANNEL}`,
+    `buzz://channel/?channel=${CHANNEL}`,
+    `buzz://channel/path?channel=${CHANNEL}`,
+    "buzz://channel",
+    "buzz://channel?channel=",
+    "buzz://channel?channel=not-a-channel",
+    `buzz://channel?channel=${CHANNEL}&channel=${CHANNEL}`,
+    `buzz://channel?channel=${CHANNEL}&redirect=https://example.com`,
+    `buzz://channel?channel=${CHANNEL}&`,
+    `buzz://channel?channel=${CHANNEL}#extra`,
+    `buzz://channel?channel=${CHANNEL}#`,
+    `buzz://channel?channel=${CHANNEL}\n`,
+    ` buzz://channel?channel=${CHANNEL}`,
+  ]) {
+    assert.deepEqual(parseChannelLink(href), { ok: false }, href);
+  }
+  assert.throws(() => buildChannelLink(""), /valid conversation ID/);
+  assert.throws(
+    () => buildChannelLink(`${CHANNEL}&extra=1`),
+    /valid conversation ID/,
+  );
+});
 
 test("buildMessageLink → parseMessageLink round-trips without thread", () => {
   const url = buildMessageLink({ channelId: CHANNEL, messageId: MESSAGE });

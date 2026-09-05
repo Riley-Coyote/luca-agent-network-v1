@@ -522,26 +522,18 @@ test("rehypeImageGallery: leaves a single trailing image in the text flow", () =
 // Regression test: react-markdown's `defaultUrlTransform` strips unknown
 // schemes (returns `""`) before our `a` component override can see them,
 // which would break copy → paste → click for `buzz://message?…` links
-// end-to-end. We pass a custom `urlTransform` that delegates to the
-// default for `buzz://message` and legacy `buzz://message` hrefs.
+// end-to-end. The production transform preserves supported app links and
+// delegates everything else to the default transform.
 //
 // This test renders real `<ReactMarkdown>` with the production transform
-// and asserts the link href survives to the rendered DOM. Mirrors the
-// `markdown.tsx` source — keep in sync if either changes.
+// and asserts the link href survives to the rendered DOM.
 
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import ReactMarkdown from "react-markdown";
 
-import { isMessageLink } from "../../features/messages/lib/messageLink.ts";
 import remarkSpoilers from "../lib/remarkSpoilers.ts";
-
-function messageLinkUrlTransform(value, key) {
-  if (key === "href" && isMessageLink(value)) {
-    return value;
-  }
-  return defaultUrlTransform(value);
-}
+import { messageLinkUrlTransform } from "./markdown/utils.ts";
 
 function renderMarkdown(content) {
   return renderToStaticMarkup(
@@ -552,6 +544,25 @@ function renderMarkdown(content) {
     ),
   );
 }
+
+test("messageLinkUrlTransform: preserves validated conversation hrefs through ReactMarkdown", () => {
+  const href = "buzz://channel?channel=f570339f-8f8a-4e08-a779-8d954aa44109";
+  assert.ok(
+    renderMarkdown(`[Group conversation](${href})`).includes(`href="${href}"`),
+  );
+  assert.equal(messageLinkUrlTransform(href, "src"), "");
+});
+
+test("messageLinkUrlTransform: strips malformed conversation links and trailing arguments", () => {
+  for (const href of [
+    "buzz://channel?channel=missing",
+    "buzz://channel?channel=f570339f-8f8a-4e08-a779-8d954aa44109&redirect=https://example.com",
+    "buzz://channel?channel=f570339f-8f8a-4e08-a779-8d954aa44109#extra",
+  ]) {
+    assert.equal(messageLinkUrlTransform(href, "href"), "");
+    assert.match(renderMarkdown(`[Invalid](${href})`), /href=""/);
+  }
+});
 
 test("messageLinkUrlTransform: preserves buzz://message href", () => {
   const html = renderMarkdown(

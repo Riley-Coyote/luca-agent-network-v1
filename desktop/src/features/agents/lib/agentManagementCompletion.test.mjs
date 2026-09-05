@@ -19,6 +19,7 @@ const request = {
 
 function completion() {
   return {
+    originChannelId: request.request.channelId,
     receipt: {
       schemaVersion: 1,
       transactionId: "native-transaction-1",
@@ -33,6 +34,7 @@ function completion() {
     },
     attachment: {
       channelId: request.request.channelId,
+      channelName: "Research",
       agent: {
         name: "Scout",
         pubkey: residentPubkey,
@@ -152,7 +154,7 @@ test("a non-running status is reported without claiming process startup or readi
   assert.match(message.content, /authenticated reply has not been verified/);
 });
 
-test("refuses an update request, unfinished transaction, missing attachment, or changed conversation", () => {
+test("refuses an update request, unfinished transaction, missing attachment, or changed origin", () => {
   const invalid = [
     { ...completion(), attachment: null },
     {
@@ -169,10 +171,7 @@ test("refuses an update request, unfinished transaction, missing attachment, or 
     },
     {
       ...completion(),
-      attachment: {
-        ...completion().attachment,
-        channelId: "another-conversation",
-      },
+      originChannelId: "another-conversation",
     },
   ];
   for (const result of invalid) {
@@ -189,6 +188,55 @@ test("refuses an update request, unfinished transaction, missing attachment, or 
         completion(),
       ),
     /has not completed in its original conversation/,
+  );
+});
+
+test("an expanded DM receipt returns to the original conversation and links the actual group", () => {
+  const result = completion();
+  result.attachment.channelId = "f570339f-8f8a-4e08-a779-8d954aa44109";
+  result.attachment.channelName = "Luca, Scout";
+  const message = agentManagementCompletionMessage(
+    request,
+    sourcePubkey,
+    result,
+  );
+  assert.equal(message.channelId, request.request.channelId);
+  assert.match(
+    message.content,
+    /added to the group conversation “Luca, Scout”/,
+  );
+  assert.ok(
+    message.content.includes(
+      `[Open group conversation](buzz://channel?channel=${result.attachment.channelId})`,
+    ),
+  );
+  assert.doesNotMatch(message.content, /added to this conversation/);
+  assert.equal(
+    message.marker,
+    agentManagementCompletionMessage(request, sourcePubkey, completion())
+      .marker,
+  );
+});
+
+test("an expanded receipt cannot link an invalid destination or interpret its name as markdown", () => {
+  const result = completion();
+  result.attachment.channelId = "invalid-destination";
+  assert.throws(
+    () => agentManagementCompletionMessage(request, sourcePubkey, result),
+    /valid conversation ID/,
+  );
+  result.attachment.channelId = "f570339f-8f8a-4e08-a779-8d954aa44109";
+  result.attachment.channelName =
+    "Group [injected](https://example.com)\n*name*";
+  const message = agentManagementCompletionMessage(
+    request,
+    sourcePubkey,
+    result,
+  );
+  assert.ok(
+    message.content.includes(
+      "Group \\[injected\\](https://example.com) \\*name\\*",
+    ),
   );
 });
 
