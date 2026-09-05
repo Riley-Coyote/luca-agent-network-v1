@@ -1006,7 +1006,7 @@ mod tests {
         };
         assert_eq!(base.skill_id, skill_id);
         assert_eq!(
-            catalog_generation(&[base.clone()]),
+            catalog_generation(std::slice::from_ref(&base)),
             catalog_generation(&[redundant_copy])
         );
 

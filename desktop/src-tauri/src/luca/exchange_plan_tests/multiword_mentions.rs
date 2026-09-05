@@ -212,7 +212,10 @@ fn multiword_visit_replays_frozen_decision_after_rename_without_duplicate_work()
         replay.apply(&request).expect("effective").final_draft,
         request.final_draft
     );
-    assert_eq!(replay.granted_p_tags, [target.clone()]);
+    assert_eq!(
+        replay.granted_p_tags.as_slice(),
+        std::slice::from_ref(&target)
+    );
     assert_eq!(
         fixture
             .relay

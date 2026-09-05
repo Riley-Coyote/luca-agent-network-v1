@@ -14,9 +14,10 @@ use serde::Serialize;
 use super::exchange_relay::{ExchangeRelay, ExchangeRelayError};
 use super::exchange_store::{ExchangeStore, VisitGrant, VisitRecord};
 
-/// The one of two events that can end a V1 visit.
+/// An exchange stop, plus the legacy owner-message trigger used by rule fixtures.
 pub(crate) enum VisitFadeTrigger<'a> {
     /// The owner's next room message omitted these existing guests.
+    #[cfg(test)]
     OwnerMessage {
         /// Same-owner residents explicitly mentioned by the owner.
         mentioned: &'a BTreeSet<Hex64>,
@@ -374,7 +375,10 @@ pub(crate) fn settle_visit_grants(
     Ok(())
 }
 
-/// Add newly mentioned same-owner residents and fade omitted existing guests.
+/// Exercise the original combined owner-mention behavior in visit-rule fixtures.
+/// Production sends use the plan/provision/commit path so an unaccepted message
+/// cannot commit visit changes.
+#[cfg(test)]
 pub(crate) fn handle_owner_mentions(
     relay: &dyn ExchangeRelay,
     store: &Arc<Mutex<ExchangeStore>>,
@@ -412,10 +416,10 @@ fn normalized_visit_mentions(mentioned_pubkeys: &[String]) -> BTreeSet<Hex64> {
         .collect()
 }
 
-/// Fade guests omitted by an owner message and return the residents removed.
-///
-/// The send command uses this before constructing the public message so stale
-/// sticky-audience recipients can be removed from that message's `p` tags.
+/// Exercise owner-message fading in the legacy visit-rule fixtures.
+/// Production sends derive faded recipients from `OwnerMessageVisitPlan` and
+/// commit those changes only after the relay accepts the message.
+#[cfg(test)]
 pub(crate) fn fade_owner_message_visits(
     relay: &dyn ExchangeRelay,
     store: &Arc<Mutex<ExchangeStore>>,
@@ -435,7 +439,7 @@ pub(crate) fn fade_owner_message_visits(
     )
 }
 
-/// Apply the complete V1 fade rule in one place.
+/// Remove visitors affected by an exchange stop or a test-only owner trigger.
 pub(crate) fn fade_visits(
     relay: &dyn ExchangeRelay,
     store: &Arc<Mutex<ExchangeStore>>,
@@ -449,6 +453,7 @@ pub(crate) fn fade_visits(
     let mut faded = Vec::new();
     for visit in visits {
         let should_fade = match &trigger {
+            #[cfg(test)]
             VisitFadeTrigger::OwnerMessage {
                 mentioned,
                 now_unix_secs,

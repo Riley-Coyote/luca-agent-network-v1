@@ -947,17 +947,17 @@ fn observe_provider_line(
         .get("kind")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    if kind == "result" {
-        if value.get("stopReason").and_then(serde_json::Value::as_str) != Some("end_turn") {
-            projection.state = RuntimeTaskStateV1::Failed;
-            projection.error = Some("The runtime stopped before completing the task.".into());
-        }
+    if kind == "result"
+        && value.get("stopReason").and_then(serde_json::Value::as_str) != Some("end_turn")
+    {
+        projection.state = RuntimeTaskStateV1::Failed;
+        projection.error = Some("The runtime stopped before completing the task.".into());
     }
     if let Some(text) = (kind == "result")
         .then(|| value.get("result").and_then(serde_json::Value::as_str))
         .flatten()
     {
-        *result = bounded_output(&text, MAX_TEXT_BYTES);
+        *result = bounded_output(text, MAX_TEXT_BYTES);
     }
     if kind == "failed" {
         projection.state = RuntimeTaskStateV1::Failed;

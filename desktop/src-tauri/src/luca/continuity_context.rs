@@ -313,7 +313,11 @@ where
                     relationship_scope_ref: relationship_scope_ref.clone(),
                     cue_ref: cue_ref.clone(),
                     current_handoff: resident_ready.then_some(current_handoff).flatten(),
-                    resident_items: resident_ready.then_some(resident_items).unwrap_or_default(),
+                    resident_items: if resident_ready {
+                        resident_items
+                    } else {
+                        Vec::new()
+                    },
                     capsule_identity_orientation: supplement.capsule_identity_orientation,
                     capsule_relationship_orientation: supplement.capsule_relationship_orientation,
                     owner_brain_references: supplement.owner_brain_references,

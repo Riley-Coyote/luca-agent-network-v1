@@ -282,7 +282,7 @@ fn rejected_owner_send_rolls_back_only_attempt_membership_without_visit_notes() 
         .is_empty());
 
     let provisioned = provision_owner_message_visits(&relay, &plan).expect("provision");
-    assert_eq!(provisioned, [guest.clone()]);
+    assert_eq!(provisioned.as_slice(), std::slice::from_ref(&guest));
     rollback_owner_message_visit_memberships(&relay, &plan, &provisioned);
 
     let room = relay.room.lock().expect("room");

@@ -144,7 +144,7 @@ fn project_runtime_owned_mcp_catalog(
             ),
         ),
     };
-    servers.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    servers.sort_by_key(|server| server.name.to_lowercase());
     RuntimeOwnedMcpCatalogV1 {
         runtime_id: runtime_id.into(),
         label: label.into(),
