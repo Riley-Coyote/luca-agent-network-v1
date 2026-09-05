@@ -8,7 +8,7 @@ use std::{
     io::Read,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use luca_protocol::{
@@ -434,6 +434,11 @@ impl ManagedMessagePublisher {
                     .map_err(|_| ManagedPublicationAuthorityError::Invalid)?,
             )
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        if !self.settle_owner_return(entry) {
+            // The reply already succeeded. Retain both finalization bits as
+            // pending so recovery retries cleanup, never the model or submit.
+            return Ok(());
+        }
         if self.artifact_app_data_dir.is_some() {
             outbox
                 .mark_artifact_receipts_pending(&entry.idempotency_key)
@@ -477,6 +482,36 @@ impl ManagedMessagePublisher {
             let _ = outbox.mark_artifact_receipts_settled(&entry.idempotency_key);
         }
         Ok(())
+    }
+
+    fn settle_owner_return(&self, entry: &ManagedOutboxReconcileEntry) -> bool {
+        if entry.request.exchange.is_none()
+            || entry.request.resolved_p_tags != [entry.request.owner_pubkey.clone()]
+        {
+            return true;
+        }
+        let Some(exchange) = &self.exchange else {
+            return true;
+        };
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(now) => now.as_secs(),
+            Err(_) => return false,
+        };
+        match ExchangeResolver::new(
+            exchange.relay.as_ref(),
+            &exchange.store,
+            &self.dispatch_store,
+        )
+        .settle_published_owner_return(&entry.request, now)
+        {
+            Ok(()) => true,
+            Err(_) => {
+                eprintln!(
+                    "luca-exchange: accepted owner return has pending close/visit settlement"
+                );
+                false
+            }
+        }
     }
 
     /// Artifact bookkeeping is deliberately downstream of publication. A
@@ -799,6 +834,9 @@ impl ManagedMessagePublisher {
         now_unix_secs: u64,
     ) -> Result<(), ManagedPublicationAuthorityError> {
         if entry.state == ManagedOutboxState::Accepted {
+            if !self.settle_owner_return(&entry) {
+                return Ok(());
+            }
             if self.artifact_app_data_dir.is_some() {
                 outbox
                     .mark_artifact_receipts_pending(&entry.idempotency_key)

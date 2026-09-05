@@ -1,5 +1,539 @@
 use super::*;
 
+use crate::luca::{
+    exchange_relay::{ExchangeRelay, ExchangeRelayError},
+    exchange_store::{ExchangeHead, ExchangeStore, VisitGrant},
+};
+use std::collections::{BTreeMap, BTreeSet};
+
+struct OwnerReturnRelayState {
+    head: ExchangeHead,
+    triggers: BTreeMap<String, nostr::Event>,
+    fail_close: bool,
+    fail_readback: bool,
+    fail_note: bool,
+    closes: usize,
+    removals: usize,
+    notes: Vec<String>,
+}
+
+struct OwnerReturnRelay(Arc<Mutex<OwnerReturnRelayState>>);
+
+impl ExchangeRelay for OwnerReturnRelay {
+    fn fetch_head(
+        &self,
+        id: &Hex64,
+        owner: &Hex64,
+    ) -> Result<Option<ExchangeHead>, ExchangeRelayError> {
+        let state = self.0.lock().expect("relay");
+        assert_eq!(id, &state.head.record.exchange_id);
+        assert_eq!(owner, &state.head.record.owner);
+        if state.fail_readback && state.closes > 0 {
+            return Err(ExchangeRelayError::Unavailable("synthetic readback".into()));
+        }
+        Ok(Some(state.head.clone()))
+    }
+
+    fn spent_turns(
+        &self,
+        _: &luca_protocol::ExchangeRecordV1,
+    ) -> Result<BTreeSet<u8>, ExchangeRelayError> {
+        Ok(BTreeSet::from([1, 2]))
+    }
+
+    fn fetch_trigger(&self, id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
+        Ok(self
+            .0
+            .lock()
+            .expect("relay")
+            .triggers
+            .get(id.as_str())
+            .cloned())
+    }
+
+    fn owner(&self) -> Result<Hex64, ExchangeRelayError> {
+        Ok(self.0.lock().expect("relay").head.record.owner.clone())
+    }
+
+    fn publish_record(
+        &self,
+        record: &luca_protocol::ExchangeRecordV1,
+        at: u64,
+    ) -> Result<Hex64, ExchangeRelayError> {
+        let mut state = self.0.lock().expect("relay");
+        assert_eq!(record.state, luca_protocol::ExchangeStateV1::Closed);
+        assert!(
+            record.deadline.get() > at,
+            "relay requires deadline after record timestamp"
+        );
+        if state.fail_close {
+            return Err(ExchangeRelayError::Unavailable("synthetic close".into()));
+        }
+        state.closes += 1;
+        state.head.record = record.clone();
+        state.head.created_at = at;
+        Ok(state.head.event_id.clone())
+    }
+
+    fn publish_note(&self, _: &OpaqueId, content: &str) -> Result<(), ExchangeRelayError> {
+        let mut state = self.0.lock().expect("relay");
+        if state.fail_note {
+            return Err(ExchangeRelayError::Unavailable("synthetic note".into()));
+        }
+        state.notes.push(content.into());
+        Ok(())
+    }
+
+    fn remove_conversation_member(
+        &self,
+        _: &OpaqueId,
+        resident: &Hex64,
+    ) -> Result<(), ExchangeRelayError> {
+        let mut state = self.0.lock().expect("relay");
+        assert!(state.head.record.members.contains(resident));
+        assert_ne!(resident, &state.head.record.opened_by);
+        state.removals += 1;
+        Ok(())
+    }
+
+    fn conversation_members(&self, _: &OpaqueId) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
+        self.owned_residents()
+    }
+
+    fn owned_residents(&self) -> Result<BTreeSet<Hex64>, ExchangeRelayError> {
+        Ok(self
+            .0
+            .lock()
+            .expect("relay")
+            .head
+            .record
+            .members
+            .iter()
+            .cloned()
+            .collect())
+    }
+
+    fn resolve_resident_name(
+        &self,
+        _: &BTreeSet<Hex64>,
+        _: &str,
+    ) -> Result<Option<Hex64>, ExchangeRelayError> {
+        Ok(None)
+    }
+
+    fn display_name(&self, _: &Hex64) -> String {
+        "Synthetic specialist".into()
+    }
+}
+
+struct OwnerReturnFixture {
+    base: Fixture,
+    relay: Arc<Mutex<OwnerReturnRelayState>>,
+    exchanges: Arc<Mutex<ExchangeStore>>,
+    transport: Arc<Mutex<FakeRelayState>>,
+    original_request: ManagedMessagePublishRequestV1,
+}
+
+impl OwnerReturnFixture {
+    fn publisher(&self) -> ManagedMessagePublisher {
+        publisher(&self.base, Arc::clone(&self.transport)).with_exchange(
+            Box::new(OwnerReturnRelay(Arc::clone(&self.relay))),
+            Arc::clone(&self.exchanges),
+        )
+    }
+}
+
+fn owner_return_publisher_fixture() -> OwnerReturnFixture {
+    let mut base = fixture();
+    let owner = Keys::parse(&"91".repeat(32)).expect("synthetic owner");
+    let worker = Keys::parse(&"93".repeat(32)).expect("synthetic worker");
+    let worker_id = Hex64::parse(worker.public_key().to_hex()).expect("worker");
+    let origin = EventBuilder::new(Kind::Custom(9), "owner trigger")
+        .tags([
+            Tag::parse(["h", CHANNEL]).expect("h"),
+            Tag::public_key(owner.public_key()),
+            Tag::public_key(base.resident.public_key()),
+        ])
+        .custom_created_at(Timestamp::from(100))
+        .sign_with_keys(&owner)
+        .expect("origin");
+    let record = luca_protocol::ExchangeRecordV1::open(
+        base.request.owner_pubkey.clone(),
+        vec![base.request.resident_pubkey.clone(), worker_id.clone()],
+        base.request.conversation_id.clone(),
+        Hex64::parse(origin.id.to_hex()).expect("origin id"),
+        base.request.resident_pubkey.clone(),
+        None,
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs(),
+    )
+    .expect("pair");
+    let reply = EventBuilder::new(Kind::Custom(9), "two synthetic ideas")
+        .tags([
+            Tag::parse(["h", CHANNEL]).expect("h"),
+            Tag::public_key(base.resident.public_key()),
+            Tag::parse(["e", &origin.id.to_hex(), "", "root"]).expect("root"),
+            Tag::parse(["e", &origin.id.to_hex(), "", "reply"]).expect("reply"),
+            Tag::parse(["broadcast", "1"]).expect("surface"),
+            Tag::parse(["exchange", record.exchange_id.as_str(), "2"]).expect("turn"),
+        ])
+        .custom_created_at(Timestamp::from(101))
+        .sign_with_keys(&worker)
+        .expect("sibling reply");
+    base.store
+        .lock()
+        .expect("dispatch")
+        .stage_wake_from_trigger(
+            &reply,
+            base.request.resident_pubkey.as_str(),
+            base.request.owner_pubkey.as_str(),
+            101,
+        )
+        .expect("wake");
+    base.request.dispatch_receipt_id = OpaqueId::parse(reply.id.to_hex()).expect("receipt");
+    base.request.turn_id = base.request.dispatch_receipt_id.clone();
+    base.request.idempotency_key = derive_message_publish_idempotency_key(
+        &base.request.dispatch_receipt_id,
+        &base.request.resident_pubkey,
+    )
+    .expect("idempotency");
+    base.request.resolved_p_tags = vec![worker_id.clone()];
+    base.request.exchange = Some(
+        luca_protocol::ExchangeTurnTag::new(record.exchange_id.clone(), 3).expect("third turn"),
+    );
+    let original_request = base.request.clone();
+    let relay = Arc::new(Mutex::new(OwnerReturnRelayState {
+        head: ExchangeHead {
+            record: record.clone(),
+            created_at: 100,
+            event_id: Hex64::parse("de".repeat(32)).expect("head id"),
+        },
+        triggers: BTreeMap::from([(origin.id.to_hex(), origin), (reply.id.to_hex(), reply)]),
+        fail_close: false,
+        fail_readback: false,
+        fail_note: false,
+        closes: 0,
+        removals: 0,
+        notes: Vec::new(),
+    }));
+    let mut exchanges = ExchangeStore::load(base.dispatch_path.with_file_name("exchanges.json"))
+        .expect("exchange store");
+    exchanges
+        .record_visit(VisitGrant {
+            conversation_id: base.request.conversation_id.clone(),
+            resident: worker_id,
+            arrived_at: 100,
+            exchange_id: Some(record.exchange_id.clone()),
+            correlation_id: record.exchange_id,
+        })
+        .expect("visit");
+    let mut f = OwnerReturnFixture {
+        base,
+        relay,
+        exchanges: Arc::new(Mutex::new(exchanges)),
+        transport: Arc::new(Mutex::new(FakeRelayState::default())),
+        original_request,
+    };
+    let plan = f
+        .publisher()
+        .resolve_exchange(&f.base.request, 102)
+        .expect("verified return");
+    f.base.request = plan.apply(&f.base.request).expect("owner audience");
+    let final_event = EventBuilder::new(Kind::Custom(9), f.base.request.final_draft.clone())
+        .tags(
+            crate::luca::managed_message_event::managed_message_tags(&f.base.request)
+                .expect("tags"),
+        )
+        .custom_created_at(Timestamp::from(102))
+        .sign_with_keys(&f.base.resident)
+        .expect("return");
+    f.base.event_id = final_event.id.to_hex();
+    f.base.exact_event_json =
+        String::from_utf8(canonicalize(&final_event).expect("canonical")).expect("UTF-8");
+    let frozen = crate::luca::managed_message_outbox::FrozenManagedMessageEvent::parse(
+        f.base.exact_event_json.clone(),
+        &f.base.request,
+    )
+    .expect("frozen");
+    f.base.outbox = ManagedMessageOutbox::new(f.base.session.clone());
+    f.base
+        .outbox
+        .prepare(&f.base.request, frozen, &f.base.session, 7, false)
+        .expect("prepared");
+    f
+}
+
+#[test]
+fn owner_return_only_closes_after_acceptance_and_retries_cleanup_without_resubmission() {
+    for failure in ["close", "readback", "fade"] {
+        let mut f = owner_return_publisher_fixture();
+        let outbox_path = f.base.dispatch_path.with_file_name("outbox.age");
+        let passphrase = age::secrecy::SecretString::from("synthetic owner return test".to_owned());
+        let frozen = crate::luca::managed_message_outbox::FrozenManagedMessageEvent::parse(
+            f.base.exact_event_json.clone(),
+            &f.base.request,
+        )
+        .expect("frozen");
+        f.base.outbox = ManagedMessageOutbox::load_encrypted(
+            f.base.session.clone(),
+            outbox_path.clone(),
+            passphrase.clone(),
+        )
+        .expect("encrypted outbox");
+        f.base
+            .outbox
+            .prepare(&f.base.request, frozen, &f.base.session, 7, false)
+            .expect("prepare encrypted");
+        {
+            let mut state = f.relay.lock().expect("relay");
+            state.fail_close = failure == "close";
+            state.fail_readback = failure == "readback";
+            state.fail_note = failure == "fade";
+        }
+        let mut publisher = f.publisher();
+        publisher
+            .authorize_request(&f.base.request, 102)
+            .expect("authorize");
+        // Uncertain submission cannot close the exchange or remove the guest.
+        assert!(publisher
+            .publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session)
+            .is_err());
+        assert_eq!(
+            f.relay.lock().expect("relay").head.record.state,
+            luca_protocol::ExchangeStateV1::Open
+        );
+        assert_eq!(f.relay.lock().expect("relay").removals, 0);
+        // An exact-event probe recovers relay acceptance without another submit.
+        f.transport
+            .lock()
+            .expect("transport")
+            .probe_results
+            .push_back(ManagedRelayProbeOutcome::Present(
+                crate::relay::SubmitEventResponse {
+                    event_id: f.base.event_id.clone(),
+                    accepted: true,
+                    message: "accepted".into(),
+                },
+            ));
+        publisher
+            .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+            .expect("accepted even if cleanup failed");
+        let pending = f.base.outbox.reconciliation_entries();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].state, ManagedOutboxState::Accepted);
+        assert!(f
+            .base
+            .outbox
+            .accepted_result(&f.base.request.idempotency_key)
+            .is_ok());
+        assert_eq!(
+            f.relay.lock().expect("relay").removals,
+            usize::from(failure == "fade")
+        );
+        assert!(
+            f.relay.lock().expect("relay").notes.is_empty(),
+            "normal return never publishes a held warning"
+        );
+        if failure == "fade" {
+            assert!(
+                f.exchanges
+                    .lock()
+                    .expect("exchanges")
+                    .visits_in(&f.base.request.conversation_id)[0]
+                    .membership_removed
+            );
+        }
+        // Reload all three durable stores as after an app crash.
+        drop(publisher);
+        f.base.outbox =
+            ManagedMessageOutbox::load_encrypted(f.base.session.clone(), outbox_path, passphrase)
+                .expect("reopen encrypted outbox");
+        f.base.store = Arc::new(Mutex::new(
+            ManagedDispatchStore::load(f.base.dispatch_path.clone()).expect("reopen dispatch"),
+        ));
+        f.exchanges = Arc::new(Mutex::new(
+            ExchangeStore::load(f.base.dispatch_path.with_file_name("exchanges.json"))
+                .expect("reopen exchange"),
+        ));
+        {
+            let mut state = f.relay.lock().expect("relay");
+            state.fail_close = false;
+            state.fail_readback = false;
+            state.fail_note = false;
+        }
+        let mut publisher = f.publisher();
+        publisher
+            .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+            .expect("settle accepted return");
+        publisher
+            .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+            .expect("idempotent recovery");
+        assert!(f.base.outbox.reconciliation_entries().is_empty());
+        assert!(f
+            .exchanges
+            .lock()
+            .expect("exchanges")
+            .visits_in(&f.base.request.conversation_id)
+            .is_empty());
+        let state = f.relay.lock().expect("relay");
+        assert_eq!(
+            state.head.record.state,
+            luca_protocol::ExchangeStateV1::Closed
+        );
+        assert_eq!((state.closes, state.removals, state.notes.len()), (1, 1, 1));
+        drop(state);
+        let transport = f.transport.lock().expect("transport");
+        assert_eq!(transport.submissions, [f.base.exact_event_json.clone()]);
+        assert_eq!(transport.probes, [f.base.exact_event_json.clone()]);
+    }
+}
+
+#[test]
+fn owner_return_frozen_plan_replay_does_not_rewrite_a_submitted_or_cancelled_dispatch() {
+    let mut f = owner_return_publisher_fixture();
+    let mut publisher = f.publisher();
+    publisher
+        .authorize_request(&f.base.request, 102)
+        .expect("authorize");
+    assert!(publisher
+        .publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session)
+        .is_err());
+    let before = fs::read(&f.base.dispatch_path).expect("dispatch bytes");
+    let plan = publisher
+        .resolve_exchange(&f.original_request, 103)
+        .expect("same frozen plan");
+    assert_eq!(
+        plan.apply(&f.original_request).expect("effective"),
+        f.base.request
+    );
+    assert_eq!(
+        fs::read(&f.base.dispatch_path).expect("dispatch bytes"),
+        before
+    );
+    assert_eq!(
+        f.base
+            .outbox
+            .event_for_submission(&f.base.request.idempotency_key)
+            .expect("retained final"),
+        f.base.exact_event_json
+    );
+    f.base
+        .store
+        .lock()
+        .expect("store")
+        .cancel_exact(
+            f.base.request.owner_pubkey.as_str(),
+            CHANNEL,
+            f.base.request.resident_pubkey.as_str(),
+            f.base.request.dispatch_receipt_id.as_str(),
+            7,
+        )
+        .expect("cancel");
+    f.transport
+        .lock()
+        .expect("transport")
+        .probe_results
+        .push_back(ManagedRelayProbeOutcome::Absent);
+    publisher
+        .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+        .expect("cancelled without publish");
+    assert_eq!(f.transport.lock().expect("transport").submissions.len(), 1);
+    assert_eq!(
+        f.relay.lock().expect("relay").head.record.state,
+        luca_protocol::ExchangeStateV1::Open
+    );
+    assert_eq!(f.relay.lock().expect("relay").removals, 0);
+}
+
+#[test]
+fn owner_return_accepted_cleanup_after_expiry_never_writes_an_invalid_close_or_removes_a_busy_guest(
+) {
+    for protected_guest in [false, true] {
+        let mut f = owner_return_publisher_fixture();
+        f.relay.lock().expect("relay").fail_close = true;
+        f.transport
+            .lock()
+            .expect("transport")
+            .submit_results
+            .push_back(ManagedRelaySubmitOutcome::Response(
+                crate::relay::SubmitEventResponse {
+                    event_id: f.base.event_id.clone(),
+                    accepted: true,
+                    message: "accepted".into(),
+                },
+            ));
+        let mut publisher = f.publisher();
+        publisher
+            .authorize_request(&f.base.request, 102)
+            .expect("authorize");
+        publisher
+            .publish_prepared(&f.base.request, &mut f.base.outbox, &f.base.session)
+            .expect("accepted final succeeds while close is unavailable");
+        assert_eq!(
+            f.base.outbox.reconciliation_entries()[0].state,
+            ManagedOutboxState::Accepted
+        );
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs();
+        let mut other = f.relay.lock().expect("relay").head.record.clone();
+        {
+            let mut relay = f.relay.lock().expect("relay");
+            relay.fail_close = false;
+            relay.head.record.deadline = SafeU53::new(now - 1).expect("expired");
+        }
+        if protected_guest {
+            other = luca_protocol::ExchangeRecordV1::open(
+                other.owner,
+                other.members,
+                other.conversation_id,
+                Hex64::parse("ff".repeat(32)).expect("other root"),
+                other.opened_by,
+                None,
+                now,
+            )
+            .expect("another live exchange");
+            f.exchanges
+                .lock()
+                .expect("exchanges")
+                .adopt_head(ExchangeHead {
+                    record: other,
+                    created_at: now,
+                    event_id: Hex64::parse("ef".repeat(32)).expect("other head"),
+                })
+                .expect("protect live guest");
+        }
+        publisher
+            .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+            .expect("expiry settles accepted final");
+        publisher
+            .reconcile_on_start(&mut f.base.outbox, &f.base.session)
+            .expect("idempotent");
+        assert!(f.base.outbox.reconciliation_entries().is_empty());
+        let relay = f.relay.lock().expect("relay");
+        assert_eq!(
+            relay.closes, 0,
+            "expired records cannot receive a late close timestamp"
+        );
+        assert_eq!(relay.removals, usize::from(!protected_guest));
+        assert_eq!(relay.notes.len(), usize::from(!protected_guest));
+        assert_eq!(
+            f.exchanges
+                .lock()
+                .expect("exchanges")
+                .visits_in(&f.base.request.conversation_id)
+                .len(),
+            usize::from(protected_guest)
+        );
+        let transport = f.transport.lock().expect("transport");
+        assert_eq!(transport.submissions, [f.base.exact_event_json.clone()]);
+        assert!(transport.probes.is_empty());
+    }
+}
+
 // ── the exchange half ───────────────────────────────────────────────────────
 
 /// Records the sentences the room is told; everything else is unreachable in

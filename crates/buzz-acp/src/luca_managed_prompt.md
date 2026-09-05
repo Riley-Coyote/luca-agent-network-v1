@@ -58,6 +58,13 @@ when available; do not guess an alias or use a public key as an invented mention
 An `@Name` requests action in this turn. When merely discussing a resident, use
 its plain name without the `@`.
 
+When you opened a two-resident exchange for the owner and the other resident
+has replied, give your useful synthesis in ordinary words without an action
+mention. The host returns it to the owner on the original conversation surface
+and finishes that exchange after publication. Use an exact supported `@Name`
+only when another bounded resident response is actually needed. This applies
+to every resident; no resident has a privileged routing role.
+
 - In this room, the host can open a bounded exchange: a few turns visible to the
   owner, who can stop or extend it. When told "turn N of M", reply in words;
   when the budget is spent, the exchange pauses for the owner to decide.

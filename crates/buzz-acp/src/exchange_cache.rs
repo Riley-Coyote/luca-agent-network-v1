@@ -146,6 +146,9 @@ pub enum ExchangeRefusal {
     Unknown,
     /// The head exists but this resident is not one of its members.
     NotAMember,
+    /// The verified opener returned this pair's result to the owner only;
+    /// it is ordinary owner-facing speech, not another resident task.
+    OwnerReturn,
     /// The owner said "Stop here".
     Closed,
     /// The deadline passed.
@@ -171,6 +174,7 @@ impl ExchangeRefusal {
             Self::MalformedTag => "exchange tag was malformed or repeated — dropped",
             Self::Unknown => "exchange unknown — dropped",
             Self::NotAMember => "not a member of this exchange — dropped",
+            Self::OwnerReturn => "owner return — no resident action requested",
             Self::Closed => "exchange closed — dropped",
             Self::Expired => "exchange expired — dropped",
             Self::Exhausted => "exchange exhausted — dropped",
@@ -544,6 +548,31 @@ impl ExchangeCache {
         if !record.is_member(&self.self_pubkey) {
             self.note_refusal(&exchange_id, ExchangeRefusal::NotAMember);
             return Err(ExchangeRefusal::NotAMember);
+        }
+        let recipients: Vec<_> = tags
+            .iter()
+            .filter(|tag| tag.first().is_some_and(|s| s == "p"))
+            .collect();
+        let channels: Vec<_> = tags
+            .iter()
+            .filter(|tag| tag.first().is_some_and(|s| s == "h"))
+            .collect();
+        if record.owner == owner
+            && record.depth == 1
+            && record.members.len() == 2
+            && event.pubkey.to_hex() == record.opened_by.as_str()
+            && recipients.len() == 1
+            && recipients[0].get(1).map(String::as_str) == Some(owner.as_str())
+            && channels.len() == 1
+            && channels[0].get(1).map(String::as_str) == Some(record.conversation_id.as_str())
+            && turn_tag.turn <= record.bucket
+            && event.kind == nostr::Kind::Custom(9)
+            && event.verify_id()
+            && event.verify_signature()
+        {
+            // A broad subscription can observe the final before close arrives.
+            // It must not turn that owner-only audience into a fourth task.
+            return Err(ExchangeRefusal::OwnerReturn);
         }
         if record.state == ExchangeStateV1::Closed {
             return Err(ExchangeRefusal::Closed);
@@ -1639,6 +1668,7 @@ mod tests {
             ExchangeRefusal::MalformedTag,
             ExchangeRefusal::Unknown,
             ExchangeRefusal::NotAMember,
+            ExchangeRefusal::OwnerReturn,
             ExchangeRefusal::Closed,
             ExchangeRefusal::Expired,
             ExchangeRefusal::Exhausted,
@@ -1651,6 +1681,101 @@ mod tests {
             let reason = refusal.reason();
             assert!(!reason.is_empty());
             assert!(seen.insert(reason), "duplicate sentence: {reason}");
+        }
+    }
+    #[tokio::test]
+    async fn owner_return_is_non_actionable_even_when_broad_rules_match_before_close() {
+        let mut record = pair_record(None);
+        record.opened_by = hex_of(&resident_keys());
+        let cache = ExchangeCache::new(hex_of(&sibling_keys()), Some(record.owner.clone()));
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW)));
+        let tags = vec![
+            turn_tag(&record.exchange_id, 3),
+            Tag::parse(["h", record.conversation_id.as_str()]).unwrap(),
+            Tag::parse(["p", record.owner.as_str()]).unwrap(),
+        ];
+        let event = turn_event(&resident_keys(), tags.clone());
+        let channel = record.conversation_id.as_str().parse().unwrap();
+        for mentions in [true, false] {
+            let rule: crate::filter::SubscriptionRule = serde_json::from_value(serde_json::json!({
+                "name":"scope", "channels":"all", "kinds":[9], "require_mention":mentions
+            }))
+            .unwrap();
+            assert_eq!(
+                crate::filter::match_event(&event, channel, &[rule], cache.self_pubkey.as_str())
+                    .await
+                    .is_some(),
+                !mentions
+            );
+        }
+        assert_eq!(
+            cache.admit(&event, Some(NOW + 1), None).await,
+            Err(ExchangeRefusal::OwnerReturn)
+        );
+        assert!(cache.ingest_head(&head_event(&record.stopped(), &owner_keys(), NOW + 2)));
+        assert_eq!(
+            cache.admit(&event, Some(NOW + 3), None).await,
+            Err(ExchangeRefusal::OwnerReturn)
+        );
+        assert_eq!(
+            ExchangeRefusal::OwnerReturn.reason(),
+            "owner return — no resident action requested"
+        );
+
+        let cache = ExchangeCache::new(hex_of(&sibling_keys()), Some(record.owner.clone()));
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW)));
+        let mut continuing = tags;
+        continuing.push(Tag::parse(["p", cache.self_pubkey.as_str()]).unwrap());
+        assert!(cache
+            .admit(
+                &turn_event(&resident_keys(), continuing),
+                Some(NOW + 1),
+                None
+            )
+            .await
+            .is_ok());
+        record.opened_by = hex_of(&sibling_keys());
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW + 2)));
+        assert!(
+            cache.admit(&event, Some(NOW + 3), None).await.is_ok(),
+            "non-opener remains ordinary exchange speech"
+        );
+    }
+
+    #[tokio::test]
+    async fn owner_return_requires_exact_signed_pair_audience_and_channel() {
+        let mut record = pair_record(None);
+        record.opened_by = hex_of(&resident_keys());
+        let cache = ExchangeCache::new(hex_of(&sibling_keys()), Some(record.owner.clone()));
+        assert!(cache.ingest_head(&head_event(&record, &owner_keys(), NOW)));
+        for invalid in [
+            "signature",
+            "duplicate owner",
+            "empty recipient",
+            "wrong channel",
+            "empty channel",
+        ] {
+            let mut tags = vec![
+                turn_tag(&record.exchange_id, 3),
+                Tag::parse(["h", record.conversation_id.as_str()]).unwrap(),
+                Tag::parse(["p", record.owner.as_str()]).unwrap(),
+            ];
+            match invalid {
+                "duplicate owner" => tags.push(Tag::parse(["p", record.owner.as_str()]).unwrap()),
+                "empty recipient" => tags.push(Tag::parse(["p"]).unwrap()),
+                "wrong channel" => tags[1] = Tag::parse(["h", "other-room"]).unwrap(),
+                "empty channel" => tags.push(Tag::parse(["h"]).unwrap()),
+                _ => {}
+            }
+            let mut event = turn_event(&resident_keys(), tags);
+            if invalid == "signature" {
+                event.content.push_str(" altered");
+            }
+            assert_ne!(
+                cache.admit(&event, Some(NOW + 1), None).await,
+                Err(ExchangeRefusal::OwnerReturn),
+                "{invalid}"
+            );
         }
     }
 }

@@ -178,6 +178,59 @@ impl AppExchangeRelay {
     }
 }
 
+// The HTTP query deserializes full events; it does not authenticate them.
+// Owner-authority decisions must validate the envelope before trusting its body.
+fn verified_exchange_head(
+    event: &nostr::Event,
+    exchange_id: &Hex64,
+    owner: &Hex64,
+) -> Result<ExchangeHead, ExchangeRelayError> {
+    if event.kind != Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_EXCHANGE as u16)
+        || !event.verify_id()
+        || !event.verify_signature()
+        || event.pubkey.to_hex() != owner.as_str()
+    {
+        return Err(ExchangeRelayError::Unavailable(
+            "exchange owner signature is invalid".into(),
+        ));
+    }
+    let record = ExchangeRecordV1::from_content(&event.content).map_err(|_| {
+        ExchangeRelayError::Unavailable("exchange record content is invalid".into())
+    })?;
+    if &record.exchange_id != exchange_id || &record.owner != owner {
+        return Err(ExchangeRelayError::Unavailable(
+            "exchange record does not match the requested id".into(),
+        ));
+    }
+    let mut actual = Vec::new();
+    for tag in event.tags.iter() {
+        let values = tag.as_slice();
+        if matches!(values.first().map(String::as_str), Some("d" | "p")) {
+            if values.len() < 2 {
+                return Err(ExchangeRelayError::Unavailable(
+                    "exchange record tag is malformed".into(),
+                ));
+            }
+            actual.push(values[..2].to_vec());
+        }
+    }
+    let mut required = record.event_tags();
+    actual.sort();
+    required.sort();
+    if actual != required {
+        return Err(ExchangeRelayError::Unavailable(
+            "exchange record tags do not match its data".into(),
+        ));
+    }
+    Ok(ExchangeHead {
+        record,
+        created_at: event.created_at.as_secs(),
+        event_id: Hex64::parse(event.id.to_hex()).map_err(|_| {
+            ExchangeRelayError::Unavailable("exchange record event id is invalid".into())
+        })?,
+    })
+}
+
 impl ExchangeRelay for AppExchangeRelay {
     fn fetch_head(
         &self,
@@ -193,27 +246,7 @@ impl ExchangeRelay for AppExchangeRelay {
         let Some(event) = events.first() else {
             return Ok(None);
         };
-        if event.pubkey.to_hex() != owner.as_str() {
-            return Err(ExchangeRelayError::Unavailable(
-                "exchange record was not authored by the owner".to_owned(),
-            ));
-        }
-        let record = ExchangeRecordV1::from_content(&event.content).map_err(|error| {
-            ExchangeRelayError::Unavailable(format!("exchange record content is invalid: {error}"))
-        })?;
-        if &record.exchange_id != exchange_id || &record.owner != owner {
-            return Err(ExchangeRelayError::Unavailable(
-                "exchange record does not match the requested id".to_owned(),
-            ));
-        }
-        let event_id = Hex64::parse(event.id.to_hex()).map_err(|error| {
-            ExchangeRelayError::Unavailable(format!("exchange record event id is invalid: {error}"))
-        })?;
-        Ok(Some(ExchangeHead {
-            record,
-            created_at: event.created_at.as_secs(),
-            event_id,
-        }))
+        verified_exchange_head(event, exchange_id, owner).map(Some)
     }
 
     fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
@@ -468,4 +501,109 @@ fn verified_owned_residents(app: &AppHandle) -> Result<BTreeSet<Hex64>, Exchange
         record.private_key_nsec.zeroize();
     }
     Ok(verified)
+}
+
+#[cfg(test)]
+mod verified_head_tests {
+    use super::*;
+    use nostr::{Event, EventId, Keys};
+
+    fn fixture() -> (Keys, ExchangeRecordV1) {
+        let owner = Keys::parse(&"71".repeat(32)).expect("synthetic owner");
+        let resident = Keys::parse(&"72".repeat(32)).expect("synthetic resident");
+        let worker = Keys::parse(&"73".repeat(32)).expect("synthetic worker");
+        let resident = Hex64::parse(resident.public_key().to_hex()).expect("resident");
+        let record = ExchangeRecordV1::open(
+            Hex64::parse(owner.public_key().to_hex()).expect("owner"),
+            vec![
+                resident.clone(),
+                Hex64::parse(worker.public_key().to_hex()).expect("worker"),
+            ],
+            OpaqueId::parse("11111111-1111-4111-8111-111111111111").expect("room"),
+            Hex64::parse("ab".repeat(32)).expect("root"),
+            resident,
+            None,
+            100,
+        )
+        .expect("pair");
+        (owner, record)
+    }
+
+    fn signed(
+        owner: &Keys,
+        record: &ExchangeRecordV1,
+        kind: Kind,
+        tags: Vec<Vec<String>>,
+    ) -> Event {
+        EventBuilder::new(kind, record.to_content().expect("content"))
+            .tags(tags.into_iter().map(|tag| Tag::parse(tag).expect("tag")))
+            .custom_created_at(Timestamp::from(100))
+            .sign_with_keys(owner)
+            .expect("sign")
+    }
+
+    #[test]
+    fn owner_head_accepts_only_authenticated_matching_record_and_envelope() {
+        let (owner, record) = fixture();
+        let kind = Kind::Custom(buzz_core_pkg::kind::KIND_LUCA_EXCHANGE as u16);
+        let event = signed(&owner, &record, kind, record.event_tags());
+        let head = verified_exchange_head(&event, &record.exchange_id, &record.owner)
+            .expect("signed matching head");
+        assert_eq!(head.record, record);
+        assert_eq!(head.event_id.as_str(), event.id.to_hex());
+        for failure in [
+            "id",
+            "body",
+            "signature",
+            "kind",
+            "owner",
+            "lookup id",
+            "d tag",
+            "member",
+            "duplicate",
+            "malformed",
+        ] {
+            let mut candidate = event.clone();
+            let mut lookup = record.exchange_id.clone();
+            match failure {
+                "id" => candidate.id = EventId::from_hex(&"fe".repeat(32)).expect("id"),
+                "body" => candidate.content.push(' '),
+                "signature" => {
+                    candidate.sig = signed(
+                        &Keys::parse(&"74".repeat(32)).expect("other signer"),
+                        &record,
+                        kind,
+                        record.event_tags(),
+                    )
+                    .sig
+                }
+                "kind" => candidate = signed(&owner, &record, Kind::Custom(9), record.event_tags()),
+                "owner" => {
+                    candidate = signed(
+                        &Keys::parse(&"74".repeat(32)).expect("other signer"),
+                        &record,
+                        kind,
+                        record.event_tags(),
+                    )
+                }
+                "lookup id" => lookup = Hex64::parse("ef".repeat(32)).expect("different id"),
+                _ => {
+                    let mut tags = record.event_tags();
+                    match failure {
+                        "d tag" => tags[0][1] = "ef".repeat(32),
+                        "member" => {
+                            tags.pop();
+                        }
+                        "duplicate" => tags.push(tags[0].clone()),
+                        _ => tags.push(vec!["p".into()]),
+                    }
+                    candidate = signed(&owner, &record, kind, tags);
+                }
+            }
+            assert!(
+                verified_exchange_head(&candidate, &lookup, &record.owner).is_err(),
+                "{failure}"
+            );
+        }
+    }
 }

@@ -30,8 +30,9 @@ use super::exchange_relay::ExchangeRelay;
 use super::exchange_store::{
     decision_key, ExchangeDecision, ExchangeHead, ExchangeStore, VisitGrant,
 };
+use super::managed_dispatch_routing::routing_from_event;
 use super::managed_dispatch_store::ManagedDispatchStore;
-use super::visits::settle_visit_grants;
+use super::visits::{fade_visits, settle_visit_grants, VisitFadeTrigger};
 
 /// Longest `@name` token the mention scanner will consider.
 const MAX_MENTION_NAME_BYTES: usize = 64;
@@ -47,7 +48,7 @@ pub(crate) struct ExchangePlan {
     pub exchange: Option<ExchangeTurnTag>,
     /// Recipients added to the reply under a minted exchange's authority.
     pub granted_p_tags: Vec<Hex64>,
-    /// Replace the prior exchange's sibling audience for a fresh nested mint.
+    /// Replace the sibling audience for a nested mint or verified owner return.
     pub replace_p_tags: bool,
 }
 
@@ -201,7 +202,7 @@ impl<'a> ExchangeResolver<'a> {
         proposed: &ExchangeTurnTag,
         now_unix_secs: u64,
     ) -> Result<Decided, ExchangeDenial> {
-        let record = self.head_or_fetch(&proposed.exchange_id, &request.owner_pubkey)?;
+        let mut record = self.head_or_fetch(&proposed.exchange_id, &request.owner_pubkey)?;
         if record.conversation_id != request.conversation_id {
             eprintln!(
                 "luca-exchange: {} was refused — that exchange lives in another room",
@@ -213,10 +214,30 @@ impl<'a> ExchangeResolver<'a> {
             return Err(ExchangeDenial::NotMember);
         }
         let mentioned = self.resolve_mentions(request)?;
+        let owner_return = is_owner_return_pair(&record, request)
+            && mentioned.is_empty()
+            && self
+                .dispatch
+                .lock()
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                .descendant_depth(
+                    request.dispatch_receipt_id.as_str(),
+                    request.resident_pubkey.as_str(),
+                )
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                == 1;
+        if owner_return {
+            // The return may finish this exchange. A cached head cannot undo
+            // an owner's Stop from another device or supply that authority.
+            record = self.refresh_head(&proposed.exchange_id, &request.owner_pubkey)?;
+            if !is_owner_return_pair(&record, request) {
+                return Err(ExchangeDenial::Unknown);
+            }
+        }
         let mentioned_pubkeys: BTreeSet<Hex64> =
             mentioned.iter().map(|(_, pubkey)| pubkey.clone()).collect();
-        // The owner is never a member, so a reply that addresses the owner from
-        // inside an exchange is refused here rather than at the relay.
+        // The incoming request must still address an admitted resident. Only
+        // the verified owner-return plan below can replace that audience.
         if request
             .resolved_p_tags
             .iter()
@@ -253,6 +274,9 @@ impl<'a> ExchangeResolver<'a> {
         if !record.admits_turn(proposed.turn, now_unix_secs) {
             return Err(ExchangeDenial::Exhausted);
         }
+        if owner_return {
+            self.verify_owner_return_trigger(request, &record, &spent, now_unix_secs)?;
+        }
         let turn = if spent.contains(&proposed.turn) {
             first_free_turn(&record, &spent).ok_or(ExchangeDenial::Exhausted)?
         } else {
@@ -263,8 +287,12 @@ impl<'a> ExchangeResolver<'a> {
         Ok(Decided {
             plan: ExchangePlan {
                 exchange: Some(tag),
-                granted_p_tags: Vec::new(),
-                replace_p_tags: false,
+                granted_p_tags: if owner_return {
+                    vec![record.owner.clone()]
+                } else {
+                    Vec::new()
+                },
+                replace_p_tags: owner_return,
             },
             visit_grants: Vec::new(),
             mint_record: None,
@@ -274,6 +302,161 @@ impl<'a> ExchangeResolver<'a> {
     }
 
     // ── mint ────────────────────────────────────────────────────────────────
+
+    fn verify_owner_return_trigger(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        record: &ExchangeRecordV1,
+        spent: &BTreeSet<u8>,
+        now: u64,
+    ) -> Result<(), ExchangeDenial> {
+        let id = Hex64::parse(request.dispatch_receipt_id.as_str())
+            .map_err(|_| ExchangeDenial::Unknown)?;
+        let trigger = self
+            .relay
+            .fetch_trigger(&id)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unknown)?;
+        let author = Hex64::parse(trigger.pubkey.to_hex()).map_err(|_| ExchangeDenial::Unknown)?;
+        let origin = self
+            .relay
+            .fetch_trigger(&record.root_event_id)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unknown)?;
+        let origin_routing = routing_from_event(&origin).map_err(|_| ExchangeDenial::Unknown)?;
+        let tags: Vec<Vec<String>> = trigger
+            .tags
+            .iter()
+            .map(|tag| tag.as_slice().to_vec())
+            .collect();
+        let turn = ExchangeTurnTag::find(&tags)
+            .map_err(|_| ExchangeDenial::Unknown)?
+            .ok_or(ExchangeDenial::Unknown)?;
+        let channels: Vec<&str> = tags
+            .iter()
+            .filter(|tag| tag.first().is_some_and(|s| s == "h"))
+            .filter_map(|tag| tag.get(1).map(String::as_str))
+            .collect();
+        if trigger.id.to_hex() != id.as_str()
+            || trigger.kind != nostr::Kind::Custom(9)
+            || !trigger.verify_id()
+            || !trigger.verify_signature()
+            || trigger.created_at.as_secs() > now.saturating_add(60)
+            || author == record.opened_by
+            || !record.is_member(&author)
+            || channels != [record.conversation_id.as_str()]
+            || turn.exchange_id != record.exchange_id
+            || !spent.contains(&turn.turn)
+            || request
+                .exchange
+                .as_ref()
+                .is_none_or(|proposed| proposed.turn != turn.turn.saturating_add(1))
+            || !tags.iter().any(|tag| {
+                tag.first().is_some_and(|s| s == "p")
+                    && tag.get(1).map(String::as_str) == Some(record.opened_by.as_str())
+            })
+            || origin.id.to_hex() != record.root_event_id.as_str()
+            || origin.kind != nostr::Kind::Custom(9)
+            || !origin.verify_id()
+            || !origin.verify_signature()
+            || origin.pubkey.to_hex() != record.owner.as_str()
+            || origin_routing.conversation_id != request.conversation_id.as_str()
+            || !origin_routing
+                .trigger_p_tags
+                .iter()
+                .any(|p| p == record.opened_by.as_str())
+            || request.root_event_id.as_ref().map(|id| id.as_str())
+                != origin_routing.root_event_id.as_deref()
+            || request.reply_event_id.as_ref().map(|id| id.as_str())
+                != origin_routing.reply_event_id.as_deref()
+            || request.thread_id.as_ref().map(|id| id.as_str())
+                != origin_routing.thread_id.as_deref()
+            || request.response_surface != Some(origin_routing.response_surface)
+        {
+            return Err(ExchangeDenial::Unknown);
+        }
+        // The store independently binds the exact signed trigger's full
+        // thread/surface/author tuple before its audience is redirected.
+        self.dispatch
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .authorize_publication(request, now)
+            .map_err(|_| ExchangeDenial::Unknown)?;
+        Ok(())
+    }
+
+    /// Settle a published owner return without ever submitting its final again.
+    /// The frozen accepted request carries the terminal audience even if the
+    /// bounded decision cache was pruned before crash recovery.
+    pub(crate) fn settle_published_owner_return(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        now: u64,
+    ) -> Result<(), ExchangeDenial> {
+        let Some(turn) = request
+            .exchange
+            .as_ref()
+            .filter(|_| request.resolved_p_tags == [request.owner_pubkey.clone()])
+        else {
+            return Ok(());
+        };
+        let mut head = self
+            .relay
+            .fetch_head(&turn.exchange_id, &request.owner_pubkey)
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .ok_or(ExchangeDenial::Unavailable)?;
+        if !is_owner_return_pair(&head.record, request)
+            || head.record.exchange_id != turn.exchange_id
+            || turn.turn > head.record.bucket
+        {
+            return Err(ExchangeDenial::Unknown);
+        }
+        if head.record.state != luca_protocol::ExchangeStateV1::Closed
+            && now <= head.record.deadline.get()
+        {
+            let stopped = head.record.stopped();
+            self.relay
+                .publish_record(
+                    &stopped,
+                    buzz_core_pkg::engram::monotonic_created_at(now, Some(head.created_at)),
+                )
+                .map_err(|_| ExchangeDenial::Unavailable)?;
+            // Neither a cached head nor a successful write without readback
+            // is confirmation that membership cleanup is safe.
+            head = self
+                .relay
+                .fetch_head(&turn.exchange_id, &request.owner_pubkey)
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                .ok_or(ExchangeDenial::Unavailable)?;
+        }
+        if !is_owner_return_pair(&head.record, request)
+            || head.record.exchange_id != turn.exchange_id
+            || (head.record.state != luca_protocol::ExchangeStateV1::Closed
+                && now <= head.record.deadline.get())
+        {
+            return Err(ExchangeDenial::Unavailable);
+        }
+        self.store
+            .lock()
+            .map_err(|_| ExchangeDenial::Unavailable)?
+            .adopt_head(head.clone())
+            .map_err(|_| ExchangeDenial::Unavailable)?;
+        // A freshly authenticated expired head is already non-actionable.
+        // Reuse the exact-exchange terminal fade predicate: it also protects
+        // guests involved in another live exchange. Do not backdate a close
+        // or extend the deadline merely to settle an already accepted reply.
+        fade_visits(
+            self.relay,
+            self.store,
+            &request.conversation_id,
+            VisitFadeTrigger::ExchangeStopped {
+                exchange_id: &turn.exchange_id,
+                now_unix_secs: now,
+            },
+        )
+        .map_err(|_| ExchangeDenial::Unavailable)?;
+        Ok(())
+    }
 
     fn mint_or_pass(
         &self,
@@ -431,6 +614,18 @@ impl<'a> ExchangeResolver<'a> {
         decision: &ExchangeDecision,
         now_unix_secs: u64,
     ) -> Result<(), ExchangeDenial> {
+        if decision.mint_record.is_none()
+            && decision.exchange.is_some()
+            && decision.replace_p_tags
+            && decision.granted_p_tags == [request.owner_pubkey.clone()]
+        {
+            self.dispatch
+                .lock()
+                .map_err(|_| ExchangeDenial::Unavailable)?
+                .redirect_exchange_return_to_owner(request, now_unix_secs)
+                .map_err(|_| ExchangeDenial::Unavailable)?;
+            return Ok(());
+        }
         settle_visit_grants(self.relay, self.store, &decision.visit_grants).map_err(|error| {
             eprintln!("luca-exchange: visit could not be established — {error}");
             ExchangeDenial::MintRefused
@@ -551,7 +746,7 @@ impl<'a> ExchangeResolver<'a> {
                 ExchangeDenial::Unavailable
             })?
             .ok_or(ExchangeDenial::Unknown)?;
-        if &fetched.record.owner != owner {
+        if &fetched.record.owner != owner || &fetched.record.exchange_id != exchange_id {
             return Err(ExchangeDenial::Unknown);
         }
         // The relay has already arbitrated between candidate heads, so its
@@ -624,6 +819,18 @@ impl<'a> ExchangeResolver<'a> {
         }
         Ok(matched)
     }
+}
+
+fn is_owner_return_pair(
+    record: &ExchangeRecordV1,
+    request: &ManagedMessagePublishRequestV1,
+) -> bool {
+    record.validate().is_ok()
+        && record.owner == request.owner_pubkey
+        && record.conversation_id == request.conversation_id
+        && record.depth == 1
+        && record.members.len() == 2
+        && record.opened_by == request.resident_pubkey
 }
 
 /// The lowest turn in the bucket that nobody has spoken.

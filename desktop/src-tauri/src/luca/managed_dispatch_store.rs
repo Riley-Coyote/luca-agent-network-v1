@@ -1589,6 +1589,57 @@ impl ManagedDispatchStore {
         Ok(resolved)
     }
 
+    /// Redirect a verified opener's live sibling reply to its own owner.
+    /// The exchange authority verifies the signed pair/trigger first; this
+    /// store preserves every dispatch coordinate and forbids rewriting bytes.
+    pub(crate) fn redirect_exchange_return_to_owner(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now: u64,
+    ) -> Result<(), DispatchAuthorizationError> {
+        let key = (
+            request.dispatch_receipt_id.as_str().to_owned(),
+            request.resident_pubkey.as_str().to_owned(),
+        );
+        let dispatch = self
+            .dispatches
+            .get(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if dispatch.resolved_p_tags == [request.owner_pubkey.as_str()] {
+            let mut effective = request.clone();
+            effective.resolved_p_tags = vec![request.owner_pubkey.clone()];
+            if let Some(event_id) = &dispatch.submitted_event_id {
+                // A replay returns the same plan; it never mutates frozen or
+                // terminal authority. The publisher reconciles its outcome.
+                self.authorize_reconciliation(&effective, event_id, now)?;
+            } else {
+                self.authorize_publication(&effective, now)?;
+            }
+            return Ok(());
+        }
+        let authorized = self.authorize_publication(request, now)?;
+        if authorized.submitted_event_id.is_some() {
+            return Err(DispatchAuthorizationError::Terminal);
+        }
+        if authorized.descendant_depth != 1
+            || authorized.resolved_p_tags.len() != 1
+            || authorized.resolved_p_tags[0] == authorized.owner_pubkey
+            || authorized.resolved_p_tags[0] == authorized.resident_pubkey
+        {
+            return Err(DispatchAuthorizationError::WrongRecipients);
+        }
+        let previous = self.dispatches.clone();
+        self.dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?
+            .resolved_p_tags = vec![request.owner_pubkey.as_str().to_owned()];
+        if self.persist().is_err() {
+            self.dispatches = previous;
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
+    }
+
     /// Release one dispatch's binding to frozen bytes the relay refused for a
     /// turn collision, so the identical draft can be re-signed on a free turn.
     ///
@@ -4402,5 +4453,58 @@ mod tests {
             store.descendant_depth(&"ff".repeat(32), &resident.public_key().to_hex()),
             Err(DispatchAuthorizationError::Unknown)
         );
+    }
+
+    #[test]
+    fn owner_return_cannot_redirect_cancelled_or_already_submitted_sibling_bytes() {
+        for submitted in [false, true] {
+            let temp = tempfile::tempdir().expect("temp");
+            let path = temp.path().join("dispatch.json");
+            let mut store = ManagedDispatchStore::load(path.clone()).expect("store");
+            let owner = Keys::parse(&"81".repeat(32)).expect("owner");
+            let resident = Keys::parse(&"82".repeat(32)).expect("resident");
+            let worker = Keys::parse(&"83".repeat(32)).expect("worker");
+            let trigger = event(&worker, &resident, CHANNEL_ONE, "synthetic result");
+            store
+                .stage_wake_from_trigger(
+                    &trigger,
+                    &resident.public_key().to_hex(),
+                    &owner.public_key().to_hex(),
+                    100,
+                )
+                .expect("wake");
+            store
+                .activate_session(&resident.public_key().to_hex(), 7)
+                .expect("session");
+            let mut request = request(&owner, &resident, &trigger, CHANNEL_ONE, 7);
+            request.resolved_p_tags =
+                vec![Hex64::parse(worker.public_key().to_hex()).expect("worker")];
+            store.authorize_publication(&request, 101).expect("bind");
+            if submitted {
+                store
+                    .begin_submission(
+                        request.dispatch_receipt_id.as_str(),
+                        request.resident_pubkey.as_str(),
+                        7,
+                        &"ab".repeat(32),
+                    )
+                    .expect("freeze");
+            } else {
+                store
+                    .cancel_exact(
+                        request.owner_pubkey.as_str(),
+                        CHANNEL_ONE,
+                        request.resident_pubkey.as_str(),
+                        request.dispatch_receipt_id.as_str(),
+                        7,
+                    )
+                    .expect("cancel");
+            }
+            let before = std::fs::read(&path).expect("durable row");
+            assert!(store
+                .redirect_exchange_return_to_owner(&request, 102)
+                .is_err());
+            assert_eq!(std::fs::read(path).expect("unchanged authority"), before);
+        }
     }
 }

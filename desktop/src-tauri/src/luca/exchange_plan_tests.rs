@@ -18,6 +18,7 @@ const NOW: u64 = 1_700_000_000;
 /// An offline stand-in for the owner's relay, registry and rooms.
 #[derive(Default)]
 struct FakeExchangeRelay {
+    triggers: Mutex<BTreeMap<String, nostr::Event>>,
     registry: Mutex<Option<Vec<crate::managed_agents::ManagedAgentRecord>>>,
     registry_unavailable: Mutex<bool>,
     heads: Mutex<BTreeMap<String, ExchangeHead>>,
@@ -79,8 +80,13 @@ impl FakeExchangeRelay {
 }
 
 impl ExchangeRelay for FakeExchangeRelay {
-    fn fetch_trigger(&self, _event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
-        Ok(None)
+    fn fetch_trigger(&self, event_id: &Hex64) -> Result<Option<nostr::Event>, ExchangeRelayError> {
+        Ok(self
+            .triggers
+            .lock()
+            .expect("triggers")
+            .get(event_id.as_str())
+            .cloned())
     }
 
     fn owner(&self) -> Result<Hex64, ExchangeRelayError> {
@@ -355,6 +361,11 @@ fn fixture() -> Fixture {
     let owner = Hex64::parse(owner_keys.public_key().to_hex()).expect("owner");
     let luca = Hex64::parse(luca_keys.public_key().to_hex()).expect("luca");
     let relay = Arc::new(FakeExchangeRelay::default());
+    relay
+        .triggers
+        .lock()
+        .expect("triggers")
+        .insert(trigger.id.to_hex(), trigger.clone());
     relay.room.lock().expect("room").insert(owner.clone());
     relay.room.lock().expect("room").insert(luca.clone());
     relay
@@ -955,4 +966,225 @@ fn applying_a_plan_keeps_the_recipients_sorted_and_unique() {
     effective
         .validate()
         .expect("the effective request is valid");
+}
+
+// A real signed sibling result in the owner's original conversation surface.
+fn owner_return_fixture(
+    timeline: bool,
+) -> (Fixture, ManagedMessagePublishRequestV1, ExchangeRecordV1) {
+    let mut f = fixture();
+    let worker = Keys::parse(&"a3".repeat(32)).expect("worker");
+    f.vektor = Hex64::parse(worker.public_key().to_hex()).expect("worker key");
+    f.relay.seed_resident("Vektor", &f.vektor, false);
+    if !timeline {
+        let owner = Keys::parse(&"a1".repeat(32)).expect("owner");
+        let origin = EventBuilder::new(Kind::Custom(9), "owner asks in a thread")
+            .tags([
+                Tag::parse(["h", CHANNEL]).unwrap(),
+                Tag::parse(["p", f.luca.as_str()]).unwrap(),
+                Tag::parse(["e", &"ab".repeat(32), "", "root"]).unwrap(),
+                Tag::parse(["e", &"cd".repeat(32), "", "reply"]).unwrap(),
+            ])
+            .custom_created_at(Timestamp::from(NOW - 10))
+            .sign_with_keys(&owner)
+            .unwrap();
+        f.trigger_id = origin.id.to_hex();
+        f.relay
+            .triggers
+            .lock()
+            .unwrap()
+            .insert(origin.id.to_hex(), origin);
+    }
+    let origin = f.relay.triggers.lock().unwrap()[&f.trigger_id].clone();
+    let origin_routing = routing_from_event(&origin).unwrap();
+    let root = origin_routing.root_event_id.as_deref().unwrap();
+    let reply = origin_routing.reply_event_id.as_deref().unwrap();
+    let record = f.exchange_record(None);
+    f.relay.seed_head(&record, NOW);
+    f.relay.seed_spent(&record, &[1, 2]);
+    let mut tags = vec![
+        Tag::parse(["h", CHANNEL]).expect("channel"),
+        Tag::parse(["p", f.luca.as_str()]).expect("recipient"),
+        Tag::parse(["e", root, "", "root"]).expect("root"),
+        Tag::parse(["e", reply, "", "reply"]).expect("reply"),
+        Tag::parse(["exchange", record.exchange_id.as_str(), "2"]).expect("exchange"),
+    ];
+    if timeline {
+        tags.push(Tag::parse(["broadcast", "1"]).expect("surface"));
+    }
+    let trigger = EventBuilder::new(Kind::Custom(9), "two synthetic onboarding ideas")
+        .tags(tags)
+        .custom_created_at(Timestamp::from(NOW))
+        .sign_with_keys(&worker)
+        .expect("signed result");
+    f.dispatch
+        .lock()
+        .expect("dispatch")
+        .stage_wake_from_trigger(&trigger, f.luca.as_str(), f.owner.as_str(), NOW)
+        .expect("wake");
+    let mut request = f.request_with(
+        "A useful synthesis for the owner.",
+        vec![f.vektor.clone()],
+        Some(ExchangeTurnTag::new(record.exchange_id.clone(), 3).expect("turn")),
+        None,
+    );
+    request.dispatch_receipt_id = OpaqueId::parse(trigger.id.to_hex()).expect("receipt");
+    request.turn_id = request.dispatch_receipt_id.clone();
+    request.idempotency_key =
+        derive_message_publish_idempotency_key(&request.dispatch_receipt_id, &f.luca)
+            .expect("idempotency");
+    request.thread_id = Some(OpaqueId::parse(format!("thread:{root}")).expect("thread"));
+    request.root_event_id = Some(Hex64::parse(root).unwrap());
+    request.reply_event_id = Some(Hex64::parse(reply).unwrap());
+    request.response_surface = Some(if timeline {
+        ManagedResponseSurfaceV1::Timeline
+    } else {
+        ManagedResponseSurfaceV1::Thread
+    });
+    f.relay
+        .triggers
+        .lock()
+        .expect("triggers")
+        .insert(trigger.id.to_hex(), trigger);
+    (f, request, record)
+}
+
+#[test]
+fn owner_return_keeps_counted_turn_and_original_surface() {
+    for timeline in [false, true] {
+        let (f, request, record) = owner_return_fixture(timeline);
+        let plan = f.resolver().resolve(&request, NOW + 1).expect("resolve");
+        let effective = plan.apply(&request).expect("effective");
+        assert_eq!(effective.resolved_p_tags, vec![f.owner.clone()]);
+        assert_eq!(effective.exchange, request.exchange);
+        assert_eq!(effective.exchange.as_ref().unwrap().turn, 3);
+        assert_eq!(effective.root_event_id, request.root_event_id);
+        assert_eq!(effective.reply_event_id, request.reply_event_id);
+        assert_eq!(effective.thread_id, request.thread_id);
+        assert_eq!(effective.response_surface, request.response_surface);
+        f.dispatch
+            .lock()
+            .expect("dispatch")
+            .authorize_publication(&effective, NOW + 1)
+            .expect("redirect authorized");
+        assert_eq!(
+            f.resolver().resolve(&request, NOW + 2).expect("replay"),
+            plan
+        );
+        assert_eq!(
+            f.relay
+                .fetch_head(&record.exchange_id, &f.owner)
+                .unwrap()
+                .unwrap()
+                .record
+                .state,
+            luca_protocol::ExchangeStateV1::Open
+        );
+        assert!(
+            f.relay.records().is_empty(),
+            "no close before accepted publication"
+        );
+    }
+}
+
+#[test]
+fn owner_return_preserves_explicit_continuation_and_other_exchange_shapes() {
+    for case in ["mention", "non-opener", "depth-two", "three-members"] {
+        let (f, mut request, mut record) = owner_return_fixture(true);
+        match case {
+            "mention" => request.final_draft = "@Vektor, clarify one point.".into(),
+            "non-opener" => record.opened_by = f.vektor.clone(),
+            "depth-two" => {
+                record = ExchangeRecordV1::open_child(
+                    &record,
+                    record.members.clone(),
+                    record.conversation_id.clone(),
+                    record.root_event_id.clone(),
+                    f.luca.clone(),
+                    None,
+                    NOW,
+                )
+                .unwrap()
+            }
+            "three-members" => {
+                record = ExchangeRecordV1::open(
+                    record.owner.clone(),
+                    vec![f.luca.clone(), f.vektor.clone(), f.kai.clone()],
+                    record.conversation_id.clone(),
+                    record.root_event_id.clone(),
+                    f.luca.clone(),
+                    None,
+                    NOW,
+                )
+                .unwrap()
+            }
+            _ => unreachable!(),
+        }
+        request.exchange = Some(ExchangeTurnTag::new(record.exchange_id.clone(), 3).unwrap());
+        f.relay.seed_head(&record, NOW);
+        f.relay.seed_spent(&record, &[1, 2]);
+        let effective = f
+            .resolver()
+            .resolve(&request, NOW + 1)
+            .unwrap()
+            .apply(&request)
+            .unwrap();
+        assert_eq!(effective.resolved_p_tags, vec![f.vektor.clone()], "{case}");
+    }
+}
+
+#[test]
+fn owner_return_refuses_invalid_trigger_stop_expiry_budget_and_cancel() {
+    for case in [
+        "signature",
+        "wrong-id",
+        "wrong-root",
+        "closed",
+        "expired",
+        "budget",
+        "cancel",
+    ] {
+        let (f, mut request, mut record) = owner_return_fixture(true);
+        let mut now = NOW + 1;
+        match case {
+            "signature" => f
+                .relay
+                .triggers
+                .lock()
+                .unwrap()
+                .get_mut(request.dispatch_receipt_id.as_str())
+                .unwrap()
+                .content
+                .push('!'),
+            "wrong-id" => {
+                let origin = f.relay.triggers.lock().unwrap()[&f.trigger_id].clone();
+                f.relay
+                    .triggers
+                    .lock()
+                    .unwrap()
+                    .insert(request.dispatch_receipt_id.as_str().into(), origin);
+            }
+            "wrong-root" => request.root_event_id = Some(Hex64::parse("ff".repeat(32)).unwrap()),
+            "closed" => record = record.stopped(),
+            "expired" => now = record.deadline.get() + 1,
+            "budget" => record.bucket = 2,
+            "cancel" => {
+                let mut store = f.dispatch.lock().unwrap();
+                store.authorize_publication(&request, NOW).unwrap();
+                store
+                    .cancel_exact(
+                        f.owner.as_str(),
+                        CHANNEL,
+                        f.luca.as_str(),
+                        request.dispatch_receipt_id.as_str(),
+                        7,
+                    )
+                    .unwrap();
+            }
+            _ => unreachable!(),
+        }
+        f.relay.seed_head(&record, NOW);
+        assert!(f.resolver().resolve(&request, now).is_err(), "{case}");
+        assert!(f.relay.records().is_empty(), "{case}: no close");
+    }
 }
