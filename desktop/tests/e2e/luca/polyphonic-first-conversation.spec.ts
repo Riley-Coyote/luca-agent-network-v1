@@ -28,7 +28,8 @@ const READY_CODEX_RUNTIME = {
   auth_status: { status: "logged_in" },
   login_hint: "Sign in to Codex",
 };
-const GREETING = /quiet look around this Mac/;
+const GREETING =
+  "Hey Riley — I’m Luca. Tell me what you’re working on, or choose a place to begin.";
 
 async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await installMockBridge(
