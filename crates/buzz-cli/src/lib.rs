@@ -1852,6 +1852,7 @@ mod tests {
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
             "agents",
+            "brain",
             "canvas",
             "channels",
             "dms",
