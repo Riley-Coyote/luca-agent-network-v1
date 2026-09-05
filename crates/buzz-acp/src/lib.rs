@@ -3832,16 +3832,30 @@ mod agent_draft_prompt_tests {
     }
 
     #[test]
-    fn managed_residents_bring_absent_siblings_into_the_current_conversation() {
+    fn managed_residents_use_available_tools_and_verified_outcomes() {
         let prompt = include_str!("luca_managed_prompt.md");
         let normalized = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(normalized.contains("message, ask, consult, reach out to, or bring in"));
-        assert!(normalized.contains("do it in your next ordinary response"));
-        assert!(normalized.contains("An `@Name` is an action, not decoration"));
-        assert!(normalized.contains("use their plain display name without the `@`"));
-        assert!(normalized.contains("the same `@Name` starts a visit"));
-        assert!(normalized.contains("They receive this conversation and answer here"));
-        assert!(normalized.contains("Do not say you cannot reach them"));
+        assert!(normalized.contains("use its exact supported `@Name` in your next ordinary reply"));
+        assert!(normalized.contains("An `@Name` requests action in this turn"));
+        assert!(normalized.contains("use its plain name without the `@`"));
+        assert!(normalized.contains("A visit does not start a stopped runtime"));
+        assert!(normalized.contains("Do not promise a response from an unavailable resident"));
+        assert!(normalized.contains("Use only capabilities advertised in this session"));
+        assert!(normalized.contains(
+            "solely responsible for publishing one final signed message after a successful turn"
+        ));
+        for capability in [
+            "polyphonic_status",
+            "propose_resident",
+            "propose_repository_connection",
+            "propose_runtime_task",
+            "read_runtime_task_result",
+        ] {
+            assert!(prompt.contains(capability));
+        }
+        assert!(!normalized.contains("They receive this conversation and answer here"));
+        assert!(!normalized.contains("Do not say you cannot reach them"));
         assert!(!normalized.contains("I can't reach Vektor"));
         assert!(!normalized.contains("leave the next step to the owner"));
     }
