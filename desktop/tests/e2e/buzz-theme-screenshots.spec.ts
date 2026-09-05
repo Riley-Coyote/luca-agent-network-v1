@@ -175,6 +175,7 @@ async function emitNativeThemeChange(page: Page, theme: "light" | "dark") {
 async function expectAppliedLucaTheme(
   page: Page,
   theme: "paper" | "buzz-dark" | "buzz",
+  storedTheme: "paper" | "buzz-dark" | "buzz" = theme,
 ) {
   await expect
     .poll(() =>
@@ -184,7 +185,7 @@ async function expectAppliedLucaTheme(
         dark: document.documentElement.classList.contains("dark"),
       })),
     )
-    .toEqual({ stored: theme, theme, dark: theme !== "paper" });
+    .toEqual({ stored: storedTheme, theme, dark: theme !== "paper" });
   await expect(page.locator("html")).toHaveAttribute("data-luca-shell", "");
   const paint = await page.evaluate(() => {
     const root = document.documentElement;
@@ -532,6 +533,55 @@ test("Luca light and dark modes apply live without a reload", async ({
   );
   await waitForAnimations(page);
   await page.screenshot({ path: `${SHOTS}/03-luca-live-light.png` });
+});
+
+test("Luca legacy dark alias switches to Light without a reload", async ({
+  page,
+}) => {
+  await seedTheme(page, "buzz-dark");
+  await installMockBridge(page);
+  await openAppearance(page, "dark");
+  const dark = await expectAppliedLucaTheme(page, "buzz-dark");
+  await page.evaluate(() => {
+    document.documentElement.dataset.themeContinuity = "same-document";
+  });
+
+  await page.getByTestId("appearance-mode-light").click();
+  const light = await expectAppliedLucaTheme(page, "paper");
+  expect(light).not.toBe(dark);
+  await expect(page.getByTestId("theme-option-paper")).toBeVisible();
+  await page.getByTestId("appearance-mode-dark").click();
+  await expectAppliedLucaTheme(page, "buzz");
+  await page.getByTestId("appearance-mode-light").click();
+  expect(await expectAppliedLucaTheme(page, "paper")).toBe(light);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme-continuity",
+    "same-document",
+  );
+  await waitForAnimations(page);
+  await page.screenshot({ path: `${SHOTS}/04-luca-alias-to-light.png` });
+});
+
+test("Luca legacy dark alias stays dark in System mode", async ({ page }) => {
+  await seedTheme(page, "buzz-dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await installMockBridge(page);
+  await openAppearance(page, "system");
+  await expectAppliedLucaTheme(page, "buzz", "buzz-dark");
+  await page.evaluate(() => {
+    document.documentElement.dataset.themeContinuity = "same-document";
+  });
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expectAppliedLucaTheme(page, "buzz-dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expectAppliedLucaTheme(page, "buzz", "buzz-dark");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme-continuity",
+    "same-document",
+  );
+  await waitForAnimations(page);
+  await page.screenshot({ path: `${SHOTS}/05-luca-alias-system-light.png` });
 });
 
 test("Buzz follows native system theme changes without a reload", async ({

@@ -448,8 +448,8 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       // Switch to the counterpart theme when the current theme doesn't match
       // the selected mode. E.g. if the stored theme is light and the user
       // clicks Dark, apply the dark pair so the app immediately reflects the
-      // chosen mode. For unpaired themes (no counterpart), fall back to the
-      // first available theme in the target mode's list.
+      // chosen mode. A System pair can stay dark (the legacy buzz-dark alias),
+      // so accept it only when it matches the explicitly requested mode.
       const currentIsLight = LIGHT_THEMES.has(
         selectedThemeName as SyntaxThemeName,
       );
@@ -457,10 +457,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       const needsLight = mode === "light" && !currentIsLight;
       if (needsDark || needsLight) {
         const pair = getThemePair(selectedThemeName as SyntaxThemeName);
-        if (pair) {
+        if (pair && LIGHT_THEMES.has(pair) === (mode === "light")) {
           setTheme(pair);
         } else {
-          // Unpaired theme — pick the first theme from the target mode
+          // No matching counterpart — pick the first theme in the target mode.
           const fallback = needsDark ? allDarkThemes[0] : allLightThemes[0];
           if (fallback) {
             setTheme(fallback);
