@@ -11,7 +11,39 @@
  */
 
 import type { TimelineMessage } from "@/features/messages/types";
+import type { MainTimelineEntry } from "./threadPanel";
 import { isSameDay, startOfLocalDaySeconds } from "./dateFormatters";
+
+/** Preserve supplied conversation grouping against the exact rendered rows. */
+export function selectRenderedTimelineEntries({
+  messages,
+  entries,
+  supplementalEntries,
+}: {
+  messages: readonly TimelineMessage[];
+  entries?: MainTimelineEntry[];
+  supplementalEntries?: MainTimelineEntry[];
+}): MainTimelineEntry[] | undefined {
+  if (entries === undefined && supplementalEntries === undefined) {
+    return undefined;
+  }
+  const rendered = new Map(
+    messages.map((message) => [timelineMessageIdentity(message), message]),
+  );
+  const seen = new Set<string>();
+  const selected: MainTimelineEntry[] = [];
+  for (const entry of [...(entries ?? []), ...(supplementalEntries ?? [])]) {
+    const identity = timelineMessageIdentity(entry.message);
+    const message = rendered.get(identity);
+    if (!message || seen.has(identity)) continue;
+    seen.add(identity);
+    selected.push(message === entry.message ? entry : { ...entry, message });
+  }
+  return entries?.length === selected.length &&
+    entries.every((entry, index) => entry === selected[index])
+    ? entries
+    : selected;
+}
 
 /** Distance (px) from the bottom within which the timeline counts as "at bottom". */
 export const BOTTOM_THRESHOLD_PX = 72;

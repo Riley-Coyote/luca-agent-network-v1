@@ -591,10 +591,35 @@ test("owner return stays in its focused thread and jump to latest reaches its or
     ),
   ).toBeInViewport();
   await waitForAnimations(page);
-  await timeline.evaluate((el) => {
-    el.scrollTop = 0;
-    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  // Real owner input cancels the thread's entrance settle before reading history.
+  await timeline.hover();
+  await page.mouse.wheel(0, -2000);
+  await expect
+    .poll(() =>
+      timeline.evaluate(
+        (el) => el.scrollHeight - el.clientHeight - el.scrollTop,
+      ),
+    )
+    .toBeGreaterThan(500);
+  await expect(
+    timeline.getByText(
+      "Project detail 47: preserve this reading position while the residents finish their check.",
+      { exact: true },
+    ),
+  ).not.toBeInViewport();
+  const readingPosition = await timeline.evaluate(async (el) => {
+    const before = el.scrollTop;
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+    return {
+      before,
+      after: el.scrollTop,
+      distance: el.scrollHeight - el.clientHeight - el.scrollTop,
+    };
   });
+  expect(readingPosition.after).toBeCloseTo(readingPosition.before, 0);
+  expect(readingPosition.distance).toBeGreaterThan(500);
   await expect(
     page.getByRole("button", { name: "Jump to latest", exact: true }),
   ).toBeVisible();

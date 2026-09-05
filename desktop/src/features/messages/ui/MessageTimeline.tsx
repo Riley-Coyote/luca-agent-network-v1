@@ -4,6 +4,7 @@ import {
   isDeferredTimelineSnapshotStale,
   isRenderedTimelineBehindHistoryPrepend,
   mergeUrgentOwnSendSuffix,
+  selectRenderedTimelineEntries,
   selectTimelineBodySurface,
   selectTimelineIntroSurface,
 } from "@/features/messages/lib/timelineSnapshot";
@@ -130,6 +131,7 @@ const EMPTY_MESSAGES: TimelineMessage[] = [];
 type TimelineSnapshot = {
   channelId: string | null;
   messages: TimelineMessage[];
+  mainEntries?: MainTimelineEntry[];
   /**
    * History-exhaustion proof captured with the SAME rows it was derived from.
    * The oldest-day divider may only exist when this is true, and rows and
@@ -249,8 +251,13 @@ const MessageTimelineBase = React.forwardRef<
   // route change can paint the previous channel's deferred rows for a frame even
   // though the sidebar/header already moved to the new channel.
   const liveSnapshot = React.useMemo<TimelineSnapshot>(
-    () => ({ channelId: channelId ?? null, messages, historyExhausted }),
-    [channelId, historyExhausted, messages],
+    () => ({
+      channelId: channelId ?? null,
+      messages,
+      mainEntries,
+      historyExhausted,
+    }),
+    [channelId, historyExhausted, mainEntries, messages],
   );
   const deferredSnapshot = React.useDeferredValue(
     liveSnapshot,
@@ -330,6 +337,19 @@ const MessageTimelineBase = React.forwardRef<
       searchActiveMessageId !== null,
     messages: renderMessages,
   });
+  const projectionMeta = React.useMemo(
+    () => ({
+      historyExhausted: deferredSnapshot.historyExhausted,
+      mainEntries: selectRenderedTimelineEntries({
+        messages: renderMessages,
+        entries: deferredSnapshot.mainEntries,
+        // Only the existing urgent own-send suffix may cross deferral.
+        supplementalEntries:
+          renderMessages !== deferredMessages ? mainEntries : undefined,
+      }),
+    }),
+    [deferredMessages, deferredSnapshot, mainEntries, renderMessages],
+  );
   // Hold older-page render commits until the scroller is at rest: WKWebView
   // can drop scrollTop compensation writes during live trackpad momentum.
   // Full rationale in useSettleGatedPrependMessages.
@@ -342,14 +362,22 @@ const MessageTimelineBase = React.forwardRef<
   // the deferred snapshot's oldest rows.
   const {
     messages: renderedMessages,
-    meta: renderedHistoryExhausted,
+    meta: renderedProjectionMeta,
     isHoldingPrepend,
   } = useSettleGatedPrependMessages({
     channelId,
     messages: bufferedTimeline.messages,
-    meta: deferredSnapshot.historyExhausted,
+    meta: projectionMeta,
     scrollElementRef: activeScrollContainerRef,
   });
+  const renderedMainEntries = React.useMemo(
+    () =>
+      selectRenderedTimelineEntries({
+        messages: renderedMessages,
+        entries: renderedProjectionMeta.mainEntries,
+      }),
+    [renderedMessages, renderedProjectionMeta.mainEntries],
+  );
 
   const {
     highlightedMessageId,
@@ -690,9 +718,9 @@ const MessageTimelineBase = React.forwardRef<
       entranceMessageId={entranceMessageId}
       onEntranceMessageComplete={onEntranceMessageComplete}
       messageFooters={messageFooters}
-      mainEntries={renderedMessages === messages ? mainEntries : undefined}
+      mainEntries={renderedMainEntries}
       leadingContent={virtualizedLeadingContent}
-      historyExhausted={renderedHistoryExhausted}
+      historyExhausted={renderedProjectionMeta.historyExhausted}
       threadSummaries={threadSummaries}
       messages={renderedMessages}
       onDelete={onDelete}

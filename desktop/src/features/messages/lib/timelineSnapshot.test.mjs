@@ -9,6 +9,7 @@ import {
   isNearBottomMetrics,
   isRenderedTimelineBehindHistoryPrepend,
   mergeUrgentOwnSendSuffix,
+  selectRenderedTimelineEntries,
   resolveDeepLinkTarget,
   selectDeferredListRenderState,
   selectLatestMessageAutoScrollBehavior,
@@ -16,6 +17,84 @@ import {
   selectTimelineBodySurface,
   selectTimelineIntroSurface,
 } from "./timelineSnapshot.ts";
+
+test("rendered entries keep focused replies and exclude buffered arrivals", () => {
+  const root = message({ id: "root" });
+  const reply = message({ id: "reply", parentId: root.id });
+  const incoming = message({ id: "incoming", parentId: root.id });
+  const quote = { id: root.id, body: root.body, author: root.author };
+  const entries = [
+    { message: root, summary: null },
+    { message: reply, summary: null, quotedParent: quote },
+    { message: incoming, summary: null, quotedParent: quote },
+  ];
+  const selected = selectRenderedTimelineEntries({
+    messages: [root, reply],
+    entries,
+  });
+  assert.deepEqual(selected, entries.slice(0, 2));
+  assert.equal(selected[1], entries[1]);
+  assert.equal(selected[1].quotedParent, quote);
+  assert.equal(
+    selectRenderedTimelineEntries({
+      messages: [root, reply, incoming],
+      entries,
+    }),
+    entries,
+  );
+});
+
+test("rendered entries use retained bodies and stable optimistic identities", () => {
+  const retained = message({
+    id: "optimistic",
+    renderKey: "send",
+    body: "retained",
+  });
+  const latest = message({
+    id: "signed",
+    renderKey: "send",
+    body: "later edit",
+  });
+  const entry = { message: latest, summary: null };
+  const [selected] = selectRenderedTimelineEntries({
+    messages: [retained],
+    entries: [entry],
+  });
+  assert.equal(selected.message, retained);
+  assert.equal(selected.message.id, "optimistic");
+  assert.equal(selected.message.body, "retained");
+});
+
+test("entry supplementation admits only already-rendered urgent suffix rows", () => {
+  const retained = message({ id: "retained" });
+  const own = message({ id: "own" });
+  const deferred = message({ id: "deferred" });
+  const entry = { message: retained, summary: null };
+  const ownEntry = { message: own, summary: null };
+  const selected = selectRenderedTimelineEntries({
+    messages: [retained, own],
+    entries: [entry],
+    supplementalEntries: [
+      { message: { ...retained, body: "later edit" }, summary: null },
+      ownEntry,
+      { message: deferred, summary: null },
+    ],
+  });
+  assert.deepEqual(selected, [entry, ownEntry]);
+  assert.equal(selected[0], entry);
+});
+
+test("missing supplied entries preserves default room projection", () => {
+  const messages = [
+    message({ id: "root" }),
+    message({ id: "reply", parentId: "root" }),
+  ];
+  assert.equal(selectRenderedTimelineEntries({ messages }), undefined);
+  assert.deepEqual(
+    selectRenderedTimelineEntries({ messages, entries: [] }),
+    [],
+  );
+});
 
 // Local-midnight unix-second timestamps so isSameDay (local time) is stable
 // regardless of the machine's timezone.

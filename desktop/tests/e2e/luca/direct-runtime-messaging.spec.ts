@@ -64,9 +64,15 @@ async function createdResidentPubkey(
 }
 
 async function openNewMessage(page: import("@playwright/test").Page) {
-  if (await page.getByTestId("new-message-page").isVisible()) return;
-  await page.getByTestId("open-new-conversation").click();
+  await expect(page.getByTestId("open-new-conversation")).toBeVisible();
+  if (!(await page.getByTestId("new-message-page").isVisible())) {
+    await page.getByTestId("open-new-conversation").click();
+  }
   await expect(page.getByTestId("new-message-page")).toBeVisible();
+  const recipientSearch = page.getByTestId("new-dm-search");
+  await recipientSearch.click();
+  await expect(recipientSearch).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByTestId("new-dm-directory-results")).toBeVisible();
 }
 
 for (const runtime of [
