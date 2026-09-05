@@ -90,6 +90,13 @@ export function useAgentManagement() {
   const seenRequestIds = React.useRef(new Set<string>());
   const pendingRequestId = React.useRef<string | null>(null);
   const sourceAgentPubkey = React.useRef<string | null>(null);
+  const closingImportId = React.useRef<string | null>(null);
+  const closingImportBusy = React.useRef(false);
+  const [importCloseState, setImportCloseState] = React.useState({
+    closing: false,
+    pending: false,
+    error: null as string | null,
+  });
   const hostRequestIds = React.useRef(new Set<string>());
   const completedHostRequestIds = React.useRef(new Set<string>());
   const managedCreateOutcome = React.useRef<{
@@ -105,6 +112,11 @@ export function useAgentManagement() {
 
   const acceptOwnedRequest = React.useEffectEvent(
     (agentPubkey: string, next: AgentManagementRequest) => {
+      if (
+        next.action === "import" &&
+        !hostRequestIds.current.has(next.requestId)
+      )
+        return;
       if (seenRequestIds.current.has(next.requestId)) return;
       if (
         classifyAgentManagementOrigin(
@@ -189,22 +201,34 @@ export function useAgentManagement() {
     let unlisten: (() => void) | undefined;
     const receive = (proposal: ResidentProposal) => {
       if (disposed) return;
-      const next = parseAgentManagementRequest({
-        type: "agent_management_request",
-        action: "create",
-        requestId: proposal.requestId,
-        request: {
-          channelId: proposal.conversationId,
-          displayName: proposal.displayName,
-          systemPrompt: proposal.systemPrompt,
-          ...(proposal.runtimeFamily
-            ? { requestedRuntimeFamily: proposal.runtimeFamily }
-            : {}),
-          ...(proposal.provisioningIntent
-            ? { provisioningIntent: proposal.provisioningIntent }
-            : {}),
-        },
-      });
+      const next = parseAgentManagementRequest(
+        proposal.provisioningIntent === "import"
+          ? {
+              type: "agent_management_request",
+              action: "import",
+              requestId: proposal.requestId,
+              request: {
+                channelId: proposal.conversationId,
+                nativeProfileName: proposal.nativeProfileName,
+              },
+            }
+          : {
+              type: "agent_management_request",
+              action: "create",
+              requestId: proposal.requestId,
+              request: {
+                channelId: proposal.conversationId,
+                displayName: proposal.displayName,
+                systemPrompt: proposal.systemPrompt,
+                ...(proposal.runtimeFamily
+                  ? { requestedRuntimeFamily: proposal.runtimeFamily }
+                  : {}),
+                ...(proposal.provisioningIntent
+                  ? { provisioningIntent: proposal.provisioningIntent }
+                  : {}),
+              },
+            },
+      );
       if (
         !next ||
         !/^[0-9a-f]{64}$/i.test(proposal.residentPubkey) ||
@@ -301,8 +325,9 @@ export function useAgentManagement() {
   async function authorizePendingCreate(checkHost = true) {
     const requestingPubkey = sourceAgentPubkey.current;
     if (
-      request?.action !== "create" ||
+      (request?.action !== "create" && request?.action !== "import") ||
       pendingRequestId.current !== request.requestId ||
+      closingImportId.current === request.requestId ||
       !requestingPubkey
     ) {
       throw new Error("This agent creation request is no longer available.");
@@ -313,6 +338,7 @@ export function useAgentManagement() {
     ]);
     if (
       pendingRequestId.current !== request.requestId ||
+      closingImportId.current === request.requestId ||
       sourceAgentPubkey.current !== requestingPubkey ||
       classifyAgentManagementOrigin(
         agents.data,
@@ -328,6 +354,11 @@ export function useAgentManagement() {
     if (checkHost && hostRequestIds.current.has(request.requestId)) {
       await authorizeResidentProposal(request.requestId);
     }
+    if (
+      closingImportId.current === request.requestId ||
+      pendingRequestId.current !== request.requestId
+    )
+      throw new Error("This review is closing or no longer available.");
   }
 
   async function completeNativeCreate(completion: NativeAgentCompletion) {
@@ -348,6 +379,57 @@ export function useAgentManagement() {
     await sendManagedAgentChannelMessage(
       agentManagementCompletionMessage(request, requestingPubkey, completion),
     );
+  }
+
+  async function completeNativeImport() {
+    if (request?.action !== "import")
+      throw new Error("This import review is no longer available.");
+    const requestId = request.requestId;
+    await authorizePendingCreate(false);
+    if (
+      pendingRequestId.current !== requestId ||
+      closingImportId.current === requestId
+    )
+      throw new Error("This import review is no longer available.");
+    await finishResidentProposal(requestId, { status: "native_imported" });
+    completedHostRequestIds.current.add(requestId);
+    void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
+    if (pendingRequestId.current === requestId) dismiss();
+  }
+
+  async function closeNativeImport() {
+    const requestId = pendingRequestId.current;
+    if (
+      !requestId ||
+      request?.action !== "import" ||
+      request.requestId !== requestId ||
+      closingImportBusy.current
+    )
+      return;
+    // Once closing begins, neither an in-flight import callback nor a new
+    // owner action can revive it. Retain the ID until the close is acknowledged.
+    closingImportId.current = requestId;
+    closingImportBusy.current = true;
+    setImportCloseState({ closing: true, pending: true, error: null });
+    try {
+      await finishResidentProposal(requestId, {
+        status: "closed",
+        busy: false,
+      });
+      if (pendingRequestId.current === requestId) {
+        completedHostRequestIds.current.add(requestId);
+        dismiss();
+      }
+    } catch (cause) {
+      if (pendingRequestId.current === requestId)
+        setImportCloseState({
+          closing: true,
+          pending: false,
+          error: `The host has not acknowledged closing this review. Retry closing: ${cause instanceof Error ? cause.message : String(cause)}`,
+        });
+    } finally {
+      closingImportBusy.current = false;
+    }
   }
 
   async function returnHostOutcome(completion: ResidentProposalCompletion) {
@@ -502,6 +584,8 @@ export function useAgentManagement() {
     }
     pendingRequestId.current = null;
     sourceAgentPubkey.current = null;
+    closingImportId.current = null;
+    setImportCloseState({ closing: false, pending: false, error: null });
     managedCreateOutcome.current = null;
     setRequest(null);
   }
@@ -536,6 +620,10 @@ export function useAgentManagement() {
   return {
     authorizePendingCreate,
     completeNativeCreate,
+    completeNativeImport,
+    closeNativeImport,
+    importCloseState,
+    managedAgents: managedAgentsQuery.data ?? [],
     residentProposalId:
       request && hostRequestIds.current.has(request.requestId)
         ? request.requestId

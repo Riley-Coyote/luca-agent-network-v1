@@ -47,6 +47,12 @@ export type AgentManagementUpdateRequest = {
 
 export type AgentManagementRequest =
   | AgentManagementCreateRequest
+  | {
+      type: typeof AGENT_MANAGEMENT_REQUEST;
+      action: "import";
+      requestId: string;
+      request: { channelId: string; nativeProfileName: string };
+    }
   | AgentManagementUpdateRequest;
 
 function isText(value: unknown): value is string {
@@ -93,13 +99,36 @@ export function parseAgentManagementRequest(
   if (
     payload.type !== AGENT_MANAGEMENT_REQUEST ||
     !isText(payload.requestId) ||
-    (payload.action !== "create" && payload.action !== "update") ||
+    !["create", "update", "import"].includes(String(payload.action)) ||
     typeof payload.request !== "object" ||
     payload.request === null
   ) {
     return null;
   }
   const request = payload.request as Record<string, unknown>;
+
+  if (payload.action === "import") {
+    if (
+      !hasOnlyKeys(request, ["channelId", "nativeProfileName"]) ||
+      !isText(request.channelId) ||
+      !isText(request.nativeProfileName) ||
+      request.nativeProfileName.length > 120 ||
+      Array.from(request.nativeProfileName).some(
+        (character) =>
+          character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
+      )
+    )
+      return null;
+    return {
+      type: AGENT_MANAGEMENT_REQUEST,
+      action: "import",
+      requestId: payload.requestId,
+      request: {
+        channelId: request.channelId,
+        nativeProfileName: request.nativeProfileName.trim().toLowerCase(),
+      },
+    };
+  }
 
   if (payload.action === "create") {
     if (

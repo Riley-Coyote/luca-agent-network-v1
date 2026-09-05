@@ -21,7 +21,10 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::exchange_relay::{AppExchangeRelay, ExchangeRelay};
 
+mod native_import;
 mod native_link;
+
+pub use native_import::*;
 
 pub(crate) fn validate_native_execution_link(
     app: &AppHandle,
@@ -48,19 +51,38 @@ pub(crate) struct ResidentProposalScope {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProposalArguments {
+    #[serde(default)]
     display_name: String,
+    #[serde(default)]
     system_prompt: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     runtime_family: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provisioning_intent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_profile_name: Option<String>,
 }
 
 impl ProposalArguments {
     fn validate(&self) -> Result<(), String> {
         let name = self.display_name.trim();
         let prompt = self.system_prompt.trim();
+        if self.provisioning_intent.as_deref() == Some("import") {
+            return if self.runtime_family.as_deref() == Some("hermes")
+                && name.is_empty()
+                && prompt.is_empty()
+                && self.native_profile_name.as_deref().is_some_and(|profile| {
+                    !profile.trim().is_empty()
+                        && profile.len() <= 120
+                        && !profile.chars().any(char::is_control)
+                }) {
+                Ok(())
+            } else {
+                Err("Hermes import requires the exact profile name without replacement instructions.".into())
+            };
+        }
         if name.is_empty()
+            || self.native_profile_name.is_some()
             || name.len() > 120
             || name.chars().any(char::is_control)
             || prompt.is_empty()
@@ -97,6 +119,7 @@ pub struct ResidentProposalV1 {
     system_prompt: String,
     runtime_family: Option<String>,
     provisioning_intent: Option<String>,
+    native_profile_name: Option<String>,
     created_at: String,
 }
 
@@ -105,6 +128,7 @@ struct PendingProposal {
     projection: ResidentProposalV1,
     deadline: Instant,
     native_transaction_id: Option<String>,
+    native_import: Option<NativeImportAttempt>,
     result: Option<Value>,
     completion: Option<ResidentProposalCompletionV1>,
 }
@@ -114,6 +138,7 @@ struct CompletedProposal {
     scope: ResidentProposalScope,
     completion: ResidentProposalCompletionV1,
     deadline: Instant,
+    native_import: Option<NativeImportAttempt>,
 }
 
 fn completed_proposals() -> &'static Mutex<HashMap<String, CompletedProposal>> {
@@ -298,6 +323,7 @@ impl Drop for PendingGuard {
                                     scope: proposal.scope.clone(),
                                     completion,
                                     deadline: proposal.deadline,
+                                    native_import: proposal.native_import,
                                 },
                             );
                         }
@@ -322,6 +348,14 @@ fn incomplete_result(request_id: &str, transaction_id: Option<&str>, reason: &st
         "message": "No completed setup result was returned. Creation may have begun. Check the existing resident or native setup receipt before proposing another creation.",
         "authenticatedReady": false
     })
+}
+
+fn add_import_incomplete(result: &mut Value, attempt: Option<&NativeImportAttempt>) {
+    if let Some(attempt) = attempt {
+        result["residentPubkey"] = json!(attempt.resident_pubkey);
+        result["nativeProfileName"] = json!(attempt.profile_name);
+        result["message"] = json!("The import review ended without returning a verified result. A resident may already be saved; inspect the existing Hermes profile in Agents before requesting another import. Native configuration was not replaced.");
+    }
 }
 
 #[cfg(unix)]
@@ -362,6 +396,9 @@ pub(crate) fn propose_resident(
         system_prompt: arguments.system_prompt.trim().to_owned(),
         runtime_family: arguments.runtime_family,
         provisioning_intent: arguments.provisioning_intent,
+        native_profile_name: arguments
+            .native_profile_name
+            .map(|name| name.trim().to_ascii_lowercase()),
         created_at: Utc::now().to_rfc3339(),
     };
     {
@@ -378,6 +415,7 @@ pub(crate) fn propose_resident(
                 projection: projection.clone(),
                 deadline: Instant::now() + PROPOSAL_LIFETIME,
                 native_transaction_id: None,
+                native_import: None,
                 result: None,
                 completion: None,
             },
@@ -454,7 +492,9 @@ fn wait_for_result(
             // revive its request while the delivery guard is being dropped.
             let transaction_id = proposal.native_transaction_id.clone();
             let result = proposal.result.get_or_insert_with(|| {
-                incomplete_result(request_id, transaction_id.as_deref(), reason)
+                let mut result = incomplete_result(request_id, transaction_id.as_deref(), reason);
+                add_import_incomplete(&mut result, proposal.native_import.as_ref());
+                result
             });
             return Ok(result.clone());
         }
@@ -558,6 +598,9 @@ pub(crate) async fn bind_native_transaction(
         {
             return Err("This request is no longer available for a new native creation.".into());
         }
+        if proposal.projection.provisioning_intent.as_deref() == Some("import") {
+            return Err("Existing-profile import cannot authorize native provisioning.".into());
+        }
         let transaction =
             super::operator_forge::load_native_transaction(&app, &owner, &transaction_id)?;
         native_link::bind(
@@ -582,6 +625,7 @@ pub(crate) async fn bind_native_transaction(
     deny_unknown_fields
 )]
 pub enum ResidentProposalCompletionV1 {
+    NativeImported {},
     NativeCreated {
         transaction_id: String,
         #[serde(default)]
@@ -620,6 +664,17 @@ fn completion_scope_from(
         .map_err(|_| "Setup request state is unavailable.")?
         .get(request_id)
     {
+        if proposal.projection.provisioning_intent.as_deref() == Some("import")
+            && !matches!(
+                completion,
+                ResidentProposalCompletionV1::NativeImported {}
+                    | ResidentProposalCompletionV1::Closed { .. }
+            )
+        {
+            return Err(
+                "An import request requires its host-correlated imported resident result.".into(),
+            );
+        }
         if proposal.result.is_none() && Instant::now() < proposal.deadline {
             return Ok(Some((proposal.scope.clone(), false)));
         }
@@ -791,6 +846,20 @@ pub async fn finish_resident_proposal(
             verify_origin(&app, &scope)?;
         }
         let mut result = match completion.clone() {
+            ResidentProposalCompletionV1::NativeImported {} => {
+                let attempt = lock_proposals()?.get(&request_id).and_then(|proposal| proposal.native_import.clone())
+                    .or_else(|| completed_proposals().lock().ok().and_then(|completed| completed.get(&request_id).and_then(|proposal| proposal.native_import.clone())))
+                    .ok_or("No owner-reviewed import belongs to this request.")?;
+                if attempt.busy { return Err("The import is still underway.".into()); }
+                if !attempt.preferences_applied { return Err("The reviewed import settings have not been saved. Retry reviewed settings before returning success.".into()); }
+                let imported = import_result(&app, &scope, &attempt)?;
+                let mut result = serde_json::to_value(imported).map_err(|_| "The import result could not be encoded.")?;
+                result["status"] = json!("resident_imported");
+                result["conversationId"] = json!(scope.conversation);
+                result["attached"] = json!(false);
+                result["message"] = json!("The exact owner-selected Hermes profile is linked to this resident. Existing native configuration is unchanged. Import does not add the resident to this conversation; process state does not prove an authenticated reply.");
+                result
+            },
             ResidentProposalCompletionV1::NativeCreated { transaction_id, attached_conversation_id } => {
                 native_result(&app, &scope, &request_id, &transaction_id, attached_conversation_id.as_deref())?
             },
@@ -805,7 +874,9 @@ pub async fn finish_resident_proposal(
             ResidentProposalCompletionV1::Closed { busy } => {
                 let transaction = lock_proposals()?.get(&request_id)
                     .and_then(|proposal| proposal.native_transaction_id.clone());
-                incomplete_result(&request_id, transaction.as_deref(), if busy { "another_review_open" } else { "review_closed" })
+                let mut result = incomplete_result(&request_id, transaction.as_deref(), if busy { "another_review_open" } else { "review_closed" });
+                add_import_incomplete(&mut result, lock_proposals()?.get(&request_id).and_then(|proposal| proposal.native_import.as_ref()));
+                result
             }
         };
         result["requestId"] = json!(request_id);

@@ -121,3 +121,48 @@ test("allows agents to update only personal, editable profiles", () => {
     false,
   );
 });
+
+test("Hermes import requests carry an exact name but no model-selected identity or effects", () => {
+  const payload = {
+    type: AGENT_MANAGEMENT_REQUEST,
+    action: "import",
+    requestId: "hermes-import-1",
+    request: { channelId: CHANNEL_ID, nativeProfileName: "research" },
+  };
+  assert.deepEqual(parseAgentManagementRequest(payload), payload);
+  for (const [field, value] of [
+    ["residentPubkey", "a".repeat(64)],
+    ["semanticId", "hermes:/unreviewed:research"],
+    ["systemPrompt", "Replace the native prompt"],
+    ["startNow", true],
+    ["continuityEnabled", true],
+    ["requestedRuntimeFamily", "openclaw"],
+  ]) {
+    assert.equal(
+      parseAgentManagementRequest({
+        ...payload,
+        request: { ...payload.request, [field]: value },
+      }),
+      null,
+    );
+  }
+  for (const name of ["", " ", "x".repeat(121), "two\nlines"]) {
+    assert.equal(
+      parseAgentManagementRequest({
+        ...payload,
+        request: { ...payload.request, nativeProfileName: name },
+      }),
+      null,
+    );
+  }
+});
+
+test("natural Hermes profile casing resolves to its native identifier without altering a location", () => {
+  const parsed = parseAgentManagementRequest({
+    type: AGENT_MANAGEMENT_REQUEST,
+    action: "import",
+    requestId: "case-test",
+    request: { channelId: CHANNEL_ID, nativeProfileName: " Ziggy " },
+  });
+  assert.equal(parsed?.request.nativeProfileName, "ziggy");
+});

@@ -189,10 +189,12 @@ fn pending_store(scope: &ResidentProposalScope) -> Mutex<HashMap<String, Pending
                 system_prompt: "Inspect the assigned project.".into(),
                 runtime_family: Some("hermes".into()),
                 provisioning_intent: None,
+                native_profile_name: None,
                 created_at: Utc::now().to_rfc3339(),
             },
             deadline: Instant::now() + Duration::from_secs(3),
             native_transaction_id: Some("native-transaction-1".into()),
+            native_import: None,
             result: None,
             completion: None,
         },
@@ -361,6 +363,7 @@ fn missing_cancelled_or_mismatched_completions_cannot_be_acknowledged_as_success
     completed.lock().expect("completed").insert(
         "request-1".into(),
         CompletedProposal {
+            native_import: None,
             scope,
             completion: completion.clone(),
             deadline: Instant::now() + Duration::from_secs(3),
@@ -447,4 +450,315 @@ fn cancellation_removal_between_scope_snapshot_and_completion_cannot_acknowledge
         Some(completion)
     )
     .is_err());
+}
+
+fn import_selection() -> NativeImportSelectionV1 {
+    NativeImportSelectionV1 {
+        semantic_id: "hermes:/fixture/hermes:research".into(),
+        binding_fingerprint: "reviewed-binding".into(),
+        start_now: true,
+        start_on_app_launch: false,
+        continuity_enabled: false,
+    }
+}
+
+fn import_proposal() -> PendingProposal {
+    let store = pending_store(&scope());
+    let mut proposal = store
+        .into_inner()
+        .expect("store")
+        .remove("request-1")
+        .expect("proposal");
+    proposal.projection.provisioning_intent = Some("import".into());
+    proposal.projection.native_profile_name = Some("research".into());
+    proposal.native_transaction_id = None;
+    proposal
+}
+
+fn import_candidate() -> crate::managed_agents::DiscoveredResidentCandidate {
+    serde_json::from_value(json!({
+        "nativeType":"hermes", "nativeId":"research", "semanticId":"hermes:/fixture/hermes:research", "bindingFingerprint":"reviewed-binding", "displayName":"Research",
+        "canonicalLocation":"/fixture/hermes", "readiness":{"status":"discovered", "message":"Not probed"}, "warnings":[],
+        "bindingPreview":{"kind":"hermes", "schemaVersion":1, "profileName":"research", "hermesHome":"/fixture/hermes", "executablePath":"/fixture/hermes-cli", "runtimeVersion":"fixture-1", "defaultWorkspace":null}
+    })).expect("synthetic discovery")
+}
+
+#[test]
+fn import_arguments_and_completion_cannot_supply_replacement_instructions_or_a_resident() {
+    let input = json!({"runtime_family":"hermes", "provisioning_intent":"import", "native_profile_name":"research"});
+    assert!(serde_json::from_value::<ProposalArguments>(input.clone())
+        .expect("shape")
+        .validate()
+        .is_ok());
+    for (field, value) in [
+        ("runtime_family", "openclaw"),
+        ("system_prompt", "Replacement"),
+        ("display_name", "Replacement"),
+        ("native_profile_name", " "),
+    ] {
+        let mut changed = input.clone();
+        changed[field] = json!(value);
+        assert!(serde_json::from_value::<ProposalArguments>(changed)
+            .expect("shape")
+            .validate()
+            .is_err());
+    }
+    assert!(serde_json::from_value::<ResidentProposalCompletionV1>(
+        json!({"status":"native_imported"})
+    )
+    .is_ok());
+    for field in ["residentPubkey", "binding", "authenticatedReady", "message"] {
+        let mut completion = json!({"status":"native_imported"});
+        completion[field] = json!("untrusted");
+        assert!(serde_json::from_value::<ResidentProposalCompletionV1>(completion).is_err());
+    }
+}
+
+#[test]
+fn import_selection_requires_exact_current_name_semantic_identity_fingerprint_and_availability() {
+    let selection = import_selection();
+    let candidate = import_candidate();
+    assert!(select_import_candidate("research", &selection, vec![candidate.clone()]).is_ok());
+    assert!(select_import_candidate("Research", &selection, vec![candidate.clone()]).is_ok());
+    assert!(select_import_candidate("other", &selection, vec![candidate.clone()]).is_err());
+    assert!(select_import_candidate("research", &selection, vec![]).is_err());
+    assert!(select_import_candidate(
+        "research",
+        &selection,
+        vec![candidate.clone(), candidate.clone()]
+    )
+    .is_err());
+    let mut stale = candidate.clone();
+    stale.binding_fingerprint = "changed".into();
+    assert!(select_import_candidate("research", &selection, vec![stale]).is_err());
+    let mut unavailable = candidate.clone();
+    unavailable.readiness = crate::managed_agents::ResidentReadiness::Unavailable {
+        code: "missing".into(),
+        message: "Missing executable".into(),
+    };
+    assert!(select_import_candidate("research", &selection, vec![unavailable]).is_err());
+    let mut collision = candidate.clone();
+    collision.semantic_id = "hermes:/fixture/other:research".into();
+    assert_eq!(
+        select_import_candidate("research", &selection, vec![collision, candidate])
+            .expect("exact selection")
+            .semantic_id,
+        selection.semantic_id
+    );
+}
+
+#[test]
+fn an_import_is_admitted_once_and_retry_keeps_identity_and_owner_choices() {
+    let mut proposal = import_proposal();
+    let (mut attempt, first) =
+        admit_import(&mut proposal, Some(import_selection()), false).expect("admitted");
+    assert!(first);
+    assert!(
+        admit_import(&mut proposal, None, false).is_err(),
+        "busy duplicate"
+    );
+    attempt.busy = false;
+    attempt.resident_pubkey = Some("d".repeat(64));
+    attempt.startup_error = Some("Unavailable".into());
+    proposal.native_import = Some(attempt.clone());
+    let (retried, first) = admit_import(&mut proposal, None, true).expect("retry exact start");
+    assert!(!first);
+    assert_eq!(retried.resident_pubkey, attempt.resident_pubkey);
+    assert_eq!(
+        retried.selection.continuity_enabled,
+        attempt.selection.continuity_enabled
+    );
+    proposal.native_import = Some(attempt.clone());
+    let mut other = import_selection();
+    other.semantic_id = "other".into();
+    assert!(admit_import(&mut proposal, Some(other), false).is_err());
+    attempt.selection.start_now = false;
+    proposal.native_import = Some(attempt);
+    assert!(
+        admit_import(&mut proposal, None, true).is_err(),
+        "startup requires owner consent"
+    );
+    let (_, first) = admit_import(&mut proposal, None, false).expect("result-only inspection");
+    assert!(!first);
+}
+
+#[test]
+fn import_completion_resolves_only_one_exact_saved_identity() {
+    let (mut attempt, _) =
+        admit_import(&mut import_proposal(), Some(import_selection()), false).expect("admit");
+    let key = "d".repeat(64);
+    let other = "e".repeat(64);
+    let identity = attempt.selection.semantic_id.clone();
+    assert_eq!(
+        select_imported_pubkey(
+            [
+                (key.clone(), identity.clone()),
+                (other.clone(), "other-binding".into())
+            ],
+            &attempt
+        )
+        .expect("exact"),
+        key
+    );
+    assert!(select_imported_pubkey([(other.clone(), "other-binding".into())], &attempt).is_err());
+    assert!(select_imported_pubkey(
+        [
+            (key.clone(), identity.clone()),
+            (other.clone(), identity.clone())
+        ],
+        &attempt
+    )
+    .is_err());
+    attempt.resident_pubkey = Some(key);
+    assert!(
+        select_imported_pubkey([(other, identity)], &attempt).is_err(),
+        "replaced identity"
+    );
+}
+
+#[test]
+fn terminal_import_keeps_saved_key_but_never_accepts_late_success_or_new_mutation() {
+    for expired in [false, true] {
+        let mut proposal = import_proposal();
+        let (mut attempt, _) =
+            admit_import(&mut proposal, Some(import_selection()), false).expect("admit");
+        attempt.resident_pubkey = Some("d".repeat(64));
+        attempt.busy = false;
+        proposal.native_import = Some(attempt.clone());
+        if expired {
+            proposal.deadline = Instant::now() - Duration::from_secs(1);
+        } else {
+            proposal.result = Some(incomplete_result("request-1", None, "review_closed"));
+        }
+        assert!(admit_import(&mut proposal, None, false).is_err());
+        let mut result = incomplete_result("request-1", None, "review_closed");
+        add_import_incomplete(&mut result, Some(&attempt));
+        assert_eq!(result["residentPubkey"], "d".repeat(64));
+        assert_eq!(result["status"], "incomplete");
+        let pending = Mutex::new(HashMap::from([("request-1".into(), proposal)]));
+        assert!(completion_scope_from(
+            &pending,
+            &Mutex::new(HashMap::new()),
+            "request-1",
+            &ResidentProposalCompletionV1::NativeImported {}
+        )
+        .is_err());
+    }
+}
+
+#[test]
+fn active_but_unspawned_import_is_stopped_and_keeps_startup_failure() {
+    let (mut attempt, _) =
+        admit_import(&mut import_proposal(), Some(import_selection()), false).expect("admit");
+    attempt.startup_error = Some("Hermes could not start".into());
+    attempt.preferences_applied = true;
+    let mut resident = super::super::resident_registry::ResidentRegistryEntry {
+        resident_pubkey: Hex64::parse("d".repeat(64)).expect("key"),
+        display_name: "Research".into(),
+        persona_id: None,
+        runtime: super::super::resident_registry::ResidentRuntimeBinding {
+            runtime_id: None,
+            runtime_command: "/fixture/hermes".into(),
+            provider_id: None,
+            model_id: None,
+        },
+        status: "stopped".into(),
+        active: true,
+        created_at: "fixture".into(),
+        updated_at: "fixture".into(),
+    };
+    let saved = project_import_result(&resident, &attempt);
+    assert!(!saved.process_running);
+    assert!(
+        should_start_import(true, false, &attempt, &saved),
+        "an active unspawned definition must reach the requested-start branch"
+    );
+    assert!(
+        !should_start_import(false, false, &attempt, &saved),
+        "result-only retry cannot start"
+    );
+    assert!(
+        should_start_import(false, true, &attempt, &saved),
+        "explicit retry starts the same saved resident"
+    );
+    assert!(!saved.authenticated_ready);
+    assert_eq!(
+        saved.startup_error.as_deref(),
+        Some("Hermes could not start")
+    );
+    resident.status = "running".into();
+    let running = project_import_result(&resident, &attempt);
+    assert!(running.process_running);
+    assert!(!should_start_import(true, false, &attempt, &running));
+    assert!(!running.authenticated_ready);
+    assert!(running.startup_error.is_none());
+}
+
+#[test]
+fn failed_import_opt_out_persistence_blocks_launch_and_requested_start_on_every_retry() {
+    let (mut attempt, _) =
+        admit_import(&mut import_proposal(), Some(import_selection()), false).expect("admit");
+    attempt.resident_pubkey = Some("d".repeat(64));
+    attempt.reused = Some(false);
+    attempt.selection.continuity_enabled = false;
+    attempt.selection.start_on_app_launch = true;
+    for _ in 0..2 {
+        let result = persist_import_preferences(
+            &mut attempt,
+            |enabled| {
+                assert!(!enabled);
+                Err("Consent store unavailable".into())
+            },
+            |_| panic!("autostart must remain disabled before continuity consent persists"),
+        );
+        assert!(result.is_err());
+        assert!(!attempt.preferences_applied);
+        let saved = NativeImportResultV1 {
+            resident_pubkey: "d".repeat(64),
+            display_name: "Research".into(),
+            native_profile_name: "research".into(),
+            reused: false,
+            process_running: false,
+            authenticated_ready: false,
+            startup_error: None,
+            warning: None,
+            preferences_error: attempt.preferences_error.clone(),
+        };
+        assert!(!should_start_import(true, false, &attempt, &saved));
+        assert!(!should_start_import(false, true, &attempt, &saved));
+        assert_eq!(
+            attempt.resident_pubkey.as_deref(),
+            Some("d".repeat(64).as_str())
+        );
+    }
+    let calls = std::cell::RefCell::new(Vec::new());
+    persist_import_preferences(
+        &mut attempt,
+        |enabled| {
+            calls.borrow_mut().push(("continuity", enabled));
+            Ok(())
+        },
+        |enabled| {
+            calls.borrow_mut().push(("launch", enabled));
+            Ok(())
+        },
+    )
+    .expect("explicit reviewed-settings retry");
+    assert_eq!(*calls.borrow(), [("continuity", false), ("launch", true)]);
+    assert!(attempt.preferences_applied);
+    assert!(attempt.preferences_error.is_none());
+}
+
+#[test]
+fn reused_import_never_rewrites_existing_continuity_or_launch_preferences() {
+    let (mut attempt, _) =
+        admit_import(&mut import_proposal(), Some(import_selection()), false).expect("admit");
+    attempt.reused = Some(true);
+    persist_import_preferences(
+        &mut attempt,
+        |_| panic!("reuse preserves handoff choice"),
+        |_| panic!("reuse preserves autostart"),
+    )
+    .expect("reuse");
+    assert!(attempt.preferences_applied);
 }

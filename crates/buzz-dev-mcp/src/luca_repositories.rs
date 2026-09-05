@@ -171,23 +171,43 @@ impl ProposeRepositoryConnectionParams {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ProposeResidentParams {
-    /// Short name for the persistent specialist the user wants to create.
+    /// Short name for a new specialist. Omit when importing an existing profile.
+    #[serde(default)]
     display_name: String,
-    /// Instructions for the new resident, reviewed by the user before creation.
+    /// Instructions for a new resident. Omit for import: native instructions remain intact.
+    #[serde(default)]
     system_prompt: String,
     /// Optional requested runtime: codex, claude_code, hermes, or openclaw.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     runtime_family: Option<String>,
-    /// Optional native setup mode: fresh, template, or advanced. Defaults to fresh.
+    /// Native setup mode: fresh, template, advanced, or import (existing Hermes only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provisioning_intent: Option<String>,
+    /// Exact existing Hermes profile name requested by the user; required only for import.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    native_profile_name: Option<String>,
 }
 
 impl ProposeResidentParams {
     fn validate(&self) -> Result<(), ErrorData> {
         let name = self.display_name.trim();
         let prompt = self.system_prompt.trim();
+        if self.provisioning_intent.as_deref() == Some("import") {
+            return if self.runtime_family.as_deref() == Some("hermes")
+                && name.is_empty()
+                && prompt.is_empty()
+                && self.native_profile_name.as_deref().is_some_and(|profile| {
+                    !profile.trim().is_empty()
+                        && profile.len() <= 120
+                        && !profile.chars().any(char::is_control)
+                }) {
+                Ok(())
+            } else {
+                Err(ErrorData::invalid_params("Hermes import requires the exact profile name, without replacement name or instructions", None))
+            };
+        }
         if name.is_empty()
+            || self.native_profile_name.is_some()
             || name.len() > 120
             || name.chars().any(char::is_control)
             || prompt.is_empty()
@@ -399,7 +419,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "propose_resident",
-        description = "Create a persistent specialist through Polyphonic's existing owner review after the user asks for one. Supply only a name, instructions and optional runtime family. The host fixes your identity and originating conversation. This tool waits for the actual setup outcome and returns to this conversation; do not claim creation before it returns. A saved definition, created resident, attached conversation and running process are distinct. A running process is not proof of an authenticated reply. If review expires or closes, check the existing receipt before proposing another creation. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
+        description = "Create a persistent specialist or import an existing Hermes profile through Polyphonic's owner review after the user asks. For an existing Hermes profile use runtime_family=hermes, provisioning_intent=import and native_profile_name; omit display_name and system_prompt so native configuration remains intact. The owner selects the exact discovered profile and approves startup and Luca handoff effects. For creation supply a name, instructions and optional runtime family. The host fixes your identity and originating conversation and returns the verified actual outcome here. Import preserves the current conversation and may reuse an existing resident identity. Imported, started and authenticated reply are distinct; do not claim readiness before a real reply. If review expires or closes, inspect existing residents before proposing again. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
     )]
     async fn propose_resident(
         &self,
@@ -732,6 +752,7 @@ mod tests {
             system_prompt: "Inspect the assigned project.".into(),
             runtime_family: Some("hermes".into()),
             provisioning_intent: Some("fresh".into()),
+            native_profile_name: None,
         }
     }
 
@@ -755,6 +776,7 @@ mod tests {
             fields,
             [
                 "display_name",
+                "native_profile_name",
                 "provisioning_intent",
                 "runtime_family",
                 "system_prompt"
@@ -788,6 +810,33 @@ mod tests {
                 .expect("shape")
                 .validate()
                 .is_err());
+        }
+    }
+
+    #[test]
+    fn hermes_import_needs_only_an_exact_profile_and_cannot_replace_native_instructions() {
+        let input = serde_json::json!({"runtime_family":"hermes", "provisioning_intent":"import", "native_profile_name":"research"});
+        let params: ProposeResidentParams = serde_json::from_value(input.clone()).expect("import");
+        assert!(params.validate().is_ok());
+        assert!(params.display_name.is_empty());
+        assert!(params.system_prompt.is_empty());
+        for (field, value) in [
+            ("runtime_family", "openclaw"),
+            ("display_name", "Replacement"),
+            ("system_prompt", "Replace memory"),
+            ("native_profile_name", " "),
+            ("native_profile_name", "two\nlines"),
+            ("provisioning_intent", "fresh"),
+        ] {
+            let mut changed = input.clone();
+            changed[field] = serde_json::json!(value);
+            assert!(
+                serde_json::from_value::<ProposeResidentParams>(changed)
+                    .expect("shape")
+                    .validate()
+                    .is_err(),
+                "{field}"
+            );
         }
     }
 

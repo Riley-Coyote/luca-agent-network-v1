@@ -1,9 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import type {
+  NativeImportResult,
+  NativeImportSelection,
   ResidentProposal,
   ResidentProposalCompletion,
 } from "../../../src/shared/api/tauriResidentProposals";
+import type { DiscoveredResidentCandidate } from "../../../src/shared/api/types";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
 
@@ -20,6 +23,21 @@ type HostState = {
   revoked: boolean;
   finishFailures: number;
   acceptBeforeFailure: boolean;
+  nativeCandidates: DiscoveredResidentCandidate[];
+  imports: Record<
+    string,
+    {
+      selection: NativeImportSelection;
+      result: NativeImportResult;
+      preferencesApplied: boolean;
+    }
+  >;
+  startupFailures: number;
+  importFailures: number;
+  preferenceFailures: number;
+  closeFailures: number;
+  importHeld: boolean;
+  rejectImport: boolean;
 };
 
 declare global {
@@ -55,10 +73,28 @@ async function installProposalHost(
     revokeAfterStart?: boolean;
     managedRuntimeReady?: boolean;
     createManagedAgentErrors?: string[];
+    nativeCandidates?: DiscoveredResidentCandidate[];
+    startupFailures?: number;
+    importFailures?: number;
+    preferenceFailures?: number;
+    closeFailures?: number;
+    holdImport?: boolean;
+    reuseProfile?: DiscoveredResidentCandidate;
   } = {},
 ) {
   await page.addInitScript(
-    ({ snapshot, finishFailures, acceptBeforeFailure, revokeAfterStart }) => {
+    ({
+      snapshot,
+      finishFailures,
+      acceptBeforeFailure,
+      revokeAfterStart,
+      nativeCandidates,
+      startupFailures,
+      importFailures,
+      preferenceFailures,
+      closeFailures,
+      holdImport,
+    }) => {
       const state: HostState = {
         calls: [],
         pending: Object.fromEntries(
@@ -68,6 +104,14 @@ async function installProposalHost(
         revoked: false,
         finishFailures,
         acceptBeforeFailure,
+        nativeCandidates: nativeCandidates ?? [],
+        imports: {},
+        startupFailures,
+        importFailures,
+        preferenceFailures,
+        closeFailures,
+        importHeld: holdImport,
+        rejectImport: false,
       };
       window.__RESIDENT_PROPOSAL_TEST__ = state;
       type Invoke = (
@@ -109,10 +153,178 @@ async function installProposalHost(
               }
               return null;
             }
+            if (
+              command === "discover_native_residents" &&
+              nativeCandidates !== null
+            ) {
+              return {
+                runtimes: [
+                  {
+                    nativeType: "hermes",
+                    status: "available",
+                    candidates: state.nativeCandidates,
+                  },
+                ],
+              };
+            }
+            if (command === "import_resident_proposal") {
+              const input = payload as {
+                requestId: string;
+                selection?: NativeImportSelection;
+                retryStart: boolean;
+                retrySettings?: boolean;
+              };
+              if (
+                state.revoked ||
+                !state.pending[input.requestId] ||
+                state.rejectImport
+              )
+                throw new Error(
+                  "The selected Hermes profile changed or this request is no longer authorized.",
+                );
+              const ipc = async (command: string, payload: unknown) => {
+                if (!realInvoke) throw new Error("Mock IPC missing");
+                const operation: Call = {
+                  command,
+                  payload: structuredClone(payload),
+                };
+                state.calls.push(operation);
+                const result = await realInvoke(command, payload);
+                operation.result = structuredClone(result);
+                return result;
+              };
+              let saved = state.imports[input.requestId];
+              const first = !saved;
+              if (first) {
+                const selected = input.selection;
+                const candidate = state.nativeCandidates.find(
+                  (entry) =>
+                    entry.semanticId === selected?.semanticId &&
+                    entry.bindingFingerprint === selected.bindingFingerprint,
+                );
+                if (!selected || !candidate)
+                  throw new Error("Review the exact discovered profile first.");
+                const residents = (await realInvoke?.(
+                  "list_managed_agents",
+                )) as Array<{
+                  pubkey: string;
+                  native_runtime_binding: {
+                    hermesHome?: string;
+                    profileName?: string;
+                  } | null;
+                  status: string;
+                }>;
+                const existing = residents.find(
+                  (resident) =>
+                    resident.native_runtime_binding?.hermesHome ===
+                      candidate.canonicalLocation &&
+                    resident.native_runtime_binding.profileName ===
+                      candidate.nativeId,
+                );
+                const created = existing
+                  ? null
+                  : ((await ipc("create_luca_resident", {
+                      input: {
+                        name: candidate.displayName,
+                        agentCommand: candidate.bindingPreview.executablePath,
+                        agentArgs: ["acp"],
+                        harnessOverride: true,
+                        parallelism: 1,
+                        nativeRuntimeBinding: candidate.bindingPreview,
+                        spawnAfterCreate: false,
+                        startOnAppLaunch: false,
+                      },
+                    })) as { resident: { residentPubkey: string } } | null);
+                const residentPubkey =
+                  existing?.pubkey ?? created?.resident.residentPubkey;
+                if (!residentPubkey) throw new Error("Saved resident missing");
+                saved = {
+                  selection: structuredClone(selected),
+                  preferencesApplied: !!existing,
+                  result: {
+                    residentPubkey,
+                    displayName: candidate.displayName,
+                    nativeProfileName: candidate.nativeId,
+                    reused: !!existing,
+                    processRunning: existing?.status === "running",
+                    authenticatedReady: false,
+                    startupError: null,
+                    warning: null,
+                    preferencesError: null,
+                  },
+                };
+                state.imports[input.requestId] = saved;
+              }
+              while (state.importHeld)
+                await new Promise((resolve) => setTimeout(resolve, 10));
+              if (!state.pending[input.requestId])
+                throw new Error("The import request has ended.");
+              if ((first || input.retrySettings) && !saved.preferencesApplied) {
+                const payload = {
+                  residentPubkey: saved.result.residentPubkey,
+                  enabled: saved.selection.continuityEnabled,
+                };
+                if (state.preferenceFailures > 0) {
+                  state.preferenceFailures -= 1;
+                  state.calls.push({
+                    command: "set_resident_continuity_enabled",
+                    payload,
+                  });
+                  saved.result.preferencesError = "Consent store unavailable";
+                } else {
+                  await ipc("set_resident_continuity_enabled", payload);
+                  await ipc("set_managed_agent_start_on_app_launch", {
+                    pubkey: saved.result.residentPubkey,
+                    startOnAppLaunch: saved.selection.startOnAppLaunch,
+                  });
+                  saved.preferencesApplied = true;
+                  saved.result.preferencesError = null;
+                }
+              }
+              if (state.importFailures > 0) {
+                state.importFailures -= 1;
+                throw new Error(
+                  "Import acknowledgment interrupted after save.",
+                );
+              }
+              if (
+                saved.preferencesApplied &&
+                ((first && saved.selection.startNow) || input.retryStart) &&
+                !saved.result.processRunning
+              ) {
+                if (state.startupFailures > 0) {
+                  state.startupFailures -= 1;
+                  saved.result.startupError = "Hermes could not start.";
+                } else {
+                  await ipc("start_managed_agent", {
+                    pubkey: saved.result.residentPubkey,
+                  });
+                  saved.result.processRunning = true;
+                  saved.result.startupError = null;
+                }
+              }
+              return structuredClone(saved.result);
+            }
             if (command === "finish_resident_proposal") {
               const result = payload as HostResult;
               const accept = () => {
-                if (!state.pending[result.requestId]) return false;
+                if (!state.pending[result.requestId]) {
+                  if (
+                    result.completion.status === "native_imported" &&
+                    !state.results.some(
+                      (saved) =>
+                        saved.requestId === result.requestId &&
+                        saved.completion.status === "native_imported",
+                    )
+                  )
+                    throw new Error("The import request has ended.");
+                  return false;
+                }
+                if (
+                  result.completion.status === "native_imported" &&
+                  !state.imports[result.requestId]?.preferencesApplied
+                )
+                  throw new Error("No bound imported resident.");
                 if (state.revoked && result.completion.status !== "closed") {
                   throw new Error(
                     "The host setup request is no longer authorized.",
@@ -120,8 +332,21 @@ async function installProposalHost(
                 }
                 state.results.push(structuredClone(result));
                 delete state.pending[result.requestId];
+                if (result.completion.status === "native_imported")
+                  window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+                    "luca://resident-proposal-resolved",
+                    { requestId: result.requestId },
+                  );
                 return true;
               };
+              if (
+                state.closeFailures > 0 &&
+                result.completion.status === "closed"
+              ) {
+                state.closeFailures -= 1;
+                if (state.acceptBeforeFailure) accept();
+                throw new Error("The close acknowledgment was interrupted.");
+              }
               if (
                 state.finishFailures > 0 &&
                 result.completion.status !== "closed"
@@ -157,6 +382,12 @@ async function installProposalHost(
       finishFailures: options.finishFailures ?? 0,
       acceptBeforeFailure: options.acceptBeforeFailure ?? false,
       revokeAfterStart: options.revokeAfterStart ?? false,
+      nativeCandidates: options.nativeCandidates ?? null,
+      startupFailures: options.startupFailures ?? 0,
+      importFailures: options.importFailures ?? 0,
+      preferenceFailures: options.preferenceFailures ?? 0,
+      closeFailures: options.closeFailures ?? 0,
+      holdImport: options.holdImport ?? false,
     },
   );
   await installMockBridge(page, {
@@ -187,6 +418,16 @@ async function installProposalHost(
       ? { createManagedAgentErrors: options.createManagedAgentErrors }
       : {}),
     managedAgents: [
+      ...(options.reuseProfile
+        ? [
+            {
+              pubkey: "8".repeat(64),
+              name: options.reuseProfile.displayName,
+              status: "stopped" as const,
+              nativeRuntimeBinding: options.reuseProfile.bindingPreview,
+            },
+          ]
+        : []),
       {
         pubkey: LUCA,
         name: "Luca",
@@ -695,5 +936,581 @@ test("a typed proposal from an unowned resident closes without opening a creatio
   expect(await calls(page, "create_persona")).toHaveLength(0);
   expect(await calls(page, "execute_native_agent_provisioning")).toHaveLength(
     0,
+  );
+});
+
+function hermesProfile(home: string): DiscoveredResidentCandidate {
+  return {
+    nativeType: "hermes",
+    nativeId: "research",
+    semanticId: `hermes:${home}:research`,
+    bindingFingerprint: `fingerprint:${home}`,
+    displayName: "Research",
+    canonicalLocation: home,
+    workspace: "/fixture/project",
+    runtimeVersion: "fixture-1",
+    readiness: {
+      status: "discovered",
+      message: "Native connection not checked yet.",
+    },
+    warnings: [],
+    bindingPreview: {
+      kind: "hermes",
+      schemaVersion: 1,
+      profileName: "research",
+      hermesHome: home,
+      executablePath: "/fixture/bin/hermes",
+      runtimeVersion: "fixture-1",
+      defaultWorkspace: "/fixture/project",
+    },
+  };
+}
+const HERMES_PROFILES = [
+  hermesProfile("/fixture/personal/hermes"),
+  hermesProfile("/fixture/project/hermes"),
+];
+function importProposal(overrides: Partial<ResidentProposal> = {}) {
+  return proposal({
+    provisioningIntent: "import",
+    nativeProfileName: "research",
+    displayName: "",
+    systemPrompt: "",
+    ...overrides,
+  });
+}
+async function selectHermes(page: Page) {
+  await page
+    .getByRole("radio", {
+      name: "Select research at /fixture/project/hermes",
+      exact: true,
+    })
+    .check();
+}
+async function importCalls(page: Page) {
+  return calls(page, "import_resident_proposal");
+}
+
+test("Hermes import selects the exact owner-reviewed profile and preserves the Luca DM", async ({
+  page,
+}) => {
+  await installProposalHost(page, { nativeCandidates: HERMES_PROFILES });
+  await openHost(page);
+  const origin = await openLucaDm(page);
+  const request = importProposal({ conversationId: origin.id });
+  await emitProposal(page, request);
+  await expect(page.getByRole("radio")).toHaveCount(2);
+  await emitProposal(page, request);
+  await expect(page.getByTestId("hermes-import-review")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Import and start", exact: true }),
+  ).toBeDisabled();
+  expect(await importCalls(page)).toHaveLength(0);
+  await selectHermes(page);
+  await page.getByRole("switch", { name: "Start this profile now" }).uncheck();
+  await page.getByRole("switch", { name: "Encrypted Luca handoff" }).uncheck();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "hermes-exact-profile-review.png" });
+  await page
+    .getByRole("button", { name: "Import profile", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect((await importCalls(page))[0].payload).toEqual({
+    requestId: request.requestId,
+    selection: {
+      semanticId: HERMES_PROFILES[1].semanticId,
+      bindingFingerprint: HERMES_PROFILES[1].bindingFingerprint,
+      startNow: false,
+      startOnAppLaunch: false,
+      continuityEnabled: false,
+    },
+    retryStart: false,
+  });
+  expect(await results(page)).toEqual([
+    { requestId: request.requestId, completion: { status: "native_imported" } },
+  ]);
+  const residents = (await page.evaluate(() =>
+    window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("list_managed_agents"),
+  )) as Array<{
+    pubkey: string;
+    native_runtime_binding: unknown;
+    system_prompt: unknown;
+    start_on_app_launch: boolean;
+  }>;
+  const saved = residents.find((resident) => resident.pubkey !== LUCA);
+  expect(saved?.native_runtime_binding).toEqual(
+    HERMES_PROFILES[1].bindingPreview,
+  );
+  expect(saved?.system_prompt).toBeNull();
+  expect(saved?.start_on_app_launch).toBe(false);
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+  for (const command of [
+    "execute_native_agent_provisioning",
+    "create_persona",
+    "start_managed_agent",
+    "add_channel_members",
+    "send_managed_agent_channel_message",
+  ])
+    expect(await calls(page, command)).toHaveLength(0);
+  const reopened = await openLucaDm(page);
+  expect(reopened).toEqual(origin);
+});
+
+for (const empty of [true, false]) {
+  test(`Hermes import ${empty ? "missing discovery" : "owner close"} cannot create a resident`, async ({
+    page,
+  }) => {
+    await installProposalHost(page, {
+      snapshot: [importProposal()],
+      nativeCandidates: empty ? [] : HERMES_PROFILES,
+    });
+    await openHost(page);
+    if (empty)
+      await expect(
+        page.getByText(/No exact matching Hermes profile/),
+      ).toBeVisible();
+    else await selectHermes(page);
+    await page
+      .getByTestId("hermes-import-review")
+      .getByRole("button", { name: "Close", exact: true })
+      .click();
+    await expect
+      .poll(() => results(page))
+      .toEqual([
+        {
+          requestId: "host-resident-1",
+          completion: { status: "closed", busy: false },
+        },
+      ]);
+    expect(await importCalls(page)).toHaveLength(0);
+    expect(await calls(page, "create_luca_resident")).toHaveLength(0);
+  });
+}
+
+test("Hermes startup failure keeps the saved key and retries only its start at compact zoom", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await installProposalHost(page, {
+    snapshot: [importProposal()],
+    nativeCandidates: HERMES_PROFILES,
+    startupFailures: 1,
+  });
+  await openHost(page);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "24px";
+  });
+  await selectHermes(page);
+  const confirm = page.getByRole("button", {
+    name: "Import and start",
+    exact: true,
+  });
+  await expect(confirm).toBeInViewport();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "hermes-import-zoom150.png" });
+  await confirm.click();
+  await expect(page.getByTestId("hermes-import-result")).toContainText(
+    "Startup failed: Hermes could not start.",
+  );
+  expect(await results(page)).toHaveLength(0);
+  const saved = await page.evaluate(
+    () =>
+      window.__RESIDENT_PROPOSAL_TEST__?.imports["host-resident-1"].result
+        .residentPubkey,
+  );
+  if (!saved) throw new Error("The host did not retain the imported identity.");
+  await expect(page.getByTestId("hermes-import-result")).toContainText(saved);
+  const savedResult = page.getByTestId("hermes-import-result");
+  await expect(savedResult).toBeFocused();
+  expect(
+    await savedResult.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const viewport = element.parentElement?.getBoundingClientRect();
+      return (
+        !!viewport &&
+        bounds.top >= viewport.top - 1 &&
+        bounds.bottom <= viewport.bottom + 1
+      );
+    }),
+  ).toBe(true);
+  await waitForAnimations(page);
+  await page.screenshot({ path: "hermes-import-start-failure.png" });
+  await page.getByRole("button", { name: "Retry start", exact: true }).click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect((await importCalls(page))[1].payload).toEqual({
+    requestId: "host-resident-1",
+    retryStart: true,
+  });
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+  expect((await calls(page, "start_managed_agent"))[0].payload).toEqual({
+    pubkey: saved,
+  });
+});
+
+for (const failure of ["import-ack", "finish-ack"] as const) {
+  test(`Hermes ${failure} retry returns the saved identity without another import`, async ({
+    page,
+  }) => {
+    await installProposalHost(page, {
+      snapshot: [importProposal()],
+      nativeCandidates: HERMES_PROFILES,
+      importFailures: failure === "import-ack" ? 1 : 0,
+      finishFailures: failure === "finish-ack" ? 1 : 0,
+      acceptBeforeFailure: true,
+    });
+    await openHost(page);
+    await selectHermes(page);
+    await page
+      .getByRole("button", { name: "Import and start", exact: true })
+      .click();
+    await expect(page.getByRole("alert")).toContainText(/acknowledgment/);
+    await page
+      .getByRole("button", {
+        name:
+          failure === "import-ack"
+            ? "Verify saved result"
+            : "Retry returning result",
+        exact: true,
+      })
+      .click();
+    await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+    expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+    expect(await results(page)).toEqual([
+      {
+        requestId: "host-resident-1",
+        completion: { status: "native_imported" },
+      },
+    ]);
+    expect(await calls(page, "start_managed_agent")).toHaveLength(
+      failure === "import-ack" ? 0 : 1,
+    );
+    if (failure === "import-ack")
+      expect((await importCalls(page))[1].payload).toEqual({
+        requestId: "host-resident-1",
+        retryStart: false,
+      });
+    else expect(await importCalls(page)).toHaveLength(1);
+  });
+}
+
+test("Hermes reuse preserves the resident and hides changes to existing launch and handoff preferences", async ({
+  page,
+}) => {
+  await installProposalHost(page, {
+    snapshot: [importProposal()],
+    nativeCandidates: HERMES_PROFILES,
+    reuseProfile: HERMES_PROFILES[1],
+  });
+  await openHost(page);
+  await selectHermes(page);
+  await expect(
+    page.getByText(/launch and handoff preferences will be preserved/),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("switch", { name: "Encrypted Luca handoff" }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Use existing resident", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect(await calls(page, "create_luca_resident")).toHaveLength(0);
+  expect(await calls(page, "set_resident_continuity_enabled")).toHaveLength(0);
+  expect((await calls(page, "start_managed_agent"))[0].payload).toEqual({
+    pubkey: "8".repeat(64),
+  });
+});
+
+for (const invalidation of ["revoked", "changed", "expired"] as const) {
+  test(`Hermes ${invalidation} review cannot import or revive the request`, async ({
+    page,
+  }) => {
+    await installProposalHost(page, {
+      snapshot: [importProposal()],
+      nativeCandidates: HERMES_PROFILES,
+    });
+    await openHost(page);
+    await selectHermes(page);
+    await page.evaluate((invalidation) => {
+      const state = window.__RESIDENT_PROPOSAL_TEST__;
+      if (!state) throw new Error("Host fixture missing.");
+      if (invalidation === "revoked") state.revoked = true;
+      if (invalidation === "changed") state.rejectImport = true;
+      if (invalidation === "expired") {
+        delete state.pending["host-resident-1"];
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+          "luca://resident-proposal-resolved",
+          { requestId: "host-resident-1" },
+        );
+      }
+    }, invalidation);
+    if (invalidation === "expired")
+      await expect(
+        page.getByRole("button", { name: "Import and start", exact: true }),
+      ).toBeDisabled();
+    else {
+      await page
+        .getByRole("button", { name: "Import and start", exact: true })
+        .click();
+      await expect(page.getByRole("alert")).toContainText(/authorized|changed/);
+    }
+    expect(await calls(page, "create_luca_resident")).toHaveLength(0);
+    expect(await results(page)).toHaveLength(0);
+  });
+}
+
+test("a conversational Ziggy request reviews the actual lowercase Hermes profile", async ({
+  page,
+}) => {
+  const ziggy = hermesProfile("/fixture/CasePreserved/Hermes");
+  ziggy.nativeId = "ziggy";
+  ziggy.displayName = "Ziggy";
+  ziggy.semanticId = "hermes:/fixture/CasePreserved/Hermes:ziggy";
+  if (ziggy.bindingPreview.kind !== "hermes")
+    throw new Error("Hermes fixture expected");
+  ziggy.bindingPreview.profileName = "ziggy";
+  await installProposalHost(page, {
+    snapshot: [importProposal({ nativeProfileName: "Ziggy" })],
+    nativeCandidates: [ziggy],
+  });
+  await openHost(page);
+  await page
+    .getByRole("radio", {
+      name: "Select ziggy at /fixture/CasePreserved/Hermes",
+      exact: true,
+    })
+    .check();
+  await page
+    .getByRole("button", { name: "Import and start", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect((await importCalls(page))[0].payload).toMatchObject({
+    selection: {
+      semanticId: ziggy.semanticId,
+      bindingFingerprint: ziggy.bindingFingerprint,
+    },
+  });
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+});
+
+test("an expired Hermes import retains its saved key without allowing late startup or success", async ({
+  page,
+}) => {
+  await installProposalHost(page, {
+    snapshot: [importProposal()],
+    nativeCandidates: HERMES_PROFILES,
+    startupFailures: 1,
+  });
+  await openHost(page);
+  await selectHermes(page);
+  await page
+    .getByRole("button", { name: "Import and start", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-result")).toContainText(
+    "Startup failed",
+  );
+  const saved = await page.getByTestId("hermes-import-result").textContent();
+  await page.evaluate(() => {
+    const state = window.__RESIDENT_PROPOSAL_TEST__;
+    if (!state) throw new Error("Host fixture missing");
+    delete state.pending["host-resident-1"];
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+      "luca://resident-proposal-resolved",
+      { requestId: "host-resident-1" },
+    );
+  });
+  await expect(
+    page.getByRole("button", { name: "Retry start", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Continue without starting", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("request has ended");
+  expect(await page.getByTestId("hermes-import-result").textContent()).toBe(
+    saved,
+  );
+  expect(await results(page)).toHaveLength(0);
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+  expect(await calls(page, "start_managed_agent")).toHaveLength(0);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+});
+
+for (const alreadyAccepted of [false, true]) {
+  test(`Hermes failed close acknowledgment ${alreadyAccepted ? "after" : "before"} host acceptance retains a permanent closing fence`, async ({
+    page,
+  }) => {
+    await installProposalHost(page, {
+      snapshot: [importProposal()],
+      nativeCandidates: HERMES_PROFILES,
+      closeFailures: 1,
+      acceptBeforeFailure: alreadyAccepted,
+    });
+    await openHost(page);
+    await selectHermes(page);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("alert")).toContainText(
+      "has not acknowledged closing",
+    );
+    await expect(
+      page.getByRole("button", { name: "Import and start", exact: true }),
+    ).toHaveCount(0);
+    await expect(page.getByRole("radio").last()).toBeDisabled();
+    await page
+      .getByRole("button", { name: "Retry closing", exact: true })
+      .click();
+    await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+    expect(
+      (await calls(page, "finish_resident_proposal")).map(
+        (call) => call.payload,
+      ),
+    ).toEqual(
+      Array(2).fill({
+        requestId: "host-resident-1",
+        completion: { status: "closed", busy: false },
+      }),
+    );
+    expect(await importCalls(page)).toHaveLength(0);
+    expect(await calls(page, "create_luca_resident")).toHaveLength(0);
+    expect(await results(page)).toHaveLength(1);
+  });
+}
+
+test("Hermes close during an uncertain import prevents a late success callback", async ({
+  page,
+}) => {
+  await installProposalHost(page, {
+    snapshot: [importProposal()],
+    nativeCandidates: HERMES_PROFILES,
+    closeFailures: 1,
+    holdImport: true,
+  });
+  await openHost(page);
+  await selectHermes(page);
+  await page
+    .getByRole("button", { name: "Import and start", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await calls(page, "create_luca_resident")).length)
+    .toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alert")).toContainText(
+    "has not acknowledged closing",
+  );
+  await page.evaluate(() => {
+    const state = window.__RESIDENT_PROPOSAL_TEST__;
+    if (state) {
+      state.importHeld = false;
+    }
+  });
+  await page.waitForFunction(
+    () =>
+      window.__RESIDENT_PROPOSAL_TEST__?.imports["host-resident-1"].result
+        .processRunning,
+  );
+  expect(
+    (await calls(page, "finish_resident_proposal")).every(
+      (call) => (call.payload as HostResult).completion.status === "closed",
+    ),
+  ).toBe(true);
+  await page
+    .getByRole("button", { name: "Retry closing", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+  expect(await results(page)).toEqual([
+    {
+      requestId: "host-resident-1",
+      completion: { status: "closed", busy: false },
+    },
+  ]);
+  expect(
+    (await calls(page, "finish_resident_proposal")).every(
+      (call) => (call.payload as HostResult).completion.status === "closed",
+    ),
+  ).toBe(true);
+});
+
+test("Hermes failed opt-out persistence blocks immediate and restart startup until explicit same-key settings retry", async ({
+  page,
+}) => {
+  await installProposalHost(page, {
+    snapshot: [importProposal()],
+    nativeCandidates: HERMES_PROFILES,
+    preferenceFailures: 2,
+  });
+  await openHost(page);
+  await selectHermes(page);
+  await page.getByRole("switch", { name: "Encrypted Luca handoff" }).uncheck();
+  await page
+    .getByRole("switch", { name: "Start when Polyphonic opens" })
+    .check();
+  await page
+    .getByRole("button", { name: "Import and start", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-result")).toContainText(
+    "Reviewed settings need attention",
+  );
+  await expect(
+    page.getByRole("button", { name: "Retry start", exact: true }),
+  ).toHaveCount(0);
+  const current = async () =>
+    page.evaluate(
+      () =>
+        window.__RESIDENT_PROPOSAL_TEST__?.imports["host-resident-1"].result,
+    );
+  const saved = await current();
+  if (!saved) throw new Error("Saved identity missing");
+  const record = async () =>
+    page.evaluate(
+      async (key) =>
+        (
+          (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+            "list_managed_agents",
+          )) as Array<{ pubkey: string; start_on_app_launch: boolean }>
+        ).find((entry) => entry.pubkey === key),
+      saved.residentPubkey,
+    );
+  expect((await record())?.start_on_app_launch).toBe(false);
+  await waitForAnimations(page);
+  await page.screenshot({ path: "hermes-import-consent-retry.png" });
+  expect(
+    await calls(page, "set_managed_agent_start_on_app_launch"),
+  ).toHaveLength(0);
+  expect(await calls(page, "start_managed_agent")).toHaveLength(0);
+  expect(await results(page)).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Retry reviewed settings", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-result")).toContainText(
+    "Consent store unavailable",
+  );
+  expect((await record())?.start_on_app_launch).toBe(false);
+  expect(await calls(page, "start_managed_agent")).toHaveLength(0);
+  expect(await results(page)).toHaveLength(0);
+  await page
+    .getByRole("button", { name: "Retry reviewed settings", exact: true })
+    .click();
+  await expect(page.getByTestId("hermes-import-review")).not.toBeVisible();
+  expect((await current())?.residentPubkey).toBe(saved.residentPubkey);
+  expect(await calls(page, "create_luca_resident")).toHaveLength(1);
+  expect((await calls(page, "start_managed_agent"))[0].payload).toEqual({
+    pubkey: saved.residentPubkey,
+  });
+  expect((await record())?.start_on_app_launch).toBe(true);
+  expect(
+    (await importCalls(page)).slice(1).map((call) => call.payload),
+  ).toEqual(
+    Array(2).fill({
+      requestId: "host-resident-1",
+      retryStart: true,
+      retrySettings: true,
+    }),
+  );
+  expect(
+    (await calls(page, "set_resident_continuity_enabled")).map(
+      (call) => call.payload,
+    ),
+  ).toEqual(
+    Array(3).fill({ residentPubkey: saved.residentPubkey, enabled: false }),
   );
 });

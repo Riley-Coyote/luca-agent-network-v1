@@ -843,6 +843,7 @@ pub fn run() {
             luca::repository_connection_proposals::finish_repository_connection_proposal,
             luca::resident_proposals::list_resident_proposals,
             luca::resident_proposals::authorize_resident_proposal,
+            luca::resident_proposals::import_resident_proposal,
             luca::resident_proposals::finish_resident_proposal,
             list_artifacts,
             get_artifact,

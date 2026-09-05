@@ -12,6 +12,12 @@ import type {
 } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import {
+  importResidentProposal,
+  listenResidentProposalResolutions,
+  type NativeImportResult,
+  type NativeImportSelection,
+} from "@/shared/api/tauriResidentProposals";
 
 function bindingIdentity(binding: RuntimeBinding): string {
   return binding.kind === "hermes"
@@ -25,7 +31,30 @@ function runtimeLabel(candidate: DiscoveredResidentCandidate): string {
     : "OpenClaw agent";
 }
 
+type ImportProposalReview = {
+  requestId: string;
+  nativeProfileName: string;
+  authorize: () => Promise<void>;
+  complete: () => Promise<void>;
+  close: () => void;
+  closeState: { closing: boolean; pending: boolean; error: string | null };
+};
+
 export function NativeResidentImportSection({
+  residents,
+  proposal,
+}: {
+  residents: ManagedAgent[];
+  proposal?: ImportProposalReview;
+}) {
+  return proposal ? (
+    <ProposedHermesImport residents={residents} proposal={proposal} />
+  ) : (
+    <NativeResidentImportList residents={residents} />
+  );
+}
+
+function NativeResidentImportList({
   residents,
 }: {
   residents: ManagedAgent[];
@@ -116,7 +145,9 @@ export function NativeResidentImportSection({
           `${candidate.displayName} was already linked; its verified runtime binding was refreshed.`,
         );
       } else {
-        setNotice(`${candidate.displayName} is imported and ready to use.`);
+        setNotice(
+          `${candidate.displayName} is imported and its process started. Send a message to check the native connection.`,
+        );
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -272,6 +303,443 @@ export function NativeResidentImportSection({
           {notice}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function ProposedHermesImport({
+  residents,
+  proposal,
+}: {
+  residents: ManagedAgent[];
+  proposal: ImportProposalReview;
+}) {
+  const [discovery, setDiscovery] =
+    React.useState<NativeResidentDiscoveryOutcome | null>(null);
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [busy, setBusy] = React.useState(false);
+  const [ended, setEnded] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [result, setResult] = React.useState<NativeImportResult | null>(null);
+  const resultElement = React.useRef<HTMLElement>(null);
+  // A saved result follows the owner's import/retry action, so reveal it once
+  // without moving focus for unrelated query refreshes or review renders.
+  React.useLayoutEffect(() => {
+    if (!result) return;
+    resultElement.current?.focus({ preventScroll: true });
+    resultElement.current?.scrollIntoView({
+      block: "nearest",
+      behavior: "instant",
+    });
+  }, [result]);
+  const [startNow, setStartNow] = React.useState(true);
+  const [startOnAppLaunch, setStartOnAppLaunch] = React.useState(false);
+  const [continuityEnabled, setContinuityEnabled] = React.useState(true);
+  const attempt = React.useRef<NativeImportSelection | null>(null);
+  const active = React.useRef(true);
+  const endedRef = React.useRef(false);
+  const callbacks = React.useRef(proposal);
+  callbacks.current = proposal;
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setSelectedId(null);
+    try {
+      await callbacks.current.authorize();
+      if (
+        !active.current ||
+        endedRef.current ||
+        callbacks.current.closeState.closing
+      )
+        return;
+      const next = await discoverNativeResidents();
+      if (
+        active.current &&
+        !endedRef.current &&
+        !callbacks.current.closeState.closing
+      )
+        setDiscovery(next);
+    } catch (cause) {
+      if (active.current)
+        setError(String(cause instanceof Error ? cause.message : cause));
+    } finally {
+      if (active.current) setLoading(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    active.current = true;
+    let unlisten: (() => void) | undefined;
+    void listenResidentProposalResolutions((requestId) => {
+      if (requestId !== callbacks.current.requestId || !active.current) return;
+      endedRef.current = true;
+      setEnded(true);
+    })
+      .then((stop) => {
+        if (active.current) unlisten = stop;
+        else stop();
+      })
+      .catch((cause: unknown) => {
+        if (active.current) setError(String(cause));
+      });
+    void refresh();
+    return () => {
+      active.current = false;
+      unlisten?.();
+    };
+  }, [refresh]);
+
+  const runtimes =
+    discovery?.runtimes.filter((runtime) => runtime.nativeType === "hermes") ??
+    [];
+  const candidates = runtimes
+    .flatMap((runtime) => runtime.candidates)
+    .filter((candidate) => candidate.nativeId === proposal.nativeProfileName);
+  const selected = candidates.find(
+    (candidate) => candidate.semanticId === selectedId,
+  );
+  const existing =
+    selected &&
+    residents.find(
+      (resident) =>
+        resident.nativeRuntimeBinding &&
+        bindingIdentity(resident.nativeRuntimeBinding) === selected.semanticId,
+    );
+
+  async function returnResult() {
+    if (callbacks.current.closeState.closing) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callbacks.current.complete();
+    } catch (cause) {
+      if (active.current)
+        setError(
+          `The resident is saved, but the result could not be returned: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+
+  async function runImport(retryStart = false, retrySettings = false) {
+    if (
+      busy ||
+      endedRef.current ||
+      callbacks.current.closeState.closing ||
+      (!selected && !attempt.current)
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await callbacks.current.authorize();
+      if (
+        !active.current ||
+        endedRef.current ||
+        callbacks.current.closeState.closing
+      )
+        return;
+      let selection: NativeImportSelection | undefined;
+      if (!attempt.current && selected) {
+        selection = {
+          semanticId: selected.semanticId,
+          bindingFingerprint: selected.bindingFingerprint,
+          startNow,
+          startOnAppLaunch,
+          continuityEnabled,
+        };
+        attempt.current = selection;
+      }
+      const saved = await importResidentProposal(
+        callbacks.current.requestId,
+        selection,
+        retryStart,
+        retrySettings,
+      );
+      if (
+        !active.current ||
+        endedRef.current ||
+        callbacks.current.closeState.closing
+      )
+        return;
+      setResult(saved);
+      if (!saved.startupError && !saved.preferencesError) await returnResult();
+    } catch (cause) {
+      if (active.current)
+        setError(
+          `${cause instanceof Error ? cause.message : String(cause)}${attempt.current ? " An import may already be saved. Verify its result before doing anything else." : ""}`,
+        );
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      className="flex min-h-0 flex-col gap-4"
+      data-testid="hermes-import-review"
+    >
+      <div className="min-h-0 space-y-3 overflow-y-auto px-1">
+        <p className="text-sm">
+          Requested profile: <strong>{proposal.nativeProfileName}</strong>
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Hermes keeps its configuration, workspace, instructions and native
+          memory. Credentials are not copied. Select the profile below before
+          confirming.
+        </p>
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm">
+            <LoaderCircle className="size-4 animate-spin" />
+            Looking for the existing profile…
+          </p>
+        ) : null}
+        {!loading && candidates.length === 0 ? (
+          <p className="text-sm">
+            No exact matching Hermes profile was found. Check the profile in
+            Hermes, then scan again.
+          </p>
+        ) : null}
+        {runtimes.map((runtime) =>
+          runtime.message ? (
+            <p
+              className="text-sm text-muted-foreground"
+              key={runtime.nativeType}
+            >
+              {runtime.message}
+            </p>
+          ) : null,
+        )}
+        {candidates.map((candidate) => (
+          <label
+            className="flex items-start gap-3 rounded-lg border border-border/70 p-3"
+            key={candidate.semanticId}
+          >
+            <input
+              type="radio"
+              name="native-profile"
+              aria-label={`Select ${candidate.nativeId} at ${candidate.canonicalLocation ?? candidate.semanticId}`}
+              checked={selectedId === candidate.semanticId}
+              disabled={
+                busy ||
+                ended ||
+                proposal.closeState.closing ||
+                attempt.current !== null ||
+                candidate.readiness.status === "unavailable"
+              }
+              onFocus={(event) =>
+                event.currentTarget
+                  .closest("label")
+                  ?.scrollIntoView({ block: "nearest", behavior: "instant" })
+              }
+              onChange={() => setSelectedId(candidate.semanticId)}
+              className="mt-1 shrink-0"
+            />
+            <span className="min-w-0 space-y-1 text-sm">
+              <span className="block font-medium">{candidate.displayName}</span>
+              <span className="block break-all font-mono text-xs">
+                {candidate.canonicalLocation ?? candidate.semanticId}
+              </span>
+              {candidate.workspace ? (
+                <span className="block break-all text-xs text-muted-foreground">
+                  Workspace: {candidate.workspace}
+                </span>
+              ) : null}
+              {candidate.readiness.status !== "ready" ? (
+                <span className="block text-xs text-muted-foreground">
+                  {candidate.readiness.message}
+                </span>
+              ) : null}
+              {candidate.warnings.map((warning) => (
+                <span
+                  className="block text-xs text-muted-foreground"
+                  key={warning.code}
+                >
+                  {warning.message}
+                </span>
+              ))}
+            </span>
+          </label>
+        ))}
+        {selected && !attempt.current ? (
+          <div className="space-y-3 rounded-lg bg-muted/30 p-3 text-sm">
+            {existing ? (
+              <p>
+                This profile already has a resident identity. Its launch and
+                handoff preferences will be preserved.
+              </p>
+            ) : null}
+            <label
+              className="flex items-center justify-between gap-3"
+              htmlFor="hermes-import-start"
+            >
+              Start this profile now
+              <Switch
+                id="hermes-import-start"
+                checked={startNow}
+                onCheckedChange={setStartNow}
+                aria-label="Start this profile now"
+                disabled={busy || ended || proposal.closeState.closing}
+              />
+            </label>
+            {!existing ? (
+              <>
+                <label
+                  className="flex items-center justify-between gap-3"
+                  htmlFor="hermes-import-launch"
+                >
+                  Start when Polyphonic opens
+                  <Switch
+                    id="hermes-import-launch"
+                    checked={startOnAppLaunch}
+                    onCheckedChange={setStartOnAppLaunch}
+                    aria-label="Start when Polyphonic opens"
+                    disabled={busy || ended || proposal.closeState.closing}
+                  />
+                </label>
+                <label
+                  className="flex items-center justify-between gap-3"
+                  htmlFor="hermes-import-continuity"
+                >
+                  Encrypted Luca handoff
+                  <Switch
+                    id="hermes-import-continuity"
+                    checked={continuityEnabled}
+                    onCheckedChange={setContinuityEnabled}
+                    aria-label="Encrypted Luca handoff"
+                    disabled={busy || ended || proposal.closeState.closing}
+                  />
+                </label>
+                <p className="text-xs text-muted-foreground">
+                  The handoff is stored in Luca, separately from Hermes memory.
+                  It can be changed later in the resident&apos;s settings.
+                </p>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {result ? (
+          <section
+            ref={resultElement}
+            tabIndex={-1}
+            aria-label="Imported Hermes resident"
+            className="space-y-1 rounded-lg text-sm focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring"
+            data-testid="hermes-import-result"
+          >
+            <p>
+              {result.displayName} is{" "}
+              {result.reused ? "already linked" : "imported"}.{" "}
+              {result.processRunning
+                ? "Its process is running. Send a message to check the native connection."
+                : "Its process is not running."}
+            </p>
+            <p className="break-all font-mono text-xs">
+              {result.residentPubkey}
+            </p>
+            {result.startupError ? (
+              <p className="text-destructive">
+                Startup failed: {result.startupError}
+              </p>
+            ) : null}
+            {result.preferencesError ? (
+              <p className="text-destructive">
+                Reviewed settings need attention: {result.preferencesError}.
+                This review will not start the profile until they are saved.
+              </p>
+            ) : null}
+            {result.warning ? <p>{result.warning}</p> : null}
+          </section>
+        ) : null}
+        {ended ? (
+          <p className="text-sm text-muted-foreground">
+            This request has ended. Any saved resident remains available in
+            Agents.
+          </p>
+        ) : null}
+        {proposal.closeState.error || error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {proposal.closeState.error ?? error}
+          </p>
+        ) : null}
+      </div>
+      <div className="shrink-0 space-y-2 border-t border-border/60 pt-3">
+        <p className="text-xs text-muted-foreground">
+          {proposal.closeState.closing
+            ? "This review is closing. Any import or startup already underway may still finish; no further action will begin here."
+            : "Closing the review does not undo an import or startup already underway."}
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            onClick={proposal.close}
+            variant="ghost"
+            disabled={proposal.closeState.pending}
+          >
+            {proposal.closeState.pending
+              ? "Closing…"
+              : proposal.closeState.closing
+                ? "Retry closing"
+                : "Close"}
+          </Button>
+          {!attempt.current && !proposal.closeState.closing ? (
+            <Button
+              disabled={busy || loading || ended}
+              onClick={() => void refresh()}
+              variant="outline"
+            >
+              Scan again
+            </Button>
+          ) : null}
+          {proposal.closeState.closing ? null : result?.preferencesError ? (
+            <Button
+              disabled={busy || ended}
+              onClick={() =>
+                void runImport(attempt.current?.startNow ?? false, true)
+              }
+            >
+              Retry reviewed settings
+            </Button>
+          ) : result ? (
+            <>
+              {result.startupError ? (
+                <Button
+                  disabled={busy || ended || proposal.closeState.closing}
+                  onClick={() => void runImport(true)}
+                  variant="outline"
+                >
+                  Retry start
+                </Button>
+              ) : null}
+              <Button disabled={busy} onClick={() => void returnResult()}>
+                {busy
+                  ? "Returning result…"
+                  : result.startupError
+                    ? "Continue without starting"
+                    : "Retry returning result"}
+              </Button>
+            </>
+          ) : (
+            <Button
+              disabled={
+                busy || loading || ended || (!selected && !attempt.current)
+              }
+              onClick={() => void runImport()}
+            >
+              {busy
+                ? "Importing…"
+                : attempt.current
+                  ? "Verify saved result"
+                  : existing
+                    ? "Use existing resident"
+                    : startNow
+                      ? "Import and start"
+                      : "Import profile"}
+            </Button>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
