@@ -119,6 +119,70 @@ struct TurnProcess {
     child: tokio::process::Child,
 }
 
+#[derive(Debug)]
+enum NativeTurnFailure {
+    Failed,
+    StateVersionMismatch,
+    InvalidConfig,
+}
+
+impl NativeTurnFailure {
+    fn public_message(&self) -> &'static str {
+        match self {
+            Self::Failed => "OpenClaw local turn failed",
+            Self::StateVersionMismatch => {
+                "OpenClaw could not start because its executable and native state versions do not match. Resolve the native version mismatch, then rescan and re-import this resident."
+            }
+            Self::InvalidConfig => {
+                "The installed OpenClaw version cannot read this native configuration. Resolve the native version/configuration mismatch, then rescan and re-import this resident."
+            }
+        }
+    }
+
+    fn from_stderr(stderr: &[u8]) -> Self {
+        // Native diagnostics can contain credentials, paths and private text.
+        // Recognize only known categories; no diagnostic text crosses the wire.
+        let stderr = String::from_utf8_lossy(stderr);
+        for line in stderr.lines().map(str::trim) {
+            let diagnostic = line
+                .strip_prefix("[openclaw] Reason: ")
+                .or_else(|| line.strip_prefix("Error: "))
+                .unwrap_or(line);
+            let diagnostic = diagnostic
+                .strip_prefix("Failed to open the plugin state database. | ")
+                .unwrap_or(diagnostic);
+            if native_state_version_mismatch(diagnostic) {
+                return Self::StateVersionMismatch;
+            }
+            if diagnostic.starts_with("OpenClaw config is invalid: ")
+                || diagnostic.starts_with("Invalid config at ")
+            {
+                return Self::InvalidConfig;
+            }
+        }
+        Self::Failed
+    }
+}
+
+fn native_state_version_mismatch(diagnostic: &str) -> bool {
+    let Some(state) = diagnostic.strip_prefix("OpenClaw state database ") else {
+        return false;
+    };
+    let Some((path, versions)) = state.rsplit_once(" uses newer schema version ") else {
+        return false;
+    };
+    let Some((native, supported)) = versions.split_once("; this OpenClaw build supports ") else {
+        return false;
+    };
+    let supported = supported.strip_suffix('.').unwrap_or(supported);
+    !path.is_empty()
+        && native
+            .parse::<u32>()
+            .ok()
+            .zip(supported.parse::<u32>().ok())
+            .is_some_and(|(native, supported)| native > supported)
+}
+
 impl TurnProcess {
     fn kill(&mut self) {
         // Use only the still-owned, unreaped leader. Never retain a PGID and
@@ -879,7 +943,7 @@ async fn session_prompt(
         mut cancel_rx,
     } = turn;
     let result = if prompt.len() > MAX_PROMPT_BYTES {
-        Err("OpenClaw prompt exceeds the local bound".to_owned())
+        Err(NativeTurnFailure::Failed)
     } else {
         run_openclaw_turn(
             &app.config,
@@ -922,7 +986,7 @@ async fn session_prompt(
                 wire::ok(id, json!({ "stopReason": "end_turn" }))
             }
             Ok(None) => wire::ok(id, json!({ "stopReason": "cancelled" })),
-            Err(_) => wire::err(id, -32000, "OpenClaw local turn failed"),
+            Err(failure) => wire::err(id, -32000, failure.public_message()),
         };
         if let Some(permit) = permits.next() {
             permit.send(WireMsg::Notify(completion));
@@ -952,11 +1016,12 @@ async fn run_openclaw_turn(
     mcp_servers: &[McpServerStdio],
     prompt: &str,
     cancel_rx: &mut watch::Receiver<bool>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, NativeTurnFailure> {
     if *cancel_rx.borrow() || cancel_rx.has_changed().is_err() {
         return Ok(None);
     }
-    let turn_workspace = TurnWorkspace::create(config, mcp_servers)?;
+    let turn_workspace =
+        TurnWorkspace::create(config, mcp_servers).map_err(|_| NativeTurnFailure::Failed)?;
     let session_key = openclaw_session_key(&config.agent_id, session_id);
     let command = build_command(
         config,
@@ -968,18 +1033,18 @@ async fn run_openclaw_turn(
     let child = tokio::process::Command::from(command)
         .kill_on_drop(true)
         .spawn()
-        .map_err(|_| "OpenClaw local turn failed".to_owned())?;
+        .map_err(|_| NativeTurnFailure::Failed)?;
     let mut process = TurnProcess { child };
     let stdout = process
         .child
         .stdout
         .take()
-        .ok_or_else(|| "OpenClaw local turn failed".to_owned())?;
+        .ok_or(NativeTurnFailure::Failed)?;
     let stderr = process
         .child
         .stderr
         .take()
-        .ok_or_else(|| "OpenClaw local turn failed".to_owned())?;
+        .ok_or(NativeTurnFailure::Failed)?;
     let completed = tokio::select! {
         biased;
         _ = cancel_rx.changed() => None,
@@ -987,13 +1052,17 @@ async fn run_openclaw_turn(
             // Drain both pipes without detached reader tasks. Keep the leader
             // unreaped until EOF: a descendant holding a pipe must not prevent
             // Stop/Drop from safely signaling the original process group.
-            let (stdout, _) = tokio::join!(
+            let (stdout, stderr) = tokio::join!(
                 read_capped(stdout, MAX_STDOUT_BYTES),
                 read_capped(stderr, MAX_STDERR_BYTES),
             );
             let status = process.child.wait().await
-                .map_err(|_| "OpenClaw local turn failed".to_owned())?;
-            Ok::<_, String>((status, stdout?))
+                .map_err(|_| NativeTurnFailure::Failed)?;
+            Ok::<_, NativeTurnFailure>((
+                status,
+                stdout.map_err(|_| NativeTurnFailure::Failed)?,
+                stderr.unwrap_or_default(),
+            ))
         } => Some(output),
     };
     let Some(completed) = completed else {
@@ -1002,14 +1071,16 @@ async fn run_openclaw_turn(
         process.stop().await;
         return Ok(None);
     };
-    let (status, stdout) = completed?;
+    let (status, stdout, stderr) = completed?;
     if *cancel_rx.borrow() {
         return Ok(None);
     }
     if !status.success() {
-        return Err("OpenClaw local turn failed".into());
+        return Err(NativeTurnFailure::from_stderr(&stderr));
     }
-    extract_visible_text(&stdout).map(Some)
+    extract_visible_text(&stdout)
+        .map(Some)
+        .map_err(|_| NativeTurnFailure::Failed)
 }
 
 fn build_command(
@@ -1368,6 +1439,169 @@ printf '%s\n' '{"payloads":[{"text":"late-final"}]}'
             Some(&json!("cancelled"))
         );
         assert!(wire_rx.try_recv().is_err(), "no late final message");
+    }
+
+    #[cfg(unix)]
+    fn startup_failure_fixture(stderr: &[u8]) -> ProcessTreeFixture {
+        let fixture = ProcessTreeFixture::new(false);
+        fs::write(fixture.root.path().join("stderr-output"), stderr).expect("native diagnostic");
+        write_executable(
+            &fixture.config.openclaw_command,
+            r#"#!/bin/sh
+set -eu
+if test -f complete-next; then
+  printf '%s\n' '{"payloads":[{"text":"next-turn-ok"}]}'
+  exit 0
+fi
+cat stderr-output >&2
+printf '%s\n' '{"payloads":[{"text":"PRIVATE_NATIVE_OUTPUT_CANARY"}]}'
+printf '%s\n' ready > completion-ready
+exit 1
+"#,
+        );
+        fixture
+    }
+
+    #[cfg(unix)]
+    async fn collect_fixture_turn(
+        fixture: &ProcessTreeFixture,
+        app: &Arc<CompatApp>,
+    ) -> Vec<Value> {
+        let native_before = fs::read(&fixture.config.native_config_path).unwrap();
+        let (wire_tx, mut wire_rx) = mpsc::channel(4);
+        let turn = acquire_turn(app, fixture_prompt()).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            session_prompt(Arc::clone(app), json!(1), turn, wire_tx),
+        )
+        .await
+        .expect("native fixture turn is bounded");
+        let mut messages = Vec::new();
+        while let Ok(WireMsg::Notify(message)) = wire_rx.try_recv() {
+            messages.push(message);
+        }
+        assert!(!app.sessions.lock().await["session"].busy);
+        assert_eq!(
+            fs::read_dir(&fixture.config.temporary_root)
+                .unwrap()
+                .count(),
+            0
+        );
+        assert_eq!(
+            fs::read(&fixture.config.native_config_path).unwrap(),
+            native_before
+        );
+        messages
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_state_version_failure_is_safe_and_allows_the_next_turn() {
+        let fixture = startup_failure_fixture(
+            b"NATIVE_SECRET_CANARY\n[openclaw] Could not start the CLI.\n[openclaw] Reason: Failed to open the plugin state database. | OpenClaw state database /private/NATIVE_PATH_CANARY.sqlite uses newer schema version 15; this OpenClaw build supports 1.\n",
+        );
+        let app = fixture.app();
+        assert_eq!(
+            collect_fixture_turn(&fixture, &app).await,
+            vec![wire::err(
+                json!(1),
+                -32000,
+                "OpenClaw could not start because its executable and native state versions do not match. Resolve the native version mismatch, then rescan and re-import this resident."
+            )]
+        );
+
+        fs::write(fixture.root.path().join("complete-next"), "").expect("next turn");
+        let messages = collect_fixture_turn(&fixture, &app).await;
+        assert_eq!(messages.len(), 2);
+        assert_eq!(
+            messages[0].pointer("/params/update/content/text"),
+            Some(&json!("next-turn-ok"))
+        );
+        assert_eq!(
+            messages[1],
+            wire::ok(json!(1), json!({"stopReason": "end_turn"}))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_invalid_config_failure_does_not_expose_diagnostics() {
+        for diagnostic in [
+            "Invalid config at /private/NATIVE_PATH_CANARY.json: NATIVE_SECRET_CANARY\n",
+            "Error: OpenClaw config is invalid: /private/NATIVE_PATH_CANARY.json\nNATIVE_SECRET_CANARY\n",
+        ] {
+            let fixture = startup_failure_fixture(diagnostic.as_bytes());
+            assert_eq!(
+                collect_fixture_turn(&fixture, &fixture.app()).await,
+                vec![wire::err(
+                    json!(1),
+                    -32000,
+                    "The installed OpenClaw version cannot read this native configuration. Resolve the native version/configuration mismatch, then rescan and re-import this resident."
+                )]
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unknown_malformed_and_oversized_native_failures_remain_generic() {
+        let mut oversized = vec![b'x'; MAX_STDERR_BYTES + 1];
+        oversized.extend_from_slice(
+            b"\nOpenClaw state database /private/NATIVE_PATH_CANARY.sqlite uses newer schema version 15; this OpenClaw build supports 1.\nNATIVE_SECRET_CANARY",
+        );
+        for diagnostic in [
+            b"unknown plugin failed: NATIVE_SECRET_CANARY\n".to_vec(),
+            b"OpenClaw state database /private/NATIVE_PATH_CANARY.sqlite uses newer schema version secret; this OpenClaw build supports token.\n".to_vec(),
+            b"OpenClaw state database /private/NATIVE_PATH_CANARY.sqlite uses newer schema version 1; this OpenClaw build supports 15.\n".to_vec(),
+            b"\xff\xfeNATIVE_SECRET_CANARY".to_vec(),
+            oversized,
+        ] {
+            let fixture = startup_failure_fixture(&diagnostic);
+            assert_eq!(
+                collect_fixture_turn(&fixture, &fixture.app()).await,
+                vec![wire::err(json!(1), -32000, "OpenClaw local turn failed")]
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_suppresses_a_backpressured_native_startup_error() {
+        let fixture = startup_failure_fixture(
+            b"OpenClaw state database /private/NATIVE_PATH_CANARY.sqlite uses newer schema version 15; this OpenClaw build supports 1.\n",
+        );
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(1);
+        wire_tx
+            .send(WireMsg::Notify(json!("occupied")))
+            .await
+            .unwrap();
+        let turn = acquire_turn(&app, fixture_prompt()).await.unwrap();
+        let task = tokio::spawn(session_prompt(Arc::clone(&app), json!(1), turn, wire_tx));
+        let completed = tokio::time::timeout(Duration::from_secs(2), async {
+            while !fixture.root.path().join("completion-ready").exists()
+                || fs::read_dir(&fixture.config.temporary_root)
+                    .unwrap()
+                    .count()
+                    != 0
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        if completed.is_err() {
+            task.abort();
+            let _ = task.await;
+            panic!("native startup failure was not ready within its bound");
+        }
+        cancel_session(&app, json!({"sessionId": "session"})).await;
+        let _ = wire_rx.recv().await;
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .expect("cancelled error publication is bounded")
+            .expect("prompt task");
+        assert_cancelled_only(&mut wire_rx).await;
+        assert!(!app.sessions.lock().await["session"].busy);
     }
 
     #[cfg(unix)]
