@@ -52,191 +52,6 @@ async function openChannel(page: Page) {
   await expect(page.getByTestId("app-sidebar")).toBeVisible();
 }
 
-async function expectBuzzSidebarPalette(page: Page, mode: "light" | "dark") {
-  const mutedColor =
-    mode === "light" ? "rgba(0, 0, 0, 0.4)" : "rgba(255, 255, 255, 0.4)";
-  const searchSurface =
-    mode === "light" ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)";
-  const hoverSurface =
-    mode === "light" ? "rgba(0, 0, 0, 0.04)" : "rgba(255, 255, 255, 0.04)";
-  const activeSurface =
-    mode === "light" ? "rgba(0, 0, 0, 0.07)" : "color(srgb 1 1 1 / 0.16)";
-  const chromeColor =
-    mode === "light" ? "rgba(0, 0, 0, 0.5)" : "rgba(255, 255, 255, 0.5)";
-  const search = page.getByTestId("open-search");
-  const pinnedHeader = page.getByTestId("sidebar-pinned-header");
-  const sidebarScroller = page.locator(".buzz-sidebar-scrollbar");
-  const scrollContent = page.getByTestId("sidebar-scroll-content");
-  const primaryMenu = page.getByTestId("sidebar-primary-menu");
-  const sectionLabel = page
-    .locator('[data-sidebar="group-label"]')
-    .filter({ hasText: "Channels" })
-    .first();
-
-  await expect(sectionLabel).toHaveCSS("color", mutedColor);
-  await expect(search).toHaveCSS("background-color", searchSurface);
-  await expect(search.locator("svg").first()).toHaveCSS("color", mutedColor);
-  await expect(search.locator("span").first()).toHaveCSS("color", mutedColor);
-  await expect(pinnedHeader).toHaveCSS("padding-bottom", "8px");
-  await expect(pinnedHeader).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(pinnedHeader).toHaveCSS("margin-left", "3px");
-  await expect(pinnedHeader).toHaveCSS("margin-right", "3px");
-  await expect(pinnedHeader).toHaveCSS("padding-right", "8px");
-  await expect(sidebarScroller).toHaveCSS("padding-left", "0px");
-  await expect(sidebarScroller).toHaveCSS("padding-right", "0px");
-  await expect(scrollContent).toHaveCSS("padding-left", "3px");
-  await expect(scrollContent).toHaveCSS("padding-right", "3px");
-  const pinnedSpacerColor = await pinnedHeader.evaluate(
-    (element) => getComputedStyle(element, "::before").backgroundColor,
-  );
-  expect(pinnedSpacerColor).toBe("rgba(0, 0, 0, 0)");
-  await expect(sidebarScroller.getByTestId("open-agents-view")).toBeVisible();
-  const searchBox = await search.boundingBox();
-  const pinnedHeaderBox = await pinnedHeader.boundingBox();
-  const primaryMenuBox = await primaryMenu.boundingBox();
-  const primaryRowBox = await page
-    .getByTestId("open-agents-view")
-    .boundingBox();
-  const activeRowBox = await page.getByTestId("channel-general").boundingBox();
-  const hoverRowBox = await page.getByTestId("channel-random").boundingBox();
-  const scrollContentBox = await scrollContent.evaluate((element) => {
-    const box = element.getBoundingClientRect();
-    return { left: box.left, right: box.right };
-  });
-  expect(searchBox).not.toBeNull();
-  expect(pinnedHeaderBox).not.toBeNull();
-  expect(primaryMenuBox).not.toBeNull();
-  expect(primaryRowBox).not.toBeNull();
-  expect(activeRowBox).not.toBeNull();
-  expect(hoverRowBox).not.toBeNull();
-  if (
-    !searchBox ||
-    !pinnedHeaderBox ||
-    !primaryMenuBox ||
-    !primaryRowBox ||
-    !activeRowBox ||
-    !hoverRowBox
-  ) {
-    throw new Error("Sidebar search or primary navigation geometry is missing");
-  }
-  expect(primaryMenuBox.y - (searchBox.y + searchBox.height)).toBe(8);
-  expect(
-    pinnedHeaderBox.y +
-      pinnedHeaderBox.height -
-      (searchBox.y + searchBox.height),
-  ).toBe(8);
-  expect(primaryMenuBox.y - (pinnedHeaderBox.y + pinnedHeaderBox.height)).toBe(
-    0,
-  );
-  for (const rowBox of [primaryRowBox, activeRowBox, hoverRowBox]) {
-    expect(Math.abs(rowBox.x - searchBox.x)).toBeLessThanOrEqual(0.5);
-    // Linux CI reserves a classic scrollbar gutter while macOS uses an
-    // overlay scrollbar. Compare each row to its usable scroll area so the
-    // alignment check remains platform-independent.
-    const rowLeftSpacing = rowBox.x - scrollContentBox.left;
-    const rowRightSpacing = scrollContentBox.right - (rowBox.x + rowBox.width);
-    expect(Math.abs(rowLeftSpacing - rowRightSpacing)).toBeLessThanOrEqual(0.5);
-  }
-  await expect(page.locator("[data-buzz-sidebar-secondary]").first()).toHaveCSS(
-    "color",
-    mutedColor,
-  );
-  await expect(page.locator('[data-sidebar="trigger"]')).toHaveCSS(
-    "color",
-    chromeColor,
-  );
-  await expect(page.getByTestId("global-back")).toHaveCSS("color", chromeColor);
-  await expect(page.getByTestId("global-forward")).toHaveCSS(
-    "color",
-    chromeColor,
-  );
-  await expect(page.getByTestId("channel-general")).not.toHaveCSS(
-    "color",
-    mutedColor,
-  );
-  await expect(page.getByTestId("channel-general")).toHaveCSS(
-    "background-color",
-    activeSurface,
-  );
-  const hoverChannel = page.getByTestId("channel-random");
-  await hoverChannel.hover();
-  await expect(hoverChannel).toHaveCSS("background-color", hoverSurface);
-
-  const firstDmItem = page
-    .getByTestId("dm-list")
-    .locator('[data-sidebar="menu-item"]')
-    .first();
-  const firstDmButton = firstDmItem.locator('[data-sidebar="menu-button"]');
-  const closeDmButton = firstDmItem.getByRole("button", {
-    name: "Close direct message",
-  });
-  await firstDmItem.hover();
-  await expect(closeDmButton).toBeVisible();
-  await closeDmButton.hover();
-  await expect(firstDmButton).toHaveCSS("background-color", hoverSurface);
-
-  const scrollbarThumbColor = await sidebarScroller.evaluate(
-    (element) =>
-      getComputedStyle(element, "::-webkit-scrollbar-thumb").backgroundColor,
-  );
-  expect(scrollbarThumbColor).toBe(hoverSurface);
-}
-
-async function expectIconlessSectionTitleAligned(
-  page: Page,
-  listTestId: "stream-list" | "dm-list",
-) {
-  const titleBox = await page
-    .getByTestId(`${listTestId}-section-label`)
-    .locator("[data-sidebar-section-title]")
-    .boundingBox();
-  const firstRowIconX = await page
-    .getByTestId(listTestId)
-    .locator('[data-sidebar="menu-button"]')
-    .first()
-    .evaluate((element) => {
-      const box = element.getBoundingClientRect();
-      const paddingLeft = Number.parseFloat(
-        getComputedStyle(element).paddingLeft,
-      );
-      return box.x + paddingLeft;
-    });
-
-  expect(titleBox).not.toBeNull();
-  if (!titleBox) {
-    throw new Error(`Sidebar section ${listTestId} is missing label geometry`);
-  }
-  expect(Math.abs(titleBox.x - firstRowIconX)).toBeLessThanOrEqual(0.5);
-}
-
-async function expectBuzzContentShadow(page: Page, mode: "light" | "dark") {
-  const effects = await page.evaluate(() => {
-    const shell = document.querySelector(".buzz-huddle-shell");
-    const content = document.querySelector("[data-buzz-content-surface]");
-    const shadowViewport = document.querySelector(
-      "[data-buzz-shadow-viewport]",
-    );
-    return {
-      appStroke: shell ? getComputedStyle(shell, "::before").boxShadow : "",
-      contentShadow: content ? getComputedStyle(content).boxShadow : "",
-      shadowViewportOverflow: shadowViewport
-        ? getComputedStyle(shadowViewport).overflow
-        : "",
-    };
-  });
-
-  expect(effects.appStroke).toBe("none");
-  if (mode === "light") {
-    expect(effects.contentShadow).toContain("4px");
-    expect(effects.contentShadow).toContain("rgba(0, 0, 0, 0.07)");
-    expect(effects.shadowViewportOverflow).toBe("visible");
-  } else {
-    expect(effects.contentShadow).not.toContain("4px");
-    expect(effects.contentShadow).not.toContain("rgba(255, 255, 255, 0.07)");
-    expect(effects.shadowViewportOverflow).toBe("hidden");
-  }
-}
-
 async function expectBuzzGradientPaint(
   page: Page,
   mode: "light" | "dark",
@@ -354,38 +169,88 @@ async function emitNativeThemeChange(page: Page, theme: "light" | "dark") {
   }, theme);
 }
 
-test("buzz light sidebar gradient", async ({ page }) => {
-  await seedTheme(page, "buzz");
+// The first-party Luca contract is a quiet dark shell and Paper light palette.
+// theme-loader retains buzz/buzz-dark as dark compatibility keys; neither is
+// the historical Buzz gradient. Assert the pixels painted from the live tokens.
+async function expectAppliedLucaTheme(
+  page: Page,
+  theme: "paper" | "buzz-dark" | "buzz",
+) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        stored: localStorage.getItem("buzz-theme"),
+        theme: document.documentElement.getAttribute("data-luca-theme"),
+        dark: document.documentElement.classList.contains("dark"),
+      })),
+    )
+    .toEqual({ stored: theme, theme, dark: theme !== "paper" });
+  await expect(page.locator("html")).toHaveAttribute("data-luca-shell", "");
+  const paint = await page.evaluate(() => {
+    const root = document.documentElement;
+    const vars = getComputedStyle(root);
+    const resolveColor = (value: string) => {
+      const probe = document.createElement("span");
+      probe.style.color = value;
+      root.append(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    };
+    const surface = document.querySelector(".buzz-huddle-app-surface");
+    const sidebar = document.querySelector(
+      '[data-testid="app-sidebar"], [data-testid="settings-sidebar"]',
+    );
+    const sidebarSurface =
+      sidebar?.querySelector('[data-sidebar="sidebar"]') ?? sidebar;
+    const paintedBackground = (
+      element: Element | null | undefined,
+    ): string | null => {
+      let current = element;
+      while (current) {
+        const color = getComputedStyle(current).backgroundColor;
+        if (color !== "rgba(0, 0, 0, 0)") return color;
+        current = current.parentElement;
+      }
+      return null;
+    };
+    return {
+      floor: resolveColor(`hsl(${vars.getPropertyValue("--mn-floor")})`),
+      surfaceColor: surface ? getComputedStyle(surface).backgroundColor : null,
+      surfaceImage: surface ? getComputedStyle(surface).backgroundImage : null,
+      sidebarColor: paintedBackground(sidebarSurface),
+      sidebarImage: sidebarSurface
+        ? getComputedStyle(sidebarSurface).backgroundImage
+        : null,
+      legacyLayers: document.querySelectorAll("[data-buzz-gradient]").length,
+    };
+  });
+  expect(paint.surfaceColor).toBe(paint.floor);
+  expect(paint.sidebarColor).toBe(paint.floor);
+  expect(paint.surfaceImage).toBe("none");
+  expect(paint.sidebarImage).toBe("none");
+  expect(paint.legacyLayers).toBe(0);
+  return paint.floor;
+}
+
+test("Luca Paper light sidebar paint", async ({ page }) => {
+  await seedTheme(page, "paper");
   await installMockBridge(page);
   await openChannel(page);
-  await expectBuzzGradientPaint(page, "light");
-  await expectBuzzSidebarPalette(page, "light");
-  await expectBuzzContentShadow(page, "light");
-  await expectIconlessSectionTitleAligned(page, "stream-list");
-  await expectIconlessSectionTitleAligned(page, "dm-list");
+  await expectAppliedLucaTheme(page, "paper");
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
   await waitForAnimations(page);
-  await page
-    .getByTestId("app-sidebar")
-    .screenshot({ path: `${SHOTS}/01-buzz-light-sidebar.png` });
+  await page.screenshot({ path: `${SHOTS}/01-luca-paper.png` });
 });
 
-test("buzz dark sidebar gradient", async ({ page }) => {
+test("Luca dark sidebar paint", async ({ page }) => {
   await seedTheme(page, "buzz-dark");
   await installMockBridge(page);
   await openChannel(page);
-  await expectBuzzGradientPaint(page, "dark");
-  await expectBuzzSidebarPalette(page, "dark");
-  await expectBuzzContentShadow(page, "dark");
-  await expectIconlessSectionTitleAligned(page, "stream-list");
-  await expectIconlessSectionTitleAligned(page, "dm-list");
-  await expect(page.locator("[data-buzz-content-surface]")).toHaveCSS(
-    "background-color",
-    "rgb(26, 26, 26)",
-  );
+  await expectAppliedLucaTheme(page, "buzz-dark");
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
   await waitForAnimations(page);
-  await page
-    .getByTestId("app-sidebar")
-    .screenshot({ path: `${SHOTS}/02-buzz-dark-sidebar.png` });
+  await page.screenshot({ path: `${SHOTS}/02-luca-dark.png` });
 });
 
 test("custom section icon and name align with channel columns", async ({
@@ -639,28 +504,34 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
 });
 
-test("Buzz light and dark modes apply live without a reload", async ({
+test("Luca light and dark modes apply live without a reload", async ({
   page,
 }) => {
   await seedTheme(page, "buzz");
   await installMockBridge(page);
   await openAppearance(page, "light");
-  await expectAppliedBuzzTheme(page, "buzz");
-  const lightGradient = await expectBuzzGradientPaint(page, "light");
-
+  await page.evaluate(() => {
+    document.documentElement.dataset.themeContinuity = "same-document";
+  });
+  const light = await expectAppliedLucaTheme(page, "paper");
+  await expect(page.getByTestId("theme-option-paper")).toBeVisible();
+  await expect(page.getByTestId("thread-layout-trigger")).toHaveCount(0);
+  await expect(page.getByText("Thread layout", { exact: true })).toHaveCount(0);
   await page.getByTestId("appearance-mode-dark").click();
-  await expectAppliedBuzzTheme(page, "buzz-dark");
-  const darkGradient = await expectBuzzGradientPaint(page, "dark");
-  expect(darkGradient).not.toBe(lightGradient);
-
+  const dark = await expectAppliedLucaTheme(page, "buzz");
+  expect(dark).not.toBe(light);
   await page.getByTestId("appearance-mode-light").click();
-  await expectAppliedBuzzTheme(page, "buzz");
-  await expectBuzzGradientPaint(page, "light");
-
-  // Exercise the overlap that previously let a slower, stale theme load win.
+  expect(await expectAppliedLucaTheme(page, "paper")).toBe(light);
+  // Preserve the stale async-load race guard as well as the same-document proof.
   await page.getByTestId("appearance-mode-dark").click();
   await page.getByTestId("appearance-mode-light").click();
-  await expectAppliedBuzzTheme(page, "buzz");
+  expect(await expectAppliedLucaTheme(page, "paper")).toBe(light);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme-continuity",
+    "same-document",
+  );
+  await waitForAnimations(page);
+  await page.screenshot({ path: `${SHOTS}/03-luca-live-light.png` });
 });
 
 test("Buzz follows native system theme changes without a reload", async ({

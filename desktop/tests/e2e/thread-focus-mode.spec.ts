@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { waitForAnimations } from "../helpers/animations";
+
 import { installMockBridge } from "../helpers/bridge";
 
 async function seedLongThread(page: import("@playwright/test").Page) {
@@ -30,119 +32,53 @@ async function seedLongThread(page: import("@playwright/test").Page) {
   });
 }
 
-async function topVisibleMessageId(
-  body: import("@playwright/test").Locator,
-): Promise<string> {
-  return body.evaluate((element) => {
-    const top = element.getBoundingClientRect().top;
-    const row = Array.from(
-      element.querySelectorAll<HTMLElement>("[data-message-id]"),
-    ).find((candidate) => candidate.getBoundingClientRect().bottom > top);
-    if (!row?.dataset.messageId) throw new Error("No visible thread anchor");
-    return row.dataset.messageId;
-  });
-}
-
-/**
- * The channel header must own its pixels, not merely be "visible".
- *
- * Regression guard for the focus-mode launch: a `z-0` on the channel section
- * created a stacking context that flattened the header's `z-30` beneath the
- * sibling shared header backdrop (also `z-30`), painting the backdrop over the
- * name and actions. Neither `toBeVisible()` nor `elementFromPoint` can catch
- * this — the backdrop is `pointer-events-none`, so hit-testing skips it. We
- * compare CSS paint order directly: walk each element's stacking-context
- * chain, find the branches under their common stacking context, and check the
- * header's branch wins (higher z-index, or later in DOM order on a tie).
- */
-async function expectChannelHeaderUnobscured(
-  page: import("@playwright/test").Page,
-) {
-  const title = page.getByTestId("chat-title");
-  await expect(title).toBeVisible();
+// Luca uses one focused main timeline; the split drawer was retired in
+// docs/luca/project-navigation/RUN_LOG.md. Visibility alone missed the actual
+// exit being painted beneath the channel header, so guard bounds and hit tests.
+async function expectUsableThreadBar(page: import("@playwright/test").Page) {
+  const bar = page.getByTestId("focused-thread-bar");
+  await expect(bar).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() => {
-        const titleEl = document.querySelector('[data-testid="chat-title"]');
-        const backdropEl = document.querySelector(
-          '[data-testid="channel-shared-header-backdrop"]',
+        const bar = document.querySelector(
+          '[data-testid="focused-thread-bar"]',
         );
-        if (!titleEl) return "missing title";
-        if (!backdropEl) return "missing backdrop";
-
-        const createsStackingContext = (el: Element): boolean => {
-          const style = getComputedStyle(el);
-          if (style.position !== "static" && style.zIndex !== "auto")
-            return true;
-          if (parseFloat(style.opacity) < 1) return true;
-          if (style.transform !== "none") return true;
-          if (style.filter !== "none") return true;
-          const backdropFilter =
-            style.backdropFilter ??
-            (style as unknown as { webkitBackdropFilter?: string })
-              .webkitBackdropFilter;
-          if (backdropFilter && backdropFilter !== "none") return true;
-          if (style.isolation === "isolate") return true;
-          if (
-            style.contain.includes("paint") ||
-            style.contain.includes("strict")
-          )
-            return true;
-          return false;
-        };
-
-        // Chain of stacking-context roots from the element up to <html>.
-        const stackingChain = (el: Element): Element[] => {
-          const chain: Element[] = [el];
-          let current: Element | null = el.parentElement;
-          while (current) {
-            if (
-              createsStackingContext(current) ||
-              current === document.documentElement
-            ) {
-              chain.push(current);
-            }
-            current = current.parentElement;
-          }
-          return chain;
-        };
-
-        const titleChain = stackingChain(titleEl);
-        const backdropChain = stackingChain(backdropEl);
-        const common = titleChain.find((el) => backdropChain.includes(el));
-        if (!common) return "no common stacking context";
-
-        // Branch = the child-of-common entry each element paints through.
-        const titleBranch = titleChain[titleChain.indexOf(common) - 1];
-        const backdropBranch = backdropChain[backdropChain.indexOf(common) - 1];
-        if (!titleBranch || !backdropBranch) return "degenerate chain";
-
-        const effectiveZ = (el: Element): number => {
-          const z = getComputedStyle(el).zIndex;
-          return z === "auto" ? 0 : parseInt(z, 10);
-        };
-        const titleZ = effectiveZ(titleBranch);
-        const backdropZ = effectiveZ(backdropBranch);
-        if (titleZ !== backdropZ) {
-          return titleZ > backdropZ ? true : "backdrop paints above header";
-        }
-        // Tie: later in DOM order paints on top.
-        const order = backdropBranch.compareDocumentPosition(titleBranch);
-        return (order & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
-          ? true
-          : "backdrop paints above header";
+        const header = document.querySelector('[data-testid="chat-header"]');
+        const exit = document.querySelector('[aria-label="Show all messages"]');
+        if (!bar || !header || !exit) return false;
+        const b = bar.getBoundingClientRect(),
+          h = header.getBoundingClientRect(),
+          e = exit.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          e.x + e.width / 2,
+          e.y + e.height / 2,
+        );
+        return (
+          b.top >= h.bottom - 1 &&
+          b.left >= 0 &&
+          b.right <= innerWidth &&
+          b.bottom <= innerHeight &&
+          e.top >= b.top &&
+          e.bottom <= b.bottom &&
+          Boolean(hit && exit.contains(hit))
+        );
       }),
     )
     .toBe(true);
+  await expect(page.getByTestId("message-input")).toHaveCount(1);
+  await expect(page.getByTestId("channel-drop-zone")).not.toHaveAttribute(
+    "inert",
+    "",
+  );
+  await expect(page.getByTestId("message-thread-panel")).toHaveCount(0);
+  await expect(page.getByTestId("thread-view-mode-toggle")).toHaveCount(0);
 }
 
-test("focus and split preserve reading context and interaction ownership", async ({
+test("focused threads preserve reading context and interaction ownership", async ({
   page,
-}) => {
-  await page.setViewportSize({ width: 1280, height: 720 });
-  await page.addInitScript(() => {
-    localStorage.setItem("buzz.channels.threadViewMode", "focus");
-  });
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -155,98 +91,82 @@ test("focus and split preserve reading context and interaction ownership", async
   });
   await page.goto("/");
   const rootId = await seedLongThread(page);
-
   await page.getByTestId("channel-general").click();
-  await expectChannelHeaderUnobscured(page);
   const summary = page.locator(
     `[data-testid="message-thread-summary"][data-thread-head-id="${rootId}"]`,
   );
-  await expect(summary).toBeVisible();
   await summary.click();
-
-  const channel = page.getByTestId("channel-drop-zone");
-  const drawer = page.getByTestId("focus-thread-drawer");
-  const body = page.getByTestId("message-thread-body");
-  await expect(drawer).toBeVisible();
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        Boolean(
-          document
-            .querySelector('[data-testid="focus-thread-drawer"]')
-            ?.contains(document.activeElement),
-        ),
-      ),
-    )
-    .toBe(true);
-  await expect(channel).toHaveAttribute("inert", "");
-
-  await body.evaluate((element) => {
-    element.scrollTop = element.scrollHeight * 0.4;
-    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  await expectUsableThreadBar(page);
+  await expect(page).toHaveURL(new RegExp(`thread=${rootId}`));
+  const timeline = page.getByTestId("message-timeline");
+  await timeline.evaluate((el) => {
+    el.scrollTop = el.scrollHeight * 0.4;
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
   });
-  const anchorId = await topVisibleMessageId(body);
-
-  await page
-    .getByRole("button", { name: "Show thread beside channel" })
-    .click();
-  await expect(drawer).toHaveCount(0);
-  await expect(channel).not.toHaveAttribute("inert", "");
-  await expectChannelHeaderUnobscured(page);
-  await expect(page.getByTestId("thread-view-mode-toggle")).toBeFocused();
+  const anchor = await timeline.evaluate((el) => {
+    const top =
+      document
+        .querySelector('[data-testid="focused-thread-bar"]')
+        ?.getBoundingClientRect().bottom ?? el.getBoundingClientRect().top;
+    return [...el.querySelectorAll<HTMLElement>("[data-message-id]")].find(
+      (row) => row.getBoundingClientRect().top > top,
+    )?.dataset.messageId;
+  });
+  expect(anchor).toBeTruthy();
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await expectUsableThreadBar(page);
   await expect(
-    body.locator(`[data-message-id="${anchorId}"]`),
+    timeline.locator(`[data-message-id="${anchor}"]`),
   ).toBeInViewport();
-  await expect(
-    body.locator(`[data-message-id="${anchorId}"]`),
-  ).not.toHaveAttribute("data-highlighted", "true");
-
-  await page.getByRole("button", { name: "Expand thread" }).click();
-  await expect(drawer).toBeVisible();
-  await expect(channel).toHaveAttribute("inert", "");
-  await expect(page.getByTestId("thread-view-mode-toggle")).toBeFocused();
-  await expect(
-    body.locator(`[data-message-id="${anchorId}"]`),
-  ).toBeInViewport();
-
-  // Focus mode owns Escape even while the rich-text composer and one of its
-  // nested controls has focus: one press exits the focused thread.
-  const threadInput = page
-    .getByTestId("message-thread-panel")
-    .getByTestId("message-input");
-  await threadInput.click();
-  await threadInput.pressSequentially("@al");
-  await expect(
-    page
-      .getByTestId("message-thread-panel")
-      .getByTestId("mention-autocomplete"),
-  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`thread=${rootId}`));
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("focused-thread-reading.png"),
+  });
+  // The actual exit must accept pointer input, without forced clicks.
+  await page.getByRole("button", { name: "Show all messages" }).click();
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/thread=/);
+  await summary.click();
+  await expectUsableThreadBar(page);
+  const input = page.getByTestId("message-input");
+  await input.click();
+  await input.pressSequentially("@al");
+  await expect(page.getByTestId("mention-autocomplete")).toBeVisible();
+  await expect(input).toBeFocused();
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("focus-thread-drawer-overlay")).toHaveCount(0);
-  await expect(channel).not.toHaveAttribute("inert", "");
-
-  await summary.click();
-  await expect(drawer).toBeVisible();
-  await page.getByTestId("focus-thread-drawer-scrim").click({
-    position: { x: 24, y: 200 },
-  });
-  await expect(page.getByTestId("focus-thread-drawer-overlay")).toHaveCount(0);
-  await expect(channel).not.toHaveAttribute("inert", "");
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/thread=/);
 });
 
-test("narrow threads do not offer an unavailable layout switch", async ({
+test("compact focused threads keep the exit usable at 150 percent", async ({
   page,
-}) => {
-  await page.setViewportSize({ width: 860, height: 720 });
+}, testInfo) => {
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await installMockBridge(page);
   await page.goto("/");
   const rootId = await seedLongThread(page);
   await page.getByTestId("channel-general").click();
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "24px";
+  });
   const summary = page.locator(
     `[data-testid="message-thread-summary"][data-thread-head-id="${rootId}"]`,
   );
-  await expect(summary).toBeVisible();
   await summary.click();
-  await expect(page.getByTestId("message-thread-panel")).toBeVisible();
-  await expect(page.getByTestId("thread-view-mode-toggle")).toHaveCount(0);
+  await expectUsableThreadBar(page);
+  await expect(page).toHaveURL(new RegExp(`thread=${rootId}`));
+  const exit = page.getByRole("button", { name: "Show all messages" });
+  await exit.focus();
+  await expect(exit).toBeFocused();
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("focused-thread-compact-zoom150.png"),
+  });
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("focused-thread-bar")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/thread=/);
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await expect(page.getByTestId("message-input")).toHaveCount(1);
 });

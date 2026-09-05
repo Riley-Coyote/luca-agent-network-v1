@@ -992,6 +992,10 @@ export const ChannelPane = React.memo(function ChannelPane({
               ) : null}
               {focusedThreadHead ? (
                 <FocusedThreadBar
+                  className={cn(
+                    "relative z-40 mt-(--buzz-channel-content-top-padding,5.75rem) bg-background",
+                    channelChrome.negativeMargin,
+                  )}
                   authorName={focusedThreadHead.author}
                   onExit={onCloseThread}
                   replyCount={Math.max(0, mainTimelineEntries.length - 1)}
