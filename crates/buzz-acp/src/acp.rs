@@ -484,14 +484,7 @@ pub struct AcpClient {
 }
 
 fn requested_protocol_version(command: &str) -> u32 {
-    let normalized = command
-        .replace('\\', "/")
-        .rsplit('/')
-        .next()
-        .unwrap_or(command)
-        .trim_end_matches(".exe")
-        .to_ascii_lowercase();
-    match normalized.as_str() {
+    match crate::config::normalize_agent_command_identity(command).as_str() {
         "hermes" | "openclaw" => 1,
         _ => 2,
     }
@@ -3177,10 +3170,32 @@ mod tests {
 
     #[test]
     fn native_runtimes_request_common_acp_v1() {
-        assert_eq!(requested_protocol_version("hermes"), 1);
-        assert_eq!(requested_protocol_version("/opt/homebrew/bin/openclaw"), 1);
-        assert_eq!(requested_protocol_version("codex-acp"), 2);
+        for command in [
+            "hermes",
+            r"C:\Program Files\Hermes\HERMES.EXE",
+            "/opt/homebrew/bin/openclaw",
+            "/opt/homebrew/lib/node_modules/openclaw/openclaw.mjs",
+            r"C:\Program Files\OpenClaw\OPENCLAW.MJS",
+        ] {
+            assert_eq!(requested_protocol_version(command), 1);
+        }
         assert_eq!(build_initialize_params(1)["protocolVersion"], 1);
+    }
+
+    #[test]
+    fn other_runtimes_keep_acp_v2() {
+        for command in [
+            "goose",
+            "buzz-agent",
+            "codex-acp",
+            "claude-agent-acp",
+            "/opt/scripts/custom.mjs",
+            "/opt/scripts/hermes.mjs",
+            "/opt/scripts/openclaw-helper.mjs",
+        ] {
+            assert_eq!(requested_protocol_version(command), 2);
+        }
+        assert_eq!(build_initialize_params(2)["protocolVersion"], 2);
     }
 
     #[test]

@@ -7896,8 +7896,10 @@ while read -r _; do :; done
     #[test]
     fn openclaw_session_metadata_is_stable_and_conversation_isolated() {
         let mut ctx = make_prompt_context_no_owner();
-        ctx.harness_name = "openclaw".to_string();
-        ctx.openclaw_agent_id = Some("luca".to_string());
+        ctx.harness_name = crate::config::normalize_agent_command_identity(
+            "/opt/homebrew/lib/node_modules/openclaw/openclaw.mjs",
+        );
+        ctx.openclaw_agent_id = Some("jerry".to_string());
         let dm = uuid::Uuid::new_v4();
         let room = uuid::Uuid::new_v4();
         ctx.channel_info.insert(
@@ -7931,13 +7933,19 @@ while read -r _; do :; done
         assert!(first["sessionKey"]
             .as_str()
             .expect("session key")
-            .starts_with("agent:luca:luca:dm:"));
+            .starts_with("agent:jerry:luca:dm:"));
+        assert!(other["sessionKey"]
+            .as_str()
+            .expect("session key")
+            .starts_with("agent:jerry:luca:room:"));
     }
 
     #[test]
     fn openclaw_session_metadata_refuses_default_agent_fallback() {
         let mut ctx = make_prompt_context_no_owner();
-        ctx.harness_name = "openclaw".to_string();
+        ctx.harness_name = crate::config::normalize_agent_command_identity(
+            "/opt/homebrew/lib/node_modules/openclaw/openclaw.mjs",
+        );
         let error = openclaw_session_meta(&ctx, &PromptSource::Heartbeat)
             .expect_err("missing exact agent id must fail");
         assert!(error.to_string().contains("exact imported agentId"));

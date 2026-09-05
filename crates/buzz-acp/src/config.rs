@@ -848,7 +848,12 @@ pub(crate) fn normalize_agent_command_identity(command: &str) -> String {
         .next()
         .expect("rsplit always yields at least one element");
     let lower = basename.to_ascii_lowercase();
-    let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
+    // Native discovery can resolve OpenClaw's executable to its package entrypoint.
+    // Recognize that exact script without treating arbitrary .mjs files as runtimes.
+    let stem = match lower.as_str() {
+        "openclaw.mjs" => "openclaw",
+        _ => lower.strip_suffix(".exe").unwrap_or(&lower),
+    };
     stem.chars()
         .map(|character| match character {
             ' ' | '_' => '-',
@@ -1932,6 +1937,27 @@ mod tests {
         assert_eq!(normalize_agent_command_identity("   "), "");
         assert_eq!(normalize_agent_command_identity("/"), "");
         assert_eq!(normalize_agent_command_identity("///"), "");
+    }
+
+    #[test]
+    fn normalizes_exact_openclaw_mjs_entrypoint_only() {
+        for command in [
+            "openclaw",
+            "openclaw.mjs",
+            " /opt/homebrew/lib/node_modules/openclaw/openclaw.mjs ",
+            r"C:\Program Files\OpenClaw\OPENCLAW.MJS",
+            r"C:\Program Files\OpenClaw\OpenClaw.EXE",
+        ] {
+            assert_eq!(normalize_agent_command_identity(command), "openclaw");
+        }
+        for (command, expected) in [
+            ("/opt/scripts/custom.mjs", "custom.mjs"),
+            ("/opt/scripts/HERMES.MJS", "hermes.mjs"),
+            ("/opt/scripts/openclaw-helper.mjs", "openclaw-helper.mjs"),
+            ("/opt/scripts/openclaw.mjs.bak", "openclaw.mjs.bak"),
+        ] {
+            assert_eq!(normalize_agent_command_identity(command), expected);
+        }
     }
 
     #[test]
