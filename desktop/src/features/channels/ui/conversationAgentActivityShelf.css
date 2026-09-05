@@ -68,8 +68,7 @@
 /* Blocking permission authority is immediate by contract. The ordinary tray
  * disclosure keeps its 240ms spatial transition; a newly-arrived decision
  * never waits for that transition or moves under the pointer. */
-:root[data-luca-shell]
-  .luca-work-tray__expanded[data-priority="permission"] {
+:root[data-luca-shell] .luca-work-tray__expanded[data-priority="permission"] {
   animation: none;
   transform: none;
 }
@@ -209,20 +208,21 @@
 }
 
 :root[data-luca-shell]
-  .luca-runtime-task-run__steps li[data-state="active"]
+  .luca-runtime-task-run__steps
+  li[data-state="active"]
   .luca-runtime-task-run__step-dot {
   animation: luca-runtime-task-step-pulse 1.4s ease-in-out infinite;
   background: hsl(var(--mn-ink));
 }
 
 :root[data-luca-shell]
-  .luca-runtime-task-run__steps li[data-state="done"]
+  .luca-runtime-task-run__steps
+  li[data-state="done"]
   .luca-runtime-task-run__step-dot {
   background: hsl(var(--mn-ink-muted));
 }
 
-:root[data-luca-shell]
-  .luca-runtime-task-run__steps li[data-state="failed"] {
+:root[data-luca-shell] .luca-runtime-task-run__steps li[data-state="failed"] {
   color: hsl(var(--destructive) / 0.86);
 }
 
@@ -250,7 +250,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell]
-    .luca-runtime-task-run__steps li[data-state="active"]
+    .luca-runtime-task-run__steps
+    li[data-state="active"]
     .luca-runtime-task-run__step-dot {
     animation: none;
   }

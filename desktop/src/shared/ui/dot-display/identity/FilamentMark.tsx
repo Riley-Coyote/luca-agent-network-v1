@@ -289,12 +289,12 @@ export function FilamentMark({
       shouldReduceMotion && mode === "current"
         ? 0.86
         : mode === "current"
-        ? BASE
-        : mode === "lit"
-          ? 1
-          : mode === "speaking"
-            ? 0.86
-            : 0.92;
+          ? BASE
+          : mode === "lit"
+            ? 1
+            : mode === "speaking"
+              ? 0.86
+              : 0.92;
     const running =
       !shouldReduceMotion && (mode === "current" || mode === "speaking");
     // Speaking keeps a faint current under a mostly-lit glyph.
