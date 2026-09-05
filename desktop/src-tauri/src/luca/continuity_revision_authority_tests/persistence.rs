@@ -406,3 +406,119 @@ fn weakened_v4_authority_schema_is_rejected_on_reopen() {
         Err(ContinuityStoreError::SchemaIncompatible)
     ));
 }
+
+#[test]
+fn multi_lineage_generation_loads_preserve_snapshot_and_database() {
+    const LINEAGES: usize = 8;
+    const READS: usize = 5;
+    const BODY_BYTES: usize = 16 * 1024;
+
+    // The optional path is only for comparing two test executables against
+    // identical synthetic ciphertext. Normal test runs use a fresh fixture.
+    let fixture_path =
+        std::env::var_os("LUCA_R08_SYNTHETIC_SNAPSHOT").map(std::path::PathBuf::from);
+    let snapshot = if let Some(path) = fixture_path.as_ref().filter(|path| path.exists()) {
+        RevisionLedgerSnapshotV1::decode_bounded(&std::fs::read(path).unwrap()).unwrap()
+    } else {
+        let mut ledger = RevisionLedger::default();
+        for lineage in 0..LINEAGES {
+            let root_id = format!("load-lineage-{lineage}-0");
+            for revision in 0..2 {
+                let record_id = format!("load-lineage-{lineage}-{revision}");
+                let predecessor = (revision == 1).then_some(root_id.as_str());
+                let template = record(&record_id, revision, predecessor);
+                let mut scope = template.scope;
+                scope.conversation_id = Some(id(&format!("load-conversation-{lineage}")));
+                scope.scope_ref = Sha256Ref::parse(format!("sha256:{lineage:064x}")).unwrap();
+                let successor = encrypt_record(
+                    RecordMetadata {
+                        protocol: template.protocol,
+                        record_id: template.record_id,
+                        namespace: template.namespace,
+                        scope,
+                        record_type: template.record_type,
+                        revision: template.revision,
+                        predecessor_record_id: template.predecessor_record_id,
+                        created_at: template.created_at,
+                        author_kind: template.author_kind,
+                        provenance_refs: template.provenance_refs,
+                        key_version: template.key_version,
+                    },
+                    &[7; 32],
+                    &[b'a' + lineage as u8; BODY_BYTES],
+                )
+                .unwrap();
+                ledger
+                    .apply(request_for_lineage(
+                        &root_id,
+                        if revision == 0 {
+                            RevisionOperation::Create
+                        } else {
+                            RevisionOperation::Revise
+                        },
+                        if revision == 0 { '6' } else { '7' },
+                        Some(successor),
+                        predecessor,
+                    ))
+                    .unwrap();
+            }
+        }
+        let snapshot = ledger.export_snapshot().unwrap();
+        if let Some(path) = fixture_path {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .unwrap()
+                .write_all(&canonicalize(&snapshot).unwrap())
+                .unwrap();
+        }
+        snapshot
+    };
+    assert_eq!(snapshot.lineages.len(), LINEAGES);
+    assert_eq!(snapshot.records.len(), LINEAGES * 2);
+    assert_eq!(snapshot.revision_idempotency.len(), LINEAGES * 2);
+    let expected_fingerprint = snapshot.fingerprint().unwrap();
+    let canonical_before = canonicalize(&snapshot).unwrap();
+    let temp = TempDir::new().unwrap();
+    let mut store = open(&temp);
+    let owner = hex('1');
+    let token = store
+        .replace_owner_revision_generation_atomically(
+            &AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: owner.clone(),
+                active_root_key_version: SafeU53::new(1).unwrap(),
+            },
+            SafeU53::new(1).unwrap(),
+            &snapshot,
+        )
+        .unwrap();
+    assert_eq!(token.snapshot_fingerprint, expected_fingerprint);
+    drop(store);
+    let store = open(&temp);
+    let changes_before = store.connection.total_changes();
+    let mut elapsed_micros = Vec::new();
+    for _ in 0..READS {
+        let started = std::time::Instant::now();
+        let loaded = store.load_revision_generation(&owner).unwrap().unwrap();
+        elapsed_micros.push(started.elapsed().as_micros());
+        assert_eq!(loaded.token, token);
+        assert_eq!(loaded.snapshot, snapshot);
+        assert_eq!(canonicalize(&loaded.snapshot).unwrap(), canonical_before);
+        assert_eq!(loaded.snapshot.fingerprint().unwrap(), expected_fingerprint);
+        assert_eq!(store.connection.total_changes(), changes_before);
+    }
+    println!(
+        "R08_SYNTHETIC_LOAD {}",
+        serde_json::json!({
+            "lineages": LINEAGES,
+            "records": LINEAGES * 2,
+            "body_bytes_per_record": BODY_BYTES,
+            "canonical_bytes": canonical_before.len(),
+            "fingerprint": expected_fingerprint,
+            "load_micros": elapsed_micros,
+            "database_changes": store.connection.total_changes() - changes_before,
+        })
+    );
+}

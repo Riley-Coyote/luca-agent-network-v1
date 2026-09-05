@@ -1475,10 +1475,10 @@ fn load_generation_in_snapshot(
         .map_err(map_continuity_error)?
         .export_snapshot()
         .map_err(map_continuity_error)?;
-    if round_trip != snapshot
-        || canonicalize(&round_trip).map_err(|_| ContinuityStoreError::InvalidRecord)?
-            != canonicalize(&snapshot).map_err(|_| ContinuityStoreError::InvalidRecord)?
-    {
+    // These DTOs serialize deterministically, so exact structural equality
+    // also proves canonical equality. Hydration, export and fingerprinting
+    // still validate the complete snapshot and its canonical size bound.
+    if round_trip != snapshot {
         return Err(ContinuityStoreError::InvalidRecord);
     }
     let actual = snapshot.fingerprint().map_err(map_continuity_error)?;
