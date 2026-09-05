@@ -34,6 +34,7 @@ const MAX_PROMPT_BYTES: usize = 256 * 1024;
 const MAX_STDOUT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
 const MAX_ISOLATED_CONFIG_BYTES: u64 = 2 * 1024 * 1024;
+const CONTROL_DISPATCH_TIMEOUT: Duration = Duration::from_millis(500);
 const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(1);
 const ADAPTER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 const REPOSITORY_SERVER_NAME: &str = "luca-repositories";
@@ -240,7 +241,15 @@ async fn serve<R: AsyncBufRead + Unpin>(
 ) -> std::io::Result<()> {
     let mut turns = JoinSet::new();
     let result = loop {
-        let line = match wire::read_bounded_line(&mut input, MAX_FRAME_BYTES).await {
+        let read = tokio::select! {
+            biased;
+            _ = wire_tx.closed() => break Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "OpenClaw adapter output closed",
+            )),
+            read = wire::read_bounded_line(&mut input, MAX_FRAME_BYTES) => read,
+        };
+        let line = match read {
             Ok(Some(line)) => line,
             Ok(None) => break Ok(()),
             Err(error) => break Err(error),
@@ -249,14 +258,34 @@ async fn serve<R: AsyncBufRead + Unpin>(
         if line.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<Value>(&line) {
-            Ok(message) => dispatch(Arc::clone(&app), message, wire_tx, &mut turns).await,
-            Err(_) => {
-                wire::send(
-                    wire_tx,
-                    wire::err(Value::Null, wire::PARSE_ERROR, "jsonrpc: parse failed"),
-                )
-                .await;
+        // Control replies must not strand the input loop behind output
+        // backpressure. Fail the transport and cancel its turns if a reply
+        // cannot be admitted, rather than dropping it and continuing healthy.
+        let handled = async {
+            match serde_json::from_str::<Value>(&line) {
+                Ok(message) => dispatch(Arc::clone(&app), message, wire_tx, &mut turns).await,
+                Err(_) => {
+                    wire::send(
+                        wire_tx,
+                        wire::err(Value::Null, wire::PARSE_ERROR, "jsonrpc: parse failed"),
+                    )
+                    .await;
+                }
+            }
+        };
+        tokio::select! {
+            biased;
+            _ = wire_tx.closed() => break Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "OpenClaw adapter output closed",
+            )),
+            result = tokio::time::timeout(CONTROL_DISPATCH_TIMEOUT, handled) => {
+                if result.is_err() {
+                    break Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "OpenClaw adapter control output stalled",
+                    ));
+                }
             }
         }
     };
@@ -1471,6 +1500,93 @@ printf '%s\n' '{"payloads":[{"text":"late-final"}]}'
             .expect("adapter input");
         fixture.assert_stopped().await;
         assert_cancelled_only(&mut wire_rx).await;
+    }
+
+    #[cfg(unix)]
+    async fn assert_backpressured_control_shutdown(control: &str) {
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, mut wire_rx) = mpsc::channel(1);
+        wire_tx
+            .send(WireMsg::Notify(json!("occupied")))
+            .await
+            .unwrap();
+        let prompt = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": fixture_prompt()
+        });
+        let cancel = json!({
+            "jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": "session"}
+        });
+        let input = format!("{prompt}\n{control}\n{cancel}\n");
+        let task_app = Arc::clone(&app);
+        let mut adapter =
+            tokio::spawn(async move { serve(task_app, input.as_bytes(), &wire_tx).await });
+        fixture.pid("descendant.pid").await;
+        let result = tokio::time::timeout(Duration::from_secs(3), &mut adapter).await;
+        if result.is_err() {
+            // A failing regression must still stop its synthetic process tree.
+            adapter.abort();
+            let _ = adapter.await;
+        }
+        fixture.assert_stopped().await;
+        let error = result
+            .expect("control output backpressure must not strand the adapter or native turn")
+            .expect("adapter task")
+            .expect_err("unavailable control output must fail the transport");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        let WireMsg::Notify(message) = wire_rx.recv().await.unwrap();
+        assert_eq!(message, json!("occupied"));
+        assert!(wire_rx.try_recv().is_err(), "no late native final");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapter_backpressured_rejection_cannot_block_cancel_and_eof() {
+        let duplicate = json!({
+            "jsonrpc": "2.0", "id": 2, "method": "session/prompt", "params": fixture_prompt()
+        });
+        assert_backpressured_control_shutdown(&duplicate.to_string()).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapter_backpressured_parse_error_cannot_block_cancel_and_eof() {
+        assert_backpressured_control_shutdown("{invalid json").await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn adapter_closed_output_cancels_native_turn_without_waiting_for_input() {
+        use tokio::io::AsyncWriteExt;
+
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (wire_tx, wire_rx) = mpsc::channel(1);
+        let (mut input, reader) = tokio::io::duplex(4096);
+        let task_app = Arc::clone(&app);
+        let mut adapter =
+            tokio::spawn(async move { serve(task_app, BufReader::new(reader), &wire_tx).await });
+        let prompt = json!({
+            "jsonrpc": "2.0", "id": 1, "method": "session/prompt", "params": fixture_prompt()
+        });
+        input
+            .write_all(format!("{prompt}\n").as_bytes())
+            .await
+            .unwrap();
+        fixture.pid("descendant.pid").await;
+        drop(wire_rx);
+        let result = tokio::time::timeout(Duration::from_secs(3), &mut adapter).await;
+        if result.is_err() {
+            adapter.abort();
+            let _ = adapter.await;
+        }
+        fixture.assert_stopped().await;
+        let error = result
+            .expect("disconnected output must stop the adapter while input remains open")
+            .expect("adapter task")
+            .expect_err("closed output must fail the transport");
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+        drop(input);
     }
 
     #[cfg(unix)]
