@@ -48,6 +48,10 @@ async function arriveInLucaDm(
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
   await page.goto("/?e2e=mock&machineOnboarding=1");
+  // The document can load before the dynamically imported mock bridge is ready.
+  await page.waitForFunction(
+    () => typeof window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__ === "function",
+  );
   await beforeBegin?.();
   await page.getByTestId("polyphonic-door-begin").click();
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
