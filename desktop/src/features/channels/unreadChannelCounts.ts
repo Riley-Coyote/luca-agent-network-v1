@@ -1,4 +1,10 @@
 import { maxReadAt } from "@/features/channels/readState/readStateFormat";
+import {
+  exchangeIdFromTags,
+  isExchangeOwnerReturn,
+  type ExchangeMessageRouting,
+} from "@/features/exchange/exchangeTags";
+import type { ExchangeRecord } from "@/shared/api/types";
 
 export type ObservedUnreadEvent = {
   id: string;
@@ -7,6 +13,8 @@ export type ObservedUnreadEvent = {
   highPriority: boolean;
   countsTowardBadge: boolean;
   countsTowardAppBadge: boolean;
+  exchangeRouting?: ExchangeMessageRouting;
+  ordinaryBadge?: { room: boolean; app: boolean };
 };
 
 export function makeObservedUnreadEvent(input: {
@@ -25,9 +33,11 @@ export function makeObservedUnreadEvent(input: {
    * that is derived from the exchange itself, not from any one message.
    *
    * This overrides the `isDm` short-circuit below: a volley in a DM must not
-   * badge either.
+   * badge either. A verified owner return is projected separately once its
+   * trusted exchange head is available.
    */
   isExchangeVolley?: boolean;
+  exchangeRouting?: ExchangeMessageRouting;
 }): ObservedUnreadEvent {
   const isDm = input.channelType === "dm";
   const isExchangeVolley = input.isExchangeVolley === true;
@@ -36,6 +46,20 @@ export function makeObservedUnreadEvent(input: {
     createdAt: input.createdAt,
     rootId: input.rootId,
     highPriority: input.highPriority,
+    ...(isExchangeVolley && input.exchangeRouting
+      ? {
+          exchangeRouting: {
+            signerPubkey: input.exchangeRouting.signerPubkey,
+            tags: input.exchangeRouting.tags
+              ?.filter((tag) => ["exchange", "p", "h"].includes(tag[0]))
+              .map((tag) => [...tag]),
+          },
+          ordinaryBadge: {
+            room: isDm || input.isThreadedReply || input.highPriority,
+            app: isDm || (!input.isThreadedReply && input.highPriority),
+          },
+        }
+      : {}),
     countsTowardBadge:
       !isExchangeVolley &&
       (isDm || input.isThreadedReply || input.highPriority),
@@ -43,6 +67,38 @@ export function makeObservedUnreadEvent(input: {
       !isExchangeVolley &&
       (isDm || (!input.isThreadedReply && input.highPriority)),
   };
+}
+
+/** Reproject after head hydration without retaining message bodies or changing read markers. */
+export function projectExchangeUnreadEvents(
+  events: ReadonlyMap<string, ObservedUnreadEvent> | undefined,
+  ownerPubkey: string | null,
+  channelId: string,
+  recordFor: (exchangeId: string) => ExchangeRecord | undefined,
+): ReadonlyMap<string, ObservedUnreadEvent> | undefined {
+  if (!events) return events;
+  let projected: Map<string, ObservedUnreadEvent> | undefined;
+  for (const [id, event] of events) {
+    if (!event.exchangeRouting || !event.ordinaryBadge) continue;
+    const exchangeId = exchangeIdFromTags(event.exchangeRouting.tags);
+    if (
+      exchangeId &&
+      isExchangeOwnerReturn(
+        event.exchangeRouting,
+        recordFor(exchangeId),
+        ownerPubkey,
+        channelId,
+      )
+    ) {
+      projected ??= new Map(events);
+      projected.set(id, {
+        ...event,
+        countsTowardBadge: event.ordinaryBadge.room,
+        countsTowardAppBadge: event.ordinaryBadge.app,
+      });
+    }
+  }
+  return projected ?? events;
 }
 
 export function mapsEqual(

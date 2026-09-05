@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { waitForAnimations } from "../../helpers/animations";
 import {
   installMockBridge,
   TEST_IDENTITIES,
@@ -343,4 +344,285 @@ test("a background-room exchange badges when unseen turns pause it", async ({
 
   await expect(page.getByTestId("chat-title")).toHaveText("general");
   await expect(page.getByTestId("channel-unread-announcements")).toBeVisible();
+});
+
+const RETURN_TEXT =
+  "Hermes profiles are covered. You can keep the existing setup.";
+
+/** Exercise the existing signed-event bridge, retaining the counted turn. */
+async function emitOwnerReturnJourney(page: Page, parentEventId?: string) {
+  await waitForMockLiveSubscription(page, "general");
+  return page.evaluate(
+    ({ owner, luca, sibling, exchangeId, parent, answer }) => {
+      const now = Math.floor(Date.now() / 1000);
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Mock relay emitter is unavailable");
+      // The native publisher preserves NIP-10 placement with only the routed
+      // recipients. The generic mock reply helper adds an extra self p-tag.
+      const threadTags = parent ? [["e", parent, "", "reply"]] : [];
+      const request = emit({
+        channelName: "general",
+        content: "Please check the Hermes profile boundary.",
+        pubkey: luca,
+        mentionPubkeys: [owner, sibling],
+        extraTags: [["exchange", exchangeId, "1"], ...threadTags],
+        createdAt: now,
+      });
+      const response = emit({
+        channelName: "general",
+        content: "The existing profiles remain native and read-only.",
+        pubkey: sibling,
+        mentionPubkeys: [luca],
+        extraTags: [["exchange", exchangeId, "2"], ...threadTags],
+        createdAt: now + 1,
+      });
+      const returned = emit({
+        channelName: "general",
+        content: answer,
+        pubkey: luca,
+        mentionPubkeys: [owner],
+        extraTags: [["exchange", exchangeId, "3"], ...threadTags],
+        createdAt: now + 2,
+      });
+      return {
+        requestId: request.id,
+        responseId: response.id,
+        returnId: returned.id,
+      };
+    },
+    {
+      owner: OWNER_PUBKEY,
+      luca: LUCA.pubkey,
+      sibling: VEKTOR.pubkey,
+      exchangeId: EXCHANGE_ID,
+      parent: parentEventId,
+      answer: RETURN_TEXT,
+    },
+  );
+}
+
+async function publishClosedHead(
+  page: Page,
+  channelName = "general",
+  rootEventId?: string,
+) {
+  const seed = openExchange({
+    channelName,
+    conversationId: undefined,
+    rootEventId,
+    state: "closed",
+    spent: 3,
+  });
+  await page.evaluate((head) => {
+    if (!window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__)
+      throw new Error("Mock exchange emitter is unavailable");
+    window.__BUZZ_E2E_EMIT_MOCK_EXCHANGE__(head);
+  }, seed);
+}
+
+for (const arrival of ["head first", "return first"] as const) {
+  test(`counted owner return is ordinary chat with complete history: ${arrival}`, async ({
+    page,
+  }, testInfo) => {
+    await openGeneral(
+      page,
+      arrival === "head first"
+        ? [openExchange({ state: "closed", spent: 3 })]
+        : [],
+    );
+    const ids = await emitOwnerReturnJourney(page);
+    const timeline = page.getByTestId("message-timeline");
+    const returned = timeline.locator(
+      `[data-testid="message-row"][data-message-id="${ids.returnId}"]`,
+    );
+    if (arrival === "return first") {
+      await expect(
+        page.getByTestId(`exchange-receipt-${EXCHANGE_ID}`),
+      ).toBeVisible();
+      await expect(returned).toHaveCount(0);
+      await publishClosedHead(page);
+    }
+    await expect(returned).toHaveCount(1);
+    await expect(returned).toContainText(RETURN_TEXT);
+    await expect(returned).toBeInViewport();
+    await expect(
+      timeline.locator(
+        `[data-testid="message-row"][data-message-id="${ids.requestId}"]`,
+      ),
+    ).toHaveCount(0);
+    await expect(
+      timeline.locator(
+        `[data-testid="message-row"][data-message-id="${ids.responseId}"]`,
+      ),
+    ).toHaveCount(0);
+    const receipt = page.getByTestId(`exchange-receipt-${EXCHANGE_ID}`);
+    await expect(receipt).toHaveCount(1);
+    await expect(receipt).toContainText("3 turns");
+    expect(
+      await receipt.evaluate((el, returnId) => {
+        const answer = document.querySelector(
+          `[data-message-id="${returnId}"]`,
+        );
+        return Boolean(
+          answer &&
+            el.compareDocumentPosition(answer) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+        );
+      }, ids.returnId),
+    ).toBe(true);
+    await expect(page.getByTestId("exchange-strip")).toHaveCount(0);
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: testInfo.outputPath("owner-return-main.png"),
+    });
+    await receipt.click();
+    const history = page.getByTestId(`exchange-history-${EXCHANGE_ID}`);
+    await expect(history).toHaveAttribute("data-exchange-phase", "closed");
+    for (const text of [
+      "Please check the Hermes profile boundary.",
+      "The existing profiles remain native and read-only.",
+      RETURN_TEXT,
+    ]) {
+      await expect(history.getByText(text, { exact: true })).toBeVisible();
+    }
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: testInfo.outputPath("owner-return-history.png"),
+    });
+    expect(await resolveExchangeCalls(page)).toEqual([]);
+  });
+}
+
+test("a delayed verified head restores the owner-return badge without badging internal speech", async ({
+  page,
+}, testInfo) => {
+  await installMockBridge(page, {
+    managedAgents: residents(["general", "engineering"]),
+  });
+  await page.goto("/?e2e=mock");
+  await page.getByTestId("channel-general").click();
+  await waitForMockLiveSubscription(page, "engineering");
+  await page.waitForTimeout(2000);
+  const baseline = await appBadgeState(page);
+  const returned = await page.evaluate(
+    ({ owner, luca, sibling, exchangeId, answer }) => {
+      const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+      if (!emit) throw new Error("Mock relay emitter is unavailable");
+      emit({
+        channelName: "engineering",
+        content: "Internal owner mention stays quiet.",
+        pubkey: sibling,
+        mentionPubkeys: [owner],
+        extraTags: [["exchange", exchangeId, "2"]],
+      });
+      return emit({
+        channelName: "engineering",
+        content: answer,
+        pubkey: luca,
+        mentionPubkeys: [owner],
+        extraTags: [["exchange", exchangeId, "3"]],
+      }).id;
+    },
+    {
+      owner: OWNER_PUBKEY,
+      luca: LUCA.pubkey,
+      sibling: VEKTOR.pubkey,
+      exchangeId: EXCHANGE_ID,
+      answer: RETURN_TEXT,
+    },
+  );
+  await expect(page.getByTestId("channel-unread-engineering")).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(await appBadgeState(page)).toEqual(baseline);
+  await publishClosedHead(page, "engineering");
+  await expect
+    .poll(async () => (await appBadgeState(page)).count)
+    .toBe(baseline.count + 1);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("owner-return-unread.png"),
+  });
+  await page.getByTestId("channel-engineering").click();
+  const answer = page
+    .getByTestId("message-timeline")
+    .locator(`[data-testid="message-row"][data-message-id="${returned}"]`);
+  await expect(answer).toBeVisible();
+  await expect(answer).toContainText(RETURN_TEXT);
+  await expect
+    .poll(async () => (await appBadgeState(page)).count)
+    .toBe(baseline.count);
+});
+
+test("owner return stays in its focused thread and jump to latest reaches its original event", async ({
+  page,
+}, testInfo) => {
+  await openGeneral(page, []);
+  await waitForMockLiveSubscription(page, "general");
+  const rootId = await page.evaluate(() => {
+    const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+    if (!emit) throw new Error("Mock relay emitter is unavailable");
+    const start = Math.floor(Date.now() / 1000) - 60;
+    const root = emit({
+      channelName: "general",
+      content: "Check this project with Vektor.",
+      id: "ef".repeat(32),
+      createdAt: start,
+    });
+    for (let index = 0; index < 48; index += 1) {
+      emit({
+        channelName: "general",
+        content: `Project detail ${index}: preserve this reading position while the residents finish their check.`,
+        parentEventId: root.id,
+        createdAt: start + index + 1,
+      });
+    }
+    return root.id;
+  });
+  const summary = page.locator(
+    `[data-testid="message-thread-summary"][data-thread-head-id="${rootId}"]`,
+  );
+  await summary.click();
+  await expect(page.getByTestId("focused-thread-bar")).toBeVisible();
+  const timeline = page.getByTestId("message-timeline");
+  await expect(
+    timeline.getByText(
+      "Project detail 47: preserve this reading position while the residents finish their check.",
+      { exact: true },
+    ),
+  ).toBeInViewport();
+  await waitForAnimations(page);
+  await timeline.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect(
+    page.getByRole("button", { name: "Jump to latest", exact: true }),
+  ).toBeVisible();
+  const ids = await emitOwnerReturnJourney(page, rootId);
+  await publishClosedHead(page, "general", rootId);
+  await page.getByTestId("message-scroll-to-latest").click();
+  const answer = timeline.locator(
+    `[data-testid="message-row"][data-message-id="${ids.returnId}"]`,
+  );
+  await expect(answer).toHaveCount(1);
+  await expect(answer).toBeInViewport();
+  await expect(answer).toContainText(RETURN_TEXT);
+  await expect(page).toHaveURL(new RegExp(`thread=${rootId}`));
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("owner-return-focused-thread.png"),
+  });
+  await page.getByRole("button", { name: "Show all messages" }).click();
+  await expect(page).not.toHaveURL(/thread=/);
+  await expect(
+    timeline.locator(
+      `[data-testid="message-row"][data-message-id="${ids.returnId}"]`,
+    ),
+  ).toHaveCount(0);
+  await summary.click();
+  await expect(
+    timeline.locator(
+      `[data-testid="message-row"][data-message-id="${ids.returnId}"]`,
+    ),
+  ).toHaveCount(1);
 });

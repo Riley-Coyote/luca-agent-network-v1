@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
+import { buildMainTimelineEntries } from "./threadPanel.ts";
 import {
   buildTimelineDayGroups,
   buildTimelineItems,
@@ -507,4 +508,108 @@ test("buildTimelineDayGroups: preserves leading rows without a day divider", () 
       items: leadingRows,
     },
   ]);
+});
+
+test("owner return hydrates into its original row after the internal receipt and unread boundary", () => {
+  const owner = "a".repeat(64);
+  const opener = "b".repeat(64);
+  const sibling = "c".repeat(64);
+  const id = "d".repeat(64);
+  const head = {
+    record: {
+      exchangeId: id,
+      owner,
+      openedBy: opener,
+      members: [opener, sibling],
+      depth: 1,
+      parentExchangeId: null,
+      conversationId: "room",
+      state: "open",
+      bucket: 3,
+    },
+    spent: 3,
+    phase: "paused",
+  };
+  const context = { ownerPubkey: owner, channelId: "room" };
+  const tags = (turn, recipient) => [
+    ["h", "room"],
+    ["exchange", id, turn],
+    ["p", recipient],
+  ];
+  const entries = [
+    entry({
+      id: "request",
+      signerPubkey: opener,
+      tags: [...tags("1", sibling), ["p", owner]],
+    }),
+    entry({ id: "response", signerPubkey: sibling, tags: tags("2", opener) }),
+    entry({ id: "synthesis", signerPubkey: opener, tags: tags("3", owner) }),
+  ];
+  assert.deepEqual(
+    kinds(buildTimelineItems(entries, "synthesis", [], context).items),
+    ["day-divider", "exchange-receipt"],
+  );
+  for (const phase of ["paused", "closed"]) {
+    const { items } = buildTimelineItems(
+      entries,
+      "synthesis",
+      [{ ...head, phase }],
+      context,
+    );
+    assert.deepEqual(kinds(items), [
+      "day-divider",
+      "exchange-receipt",
+      "unread-divider",
+      "message",
+    ]);
+    assert.equal(items[1].entry.message.id, "response");
+    assert.equal(items[1].turnCount, 3);
+    assert.equal(items[3].entry, entries[2]);
+    assert.equal(items[3].key, "synthesis");
+    const prepended = buildTimelineItems(
+      [
+        entry({ id: "older", createdAt: entries[0].message.createdAt - 60 }),
+        ...entries,
+      ],
+      "synthesis",
+      [{ ...head, phase }],
+      context,
+    ).items;
+    assert.deepEqual(
+      prepended.slice(-3).map((item) => item.key),
+      items.slice(-3).map((item) => item.key),
+    );
+  }
+  // The same signed return remains an explicit thread reply unless its existing
+  // response surface broadcasts it. Classification does not reparent messages.
+  const root = message({ id: "root" });
+  const reply = {
+    ...entries[2].message,
+    parentId: "root",
+    rootId: "root",
+    depth: 1,
+  };
+  assert.deepEqual(
+    buildMainTimelineEntries([root, reply]).map((e) => e.message.id),
+    ["root"],
+  );
+  const thread = buildMainTimelineEntries(
+    [root, reply],
+    new Set(),
+    new Map(),
+    undefined,
+    true,
+  );
+  assert.equal(
+    buildTimelineItems(thread, null, [head], context).items.at(-1).entry.message
+      .id,
+    "synthesis",
+  );
+  const broadcast = { ...reply, tags: [...reply.tags, ["broadcast", "1"]] };
+  const main = buildMainTimelineEntries([root, broadcast]);
+  assert.equal(
+    buildTimelineItems(main, null, [head], context).items.at(-1).entry.message
+      .id,
+    "synthesis",
+  );
 });

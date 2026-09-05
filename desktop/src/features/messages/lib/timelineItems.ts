@@ -17,7 +17,10 @@ import {
   isWithinGroupingWindow,
 } from "@/features/messages/lib/messageGrouping";
 import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
-import { exchangeIdFromTags } from "@/features/exchange/exchangeTags";
+import {
+  exchangeIdFromTags,
+  isExchangeOwnerReturn,
+} from "@/features/exchange/exchangeTags";
 import { parseVisitEvent } from "@/features/messages/lib/visitEvents";
 import {
   annotateVisitSpans,
@@ -197,6 +200,7 @@ export function buildTimelineItems(
   entries: MainTimelineEntry[],
   firstUnreadMessageId: string | null,
   exchanges: readonly ExchangeEntry[] = [],
+  context?: { ownerPubkey?: string; channelId?: string | null },
 ): TimelineItemsResult {
   const items: TimelineItem[] = [];
   const renderedEntryKeys = new Set<string>();
@@ -215,21 +219,37 @@ export function buildTimelineItems(
   );
   const exchangeLastIndex = new Map<string, number>();
   const exchangeTurnCounts = new Map<string, number>();
+  const ownerReturnKeys = new Set<string>();
   deduplicatedEntries.forEach((entry, index) => {
     const exchangeId = exchangeIdFromTags(entry.message.tags);
     if (!exchangeId) return;
-    exchangeLastIndex.set(exchangeId, index);
+    if (
+      isExchangeOwnerReturn(
+        entry.message,
+        exchangeById.get(exchangeId)?.record,
+        context?.ownerPubkey,
+        context?.channelId,
+      )
+    ) {
+      ownerReturnKeys.add(entryRenderKey(entry));
+    } else {
+      exchangeLastIndex.set(exchangeId, index);
+    }
     exchangeTurnCounts.set(
       exchangeId,
       (exchangeTurnCounts.get(exchangeId) ?? 0) + 1,
     );
   });
   // Agent-to-agent speech belongs verbatim in Between agents. The ordinary
-  // room keeps one chronological receipt at the final turn's position so the
-  // owner can see that a side conversation happened without reading it twice.
+  // room keeps a receipt at the last internal turn. A verified owner return
+  // keeps its own ordinary row; it still counts and remains in exchange history.
   const uniqueEntries = deduplicatedEntries.filter((entry, index) => {
     const exchangeId = exchangeIdFromTags(entry.message.tags);
-    return !exchangeId || exchangeLastIndex.get(exchangeId) === index;
+    return (
+      !exchangeId ||
+      ownerReturnKeys.has(entryRenderKey(entry)) ||
+      exchangeLastIndex.get(exchangeId) === index
+    );
   });
   let previousGroupEntry: MainTimelineEntry | null = null;
   let previousMessageItemIndex: number | null = null;
@@ -278,7 +298,7 @@ export function buildTimelineItems(
       items.push({ kind: "unread-divider", key: `unread-${renderKey}` });
     }
 
-    if (exchangeId) {
+    if (exchangeId && !ownerReturnKeys.has(renderKey)) {
       previousGroupEntry = null;
       previousMessageItemIndex = null;
       items.push({

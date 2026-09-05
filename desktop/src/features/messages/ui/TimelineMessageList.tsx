@@ -244,8 +244,12 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   // The flattened item stream, memoized on the entries and the unread boundary
   // (the unread divider is its own item, so it shifts subsequent rows).
   const itemsResult = React.useMemo(
-    () => buildTimelineItems(entries, firstUnreadMessageId, exchangeEntries),
-    [entries, exchangeEntries, firstUnreadMessageId],
+    () =>
+      buildTimelineItems(entries, firstUnreadMessageId, exchangeEntries, {
+        ownerPubkey: currentPubkey,
+        channelId,
+      }),
+    [entries, exchangeEntries, firstUnreadMessageId, currentPubkey, channelId],
   );
   const dayGroups = React.useMemo(
     () => buildTimelineDayGroups(itemsResult.items),
@@ -654,10 +658,9 @@ function VirtualizedTimelineRows({
     const api: TimelineVirtualizerApi = {
       scrollToBottom() {
         retireTimelineSettle();
-        const lastIndex = itemsLengthRef.current - 1;
-        if (lastIndex >= 0) {
-          listRef.current?.scrollToIndex(lastIndex, { align: "end" });
-        }
+        // Head hydration can reveal an owner return beneath the same spacer
+        // key. Let the existing cancellable settle include its measured row.
+        settleAtBottom();
       },
       settleAtBottom,
       scrollToMessage(messageId) {

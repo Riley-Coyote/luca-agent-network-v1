@@ -10,13 +10,18 @@ import {
   countUnreadHighPriorityObservedEvents,
   countUnreadObservedEvents,
   makeObservedUnreadEvent,
+  projectExchangeUnreadEvents,
   mapsEqual,
   observedUnreadEventReadAt,
   recordObservedUnreadEvent,
   type ObservedUnreadEvent,
 } from "@/features/channels/unreadChannelCounts";
 import { useReadState } from "@/features/channels/readState/useReadState";
-import { usePausedExchangeChannelIds } from "@/features/exchange/exchangeStore";
+import {
+  getExchangeEntry,
+  subscribeExchangeStore,
+  usePausedExchangeChannelIds,
+} from "@/features/exchange/exchangeStore";
 import { hasExchangeTurnTag } from "@/features/exchange/exchangeTags";
 import { makeRootIdStore } from "@/features/channels/unreadRootIdStore";
 import {
@@ -419,6 +424,7 @@ export function useUnreadChannels(
           channelType: channel?.channelType,
           isThreadedReply,
           isExchangeVolley: hasExchangeTurnTag(event.tags),
+          exchangeRouting: { signerPubkey: event.pubkey, tags: event.tags },
         }),
       );
       const current = latestByChannelRef.current.get(channelId) ?? 0;
@@ -709,6 +715,10 @@ export function useUnreadChannels(
                 channelType: chType,
                 isThreadedReply,
                 isExchangeVolley: hasExchangeTurnTag(event.tags),
+                exchangeRouting: {
+                  signerPubkey: event.pubkey,
+                  tags: event.tags,
+                },
               }),
             );
             if (isThreadedReply) {
@@ -825,6 +835,9 @@ export function useUnreadChannels(
   // decision is the owner's. Read here so the same memo that scores unread can
   // treat a waiting exchange as the badge its own volleys deliberately are not.
   const pausedExchangeChannelIds = usePausedExchangeChannelIds();
+  // A return can arrive before its owner-signed head. Revisit the body-free
+  // routing evidence on hydration/close as well as on new chat events.
+  React.useEffect(() => subscribeExchangeStore(bumpLatestVersion), []);
 
   // Unread = channels (excluding active) that have either been manually
   // marked unread this session, or whose observed latest external trigger
@@ -875,8 +888,11 @@ export function useUnreadChannels(
 
         if (latestByChannelRef.current.get(channel.id) === undefined) continue;
 
-        const observedEvents = observedUnreadEventsByChannelRef.current.get(
+        const observedEvents = projectExchangeUnreadEvents(
+          observedUnreadEventsByChannelRef.current.get(channel.id),
+          normalizedPubkey,
           channel.id,
+          (exchangeId) => getExchangeEntry(exchangeId)?.record,
         );
         const channelReadAt = getEffectiveTimestamp(channel.id);
         const readAtForObservedEvent = (event: ObservedUnreadEvent) =>
@@ -937,6 +953,7 @@ export function useUnreadChannels(
       getOwnTimestamp,
       isReadStateReady,
       latestVersion,
+      normalizedPubkey,
       pausedExchangeChannelIds,
       readStateVersion,
     ]);
