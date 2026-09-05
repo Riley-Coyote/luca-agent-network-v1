@@ -5,6 +5,7 @@ import {
   agentConfigurationViewModel,
   buildResidentLibrary,
   managedAgentSummary,
+  residentAvailabilityLabel,
 } from "./agentLibraryViewModel.ts";
 
 function managedAgent(overrides = {}) {
@@ -26,6 +27,78 @@ function managedAgent(overrides = {}) {
     ...overrides,
   };
 }
+
+test("native started status preserves identity without claiming session readiness", () => {
+  for (const kind of ["hermes", "openclaw"]) {
+    for (const status of ["running", "deployed"]) {
+      const agent = managedAgent({
+        nativeRuntimeBinding: { kind },
+        status,
+        startOnAppLaunch: true,
+      });
+      const before = structuredClone(agent);
+      const summary = managedAgentSummary(agent);
+      assert.equal(summary.availability, "started");
+      assert.equal(residentAvailabilityLabel(summary.availability), "Started");
+      assert.equal(summary.needsAttention, false);
+      assert.equal(summary.wakesWithApp, true);
+      assert.deepEqual(agent, before);
+    }
+    for (const [overrides, expected] of [
+      [
+        {
+          lastError: "Native configuration needs attention",
+          needsRestart: true,
+        },
+        "failed",
+      ],
+      [{ needsRestart: true }, "degraded"],
+      [{ personaOutOfDate: true }, "degraded"],
+      [{ personaOrphaned: true }, "degraded"],
+      [{ status: "stopped" }, "idle"],
+    ]) {
+      assert.equal(
+        managedAgentSummary(
+          managedAgent({ nativeRuntimeBinding: { kind }, ...overrides }),
+        ).availability,
+        expected,
+      );
+    }
+  }
+  assert.equal(managedAgentSummary(managedAgent()).availability, "ready");
+  assert.equal(
+    managedAgentSummary(managedAgent({ agentCommand: "hermes" })).availability,
+    "ready",
+  );
+});
+
+test("started residents retain the running sort rank and name order", () => {
+  const residents = buildResidentLibrary(
+    [
+      managedAgent({
+        name: "Z native",
+        pubkey: "22".repeat(32),
+        nativeRuntimeBinding: { kind: "hermes" },
+      }),
+      managedAgent({ name: "B Codex" }),
+      managedAgent({
+        name: "A native",
+        pubkey: "33".repeat(32),
+        nativeRuntimeBinding: { kind: "openclaw" },
+      }),
+      managedAgent({
+        name: "Idle",
+        pubkey: "44".repeat(32),
+        status: "stopped",
+      }),
+    ],
+    [],
+  );
+  assert.deepEqual(
+    residents.map((resident) => resident.displayName),
+    ["A native", "B Codex", "Z native", "Idle"],
+  );
+});
 
 test("native binding remains the source of resident classification", () => {
   const summary = managedAgentSummary(

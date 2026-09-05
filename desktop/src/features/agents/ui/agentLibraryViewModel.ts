@@ -9,6 +9,7 @@ export type ResidentKind =
 
 export type ResidentAvailability =
   | "ready"
+  | "started"
   | "working"
   | "idle"
   | "degraded"
@@ -121,7 +122,7 @@ function availabilityForManagedAgent(
     return "degraded";
   }
   if (agent.status === "running" || agent.status === "deployed") {
-    return "ready";
+    return agent.nativeRuntimeBinding ? "started" : "ready";
   }
   if (agent.status === "stopped") return "idle";
   return "offline";
@@ -194,6 +195,7 @@ export function buildResidentLibrary(
     const stateRank: Record<ResidentAvailability, number> = {
       working: 0,
       ready: 1,
+      started: 1,
       idle: 2,
       degraded: 3,
       failed: 4,
@@ -209,6 +211,8 @@ export function residentAvailabilityLabel(availability: ResidentAvailability) {
   switch (availability) {
     case "ready":
       return "Ready";
+    case "started":
+      return "Started";
     case "working":
       return "Working";
     case "idle":
@@ -221,6 +225,10 @@ export function residentAvailabilityLabel(availability: ResidentAvailability) {
       return "Failed";
   }
 }
+
+/** Process presence does not attest to the exact native session's health. */
+export const NATIVE_STARTED_DETAIL =
+  "Started means the app process is running. Native session readiness is not reported by this status.";
 
 export function residentSourceLabel(resident: ResidentSummaryViewModel) {
   return (

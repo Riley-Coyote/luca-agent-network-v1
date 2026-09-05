@@ -12,6 +12,7 @@ import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import {
+  NATIVE_STARTED_DETAIL,
   residentAvailabilityLabel,
   residentSourceLabel,
   type ResidentSummaryViewModel,
@@ -57,6 +58,7 @@ export function AgentLibraryRoster({
       if (
         filter === "running" &&
         resident.availability !== "ready" &&
+        resident.availability !== "started" &&
         resident.availability !== "working"
       ) {
         return false;
@@ -229,6 +231,9 @@ function ResidentRosterRow({
       )}
       data-testid={`agent-library-row-${resident.residentId}`}
       onClick={onClick}
+      title={
+        resident.availability === "started" ? NATIVE_STARTED_DETAIL : undefined
+      }
       type="button"
     >
       {resident.pubkey ? (

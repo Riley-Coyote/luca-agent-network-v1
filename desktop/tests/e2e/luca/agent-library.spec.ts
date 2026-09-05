@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
 const MARA_PUBKEY = "22".repeat(32);
 const LUCA_PUBKEY = "11".repeat(32);
@@ -47,6 +48,95 @@ const MANAGED_RESIDENTS = [
 ];
 
 type BridgeOptions = NonNullable<Parameters<typeof installMockBridge>[1]>;
+
+for (const compact of [false, true]) {
+  test(`native started status stays truthful${compact ? " at narrow 150 percent" : " with filters and actions"}`, async ({
+    page,
+  }, testInfo) => {
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    if (compact) {
+      await page.setViewportSize({ width: 860, height: 900 });
+      await page.addInitScript(() => {
+        localStorage.setItem("buzz:text-scale", "1.5");
+      });
+    }
+    await installMockBridge(page, {
+      managedAgents: [
+        ...MANAGED_RESIDENTS.map((resident) => ({
+          ...resident,
+          needsRestart: false,
+          status: "running" as const,
+        })),
+        {
+          ...MANAGED_RESIDENTS[1],
+          pubkey: "33".repeat(32),
+          name: "Needs setup",
+          status: "running",
+          lastError: "Native configuration needs attention",
+        },
+      ],
+    });
+    await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+    await page.getByRole("tab", { name: "Running", exact: true }).click();
+    for (const pubkey of [LUCA_PUBKEY, MARA_PUBKEY]) {
+      const row = page.getByTestId(`agent-library-row-${pubkey}`);
+      await expect(row).toBeVisible();
+      await expect(row).toContainText("Started");
+      await expect(row).not.toContainText("Ready");
+      await expect(row).toHaveAttribute(
+        "title",
+        /Native session readiness is not reported/,
+      );
+    }
+    await expect(
+      page.getByTestId(`agent-library-row-${"33".repeat(32)}`),
+    ).toHaveCount(0);
+    await page.getByRole("tab", { name: "Attention", exact: true }).click();
+    await expect(
+      page.getByTestId(`agent-library-row-${LUCA_PUBKEY}`),
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(`agent-library-row-${"33".repeat(32)}`),
+    ).toContainText("Failed");
+    await page.getByRole("tab", { name: "Running", exact: true }).click();
+    await page.getByTestId(`agent-library-row-${MARA_PUBKEY}`).click();
+    const state = page.getByTestId("agent-strip-state");
+    await expect(state).toHaveText("Started");
+    await expect(state.locator("span[aria-hidden]")).not.toHaveClass(
+      /bg-primary/,
+    );
+    const note = page.getByTestId("agent-native-readiness-note");
+    await expect(note).toHaveText(
+      "Native session readiness is not reported by this status.",
+    );
+    await expect(note).toBeInViewport();
+    await expect(
+      page.getByRole("button", { name: "Stop agent", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Restart agent", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Message Mara", exact: true }),
+    ).toBeVisible();
+    expect(await lifecycleCommands(page)).toEqual([]);
+    if (compact) {
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.documentElement).fontSize,
+        ),
+      ).toBe("24px");
+    }
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: testInfo.outputPath(
+        compact ? "native-started-zoom150.png" : "native-started-wide.png",
+      ),
+    });
+    expect(pageErrors).toEqual([]);
+  });
+}
 
 async function installLibraryBridge(
   page: import("@playwright/test").Page,
@@ -142,10 +232,10 @@ test("a managed chat participant links to its full agent workspace", async ({
 
   await expect(page.getByRole("heading", { name: "Mara" })).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Open full agent profile" }),
+    page.getByRole("button", { name: "Open Mara", exact: true }),
   ).toBeVisible();
 
-  await page.getByRole("button", { name: "Open full agent profile" }).click();
+  await page.getByRole("button", { name: "Open Mara", exact: true }).click();
   await expect(page).toHaveURL(/#\/agents\?profile=/);
   await expect(page.getByRole("heading", { name: "Mara" })).toBeVisible();
 });

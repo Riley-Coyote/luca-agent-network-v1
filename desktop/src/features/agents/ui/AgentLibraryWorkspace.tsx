@@ -35,6 +35,7 @@ import {
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
 import {
+  NATIVE_STARTED_DETAIL,
   residentAvailabilityLabel,
   residentSourceLabel,
   type ResidentSummaryViewModel,
@@ -131,6 +132,11 @@ export function AgentLibraryWorkspace({
               <span
                 className="flex items-center gap-2 text-2xs text-muted-foreground"
                 data-testid="agent-strip-state"
+                title={
+                  resident.availability === "started"
+                    ? NATIVE_STARTED_DETAIL
+                    : undefined
+                }
               >
                 <span
                   aria-hidden
@@ -171,6 +177,14 @@ export function AgentLibraryWorkspace({
                 </>
               )}
             </div>
+            {resident.availability === "started" ? (
+              <p
+                className="mt-1 text-xs text-muted-foreground"
+                data-testid="agent-native-readiness-note"
+              >
+                Native session readiness is not reported by this status.
+              </p>
+            ) : null}
           </div>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             {managedAgent ? (
