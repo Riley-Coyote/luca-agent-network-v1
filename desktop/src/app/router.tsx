@@ -2,6 +2,10 @@ import { createHashHistory, createRouter } from "@tanstack/react-router";
 
 import { routeTree } from "@/app/routeTree.gen";
 import { wireNavigationChoreography } from "@/app/navigationChoreography";
+import { installNavigationViewTransitions } from "@/app/navigationViewTransitions";
+
+const restoreViewTransitions = installNavigationViewTransitions();
+import.meta.hot?.dispose(restoreViewTransitions);
 
 export const router = createRouter({
   routeTree,
