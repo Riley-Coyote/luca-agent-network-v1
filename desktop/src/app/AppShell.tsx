@@ -64,6 +64,7 @@ import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIng
 import { useBrainReviewNavigation } from "@/features/luca/brain/useBrainReviewNavigation";
 import { usePolyphonicSurfaceNavigation } from "@/features/luca/usePolyphonicSurfaceNavigation";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
+import { RepositoryConnectionProposalDialog } from "@/features/luca/brain/RepositoryConnectionProposalDialog";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
 import {
   usePresenceSession,
@@ -1154,6 +1155,9 @@ export function AppShell() {
                       )}
                       <RequestedAgentCreateDialogs />
                       <AgentManagementDialogs />
+                      <RepositoryConnectionProposalDialog
+                        ownerPubkey={identityQuery.data?.pubkey}
+                      />
                       <AppShellOverlays
                         activeChannel={managedChannel}
                         browseDialogType={browseDialogType}

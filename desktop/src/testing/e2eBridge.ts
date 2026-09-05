@@ -13083,6 +13083,14 @@ export function maybeInstallE2eTauriMocks() {
         };
         return mockResidentCapabilitySettings;
       }
+      case "list_repository_connection_proposals":
+        return [];
+      case "authorize_repository_connection_proposal":
+        throw new Error(
+          "This repository connection request is no longer waiting.",
+        );
+      case "finish_repository_connection_proposal":
+        return false;
       case "list_resident_proposals":
         return [];
       case "authorize_resident_proposal":

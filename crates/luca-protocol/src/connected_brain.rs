@@ -479,6 +479,8 @@ impl RepositoryWorkGrantV1 {
 pub enum RepositoryToolOperationV1 {
     OperatorStatus,
     ProposeResident,
+    /// Ask the owner to select one repository through the existing Brain review.
+    ProposeRepositoryConnection,
     ProposeRuntimeTask,
     ReadRuntimeTaskResult,
     List,
@@ -747,6 +749,20 @@ mod tests {
 
     fn time() -> CanonicalTimestamp {
         CanonicalTimestamp::parse("2026-08-09T00:00:00Z").unwrap()
+    }
+
+    #[test]
+    fn repository_connection_proposal_is_a_distinct_host_review_operation() {
+        let operation: RepositoryToolOperationV1 =
+            serde_json::from_str("\"propose_repository_connection\"").expect("operation");
+        assert_eq!(
+            operation,
+            RepositoryToolOperationV1::ProposeRepositoryConnection
+        );
+        assert!(
+            !operation.requires_permission(),
+            "the host review obtains connection consent without a repository write request"
+        );
     }
 
     #[test]

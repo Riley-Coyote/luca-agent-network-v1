@@ -76,6 +76,8 @@ pub struct RepositoryToolReceiptViewV1 {
 pub struct ConnectConnectedBrainSourceInputV1 {
     discovery_ids: Vec<String>,
     consent_accepted: bool,
+    #[serde(default)]
+    proposal_request_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -218,6 +220,7 @@ fn operation_value(operation: RepositoryToolOperationV1) -> &'static str {
     match operation {
         RepositoryToolOperationV1::OperatorStatus => "polyphonic_status",
         RepositoryToolOperationV1::ProposeResident => "propose_resident",
+        RepositoryToolOperationV1::ProposeRepositoryConnection => "propose_repository_connection",
         RepositoryToolOperationV1::ProposeRuntimeTask => "propose_runtime_task",
         RepositoryToolOperationV1::ReadRuntimeTaskResult => "read_runtime_task_result",
         RepositoryToolOperationV1::List => "repositories",
@@ -621,6 +624,9 @@ pub async fn connect_connected_brain_source(
     {
         return Err("connected Brain consent and bounded selection are required".to_owned());
     }
+    if input.proposal_request_id.is_some() && input.discovery_ids.len() != 1 {
+        return Err("Repository proposals require exactly one selected repository.".into());
+    }
     let discovery_ids = input
         .discovery_ids
         .into_iter()
@@ -628,6 +634,9 @@ pub async fn connect_connected_brain_source(
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| "connected Brain discovery ID is invalid".to_owned())?;
     tauri::async_runtime::spawn_blocking(move || {
+        let proposal = input.proposal_request_id.as_deref()
+            .map(|id| crate::luca::repository_connection_proposals::begin_connection(&app, id))
+            .transpose()?;
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
         let authorities = resident_authorities(&app, &state)?;
@@ -637,15 +646,22 @@ pub async fn connect_connected_brain_source(
             let candidate =
                 connected_brain::take_candidate(&state.connected_brain_discovery, &discovery_id)?;
             let source_id = connected_brain::source_id_for_candidate(&candidate)?;
+            if let Some(proposal) = &proposal {
+                proposal.bind_candidate(&source_id, candidate.source_kind)?;
+            }
             let watch_root = candidate.canonical_root.clone();
             let build = match connected_brain::build_index(&source_id, &candidate) {
                 Ok(build) => build,
                 Err(error) if error == "connected source contains no indexable text" => continue,
                 Err(error) => return Err(error),
             };
+            if let Some(proposal) = &proposal { proposal.before_persist()?; }
             let result = state
                 .connect_brain_source(owner.clone(), candidate, build, &authorities)
                 .map_err(|error| error.code().to_owned())?;
+            if let Some(proposal) = &proposal {
+                proposal.record_completed(&result.source.source.source_id, result.replayed);
+            }
             replayed &= result.replayed;
             if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
                 .is_err()

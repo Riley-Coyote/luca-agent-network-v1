@@ -242,7 +242,7 @@ fn dm_participants(app: &AppHandle, conversation: &OpaqueId) -> Result<BTreeSet<
         .collect()
 }
 
-fn verify_origin(app: &AppHandle, scope: &ResidentProposalScope) -> Result<(), String> {
+pub(crate) fn verify_origin(app: &AppHandle, scope: &ResidentProposalScope) -> Result<(), String> {
     verify_local_origin(app, scope)?;
     let members = current_members(app, &scope.conversation)?;
     if !members.contains(&scope.owner) || !members.contains(&scope.resident) {

@@ -352,27 +352,42 @@ fn handle_frame(
         }
         return operator_status(app, context);
     }
-    if frame.operation == RepositoryToolOperationV1::ProposeResident {
+    if matches!(
+        frame.operation,
+        RepositoryToolOperationV1::ProposeResident
+            | RepositoryToolOperationV1::ProposeRepositoryConnection
+    ) {
         let mut probe = caller
             .try_clone()
             .map_err(|_| "resident proposal caller is unavailable".to_owned())?;
         probe
             .set_read_timeout(Some(Duration::from_millis(50)))
             .map_err(|_| "resident proposal caller cannot be monitored".to_owned())?;
-        return crate::luca::resident_proposals::propose_resident(
-            app,
-            crate::luca::resident_proposals::ResidentProposalScope {
-                owner: context.owner_pubkey.clone(),
-                resident: context.resident_pubkey.clone(),
-                session_epoch: context.session_epoch,
-                binding: context.binding_ref.clone(),
-                conversation: frame.conversation_id,
-                active: Arc::clone(active),
-            },
-            frame.arguments,
-            move || crate::luca::resident_proposals::caller_disconnected(&mut probe),
-        )
-        .map(|content| RepositoryBrokerResponseV1 {
+        let scope = crate::luca::resident_proposals::ResidentProposalScope {
+            owner: context.owner_pubkey.clone(),
+            resident: context.resident_pubkey.clone(),
+            session_epoch: context.session_epoch,
+            binding: context.binding_ref.clone(),
+            conversation: frame.conversation_id,
+            active: Arc::clone(active),
+        };
+        let cancelled = move || crate::luca::resident_proposals::caller_disconnected(&mut probe);
+        let result = if frame.operation == RepositoryToolOperationV1::ProposeRepositoryConnection {
+            crate::luca::repository_connection_proposals::propose_repository_connection(
+                app,
+                scope,
+                frame.arguments,
+                cancelled,
+            )
+        } else {
+            crate::luca::resident_proposals::propose_resident(
+                app,
+                scope,
+                frame.arguments,
+                cancelled,
+            )
+        };
+        return result.map(|content| RepositoryBrokerResponseV1 {
             protocol: BROKER_PROTOCOL,
             ok: true,
             content,

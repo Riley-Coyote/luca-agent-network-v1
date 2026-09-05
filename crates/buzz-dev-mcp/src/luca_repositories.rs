@@ -148,6 +148,28 @@ pub(crate) struct RepositoriesParams {}
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
+pub(crate) struct ProposeRepositoryConnectionParams {
+    /// One short sentence explaining why the user wants to connect a repository.
+    purpose: String,
+}
+
+impl ProposeRepositoryConnectionParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        if self.purpose.trim().is_empty()
+            || self.purpose.len() > 500
+            || self.purpose.chars().any(char::is_control)
+        {
+            return Err(ErrorData::invalid_params(
+                "Explain the repository connection in one short sentence",
+                None,
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ProposeResidentParams {
     /// Short name for the persistent specialist the user wants to create.
     display_name: String,
@@ -358,6 +380,24 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "propose_repository_connection",
+        description = "Help the user connect one existing local repository through Polyphonic's Brain review. Supply only a short purpose; the owner selects the repository and accepts the existing current-and-future-agent access policy. The host fixes your identity and originating conversation. Wait for the actual source and current access result before claiming availability. No paths, grants, credentials or model settings can be supplied. Closing or losing a request may leave a connection in progress: inspect existing Brain sources before another attempt. This does not import agents or connect chat histories."
+    )]
+    async fn propose_repository_connection(
+        &self,
+        Parameters(params): Parameters<ProposeRepositoryConnectionParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.client
+            .call_with_deadline(
+                "propose_repository_connection",
+                params,
+                RESIDENT_PROPOSAL_DEADLINE,
+            )
+            .await
+    }
+
+    #[tool(
         name = "propose_resident",
         description = "Create a persistent specialist through Polyphonic's existing owner review after the user asks for one. Supply only a name, instructions and optional runtime family. The host fixes your identity and originating conversation. This tool waits for the actual setup outcome and returns to this conversation; do not claim creation before it returns. A saved definition, created resident, attached conversation and running process are distinct. A running process is not proof of an authenticated reply. If review expires or closes, check the existing receipt before proposing another creation. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
     )]
@@ -529,6 +569,7 @@ mod tests {
             names,
             vec![
                 "polyphonic_status",
+                "propose_repository_connection",
                 "propose_resident",
                 "propose_runtime_task",
                 "read_runtime_task_result",
@@ -577,6 +618,112 @@ mod tests {
         assert!(!is_sha256_ref("not-a-capability"));
         assert!(is_opaque_id("123e4567-e89b-12d3-a456-426614174000"));
         assert!(!is_opaque_id("../conversation"));
+    }
+
+    #[test]
+    fn repository_connection_schema_admits_only_one_bounded_purpose() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "propose_repository_connection")
+            .expect("tool");
+        let schema = serde_json::to_value(tool.input_schema).expect("schema");
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(
+            schema["properties"]
+                .as_object()
+                .expect("properties")
+                .keys()
+                .collect::<Vec<_>>(),
+            vec!["purpose"]
+        );
+        for field in [
+            "path",
+            "discovery_id",
+            "source_id",
+            "owner",
+            "resident",
+            "conversation_id",
+            "grants",
+            "provider",
+            "budget",
+        ] {
+            let mut value = serde_json::json!({"purpose":"Connect my project."});
+            value[field] = Value::Bool(true);
+            assert!(
+                serde_json::from_value::<ProposeRepositoryConnectionParams>(value).is_err(),
+                "{field}"
+            );
+        }
+        for purpose in ["".into(), " ".into(), "x".repeat(501), "two\nlines".into()] {
+            assert!(ProposeRepositoryConnectionParams { purpose }
+                .validate()
+                .is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn repository_connection_tool_waits_and_returns_the_exact_broker_outcome() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        for outcome in [
+            serde_json::json!({"status":"repository_available","sourceId":"selected-source","connectionOperationConfirmed":false}),
+            serde_json::json!({"status":"incomplete","reason":"review_closed"}),
+        ] {
+            let directory = tempfile::tempdir().expect("fixture");
+            let endpoint = directory.path().join("broker.sock");
+            let listener = tokio::net::UnixListener::bind(&endpoint).expect("listener");
+            let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+            let sent = outcome.clone();
+            let broker = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.expect("one call");
+                let mut line = String::new();
+                BufReader::new(&mut stream)
+                    .read_line(&mut line)
+                    .await
+                    .expect("frame");
+                seen_tx
+                    .send(serde_json::from_str::<Value>(&line).expect("json"))
+                    .expect("seen");
+                release_rx.await.expect("owner outcome");
+                let response = serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":true,"content":sent.to_string()}).to_string() + "\n";
+                stream
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("outcome");
+            });
+            let server = LucaRepositoriesMcp {
+                client: Arc::new(RepositoryBrokerClient {
+                    endpoint,
+                    capability: format!("sha256:{}", "a".repeat(64)),
+                    conversation_id: "original-conversation".into(),
+                }),
+                tool_router: LucaRepositoriesMcp::tool_router(),
+            };
+            let call = tokio::spawn(async move {
+                server
+                    .propose_repository_connection(Parameters(ProposeRepositoryConnectionParams {
+                        purpose: "Connect my project.".into(),
+                    }))
+                    .await
+            });
+            let frame = seen_rx.await.expect("request");
+            assert_eq!(frame["operation"], "propose_repository_connection");
+            assert_eq!(frame["conversation_id"], "original-conversation");
+            assert_eq!(
+                frame["arguments"],
+                serde_json::json!({"purpose":"Connect my project."})
+            );
+            assert!(!call.is_finished(), "opening review is not a result");
+            release_tx.send(()).expect("finish");
+            let result =
+                serde_json::to_value(call.await.expect("call").expect("result")).expect("encoding");
+            let actual: Value =
+                serde_json::from_str(result["content"][0]["text"].as_str().expect("text"))
+                    .expect("outcome");
+            assert_eq!(actual, outcome);
+            broker.await.expect("broker");
+        }
     }
 
     fn resident_params() -> ProposeResidentParams {

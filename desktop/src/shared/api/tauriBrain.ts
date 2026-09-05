@@ -209,6 +209,8 @@ export type ConnectedBrainInventory = {
 export type ConnectConnectedBrainSourceInput = {
   discoveryIds: string[];
   consentAccepted: boolean;
+  /** Correlate one owner-selected repository with a pending host proposal. */
+  proposalRequestId?: string;
 };
 
 export type ConnectedBrainSourceInput = {
