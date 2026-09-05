@@ -29,14 +29,9 @@ async function getTimelineMetrics(page: Page) {
       scrollHeight: timeline.scrollHeight,
       scrollTop: timeline.scrollTop,
       composerHeight,
-      // The virtualized timeline reserves a trailing spacer equal to the
-      // overlaid composer. Reaching the visual tail therefore leaves that
-      // spacer below the last row rather than setting the raw DOM distance to 0.
+      // Measure the actual scroll floor used by the timeline's pinned state.
       distanceFromBottom:
-        timeline.scrollHeight -
-        timeline.clientHeight -
-        timeline.scrollTop -
-        composerHeight,
+        timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop,
     };
   });
 }
@@ -448,13 +443,28 @@ test("keeps bottom-pinned scrolling after the composer grows", async ({
       .poll(async () => (await getTimelineMetrics(pageTwo)).distanceFromBottom)
       .toBeLessThan(8);
 
+    const initialComposerHeight = (await getTimelineMetrics(pageTwo))
+      .composerHeight;
     await receiverInput.fill("Composer pinned line one");
-    await receiverInput.press("Enter");
+    await receiverInput.press("Shift+Enter");
     await receiverInput.type("Composer pinned line two");
-    await receiverInput.press("Enter");
+    await receiverInput.press("Shift+Enter");
     await receiverInput.type("Composer pinned line three");
-    await receiverInput.press("Enter");
+    await receiverInput.press("Shift+Enter");
     await receiverInput.type("Composer pinned line four");
+    await expect
+      .poll(() => receiverInput.innerText())
+      .toBe(
+        [
+          "Composer pinned line one",
+          "Composer pinned line two",
+          "Composer pinned line three",
+          "Composer pinned line four",
+        ].join("\n"),
+      );
+    await expect
+      .poll(async () => (await getTimelineMetrics(pageTwo)).composerHeight)
+      .toBeGreaterThan(initialComposerHeight + 4);
 
     await expect
       .poll(async () => (await getTimelineMetrics(pageTwo)).distanceFromBottom)
