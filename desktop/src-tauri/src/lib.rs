@@ -431,6 +431,11 @@ pub fn run() {
                 .load(std::sync::atomic::Ordering::Acquire);
             let recovery_mode = identity_lost || keyring_locked;
 
+            // App-owned executable selection must precede discovery/restore.
+            crate::managed_agents::native_runtime_selection::init_native_runtime_selection(
+                app_data_dir.as_deref(),
+            );
+
             // Snapshot owner keys after identity resolution; the best-effort
             // event reconcile itself runs off the synchronous setup path below.
             let owner_keys = match state.keys.lock() {
@@ -973,6 +978,9 @@ pub fn run() {
             luca::exchange::resolve_exchange,
             luca::exchange::get_exchange,
             luca::operator_forge::get_operator_forge_settings,
+            managed_agents::native_runtime_selection::get_hermes_runtime_selection,
+            managed_agents::native_runtime_selection::choose_hermes_runtime_selection,
+            managed_agents::native_runtime_selection::clear_hermes_runtime_selection,
             luca::operator_forge::list_native_provisioning_transactions,
             luca::operator_forge::save_operator_forge_preferences,
             luca::native_provisioning::preview_native_agent_provisioning,

@@ -1,5 +1,27 @@
 import { invoke } from "@tauri-apps/api/core";
 
+/** App-owned installation choice; selected does not assert provider readiness. */
+export type HermesRuntimeSelectionV1 = {
+  mode: "automatic" | "selected";
+  status: "automatic" | "selected" | "invalid";
+  executablePath: string | null;
+  runtimeVersion: string | null;
+  message: string | null;
+};
+
+export function getHermesRuntimeSelection(): Promise<HermesRuntimeSelectionV1> {
+  return invoke("get_hermes_runtime_selection");
+}
+
+/** Null means the native picker was cancelled and the selection is unchanged. */
+export function chooseHermesRuntimeSelection(): Promise<HermesRuntimeSelectionV1 | null> {
+  return invoke("choose_hermes_runtime_selection");
+}
+
+export function clearHermesRuntimeSelection(): Promise<HermesRuntimeSelectionV1> {
+  return invoke("clear_hermes_runtime_selection");
+}
+
 export type NativeRuntimeFamilyV1 = "hermes" | "openclaw";
 
 export type AgentRuntimeTargetV1 =

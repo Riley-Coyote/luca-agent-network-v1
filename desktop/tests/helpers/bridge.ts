@@ -1,5 +1,8 @@
 import type { Page } from "@playwright/test";
-import type { RuntimeTargetOptionV1 } from "../../src/shared/api/tauriOperatorForge";
+import type {
+  HermesRuntimeSelectionV1,
+  RuntimeTargetOptionV1,
+} from "../../src/shared/api/tauriOperatorForge";
 import type {
   NativeResidentDiscoveryOutcome,
   RuntimeBinding,
@@ -193,6 +196,14 @@ type MockBridgeOptions = {
   acpRuntimesCatalog?: Record<string, unknown>[];
   operatorForgeRuntimeOptionsSequence?: RuntimeTargetOptionV1[][];
   operatorForgeSettingsError?: string;
+  hermesRuntimeSelection?: HermesRuntimeSelectionV1;
+  hermesRuntimeSelectionReadErrors?: (string | null)[];
+  hermesRuntimeSelectionChooseResults?: (
+    | HermesRuntimeSelectionV1
+    | { error: string }
+    | null
+  )[];
+  hermesRuntimeSelectionClearErrors?: (string | null)[];
   /** Catalog returned after a successful mocked install. */
   acpRuntimesCatalogAfterInstall?: Record<string, unknown>[];
   /** Catalog responses after install for testing later sign-in completion. */

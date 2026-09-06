@@ -250,9 +250,11 @@ pub fn validate_native_runtime_binding(binding: &RuntimeBinding) -> Result<(), S
 pub fn revalidate_native_runtime_binding(
     binding: &RuntimeBinding,
 ) -> Result<RuntimeBinding, String> {
-    let trusted_hermes = matches!(binding, RuntimeBinding::Hermes { .. })
-        .then(|| canonical_executable("hermes"))
-        .flatten();
+    let trusted_hermes = if matches!(binding, RuntimeBinding::Hermes { .. }) {
+        hermes_executable()?
+    } else {
+        None
+    };
     let child_path = trusted_hermes
         .as_ref()
         .and_then(|_| super::login_shell_path());
@@ -308,8 +310,8 @@ fn revalidate_native_runtime_binding_with(
 pub(crate) fn revalidate_exact_hermes_runtime_binding(
     binding: &RuntimeBinding,
 ) -> Result<RuntimeBinding, String> {
-    let executable = canonical_executable("hermes")
-        .ok_or("Hermes is unavailable for exact profile verification.")?;
+    let executable =
+        hermes_executable()?.ok_or("Hermes is unavailable for exact profile verification.")?;
     let child_path = super::login_shell_path();
     revalidate_hermes_at_trusted_executable(binding, &executable, child_path.as_deref())
 }
@@ -567,6 +569,11 @@ fn run_bounded_with_environment(
     if let Some(path) = child_path.filter(|path| !path.trim().is_empty()) {
         command.env("PATH", path);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
+    }
     let mut child = command
         .spawn()
         .map_err(|e| format!("start {}: {e}", binary.display()))?;
@@ -579,15 +586,23 @@ fn run_bounded_with_environment(
                 std::thread::sleep(Duration::from_millis(25));
             }
             Ok(None) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                cleanup_failed_probe(&mut child)?;
                 return Err(format!(
                     "{} timed out after {} ms",
                     binary.display(),
                     timeout.as_millis()
                 ));
             }
-            Err(error) => return Err(format!("wait for {}: {error}", binary.display())),
+            Err(error) => {
+                // ECHILD means another waiter already reaped the leader. Its
+                // identifier is no longer ours to signal.
+                #[cfg(unix)]
+                if error.raw_os_error() == Some(libc::ECHILD) {
+                    return Err(format!("wait for {}: {error}", binary.display()));
+                }
+                cleanup_failed_probe(&mut child)?;
+                return Err(format!("wait for {}: {error}", binary.display()));
+            }
         }
     };
 
@@ -598,6 +613,22 @@ fn run_bounded_with_environment(
         stdout,
         stderr,
     })
+}
+
+fn cleanup_failed_probe(child: &mut std::process::Child) -> Result<(), String> {
+    // This child has not been reaped: its ID cannot be reused while the existing
+    // group shutdown runs. Never signal after successful try_wait. Reclamation
+    // of descendants left behind by successful commands is outside this path.
+    #[cfg(any(unix, windows))]
+    let group_result = super::terminate_process(child.id());
+    #[cfg(not(any(unix, windows)))]
+    let group_result: Result<(), String> = Ok(());
+    let _ = child.kill();
+    let reap = child
+        .wait()
+        .map_err(|_| "Native probe could not be reaped.".to_string());
+    group_result?;
+    reap.map(|_| ())
 }
 
 fn output_text(output: &CapturedOutput) -> String {
@@ -615,8 +646,33 @@ fn command_version(binary: &Path) -> Option<String> {
     output.status.success().then(|| output_text(&output))
 }
 
+/// Validate a picked installation with one fixed, read-only five-second probe.
+/// Native output outside the recognizable public version line is not exposed.
+pub(super) fn validate_hermes_version(binary: &Path) -> Result<String, String> {
+    let output = run_bounded(binary, &["--version"], DISCOVERY_TIMEOUT).map_err(|_| {
+        "Hermes version check did not finish. Check the executable and choose again.".to_owned()
+    })?;
+    let text = output_text(&output);
+    let version = text.lines().next().unwrap_or_default();
+    if !output.status.success()
+        || version.len() > 512
+        || !(version.starts_with("Hermes Agent v") || version.starts_with("Hermes v"))
+        || version.chars().any(char::is_control)
+    {
+        return Err("The chosen executable did not report a supported Hermes version.".into());
+    }
+    Ok(version.to_owned())
+}
+
 fn canonical_executable(command: &str) -> Option<PathBuf> {
     super::resolve_command(command).and_then(|path| path.canonicalize().ok().or(Some(path)))
+}
+
+fn hermes_executable() -> Result<Option<PathBuf>, String> {
+    match super::native_runtime_selection::selected_hermes_executable()? {
+        Some(path) => Ok(Some(path)),
+        None => Ok(canonical_executable("hermes")),
+    }
 }
 
 fn parse_hermes_profile_names(output: &str) -> Vec<(String, Option<String>)> {
@@ -658,7 +714,18 @@ fn parse_hermes_profile_details(output: &str) -> HermesProfileDetails {
 }
 
 fn discover_hermes() -> NativeRuntimeDiscoveryOutcome {
-    let Some(executable_path) = canonical_executable("hermes") else {
+    let executable = match hermes_executable() {
+        Ok(executable) => executable,
+        Err(message) => {
+            return NativeRuntimeDiscoveryOutcome {
+                native_type: NativeRuntimeKind::Hermes,
+                status: NativeDiscoveryStatus::Failed,
+                message: Some(message),
+                candidates: Vec::new(),
+            }
+        }
+    };
+    let Some(executable_path) = executable else {
         return NativeRuntimeDiscoveryOutcome {
             native_type: NativeRuntimeKind::Hermes,
             status: NativeDiscoveryStatus::Absent,
@@ -1099,6 +1166,69 @@ mod tests {
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
     };
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_native_probe_timeout_closes_owned_descendants_before_reaping() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let probe = executable_fixture(directory.path(), "hermes");
+        let pid_file = directory.path().join("child.pid");
+        // Both leader and descendant ignore TERM, exercising escalation while
+        // the unreaped leader still reserves the process-group identifier.
+        std::fs::write(&probe, format!("#!/bin/sh\ntrap '' TERM\n/bin/sh -c 'trap \"\" TERM; exec /bin/sleep 30' &\nprintf '%s' \"$!\" > '{}'\nwait\n", pid_file.display())).expect("script");
+        let started = Instant::now();
+        let result = run_bounded_with_path(&probe, &[], Duration::from_millis(200), None);
+        assert!(result.unwrap_err().contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        let pid: u32 = std::fs::read_to_string(pid_file)
+            .expect("descendant launched")
+            .parse()
+            .expect("pid");
+        // Adopted zombies may briefly retain a PID, so distinguish a zombie
+        // from a running descendant using body-free process status only.
+        let status = Command::new("/bin/ps")
+            .args(["-o", "stat=", "-p", &pid.to_string()])
+            .output()
+            .expect("status");
+        let state = String::from_utf8_lossy(&status.stdout);
+        assert!(
+            state.trim().is_empty() || state.trim().starts_with('Z'),
+            "descendant still running: {state}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn picked_hermes_version_uses_only_fixed_arguments_and_filters_failure_output() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let probe = executable_fixture(directory.path(), "hermes");
+        std::fs::write(&probe, "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = --version ] || exit 3\nprintf 'Hermes Agent v0.17.0\\n'\n").expect("script");
+        assert_eq!(
+            validate_hermes_version(&probe).expect("version"),
+            "Hermes Agent v0.17.0"
+        );
+        std::fs::write(
+            &probe,
+            "#!/bin/sh\nprintf 'private-failure-detail' >&2\nexit 1\n",
+        )
+        .expect("failure");
+        let error = validate_hermes_version(&probe).unwrap_err();
+        assert!(!error.contains("private-failure-detail"));
+        std::fs::write(&probe, "#!/bin/sh\nprintf 'Different tool v1.0\\n'\n").expect("other tool");
+        assert!(validate_hermes_version(&probe).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bounded_native_probe_caps_captured_output_without_pipe_deadlock() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let probe = executable_fixture(directory.path(), "hermes");
+        std::fs::write(&probe, "#!/bin/sh\n/usr/bin/head -c 2200000 /dev/zero\n").expect("script");
+        let output = run_bounded_with_path(&probe, &[], Duration::from_secs(2), None)
+            .expect("bounded capture");
+        assert!(output.status.success());
+        assert_eq!(output.stdout.len(), MAX_CAPTURE_BYTES);
+    }
 
     #[cfg(unix)]
     fn executable_fixture(directory: &Path, name: &str) -> PathBuf {

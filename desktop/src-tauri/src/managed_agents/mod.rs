@@ -15,6 +15,7 @@ pub(crate) mod global_config;
 pub(crate) mod inherited_fds;
 mod managed_node_paths;
 mod native_runtime;
+pub(crate) mod native_runtime_selection;
 mod nest;
 mod owner_brain_authority;
 mod persona_avatars;

@@ -516,6 +516,31 @@ fn resolve_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String
 /// The cache eliminates redundant login-shell spawns when multiple agents share
 /// the same binaries (e.g. `npx`, `uvx`).
 pub fn resolve_command(command: &str) -> Option<PathBuf> {
+    resolve_with_hermes_selection(
+        command,
+        super::native_runtime_selection::selected_hermes_executable,
+        resolve_cached_command,
+    )
+}
+
+fn resolve_with_hermes_selection(
+    command: &str,
+    selected: impl FnOnce() -> Result<Option<PathBuf>, String>,
+    automatic: impl FnOnce(&str) -> Option<PathBuf>,
+) -> Option<PathBuf> {
+    // Saved absolute resident commands bypass this app-wide discovery choice.
+    // An explicit invalid selection must never hit the cache or ambient PATH.
+    if command == "hermes" {
+        match selected() {
+            Ok(Some(path)) => return Some(path),
+            Err(_) => return None,
+            Ok(None) => {}
+        }
+    }
+    automatic(command)
+}
+
+fn resolve_cached_command(command: &str) -> Option<PathBuf> {
     if let Some(managed) = resolve_buzz_managed_command(command) {
         return Some(managed);
     }
@@ -1399,3 +1424,48 @@ pub fn managed_agent_avatar_url(command: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod runtime_selection_tests {
+    use super::*;
+
+    #[test]
+    fn resolve_command_selected_hermes_precedes_even_a_cached_ambient_path() {
+        let _guard = crate::managed_agents::lock_path_mutex();
+        let selected = PathBuf::from("/selected/hermes");
+        resolve_cache()
+            .lock()
+            .expect("cache")
+            .insert("hermes".into(), Some(PathBuf::from("/ambient/hermes")));
+        let resolved = resolve_with_hermes_selection(
+            "hermes",
+            || Ok(Some(selected.clone())),
+            resolve_cached_command,
+        );
+        assert_eq!(resolved, Some(selected));
+        let failed = resolve_with_hermes_selection(
+            "hermes",
+            || Err("selection missing".into()),
+            |_| panic!("invalid selection must not search PATH/cache"),
+        );
+        assert!(failed.is_none());
+        clear_resolve_cache();
+    }
+
+    #[test]
+    fn resolve_command_automatic_and_other_commands_keep_existing_resolution() {
+        let path = PathBuf::from("/ambient/hermes");
+        assert_eq!(
+            resolve_with_hermes_selection("hermes", || Ok(None), |_| Some(path.clone())),
+            Some(path)
+        );
+        for command in ["/saved/hermes", "openclaw", "codex-acp"] {
+            let resolved = resolve_with_hermes_selection(
+                command,
+                || panic!("must not consult Hermes selection"),
+                |command| Some(PathBuf::from(command)),
+            );
+            assert_eq!(resolved, Some(PathBuf::from(command)));
+        }
+    }
+}

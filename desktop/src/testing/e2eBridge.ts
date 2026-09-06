@@ -5,7 +5,10 @@ import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { parse as yamlParse } from "yaml";
 
 import { relayClient } from "@/shared/api/relayClient";
-import type { RuntimeTargetOptionV1 } from "@/shared/api/tauriOperatorForge";
+import type {
+  HermesRuntimeSelectionV1,
+  RuntimeTargetOptionV1,
+} from "@/shared/api/tauriOperatorForge";
 import type { ConnectionState } from "@/shared/api/relayClientShared";
 import type {
   NativeResidentDiscoveryOutcome,
@@ -218,6 +221,14 @@ type E2eConfig = {
     acpRuntimesCatalog?: RawAcpRuntimeCatalogEntry[];
     operatorForgeRuntimeOptionsSequence?: RuntimeTargetOptionV1[][];
     operatorForgeSettingsError?: string;
+    hermesRuntimeSelection?: HermesRuntimeSelectionV1;
+    hermesRuntimeSelectionReadErrors?: (string | null)[];
+    hermesRuntimeSelectionChooseResults?: (
+      | HermesRuntimeSelectionV1
+      | { error: string }
+      | null
+    )[];
+    hermesRuntimeSelectionClearErrors?: (string | null)[];
     /** Catalog returned after a successful mocked install. */
     acpRuntimesCatalogAfterInstall?: RawAcpRuntimeCatalogEntry[];
     /** Catalog responses after install for testing later sign-in completion. */
@@ -8083,6 +8094,14 @@ let nsecCallCount = 0;
 
 // Per-page confirm_team_snapshot_import call counter for sequenced error testing.
 let teamSnapshotConfirmCallCount = 0;
+const automaticHermesSelection: HermesRuntimeSelectionV1 = {
+  mode: "automatic",
+  status: "automatic",
+  executablePath: null,
+  runtimeVersion: null,
+  message: null,
+};
+let mockHermesRuntimeSelection = { ...automaticHermesSelection };
 let mockOperatorPreferences = {
   schemaVersion: 1 as const,
   ownerPubkey: MOCK_IDENTITY_PUBKEY,
@@ -10233,6 +10252,9 @@ export function maybeInstallE2eTauriMocks() {
   mockGlobalAgentConfig = config.mock?.globalAgentConfig
     ? { ...config.mock.globalAgentConfig }
     : null;
+  mockHermesRuntimeSelection = {
+    ...(config.mock?.hermesRuntimeSelection ?? automaticHermesSelection),
+  };
   resetMockRelayMembers(config);
   resetMockRelayAgents(config);
   resetMockResidentDocuments(config);
@@ -13126,6 +13148,27 @@ export function maybeInstallE2eTauriMocks() {
         throw new Error("This resident setup request is no longer waiting.");
       case "finish_resident_proposal":
         return false;
+      case "get_hermes_runtime_selection": {
+        const error =
+          activeConfig?.mock?.hermesRuntimeSelectionReadErrors?.shift();
+        if (error) throw new Error(error);
+        return { ...mockHermesRuntimeSelection };
+      }
+      case "choose_hermes_runtime_selection": {
+        const result =
+          activeConfig?.mock?.hermesRuntimeSelectionChooseResults?.shift();
+        if (result && "error" in result) throw new Error(result.error);
+        if (!result) return null;
+        mockHermesRuntimeSelection = { ...result };
+        return { ...mockHermesRuntimeSelection };
+      }
+      case "clear_hermes_runtime_selection": {
+        const error =
+          activeConfig?.mock?.hermesRuntimeSelectionClearErrors?.shift();
+        if (error) throw new Error(error);
+        mockHermesRuntimeSelection = { ...automaticHermesSelection };
+        return { ...mockHermesRuntimeSelection };
+      }
       case "get_operator_forge_settings": {
         if (activeConfig?.mock?.operatorForgeSettingsError) {
           throw new Error(activeConfig.mock.operatorForgeSettingsError);

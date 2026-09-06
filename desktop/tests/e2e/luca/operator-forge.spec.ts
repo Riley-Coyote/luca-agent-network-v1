@@ -2,10 +2,403 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
+import type {
+  HermesRuntimeSelectionV1,
+  RuntimeTargetOptionV1,
+} from "../../../src/shared/api/tauriOperatorForge";
 
 const AGENTS_CHANNEL_ID = "94a444a4-c0a3-5966-ab05-530c6ddc2301";
 const OWNED_AGENT_PUBKEY =
   "554cef57437abac34522ac2c9f0490d685b72c80478cf9f7ed6f9570ee8624ea";
+
+const HERMES_INSTALLATION: HermesRuntimeSelectionV1 = {
+  mode: "selected",
+  status: "selected",
+  executablePath:
+    "/fixture/Local Runtimes/Hermes/reviewed-private-installation/entrypoints/metadata-witness-v1/bin/hermes",
+  runtimeVersion: "Hermes Agent v0.17.0",
+  message: null,
+};
+
+declare global {
+  interface Window {
+    __HERMES_PICKER_RELEASE__?: () => void;
+  }
+}
+
+async function holdHermesPicker(page: Page) {
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      __TAURI_INTERNALS__: {
+        invoke: (
+          command: string,
+          payload?: unknown,
+          options?: unknown,
+        ) => Promise<unknown>;
+      };
+    };
+    const original = target.__TAURI_INTERNALS__.invoke.bind(
+      target.__TAURI_INTERNALS__,
+    );
+    const held = new Promise<void>((resolve) => {
+      window.__HERMES_PICKER_RELEASE__ = resolve;
+    });
+    target.__TAURI_INTERNALS__.invoke = async (command, payload, options) => {
+      if (command === "choose_hermes_runtime_selection") await held;
+      return original(command, payload, options);
+    };
+  });
+}
+
+async function openHermesInstallation(page: Page) {
+  await page.goto("/?e2e=mock#/settings");
+  await page
+    .getByRole("button", { name: "Defaults & permissions", exact: true })
+    .click();
+  await expect(page.getByTestId("settings-panel-defaults")).toBeVisible();
+  const section = page.getByTestId("settings-hermes-installation");
+  await expect(section).toBeVisible();
+  return section;
+}
+
+async function hermesSelectionCommands(page: Page) {
+  return page.evaluate(() =>
+    (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(({ command }) =>
+      [
+        "get_hermes_runtime_selection",
+        "choose_hermes_runtime_selection",
+        "clear_hermes_runtime_selection",
+      ].includes(command),
+    ),
+  );
+}
+
+async function unchangedAgentSettings(page: Page) {
+  return page.evaluate(async () => {
+    const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
+    if (!invoke) throw new Error("Mock bridge unavailable");
+    const operator = (await invoke("get_operator_forge_settings")) as {
+      preferences: unknown;
+    };
+    return {
+      operator: operator.preferences,
+      global: await invoke("get_global_agent_config"),
+      residents: await invoke("list_managed_agents"),
+    };
+  });
+}
+
+for (const compact of [false, true]) {
+  test(`Hermes installation chooses and clears through the native picker${compact ? " at compact 150 percent" : " with keyboard controls"}`, async ({
+    page,
+  }, testInfo) => {
+    if (compact) {
+      await page.setViewportSize({ width: 900, height: 700 });
+      await page.addInitScript(() => {
+        localStorage.setItem("buzz:text-scale", "1.5");
+      });
+    }
+    const options: RuntimeTargetOptionV1[] = [
+      {
+        target: { kind: "managed", runtimeId: "codex" },
+        label: "Codex",
+        readiness: "ready",
+        reason: null,
+        recommended: false,
+      },
+      {
+        target: { kind: "native", runtime: "hermes" },
+        label: "Hermes",
+        readiness: "ready",
+        reason: null,
+        recommended: true,
+      },
+    ];
+    await installMockBridge(page, {
+      managedAgents: [
+        {
+          channelNames: ["agents"],
+          name: "Luca",
+          pubkey: OWNED_AGENT_PUBKEY,
+          personaId: "builtin:fizz",
+          status: "running",
+        },
+      ],
+      hermesRuntimeSelectionChooseResults: [HERMES_INSTALLATION],
+      operatorForgeRuntimeOptionsSequence: [
+        options,
+        options.map((option) => ({
+          ...option,
+          reason: "Installation checked.",
+        })),
+      ],
+    });
+    const section = await openHermesInstallation(page);
+    await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+      "Automatic discovery",
+    );
+    const before = await unchangedAgentSettings(page);
+    const operator = page.getByTestId("settings-operator-forge");
+    const draftTarget = operator.getByRole("button", {
+      name: "Hermes, ready, recommended",
+      exact: true,
+    });
+    await draftTarget.click();
+    const refreshBefore = await page.evaluate(() => ({
+      settings: (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+        (command) => command === "get_operator_forge_settings",
+      ).length,
+      runtimes: (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+        (command) => command === "discover_acp_providers",
+      ).length,
+    }));
+    const choose = section.getByRole("button", {
+      name: "Choose Hermes…",
+      exact: true,
+    });
+    await holdHermesPicker(page);
+    await choose.focus();
+    await expect(choose).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(
+      section.getByRole("button", { name: "Choosing…", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      section.getByRole("button", {
+        name: "Use automatic discovery",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+      "Automatic discovery",
+    );
+    await page.evaluate(() => window.__HERMES_PICKER_RELEASE__?.());
+    await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+      "Selected installation",
+    );
+    await expect(section.getByTestId("hermes-installation-path")).toHaveText(
+      HERMES_INSTALLATION.executablePath ?? "",
+    );
+    await expect(
+      section.getByText("Hermes Agent v0.17.0", { exact: true }),
+    ).toBeVisible();
+    await expect(section.getByRole("status")).toHaveText(
+      "Hermes installation selected.",
+    );
+    await expect(draftTarget).toHaveAttribute("aria-pressed", "true");
+    const refreshAfter = await page.evaluate(() => ({
+      settings: (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+        (command) => command === "get_operator_forge_settings",
+      ).length,
+      runtimes: (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+        (command) => command === "discover_acp_providers",
+      ).length,
+    }));
+    expect(refreshAfter.settings).toBeGreaterThan(refreshBefore.settings);
+    expect(refreshAfter.runtimes).toBeGreaterThan(refreshBefore.runtimes);
+    await section.scrollIntoViewIfNeeded();
+    const bounds = await section.evaluate((node) => {
+      const path = node.querySelector(
+        '[data-testid="hermes-installation-path"]',
+      );
+      if (!path) throw new Error("Selected installation path is missing");
+      return {
+        width: node.clientWidth,
+        contentWidth: node.scrollWidth,
+        path: path.getBoundingClientRect().toJSON(),
+        section: node.getBoundingClientRect().toJSON(),
+      };
+    });
+    expect(bounds.contentWidth).toBeLessThanOrEqual(bounds.width);
+    expect(bounds.path.left).toBeGreaterThanOrEqual(bounds.section.left);
+    expect(bounds.path.right).toBeLessThanOrEqual(bounds.section.right);
+    if (compact)
+      expect(
+        await page.evaluate(
+          () => getComputedStyle(document.documentElement).fontSize,
+        ),
+      ).toBe("24px");
+    await waitForAnimations(page);
+    await section.screenshot({
+      path: testInfo.outputPath(
+        compact
+          ? "hermes-installation-selected-zoom150.png"
+          : "hermes-installation-selected.png",
+      ),
+    });
+    const clear = section.getByRole("button", {
+      name: "Use automatic discovery",
+      exact: true,
+    });
+    await clear.focus();
+    await expect(clear).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+      "Automatic discovery",
+    );
+    await expect(section.getByTestId("hermes-installation-path")).toHaveCount(
+      0,
+    );
+    await expect(section.getByRole("status")).toHaveText(
+      "Automatic Hermes discovery restored.",
+    );
+    await expect(clear).toBeDisabled();
+    await expect(draftTarget).toHaveAttribute("aria-pressed", "true");
+    expect(await unchangedAgentSettings(page)).toEqual(before);
+    const calls = await hermesSelectionCommands(page);
+    expect(
+      calls.filter(
+        ({ command }) => command === "choose_hermes_runtime_selection",
+      ),
+    ).toHaveLength(1);
+    expect(
+      calls.filter(
+        ({ command }) => command === "clear_hermes_runtime_selection",
+      ),
+    ).toHaveLength(1);
+    for (const call of calls) expect(call.payload ?? {}).toEqual({});
+    const commands = await page.evaluate(
+      () => window.__BUZZ_E2E_COMMANDS__ ?? [],
+    );
+    for (const command of [
+      "start_managed_agent",
+      "stop_managed_agent",
+      "create_luca_resident",
+      "create_managed_agent",
+      "execute_native_agent_provisioning",
+      "save_operator_forge_preferences",
+      "set_global_agent_config",
+    ]) {
+      expect(commands).not.toContain(command);
+    }
+  });
+}
+
+test("Hermes installation cancellation and save failures preserve the previous selection", async ({
+  page,
+}, testInfo) => {
+  await installMockBridge(page, {
+    hermesRuntimeSelection: HERMES_INSTALLATION,
+    hermesRuntimeSelectionChooseResults: [
+      null,
+      {
+        error:
+          "The chosen executable changed during verification. Choose it again.",
+      },
+    ],
+    hermesRuntimeSelectionClearErrors: [
+      "The installation preference could not be saved. Try again.",
+    ],
+  });
+  const section = await openHermesInstallation(page);
+  const before = await unchangedAgentSettings(page);
+  const path = section.getByTestId("hermes-installation-path");
+  await expect(path).toHaveText(HERMES_INSTALLATION.executablePath ?? "");
+  await section
+    .getByRole("button", { name: "Choose Hermes…", exact: true })
+    .click();
+  await expect(
+    section.getByRole("button", { name: "Choose Hermes…", exact: true }),
+  ).toBeEnabled();
+  await expect(path).toHaveText(HERMES_INSTALLATION.executablePath ?? "");
+  await expect(section.getByRole("alert")).toHaveCount(0);
+  await section
+    .getByRole("button", { name: "Choose Hermes…", exact: true })
+    .click();
+  await expect(section.getByRole("alert")).toHaveText(
+    "The chosen executable changed during verification. Choose it again.",
+  );
+  await expect(path).toHaveText(HERMES_INSTALLATION.executablePath ?? "");
+  await section
+    .getByRole("button", { name: "Use automatic discovery", exact: true })
+    .click();
+  await expect(section.getByRole("alert")).toHaveText(
+    "The installation preference could not be saved. Try again.",
+  );
+  await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+    "Selected installation",
+  );
+  await expect(path).toHaveText(HERMES_INSTALLATION.executablePath ?? "");
+  expect(
+    await page.evaluate(async () =>
+      window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("get_hermes_runtime_selection"),
+    ),
+  ).toEqual(HERMES_INSTALLATION);
+  expect(await unchangedAgentSettings(page)).toEqual(before);
+  await waitForAnimations(page);
+  await section.screenshot({
+    path: testInfo.outputPath("hermes-installation-save-failure.png"),
+  });
+});
+
+test("Hermes installation keeps an invalid explicit choice until the owner clears it", async ({
+  page,
+}, testInfo) => {
+  await installMockBridge(page, {
+    hermesRuntimeSelection: {
+      ...HERMES_INSTALLATION,
+      status: "invalid",
+      message:
+        "The selected Hermes executable is missing or changed. Choose it again in Settings, or use automatic discovery.",
+    },
+  });
+  const section = await openHermesInstallation(page);
+  await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+    "Selected installation needs attention",
+  );
+  await expect(section.getByRole("alert")).toContainText(
+    "The selected Hermes executable is missing or changed.",
+  );
+  await expect(section.getByTestId("hermes-installation-path")).toHaveText(
+    HERMES_INSTALLATION.executablePath ?? "",
+  );
+  expect(
+    (await hermesSelectionCommands(page)).map(({ command }) => command),
+  ).toEqual(["get_hermes_runtime_selection"]);
+  await waitForAnimations(page);
+  await section.screenshot({
+    path: testInfo.outputPath("hermes-installation-invalid.png"),
+  });
+  await section
+    .getByRole("button", { name: "Use automatic discovery", exact: true })
+    .click();
+  await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+    "Automatic discovery",
+  );
+  await expect(section.getByRole("alert")).toHaveCount(0);
+});
+
+test("Hermes installation read failure stays actionable without exposing a path setter", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    hermesRuntimeSelectionReadErrors: [
+      "Store unavailable",
+      "Store unavailable",
+      null,
+    ],
+  });
+  const section = await openHermesInstallation(page);
+  await expect(section.getByRole("alert")).toContainText(
+    "Hermes installation could not be checked.",
+  );
+  await expect(
+    section.getByRole("button", { name: "Choose Hermes…", exact: true }),
+  ).toBeDisabled();
+  await expect(section.getByRole("textbox")).toHaveCount(0);
+  await section.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(section.getByTestId("hermes-installation-status")).toHaveText(
+    "Automatic discovery",
+  );
+  await expect(
+    section.getByRole("button", { name: "Choose Hermes…", exact: true }),
+  ).toBeEnabled();
+  expect(
+    (await hermesSelectionCommands(page)).every(
+      ({ command }) => command === "get_hermes_runtime_selection",
+    ),
+  ).toBe(true);
+});
 
 function commandCount(commands: string[], command: string) {
   return commands.filter((candidate) => candidate === command).length;
