@@ -55,6 +55,25 @@ export type NativeImportResult = {
   preferencesError: string | null;
 };
 
+/** Prepare an owner/workspace-bound review without creating or starting anything. */
+export function prepareNativeResidentImport(
+  selection: NativeImportSelection,
+): Promise<{
+  attemptId: string;
+  selection: NativeImportSelection;
+  admitted: boolean;
+}> {
+  return invokeTauri("prepare_native_resident_import", { selection });
+}
+
+/** A verification is read-only; recovery requires the original reviewed host ID. */
+export function importNativeResident(
+  attemptId: string,
+  action: "import" | "verify" | "retry_settings" | "retry_start",
+): Promise<NativeImportResult> {
+  return invokeTauri("import_native_resident", { attemptId, action });
+}
+
 /** Admit an import, inspect its result, or explicitly retry its bound settings/start. */
 export function importResidentProposal(
   requestId: string,

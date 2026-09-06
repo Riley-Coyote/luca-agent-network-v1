@@ -844,6 +844,8 @@ pub fn run() {
             luca::resident_proposals::list_resident_proposals,
             luca::resident_proposals::authorize_resident_proposal,
             luca::resident_proposals::import_resident_proposal,
+            luca::resident_proposals::prepare_native_resident_import,
+            luca::resident_proposals::import_native_resident,
             luca::resident_proposals::finish_resident_proposal,
             list_artifacts,
             get_artifact,

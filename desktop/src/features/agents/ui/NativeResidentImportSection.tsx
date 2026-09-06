@@ -12,6 +12,7 @@ import type {
 } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
+import { OrdinaryHermesImport } from "./OrdinaryHermesImport";
 import {
   importResidentProposal,
   listenResidentProposalResolutions,
@@ -65,6 +66,19 @@ function NativeResidentImportList({
   const [error, setError] = React.useState<string | null>(null);
   const [notice, setNotice] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState<string | null>(null);
+  const [reviewedHermes, setReviewedHermes] = React.useState<
+    DiscoveredResidentCandidate[]
+  >([]);
+  const retainReview = React.useCallback(
+    (candidate: DiscoveredResidentCandidate) => {
+      setReviewedHermes((current) =>
+        current.some((entry) => entry.semanticId === candidate.semanticId)
+          ? current
+          : [...current, candidate],
+      );
+    },
+    [],
+  );
   const [continuityChoices, setContinuityChoices] = React.useState<
     Record<string, boolean>
   >({});
@@ -156,8 +170,25 @@ function NativeResidentImportList({
     }
   }
 
-  const candidates =
+  const discovered =
     discovery?.runtimes.flatMap((runtime) => runtime.candidates) ?? [];
+  // Scanning must not remount an admitted review or replace its approved
+  // fingerprint. Even a disappearing profile keeps its same-key recovery row;
+  // each host action rechecks current discovery before any effect.
+  const candidates = [
+    ...discovered.map(
+      (candidate) =>
+        reviewedHermes.find(
+          (entry) => entry.semanticId === candidate.semanticId,
+        ) ?? candidate,
+    ),
+    ...reviewedHermes.filter(
+      (entry) =>
+        !discovered.some(
+          (candidate) => candidate.semanticId === entry.semanticId,
+        ),
+    ),
+  ];
   const discoveryNotices =
     discovery?.runtimes.filter(
       (runtime) => runtime.status !== "available" && runtime.message,
@@ -206,81 +237,89 @@ function NativeResidentImportList({
           <LoaderCircle className="size-4 animate-spin" />
           Looking for Hermes profiles and OpenClaw agents…
         </div>
-      ) : (
-        <div className="divide-y divide-border/60">
-          {candidates.map((candidate) => {
-            const identity = candidate.semanticId;
-            const isImported = imported.has(identity);
-            const isImporting = importing === identity;
-            const unavailable = candidate.readiness.status === "unavailable";
+      ) : null}
+      <div className="divide-y divide-border/60">
+        {candidates.map((candidate) => {
+          const identity = candidate.semanticId;
+          const isImported = imported.has(identity);
+          if (candidate.nativeType === "hermes") {
             return (
-              <div className="flex items-center gap-4 px-5 py-3" key={identity}>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <span className="truncate text-sm font-medium">
-                      {candidate.displayName}
-                    </span>
-                    <span className="shrink-0 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
-                      {runtimeLabel(candidate)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {candidate.modelSummary ??
-                      candidate.workspace ??
-                      candidate.nativeId}
-                  </p>
-                  {candidate.readiness.status !== "ready" ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {candidate.readiness.message}
-                    </p>
-                  ) : null}
-                  {candidate.warnings.map((warning) => (
-                    <p
-                      className="mt-1 text-xs text-amber-700 dark:text-amber-300"
-                      key={warning.code}
-                    >
-                      {warning.message}
-                    </p>
-                  ))}
-                  {!isImported ? (
-                    <div className="mt-2 flex w-fit items-center gap-2 text-xs text-muted-foreground">
-                      <Switch
-                        aria-label={`Enable Luca continuity for ${candidate.displayName}`}
-                        checked={continuityChoices[identity] ?? true}
-                        disabled={importing !== null}
-                        onCheckedChange={(enabled) =>
-                          setContinuityChoices((current) => ({
-                            ...current,
-                            [identity]: enabled,
-                          }))
-                        }
-                      />
-                      Encrypted Luca handoff
-                    </div>
-                  ) : null}
-                </div>
-                <Button
-                  disabled={isImported || unavailable || importing !== null}
-                  onClick={() => void importCandidate(candidate)}
-                  size="sm"
-                  variant={isImported ? "ghost" : "outline"}
-                >
-                  {isImporting ? (
-                    <LoaderCircle className="animate-spin" />
-                  ) : (
-                    <Download />
-                  )}
-                  {isImported
-                    ? "Imported"
-                    : isImporting
-                      ? "Importing"
-                      : "Import"}
-                </Button>
-              </div>
+              <OrdinaryHermesImport
+                key={identity}
+                candidate={candidate}
+                isImported={isImported}
+                busy={isLoading || importing !== null}
+                onBusy={setImporting}
+                onAdmitted={retainReview}
+              />
             );
-          })}
-        </div>
-      )}
+          }
+          if (isLoading) return null;
+          const isImporting = importing === identity;
+          const unavailable = candidate.readiness.status === "unavailable";
+          return (
+            <div className="flex items-center gap-4 px-5 py-3" key={identity}>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="truncate text-sm font-medium">
+                    {candidate.displayName}
+                  </span>
+                  <span className="shrink-0 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+                    {runtimeLabel(candidate)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {candidate.modelSummary ??
+                    candidate.workspace ??
+                    candidate.nativeId}
+                </p>
+                {candidate.readiness.status !== "ready" ? (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {candidate.readiness.message}
+                  </p>
+                ) : null}
+                {candidate.warnings.map((warning) => (
+                  <p
+                    className="mt-1 text-xs text-amber-700 dark:text-amber-300"
+                    key={warning.code}
+                  >
+                    {warning.message}
+                  </p>
+                ))}
+                {!isImported ? (
+                  <div className="mt-2 flex w-fit items-center gap-2 text-xs text-muted-foreground">
+                    <Switch
+                      aria-label={`Enable Luca continuity for ${candidate.displayName}`}
+                      checked={continuityChoices[identity] ?? true}
+                      disabled={importing !== null}
+                      onCheckedChange={(enabled) =>
+                        setContinuityChoices((current) => ({
+                          ...current,
+                          [identity]: enabled,
+                        }))
+                      }
+                    />
+                    Encrypted Luca handoff
+                  </div>
+                ) : null}
+              </div>
+              <Button
+                disabled={isImported || unavailable || importing !== null}
+                onClick={() => void importCandidate(candidate)}
+                size="sm"
+                variant={isImported ? "ghost" : "outline"}
+              >
+                {isImporting ? (
+                  <LoaderCircle className="animate-spin" />
+                ) : (
+                  <Download />
+                )}
+                {isImported ? "Imported" : isImporting ? "Importing" : "Import"}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
 
       {discoveryNotices.map((runtime) => (
         <div

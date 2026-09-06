@@ -1,9 +1,12 @@
-//! Owner-selected existing Hermes imports for the conversation proposal broker.
+//! Owner-selected existing Hermes imports shared by ordinary and conversational reviews.
 
 use super::*;
 
+mod direct;
+pub use direct::*;
+
 /// Exact discovery and effects selected in the owner review.
-#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NativeImportSelectionV1 {
     pub(super) semantic_id: String,
@@ -106,6 +109,14 @@ pub(super) fn import_result(
     scope: &ResidentProposalScope,
     attempt: &NativeImportAttempt,
 ) -> Result<NativeImportResultV1, String> {
+    import_result_for_owner(app, &scope.owner, attempt)
+}
+
+fn import_result_for_owner(
+    app: &AppHandle,
+    owner: &Hex64,
+    attempt: &NativeImportAttempt,
+) -> Result<NativeImportResultV1, String> {
     current_import_candidate(attempt)?;
     let state = app.state::<crate::app_state::AppState>();
     let pubkey = {
@@ -144,7 +155,7 @@ pub(super) fn import_result(
     if relay
         .owner()
         .map_err(|_| "The current owner is unavailable.")?
-        != scope.owner
+        != *owner
         || !relay
             .owned_residents()
             .map_err(|_| "Resident ownership is unavailable.")?
@@ -303,75 +314,207 @@ pub async fn import_resident_proposal(
         let retry_settings = retry_settings.unwrap_or(false);
         let scope = authorize_import(&app, &request_id)?;
         if let Some(selected) = selection.as_ref() {
-            let profile = lock_proposals()?.get(&request_id).and_then(|p| p.projection.native_profile_name.clone()).ok_or("The requested profile is unavailable.")?;
-            select_import_candidate(&profile, selected, crate::managed_agents::discover_native_resident_candidates())?;
+            let profile = lock_proposals()?
+                .get(&request_id)
+                .and_then(|p| p.projection.native_profile_name.clone())
+                .ok_or("The requested profile is unavailable.")?;
+            select_import_candidate(
+                &profile,
+                selected,
+                crate::managed_agents::discover_native_resident_candidates(),
+            )?;
         }
         authorize_import(&app, &request_id)?;
         let (mut attempt, first) = {
             let mut pending = lock_proposals()?;
-            let proposal = pending.get_mut(&request_id).ok_or("The import request has ended.")?;
-            if retry_settings && proposal.native_import.is_none() { return Err("No saved import has reviewed settings to retry.".into()); }
+            let proposal = pending
+                .get_mut(&request_id)
+                .ok_or("The import request has ended.")?;
+            if retry_settings && proposal.native_import.is_none() {
+                return Err("No saved import has reviewed settings to retry.".into());
+            }
             admit_import(proposal, selection, retry_start)?
         };
-        let work = (|| {
-            if first {
-                let candidate = current_import_candidate(&attempt)?;
-                authorize_import(&app, &request_id)?;
-                let input = serde_json::from_value(json!({
-                    "name": candidate.display_name,
-                    "agentCommand": match &candidate.binding_preview { crate::managed_agents::RuntimeBinding::Hermes { executable_path, .. } => executable_path.to_string_lossy().into_owned(), _ => return Err("The selected profile is not Hermes.".into()) },
-                    "agentArgs": ["acp"], "harnessOverride": true, "parallelism": 1,
-                    "nativeRuntimeBinding": candidate.binding_preview,
-                    "spawnAfterCreate": false, "startOnAppLaunch": false
-                })).map_err(|_| "The selected import could not be prepared.")?;
-                match tauri::async_runtime::block_on(super::super::resident_registry::create_luca_resident(input, app.clone(), app.state::<crate::app_state::AppState>())) {
-                    Ok(created) => {
-                        attempt.resident_pubkey = Some(created.resident.resident_pubkey.as_str().to_owned());
-                        attempt.reused = Some(created.reused);
-                        attempt.warning = created.profile_sync_error.or(created.brain_access_error).or(created.recovery_notice);
-                        // Preserve the exact saved identity even if a later check
-                        // fails or the waiting conversation is closed meanwhile.
-                        if let Some(proposal) = lock_proposals()?.get_mut(&request_id) {
-                            proposal.native_import = Some(attempt.clone());
-                        }
-                        attempt.preferences_applied = created.reused;
-                    }
-                    Err(error) => {
-                        attempt.warning = Some(format!("Import returned an error. Verify the saved resident and its preferences in Agents: {}", error.message));
-                        return Err(error.message);
-                    }
+        let host = AppImportHost {
+            app: &app,
+            owner: &scope.owner,
+            authorize: || authorize_import(&app, &request_id).map(|_| ()),
+            checkpoint: |attempt: &NativeImportAttempt| {
+                if let Some(proposal) = lock_proposals()?.get_mut(&request_id) {
+                    proposal.native_import = Some(attempt.clone());
                 }
-            }
-            authorize_import(&app, &request_id)?;
-            let saved = import_result(&app, &scope, &attempt)?;
-            attempt.resident_pubkey = Some(saved.resident_pubkey.clone());
-            if first || retry_settings {
-                current_import_candidate(&attempt)?;
-                authorize_import(&app, &request_id)?;
-                let key = saved.resident_pubkey.clone();
-                let _ = persist_import_preferences(&mut attempt,
-                    |enabled| {
-                        authorize_import(&app, &request_id)?;
-                        crate::commands::set_resident_continuity_enabled(key.clone(), enabled, app.clone(), app.state::<crate::app_state::AppState>()).map(|_| ())
-                    },
-                    |enabled| {
-                        authorize_import(&app, &request_id)?;
-                        tauri::async_runtime::block_on(crate::commands::set_managed_agent_start_on_app_launch(key.clone(), enabled, app.clone())).map(|_| ())
-                    },
-                );
-            }
-            let saved = import_result(&app, &scope, &attempt)?;
-            attempt.resident_pubkey = Some(saved.resident_pubkey.clone());
-            if should_start_import(first, retry_start, &attempt, &saved) {
-                current_import_candidate(&attempt)?;
-                authorize_import(&app, &request_id)?;
-                attempt.startup_error = tauri::async_runtime::block_on(crate::commands::start_managed_agent(saved.resident_pubkey, app.clone(), app.state::<crate::app_state::AppState>())).err();
-            }
-            authorize_import(&app, &request_id)?;
-            import_result(&app, &scope, &attempt)
-        })();
+                Ok(())
+            },
+        };
+        let work = run_reviewed_import(&host, &mut attempt, first, retry_start, retry_settings);
         attempt.busy = false;
-        if let Some(proposal) = lock_proposals()?.get_mut(&request_id) { proposal.native_import = Some(attempt); }
+        if let Some(proposal) = lock_proposals()?.get_mut(&request_id) {
+            proposal.native_import = Some(attempt);
+        }
         work
-    }).await.map_err(|_| "Hermes import worker failed.".to_owned())?
+    })
+    .await
+    .map_err(|_| "Hermes import worker failed.".to_owned())?
+}
+
+struct SavedImport {
+    pubkey: String,
+    reused: bool,
+    warning: Option<String>,
+}
+
+// One effect coordinator for both reviews. Tests replace only the host boundary;
+// consent order, same-key recovery and result-only verification remain real code.
+trait ImportHost {
+    fn authorize(&self) -> Result<(), String>;
+    fn candidate(
+        &self,
+        attempt: &NativeImportAttempt,
+    ) -> Result<crate::managed_agents::DiscoveredResidentCandidate, String>;
+    fn create_stopped(
+        &self,
+        candidate: crate::managed_agents::DiscoveredResidentCandidate,
+    ) -> Result<SavedImport, String>;
+    fn checkpoint(&self, attempt: &NativeImportAttempt) -> Result<(), String>;
+    fn result(&self, attempt: &NativeImportAttempt) -> Result<NativeImportResultV1, String>;
+    fn save_continuity(&self, key: &str, enabled: bool) -> Result<(), String>;
+    fn save_launch(&self, key: &str, enabled: bool) -> Result<(), String>;
+    fn start(&self, key: &str) -> Result<(), String>;
+}
+
+fn run_reviewed_import(
+    host: &impl ImportHost,
+    attempt: &mut NativeImportAttempt,
+    first: bool,
+    retry_start: bool,
+    retry_settings: bool,
+) -> Result<NativeImportResultV1, String> {
+    host.authorize()?;
+    if first {
+        let candidate = host.candidate(attempt)?;
+        host.authorize()?;
+        match host.create_stopped(candidate) {
+            Ok(created) => {
+                attempt.resident_pubkey = Some(created.pubkey);
+                attempt.reused = Some(created.reused);
+                attempt.warning = created.warning;
+                attempt.preferences_applied = created.reused;
+                host.checkpoint(attempt)?;
+            }
+            Err(error) => {
+                attempt.warning = Some(format!("Import returned an error. Verify the saved resident and its preferences in Agents: {error}"));
+                return Err(error);
+            }
+        }
+    }
+    host.authorize()?;
+    let saved = host.result(attempt)?;
+    attempt.resident_pubkey = Some(saved.resident_pubkey.clone());
+    if first || retry_settings {
+        host.candidate(attempt)?;
+        host.authorize()?;
+        let key = saved.resident_pubkey;
+        let _ = persist_import_preferences(
+            attempt,
+            |enabled| {
+                host.authorize()?;
+                host.save_continuity(&key, enabled)
+            },
+            |enabled| {
+                host.authorize()?;
+                host.save_launch(&key, enabled)
+            },
+        );
+        host.checkpoint(attempt)?;
+    }
+    let saved = host.result(attempt)?;
+    if should_start_import(first, retry_start, attempt, &saved) {
+        host.candidate(attempt)?;
+        host.authorize()?;
+        attempt.startup_error = host.start(&saved.resident_pubkey).err();
+        host.checkpoint(attempt)?;
+    }
+    host.authorize()?;
+    host.result(attempt)
+}
+
+struct AppImportHost<'a, A, C> {
+    app: &'a AppHandle,
+    owner: &'a Hex64,
+    authorize: A,
+    checkpoint: C,
+}
+
+impl<A, C> ImportHost for AppImportHost<'_, A, C>
+where
+    A: Fn() -> Result<(), String>,
+    C: Fn(&NativeImportAttempt) -> Result<(), String>,
+{
+    fn authorize(&self) -> Result<(), String> {
+        (self.authorize)()
+    }
+    fn candidate(
+        &self,
+        attempt: &NativeImportAttempt,
+    ) -> Result<crate::managed_agents::DiscoveredResidentCandidate, String> {
+        current_import_candidate(attempt)
+    }
+    fn create_stopped(
+        &self,
+        candidate: crate::managed_agents::DiscoveredResidentCandidate,
+    ) -> Result<SavedImport, String> {
+        let input = serde_json::from_value(json!({
+            "name": candidate.display_name,
+            "agentCommand": match &candidate.binding_preview { crate::managed_agents::RuntimeBinding::Hermes { executable_path, .. } => executable_path.to_string_lossy().into_owned(), _ => return Err("The selected profile is not Hermes.".into()) },
+            "agentArgs": ["acp"], "harnessOverride": true, "parallelism": 1,
+            "nativeRuntimeBinding": candidate.binding_preview,
+            "spawnAfterCreate": false, "startOnAppLaunch": false
+        })).map_err(|_| "The selected import could not be prepared.")?;
+        let created =
+            tauri::async_runtime::block_on(super::super::resident_registry::create_luca_resident(
+                input,
+                self.app.clone(),
+                self.app.state::<crate::app_state::AppState>(),
+            ))
+            .map_err(|error| error.message)?;
+        Ok(SavedImport {
+            pubkey: created.resident.resident_pubkey.as_str().to_owned(),
+            reused: created.reused,
+            warning: created
+                .profile_sync_error
+                .or(created.brain_access_error)
+                .or(created.recovery_notice),
+        })
+    }
+    fn checkpoint(&self, attempt: &NativeImportAttempt) -> Result<(), String> {
+        (self.checkpoint)(attempt)
+    }
+    fn result(&self, attempt: &NativeImportAttempt) -> Result<NativeImportResultV1, String> {
+        import_result_for_owner(self.app, self.owner, attempt)
+    }
+    fn save_continuity(&self, key: &str, enabled: bool) -> Result<(), String> {
+        crate::commands::set_resident_continuity_enabled(
+            key.to_owned(),
+            enabled,
+            self.app.clone(),
+            self.app.state::<crate::app_state::AppState>(),
+        )
+        .map(|_| ())
+    }
+    fn save_launch(&self, key: &str, enabled: bool) -> Result<(), String> {
+        tauri::async_runtime::block_on(crate::commands::set_managed_agent_start_on_app_launch(
+            key.to_owned(),
+            enabled,
+            self.app.clone(),
+        ))
+        .map(|_| ())
+    }
+    fn start(&self, key: &str) -> Result<(), String> {
+        tauri::async_runtime::block_on(crate::commands::start_managed_agent(
+            key.to_owned(),
+            self.app.clone(),
+            self.app.state::<crate::app_state::AppState>(),
+        ))
+        .map(|_| ())
+    }
 }

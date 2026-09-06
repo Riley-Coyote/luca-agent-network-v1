@@ -13115,6 +13115,11 @@ export function maybeInstallE2eTauriMocks() {
         );
       case "finish_repository_connection_proposal":
         return false;
+      case "prepare_native_resident_import":
+      case "import_native_resident":
+        throw new Error(
+          "A native import review is not available in this preview.",
+        );
       case "list_resident_proposals":
         return [];
       case "authorize_resident_proposal":
