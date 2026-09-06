@@ -65,8 +65,8 @@ export function CreateRoomProjectDialog({
   residentOptions: ProjectResidentOption[];
   residentsLoading: boolean;
 }) {
-  const connected = useConnectedBrainInventoryQuery();
-  const imported = useOwnerBrainStateQuery();
+  const connected = useConnectedBrainInventoryQuery({ enabled: open });
+  const imported = useOwnerBrainStateQuery({ enabled: open });
   const options = React.useMemo<SourceOption[]>(() => {
     const candidates: SourceOption[] = [
       ...(connected.data?.sources ?? []).map(

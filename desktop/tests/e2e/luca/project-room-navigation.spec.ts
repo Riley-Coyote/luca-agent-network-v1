@@ -26,6 +26,53 @@ async function commandLog(page: import("@playwright/test").Page) {
   return page.evaluate(() => window.__BUZZ_E2E_COMMAND_LOG__ ?? []);
 }
 
+test("closed project creation leaves Brain inventories dormant until opened", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock#/pulse");
+  await expect(
+    page.getByRole("heading", { name: "Activity", exact: true }),
+  ).toBeVisible();
+
+  const inventories = [
+    "get_owner_brain_state",
+    "discover_connected_brain_sources",
+  ];
+  const counts = async () => {
+    const commands = await commandLog(page);
+    return inventories.map(
+      (command) => commands.filter((entry) => entry.command === command).length,
+    );
+  };
+  const invalidate = () =>
+    page.evaluate(async () => {
+      const client = window.__BUZZ_E2E_QUERY_CLIENT__;
+      if (!client) throw new Error("Expected the real app query client.");
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["owner-brain-state"] }),
+        client.invalidateQueries({ queryKey: ["connected-brain-inventory"] }),
+      ]);
+    });
+
+  await invalidate();
+  expect(await counts()).toEqual([0, 0]);
+
+  await page.getByTestId("create-channel").click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await expect(dialog).toBeVisible();
+  await expect.poll(counts).toEqual([1, 1]);
+  await dialog.getByTestId("create-project-name").fill("Unsubmitted project");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeHidden();
+
+  await invalidate();
+  expect(await counts()).toEqual([1, 1]);
+  await page.getByTestId("create-channel").click();
+  await expect(dialog).toBeVisible();
+  await expect.poll(counts).toEqual([2, 2]);
+  await expect(dialog.getByTestId("create-project-name")).toHaveValue("");
+});
+
 async function storedProjects(page: import("@playwright/test").Page) {
   return page.evaluate(() => {
     const key = Object.keys(window.localStorage).find((candidate) =>

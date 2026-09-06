@@ -26,10 +26,15 @@ export const connectedBrainInventoryQueryKey = [
   "connected-brain-inventory",
 ] as const;
 
-export function useOwnerBrainStateQuery() {
+export function useOwnerBrainStateQuery({
+  enabled = true,
+}: {
+  enabled?: boolean;
+} = {}) {
   return useQuery({
     queryKey: ownerBrainStateQueryKey,
     queryFn: getOwnerBrainState,
+    enabled,
   });
 }
 
@@ -62,10 +67,15 @@ export function useOwnerBrainActions() {
   };
 }
 
-export function useConnectedBrainInventoryQuery() {
+export function useConnectedBrainInventoryQuery({
+  enabled = true,
+}: {
+  enabled?: boolean;
+} = {}) {
   return useQuery({
     queryKey: connectedBrainInventoryQueryKey,
     queryFn: discoverConnectedBrainSources,
+    enabled,
     refetchOnWindowFocus: false,
     staleTime: 60_000,
   });
