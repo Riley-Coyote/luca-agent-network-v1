@@ -49,6 +49,349 @@ const MANAGED_RESIDENTS = [
 
 type BridgeOptions = NonNullable<Parameters<typeof installMockBridge>[1]>;
 
+type CreateRuntimeTarget =
+  import("../../../src/shared/api/tauriOperatorForge").AgentRuntimeTargetV1;
+type CreateDefaultState = {
+  mode: "ready" | "held" | "error";
+  settingsCalls: number;
+  release: () => void;
+  calls: Array<{ command: string; payload: unknown }>;
+};
+declare global {
+  interface Window {
+    __CREATE_DEFAULT_TEST__?: CreateDefaultState;
+  }
+}
+
+// Hold only the real settings IPC boundary; all forms and creation commands
+// still run through the production UI and the existing mock bridge.
+async function installCreateDefaultBridge(
+  page: import("@playwright/test").Page,
+  options: {
+    target?: CreateRuntimeTarget;
+    confirmed?: boolean;
+    mode?: CreateDefaultState["mode"];
+  } = {},
+) {
+  await page.addInitScript(
+    ({ target, confirmed, mode }) => {
+      const state: CreateDefaultState = {
+        mode,
+        settingsCalls: 0,
+        release: () => {},
+        calls: [],
+      };
+      const held = new Promise<void>((resolve) => {
+        state.release = () => {
+          state.mode = "ready";
+          resolve();
+        };
+      });
+      window.__CREATE_DEFAULT_TEST__ = state;
+      type Invoke = (
+        command: string,
+        payload?: unknown,
+        options?: unknown,
+      ) => Promise<unknown>;
+      let realInvoke: Invoke | undefined;
+      const targetWindow = window as unknown as {
+        __TAURI_INTERNALS__?: Record<string, unknown>;
+      };
+      const internals = targetWindow.__TAURI_INTERNALS__ ?? {};
+      targetWindow.__TAURI_INTERNALS__ = internals;
+      Object.defineProperty(internals, "invoke", {
+        configurable: true,
+        set: (invoke: Invoke) => {
+          realInvoke = invoke;
+        },
+        get:
+          () =>
+          async (command: string, payload?: unknown, options?: unknown) => {
+            state.calls.push({
+              command,
+              payload: structuredClone(payload ?? null),
+            });
+            if (command === "get_operator_forge_settings") {
+              state.settingsCalls += 1;
+              if (state.mode === "held") await held;
+              if (state.mode === "error")
+                throw new Error("Runtime defaults unavailable");
+            }
+            if (!realInvoke) throw new Error("Mock IPC missing");
+            const result = await realInvoke(command, payload, options);
+            if (command !== "get_operator_forge_settings") return result;
+            const settings =
+              result as import("../../../src/shared/api/tauriOperatorForge").OperatorForgeSettingsV1;
+            return {
+              ...settings,
+              preferences: {
+                ...settings.preferences,
+                runtimeConfirmed: confirmed,
+                defaultRuntimeTarget: target,
+              },
+              // An unconfirmed saved value must not override recommendation.
+              recommendation: { kind: "native", runtime: "hermes" },
+            };
+          },
+      });
+    },
+    {
+      target: options.target ?? { kind: "native", runtime: "hermes" },
+      confirmed: options.confirmed ?? true,
+      mode: options.mode ?? "ready",
+    },
+  );
+  await installLibraryBridge(page, {
+    globalAgentConfig: {
+      env_vars: {},
+      provider: null,
+      model: null,
+      preferred_runtime: "buzz-agent",
+    },
+    acpRuntimesCatalog: [
+      {
+        id: "codex",
+        label: "Codex",
+        availability: "available",
+        command: "codex-acp",
+        binary_path: "/fixture/bin/codex-acp",
+        default_args: [],
+        auth_status: { status: "authenticated" },
+      },
+      {
+        id: "buzz-agent",
+        label: "Buzz Agent",
+        availability: "available",
+        command: "buzz-agent",
+        binary_path: "/fixture/bin/buzz-agent",
+        default_args: [],
+        auth_status: { status: "not_applicable" },
+      },
+    ],
+  });
+}
+
+async function openLibraryCreate(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: "Add agent", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Create another resident", exact: true })
+    .click();
+}
+
+async function libraryCreationCalls(page: import("@playwright/test").Page) {
+  return page.evaluate(() =>
+    (window.__CREATE_DEFAULT_TEST__?.calls ?? []).filter(({ command }) =>
+      [
+        "create_persona",
+        "create_luca_resident",
+        "create_managed_agent",
+        "execute_native_agent_provisioning",
+      ].includes(command),
+    ),
+  );
+}
+
+test("Agents Create honors confirmed Hermes over the managed app default", async ({
+  page,
+}, testInfo) => {
+  await installCreateDefaultBridge(page);
+  await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await openLibraryCreate(page);
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveValue("hermes");
+  await expect(page.getByLabel("Agent harness", { exact: true })).toHaveCount(
+    0,
+  );
+  await page.getByLabel("Name", { exact: true }).fill("Default Hermes Scout");
+  await page
+    .getByLabel("Purpose and instructions")
+    .fill("Read this project's sources and return a concise summary.");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+  await page
+    .getByRole("button", { name: "Review changes", exact: true })
+    .click();
+  await expect(
+    page.getByRole("region", { name: "Provisioning review" }),
+  ).toContainText("Hermes profile");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("confirmed-hermes-create-review.png"),
+  });
+  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).toHaveCount(0);
+  const calls = await libraryCreationCalls(page);
+  expect(calls.map(({ command }) => command)).toEqual([
+    "create_persona",
+    "execute_native_agent_provisioning",
+  ]);
+  expect(calls[1].payload).toMatchObject({
+    input: {
+      request: {
+        runtime: "hermes",
+        mode: "fresh",
+        displayName: "Default Hermes Scout",
+      },
+    },
+  });
+  await expect(
+    page.getByText("Default Hermes Scout", { exact: true }).first(),
+  ).toBeVisible();
+  const residents = await page.evaluate(
+    async () =>
+      (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
+        "list_managed_agents",
+      )) as Array<{ name: string; pubkey: string }>,
+  );
+  expect(
+    residents.filter(({ name }) => name === "Default Hermes Scout"),
+  ).toHaveLength(1);
+  expect(
+    residents.filter(({ pubkey }) =>
+      [LUCA_PUBKEY, MARA_PUBKEY].includes(pubkey),
+    ),
+  ).toHaveLength(2);
+});
+
+test("Agents Create uses the recommendation until the owner confirms a runtime", async ({
+  page,
+}) => {
+  await installCreateDefaultBridge(page, {
+    target: { kind: "managed", runtimeId: "codex" },
+    confirmed: false,
+  });
+  await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await openLibraryCreate(page);
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveValue("hermes");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+});
+
+test("Agents Create preserves the confirmed managed resident creation path", async ({
+  page,
+}) => {
+  await installCreateDefaultBridge(page, {
+    target: { kind: "managed", runtimeId: "codex" },
+  });
+  await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await openLibraryCreate(page);
+  await expect(page.getByLabel("Agent harness", { exact: true })).toContainText(
+    "Codex",
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("Agent name", { exact: true })
+    .fill("Managed Default Scout");
+  await page
+    .getByLabel("Agent instructions", { exact: true })
+    .fill("Summarize this project's sources.");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+  await page.getByRole("button", { name: "Create agent", exact: true }).click();
+  await expect(page.getByLabel("Agent name", { exact: true })).toHaveCount(0);
+  const calls = await libraryCreationCalls(page);
+  expect(calls.map(({ command }) => command)).toEqual([
+    "create_persona",
+    "create_luca_resident",
+  ]);
+  expect(calls[0].payload).toMatchObject({
+    input: { runtime: "codex", displayName: "Managed Default Scout" },
+  });
+  expect(calls[1].payload).toMatchObject({
+    input: { agentCommand: "codex-acp", name: "Managed Default Scout" },
+  });
+  expect(await lifecycleCommands(page)).toEqual([]);
+});
+
+test("Agents Create waits for a held runtime default without opening a different form", async ({
+  page,
+}, testInfo) => {
+  await installCreateDefaultBridge(page, { mode: "held" });
+  await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await openLibraryCreate(page);
+  await expect
+    .poll(() =>
+      page.evaluate(() => window.__CREATE_DEFAULT_TEST__?.settingsCalls ?? 0),
+    )
+    .toBeGreaterThan(0);
+  await expect(page.getByRole("status")).toHaveText(
+    "Loading your runtime default…",
+  );
+  await expect(page.getByLabel("Agent harness", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveCount(0);
+  expect(await libraryCreationCalls(page)).toEqual([]);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("create-default-loading.png"),
+  });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.evaluate(() => window.__CREATE_DEFAULT_TEST__?.release());
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await openLibraryCreate(page);
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveValue("hermes");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+});
+
+test("Agents Create retries an unavailable default and preserves explicit native choices", async ({
+  page,
+}, testInfo) => {
+  await installCreateDefaultBridge(page, { mode: "error" });
+  await page.goto("/?e2e=mock&notebookDemo=1#/agents");
+  await openLibraryCreate(page);
+  await expect(page.getByRole("alert")).toContainText(
+    "Your runtime default could not be loaded.",
+  );
+  await expect(page.getByLabel("Agent harness", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveCount(0);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: testInfo.outputPath("create-default-unavailable.png"),
+  });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  for (const runtime of ["Hermes", "OpenClaw"] as const) {
+    await page.getByRole("button", { name: "Add agent", exact: true }).click();
+    await page
+      .getByRole("button", { name: `New ${runtime} agent…`, exact: true })
+      .click();
+    await expect(
+      page.getByRole("combobox", { name: "Runtime", exact: true }),
+    ).toHaveValue(runtime.toLowerCase());
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
+  await openLibraryCreate(page);
+  await expect(page.getByRole("alert")).toContainText(
+    "Your runtime default could not be loaded.",
+  );
+  await page.evaluate(() => {
+    if (window.__CREATE_DEFAULT_TEST__)
+      window.__CREATE_DEFAULT_TEST__.mode = "ready";
+  });
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(
+    page.getByRole("combobox", { name: "Runtime", exact: true }),
+  ).toHaveValue("hermes");
+  expect(await libraryCreationCalls(page)).toEqual([]);
+});
+
 for (const compact of [false, true]) {
   test(`native started status stays truthful${compact ? " at narrow 150 percent" : " with filters and actions"}`, async ({
     page,

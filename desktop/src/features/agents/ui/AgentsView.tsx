@@ -6,6 +6,7 @@ import {
 } from "@/features/agents/openSnapshotImportFromUrlEvent";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useOpenDmMutation } from "@/features/channels/hooks";
+import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
 import { AddAgentToChannelDialog } from "./AddAgentToChannelDialog";
 import { AddTeamToChannelDialog } from "./AddTeamToChannelDialog";
 import { AgentDefaultsDialog } from "./AgentDefaultsDialog";
@@ -30,6 +31,7 @@ import { ResidentSetup } from "@/features/luca/residents/ResidentSetup";
 import { useLucaResidentsQuery } from "@/features/luca/residents/hooks";
 import { NativeResidentImportSection } from "./NativeResidentImportSection";
 import { NativeAgentProvisioningDialog } from "./NativeAgentProvisioningDialog";
+import { createPersonaDialogState } from "./personaDialogState";
 import {
   Dialog,
   DialogContent,
@@ -77,6 +79,7 @@ export function AgentsView({
 }) {
   const agents = useManagedAgentActions();
   const personas = usePersonaActions();
+  const operatorSettings = useOperatorForgeSettingsQuery();
   const residentsQuery = useLucaResidentsQuery();
   const openDmMutation = useOpenDmMutation();
   const { goChannel } = useAppNavigation();
@@ -114,6 +117,20 @@ export function AgentsView({
   const [nativeCreateRuntime, setNativeCreateRuntime] = React.useState<
     "hermes" | "openclaw" | null
   >(null);
+  const effectiveTarget = operatorSettings.data
+    ? operatorSettings.data.preferences.runtimeConfirmed
+      ? operatorSettings.data.preferences.defaultRuntimeTarget
+      : operatorSettings.data.recommendation
+    : null;
+  const createRuntimeId =
+    effectiveTarget?.kind === "managed" ? effectiveTarget.runtimeId : undefined;
+  const createInitialValues = React.useMemo(
+    () => ({
+      ...createPersonaDialogState().initialValues,
+      runtime: createRuntimeId,
+    }),
+    [createRuntimeId],
+  );
 
   function openUnifiedCreate() {
     personas.prepareCreate();
@@ -524,13 +541,57 @@ export function AgentsView({
         returnFocusRef={aiDefaultsTriggerRef}
       />
 
-      {isCreateDialogOpen ? (
+      {isCreateDialogOpen && !operatorSettings.data ? (
+        <Dialog onOpenChange={setIsCreateDialogOpen} open>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Create agent</DialogTitle>
+            </DialogHeader>
+            <p
+              className="text-sm text-muted-foreground"
+              role={operatorSettings.isError ? "alert" : "status"}
+            >
+              {operatorSettings.isError
+                ? "Your runtime default could not be loaded. Try again, or choose a native agent from Add agent."
+                : "Loading your runtime default…"}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button
+                onClick={() => setIsCreateDialogOpen(false)}
+                variant="outline"
+              >
+                Cancel
+              </Button>
+              {operatorSettings.isError ? (
+                <Button
+                  disabled={operatorSettings.isFetching}
+                  onClick={() => void operatorSettings.refetch()}
+                >
+                  {operatorSettings.isFetching ? "Retrying…" : "Try again"}
+                </Button>
+              ) : null}
+            </div>
+          </DialogContent>
+        </Dialog>
+      ) : isCreateDialogOpen && effectiveTarget?.kind === "native" ? (
+        <NativeAgentProvisioningDialog
+          initialRuntime={effectiveTarget.runtime}
+          onComplete={() => {
+            void agents.refetchManagedAgents();
+          }}
+          onOpenChange={(open) => {
+            if (!open) setIsCreateDialogOpen(false);
+          }}
+          open
+        />
+      ) : isCreateDialogOpen ? (
         <AgentDialog
           definitionError={
             personas.createPersonaMutation.error instanceof Error
               ? personas.createPersonaMutation.error
               : null
           }
+          initialValues={createInitialValues}
           isDefinitionPending={personas.isPending}
           mode="definition"
           onOpenChange={(open) => {
