@@ -188,9 +188,19 @@ for (const runtime of [
     expect(directSend).not.toHaveProperty("approval");
     await expect(page.getByRole("dialog")).toHaveCount(0);
 
-    const signedOwnerEvent = await page.evaluate(
-      () => window.__BUZZ_E2E_SIGNED_EVENTS__?.at(-1) ?? null,
+    const signedOwnerEvents = await page.evaluate(
+      (channelId) =>
+        (window.__BUZZ_E2E_SIGNED_EVENTS__ ?? []).filter(
+          (event) =>
+            event.kind === 9 &&
+            event.tags.some(
+              ([name, value]) => name === "h" && value === channelId,
+            ),
+        ),
+      targetChannelId,
     );
+    expect(signedOwnerEvents).toHaveLength(1);
+    const signedOwnerEvent = signedOwnerEvents[0];
     expect(signedOwnerEvent).toMatchObject({ content: ownerMessage, kind: 9 });
     expect(signedOwnerEvent?.tags).toContainEqual(["p", residentPubkey]);
 
