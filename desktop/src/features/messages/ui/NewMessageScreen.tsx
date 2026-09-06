@@ -246,7 +246,12 @@ export function NewMessageScreen() {
 
   React.useEffect(() => {
     isMountedRef.current = true;
-    searchInputRef.current?.focus({ preventScroll: true });
+    // The shell is usable before this route mounts. Keep any focus the owner
+    // has already placed elsewhere instead of redirecting their next keystroke.
+    const focused = document.activeElement;
+    if (!focused || focused === document.body) {
+      searchInputRef.current?.focus({ preventScroll: true });
+    }
 
     return () => {
       isMountedRef.current = false;

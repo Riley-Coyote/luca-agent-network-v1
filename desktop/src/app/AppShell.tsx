@@ -759,10 +759,17 @@ export function AppShell() {
   // Dispatch `buzz://message` deep links into the router.
   useMessageDeepLinks();
 
-  const handleOpenNewDm = React.useCallback(
-    () => void goNewMessage(),
-    [goNewMessage],
-  );
+  const handleOpenNewDm = React.useCallback(() => {
+    // Explicit New conversation commands hand focus to the incoming recipient
+    // field. If the owner focuses elsewhere before it mounts, that choice wins.
+    if (
+      location.pathname !== "/messages/new" &&
+      document.activeElement instanceof HTMLElement
+    ) {
+      document.activeElement.blur();
+    }
+    void goNewMessage();
+  }, [goNewMessage, location.pathname]);
   const handleOpenCreateChannel = React.useCallback((projectId?: string) => {
     setCreateChannelProjectId(projectId ?? null);
     setIsCreateChannelOpen(true);

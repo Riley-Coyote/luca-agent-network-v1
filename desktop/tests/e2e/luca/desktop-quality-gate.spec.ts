@@ -50,9 +50,169 @@ async function capture(page: Page, testInfo: TestInfo, name: string) {
   });
 }
 
+type InitialRouteGate = {
+  heldRequests: number;
+  release: () => void;
+};
+
+async function holdInitialRoute(page: Page) {
+  // Home waits for the channel inventory before choosing its initial route.
+  // Hold that real boundary so the shell is usable before To mounts.
+  await page.addInitScript(() => {
+    type Invoke = (
+      command: string,
+      payload?: unknown,
+      options?: unknown,
+    ) => Promise<unknown>;
+    const target = window as unknown as {
+      __TAURI_INTERNALS__?: Record<string, unknown>;
+      __INITIAL_ROUTE_GATE__: InitialRouteGate;
+    };
+    let held = true;
+    let release: () => void = () => {};
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    target.__INITIAL_ROUTE_GATE__ = {
+      heldRequests: 0,
+      release: () => {
+        held = false;
+        release();
+      },
+    };
+    const internals = target.__TAURI_INTERNALS__ ?? {};
+    target.__TAURI_INTERNALS__ = internals;
+    let realInvoke: Invoke | undefined;
+    Object.defineProperty(internals, "invoke", {
+      configurable: true,
+      set: (invoke: Invoke) => {
+        realInvoke = invoke;
+      },
+      get:
+        () => async (command: string, payload?: unknown, options?: unknown) => {
+          if (!realInvoke) throw new Error("Mock invoke is not installed");
+          const result = await realInvoke(command, payload, options);
+          if (command === "get_channels" && held) {
+            target.__INITIAL_ROUTE_GATE__.heldRequests += 1;
+            await ready;
+          }
+          return result;
+        },
+    });
+  });
+}
+
+async function releaseInitialRoute(page: Page) {
+  await page.evaluate(() => {
+    (
+      window as unknown as { __INITIAL_ROUTE_GATE__: InitialRouteGate }
+    ).__INITIAL_ROUTE_GATE__.release();
+  });
+  await expect(page.getByTestId("new-message-page")).toBeVisible();
+  await expect(page.getByTestId("new-dm-search")).toBeEditable();
+  await waitForAnimations(page);
+}
+
 test.beforeEach(async ({ page }) => {
   await seedActiveIdentity(page, TEST_IDENTITIES.tyler);
   await installMockBridge(page, { managedAgents: [RESIDENT] });
+});
+
+for (const restoredHistory of [false, true]) {
+  test(`late initial recipient mount preserves deliberate Agents focus${restoredHistory ? " with restored history" : ""}`, async ({
+    page,
+  }, testInfo) => {
+    const errors = collectPageErrors(page);
+    await page.setViewportSize({ width: 800, height: 720 });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await holdInitialRoute(page);
+    await page.goto("/?e2e=mock&projectDemo=1&notebookDemo=1");
+    await page.waitForFunction(
+      () =>
+        (window as unknown as { __INITIAL_ROUTE_GATE__: InitialRouteGate })
+          .__INITIAL_ROUTE_GATE__.heldRequests > 0,
+    );
+    if (restoredHistory) {
+      await page.getByTestId("open-agents-view").click();
+      await expect(page).toHaveURL(/#\/agents$/);
+      await page.keyboard.press("ControlOrMeta+Shift+a");
+      await expect(page).toHaveURL(/#\/$/);
+      const historyIndex = await page.evaluate(() => history.state.__TSR_index);
+      expect(historyIndex).toBeGreaterThan(0);
+      await page.reload();
+      await page.waitForFunction(
+        () =>
+          (window as unknown as { __INITIAL_ROUTE_GATE__: InitialRouteGate })
+            .__INITIAL_ROUTE_GATE__.heldRequests > 0,
+      );
+      expect(await page.evaluate(() => history.state.__TSR_index)).toBe(
+        historyIndex,
+      );
+    }
+    await expect(page.getByTestId("new-message-page")).toHaveCount(0);
+    const agents = page.getByTestId("open-agents-view");
+    await agents.focus();
+    await expect(agents).toBeFocused();
+
+    await releaseInitialRoute(page);
+    await expect(agents).toBeFocused();
+    await capture(page, testInfo, "late-mount-preserves-agents-focus");
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/#\/agents$/);
+    const resident = page.getByTestId(`agent-library-row-${RESIDENT_PUBKEY}`);
+    await resident.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Luca" })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Back to agents" }),
+    ).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
+test("unopposed initial recipient mount keeps autofocus", async ({ page }) => {
+  await holdInitialRoute(page);
+  await page.goto("/?e2e=mock");
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { __INITIAL_ROUTE_GATE__: InitialRouteGate })
+        .__INITIAL_ROUTE_GATE__.heldRequests > 0,
+  );
+  await expect(page.getByTestId("new-message-page")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => document.activeElement === document.body))
+    .toBe(true);
+  await releaseInitialRoute(page);
+  await expect(page.getByTestId("new-dm-search")).toBeFocused();
+});
+
+test("explicit New conversation and its shortcut hand focus to recipients", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock#/agents");
+  const agents = page.getByTestId("open-agents-view");
+  await expect(
+    page.getByTestId(`agent-library-row-${RESIDENT_PUBKEY}`),
+  ).toBeVisible();
+  const newConversation = page.getByTestId("open-new-conversation");
+  await newConversation.focus();
+  await page.keyboard.press("Enter");
+  const search = page.getByTestId("new-dm-search");
+  await expect(search).toBeFocused();
+
+  await agents.click();
+  await expect(page).toHaveURL(/#\/agents(?:\?|$)/);
+  await expect(
+    page.getByTestId(`agent-library-row-${RESIDENT_PUBKEY}`),
+  ).toBeVisible();
+  await agents.focus();
+  await page.keyboard.press("ControlOrMeta+n");
+  await expect(search).toBeFocused();
+  await search.fill("Luca");
+  await newConversation.focus();
+  await page.keyboard.press("Enter");
+  await expect(newConversation).toBeFocused();
+  await expect(search).toHaveValue("Luca");
 });
 
 test("desktop shell preserves hierarchy, keyboard reachability, and visual fidelity", async ({
