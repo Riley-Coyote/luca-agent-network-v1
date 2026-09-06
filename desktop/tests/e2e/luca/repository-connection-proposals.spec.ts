@@ -378,6 +378,15 @@ test("one owner-selected repository returns its actual host-correlated result to
   const request = proposal();
   await installHost(page);
   await open(page);
+  // The proposal host can mount before the initiating conversation's composer.
+  // Let its independent inventory query start before checking proposal order.
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  await expect
+    .poll(
+      async () =>
+        (await recorded(page, "discover_connected_brain_sources")).length,
+    )
+    .toBeGreaterThan(0);
   await emit(page, request);
   await choose(page);
   const first = page.getByRole("radio", {
