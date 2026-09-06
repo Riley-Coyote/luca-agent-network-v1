@@ -20,6 +20,9 @@ pub struct NativeImportSelectionV1 {
 pub(super) struct NativeImportAttempt {
     pub(super) selection: NativeImportSelectionV1,
     pub(super) profile_name: String,
+    // Host discovery supplies this once; later checks refresh exact native
+    // evidence without rescanning unrelated profiles or accepting IPC paths.
+    candidate: Option<crate::managed_agents::DiscoveredResidentCandidate>,
     pub(super) resident_pubkey: Option<String>,
     pub(super) reused: Option<bool>,
     pub(super) busy: bool,
@@ -75,11 +78,40 @@ pub(super) fn select_import_candidate(
 fn current_import_candidate(
     attempt: &NativeImportAttempt,
 ) -> Result<crate::managed_agents::DiscoveredResidentCandidate, String> {
-    select_import_candidate(
+    current_import_candidate_with(
+        attempt,
+        crate::managed_agents::revalidate_exact_hermes_runtime_binding,
+    )
+}
+
+fn current_import_candidate_with(
+    attempt: &NativeImportAttempt,
+    revalidate: impl FnOnce(
+        &crate::managed_agents::RuntimeBinding,
+    ) -> Result<crate::managed_agents::RuntimeBinding, String>,
+) -> Result<crate::managed_agents::DiscoveredResidentCandidate, String> {
+    let retained = attempt
+        .candidate
+        .as_ref()
+        .ok_or("The host-selected Hermes profile is unavailable. Review it again.")?;
+    if crate::managed_agents::native_runtime_semantic_key(&retained.binding_preview)
+        != attempt.selection.semantic_id
+        || crate::managed_agents::native_runtime_binding_fingerprint(&retained.binding_preview)
+            != attempt.selection.binding_fingerprint
+    {
+        return Err("The retained Hermes profile no longer matches this review.".into());
+    }
+    let mut candidate = select_import_candidate(
         &attempt.profile_name,
         &attempt.selection,
-        crate::managed_agents::discover_native_resident_candidates(),
-    )
+        vec![retained.clone()],
+    )?;
+    candidate.binding_preview = revalidate(&candidate.binding_preview)?;
+    candidate.semantic_id =
+        crate::managed_agents::native_runtime_semantic_key(&candidate.binding_preview);
+    candidate.binding_fingerprint =
+        crate::managed_agents::native_runtime_binding_fingerprint(&candidate.binding_preview);
+    select_import_candidate(&attempt.profile_name, &attempt.selection, vec![candidate])
 }
 
 pub(super) fn select_imported_pubkey(
@@ -287,6 +319,7 @@ pub(super) fn admit_import(
     let attempt = NativeImportAttempt {
         selection,
         profile_name,
+        candidate: None,
         resident_pubkey: None,
         reused: None,
         busy: true,
@@ -313,17 +346,19 @@ pub async fn import_resident_proposal(
     tokio::task::spawn_blocking(move || {
         let retry_settings = retry_settings.unwrap_or(false);
         let scope = authorize_import(&app, &request_id)?;
-        if let Some(selected) = selection.as_ref() {
+        let selected_candidate = if let Some(selected) = selection.as_ref() {
             let profile = lock_proposals()?
                 .get(&request_id)
                 .and_then(|p| p.projection.native_profile_name.clone())
                 .ok_or("The requested profile is unavailable.")?;
-            select_import_candidate(
+            Some(select_import_candidate(
                 &profile,
                 selected,
                 crate::managed_agents::discover_native_resident_candidates(),
-            )?;
-        }
+            )?)
+        } else {
+            None
+        };
         authorize_import(&app, &request_id)?;
         let (mut attempt, first) = {
             let mut pending = lock_proposals()?;
@@ -333,7 +368,15 @@ pub async fn import_resident_proposal(
             if retry_settings && proposal.native_import.is_none() {
                 return Err("No saved import has reviewed settings to retry.".into());
             }
-            admit_import(proposal, selection, retry_start)?
+            if proposal.native_import.is_none() && selected_candidate.is_none() {
+                return Err("Select the exact discovered Hermes profile first.".into());
+            }
+            let (mut attempt, first) = admit_import(proposal, selection, retry_start)?;
+            if first {
+                attempt.candidate = selected_candidate;
+                proposal.native_import = Some(attempt.clone());
+            }
+            (attempt, first)
         };
         let host = AppImportHost {
             app: &app,

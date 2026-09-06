@@ -84,6 +84,7 @@ fn make_review(
         attempt: NativeImportAttempt {
             selection,
             profile_name,
+            candidate: None,
             resident_pubkey: None,
             reused: None,
             busy: false,
@@ -156,18 +157,16 @@ pub async fn prepare_native_resident_import(
             .find(|candidate| candidate.semantic_id == selection.semantic_id)
             .map(|candidate| candidate.native_id.clone())
             .ok_or("The selected Hermes profile is unavailable.")?;
-        select_import_candidate(&profile, &selection, candidates)?;
+        let candidate = select_import_candidate(&profile, &selection, candidates)?;
         if OwnerWorkspace::current(&app)? != scope {
             return Err(
                 "The active workspace changed during discovery. Review the profile again.".into(),
             );
         }
         let now = Instant::now();
-        reserve_review(
-            &mut *lock_imports()?,
-            make_review(scope, selection, profile, now),
-            now,
-        )
+        let mut review = make_review(scope, selection, profile, now);
+        review.attempt.candidate = Some(candidate);
+        reserve_review(&mut *lock_imports()?, review, now)
     })
     .await
     .map_err(|_| "Import preparation worker failed.".to_owned())?
@@ -600,5 +599,93 @@ mod tests {
             assert!(run_reviewed_import(&host, &mut review().attempt, true, false, false).is_err());
             assert!(host.calls.borrow().is_empty());
         }
+    }
+
+    fn discovered_attempt() -> NativeImportAttempt {
+        let mut attempt = review().attempt;
+        let mut retained = candidate();
+        retained.binding_fingerprint =
+            crate::managed_agents::native_runtime_binding_fingerprint(&retained.binding_preview);
+        attempt.selection.binding_fingerprint = retained.binding_fingerprint.clone();
+        attempt.candidate = Some(retained);
+        attempt
+    }
+
+    #[test]
+    fn exact_import_checks_reuse_host_metadata_but_refresh_the_approved_binding_each_time() {
+        let attempt = discovered_attempt();
+        let retained = attempt.candidate.clone().unwrap();
+        let checks = Cell::new(0);
+        for _ in 0..3 {
+            let verified = current_import_candidate_with(&attempt, |binding| {
+                checks.set(checks.get() + 1);
+                assert_eq!(binding, &retained.binding_preview);
+                Ok(binding.clone())
+            })
+            .unwrap();
+            assert_eq!(verified, retained);
+        }
+        assert_eq!(checks.get(), 3);
+        assert_eq!(attempt.candidate.as_ref(), Some(&retained));
+        for changed in ["version", "home", "executable"] {
+            assert!(
+                current_import_candidate_with(&attempt, |binding| {
+                    let mut binding = binding.clone();
+                    if let crate::managed_agents::RuntimeBinding::Hermes {
+                        runtime_version,
+                        hermes_home,
+                        executable_path,
+                        ..
+                    } = &mut binding
+                    {
+                        match changed {
+                            "version" => *runtime_version = "changed".into(),
+                            "home" => *hermes_home = "/another-root/profiles/research".into(),
+                            _ => *executable_path = "/different/hermes".into(),
+                        }
+                    }
+                    Ok(binding)
+                })
+                .is_err(),
+                "{changed}"
+            );
+        }
+        assert!(
+            current_import_candidate_with(&attempt, |_| Err("Hermes unavailable".into())).is_err()
+        );
+    }
+
+    #[test]
+    fn missing_or_mismatched_retained_import_metadata_fails_before_native_probe() {
+        for changed in ["missing", "semantic", "fingerprint", "name"] {
+            let mut attempt = discovered_attempt();
+            match changed {
+                "missing" => attempt.candidate = None,
+                "semantic" => attempt.selection.semantic_id = "another-profile".into(),
+                "fingerprint" => attempt.selection.binding_fingerprint = "changed".into(),
+                _ => attempt.profile_name = "another-profile".into(),
+            }
+            assert!(current_import_candidate_with(&attempt, |_| panic!(
+                "unbound metadata must not run"
+            ))
+            .is_err());
+        }
+        let mut review = review();
+        review.attempt = discovered_attempt();
+        let original = review.attempt.candidate.clone();
+        let now = Instant::now();
+        let mut imports = HashMap::new();
+        let first = reserve_review(&mut imports, review, now).unwrap();
+        imports.get_mut(&first.attempt_id).unwrap().admitted = true;
+        let resumed = reserve_review(
+            &mut imports,
+            make_review(scope(), selection(), "research".into(), now),
+            now,
+        );
+        assert!(
+            resumed.is_err(),
+            "a changed fingerprint cannot replace the retained binding"
+        );
+        assert_eq!(imports[&first.attempt_id].attempt.candidate, original);
     }
 }

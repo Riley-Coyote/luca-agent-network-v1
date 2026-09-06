@@ -250,7 +250,37 @@ pub fn validate_native_runtime_binding(binding: &RuntimeBinding) -> Result<(), S
 pub fn revalidate_native_runtime_binding(
     binding: &RuntimeBinding,
 ) -> Result<RuntimeBinding, String> {
-    let verified = discover_native_resident_candidates()
+    let trusted_hermes = matches!(binding, RuntimeBinding::Hermes { .. })
+        .then(|| canonical_executable("hermes"))
+        .flatten();
+    let child_path = trusted_hermes
+        .as_ref()
+        .and_then(|_| super::login_shell_path());
+    revalidate_native_runtime_binding_with(
+        binding,
+        trusted_hermes.as_deref(),
+        child_path.as_deref(),
+        discover_native_resident_candidates,
+    )
+}
+
+fn revalidate_native_runtime_binding_with(
+    binding: &RuntimeBinding,
+    trusted_hermes: Option<&Path>,
+    child_path: Option<&str>,
+    discover: impl FnOnce() -> Vec<DiscoveredResidentCandidate>,
+) -> Result<RuntimeBinding, String> {
+    if let RuntimeBinding::Hermes {
+        executable_path, ..
+    } = binding
+    {
+        if let Some(trusted) = trusted_hermes.filter(|trusted| *trusted == executable_path) {
+            return revalidate_hermes_at_trusted_executable(binding, trusted, child_path);
+        }
+    }
+    // An explicitly upgraded executable still follows catalog discovery, which
+    // refreshes its fingerprint without changing the durable native identity.
+    let verified = discover()
         .into_iter()
         .find(|candidate| {
             native_runtime_semantic_key(&candidate.binding_preview)
@@ -262,15 +292,26 @@ pub fn revalidate_native_runtime_binding(
         None if matches!(binding, RuntimeBinding::Hermes { .. }) => {
             // Custom roots may not be visible to ambient profile discovery. The
             // executable still comes from the app's discovery path, never IPC.
-            let executable = canonical_executable("hermes")
-                .ok_or("Hermes is unavailable for exact profile verification.")?;
-            let path = super::login_shell_path();
-            revalidate_hermes_at_trusted_executable(binding, &executable, path.as_deref())?
+            let executable =
+                trusted_hermes.ok_or("Hermes is unavailable for exact profile verification.")?;
+            revalidate_hermes_at_trusted_executable(binding, executable, child_path)?
         }
         None => return Err("native identity binding no longer matches current discovery".into()),
     };
     resolve_native_runtime_binding(&verified)?;
     Ok(verified)
+}
+
+/// Recheck only the selected Hermes profile using the app's current trusted
+/// executable. Unlike general revalidation, an import review cannot adopt an
+/// executable change or substitute another profile from catalog discovery.
+pub(crate) fn revalidate_exact_hermes_runtime_binding(
+    binding: &RuntimeBinding,
+) -> Result<RuntimeBinding, String> {
+    let executable = canonical_executable("hermes")
+        .ok_or("Hermes is unavailable for exact profile verification.")?;
+    let child_path = super::login_shell_path();
+    revalidate_hermes_at_trusted_executable(binding, &executable, child_path.as_deref())
 }
 
 /// Resolve the profile-operation root using Hermes' standard/custom home layout.
@@ -353,13 +394,15 @@ fn revalidate_hermes_at_trusted_executable(
         return Err("Hermes version could not be verified.".into());
     }
     let version = output_text(&version);
-    Ok(build_hermes_runtime_binding(
+    let verified = build_hermes_runtime_binding(
         profile_name.clone(),
         hermes_home.clone(),
         trusted.to_path_buf(),
         version,
         default_workspace.clone(),
-    ))
+    );
+    resolve_native_runtime_binding(&verified)?;
+    Ok(verified)
 }
 
 /// Stable, non-secret identity used for idempotent native imports. Full
@@ -1432,5 +1475,160 @@ mod tests {
         )
         .unwrap();
         assert!(revalidate_hermes_at_trusted_executable(&binding, &trusted, None).is_err());
+    }
+
+    #[cfg(unix)]
+    fn exact_profile_fixture() -> (tempfile::TempDir, PathBuf, RuntimeBinding) {
+        let fixture = tempfile::tempdir().unwrap();
+        let root = fixture.path().canonicalize().unwrap();
+        let home = root.join("profiles/helper");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(root.join("version"), "0.17.0\n").unwrap();
+        let executable = executable_fixture(&root, "trusted-hermes");
+        std::fs::write(
+            &executable,
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HERMES_HOME/commands.log\"\ncase \"$*\" in\n  'profile show helper') printf 'Path: %s/profiles/helper\\n' \"$HERMES_HOME\" ;;\n  --version) /bin/cat \"$HERMES_HOME/version\" ;;\n  *) exit 64 ;;\nesac\n",
+        ).unwrap();
+        let binding = build_hermes_runtime_binding(
+            "helper".into(),
+            home,
+            executable.clone(),
+            "0.17.0".into(),
+            None,
+        );
+        (fixture, executable, binding)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn matching_hermes_binding_revalidates_only_exact_profile_commands_without_catalog_queries() {
+        let (fixture, executable, binding) = exact_profile_fixture();
+        for _ in 0..3 {
+            let verified =
+                revalidate_native_runtime_binding_with(&binding, Some(&executable), None, || {
+                    panic!("exact revalidation must not query any catalog or OpenClaw")
+                })
+                .unwrap();
+            assert_eq!(verified, binding);
+        }
+        let commands = std::fs::read_to_string(fixture.path().join("commands.log")).unwrap();
+        assert_eq!(commands, "profile show helper\n--version\n".repeat(3));
+        println!("exact Hermes command log: {commands}");
+        // General validation may refresh mutable version metadata; the import
+        // review separately rejects a change to its approved full fingerprint.
+        std::fs::write(fixture.path().join("version"), "0.18.0\n").unwrap();
+        let upgraded =
+            revalidate_native_runtime_binding_with(&binding, Some(&executable), None, || {
+                panic!("no catalog needed")
+            })
+            .unwrap();
+        assert_eq!(
+            native_runtime_semantic_key(&upgraded),
+            native_runtime_semantic_key(&binding)
+        );
+        assert_ne!(
+            native_runtime_binding_fingerprint(&upgraded),
+            native_runtime_binding_fingerprint(&binding)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn changed_hermes_executable_keeps_catalog_upgrade_and_exact_identity_rules() {
+        let (fixture, old_executable, binding) = exact_profile_fixture();
+        let trusted = executable_fixture(fixture.path(), "upgraded-hermes");
+        let mut upgraded = binding.clone();
+        if let RuntimeBinding::Hermes {
+            executable_path,
+            runtime_version,
+            ..
+        } = &mut upgraded
+        {
+            *executable_path = trusted.clone();
+            *runtime_version = "0.18.0".into();
+        }
+        let candidate = |binding: RuntimeBinding| DiscoveredResidentCandidate {
+            native_type: NativeRuntimeKind::Hermes,
+            native_id: "helper".into(),
+            semantic_id: native_runtime_semantic_key(&binding),
+            binding_fingerprint: native_runtime_binding_fingerprint(&binding),
+            display_name: "helper".into(),
+            canonical_location: None,
+            workspace: None,
+            model_summary: None,
+            runtime_version: None,
+            readiness: ResidentReadiness::Discovered {
+                message: "fixture".into(),
+            },
+            warnings: Vec::new(),
+            binding_preview: binding,
+        };
+        let catalog_calls = AtomicUsize::new(0);
+        let verified =
+            revalidate_native_runtime_binding_with(&binding, Some(&trusted), None, || {
+                catalog_calls.fetch_add(1, Ordering::SeqCst);
+                vec![candidate(upgraded.clone())]
+            })
+            .unwrap();
+        assert_eq!(catalog_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(verified, upgraded);
+        let mut wrong_root = upgraded.clone();
+        if let RuntimeBinding::Hermes { hermes_home, .. } = &mut wrong_root {
+            *hermes_home = fixture.path().join("another-root/profiles/helper");
+        }
+        assert!(
+            revalidate_native_runtime_binding_with(&binding, Some(&trusted), None, || vec![
+                candidate(wrong_root)
+            ],)
+            .is_err()
+        );
+        assert!(!fixture.path().join("commands.log").exists());
+        assert_ne!(old_executable, trusted);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exact_hermes_failures_never_fall_back_to_other_profiles_or_runtimes() {
+        for failure in ["profile", "version", "removed-home", "symlink"] {
+            let (fixture, executable, binding) = exact_profile_fixture();
+            let root = fixture.path().canonicalize().unwrap();
+            if failure == "symlink" {
+                std::fs::rename(&executable, root.join("moved-hermes")).unwrap();
+                std::os::unix::fs::symlink(root.join("moved-hermes"), &executable).unwrap();
+            } else {
+                let body = match failure {
+                    "profile" => "exit 1\n",
+                    "version" => "if [ \"$1\" = --version ]; then exit 1; fi\nprintf 'Path: %s/profiles/helper\\n' \"$HERMES_HOME\"\n",
+                    "removed-home" => "if [ \"$1\" = --version ]; then /bin/rmdir \"$HERMES_HOME/profiles/helper\"; printf '0.17.0\\n'; else printf 'Path: %s/profiles/helper\\n' \"$HERMES_HOME\"; fi\n",
+                    _ => unreachable!(),
+                };
+                std::fs::write(
+                    &executable,
+                    format!(
+                        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$HERMES_HOME/commands.log\"\n{body}"
+                    ),
+                )
+                .unwrap();
+            }
+            assert!(
+                revalidate_native_runtime_binding_with(
+                    &binding,
+                    Some(&executable),
+                    None,
+                    || panic!("a failed exact check must fail closed"),
+                )
+                .is_err(),
+                "{failure}"
+            );
+            let commands = std::fs::read_to_string(root.join("commands.log")).unwrap_or_default();
+            assert_eq!(
+                commands,
+                match failure {
+                    "symlink" => "",
+                    "profile" => "profile show helper\n",
+                    _ => "profile show helper\n--version\n",
+                }
+            );
+        }
     }
 }
