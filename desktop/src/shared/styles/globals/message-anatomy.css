@@ -197,9 +197,15 @@
      theme — below perception, which read as "my messages look the same as
      the agent's". Ink mixed into the surface holds a visible step in every
      palette, light ones included, with no per-theme value. */
-  background: var(--mn-plate-strong);
+  /* A hairline, not a slab. The owner's words are the lightest thing in the
+     room: a 1px edge at 9% ink over a 2.5% wash, and the lit top edge. The
+     eye reads the outline as an object; the fill only keeps it from reading
+     as a hole. */
+  background: hsl(var(--mn-ink) / 0.025);
   border-radius: 14px;
-  box-shadow: var(--mn-lit-edge);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--mn-ink) / 0.09),
+    var(--mn-lit-edge);
   flex: 0 1 auto;
   /* The row's own `-mt-0.5` optically hangs a first line off an author name;
      with the name gone the plate's padding does that work instead. */
@@ -234,7 +240,10 @@
   [data-message-anatomy="bubble"][data-message-side="own"]:focus-within
   [data-message-column]
   > [data-message-plate] {
-  background: var(--mn-plate-strong);
+  background: hsl(var(--mn-ink) / 0.045);
+  box-shadow:
+    inset 0 0 0 1px hsl(var(--mn-ink) / 0.14),
+    var(--mn-lit-edge);
 }
 
 /* THE HOVER ACTIONS, OVER A PLATE. Everywhere else this pill floats over the

@@ -25,6 +25,7 @@ import {
   isBroadcastReply,
 } from "@/features/messages/lib/threading";
 import { useProfileQuery } from "@/features/profile/hooks";
+import { useSelectedAgentPubkey } from "@/features/sidebar/lib/agentColumn";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomWorkspace } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -136,6 +137,9 @@ function ChannelConversationSurface({
   const identityQuery = useIdentityQuery();
   const communities = useCommunities();
   const profileQuery = useProfileQuery();
+  // The rail's agent column and the project room panel are both "the second
+  // column". The owner chose one; the other stays closed.
+  const selectedAgentPubkey = useSelectedAgentPubkey();
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
@@ -276,7 +280,9 @@ function ChannelConversationSurface({
             }
           : null
       }
-      projectNavigatorVisible={projectNavigatorVisible}
+      projectNavigatorVisible={
+        projectNavigatorVisible && selectedAgentPubkey === null
+      }
       projectRoomNavigation={
         projectViewModel
           ? {
@@ -311,7 +317,12 @@ function ChannelConversationSurface({
   // A pop-out is one conversation and nothing else. The project workspace is a
   // navigator between the rooms of a project — a second place to go — and this
   // window has no second place to go.
-  if (!projectViewModel || isPopoutWindow() || !projectNavigatorVisible) {
+  if (
+    !projectViewModel ||
+    isPopoutWindow() ||
+    !projectNavigatorVisible ||
+    selectedAgentPubkey !== null
+  ) {
     return conversation;
   }
 

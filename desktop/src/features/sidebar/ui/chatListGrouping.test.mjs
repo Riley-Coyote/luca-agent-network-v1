@@ -6,7 +6,7 @@ import {
   isMultiParticipantChat,
   partitionConversationItems,
   sortChats,
-} from "./ChatList.tsx";
+} from "../lib/chatListModel.ts";
 
 const room = (id, lastMessageAt, label = id) => ({
   channel: { id, name: id, lastMessageAt },

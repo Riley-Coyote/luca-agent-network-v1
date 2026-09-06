@@ -375,7 +375,7 @@ export function ConversationContextPanel({
                             )}
                             decorative
                             publicKey={member.pubkey}
-                            size={22}
+                            size={18}
                           />
                         </span>
                         <span className="min-w-0 flex-1">

@@ -76,6 +76,7 @@ export function ConversationPresenceRail({
             >
               <ResidentIdentityMark
                 accessibleName={name}
+                className="luca-identity-breath"
                 decorative
                 personaId={
                   residentPersonaIdLookup?.get(pubkey.toLowerCase()) ?? null
@@ -83,6 +84,12 @@ export function ConversationPresenceRail({
                 presentation="glyph"
                 publicKey={pubkey}
                 size={22}
+                style={{
+                  // Presence is breath. Prime-ish cycles and a seed-offset
+                  // phase: four marks never rise together.
+                  animationDuration: `${[3.1, 5.3, 7.1, 11][index % 4]}s`,
+                  animationDelay: `-${(index * 1.9) % 6}s`,
+                }}
               />
               {visiting ? (
                 <span className="text-3xs uppercase tracking-caps text-muted-foreground">

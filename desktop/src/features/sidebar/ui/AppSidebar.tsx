@@ -43,7 +43,17 @@ import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
-import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
+import {
+  setSelectedAgentPubkey,
+  toggleSelectedAgentPubkey,
+  useSelectedAgentPubkey,
+} from "@/features/sidebar/lib/agentColumn";
+import { AgentChatsColumn } from "@/features/sidebar/ui/AgentChatsColumn";
+import {
+  buildChatListItems,
+  ChatList,
+  chatsWithAgent,
+} from "@/features/sidebar/ui/ChatList";
 import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
 import { runProjectCreationTransaction } from "@/features/projects/lib/projectCreationTransaction";
 import { addChannelMembers } from "@/shared/api/tauri";
@@ -211,6 +221,30 @@ export function AppSidebar({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
   const managedAgentsQuery = useManagedAgentsQuery();
+  // The AGENTS rail lists residents, not chats. Choosing one opens the agent
+  // column; choosing it again closes it.
+  const selectedAgentPubkey = useSelectedAgentPubkey();
+  const railAgents = React.useMemo(
+    () =>
+      [...(managedAgentsQuery.data ?? [])]
+        .map((agent) => ({
+          name: agent.name,
+          personaId: agent.personaId,
+          pubkey: agent.pubkey,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [managedAgentsQuery.data],
+  );
+  const selectedAgent = React.useMemo(
+    () =>
+      selectedAgentPubkey
+        ? (railAgents.find(
+            (agent) =>
+              agent.pubkey.toLowerCase() === selectedAgentPubkey.toLowerCase(),
+          ) ?? null)
+        : null,
+    [railAgents, selectedAgentPubkey],
+  );
   const projectResidentOptions = React.useMemo(
     () =>
       [...(managedAgentsQuery.data ?? [])]
@@ -466,6 +500,11 @@ export function AppSidebar({
       fallbackDisplayName,
       profileDisplayName: profile?.displayName,
     });
+  const chatListItems = React.useMemo(
+    () =>
+      buildChatListItems({ channels, labels: dmChannelLabels, currentPubkey }),
+    [channels, currentPubkey, dmChannelLabels],
+  );
   const sortedDirectMessages = React.useMemo(
     () =>
       sortDmChannelsForSidebar(
@@ -599,10 +638,36 @@ export function AppSidebar({
       // defeats the point of an identity mark.
       collapsible="offcanvas"
       data-testid="app-sidebar"
+      // With an agent chosen the rail grows by one column; the rail's own
+      // width is still what the provider published, so nothing inside it
+      // reflows — the column simply appears beside it.
+      rootStyle={
+        {
+          "--agent-column-width": "232px",
+          "--sidebar-width": selectedAgent
+            ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
+            : undefined,
+        } as React.CSSProperties
+      }
       variant="sidebar"
     >
+      {selectedAgent ? (
+        <AgentChatsColumn
+          agent={selectedAgent}
+          items={chatsWithAgent(chatListItems, selectedAgent.pubkey)}
+          onClose={() => setSelectedAgentPubkey(null)}
+          onNewChat={() => void onOpenDm({ pubkeys: [selectedAgent.pubkey] })}
+          onSelectChannel={(channelId) => {
+            if (isMobile) setOpenMobile(false);
+            onSelectChannel(channelId);
+          }}
+          projectByChannelId={roomProjects}
+          selectedChannelId={selectedChannelId}
+          unreadChannelIds={unreadChannelIds}
+        />
+      ) : null}
       <div
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        className="relative flex min-h-0 w-(--sidebar-rail-width) shrink-0 flex-col overflow-hidden"
         data-testid="app-sidebar-scroll-anchor"
       >
         <AppSidebarPinnedHeader
@@ -677,17 +742,16 @@ export function AppSidebar({
                   {USE_CHAT_LIST ? (
                     <>
                       <ChatList
-                        items={buildChatListItems({
-                          channels,
-                          labels: dmChannelLabels,
-                          currentPubkey,
-                        })}
+                        items={chatListItems}
                         onSelectChannel={(channelId) => {
                           if (isMobile) setOpenMobile(false);
                           onSelectChannel(channelId);
                         }}
                         onSelectProject={(projectId, preferredRoomId) => {
                           if (isMobile) setOpenMobile(false);
+                          // One second column at a time: a project replaces
+                          // whichever agent column was open.
+                          setSelectedAgentPubkey(null);
                           onSelectProject(projectId, preferredRoomId);
                         }}
                         onCreateProject={() => setIsCreateProjectOpen(true)}
@@ -700,6 +764,9 @@ export function AppSidebar({
                         selectedProjectId={selectedProjectId}
                         unreadChannelIds={unreadChannelIds}
                         workingByChannelId={activeWorkingByChannelId}
+                        agents={railAgents}
+                        selectedAgentPubkey={selectedAgentPubkey}
+                        onSelectAgent={toggleSelectedAgentPubkey}
                       />
                       <RuntimeRailSection
                         onSelect={handleSelectRuntime}

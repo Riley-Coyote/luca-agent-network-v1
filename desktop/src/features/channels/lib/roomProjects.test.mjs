@@ -140,7 +140,7 @@ test("assignRoomProject keeps one project per room", () => {
   }
 });
 
-test("project resolution ignores direct-message assignments without rewriting input", () => {
+test("project resolution honors explicit assignments for any chat and name fallbacks for rooms only, without rewriting input", () => {
   const channels = [
     { id: "room", name: "general", channelType: "stream" },
     { id: "forum", name: "planning", channelType: "forum" },
@@ -167,10 +167,12 @@ test("project resolution ignores direct-message assignments without rewriting in
     fallbackAssignments,
   );
 
-  assert.deepEqual([...resolved.keys()], ["room", "forum"]);
+  assert.deepEqual([...resolved.keys()], ["room", "forum", "dm"]);
   assert.equal(resolved.get("room"), projects[0]);
   assert.equal(resolved.get("forum"), projects[0]);
-  assert.equal(resolved.has("dm"), false);
+  // An explicit assignment is the owner putting a chat in a project — a
+  // group conversation included. Only the name-keyed fallback stays rooms-only.
+  assert.equal(resolved.get("dm")?.id, "luca");
   assert.equal(resolved.has("fallback-dm"), false);
   assert.deepEqual(
     { assignments, channels, fallbackAssignments, projects },

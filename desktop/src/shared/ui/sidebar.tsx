@@ -170,6 +170,7 @@ const SidebarProvider = React.forwardRef<
             style={
               {
                 "--sidebar-width": `${sidebarWidth}px`,
+                "--sidebar-rail-width": `${sidebarWidth}px`,
                 "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
                 ...style,
               } as React.CSSProperties
@@ -196,6 +197,8 @@ const Sidebar = React.forwardRef<
     side?: "left" | "right";
     variant?: "sidebar" | "floating" | "inset";
     collapsible?: "offcanvas" | "icon" | "none";
+    /** Applied to the outermost rail element — the one that owns `--sidebar-width`. */
+    rootStyle?: React.CSSProperties;
   }
 >(
   (
@@ -205,6 +208,7 @@ const Sidebar = React.forwardRef<
       collapsible = "offcanvas",
       className,
       children,
+      rootStyle,
       ...props
     },
     ref,
@@ -313,6 +317,7 @@ const Sidebar = React.forwardRef<
         onMouseLeave={canPeek ? closePeek : undefined}
         data-variant={variant}
         data-side={side}
+        style={rootStyle}
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div

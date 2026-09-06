@@ -479,9 +479,14 @@ export function resolveRoomProjects(
   );
   const resolved = new Map<string, RoomProject>();
   for (const channel of channels) {
-    if (channel.channelType === "dm") continue;
+    // A chat lives in a project when the owner put it there — a group
+    // conversation with residents included. Only the name-keyed demo fallback
+    // is rooms-only: a direct thread's name is its participants, not a place.
     const projectId =
-      assignments[channel.id] ?? fallbackAssignments[channel.name];
+      assignments[channel.id] ??
+      (channel.channelType === "dm"
+        ? undefined
+        : fallbackAssignments[channel.name]);
     const project = projectId ? projectsById.get(projectId) : undefined;
     if (project) resolved.set(channel.id, project);
   }

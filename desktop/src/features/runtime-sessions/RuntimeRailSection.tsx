@@ -24,6 +24,9 @@ import {
 } from "./runtimeRailPreferences";
 import { useCurrentRuntimeRailPins } from "./useRuntimeRailPins";
 
+/** Prime-ish breath cycles so no two ready runtimes ever pulse together. */
+const BREATH_SECONDS = [3.1, 5.3, 7.1, 11] as const;
+
 export function RuntimeRailSection({
   onSelect,
   selectedRuntimeKey,
@@ -64,7 +67,10 @@ export function RuntimeRailSection({
               Checking installed runtimes…
             </li>
           ) : (
-            runtimes.map((runtime) => {
+            runtimes.map((runtime, index) => {
+              const ready =
+                runtime.readiness === "ready" &&
+                runtime.authentication !== "required";
               const key = runtimeConnectionKey(runtime);
               const isActive = key === selectedRuntimeKey;
               return (
@@ -84,25 +90,43 @@ export function RuntimeRailSection({
                     tooltip={`${runtime.label} · ${runtimeReadinessLabel(runtime)}`}
                     type="button"
                   >
-                    <HarnessLogo
-                      appearance="brand"
-                      decorative
-                      harness={harnessIdFromRuntimeId(runtime.runtimeId)}
-                      size={16}
-                    />
+                    {/* Ink at rest. Colour is a signal, not a badge: the
+                        brand mark takes its hue only on hover. Readiness is
+                        breath, not a green LED — a ready runtime breathes on
+                        its own prime-number cycle so the rail never pulses in
+                        lockstep; one that needs attention sits still and dim. */}
+                    <span
+                      className={cn(
+                        "inline-flex shrink-0 [&_img]:transition-[filter,opacity]",
+                        ready
+                          ? "luca-identity-breath text-ink-muted group-hover/menu-item:text-foreground"
+                          : "text-ink-ghost",
+                      )}
+                      style={
+                        ready
+                          ? {
+                              animationDuration: `${BREATH_SECONDS[index % BREATH_SECONDS.length]}s`,
+                              animationDelay: `-${(index * 1.7) % 5}s`,
+                            }
+                          : undefined
+                      }
+                    >
+                      <HarnessLogo
+                        appearance="monochrome"
+                        decorative
+                        harness={harnessIdFromRuntimeId(runtime.runtimeId)}
+                        size={16}
+                      />
+                    </span>
                     <span className="min-w-0 flex-1 truncate">
                       {runtime.label}
                     </span>
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "size-1.5 shrink-0 rounded-full",
-                        runtime.readiness === "ready" &&
-                          runtime.authentication !== "required"
-                          ? "bg-emerald-400/80"
-                          : "bg-amber-400/80",
-                      )}
-                    />
+                    {ready ? null : (
+                      <span
+                        aria-hidden="true"
+                        className="size-1.5 shrink-0 rounded-full bg-amber-400/80"
+                      />
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );

@@ -15,6 +15,7 @@ import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoic
 import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
+import { ResidentHarnessMark } from "@/features/channels/ui/ResidentHarnessMark";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
@@ -791,6 +792,9 @@ export const MessageRow = React.memo(
         ) : (
           authorNode
         )}
+        {message.isAgent && message.pubkey && !ownBubble ? (
+          <ResidentHarnessMark publicKey={message.pubkey} />
+        ) : null}
         {inlineMetadataNode}
         {message.personaDisplayName &&
         message.personaDisplayName !== message.author ? (
@@ -1122,8 +1126,11 @@ export const MessageRow = React.memo(
                   accessibleName={message.author}
                   decorative
                   personaId={message.residentPersonaId}
+                  // The timeline says WHO. The harness is a fact about them,
+                  // not their face — it rides small beside the name instead.
+                  presentation="glyph"
                   publicKey={message.pubkey}
-                  size={21}
+                  size={16}
                 />
               ) : (
                 <UserAvatar

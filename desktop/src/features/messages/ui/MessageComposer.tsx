@@ -1064,7 +1064,7 @@ function MessageComposerImpl({
            * must never ease. The one border-color transition it does want
            * lives in composer-states.css. */}
           <form
-            className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2"
+            className="relative z-10 isolate rounded-xl border border-border/60 bg-transparent px-3 py-2 transition-colors focus-within:border-ink/35"
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
