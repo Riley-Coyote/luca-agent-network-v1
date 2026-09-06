@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Identity marks — a design lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@300;400&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --floor: #060608;
+    --surface: #0b0b0e;
+    --ink: rgba(236, 238, 240, 0.94);
+    --ink-2: rgba(236, 238, 240, 0.72);
+    --ink-3: rgba(236, 238, 240, 0.48);
+    --ink-4: rgba(236, 238, 240, 0.30);
+    --rule: rgba(236, 238, 240, 0.09);
+    --rule-strong: rgba(236, 238, 240, 0.18);
+    --signal: #6d93c9;
+    --mark: 236, 238, 240;
+    --display: "Inter Tight", "Inter", system-ui, sans-serif;
+    --body: "Inter", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 40px; --s-7: 64px; --s-8: 112px;
+    --t-caption: 11px; --t-label: 12px; --t-body: 14px; --t-lede: 17px; --t-h2: 22px; --t-h1: 40px;
+    --ease: cubic-bezier(.2,.7,.2,1);
+  }
+  :root[data-paper] {
+    --floor: #faf8f5; --surface: #f3f1ed;
+    --ink: rgba(24, 24, 27, 0.94); --ink-2: rgba(24,24,27,.72); --ink-3: rgba(24,24,27,.5); --ink-4: rgba(24,24,27,.32);
+    --rule: rgba(24,24,27,.10); --rule-strong: rgba(24,24,27,.2); --mark: 24, 24, 27; --signal: #3d5a80;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--floor); color: var(--ink); font: 400 var(--t-body)/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+  main { max-width: 1180px; margin: 0 auto; padding: var(--s-7) var(--s-6) var(--s-8); }
+  header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: var(--s-6); margin-bottom: var(--s-7); }
+  h1 { font: 300 var(--t-h1)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 var(--s-3); }
+  .lede { max-width: 62ch; color: var(--ink-2); font-size: var(--t-lede); line-height: 1.5; margin: 0; }
+  .lede b { color: var(--ink); font-weight: 500; }
+  .tools { display: flex; gap: var(--s-2); align-items: center; }
+  button { appearance: none; font: 500 var(--t-label)/1 var(--body); color: var(--ink-2); background: rgba(var(--mark), .035); border: 1px solid var(--rule); box-shadow: inset 0 1px 0 rgba(var(--mark), .06); border-radius: 6px; padding: 8px 12px; cursor: pointer; transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease); }
+  button:hover { color: var(--ink); background: rgba(var(--mark), .06); }
+  button:focus-visible { outline: none; border-color: rgba(var(--mark), .5); }
+  button:active { background: rgba(var(--mark), .09); }
+  section { padding: var(--s-6) 0 var(--s-7); border-top: 1px solid var(--rule); }
+  .head { display: grid; grid-template-columns: 220px 1fr; gap: var(--s-6); align-items: baseline; margin-bottom: var(--s-5); }
+  .n { font: 400 var(--t-caption)/1 var(--mono); color: var(--ink-4); letter-spacing: .06em; }
+  h2 { font: 300 var(--t-h2)/1.2 var(--display); letter-spacing: -0.01em; margin: 6px 0 0; }
+  h2 .pick { display: inline-block; width: 6px; height: 6px; border-radius: 999px; background: var(--signal); vertical-align: middle; margin-left: 10px; position: relative; top: -2px; }
+  .intent { color: var(--ink-2); max-width: 64ch; margin: 0; }
+  .intent em { color: var(--ink); font-style: normal; }
+  .grid { display: grid; grid-template-columns: 1fr; gap: var(--s-5); align-items: start; }
+  .side { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--s-6); align-items: start; }
+  .side .controls { grid-column: 1 / -1; margin-top: 0; }
+  .cast { display: flex; flex-wrap: wrap; gap: var(--s-6) var(--s-7); align-items: flex-end; padding: var(--s-4) 0 var(--s-2); }
+  .who { display: grid; gap: var(--s-3); justify-items: center; }
+  .who .name { font-size: var(--t-caption); color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; }
+  .sizes { display: flex; align-items: flex-end; gap: var(--s-4); }
+  .sizes .sz { display: grid; gap: 6px; justify-items: center; }
+  .sizes .px { font: 400 10px/1 var(--mono); color: var(--ink-4); }
+  .mark { display: block; }
+  .mark svg { display: block; overflow: visible; }
+  .context { display: grid; gap: var(--s-3); }
+  .ctx-label { font: 400 var(--t-caption)/1 var(--mono); color: var(--ink-4); letter-spacing: .06em; text-transform: uppercase; }
+  .row { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 8px; border-radius: 6px; width: 264px; background: rgba(var(--mark), .05); }
+  .row .nm { font-size: 14px; color: var(--ink); }
+  .row .hz { width: 10px; height: 10px; border-radius: 3px; border: 1px solid var(--ink-4); }
+  .row .t { margin-left: auto; font: 400 11px/1 var(--mono); color: var(--ink-4); }
+  .msg { display: grid; grid-template-columns: 21px 1fr; gap: 12px; align-items: start; max-width: 520px; }
+  .msg .hd { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; line-height: 16px; color: var(--ink); }
+  .msg .hz { width: 11px; height: 11px; border-radius: 3px; border: 1px solid var(--ink-4); }
+  .msg .body { font-size: 16px; line-height: 1.6; color: var(--ink-2); margin-top: 4px; }
+  .family { display: grid; gap: var(--s-3); }
+  .family .strip { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .family .strip .mark { opacity: .9; }
+  .family .bar { display: flex; align-items: center; gap: var(--s-3); }
+  .controls { display: flex; flex-wrap: wrap; gap: var(--s-4); margin-top: var(--s-5); align-items: center; }
+  .controls label { display: inline-flex; align-items: center; gap: 8px; font-size: var(--t-label); color: var(--ink-3); }
+  input[type=range] { width: 120px; accent-color: rgba(var(--mark), .7); }
+  .dots-grid { display: flex; flex-wrap: wrap; gap: var(--s-6) var(--s-7); padding: var(--s-4) 0; }
+  .dots-cell { display: grid; gap: var(--s-3); justify-items: center; }
+  .dots-pair { display: flex; align-items: flex-end; gap: var(--s-4); }
+  .dots-cell .name { font-size: var(--t-caption); color: var(--ink-3); letter-spacing: .04em; text-transform: uppercase; }
+  .dots-think { display: grid; gap: var(--s-3); margin-top: var(--s-5); }
+  .dots-think .strip { display: flex; align-items: center; gap: var(--s-5); }
+  .pip { transform-box: fill-box; transform-origin: center; animation: pip-lift 3.7s calc(var(--i) * -0.47s) ease-in-out infinite, pip-drift 11s calc(var(--i) * -1.7s) ease-in-out infinite; }
+  @keyframes pip-lift { 0%, 100% { opacity: .5; transform: scale(.86); } 50% { opacity: 1; transform: scale(1.12); } }
+  @keyframes pip-drift { 0%, 100% { translate: 0 0; } 50% { translate: 1.2px -.8px; } }
+  @media (prefers-reduced-motion: reduce) { .pip { animation: none; opacity: 1; } }
+  .pens { display: grid; gap: var(--s-5); }
+  .pen { display: grid; grid-template-columns: 220px 1fr; gap: var(--s-6); align-items: center; padding-top: var(--s-4); border-top: 1px solid var(--rule); }
+  .pen-title { font-size: var(--t-body); color: var(--ink); }
+  .pen-note { font-size: var(--t-label); color: var(--ink-3); line-height: 1.5; margin-top: 2px; }
+  .pen-cast { display: flex; flex-wrap: wrap; gap: var(--s-4) var(--s-7); }
+  .pairs { display: flex; flex-wrap: wrap; gap: var(--s-4) var(--s-5); }
+  .pair { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--rule); border-radius: 8px; }
+  .pair .sim { font: 400 10px/1 var(--mono); color: var(--ink-4); margin-left: 4px; }
+  .lineage { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--s-5); }
+  .lineage .item { display: grid; gap: var(--s-3); padding-top: var(--s-3); border-top: 1px solid var(--rule); }
+  .lineage .item .marks { display: flex; gap: 10px; align-items: center; height: 40px; }
+  .lineage .item .t { font-size: var(--t-label); color: var(--ink-3); line-height: 1.5; }
+  .lineage .item .t b { color: var(--ink); font-weight: 500; display: block; margin-bottom: 2px; }
+  .verdict { display: grid; grid-template-columns: 220px 1fr; gap: var(--s-6); }
+  table { border-collapse: collapse; width: 100%; font-size: var(--t-label); }
+  th, td { text-align: left; padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; color: var(--ink-2); }
+  th { font-weight: 500; color: var(--ink-3); font-size: var(--t-caption); letter-spacing: .06em; text-transform: uppercase; }
+  td:first-child { color: var(--ink); white-space: nowrap; }
+  .yes { color: var(--ink); } .meh { color: var(--ink-3); } .no { color: var(--ink-4); }
+  .note { color: var(--ink-3); font-size: var(--t-label); max-width: 60ch; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Identity marks</h1>
+      <p class="lede">One key, one mark, forever. The mark is <b>who</b>; the model is a fact about them and rides small beside the name. Seven ways to draw it, all from the same four real keys, so the cast is comparable at every size.</p>
+    </div>
+    <div class="tools">
+      <button id="paper" type="button">Paper</button>
+      <button id="reroll-all" type="button">Reroll every family</button>
+    </div>
+  </header>
+
+  <section id="lineage">
+    <div class="head"><div><div class="n">00</div><h2>Where the mark has been</h2></div>
+      <p class="intent">Four generations, drawn from Luca's real key. The doctrine that survived them: a mark is <em>static</em> (a mark that twinkles is a mark you cannot recognise), it must work at 28px, and a column of residents must scan at one weight.</p></div>
+    <div class="lineage" id="lineage-grid"></div>
+  </section>
+
+  <div id="directions"></div>
+
+  <section id="verdict">
+    <div class="verdict"><div><div class="n">11</div><h2>My read</h2></div>
+      <div>
+        <table>
+          <thead><tr><th>Direction</th><th>28px row</th><th>One weight</th><th>Family</th><th>Distinct</th><th>Feels like</th></tr></thead>
+          <tbody id="verdict-rows"></tbody>
+        </table>
+        <p class="note" style="margin-top:24px">The two I would pursue are marked with the dot in their titles. <b>Skeleton</b> is the refine path — the same marks you already have, drawn with a real pen instead of stacked squares, so no mark anyone has already learned changes. <b>Rune</b> is the new path — coarser, one stroke, diagonals — still key-derived, but it reads as writing rather than as pixels. And it carries the dot grid inside it: the same walk drawn as its corners is the braille mark for the brand and the surface the thinking state animates on. <b>Seal</b> is the signet alternative if you want the mark to be round and unlike anything else in the shell. Silhouette feels the most alive and I trust it the least in a column; Knot and Pips are pretty and cannot tell residents apart.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ---------------------------------------------------------------- seeds ----
+const CAST = [{"name": "Luca", "seed": "9dee6768a16dc99a2f399672eabffe3d1c2d30cd9daaeda8ae0c36074751b9f2"}, {"name": "Vektor", "seed": "a5c802e73f14b96d8e05c2a71b34df6982e0c5b7a41d3f8062c9e17b5d4a3062"}, {"name": "Anima", "seed": "5e54b0dd93105aae145641639ccd652d94b82e3d760f714443916e9210440669"}, {"name": "ziggy", "seed": "3e9f27c1b8a45d60f2317e9ac5d84b06f19c2d7e5a3b8c604f1e2d9a7b5c3084"}]; // [{name, seed}] — Luca uses the app's fixed seed.
+const FAMILY_N = 12;
+
+// Same PRNG as glyph.ts, so the current system reproduces the app's marks.
+function seeded(input) {
+  const str = String(input);
+  let h = 1779033703 ^ str.length;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  return () => {
+    h = Math.imul(h ^ (h >>> 16), 2246822507);
+    h = Math.imul(h ^ (h >>> 13), 3266489909);
+    h ^= h >>> 16;
+    return (h >>> 0) / 4294967296;
+  };
+}
+const svgNS = "http://www.w3.org/2000/svg";
+function svg(size, children, cls) {
+  const el = document.createElementNS(svgNS, "svg");
+  el.setAttribute("viewBox", "0 0 100 100");
+  el.setAttribute("width", size); el.setAttribute("height", size);
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML = children;
+  const wrap = document.createElement("span");
+  wrap.className = "mark" + (cls ? " " + cls : "");
+  wrap.appendChild(el);
+  return wrap;
+}
+const INK = () => `rgb(${getComputedStyle(document.documentElement).getPropertyValue("--mark")})`;
+const ink = "currentColor";
+
+// ------------------------------------------- generation 3: the current mark --
+const N = 7, AREA = 49, MIN_LIT = 17, MAX_LIT = 23, MAX_LOOSE = 4, P_MIN = .38, P_SPAN = .1, CAP = 150000, RELAXED = 40000;
+function orbitsFor(sym) {
+  const partner = (x, y) => sym === "mirror" ? [N - 1 - x, y] : [N - 1 - x, N - 1 - y];
+  const claimed = new Uint8Array(AREA), out = [];
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const here = y * N + x; if (claimed[here]) continue;
+    const [px, py] = partner(x, y); const there = py * N + px;
+    claimed[here] = 1; claimed[there] = 1;
+    out.push(here === there ? [here] : [here, there]);
+  }
+  return out;
+}
+const ORBITS = { mirror: orbitsFor("mirror"), rot2: orbitsFor("rot2") };
+const scratch = new Uint8Array(AREA), visited = new Uint8Array(AREA), frontier = new Int32Array(AREA);
+function rims(c) { let t=0,b=0,l=0,r=0; for (let i=0;i<N;i++){ t|=c[i]; b|=c[(N-1)*N+i]; l|=c[i*N]; r|=c[i*N+N-1]; } return t&&b&&l&&r; }
+function noQuad(c) { for (let y=0;y<N-1;y++){ const row=y*N; for (let x=0;x<N-1;x++){ if (c[row+x]&&c[row+x+1]&&c[row+N+x]&&c[row+N+x+1]) return false; } } return true; }
+function loose(c, stop) { let e=0; for (let y=0;y<N;y++) for (let x=0;x<N;x++){ const i=y*N+x; if(!c[i]) continue; let d=0; if(x>0&&c[i-1])d++; if(x<N-1&&c[i+1])d++; if(y>0&&c[i-N])d++; if(y<N-1&&c[i+N])d++; if(d===1){ e++; if(e>stop) return e; } } return e; }
+function onePiece(c, lit) { let s=-1; for (let i=0;i<AREA;i++) if(c[i]){s=i;break;} if(s<0) return false; visited.fill(0); let top=0; frontier[top++]=s; visited[s]=1; let reached=0; while(top){ const k=frontier[--top]; reached++; const x=k%N, y=(k/N)|0; if(x>0&&c[k-1]&&!visited[k-1]){visited[k-1]=1;frontier[top++]=k-1;} if(x<N-1&&c[k+1]&&!visited[k+1]){visited[k+1]=1;frontier[top++]=k+1;} if(y>0&&c[k-N]&&!visited[k-N]){visited[k-N]=1;frontier[top++]=k-N;} if(y<N-1&&c[k+N]&&!visited[k+N]){visited[k+N]=1;frontier[top++]=k+N;} } return reached===lit; }
+function propose(orbits, p, rnd) { scratch.fill(0); let lit=0; for (const o of orbits){ if (rnd()>=p) continue; for (const k of o) scratch[k]=1; lit+=o.length; } return lit; }
+function search(orbits, rnd, cap, tidy) { for (let d=0; d<cap; d++){ const lit=propose(orbits, P_MIN+rnd()*P_SPAN, rnd); if(lit<MIN_LIT||lit>MAX_LIT) continue; if(!rims(scratch)) continue; if(!noQuad(scratch)) continue; if(tidy && loose(scratch, MAX_LOOSE)>MAX_LOOSE) continue; if(!onePiece(scratch, lit)) continue; return scratch.slice(); } return null; }
+const glyphCache = new Map();
+function currentGlyph(seed) {
+  if (glyphCache.has(seed)) return glyphCache.get(seed);
+  const rnd = seeded(seed); const sym = rnd() < .5 ? "mirror" : "rot2";
+  const cells = search(ORBITS[sym], rnd, CAP, true) ?? search(ORBITS[sym], rnd, RELAXED, false) ?? new Uint8Array(AREA);
+  const g = { cells, sym }; glyphCache.set(seed, g); return g;
+}
+const lit = (c, x, y) => x>=0&&y>=0&&x<N&&y<N&&c[y*N+x]===1;
+// joined path, as render.ts draws it (corner 0.3 of a cell)
+function joinedPath(cells, corner = .3) {
+  const u = 100 / N; const parts = [];
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){ if(!lit(cells,x,y)) continue;
+    const n=lit(cells,x,y-1), s=lit(cells,x,y+1), w=lit(cells,x-1,y), e=lit(cells,x+1,y);
+    const tl=!n&&!w?corner:0, tr=!n&&!e?corner:0, br=!s&&!e?corner:0, bl=!s&&!w?corner:0;
+    const x0=x*u,y0=y*u,x1=(x+1)*u,y1=(y+1)*u, cu=u;
+    parts.push(`M${x0+tl*cu} ${y0}H${x1-tr*cu}${tr?`A${tr*cu} ${tr*cu} 0 0 1 ${x1} ${y0+tr*cu}`:""}V${y1-br*cu}${br?`A${br*cu} ${br*cu} 0 0 1 ${x1-br*cu} ${y1}`:""}H${x0+bl*cu}${bl?`A${bl*cu} ${bl*cu} 0 0 1 ${x0} ${y1-bl*cu}`:""}V${y0+tl*cu}${tl?`A${tl*cu} ${tl*cu} 0 0 1 ${x0+tl*cu} ${y0}`:""}Z`);
+  }
+  return `<path fill="${ink}" d="${parts.join("")}"/>`;
+}
+function dotsPath(cells, gap = .22) {
+  const u=100/N, r=(u*(1-gap))/2; let out="";
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++) if(lit(cells,x,y)) out+=`<circle fill="${ink}" cx="${x*u+u/2}" cy="${y*u+u/2}" r="${r}"/>`;
+  return out;
+}
+// ---- generation 1: mirrored noise (the identicon), for the lineage only ----
+function identicon(seed) { const rnd=seeded(seed); const c=new Uint8Array(AREA); for (let y=0;y<N;y++) for (let x=0;x<4;x++){ const on=rnd()<.5?1:0; c[y*N+x]=on; c[y*N+(N-1-x)]=on; } return c; }
+
+// ------------------------------------------------------ direction A: skeleton --
+// The same lattice, drawn as a stroke through cell centres with round joints.
+const A = { weight: .62, round: true };
+function skeleton(seed, opts = A) {
+  const { cells } = currentGlyph(seed); const u=100/N; const w=u*opts.weight; const cap=opts.round?"round":"square";
+  let d=""; const pts=[];
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++){ if(!lit(cells,x,y)) continue; const cx=x*u+u/2, cy=y*u+u/2; pts.push([cx,cy]);
+    if (lit(cells,x+1,y)) d+=`M${cx} ${cy}L${cx+u} ${cy}`; if (lit(cells,x,y+1)) d+=`M${cx} ${cy}L${cx} ${cy+u}`; }
+  const dots = opts.round ? "" : pts.map(([x,y])=>`<rect x="${x-w/2}" y="${y-w/2}" width="${w}" height="${w}" fill="${ink}"/>`).join("");
+  return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="${w}" stroke-linecap="${cap}" stroke-linejoin="round"/>${dots}${opts.round?pts.map(([x,y])=>`<circle cx="${x}" cy="${y}" r="${w/2}" fill="${ink}"/>`).join(""):""}`;
+}
+
+// -------------------------------------------------- direction B: constellation --
+function constellation(seed, size = 56) { const small = size < 20; const nr = size >= 40 ? 6.2 : size >= 24 ? 8.5 : 11;
+  const rnd = seeded("constellation:" + seed); const mirror = rnd() < .5;
+  const k = 5 + Math.floor(rnd()*3); const pts = [];
+  const cells = []; for (let y=0;y<5;y++) for (let x=0;x<(mirror?3:5);x++) cells.push([x,y]);
+  for (let i=0;i<k && cells.length;i++){ const j=Math.floor(rnd()*cells.length); const [gx,gy]=cells.splice(j,1)[0]; const px=12+gx*(mirror?19:19)+ (rnd()-.5)*8, py=12+gy*19+(rnd()-.5)*8; pts.push([px,py]); if (mirror && gx!==2) pts.push([100-px,py]); }
+  // minimum spanning tree (Prim)
+  const inT=[0], edges=[]; const left=new Set(pts.map((_,i)=>i)); left.delete(0);
+  while(left.size){ let best=null; for (const a of inT) for (const b of left){ const d=Math.hypot(pts[a][0]-pts[b][0],pts[a][1]-pts[b][1]); if(!best||d<best[2]) best=[a,b,d]; } edges.push(best); inT.push(best[1]); left.delete(best[1]); }
+  const bright = Math.floor(seeded("bright:"+seed)()*pts.length);
+  const lines = small ? "" : edges.map(([a,b])=>`<line x1="${pts[a][0]}" y1="${pts[a][1]}" x2="${pts[b][0]}" y2="${pts[b][1]}" stroke="${ink}" stroke-width="2.2" stroke-opacity=".45" stroke-linecap="round"/>`).join("");
+  const nodes = pts.map(([x,y],i)=>`<circle cx="${x}" cy="${y}" r="${i===bright?nr*1.45:nr}" fill="${ink}"/>`).join("");
+  return lines + nodes;
+}
+
+// ------------------------------------------------------------ direction C: seal --
+function arc(cx, cy, r, a0, a1) { const p=(a)=>[cx+r*Math.cos(a), cy+r*Math.sin(a)]; const [x0,y0]=p(a0), [x1,y1]=p(a1); const large=(a1-a0)%(Math.PI*2)>Math.PI?1:0; return `M${x0} ${y0}A${r} ${r} 0 ${large} 1 ${x1} ${y1}`; }
+function seal(seed) {
+  // One ring, broken in one or two seeded places, around one interior figure.
+  // Three rings looked like a fingerprint at 28px and a smudge at 16; a ring
+  // and a figure is a signet at every size.
+  const rnd = seeded("seal:" + seed); const rot = rnd()*Math.PI*2; const w = 10;
+  const gaps = 1 + Math.floor(rnd()*2); const cuts = [];
+  for (let g=0; g<gaps; g++){ const start = (g/gaps)*Math.PI*2 + rnd()*1.2; const width = .55 + rnd()*.6; cuts.push([start, start+width]); }
+  const norm = (x)=>((x%(Math.PI*2))+Math.PI*2)%(Math.PI*2);
+  const cut = cuts.map(([s,e])=>[norm(s), norm(s)+(e-s)]).sort((a,b)=>a[0]-b[0]);
+  const segs = []; let cursor = 0;
+  for (const [s,e] of cut){ if (s>cursor) segs.push([cursor,s]); cursor=Math.max(cursor,e); }
+  if (cursor < Math.PI*2) segs.push([cursor, Math.PI*2]);
+  let d = ""; for (const [s,e] of segs){ if (e-s < .15) continue; d += arc(50,50,39, s+rot, e+rot); }
+  const kind = Math.floor(rnd()*4); const a = rnd()*Math.PI; let inner = "";
+  if (kind === 0) inner = `<circle cx="50" cy="50" r="9" fill="${ink}"/>`;
+  else if (kind === 1) { const l=15; inner = `<line x1="${50-l*Math.cos(a)}" y1="${50-l*Math.sin(a)}" x2="${50+l*Math.cos(a)}" y2="${50+l*Math.sin(a)}" stroke="${ink}" stroke-width="${w}" stroke-linecap="round"/>`; }
+  else if (kind === 2) { const o=12; inner = `<circle cx="${50-o*Math.cos(a)}" cy="${50-o*Math.sin(a)}" r="7" fill="${ink}"/><circle cx="${50+o*Math.cos(a)}" cy="${50+o*Math.sin(a)}" r="7" fill="${ink}"/>`; }
+  else inner = `<path d="${arc(50,50,17, a, a+1.9)}" fill="none" stroke="${ink}" stroke-width="${w}" stroke-linecap="round"/>`;
+  return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="${w}" stroke-linecap="round"/>${inner}`;
+}
+
+// ------------------------------------------------------- direction D: signature --
+function catmull(pts) { let d=`M${pts[0][0]} ${pts[0][1]}`; for (let i=0;i<pts.length-1;i++){ const p0=pts[Math.max(0,i-1)], p1=pts[i], p2=pts[i+1], p3=pts[Math.min(pts.length-1,i+2)]; const c1=[p1[0]+(p2[0]-p0[0])/6, p1[1]+(p2[1]-p0[1])/6], c2=[p2[0]-(p3[0]-p1[0])/6, p2[1]-(p3[1]-p1[1])/6]; d+=`C${c1[0]} ${c1[1]} ${c2[0]} ${c2[1]} ${p2[0]} ${p2[1]}`; } return d; }
+function signature(seed) {
+  const rnd = seeded("signature:" + seed); const n = 5 + Math.floor(rnd()*2); const pts=[];
+  for (let i=0;i<n;i++){ pts.push([14+rnd()*72, 14+rnd()*72]); }
+  // spread: push points apart a little so the stroke does not knot
+  for (let it=0; it<3; it++) for (let i=0;i<n;i++) for (let j=i+1;j<n;j++){ const dx=pts[j][0]-pts[i][0], dy=pts[j][1]-pts[i][1]; const d=Math.hypot(dx,dy)||1; if(d<22){ const k=(22-d)/2; pts[i][0]-=dx/d*k; pts[i][1]-=dy/d*k; pts[j][0]+=dx/d*k; pts[j][1]+=dy/d*k; } }
+  const clamp=(v)=>Math.max(10,Math.min(90,v)); for (const p of pts){ p[0]=clamp(p[0]); p[1]=clamp(p[1]); }
+  const d = catmull(pts); const bow = rnd() < .4;
+  return `<path d="${d}" fill="none" stroke="${ink}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>${bow?`<path d="${d}" transform="translate(100 0) scale(-1 1)" fill="none" stroke="${ink}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>`:""}`;
+}
+
+// ------------------------------------------------------------ direction E: knot --
+function knot(seed) {
+  const rnd = seeded("knot:" + seed); const mirror = rnd() < .5; const u = 100/3; let d="";
+  const tiles=[]; for (let y=0;y<3;y++){ tiles.push([]); for (let x=0;x<3;x++){ tiles[y].push(rnd()<.5?0:1); } }
+  if (mirror) for (let y=0;y<3;y++){ tiles[y][2]=1-tiles[y][0]; }
+  for (let y=0;y<3;y++) for (let x=0;x<3;x++){ const x0=x*u,y0=y*u; const r=u/2;
+    if (tiles[y][x]===0){ d+=`M${x0+r} ${y0}A${r} ${r} 0 0 0 ${x0} ${y0+r}M${x0+u} ${y0+r}A${r} ${r} 0 0 0 ${x0+r} ${y0+u}`; }
+    else { d+=`M${x0+r} ${y0}A${r} ${r} 0 0 1 ${x0+u} ${y0+r}M${x0} ${y0+r}A${r} ${r} 0 0 1 ${x0+r} ${y0+u}`; } }
+  return `<clipPath id="k${cssId(seed)}"><rect x="2" y="2" width="96" height="96" rx="22"/></clipPath><g clip-path="url(#k${cssId(seed)})"><path d="${d}" fill="none" stroke="${ink}" stroke-width="8" stroke-linecap="round"/></g>`;
+}
+function cssId(s){ let h=0; for (const ch of s) h=(h*31+ch.charCodeAt(0))>>>0; return h.toString(36); }
+
+// ------------------------------------------------------------ direction F: pips --
+function pips(seed) {
+  const rnd = seeded("pips:" + seed); const sym = rnd()<.5?"mirror":"rot2"; const orb = orbitsFor3(sym);
+  let cells; for (let t=0;t<200;t++){ cells=new Uint8Array(9); let on=0; for (const o of orb){ if(rnd()<.45){ for (const k of o) cells[k]=1; on+=o.length; } } if (on>=3&&on<=6&&(cells[4]||cells[1]||cells[3]||cells[5]||cells[7])) break; }
+  const u=100/3; let out=""; for (let i=0;i<9;i++) if(cells[i]){ const x=(i%3)*u+u/2, y=Math.floor(i/3)*u+u/2; out+=`<circle cx="${x}" cy="${y}" r="12.5" fill="${ink}"/>`; }
+  return out;
+}
+function orbitsFor3(sym){ const partner=(x,y)=>sym==="mirror"?[2-x,y]:[2-x,2-y]; const claimed=new Uint8Array(9), out=[]; for (let y=0;y<3;y++) for (let x=0;x<3;x++){ const h=y*3+x; if(claimed[h]) continue; const [px,py]=partner(x,y); const t=py*3+px; claimed[h]=1; claimed[t]=1; out.push(h===t?[h]:[h,t]); } return out; }
+
+// ------------------------------------------------------ direction G: silhouette --
+function silhouette(seed) {
+  const rnd = seeded("silhouette:" + seed); const harmonics=[]; for (let k=2;k<=5;k++) harmonics.push([k, (rnd()*.22)/Math.sqrt(k), rnd()*Math.PI*2]);
+  const pts=[]; const M=96; for (let i=0;i<M;i++){ const t=i/M*Math.PI*2; let r=1; for (const [k,a,ph] of harmonics) r+=a*Math.cos(k*t+ph); r=Math.max(.62, r); pts.push([50+r*38*Math.cos(t), 50+r*38*Math.sin(t)]); }
+  let d=`M${pts[0][0]} ${pts[0][1]}`; for (let i=1;i<=M;i++){ const p=pts[i%M], q=pts[(i+1)%M]; d+=`Q${p[0]} ${p[1]} ${(p[0]+q[0])/2} ${(p[1]+q[1])/2}`; }
+  const eye = seeded("eye:"+seed)() < .5;
+  return `<path d="${d}Z" fill="${ink}"/>${eye?`<circle cx="${50+(rnd()-.5)*18}" cy="${50+(rnd()-.5)*18}" r="6" fill="var(--floor)"/>`:""}`;
+}
+
+// ------------------------------------------------------------ direction H: rune --
+const MOVES = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+/**
+ * One self-avoiding stroke on a 5x5 lattice, diagonals allowed, no hairpins.
+ * opts.mirrorP: share of marks drawn as a mirrored pair.
+ * opts.fixed: true = the lattice itself fills the box (translation only, and
+ * the walk must span >= 3 cells both ways); false = the walk's own bounding
+ * box is scaled to fill (bigger marks, but scale is erased, so a 2-cell and a
+ * 4-cell diagonal collapse to one shape).
+ */
+function runeWalk(seed, opts = {}) {
+  const mirrorP = opts.mirrorP ?? .35, fixed = opts.fixed ?? true, M = opts.M ?? 5;
+  const lenMin = opts.lenMin ?? 4, lenMax = opts.lenMax ?? 6, doubles = opts.doubles ?? false, dotP = opts.dotP ?? 0;
+  const rnd = seeded("rune:" + seed); const mirror = rnd() < mirrorP;
+  const minSpan = fixed ? 3 : 2;
+  let walk = null;
+  for (let attempt = 0; attempt < 600 && !walk; attempt++) {
+    const w = [[Math.floor(rnd()*M), Math.floor(rnd()*M)]]; const used = new Set([w[0].join()]);
+    const len = lenMin + Math.floor(rnd()*(lenMax - lenMin + 1)); let ok = true; let last = null;
+    for (let i = 0; i < len; i++) {
+      const [x, y] = w[w.length-1];
+      const cands = [];
+      for (const [dx, dy] of MOVES) {
+        if (last && dx === -last[0] && dy === -last[1]) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= M || ny >= M || used.has(nx + "," + ny)) continue;
+        cands.push([dx, dy, 1]);
+        // a double-length straight move: the cell passed through must be free too
+        if (doubles && (dx === 0 || dy === 0)) { const mx = x + 2*dx, my = y + 2*dy; if (mx >= 0 && my >= 0 && mx < M && my < M && !used.has(mx + "," + my)) cands.push([dx, dy, 2]); }
+      }
+      if (!cands.length) { ok = false; break; }
+      const [dx, dy, k] = cands[Math.floor(rnd()*cands.length)]; last = [dx, dy];
+      for (let s = 1; s <= k; s++) used.add((x + dx*s) + "," + (y + dy*s));
+      w.push([x + dx*k, y + dy*k]);
+    }
+    if (!ok) continue;
+    const xs = w.map(p=>p[0]), ys = w.map(p=>p[1]);
+    if (Math.max(...xs)-Math.min(...xs) < minSpan-1 || Math.max(...ys)-Math.min(...ys) < minSpan-1) continue;
+    walk = w;
+  }
+  if (!walk) walk = [[0,0],[1,1],[2,2],[3,3],[4,4]];
+  // an optional detached dot, in a free cell at least one cell clear of the stroke
+  let dot = null;
+  if (dotP > 0 && rnd() < dotP) {
+    const occupied = new Set(); for (let i = 0; i < walk.length - 1; i++) { const [x0,y0] = walk[i], [x1,y1] = walk[i+1]; const k = Math.max(Math.abs(x1-x0), Math.abs(y1-y0)); for (let s = 0; s <= k; s++) occupied.add((x0 + Math.sign(x1-x0)*s) + "," + (y0 + Math.sign(y1-y0)*s)); }
+    const free = []; for (let y = 0; y < M; y++) for (let x = 0; x < M; x++) { let clear = true; for (let dy=-1; dy<=1 && clear; dy++) for (let dx=-1; dx<=1; dx++) if (occupied.has((x+dx)+","+(y+dy))) { clear = false; break; } if (clear) free.push([x,y]); }
+    if (free.length) dot = free[Math.floor(rnd()*free.length)];
+  }
+  const all = dot ? [...walk, dot] : walk;
+  const xs = all.map(p=>p[0]), ys = all.map(p=>p[1]);
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+  const pad = 14; let map;
+  if (fixed) {
+    // `fill`: a walk that spans fewer than 4 cells is scaled up so its larger
+    // span fills the box — a column of residents then scans at one weight.
+    const span = Math.max(maxx - minx, maxy - miny) || 1;
+    const grow = opts.fill && span < M - 1 ? (M - 1) / span : 1;
+    const cell = ((100 - pad*2) / (M - 1)) * grow;
+    const ox = ((M - 1) / grow - (maxx - minx)) / 2 - minx, oy = ((M - 1) / grow - (maxy - miny)) / 2 - miny;
+    map = ([x,y]) => [pad + (x + ox) * cell, pad + (y + oy) * cell];
+  }
+  else { const span = Math.max(maxx-minx, maxy-miny) || 1; const scale = (100 - pad*2) / span; const ox = (100 - (maxx-minx)*scale)/2, oy = (100 - (maxy-miny)*scale)/2; map = ([x,y]) => [ox + (x-minx)*scale, oy + (y-miny)*scale]; }
+  return { P: walk.map(map), dot: dot ? map(dot) : null, mirror, walk };
+}
+
+// Rune settings — the dials on the page write here.
+const R = { fixed: true, fill: true, lenMin: 4, lenMax: 7, doubles: false, dotP: .4, mirrorP: .12, weight: 11 };
+function runeGeometry(seed) { return runeWalk(seed, R); }
+
+// ---- two renderings of one mark: the stroke (the formal ID) and the dots ----
+const mirrorPts = (P) => P.map(([x,y]) => [100 - x, y]);
+const polyD = (P) => P.map(([x,y],i) => `${i?"L":"M"}${x} ${y}`).join("");
+function strokeSvg(P, dot, w) {
+  return `<path d="${polyD(P)}" fill="none" stroke="${ink}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>` + (dot ? `<circle cx="${dot[0]}" cy="${dot[1]}" r="${w*.55}" fill="${ink}"/>` : "");
+}
+// The corners of the walk, as pips. Big on purpose: the brand's dot grid.
+function dotsSvg(P, dot, w, animate = false) {
+  const r = w * .72; const pts = dot ? [...P, dot] : P;
+  return pts.map(([x,y], i) => `<circle class="${animate ? "pip" : ""}" cx="${x}" cy="${y}" r="${r}" fill="${ink}" style="--i:${i}"/>`).join("");
+}
+function rune(seed, form = "stroke", animate = false) {
+  const g = runeGeometry(seed); const w = R.weight; const draw = form === "dots" ? (P, d) => dotsSvg(P, d, w, animate) : (P, d) => strokeSvg(P, d, w);
+  let out = draw(g.P, g.dot);
+  if (g.mirror) out += draw(mirrorPts(g.P), g.dot ? [100 - g.dot[0], g.dot[1]] : null);
+  return out;
+}
+
+// ------------------------------------------------------------- the directions --
+const DIRECTIONS = [
+  { id: "current", n: "01", title: "Current", intent: "Where we are: a 7×7 lattice that survives five rules, drawn as a joined pixel-font stroke. Constrained noise. Distinct and honest — and the thing you do not love. Kept here so every other row is judged against it.", draw: (s) => joinedPath(currentGlyph(s).cells), family: true },
+  { id: "skeleton", n: "02", title: "Skeleton", pick: true, intent: "The <em>same marks</em>, drawn as a stroke through the cell centres with round joints instead of as stacked squares. Nobody's mark changes — only the pen does. Weight and cap are the two dials.", draw: (s) => skeleton(s, A), family: true, controls: "skeleton" },
+  { id: "seal", n: "03", title: "Seal", intent: "One ring, broken in one or two seeded places, around a single interior figure — a dot, a bar, a pair, an arc. A signet: something that <em>belongs</em> to a person. Round on purpose, because nothing else in the shell is round. (The three-ring version looked like a fingerprint at 28px; this is the cut that survives 16.)", draw: (s) => seal(s), family: true },
+  { id: "constellation", n: "04", title: "Constellation", intent: "Five to seven seeded stars joined by a hairline tree. At 56px it is a chart; at 16px the lines drop and only the stars remain, which is the same silhouette at a glance. The brightest star is that resident's fixed point.", draw: (s, size) => constellation(s, size), family: true },
+  { id: "silhouette", n: "05", title: "Silhouette", intent: "A pebble. Low harmonics on a circle, filled — every key its own soft shape, sometimes with one hollow. The most <em>alive</em> of the seven and the one closest to the mote orbs, but it is a body, not a symbol, and I distrust it in a column.", draw: (s) => silhouette(s), family: true },
+  { id: "knot", n: "06", title: "Knot", intent: "Nine Truchet tiles: quarter-arcs that always meet, so every key draws a continuous endless knot. Coherent to a fault — the family reads as one weave — which is exactly its weakness for telling residents apart.", draw: (s) => knot(s), family: true },
+  { id: "rune", n: "07", title: "Rune", pick: true, intent: "A coarser lattice — five by five — and <em>one</em> continuous stroke of four to seven moves, diagonals allowed, and now and then a detached dot. The diagonals are what the current system cannot draw, and they are what makes these read as letters from an alphabet nobody has seen rather than as pixels. Some are mirrored into a heraldic pair. Measured over 4,000 keys: <em>98.1% distinct</em> (the current system: 96.1% on the same test). Mirroring is rationed to 12%: a mirrored stroke becomes a little house, and houses look alike. A walk that spans fewer than four cells is scaled to fill its box, so a column of residents scans at one weight.", draw: (s) => rune(s), family: true, controls: "rune" },
+  { id: "pips", n: "08", title: "Pips", intent: "Three by three, three to six big dots, mirrored or rotated. Legible at any size and friendlier than anything else here. But the whole universe is a few hundred marks, so two residents will share one — a die face is not an identity.", draw: (s) => pips(s), family: true },
+];
+
+const VERDICT = [
+  ["Current", "yes", "yes", "yes", "yes", "a pixel font's initials"],
+  ["Skeleton", "yes", "yes", "yes", "yes", "calligraphy — the same initials, a real pen"],
+  ["Seal", "yes", "yes", "yes", "meh", "a signet; a person's stamp"],
+  ["Constellation", "meh", "meh", "yes", "yes", "a chart of someone — but it fades at row size"],
+  ["Silhouette", "meh", "no", "meh", "meh", "a creature; a body — blobs at 24px"],
+  ["Knot", "no", "yes", "yes", "no", "one weave, many residents"],
+  ["Rune", "yes", "yes", "yes", "yes", "a letter from an alphabet nobody has seen — 98.1% distinct, measured"],
+  ["Pips", "yes", "yes", "yes", "no", "a die face"],
+];
+
+function markEl(dir, seed, size) { return svg(size, dir.draw(seed, size)); }
+let roll = 0;
+function familySeeds(dir) { return Array.from({ length: FAMILY_N }, (_, i) => `family:${dir.id}:${roll}:${i}`); }
+
+function renderDirection(dir) {
+  const sec = document.createElement("section"); sec.id = dir.id;
+  sec.innerHTML = `<div class="head"><div><div class="n">${dir.n}</div><h2>${dir.title}${dir.pick?'<span class="pick" title="I would pursue this one"></span>':""}</h2></div><p class="intent">${dir.intent}</p></div>
+    <div class="grid"><div class="cast"></div><div class="side"></div></div>`;
+  const cast = sec.querySelector(".cast");
+  for (const who of CAST) {
+    const cell = document.createElement("div"); cell.className = "who";
+    const sizes = document.createElement("div"); sizes.className = "sizes";
+    for (const sz of [56, 28, 16]) { const s = document.createElement("div"); s.className = "sz"; s.appendChild(markEl(dir, who.seed, sz)); const px = document.createElement("span"); px.className = "px"; px.textContent = sz; s.appendChild(px); sizes.appendChild(s); }
+    cell.appendChild(sizes); const nm = document.createElement("div"); nm.className = "name"; nm.textContent = who.name; cell.appendChild(nm); cast.appendChild(cell);
+  }
+  const side = sec.querySelector(".side");
+  // in context: a rail row and a message row
+  const ctx = document.createElement("div"); ctx.className = "context";
+  ctx.innerHTML = `<div class="ctx-label">In context</div>`;
+  const row = document.createElement("div"); row.className = "row"; row.appendChild(markEl(dir, CAST[1].seed, 16)); row.insertAdjacentHTML("beforeend", `<span class="nm">${CAST[1].name}</span><span class="hz"></span><span class="t">27m</span>`); ctx.appendChild(row);
+  const msg = document.createElement("div"); msg.className = "msg"; msg.appendChild(markEl(dir, CAST[0].seed, 21)); msg.insertAdjacentHTML("beforeend", `<div><div class="hd">${CAST[0].name}<span class="hz"></span></div><div class="body">We can. Vektor, find three places near Jamie's that do vegetarian well and can seat six on a Saturday.</div></div>`); ctx.appendChild(msg);
+  side.appendChild(ctx);
+  // family
+  const fam = document.createElement("div"); fam.className = "family";
+  fam.innerHTML = `<div class="bar"><span class="ctx-label">Twelve strangers — coherence and distinctness</span><button type="button" data-reroll>Reroll</button></div><div class="strip"></div>`;
+  const strip = fam.querySelector(".strip");
+  const paint = () => { strip.innerHTML = ""; for (const s of familySeeds(dir)) strip.appendChild(markEl(dir, s, 24)); };
+  paint(); fam.querySelector("[data-reroll]").addEventListener("click", () => { roll++; paint(); });
+  side.appendChild(fam);
+  sec._repaintFamily = paint;
+  // controls
+  if (dir.controls === "rune") {
+    const c = document.createElement("div"); c.className = "controls";
+    c.innerHTML = `<label>Mirrored <input type="range" min="0" max="100" value="${Math.round(R.mirrorP*100)}" data-m /> <span data-mv>${Math.round(R.mirrorP*100)}%</span></label><label>Dot <input type="range" min="0" max="60" value="${Math.round(R.dotP*100)}" data-d /> <span data-dv>${Math.round(R.dotP*100)}%</span></label><label>Weight <input type="range" min="8" max="18" value="${R.weight}" data-w /></label>`;
+    c.querySelector("[data-m]").addEventListener("input", (e) => { R.mirrorP = e.target.value/100; repaintRune(); });
+    c.querySelector("[data-d]").addEventListener("input", (e) => { R.dotP = e.target.value/100; repaintRune(); });
+    c.querySelector("[data-w]").addEventListener("input", (e) => { R.weight = +e.target.value; repaintRune(); });
+    side.appendChild(c);
+  }
+  if (dir.controls === "skeleton") {
+    const c = document.createElement("div"); c.className = "controls";
+    c.innerHTML = `<label>Weight <input type="range" min="40" max="90" value="${Math.round(A.weight*100)}" data-w /></label><label><input type="checkbox" checked data-round /> Round caps</label>`;
+    const repaint = () => { sec.querySelectorAll(".cast .mark svg, .context .mark svg").forEach((el) => { const seed = el.dataset.seed; }); rerenderSection(sec, dir); };
+    c.querySelector("[data-w]").addEventListener("input", (e) => { A.weight = e.target.value / 100; rerenderSection(sec, dir); });
+    c.querySelector("[data-round]").addEventListener("change", (e) => { A.round = e.target.checked; rerenderSection(sec, dir); });
+    side.appendChild(c);
+  }
+  return sec;
+}
+function rerenderSection(sec, dir) { const fresh = renderDirection(dir); sec.replaceWith(fresh); }
+
+const RUNE_PAIRS = [["ce7a927150bbf4f11162d9bc12f680efb3d6462f9773af9a312171b166450f17", "81bd9299fa0e00bfea6ca14d23ded8e9efd15d8ff0e20b304ebc4266d5497f50", 1], ["3c886568794c92014877198f4b64944577b353e742798eff8a4fe6c403e23d67", "698c929b706f68fe7c13b3127b38090c362adcc9d54e787db72725cafe6ca0a2", 1], ["17df753ae3a75844eaa123884507b5a18a53da928774d0fdbb70b99dc2e59327", "ff65ea11ff02cb3ad85bc8f050fe1e6c8d260a4f99f9eae928e10277d5ed7830", 1], ["17df753ae3a75844eaa123884507b5a18a53da928774d0fdbb70b99dc2e59327", "50174361356a3e36dc3fc53c105aca56c36e6ef428e9563031516752e2f592b9", 1], ["c8ed6a836209322aa2b471cffc819bb27e45e864635d4890b9ccaa5a9c90f191", "8c8b7b73954f6060125d79ed711f09d74cbe02604537a0e2f4ee97314e1de364", 1], ["63f3ae1f41ef118069bf9c4f9406da663db3f1aa4b646615e98bbd0d1785acd4", "04911ae57f60d624ba914701ac1e1c70cc74042d67264393683c21ee4fdfebd9", 1], ["929b22df7fdca1dabe31b44040f58eed26b44da912338b843699a86425122902", "eedd3a475efc3f3c97e579459c925b8ac706b8fccea0fdf6ac5070ffc2bc353c", 1], ["8562ebf07b832e1e4968eda56f8a613fa54f459b4691e1a7f3a4ff271be25aa6", "0f8d77d0d11b556bbd8ade6aa86acbb8afdc2e6313b745fcaa61aa652c692fef", 1]];
+const RUNE_STATS = {"n": 4000, "distinct": 0.98075, "dotDistinct": 0.8165, "exact": 77, "nearShare": 0.0003397099274818705, "currentDistinct": 0.9613333333333334, "currentNearShare": 0.0014560818323326662};
+function repaintRune() {
+  const sec = document.getElementById("rune"); if (sec) rerenderSection(sec, DIRECTIONS.find((d) => d.id === "rune"));
+  document.getElementById("dots")?.remove(); document.getElementById("pairs")?.remove(); renderDots(); renderPairs();
+}
+function renderDots() {
+  const host = document.getElementById("directions");
+  const sec = document.createElement("section"); sec.id = "dots";
+  sec.innerHTML = `<div class="head"><div><div class="n">09</div><h2>The rune as dots</h2></div><p class="intent">A rune is a walk across a grid, and its corners are grid points. Draw the <em>line</em> and it is the formal mark — the thing a column of residents wears at 16px. Draw the <em>corners</em> and it is the brand's dot grid: the same identity, big and braille, for a profile, a logo touch, a splash. Dots alone are not enough to be the ID — different walks share corners (${(RUNE_STATS.dotDistinct*100).toFixed(0)}% distinct as dots, against ${(RUNE_STATS.distinct*100).toFixed(1)}% as a line) — which is exactly the division you named: rune for the record, dots for the feel.</p></div>
+    <div class="dots-grid"></div>
+    <div class="dots-think"><div class="ctx-label">Thinking — the mark's own dots, lifting in the order the stroke was written</div><div class="strip"></div></div>`;
+  const grid = sec.querySelector(".dots-grid");
+  for (const who of CAST) {
+    const cell = document.createElement("div"); cell.className = "dots-cell";
+    cell.innerHTML = `<div class="dots-big"></div><div class="dots-pair"></div><div class="name">${who.name}</div>`;
+    cell.querySelector(".dots-big").appendChild(svg(112, rune(who.seed, "dots")));
+    const pair = cell.querySelector(".dots-pair");
+    for (const sz of [28, 16]) { const p = document.createElement("div"); p.className = "sz"; p.appendChild(svg(sz, rune(who.seed, "stroke"))); const px = document.createElement("span"); px.className = "px"; px.textContent = sz; p.appendChild(px); pair.appendChild(p); }
+    for (const sz of [28]) { const p = document.createElement("div"); p.className = "sz"; p.appendChild(svg(sz, rune(who.seed, "dots"))); const px = document.createElement("span"); px.className = "px"; px.textContent = "dots"; p.appendChild(px); pair.appendChild(p); }
+    grid.appendChild(cell);
+  }
+  const strip = sec.querySelector(".dots-think .strip");
+  for (const who of CAST) { strip.appendChild(svg(56, rune(who.seed, "dots", true))); strip.appendChild(svg(28, rune(who.seed, "dots", true))); }
+  host.appendChild(sec);
+}
+function renderPairs() {
+  const host = document.getElementById("directions");
+  const sec = document.createElement("section"); sec.id = "pairs";
+  const st = RUNE_STATS;
+  sec.innerHTML = `<div class="head"><div><div class="n">10</div><h2>The closest pairs</h2></div><p class="intent">Out of ${st.n.toLocaleString()} random keys: <em>${(st.distinct*100).toFixed(1)}% distinct</em>, ${st.exact} exact repeats; ${(st.nearShare*100).toFixed(2)}% of all pairs look alike on a coarse 16-cell raster, against ${(st.currentNearShare*100).toFixed(2)}% for the current system. These are the eight nearest — the honest worst case. If you can tell them apart at 28px, the space is big enough.</p></div><div class="pairs"></div>`;
+  const grid = sec.querySelector(".pairs");
+  for (const [a, b, sim] of RUNE_PAIRS) { const el = document.createElement("div"); el.className = "pair"; el.appendChild(svg(28, rune(a))); el.appendChild(svg(28, rune(b))); el.insertAdjacentHTML("beforeend", `<span class="sim">${Math.round(sim*100)}%</span>`); grid.appendChild(el); }
+  host.appendChild(sec);
+}
+function renderLineage() {
+  const grid = document.getElementById("lineage-grid"); const seed = CAST[0].seed;
+  const items = [
+    ["Identicon", "Mirrored noise at 50%. Symmetric grit — every resident the same Rorschach blot.", () => svg(28, dotsPath(identicon(seed), .3))],
+    ["Grown / constructed", "Cell-by-cell growth made insects; strokes made only ~3,000 marks. Both rejected.", () => svg(28, joinedPath(currentGlyph("constructed:" + seed).cells, .05))],
+    ["Current", "A symmetric bitfield that survives five rules, joined into one stroke. ~98% distinct.", () => svg(28, joinedPath(currentGlyph(seed).cells))],
+    ["Filament & breath", "State lives inside the mark: light travels the stroke while thinking; idle, the whole mark breathes.", () => { const el = svg(28, joinedPath(currentGlyph(seed).cells)); el.style.animation = "breath 4.2s ease-in-out infinite"; return el; }],
+  ];
+  for (const [t, body, make] of items) { const it = document.createElement("div"); it.className = "item"; const marks = document.createElement("div"); marks.className = "marks"; marks.appendChild(make()); it.appendChild(marks); it.insertAdjacentHTML("beforeend", `<div class="t"><b>${t}</b>${body}</div>`); grid.appendChild(it); }
+}
+const style = document.createElement("style"); style.textContent = "@keyframes breath{0%,100%{opacity:.86}50%{opacity:1}}"; document.head.appendChild(style);
+
+function boot() {
+  renderLineage();
+  const host = document.getElementById("directions");
+  for (const dir of DIRECTIONS) host.appendChild(renderDirection(dir));
+  renderDots(); renderPairs();
+  const rows = document.getElementById("verdict-rows");
+  for (const [name, a, b, c, d, feel] of VERDICT) { const word = (v) => v === "yes" ? "yes" : v === "meh" ? "partly" : "no"; rows.insertAdjacentHTML("beforeend", `<tr><td>${name}</td><td class="${a}">${word(a)}</td><td class="${b}">${word(b)}</td><td class="${c}">${word(c)}</td><td class="${d}">${word(d)}</td><td>${feel}</td></tr>`); }
+  document.getElementById("paper").addEventListener("click", () => { const r = document.documentElement; if (r.hasAttribute("data-paper")) r.removeAttribute("data-paper"); else r.setAttribute("data-paper", ""); });
+  document.getElementById("reroll-all").addEventListener("click", () => { roll++; document.querySelectorAll("#directions section").forEach((s) => s._repaintFamily && s._repaintFamily()); });
+}
+boot();
+</script>
+</body>
+</html>

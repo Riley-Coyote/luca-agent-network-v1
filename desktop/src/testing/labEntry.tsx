@@ -32,11 +32,10 @@ import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { roomProjectStorageKey } from "@/features/channels/lib/roomProjects";
+import { LAB_DMS, LAB_PROJECTS } from "@/testing/labScene";
 import { maybeInstallE2eTauriMocks } from "@/testing/e2eBridge";
 import {
-  LAB_DM_ID,
-  LAB_DM_TRANSCRIPT,
-  LAB_DM_WITH,
   LAB_EXCHANGES,
   LAB_OPEN_ROOM,
   LAB_OWNER,
@@ -54,7 +53,12 @@ import "@fontsource/doto/400.css";
 import "@/shared/styles/globals.css";
 
 const RELAY_URL = "ws://localhost:3000";
-const ROOM_ORDER: LabRoomKey[] = ["fieldNotes", "polyphonic", "drafts"];
+const ROOM_ORDER: LabRoomKey[] = [
+  "house",
+  "fieldNotes",
+  "polyphonic",
+  "drafts",
+];
 
 type MockChannelRow = { id: string; is_member?: boolean };
 
@@ -87,6 +91,13 @@ function seedStorage() {
       : "buzz",
   );
   store.removeItem("buzz-theme-cache");
+  // `?marks=rune` shows the rune identity mark (design decision 2026-08-31)
+  // everywhere a resident wears a face. Off by default until the port lands.
+  const requestedMarks = new URLSearchParams(window.location.search).get(
+    "marks",
+  );
+  if (requestedMarks === "rune" || requestedMarks === "polished")
+    store.setItem("luca.lab.marks", requestedMarks);
   // The drawer width persists per session; the lab always shows the default.
   window.sessionStorage.removeItem("buzz.desktop.thread-panel-width");
 
@@ -114,6 +125,25 @@ function seedStorage() {
   );
   store.setItem(`buzz-onboarding-complete.v1:${LAB_OWNER.pubkey}`, "true");
   store.setItem("luca-owner-onboarding-complete.v1", "true");
+
+  // Projects are device-local: a catalog plus one-project-per-room. The rail
+  // reads this store, so seeding it is what turns "Channels" into Projects.
+  store.setItem(
+    roomProjectStorageKey(LAB_OWNER.pubkey, RELAY_URL),
+    JSON.stringify({
+      assignments: Object.fromEntries(
+        LAB_PROJECTS.flatMap((project) =>
+          project.rooms.map((room) => [LAB_ROOMS[room].id, project.id]),
+        ),
+      ),
+      projects: LAB_PROJECTS.map((project) => ({
+        id: project.id,
+        label: project.label,
+        workingContextStatus: "none",
+      })),
+      version: 1,
+    }),
+  );
   store.setItem(
     `buzz-welcome-channel-ensured.v2:${encodeURIComponent(RELAY_URL)}:${LAB_OWNER.pubkey}`,
     "true",
@@ -227,15 +257,17 @@ function sayAll(channelId: string, turns: LabTurn[]) {
 async function buildScene() {
   await clearStockChannels();
 
+  const projectRooms = new Set(
+    LAB_PROJECTS.flatMap((project) => project.rooms),
+  );
   for (const key of ROOM_ORDER) {
     const room = LAB_ROOMS[key];
-    // Rooms with residents are GROUP CONVERSATIONS (channelType "dm"), the
-    // way the real product creates them — this is what selects the quiet
+    // A conversation with residents and no project is a GROUP CONVERSATION
+    // (channelType "dm"), the way the real product creates them — the quiet
     // direct-conversation furniture (compact hover bubble, no quick-react
-    // row). Only a room with no residents falls back to a plain channel;
-    // the scene ran everything as "stream" channels for a while and the lab
-    // wore channel furniture the product never shows.
-    if (room.residents.length > 0) {
+    // row). A room that LIVES IN A PROJECT is a named place: created as a
+    // channel so it keeps its name, then the residents are added to it.
+    if (room.residents.length > 0 && !projectRooms.has(key)) {
       await withPinnedUuid(room.id, () =>
         invokeMock("open_dm", { pubkeys: room.residents }),
       );
@@ -248,14 +280,22 @@ async function buildScene() {
           visibility: "open",
         }),
       );
+      if (room.residents.length > 0) {
+        await invokeMock("add_channel_members", {
+          channelId: room.id,
+          pubkeys: room.residents,
+        });
+      }
     }
     sayAll(room.id, LAB_TRANSCRIPTS[key]);
   }
 
-  await withPinnedUuid(LAB_DM_ID, () =>
-    invokeMock("open_dm", { pubkeys: [LAB_DM_WITH.pubkey] }),
-  );
-  sayAll(LAB_DM_ID, LAB_DM_TRANSCRIPT);
+  for (const dm of LAB_DMS) {
+    await withPinnedUuid(dm.id, () =>
+      invokeMock("open_dm", { pubkeys: [dm.with.pubkey] }),
+    );
+    sayAll(dm.id, dm.transcript);
+  }
 
   const openRoomId = LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);
