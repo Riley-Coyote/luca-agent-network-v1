@@ -9,6 +9,20 @@ import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import chatgptLogoUrl from "@/features/onboarding/assets/harness-logos/chatgpt.png?inline";
 import claudeLogoUrl from "@/features/onboarding/assets/harness-logos/claude.png?inline";
 import { cn } from "@/shared/lib/cn";
+import { identityGlyph } from "@/shared/ui/dot-display/identity/glyph";
+import {
+  glyphToStrokePath,
+  strokeRatio,
+} from "@/shared/ui/dot-display/identity/render";
+import {
+  identityRune,
+  labMarksMode,
+  mirrorRunePoints,
+  RUNE_WEIGHT,
+  runeMarksEnabled,
+  runePathD,
+} from "@/shared/ui/dot-display/identity/rune";
+import { residentGlyphSeed } from "@/features/luca/canonicalLucaResident";
 import { HarnessLogo, harnessHasLogo } from "@/shared/ui/HarnessLogo";
 
 const PROVIDER_MARKS = {
@@ -32,6 +46,8 @@ export type ResidentIdentityMarkProps = {
   presentation?: ResidentMarkPresentation;
   publicKey: string;
   size?: number;
+  /** Merged over the sizing box — callers use it to phase a breath cycle. */
+  style?: React.CSSProperties;
   "data-testid"?: string;
 };
 
@@ -51,6 +67,7 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   presentation = "auto",
   publicKey,
   size = 20,
+  style,
   "data-testid": dataTestId,
 }: ResidentIdentityMarkProps) {
   const kind = residentMarkKind(personaId);
@@ -69,6 +86,26 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
       kind === "custom" ? residentIdentityPath(publicKey, lucaPubkey) : null,
     [kind, lucaPubkey, publicKey],
   );
+  // The rune face (design-lab switch). Same seed as the lattice glyph, so a
+  // resident's identity is one key either way.
+  // The polished pen (design-lab switch `?marks=polished`): the same lattice
+  // cells drawn as one even stroke through their centres.
+  const strokePath = React.useMemo(
+    () =>
+      kind === "custom" && labMarksMode() === "polished"
+        ? glyphToStrokePath(
+            identityGlyph(residentGlyphSeed(publicKey, lucaPubkey)),
+          )
+        : null,
+    [kind, lucaPubkey, publicKey],
+  );
+  const rune = React.useMemo(
+    () =>
+      kind === "custom" && runeMarksEnabled()
+        ? identityRune(residentGlyphSeed(publicKey, lucaPubkey))
+        : null,
+    [kind, lucaPubkey, publicKey],
+  );
   const accessibilityProps = decorative
     ? ({ "aria-hidden": true } as const)
     : ({
@@ -84,11 +121,71 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
       )}
       data-resident-mark-kind={showHarness ? "harness" : kind}
       data-testid={dataTestId}
-      style={{ height: size, width: size }}
+      style={{ height: size, width: size, ...style }}
       {...accessibilityProps}
     >
       {showHarness && harness ? (
         <HarnessLogo decorative harness={harness} size={size} />
+      ) : strokePath ? (
+        <svg
+          aria-hidden="true"
+          className="block size-full overflow-visible"
+          focusable="false"
+          viewBox="0 0 7 7"
+        >
+          <path
+            d={strokePath}
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={strokeRatio(size)}
+          />
+        </svg>
+      ) : rune ? (
+        <svg
+          aria-hidden="true"
+          className="block size-full overflow-visible"
+          focusable="false"
+          viewBox="0 0 100 100"
+        >
+          <path
+            d={runePathD(rune.points)}
+            fill="none"
+            stroke="currentColor"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={RUNE_WEIGHT}
+          />
+          {rune.dot ? (
+            <circle
+              cx={rune.dot[0]}
+              cy={rune.dot[1]}
+              fill="currentColor"
+              r={RUNE_WEIGHT * 0.55}
+            />
+          ) : null}
+          {rune.mirror ? (
+            <>
+              <path
+                d={runePathD(mirrorRunePoints(rune.points))}
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={RUNE_WEIGHT}
+              />
+              {rune.dot ? (
+                <circle
+                  cx={100 - rune.dot[0]}
+                  cy={rune.dot[1]}
+                  fill="currentColor"
+                  r={RUNE_WEIGHT * 0.55}
+                />
+              ) : null}
+            </>
+          ) : null}
+        </svg>
       ) : kind === "custom" && path ? (
         <svg
           aria-hidden="true"

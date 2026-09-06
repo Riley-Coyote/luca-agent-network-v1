@@ -30,7 +30,39 @@
 
 import { type IdentityGlyph, glyphLit } from "./glyph";
 
-export type GlyphRenderMode = "joined" | "dots";
+export type GlyphRenderMode = "joined" | "dots" | "stroke";
+
+/**
+ * The polished pen: stroke width as a share of a cell, by box size. Heavier
+ * where the mark is small so it keeps its weight beside 14-16px type; lighter
+ * where it is large so the constructed figure shows instead of a fat tube.
+ */
+export function strokeRatio(size: number): number {
+  if (size <= 16) return 0.86;
+  if (size >= 40) return 0.68;
+  return 0.86 + ((size - 16) / (40 - 16)) * (0.68 - 0.86);
+}
+
+/**
+ * The glyph as one stroke through its cell centres — the polished rendering.
+ * Same cells, same identity; only the pen changes. Every lit cell has at
+ * least one 4-neighbour (the sampler guarantees one connected piece), so a
+ * polyline through neighbouring centres covers every cell and round caps
+ * finish the terminals. Returned in the glyph's own `0 0 edge edge` box.
+ */
+export function glyphToStrokePath(glyph: IdentityGlyph): string {
+  const parts: string[] = [];
+  for (let y = 0; y < glyph.edge; y++) {
+    for (let x = 0; x < glyph.edge; x++) {
+      if (!glyphLit(glyph, x, y)) continue;
+      const cx = x + 0.5;
+      const cy = y + 0.5;
+      if (glyphLit(glyph, x + 1, y)) parts.push(`M${cx} ${cy}L${cx + 1} ${cy}`);
+      if (glyphLit(glyph, x, y + 1)) parts.push(`M${cx} ${cy}L${cx} ${cy + 1}`);
+    }
+  }
+  return parts.join("");
+}
 
 export interface GlyphRenderOptions {
   /** CSS px of the square box the mark is drawn into. */
@@ -151,6 +183,35 @@ export function renderIdentityGlyph(
 
   ctx.clearRect(0, 0, extent, extent);
   ctx.fillStyle = `rgba(${ink},${opticalAlpha(alpha, size)})`;
+
+  if (mode === "stroke") {
+    // Sub-pixel geometry on purpose: the lattice origin is snapped so the
+    // figure sits square, but the stroke itself is drawn at fractional device
+    // pixels — on a retina screen that is what reads as a drawn line rather
+    // than a placed one.
+    ctx.lineWidth = cell * strokeRatio(size);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = ctx.fillStyle;
+    ctx.beginPath();
+    for (let y = 0; y < glyph.edge; y++) {
+      for (let x = 0; x < glyph.edge; x++) {
+        if (!glyphLit(glyph, x, y)) continue;
+        const cx = originX + (x + 0.5) * cell;
+        const cy = originY + (y + 0.5) * cell;
+        if (glyphLit(glyph, x + 1, y)) {
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + cell, cy);
+        }
+        if (glyphLit(glyph, x, y + 1)) {
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx, cy + cell);
+        }
+      }
+    }
+    ctx.stroke();
+    return;
+  }
 
   if (mode === "dots") {
     // Separate dots with a hairline gap — the phosphor reading. Legible while

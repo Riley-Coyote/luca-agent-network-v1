@@ -143,7 +143,7 @@ const ORBITS: Record<GlyphSymmetry, Int32Array[]> = {
 };
 
 /** xmur3 + a small xorshift. Stable across engines; no Math.random anywhere. */
-function seeded(input: string): () => number {
+export function seeded(input: string): () => number {
   const str = String(input);
   let h = 1779033703 ^ str.length;
   for (let i = 0; i < str.length; i++) {
