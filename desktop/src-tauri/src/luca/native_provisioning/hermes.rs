@@ -1,4 +1,11 @@
-use std::{collections::BTreeMap, fs, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::{Read, Write},
+    path::Path,
+};
+
+use sha2::{Digest, Sha256};
 
 use serde_yaml::{Mapping, Value};
 
@@ -15,6 +22,347 @@ use crate::{
 const MAX_CLONE_FILES: usize = 512;
 const MAX_CLONE_BYTES: u64 = 32 * 1024 * 1024;
 
+const MAX_MODEL_CONFIG_BYTES: u64 = 256 * 1024;
+const FRESH_SETUP: &str = "Configure an explicit provider and model in Hermes for this installation's root profile (hermes -p default model), then review again.";
+const FRESH_REVIEW: &str = "The native model preferences changed or were not reviewed. Close this setup and review it again. If its Hermes profile already exists, inspect or roll back that exact profile before starting another creation.";
+
+pub(super) struct FreshModelPreferences {
+    values: Mapping,
+    provider: String,
+    model: String,
+    hash: String,
+}
+
+fn model_text(value: &Value) -> Result<String, String> {
+    let text = value.as_str().ok_or(FRESH_SETUP)?.trim();
+    if text.is_empty()
+        || text.len() > 512
+        || !text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-_.:/@+".contains(&byte))
+        || text.starts_with("sk-")
+        || text.starts_with("sk_")
+        || text.starts_with("eyJ")
+    {
+        return Err(FRESH_SETUP.into());
+    }
+    Ok(text.to_string())
+}
+
+fn empty_model_value(value: Option<&Value>) -> bool {
+    match value {
+        None | Some(Value::Null) | Some(Value::Bool(false)) => true,
+        Some(Value::String(value)) => value.is_empty(),
+        Some(Value::Mapping(value)) => value.is_empty(),
+        Some(Value::Sequence(value)) => value.is_empty(),
+        Some(Value::Number(value)) => value.as_f64() == Some(0.0),
+        _ => false,
+    }
+}
+
+fn vetted_url_path(url: &url::Url) -> bool {
+    let Some(segments) = url.path_segments() else {
+        return false;
+    };
+    for segment in segments {
+        let mut decoded = Vec::new();
+        let mut bytes = segment.bytes();
+        while let Some(byte) = bytes.next() {
+            if byte == b'%' {
+                let Some(high) = bytes.next().and_then(|byte| (byte as char).to_digit(16)) else {
+                    return false;
+                };
+                let Some(low) = bytes.next().and_then(|byte| (byte as char).to_digit(16)) else {
+                    return false;
+                };
+                decoded.push((high * 16 + low) as u8);
+            } else {
+                decoded.push(byte);
+            }
+        }
+        let Ok(decoded) = String::from_utf8(decoded) else {
+            return false;
+        };
+        if decoded
+            .split('/')
+            .filter(|part| !part.is_empty())
+            .any(|part| model_text(&Value::String(part.to_string())).is_err())
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn model_projection(source: &Value) -> Result<FreshModelPreferences, String> {
+    let source = source.as_mapping().ok_or(FRESH_SETUP)?;
+    let key = |name: &str| Value::String(name.into());
+    let mut model = match source.get(key("model")) {
+        Some(Value::Mapping(value)) => value.clone(),
+        Some(Value::String(value)) => {
+            Mapping::from_iter([(key("default"), Value::String(value.clone()))])
+        }
+        _ => return Err(FRESH_SETUP.into()),
+    };
+    // Match Hermes config.py's fallback-only legacy normalization. Never
+    // resolve ${ENV} here: credentials and environment policy belong to Hermes.
+    for name in ["provider", "base_url", "context_length"] {
+        if empty_model_value(model.get(key(name))) {
+            if let Some(value) = source
+                .get(key(name))
+                .filter(|value| !empty_model_value(Some(value)))
+            {
+                model.insert(key(name), value.clone());
+            }
+        }
+    }
+    for value in [
+        source.get(key("api_base")).cloned(),
+        model.remove(key("api_base")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if empty_model_value(model.get(key("base_url"))) && !empty_model_value(Some(&value)) {
+            model.insert(key("base_url"), value);
+        }
+    }
+    if empty_model_value(model.get(key("default"))) {
+        if let Some(value) = model.get(key("model")).cloned() {
+            model.insert(key("default"), value);
+        }
+    }
+    model.remove(key("model"));
+    let provider = model_text(model.get(key("provider")).ok_or(FRESH_SETUP)?)?;
+    let name = model_text(model.get(key("default")).ok_or(FRESH_SETUP)?)?;
+    if provider.eq_ignore_ascii_case("auto")
+        || provider.to_ascii_lowercase().starts_with("custom:")
+        || name.eq_ignore_ascii_case("auto")
+    {
+        return Err(FRESH_SETUP.into());
+    }
+    // Named providers can supply additional routing/credentials. Copying their
+    // name alone would silently change the native route; leave setup to Hermes.
+    for name in ["providers", "custom_providers"] {
+        if source.get(key(name)).is_some_and(|value| match value {
+            Value::Null => false,
+            Value::Mapping(value) => !value.is_empty(),
+            Value::Sequence(value) => !value.is_empty(),
+            _ => true,
+        }) {
+            return Err(FRESH_SETUP.into());
+        }
+    }
+    const MODEL_KEYS: &[&str] = &[
+        "default",
+        "provider",
+        "base_url",
+        "context_length",
+        "max_tokens",
+        "api_mode",
+        "transport",
+        "openai_runtime",
+    ];
+    if model.keys().any(|value| {
+        !value
+            .as_str()
+            .is_some_and(|name| MODEL_KEYS.contains(&name))
+    }) {
+        return Err(FRESH_SETUP.into());
+    }
+    let mut vetted = Mapping::new();
+    for name in MODEL_KEYS {
+        let Some(value) = model.get(key(name)) else {
+            continue;
+        };
+        let value = match *name {
+            "context_length" | "max_tokens" => {
+                if value.as_u64().filter(|value| *value > 0).is_none() {
+                    return Err(FRESH_SETUP.into());
+                }
+                value.clone()
+            }
+            "base_url" => {
+                let text = value.as_str().ok_or(FRESH_SETUP)?.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                let url = url::Url::parse(text).map_err(|_| FRESH_SETUP)?;
+                if !matches!(url.scheme(), "https" | "http")
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                    || !vetted_url_path(&url)
+                    || text.contains('$')
+                    || text.contains('{')
+                    || text.chars().any(char::is_control)
+                {
+                    return Err(FRESH_SETUP.into());
+                }
+                Value::String(text.into())
+            }
+            _ => Value::String(model_text(value)?),
+        };
+        vetted.insert(key(name), value);
+    }
+    let mut values = Mapping::from_iter([(key("model"), Value::Mapping(vetted))]);
+    if let Some(agent) = source.get(key("agent")) {
+        let agent = agent.as_mapping().ok_or(FRESH_SETUP)?;
+        if let Some(effort) = agent
+            .get(key("reasoning_effort"))
+            .filter(|value| !empty_model_value(Some(value)))
+        {
+            values.insert(
+                key("agent"),
+                Value::Mapping(Mapping::from_iter([(
+                    key("reasoning_effort"),
+                    Value::String(model_text(effort)?),
+                )])),
+            );
+        }
+    }
+    let bytes = serde_json::to_vec(&values).map_err(|_| FRESH_SETUP)?;
+    Ok(FreshModelPreferences {
+        values,
+        provider,
+        model: name,
+        hash: hex::encode(Sha256::digest(bytes)),
+    })
+}
+
+#[cfg(unix)]
+#[derive(PartialEq, Eq)]
+struct ConfigIdentity {
+    device: u64,
+    inode: u64,
+    length: u64,
+    modified: (i64, i64),
+    changed: (i64, i64),
+}
+
+#[cfg(unix)]
+fn config_identity(metadata: &fs::Metadata) -> Result<ConfigIdentity, String> {
+    use std::os::unix::fs::MetadataExt;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() > MAX_MODEL_CONFIG_BYTES {
+        return Err(FRESH_SETUP.into());
+    }
+    Ok(ConfigIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        length: metadata.len(),
+        modified: (metadata.mtime(), metadata.mtime_nsec()),
+        changed: (metadata.ctime(), metadata.ctime_nsec()),
+    })
+}
+
+#[cfg(unix)]
+fn read_model_preferences(home: &Path) -> Result<FreshModelPreferences, String> {
+    use rustix::fs::{open, openat, Mode, OFlags};
+    use std::os::unix::fs::MetadataExt;
+    if home.canonicalize().map_err(|_| FRESH_SETUP)? != home {
+        return Err(FRESH_SETUP.into());
+    }
+    let directory = fs::File::from(
+        open(
+            home,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| FRESH_SETUP)?,
+    );
+    let mut file = fs::File::from(
+        openat(
+            &directory,
+            "config.yaml",
+            OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| FRESH_SETUP)?,
+    );
+    let before = config_identity(&file.metadata().map_err(|_| FRESH_SETUP)?)?;
+    let mut bytes = Vec::new();
+    Read::by_ref(&mut file)
+        .take(MAX_MODEL_CONFIG_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| FRESH_SETUP)?;
+    let current = fs::symlink_metadata(home.join("config.yaml")).map_err(|_| FRESH_SETUP)?;
+    let dir = fs::metadata(home).map_err(|_| FRESH_SETUP)?;
+    let opened = directory.metadata().map_err(|_| FRESH_SETUP)?;
+    if bytes.len() as u64 > MAX_MODEL_CONFIG_BYTES
+        || current.file_type().is_symlink()
+        || config_identity(&current)? != before
+        || config_identity(&file.metadata().map_err(|_| FRESH_SETUP)?)? != before
+        || dir.dev() != opened.dev()
+        || dir.ino() != opened.ino()
+        || home.canonicalize().map_err(|_| FRESH_SETUP)? != home
+    {
+        return Err(FRESH_SETUP.into());
+    }
+    model_projection(&serde_yaml::from_slice::<Value>(&bytes).map_err(|_| FRESH_SETUP)?)
+}
+
+#[cfg(not(unix))]
+fn read_model_preferences(_home: &Path) -> Result<FreshModelPreferences, String> {
+    Err(FRESH_SETUP.into())
+}
+
+pub(super) fn fresh_preferences(
+    source: &crate::managed_agents::RuntimeBinding,
+) -> Result<FreshModelPreferences, String> {
+    let (_, home, _, _) = source.hermes_provisioning_context().ok_or(FRESH_SETUP)?;
+    read_model_preferences(&crate::managed_agents::hermes_profile_root(&home)?)
+}
+
+impl FreshModelPreferences {
+    pub(super) fn bind_review(&self, journal: &mut HermesJournal) {
+        journal.fresh_model_preferences_hash = Some(self.hash.clone());
+    }
+
+    #[cfg(unix)]
+    fn write_new_profile(&self, journal: &HermesJournal) -> Result<(), String> {
+        use rustix::fs::{open, openat, Mode, OFlags};
+        use std::os::unix::fs::MetadataExt;
+        journal.verify_created()?;
+        let directory = fs::File::from(
+            open(
+                &journal.destination,
+                OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                Mode::empty(),
+            )
+            .map_err(|_| FRESH_REVIEW)?,
+        );
+        journal.verify_created()?;
+        let current = fs::metadata(&journal.destination).map_err(|_| FRESH_REVIEW)?;
+        let opened = directory.metadata().map_err(|_| FRESH_REVIEW)?;
+        if current.dev() != opened.dev() || current.ino() != opened.ino() {
+            return Err(FRESH_REVIEW.into());
+        }
+        // Native Fresh creates no config. Refuse an unexpected existing entry,
+        // and write relative to the verified directory handle, never a raced path.
+        let mut file = fs::File::from(openat(&directory, "config.yaml", OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::from_raw_mode(0o600)).map_err(|_| "The new Hermes configuration already exists or cannot be safely written. Review this exact profile before recovery.")?);
+        let bytes = serde_yaml::to_string(&self.values).map_err(|_| FRESH_REVIEW)?;
+        file.write_all(bytes.as_bytes()).and_then(|_| file.sync_all()).map_err(|_| "The new Hermes model preferences could not be saved. Review this exact profile before recovery.")?;
+        journal.verify_created()
+    }
+
+    #[cfg(not(unix))]
+    fn write_new_profile(&self, _journal: &HermesJournal) -> Result<(), String> {
+        Err(FRESH_SETUP.into())
+    }
+}
+
+fn require_fresh_review(
+    journal: &HermesJournal,
+    mode: &AgentProvisioningModeV1,
+) -> Result<(), String> {
+    if *mode == AgentProvisioningModeV1::Fresh && journal.fresh_model_preferences_hash.is_none() {
+        return Err(FRESH_REVIEW.into());
+    }
+    Ok(())
+}
+
 pub(super) fn ensure_name_available(
     source: &DiscoveredResidentCandidate,
     slug: &str,
@@ -27,6 +375,7 @@ pub(super) fn preview(
     source: &DiscoveredResidentCandidate,
     transaction_id: String,
     slug: String,
+    fresh: Option<&FreshModelPreferences>,
 ) -> NativeProvisioningPreviewV1 {
     let mut changes = vec![
         NativeProvisioningChangeV1 {
@@ -40,6 +389,13 @@ pub(super) fn preview(
             detail: "Create one stable resident identity and link it to the new profile.".into(),
         },
     ];
+    if let Some(fresh) = fresh {
+        changes.push(NativeProvisioningChangeV1 {
+            subject: "Native model preferences".into(),
+            action: "Inherit".into(),
+            detail: format!("Use {} with {}, from this Hermes installation's root settings. Memory, sessions and credentials are not copied.", fresh.model, fresh.provider),
+        });
+    }
     if request.mode != AgentProvisioningModeV1::Fresh {
         changes.push(NativeProvisioningChangeV1 {
             subject: "Template".into(),
@@ -284,7 +640,17 @@ pub(super) fn execute(
 ) -> Result<ProvisionedNative, String> {
     let _profile = ProfileGuard::acquire(journal)?;
     journal.ensure_available()?;
+    require_fresh_review(journal, &request.mode)?;
     let executable = verify_version(journal)?;
+    let fresh = if request.mode == AgentProvisioningModeV1::Fresh {
+        let preferences = read_model_preferences(&journal.root)?;
+        if journal.fresh_model_preferences_hash.as_ref() != Some(&preferences.hash) {
+            return Err(FRESH_REVIEW.into());
+        }
+        Some(preferences)
+    } else {
+        None
+    };
     // Persisted before the command; failed/ambiguous creation is never replayed.
     journal.save(path)?;
     let output = run_native_command(
@@ -312,19 +678,27 @@ pub(super) fn execute(
         .source
         .hermes_provisioning_context()
         .ok_or("Selected source is not a Hermes profile.")?;
-    apply_clone(
-        request,
-        &source_home,
-        workspace.as_deref(),
-        &journal.destination,
-    )?;
+    if let Some(preferences) = fresh {
+        preferences.write_new_profile(journal)?;
+    } else {
+        apply_clone(
+            request,
+            &source_home,
+            workspace.as_deref(),
+            &journal.destination,
+        )?;
+    }
     let binding = journal.binding()?;
     journal.configured = true;
     journal.save(path)?;
     Ok(ProvisionedNative { binding })
 }
 
-pub(super) fn candidate(journal: &HermesJournal) -> Result<DiscoveredResidentCandidate, String> {
+pub(super) fn candidate(
+    journal: &HermesJournal,
+    mode: &AgentProvisioningModeV1,
+) -> Result<DiscoveredResidentCandidate, String> {
+    require_fresh_review(journal, mode)?;
     if !journal.configured {
         return Err(
             "The native profile has not completed its reviewed setup. Review it before linking."
@@ -332,6 +706,12 @@ pub(super) fn candidate(journal: &HermesJournal) -> Result<DiscoveredResidentCan
         );
     }
     let binding = journal.binding()?;
+    if *mode == AgentProvisioningModeV1::Fresh {
+        let preferences = read_model_preferences(&journal.destination).map_err(|_| FRESH_REVIEW)?;
+        if journal.fresh_model_preferences_hash.as_ref() != Some(&preferences.hash) {
+            return Err(FRESH_REVIEW.into());
+        }
+    }
     let crate::managed_agents::RuntimeBinding::Hermes {
         runtime_version, ..
     } = &binding

@@ -375,6 +375,13 @@ pub async fn preview_native_agent_provisioning(
         NativeRuntimeFamilyV1::Hermes => hermes::ensure_name_available(&candidate, &slug)?,
         NativeRuntimeFamilyV1::Openclaw => openclaw::ensure_name_available(&slug)?,
     }
+    let fresh_preferences = if request.runtime == NativeRuntimeFamilyV1::Hermes
+        && request.mode == AgentProvisioningModeV1::Fresh
+    {
+        Some(hermes::fresh_preferences(&candidate.binding_preview)?)
+    } else {
+        None
+    };
     let transaction = create_native_transaction(
         &app,
         owner.clone(),
@@ -393,19 +400,26 @@ pub async fn preview_native_agent_provisioning(
         if std::fs::symlink_metadata(&path).is_ok() {
             return Err("Native setup provenance already exists; request a new preview.".into());
         }
-        hermes_journal::HermesJournal::prepare(
+        let mut journal = hermes_journal::HermesJournal::prepare(
             &owner,
             &transaction.transaction_id,
             &transaction.request_hash,
             candidate.binding_preview.clone(),
             &slug,
-        )?
-        .save(&path)?;
+        )?;
+        if let Some(preferences) = &fresh_preferences {
+            preferences.bind_review(&mut journal);
+        }
+        journal.save(&path)?;
     }
     Ok(match request.runtime {
-        NativeRuntimeFamilyV1::Hermes => {
-            hermes::preview(&request, &candidate, transaction.transaction_id, slug)
-        }
+        NativeRuntimeFamilyV1::Hermes => hermes::preview(
+            &request,
+            &candidate,
+            transaction.transaction_id,
+            slug,
+            fresh_preferences.as_ref(),
+        ),
         NativeRuntimeFamilyV1::Openclaw => {
             openclaw::preview(&request, &candidate, transaction.transaction_id, slug)
         }
@@ -512,7 +526,7 @@ pub async fn execute_native_agent_provisioning(
     )?;
     let discovered_result = match request.runtime {
         NativeRuntimeFamilyV1::Hermes => load_hermes_journal(&app, &transaction)
-            .and_then(|(journal, _)| hermes::candidate(&journal)),
+            .and_then(|(journal, _)| hermes::candidate(&journal, &transaction.mode)),
         NativeRuntimeFamilyV1::Openclaw => {
             native_candidate_by_id(&request.runtime, &transaction.intended_slug)
         }
@@ -644,7 +658,7 @@ pub async fn reconcile_native_agent_provisioning(
         .ok_or_else(|| "provisioning has not reached resident linking".to_string())?;
     let candidate = match transaction.runtime {
         NativeRuntimeFamilyV1::Hermes => load_hermes_journal(&app, &transaction)
-            .and_then(|(journal, _)| hermes::candidate(&journal))
+            .and_then(|(journal, _)| hermes::candidate(&journal, &transaction.mode))
             .map_err(|error| native_recovery_error(&app, &transaction, error))?,
         NativeRuntimeFamilyV1::Openclaw => {
             native_candidate_by_id(&transaction.runtime, &transaction.intended_slug)?

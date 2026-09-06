@@ -109,6 +109,7 @@ mod hermes_root_provenance {
             for path in [&root, &other, &home] {
                 fs::create_dir(path).unwrap();
             }
+            fs::write(root.join("config.yaml"), "model:\n  default: gpt-5.5\n  provider: openai-codex\n  max_tokens: 4096\nagent:\n  reasoning_effort: high\n").unwrap();
             let executable = base.join("hermes-fixture");
             fs::write(
                 &executable,
@@ -123,7 +124,7 @@ case "$1:$2" in
   profile:create)
     [ ! -e "$root/profiles/$3" ] || exit 81
     /bin/mkdir -p "$root/profiles/$3"
-    printf 'model: fixture\n' > "$root/profiles/$3/config.yaml" ;;
+    : ;;
   profile:delete) /bin/rm -rf "$root/profiles/$3" ;;
   profile:show) printf 'Path: %s/profiles/%s\n' "$root" "$3" ;;
   *) exit 82 ;;
@@ -162,8 +163,15 @@ esac
             HermesJournal::load(&self.path, "owner", "transaction", "request")
         }
 
+        fn approve(&self, journal: &mut HermesJournal) {
+            hermes::fresh_preferences(&journal.source)
+                .unwrap()
+                .bind_review(journal);
+        }
+
         fn create(&self) -> HermesJournal {
             let mut journal = self.journal();
+            self.approve(&mut journal);
             journal.save(&self.path).unwrap();
             hermes::execute(
                 &request(AgentProvisioningModeV1::Fresh),
@@ -176,6 +184,349 @@ esac
     }
 
     #[test]
+    fn fresh_profile_inherits_reviewed_root_model_without_copying_native_credentials() {
+        let fixture = Fixture::new();
+        let config = "model:\n  default: gpt-5.5\n  provider: openai-codex\n";
+        fs::write(fixture.root.join("config.yaml"), config).unwrap();
+        let journal = fixture.create();
+        let contents =
+            fs::read_to_string(journal.destination.join("config.yaml")).unwrap_or_default();
+        let inherited: serde_yaml::Value = serde_yaml::from_str(&contents).unwrap();
+        assert_eq!(inherited["model"]["provider"], "openai-codex");
+        assert_eq!(inherited["model"]["default"], "gpt-5.5");
+        assert_eq!(
+            fs::read_to_string(fixture.root.join("config.yaml")).unwrap(),
+            config
+        );
+        assert!(!journal.destination.join("auth.json").exists());
+    }
+
+    #[test]
+    fn fresh_uses_root_preferences_and_exact_native_command_without_cloning_a_named_source() {
+        let fixture = Fixture::new();
+        let source = fixture.root.join("profiles/template");
+        fs::create_dir_all(source.join("memories")).unwrap();
+        fs::write(
+            source.join("config.yaml"),
+            "model: different-profile-model\n",
+        )
+        .unwrap();
+        for path in ["auth.json", ".env", "SOUL.md", "memories/MEMORY.md"] {
+            fs::write(source.join(path), "source-only-material").unwrap();
+        }
+        fs::write(fixture.root.join("auth.json"), "synthetic-native-only-auth").unwrap();
+        let root_before = fs::read(fixture.root.join("config.yaml")).unwrap();
+        let source_before = fs::read(source.join("config.yaml")).unwrap();
+        let native = fs::read_to_string(&fixture.executable).unwrap().replace(
+            "  profile:create)\n", "  profile:create)\n    [ \"$#\" = 6 ] && [ \"$4\" = --no-alias ] && [ \"$5\" = --description ] && [ \"$6\" = 'Find reliable sources.' ] || exit 88\n",
+        );
+        fs::write(&fixture.executable, native).unwrap();
+        let binding = crate::managed_agents::build_hermes_runtime_binding(
+            "template".into(),
+            source.clone(),
+            fixture.executable.clone(),
+            "0.17.0".into(),
+            None,
+        );
+        let mut journal =
+            HermesJournal::prepare("owner", "transaction", "request", binding, "helper").unwrap();
+        let reviewed = hermes::fresh_preferences(&journal.source).unwrap();
+        reviewed.bind_review(&mut journal);
+        journal.save(&fixture.path).unwrap();
+        hermes::execute(
+            &request(AgentProvisioningModeV1::Fresh),
+            &mut journal,
+            &fixture.path,
+        )
+        .unwrap();
+        let config: serde_yaml::Value =
+            serde_yaml::from_slice(&fs::read(journal.destination.join("config.yaml")).unwrap())
+                .unwrap();
+        assert_eq!(config["model"]["default"], "gpt-5.5");
+        assert_eq!(config["model"]["provider"], "openai-codex");
+        assert_eq!(config["model"]["max_tokens"], 4096);
+        assert_eq!(config["agent"]["reasoning_effort"], "high");
+        assert_eq!(
+            fs::read_to_string(journal.destination.join("SOUL.md")).unwrap(),
+            "Find reliable sources."
+        );
+        for path in [
+            "auth.json",
+            ".env",
+            "memories/MEMORY.md",
+            "sessions",
+            "skills",
+        ] {
+            assert!(
+                !journal.destination.join(path).exists(),
+                "unexpected copy: {path}"
+            );
+        }
+        assert_eq!(
+            fs::read(fixture.root.join("config.yaml")).unwrap(),
+            root_before
+        );
+        assert_eq!(fs::read(source.join("config.yaml")).unwrap(), source_before);
+        assert_eq!(
+            fs::read_to_string(fixture.root.join("auth.json")).unwrap(),
+            "synthetic-native-only-auth"
+        );
+        let public = hermes::candidate(&journal, &AgentProvisioningModeV1::Fresh).unwrap();
+        let preview = hermes::preview(
+            &request(AgentProvisioningModeV1::Fresh),
+            &public,
+            "preview".into(),
+            "helper".into(),
+            Some(&reviewed),
+        );
+        assert!(preview
+            .changes
+            .iter()
+            .any(|change| change.action == "Inherit"
+                && change.detail.contains("gpt-5.5")
+                && change.detail.contains("openai-codex")));
+        let serialized = serde_json::to_string(&preview).unwrap();
+        assert!(!serialized.contains("synthetic-native-only-auth"));
+        assert!(!serialized.contains("fresh_model_preferences_hash"));
+    }
+
+    #[test]
+    fn fresh_legacy_normalization_preserves_native_precedence_and_explicit_route() {
+        for (config, provider, model, url, context) in [
+            ("model: gpt-5.5\nprovider: openai-codex\napi_base: https://chatgpt.com/backend-api/codex\ncontext_length: 128000\n", "openai-codex", "gpt-5.5", "https://chatgpt.com/backend-api/codex", 128000),
+            ("model:\n  default: gpt-5.5\n  provider: []\n  base_url: {}\n  context_length: 0.0\nprovider: openai-codex\napi_base: https://root.invalid/v1\ncontext_length: 64000\n", "openai-codex", "gpt-5.5", "https://root.invalid/v1", 64000),
+            ("model:\n  model: gpt-5.5\n  provider: false\n  base_url: ''\n  api_base: https://nested.invalid/v1\n  context_length: 0\nprovider: openai-codex\nbase_url: https://root.invalid/v1\ncontext_length: 64000\n", "openai-codex", "gpt-5.5", "https://root.invalid/v1", 64000),
+            ("model:\n  default: gpt-5.5\n  provider: openai-codex\n  base_url: https://nested.invalid/v1\n  context_length: 64000\n  api_mode: codex_responses\n  transport: codex_responses\n  openai_runtime: codex_app_server\nprovider: custom-ignored\nbase_url: https://ignored.invalid\ncontext_length: 1\n", "openai-codex", "gpt-5.5", "https://nested.invalid/v1", 64000),
+        ] {
+            let fixture = Fixture::new();
+            fs::write(fixture.root.join("config.yaml"), config).unwrap();
+            let journal = fixture.create();
+            let value: serde_yaml::Value = serde_yaml::from_slice(&fs::read(journal.destination.join("config.yaml")).unwrap()).unwrap();
+            assert_eq!(value["model"]["provider"], provider);
+            assert_eq!(value["model"]["default"], model);
+            assert_eq!(value["model"]["base_url"], url);
+            assert_eq!(value["model"]["context_length"], context);
+            assert!(value.get("provider").is_none());
+            assert!(value["model"].get("api_base").is_none());
+            if config.contains("codex_app_server") {
+                assert_eq!(value["model"]["openai_runtime"], "codex_app_server");
+                assert_eq!(value["model"]["api_mode"], "codex_responses");
+                assert_eq!(value["model"]["transport"], "codex_responses");
+            }
+        }
+    }
+
+    #[test]
+    fn unconfigured_and_unrepresentable_fresh_defaults_are_rejected_without_side_effects() {
+        for config in [
+            "", "[]", "model: {}", "model: gpt-5.5", "model: [gpt-5.5]", "model: {default: gpt-5.5, provider: auto}",
+            "model: {default: '${MODEL}', provider: openai-codex}",
+            "model: {default: sk-synthetic-secret, provider: openai-codex}",
+            "model: {default: gpt-5.5, provider: openai-codex, api_key: synthetic-secret}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://user:secret@api.invalid/v1'}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://api.invalid/v1?key=secret'}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://api.invalid/sk-synthetic-secret/v1'}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://api.invalid/%73%6b-synthetic-secret/v1'}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://api.invalid/v1%2fsk-synthetic-secret'}",
+            "model: {default: gpt-5.5, provider: openai-codex, base_url: 'https://api.invalid/%2573k-synthetic-secret/v1'}",
+            "model: {default: gpt-5.5, provider: 'custom:missing'}",
+            "model: {default: gpt-5.5, provider: openai-codex, extra_headers: {Authorization: secret}}",
+            "model: {default: gpt-5.5, provider: custom:local}\nproviders: {local: {url: 'http://localhost:8000'}}",
+            "model: {default: gpt-5.5, provider: openai-codex, max_tokens: '${LIMIT}'}",
+            "model: {default: gpt-5.5, provider: openai-codex}\nagent: {reasoning_effort: '${EFFORT}'}",
+        ] {
+            let fixture = Fixture::new();
+            fs::write(fixture.root.join("config.yaml"), config).unwrap();
+            let journal = fixture.journal();
+            let error = hermes::fresh_preferences(&journal.source).err().expect("setup required");
+            assert!(error.contains("hermes -p default model"), "{error}");
+            assert!(!error.contains("synthetic-secret"));
+            assert!(!fixture.path.exists());
+            assert!(!journal.destination.exists());
+            assert!(!fixture.base.join("calls").exists());
+        }
+    }
+
+    #[test]
+    fn unsafe_root_config_is_never_read_through_or_accepted() {
+        for kind in ["missing", "directory", "symlink", "hardlink", "large"] {
+            let fixture = Fixture::new();
+            let config = fixture.root.join("config.yaml");
+            fs::remove_file(&config).unwrap();
+            match kind {
+                "missing" => {}
+                "directory" => fs::create_dir(&config).unwrap(),
+                "symlink" => {
+                    fs::write(fixture.other.join("config.yaml"), "model: outside").unwrap();
+                    symlink(fixture.other.join("config.yaml"), &config).unwrap();
+                }
+                "hardlink" => {
+                    fs::write(fixture.other.join("config.yaml"), "model: outside").unwrap();
+                    fs::hard_link(fixture.other.join("config.yaml"), &config).unwrap();
+                }
+                "large" => fs::write(&config, vec![b' '; 256 * 1024 + 1]).unwrap(),
+                _ => unreachable!(),
+            }
+            let journal = fixture.journal();
+            assert!(
+                hermes::fresh_preferences(&journal.source).is_err(),
+                "{kind}"
+            );
+            assert!(!journal.destination.exists());
+            assert!(!fixture.base.join("calls").exists());
+        }
+    }
+
+    #[test]
+    fn changed_review_or_legacy_fresh_journal_cannot_create_or_reconcile_but_can_roll_back() {
+        let fixture = Fixture::new();
+        let mut journal = fixture.journal();
+        fixture.approve(&mut journal);
+        journal.save(&fixture.path).unwrap();
+        fs::write(
+            fixture.root.join("config.yaml"),
+            "model: {default: changed, provider: openai-codex}",
+        )
+        .unwrap();
+        assert!(hermes::execute(
+            &request(AgentProvisioningModeV1::Fresh),
+            &mut journal,
+            &fixture.path
+        )
+        .err()
+        .expect("changed preferences rejected")
+        .contains("review"));
+        assert!(!journal.destination.exists());
+        assert!(!fs::read_to_string(fixture.base.join("calls"))
+            .unwrap()
+            .contains("create "));
+
+        let fixture = Fixture::new();
+        let mut legacy = fixture.journal();
+        legacy.save(&fixture.path).unwrap();
+        assert!(hermes::execute(
+            &request(AgentProvisioningModeV1::Fresh),
+            &mut legacy,
+            &fixture.path
+        )
+        .is_err());
+        assert!(!fixture.base.join("calls").exists());
+        let mut created = fixture.create();
+        created.fresh_model_preferences_hash = None;
+        created.save(&fixture.path).unwrap();
+        let mut old = fixture.load().unwrap();
+        assert!(hermes::candidate(&old, &AgentProvisioningModeV1::Fresh).is_err());
+        assert!(hermes::candidate(&old, &AgentProvisioningModeV1::Template).is_ok());
+        hermes::rollback_at_home(&mut old, &fixture.path, &fixture.home).unwrap();
+        assert!(!old.destination.exists());
+    }
+
+    #[test]
+    fn fresh_rechecks_after_version_and_writes_only_the_captured_approved_projection() {
+        for change_during_version in [true, false] {
+            let fixture = Fixture::new();
+            let mut script = fs::read_to_string(&fixture.executable).unwrap();
+            let change = "printf 'model: {default: later-model, provider: openai-codex}\\n' > \"$root/config.yaml\"; ";
+            if change_during_version {
+                script = script.replace(
+                    "[ \"$1\" = '--version' ] && { ",
+                    &format!("[ \"$1\" = '--version' ] && {{ {change}"),
+                );
+            } else {
+                script = script.replace(
+                    "  profile:create)\n",
+                    &format!("  profile:create)\n    {change}\n"),
+                );
+            }
+            fs::write(&fixture.executable, script).unwrap();
+            let mut journal = fixture.journal();
+            fixture.approve(&mut journal);
+            journal.save(&fixture.path).unwrap();
+            let result = hermes::execute(
+                &request(AgentProvisioningModeV1::Fresh),
+                &mut journal,
+                &fixture.path,
+            );
+            assert!(fs::read_to_string(fixture.root.join("config.yaml"))
+                .unwrap()
+                .contains("later-model"));
+            if change_during_version {
+                assert!(result
+                    .err()
+                    .expect("changed after version")
+                    .contains("review"));
+                assert!(!journal.destination.exists());
+                assert!(!fs::read_to_string(fixture.base.join("calls"))
+                    .unwrap()
+                    .contains("create "));
+            } else {
+                assert!(result.is_ok());
+                let config: serde_yaml::Value = serde_yaml::from_slice(
+                    &fs::read(journal.destination.join("config.yaml")).unwrap(),
+                )
+                .unwrap();
+                assert_eq!(config["model"]["default"], "gpt-5.5");
+                assert_eq!(
+                    fs::metadata(journal.destination.join("config.yaml"))
+                        .unwrap()
+                        .permissions()
+                        .mode()
+                        & 0o777,
+                    0o600
+                );
+                assert!(hermes::candidate(&journal, &AgentProvisioningModeV1::Fresh).is_ok());
+                fs::write(
+                    journal.destination.join("config.yaml"),
+                    "model: {default: later-model, provider: openai-codex}",
+                )
+                .unwrap();
+                assert!(hermes::candidate(&journal, &AgentProvisioningModeV1::Fresh).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn unexpected_native_config_is_not_overwritten_and_saved_profile_remains_recoverable() {
+        for linked in [false, true] {
+            let fixture = Fixture::new();
+            let outside = fixture.other.join("keep");
+            fs::write(&outside, "unrelated-file").unwrap();
+            let extra = if linked {
+                format!(
+                    "/bin/ln -s '{}' \"$root/profiles/$3/config.yaml\"",
+                    outside.display()
+                )
+            } else {
+                "printf 'native-owned-config' > \"$root/profiles/$3/config.yaml\"".into()
+            };
+            let script = fs::read_to_string(&fixture.executable)
+                .unwrap()
+                .replace("    : ;;", &format!("    {extra} ;;"));
+            fs::write(&fixture.executable, script).unwrap();
+            let mut journal = fixture.journal();
+            fixture.approve(&mut journal);
+            journal.save(&fixture.path).unwrap();
+            assert!(hermes::execute(
+                &request(AgentProvisioningModeV1::Fresh),
+                &mut journal,
+                &fixture.path
+            )
+            .is_err());
+            assert_eq!(fs::read_to_string(&outside).unwrap(), "unrelated-file");
+            let saved = fixture.load().unwrap();
+            saved.verify_created().unwrap();
+            assert!(!saved.configured);
+            assert!(hermes::candidate(&saved, &AgentProvisioningModeV1::Fresh).is_err());
+            if !linked {
+                assert_eq!(
+                    fs::read_to_string(saved.destination.join("config.yaml")).unwrap(),
+                    "native-owned-config"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn hermes_create_uses_reviewed_custom_root_and_recovers_without_ambient_slug_discovery() {
         let fixture = Fixture::new();
         fs::create_dir_all(fixture.other.join("profiles/helper")).unwrap();
@@ -184,7 +535,9 @@ esac
         let binding = journal.binding().unwrap();
         let mut recovered = fixture.load().unwrap();
         assert_eq!(
-            hermes::candidate(&recovered).unwrap().binding_preview,
+            hermes::candidate(&recovered, &AgentProvisioningModeV1::Fresh)
+                .unwrap()
+                .binding_preview,
             binding
         );
         assert!(recovered.destination.join("SOUL.md").is_file());
@@ -231,6 +584,7 @@ esac
         for dangling in [false, true] {
             let fixture = Fixture::new();
             let mut journal = fixture.journal();
+            fixture.approve(&mut journal);
             fs::create_dir_all(fixture.root.join("profiles")).unwrap();
             if dangling {
                 symlink(fixture.base.join("missing"), &journal.destination).unwrap();
@@ -255,7 +609,7 @@ esac
         fs::rename(&journal.destination, &old).unwrap();
         fs::create_dir(&journal.destination).unwrap();
         fs::write(journal.destination.join("keep"), "replacement").unwrap();
-        assert!(hermes::candidate(&journal).is_err());
+        assert!(hermes::candidate(&journal, &AgentProvisioningModeV1::Fresh).is_err());
         assert!(hermes::rollback_at_home(&mut journal, &fixture.path, &fixture.home).is_err());
         assert_eq!(
             fs::read_to_string(journal.destination.join("keep")).unwrap(),
@@ -348,10 +702,10 @@ esac
         let mut recovered = fixture.load().unwrap();
         recovered.verify_created().unwrap();
         assert!(!recovered.configured);
-        assert!(hermes::candidate(&recovered).is_err());
+        assert!(hermes::candidate(&recovered, &AgentProvisioningModeV1::Template).is_err());
         assert!(
             !fs::read_to_string(recovered.destination.join("config.yaml"))
-                .unwrap()
+                .unwrap_or_default()
                 .contains("synthetic-secret")
         );
         hermes::rollback_at_home(&mut recovered, &fixture.path, &fixture.home).unwrap();

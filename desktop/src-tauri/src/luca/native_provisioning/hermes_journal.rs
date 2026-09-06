@@ -90,6 +90,9 @@ pub(super) struct HermesJournal {
     source_identity: DirectoryIdentity,
     executable_digest: String,
     creation: Option<DirectoryIdentity>,
+    /// Approval of the native root's non-secret Fresh projection; absent in older journals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fresh_model_preferences_hash: Option<String>,
     pub configured: bool,
     pub removed: bool,
 }
@@ -118,6 +121,7 @@ impl HermesJournal {
             source,
             slug: slug.into(),
             creation: None,
+            fresh_model_preferences_hash: None,
             configured: false,
             removed: false,
         };
@@ -130,6 +134,12 @@ impl HermesJournal {
         let (_, home, executable, _) = self.source.hermes_provisioning_context().ok_or(RECOVERY)?;
         resolve_native_runtime_binding(&self.source).map_err(|_| RECOVERY)?;
         if self.schema != 1
+            || self
+                .fresh_model_preferences_hash
+                .as_ref()
+                .is_some_and(|hash| {
+                    hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+                })
             || self.slug.is_empty()
             || self.slug == "default"
             || self.slug.len() > 64
