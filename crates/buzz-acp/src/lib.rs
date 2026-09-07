@@ -1171,6 +1171,79 @@ struct RespawnResult {
     result: Result<(AcpClient, u32, String, bool)>,
 }
 
+/// Apply one completed background respawn to its stable pool slot.
+///
+/// Returns `true` when the replacement is ready, so the caller can immediately
+/// dispatch work that was waiting while the slot was empty. Both the startup
+/// drain and the selected wake path use this function to keep circuit
+/// bookkeeping identical.
+fn collect_respawn_result(
+    rr: RespawnResult,
+    pool: &mut AgentPool,
+    crash_history: &mut [SlotCircuit],
+    configured_model: Option<&str>,
+) -> bool {
+    crash_history[rr.index].respawn_in_flight = false;
+    match rr.result {
+        Ok((acp, protocol_version, agent_name, additional_directories_supported)) => {
+            let agent = OwnedAgent {
+                index: rr.index,
+                acp,
+                state: SessionState::default(),
+                model_capabilities: None,
+                desired_model: configured_model.map(str::to_owned),
+                model_overridden: false,
+                agent_name,
+                goose_system_prompt_supported: None,
+                protocol_version,
+                additional_directories_supported,
+            };
+            pool.return_agent(agent);
+            tracing::info!(agent = rr.index, "respawn complete");
+            true
+        }
+        Err(error) => {
+            crash_history[rr.index].mark_spawn_failed();
+            tracing::warn!(
+                agent = rr.index,
+                "respawn failed: {error} — circuit re-opened"
+            );
+            false
+        }
+    }
+}
+
+/// Events that can mutate or replenish the agent pool.
+enum PoolEvent {
+    Result(Box<PromptResult>),
+    Panic(tokio::task::JoinError),
+    Respawn(Box<RespawnResult>),
+    SteerAck(SteerAckEvent),
+    Cognition(local_cognition::CognitionEnvelope),
+}
+
+/// Wait for work completed by a checked-out slot or its background replacement.
+///
+/// Keeping the respawn receiver in this production selector is the liveness
+/// boundary: a replacement must wake a loop whose relay and periodic inputs are
+/// otherwise quiet. Pattern-matching `Some` also disables a closed respawn
+/// receiver without creating a ready-loop spin.
+async fn next_pool_completion(
+    result_rx: &mut mpsc::UnboundedReceiver<PromptResult>,
+    join_set: &mut tokio::task::JoinSet<()>,
+    respawn_rx: &mut mpsc::Receiver<RespawnResult>,
+) -> Option<PoolEvent> {
+    tokio::select! {
+        biased;
+        result = result_rx.recv() => result.map(|result| PoolEvent::Result(Box::new(result))),
+        // Guard: join_next() returns None immediately when JoinSet is empty.
+        Some(Err(error)) = join_set.join_next(), if !join_set.is_empty() => {
+            Some(PoolEvent::Panic(error))
+        }
+        Some(rr) = respawn_rx.recv() => Some(PoolEvent::Respawn(Box::new(rr))),
+    }
+}
+
 /// Outcome of a non-cancelling steer attempt, forwarded from a per-attempt
 /// watcher task (which awaits the `SteerRequest.ack_tx` oneshot) back to
 /// the main loop's `select!`. The main loop drives queue side-effects from
@@ -1944,16 +2017,6 @@ async fn tokio_main() -> Result<()> {
         .collect();
 
     //
-    // Branches 1 & 2 both need to borrow `pool`, but they access different
-    // fields (result_rx vs join_set). We use `rx_and_join_set()` to split the
-    // borrow, yielding a typed enum so the outer code can dispatch cleanly.
-    enum PoolEvent {
-        Result(Box<PromptResult>),
-        Panic(tokio::task::JoinError),
-        SteerAck(SteerAckEvent),
-        Cognition(local_cognition::CognitionEnvelope),
-    }
-
     loop {
         if last_maintenance.elapsed() >= maintenance_interval {
             last_maintenance = std::time::Instant::now();
@@ -1999,30 +2062,8 @@ async fn tokio_main() -> Result<()> {
 
         let mut respawn_collected = false;
         while let Ok(rr) = respawn_rx.try_recv() {
-            crash_history[rr.index].respawn_in_flight = false;
-            match rr.result {
-                Ok((acp, protocol_version, agent_name, additional_directories_supported)) => {
-                    let agent = OwnedAgent {
-                        index: rr.index,
-                        acp,
-                        state: SessionState::default(),
-                        model_capabilities: None,
-                        desired_model: config.model.clone(),
-                        model_overridden: false,
-                        agent_name,
-                        goose_system_prompt_supported: None,
-                        protocol_version,
-                        additional_directories_supported,
-                    };
-                    pool.return_agent(agent);
-                    tracing::info!(agent = rr.index, "respawn complete");
-                    respawn_collected = true;
-                }
-                Err(e) => {
-                    crash_history[rr.index].mark_spawn_failed();
-                    tracing::warn!(agent = rr.index, "respawn failed: {e} — circuit re-opened");
-                }
-            }
+            respawn_collected |=
+                collect_respawn_result(rr, &mut pool, &mut crash_history, config.model.as_deref());
         }
         // Flush requeued events that were waiting for a live agent. Without
         // this, batches requeued during crash recovery sit idle until the
@@ -2038,21 +2079,13 @@ async fn tokio_main() -> Result<()> {
             let (result_rx, join_set) = pool.rx_and_join_set();
             tokio::select! {
                 biased;
-                // recv() returning None means all senders dropped (pool was torn down).
-                // Break cleanly instead of panicking.
-                r = result_rx.recv() => match r {
-                    Some(result) => Some(PoolEvent::Result(Box::new(result))),
+                completion = next_pool_completion(result_rx, join_set, &mut respawn_rx) => match completion {
+                    Some(event) => Some(event),
                     None => {
                         tracing::info!("result channel closed — exiting main loop");
                         break;
                     }
                 },
-                // Guard: join_next() returns None immediately when JoinSet is
-                // empty, which would cause a tight spin. Only poll when there
-                // are in-flight tasks.
-                Some(Err(e)) = join_set.join_next(), if !join_set.is_empty() => {
-                    Some(PoolEvent::Panic(e))
-                }
                 // Goose-native steer ack from a watcher task. Outcomes drive
                 // queue side-effects (drop / release withheld event) and
                 // optionally the cancel+merge fallback signal. See the
@@ -2681,6 +2714,19 @@ async fn tokio_main() -> Result<()> {
                 if pool.live_count() == 0 && !any_respawn_in_flight(&crash_history) {
                     tracing::error!("all agents dead — exiting");
                     break;
+                }
+                for (channel_id, thread_tags) in dispatch_pending(&mut pool, &mut queue, &ctx) {
+                    typing_channels.insert(channel_id, thread_tags);
+                }
+            }
+            Some(PoolEvent::Respawn(rr)) => {
+                if !collect_respawn_result(
+                    *rr,
+                    &mut pool,
+                    &mut crash_history,
+                    config.model.as_deref(),
+                ) {
+                    continue;
                 }
                 for (channel_id, thread_tags) in dispatch_pending(&mut pool, &mut queue, &ctx) {
                     typing_channels.insert(channel_id, thread_tags);
@@ -5357,7 +5403,8 @@ mod error_outcome_emission_tests {
     use crate::acp::{AcpClient, AcpError};
     use crate::observer::ObserverHandle;
     use crate::pool::{
-        AgentPool, OwnedAgent, PromptOutcome, PromptResult, PromptSource, TimeoutKind,
+        AgentPool, OwnedAgent, PromptContext, PromptOutcome, PromptResult, PromptSource,
+        TimeoutKind,
     };
     use crate::queue::{BatchEvent, EventQueue, FlushBatch, QueuedEvent};
     use nostr::{EventBuilder, Keys, Kind};
@@ -5474,6 +5521,172 @@ mod error_outcome_emission_tests {
             protocol_version: 1,
             additional_directories_supported: false,
         }
+    }
+
+    fn inert_prompt_context() -> Arc<PromptContext> {
+        let keys = Keys::generate();
+        Arc::new(PromptContext {
+            mcp_servers: vec![],
+            direct_buzz_mcp: None,
+            repository_mcp: None,
+            communications_mcp: None,
+            artifact_mcp: None,
+            initial_message: None,
+            idle_timeout: std::time::Duration::from_secs(60),
+            max_turn_duration: std::time::Duration::from_secs(120),
+            turn_liveness_interval: std::time::Duration::ZERO,
+            dedup_mode: config::DedupMode::Queue,
+            system_prompt: None,
+            team_instructions: None,
+            heartbeat_prompt: None,
+            base_prompt: None,
+            cwd: ".".into(),
+            rest_client: crate::relay::RestClient {
+                http: reqwest::Client::new(),
+                base_url: "http://127.0.0.1:0".into(),
+                identity: crate::relay::RelayIdentity::Legacy {
+                    keys: Box::new(keys.clone()),
+                    auth_tag: None,
+                },
+                auth_tag_json: None,
+            },
+            channel_info: std::collections::HashMap::new(),
+            context_message_limit: 0,
+            max_turns_per_session: 0,
+            permission_mode: config::PermissionMode::Default,
+            agent_keys: Some(keys),
+            agent_owner_pubkey: None,
+            memory_enabled: false,
+            harness_name: "test".into(),
+            openclaw_agent_id: None,
+            runtime_session_purpose_store: None,
+            managed_final_publisher: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn completed_respawn_wakes_quiet_loop_and_releases_queued_turn_once() {
+        let channel_id = Uuid::new_v4();
+        let queued_event = EventBuilder::new(Kind::Custom(9), "queued helper reply")
+            .sign_with_keys(&Keys::generate())
+            .unwrap();
+        let mut queue = EventQueue::new(config::DedupMode::Queue);
+        assert!(queue.push(QueuedEvent {
+            channel_id,
+            event: queued_event.clone(),
+            received_at: std::time::Instant::now(),
+            prompt_tag: "test".into(),
+            exchange: None,
+        }));
+
+        let replacement = dummy_agent(0).await;
+        let OwnedAgent {
+            acp,
+            protocol_version,
+            agent_name,
+            additional_directories_supported,
+            ..
+        } = replacement;
+        let mut pool = AgentPool::from_slots(vec![None]);
+        let mut crash_history = vec![SlotCircuit {
+            crash_times: Vec::new(),
+            open_until: None,
+            respawn_in_flight: true,
+        }];
+        let (respawn_tx, mut respawn_rx) = mpsc::channel(1);
+
+        let sender = tokio::spawn(async move {
+            tokio::task::yield_now().await;
+            respawn_tx
+                .send(RespawnResult {
+                    index: 0,
+                    result: Ok((
+                        acp,
+                        protocol_version,
+                        agent_name,
+                        additional_directories_supported,
+                    )),
+                })
+                .await
+                .expect("quiet main loop still owns respawn receiver");
+        });
+
+        // Await the exact production selector with no result or join event.
+        // No relay event is involved in this path; the delayed replacement is
+        // the only wake source.
+        let wake = {
+            let (result_rx, join_set) = pool.rx_and_join_set();
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                next_pool_completion(result_rx, join_set, &mut respawn_rx),
+            )
+            .await
+            .expect("respawn completion must wake a quiet loop")
+            .expect("result channel remains open")
+        };
+        sender.await.expect("respawn sender task");
+        let PoolEvent::Respawn(rr) = wake else {
+            panic!("quiet production selector must yield the respawn event");
+        };
+
+        assert!(collect_respawn_result(
+            *rr,
+            &mut pool,
+            &mut crash_history,
+            Some("test-model"),
+        ));
+        assert!(!crash_history[0].respawn_in_flight);
+
+        let dispatched = dispatch_pending(&mut pool, &mut queue, &inert_prompt_context());
+        assert_eq!(dispatched.len(), 1);
+        assert_eq!(dispatched[0].0, channel_id);
+        assert_eq!(queue.pending_channels(), 0);
+        assert_eq!(pool.task_map().len(), 1);
+        let dispatched_batch = pool
+            .task_map()
+            .values()
+            .next()
+            .and_then(|meta| meta.recoverable_batch.as_ref())
+            .expect("queue-mode dispatch retains its exact batch");
+        assert_eq!(dispatched_batch.channel_id, channel_id);
+        assert_eq!(dispatched_batch.events.len(), 1);
+        assert_eq!(dispatched_batch.events[0].event.id, queued_event.id);
+        assert!(
+            dispatch_pending(&mut pool, &mut queue, &inert_prompt_context()).is_empty(),
+            "queued turn dispatches exactly once"
+        );
+        assert!(matches!(
+            respawn_rx.try_recv(),
+            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected)
+        ));
+
+        // The spawned task owns only the inert `cat` fixture. Abort it before
+        // it can progress into any context or provider-facing operation.
+        pool.join_set.shutdown().await;
+        pool.task_map_mut().clear();
+    }
+
+    #[tokio::test]
+    async fn failed_respawn_wake_clears_in_flight_and_reopens_circuit() {
+        let mut pool = AgentPool::from_slots(vec![None]);
+        let mut crash_history = vec![SlotCircuit {
+            crash_times: Vec::new(),
+            open_until: None,
+            respawn_in_flight: true,
+        }];
+
+        assert!(!collect_respawn_result(
+            RespawnResult {
+                index: 0,
+                result: Err(anyhow::anyhow!("synthetic respawn failure")),
+            },
+            &mut pool,
+            &mut crash_history,
+            None,
+        ));
+        assert!(!crash_history[0].respawn_in_flight);
+        assert!(crash_history[0].open_until.is_some());
+        assert!(!pool.any_idle());
     }
 
     /// Drive one error outcome through `handle_prompt_result` and return how
