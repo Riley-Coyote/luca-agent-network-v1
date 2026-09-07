@@ -522,3 +522,386 @@ fn multi_lineage_generation_loads_preserve_snapshot_and_database() {
         })
     );
 }
+
+fn purge_batch_fixture() -> (TempDir, ContinuityStore, Vec<ConnectedIndexPurgeTargetV1>) {
+    let temp = TempDir::new().unwrap();
+    let mut store = open(&temp);
+    let mut ledger = RevisionLedger::default();
+    for (name, source, kind, private) in [
+        ("page-a", "source", "connected-brain-index-page", false),
+        ("page-b", "source", "connected-brain-index-page", false),
+        ("other-source", "other", "connected-brain-index-page", false),
+        ("other-kind", "source", "owner-brain-chunk-page", false),
+        ("private-page", "source", "connected-brain-index-page", true),
+    ] {
+        let template = record(name, 0, None);
+        let mut namespace = template.namespace;
+        if !private {
+            namespace.kind = ContinuityNamespaceKindV1::OwnerBrain;
+            namespace.resident_pubkey = None;
+            namespace.namespace_ref = sha('a');
+        }
+        let mut scope = template.scope;
+        scope.namespace_ref = namespace.namespace_ref.clone();
+        scope.source_id = Some(id(source));
+        scope.conversation_id = None;
+        let successor = encrypt_record(
+            RecordMetadata {
+                protocol: template.protocol,
+                record_id: id(name),
+                namespace,
+                scope,
+                record_type: id(kind),
+                revision: template.revision,
+                predecessor_record_id: None,
+                created_at: template.created_at,
+                author_kind: id("owner"),
+                provenance_refs: Vec::new(),
+                key_version: template.key_version,
+            },
+            &[7; 32],
+            b"synthetic index metadata",
+        )
+        .unwrap();
+        ledger
+            .apply(request_for_lineage(
+                name,
+                RevisionOperation::Create,
+                '6',
+                Some(successor),
+                None,
+            ))
+            .unwrap();
+    }
+    store
+        .replace_owner_revision_generation_atomically(
+            &AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: hex('1'),
+                active_root_key_version: SafeU53::new(1).unwrap(),
+            },
+            SafeU53::new(1).unwrap(),
+            &ledger.export_snapshot().unwrap(),
+        )
+        .unwrap();
+    let targets = ["page-a", "page-b"]
+        .into_iter()
+        .map(|name| ConnectedIndexPurgeTargetV1 {
+            lineage_root_id: id(name),
+            expected_head_record_id: id(name),
+        })
+        .collect();
+    (temp, store, targets)
+}
+
+fn purge_durable_rows(store: &ContinuityStore) -> Vec<(String, Vec<u8>)> {
+    let mut query = store.connection.prepare(
+        "SELECT 'record:'||record_id,envelope_json FROM continuity_records WHERE owner_pubkey=?1
+         UNION ALL SELECT 'nonce:'||namespace_ref||':'||key_version||':'||nonce_b64||':'||record_id,
+         CAST(reservation_state AS BLOB) FROM continuity_nonce_reservations WHERE owner_pubkey=?1 ORDER BY 1"
+    ).unwrap();
+    query
+        .query_map([hex('1').as_str()], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn connected_index_purge_batch_rejects_invalid_targets_without_partial_authorization() {
+    let (_temp, mut store, targets) = purge_batch_fixture();
+    let before = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+    let rows = purge_durable_rows(&store);
+    let mut cases = vec![
+        Vec::new(),
+        vec![targets[0].clone(), targets[0].clone()],
+        (0..33)
+            .map(|i| ConnectedIndexPurgeTargetV1 {
+                lineage_root_id: id(&format!("oversize-{i}")),
+                expected_head_record_id: id(&format!("oversize-{i}")),
+            })
+            .collect(),
+    ];
+    for invalid in ["missing", "other-source", "other-kind", "private-page"] {
+        cases.push(vec![
+            targets[0].clone(),
+            ConnectedIndexPurgeTargetV1 {
+                lineage_root_id: id(invalid),
+                expected_head_record_id: id(invalid),
+            },
+        ]);
+    }
+    for case in cases {
+        assert!(store
+            .purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token.clone()),
+                &id("source"),
+                &case,
+                PurgeExecutionStatusV1::Authorized
+            )
+            .is_err());
+        assert_eq!(
+            store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+            before
+        );
+        assert_eq!(purge_durable_rows(&store), rows);
+    }
+    let mut wrong_owner = before.token.clone();
+    wrong_owner.owner_pubkey = hex('f');
+    for (expectation, source, next) in [
+        (
+            AuthorityExpectationV1::Existing(wrong_owner),
+            id("source"),
+            PurgeExecutionStatusV1::Authorized,
+        ),
+        (
+            AuthorityExpectationV1::Existing(before.token.clone()),
+            id("other"),
+            PurgeExecutionStatusV1::Authorized,
+        ),
+        (
+            AuthorityExpectationV1::Existing(before.token.clone()),
+            id("source"),
+            PurgeExecutionStatusV1::Failed,
+        ),
+    ] {
+        assert!(store
+            .purge_connected_index_batch_cas(&expectation, &source, &targets, next)
+            .is_err());
+        assert_eq!(
+            store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+            before
+        );
+    }
+}
+
+#[test]
+fn connected_index_purge_each_phase_rejects_stale_head_authority_and_rotation() {
+    let (temp, mut store, targets) = purge_batch_fixture();
+    for next in [
+        PurgeExecutionStatusV1::Authorized,
+        PurgeExecutionStatusV1::InProgress,
+        PurgeExecutionStatusV1::Completed,
+    ] {
+        let before = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+        let rows = purge_durable_rows(&store);
+        let mut stale_epoch = before.token.clone();
+        stale_epoch.store_epoch = "stale-epoch".into();
+        let mut stale_generation = before.token.clone();
+        stale_generation.generation = SafeU53::new(before.token.generation.get() + 1).unwrap();
+        let mut stale_version = before.token.clone();
+        stale_version.active_root_key_version = SafeU53::new(2).unwrap();
+        let mut stale_fingerprint = before.token.clone();
+        stale_fingerprint.snapshot_fingerprint = sha('f');
+        for token in [
+            stale_epoch,
+            stale_generation,
+            stale_version,
+            stale_fingerprint,
+        ] {
+            assert_eq!(
+                store.purge_connected_index_batch_cas(
+                    &AuthorityExpectationV1::Existing(token),
+                    &id("source"),
+                    &targets,
+                    next
+                ),
+                Err(ContinuityStoreError::CompareAndSwapConflict)
+            );
+        }
+        let mut stale_head = targets.clone();
+        stale_head[1].expected_head_record_id = id("stale-head");
+        assert_eq!(
+            store.purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token.clone()),
+                &id("source"),
+                &stale_head,
+                next
+            ),
+            Err(ContinuityStoreError::CompareAndSwapConflict)
+        );
+        store.connection.execute("INSERT INTO continuity_rotation_journals(owner_pubkey,rotation_id,envelope_json) VALUES(?1,?2,?3)",
+            params![hex('1').as_str(), "purge-rotation", vec![0_u8]]).unwrap();
+        assert_eq!(
+            store.purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token.clone()),
+                &id("source"),
+                &targets,
+                next
+            ),
+            Err(ContinuityStoreError::LifecycleConflict)
+        );
+        store
+            .connection
+            .execute(
+                "DELETE FROM continuity_rotation_journals WHERE owner_pubkey=?1",
+                [hex('1').as_str()],
+            )
+            .unwrap();
+        assert_eq!(
+            store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+            before
+        );
+        assert_eq!(purge_durable_rows(&store), rows);
+        let token = store
+            .purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token),
+                &id("source"),
+                &targets,
+                next,
+            )
+            .unwrap();
+        drop(store);
+        store = open(&temp);
+        let reopened = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+        assert_eq!(reopened.token, token);
+        assert_eq!(
+            reopened.snapshot.records.len(),
+            if next == PurgeExecutionStatusV1::Completed {
+                3
+            } else {
+                5
+            }
+        );
+    }
+}
+
+#[test]
+fn connected_index_purge_late_phase_and_sqlite_abort_restore_all_rows_after_reopen() {
+    let (temp, mut store, targets) = purge_batch_fixture();
+    let initial = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+    let one_authorized = store
+        .purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(initial.token),
+            &id("source"),
+            &targets[..1],
+            PurgeExecutionStatusV1::Authorized,
+        )
+        .unwrap();
+    let before = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+    // The first target could advance; the second has no Forget authority. No
+    // part of that mixed batch is persisted, including after reopening.
+    assert!(store
+        .purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(one_authorized.clone()),
+            &id("source"),
+            &targets,
+            PurgeExecutionStatusV1::InProgress
+        )
+        .is_err());
+    drop(store);
+    store = open(&temp);
+    assert_eq!(
+        store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+        before
+    );
+    let token = store
+        .purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(one_authorized),
+            &id("source"),
+            &targets[1..],
+            PurgeExecutionStatusV1::Authorized,
+        )
+        .unwrap();
+    let token = store
+        .purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(token),
+            &id("source"),
+            &targets,
+            PurgeExecutionStatusV1::InProgress,
+        )
+        .unwrap();
+    let before = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+    let rows = purge_durable_rows(&store);
+    store
+        .connection
+        .execute_batch(
+            "CREATE TRIGGER abort_purge_commit BEFORE UPDATE ON continuity_authority_meta
+        BEGIN SELECT RAISE(ABORT, 'synthetic purge commit failure'); END;",
+        )
+        .unwrap();
+    assert_eq!(
+        store.purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(token.clone()),
+            &id("source"),
+            &targets,
+            PurgeExecutionStatusV1::Completed
+        ),
+        Err(ContinuityStoreError::Unavailable)
+    );
+    // Remove only the injected fixture fault: reopening intentionally rejects
+    // any unexpected schema object, independently of purge rollback semantics.
+    store
+        .connection
+        .execute_batch("DROP TRIGGER abort_purge_commit")
+        .unwrap();
+    drop(store);
+    store = open(&temp);
+    assert_eq!(
+        store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+        before
+    );
+    assert_eq!(purge_durable_rows(&store), rows);
+    store
+        .purge_connected_index_batch_cas(
+            &AuthorityExpectationV1::Existing(token),
+            &id("source"),
+            &targets,
+            PurgeExecutionStatusV1::Completed,
+        )
+        .unwrap();
+    let completed = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+    assert_eq!(completed.snapshot.records.len(), 3);
+    assert!(targets.iter().all(|target| completed
+        .snapshot
+        .lineages
+        .iter()
+        .find(|lineage| lineage.lineage_root_id == target.lineage_root_id)
+        .unwrap()
+        .purge_execution
+        .as_ref()
+        .unwrap()
+        .status
+        == PurgeExecutionStatusV1::Completed));
+}
+
+#[test]
+fn connected_index_purge_between_batches_requires_the_returned_token() {
+    let (_temp, mut store, targets) = purge_batch_fixture();
+    for next in [
+        PurgeExecutionStatusV1::Authorized,
+        PurgeExecutionStatusV1::InProgress,
+        PurgeExecutionStatusV1::Completed,
+    ] {
+        let before = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+        let returned = store
+            .purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token.clone()),
+                &id("source"),
+                &targets[..1],
+                next,
+            )
+            .unwrap();
+        let after_first = store.load_revision_generation(&hex('1')).unwrap().unwrap();
+        assert_eq!(
+            store.purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(before.token),
+                &id("source"),
+                &targets[1..],
+                next
+            ),
+            Err(ContinuityStoreError::CompareAndSwapConflict)
+        );
+        assert_eq!(
+            store.load_revision_generation(&hex('1')).unwrap().unwrap(),
+            after_first
+        );
+        store
+            .purge_connected_index_batch_cas(
+                &AuthorityExpectationV1::Existing(returned),
+                &id("source"),
+                &targets[1..],
+                next,
+            )
+            .unwrap();
+    }
+}

@@ -38,6 +38,16 @@ use nonce_reservations::{persist_nonce_reservations, validate_nonce_reservations
 const AUTHORITY_SCHEMA_V1: i64 = 1;
 const MAX_TYPED_BLOB_BYTES: usize = 4 * 1024 * 1024;
 pub(crate) const MAX_OWNER_BRAIN_IMPORT_TRANSITIONS: usize = 40;
+/// Upper bound for one atomic phase of connected-index cleanup.
+pub(crate) const MAX_CONNECTED_INDEX_PURGE_TRANSITIONS: usize = 32;
+
+/// Exact retained head admitted for connected-index cleanup. Rechecked inside
+/// each phase transaction, together with owner, source and record-kind authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ConnectedIndexPurgeTargetV1 {
+    pub(crate) lineage_root_id: OpaqueId,
+    pub(crate) expected_head_record_id: OpaqueId,
+}
 
 /// Complete v4 body-free authority schema. Encrypted bodies remain exclusively
 /// in `continuity_records`; replay rows never duplicate successor ciphertext.
@@ -836,6 +846,95 @@ impl ContinuityStore {
         Ok(token)
     }
 
+    /// Commit one bounded connected-index purge phase. Authorization uses the
+    /// original deterministic Forget request; later phases use the pure ledger's
+    /// purge transition. Every target and the complete authority generation are
+    /// checked before any write, and only Completed may remove ciphertext.
+    pub(crate) fn purge_connected_index_batch_cas(
+        &mut self,
+        expectation: &AuthorityExpectationV1,
+        source_id: &OpaqueId,
+        targets: &[ConnectedIndexPurgeTargetV1],
+        next: PurgeExecutionStatusV1,
+    ) -> Result<RevisionAuthorityTokenV1, ContinuityStoreError> {
+        if targets.is_empty()
+            || targets.len() > MAX_CONNECTED_INDEX_PURGE_TRANSITIONS
+            || targets
+                .iter()
+                .map(|target| &target.lineage_root_id)
+                .collect::<BTreeSet<_>>()
+                .len()
+                != targets.len()
+            || next == PurgeExecutionStatusV1::Failed
+        {
+            return Err(ContinuityStoreError::InvalidRecord);
+        }
+        let owner = expectation.owner();
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        reject_rotation(&transaction, owner)?;
+        let current = load_generation_in_snapshot(&transaction, owner)?
+            .ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
+        require_expectation(expectation, Some(&current))?;
+        let lineages = targets
+            .iter()
+            .map(|target| {
+                let lineage = current
+                    .snapshot
+                    .lineages
+                    .iter()
+                    .find(|lineage| lineage.lineage_root_id == target.lineage_root_id)
+                    .ok_or(ContinuityStoreError::InvalidRecord)?;
+                if lineage.namespace.owner_pubkey != *owner
+                    || lineage.namespace.kind != ContinuityNamespaceKindV1::OwnerBrain
+                    || lineage.namespace.resident_pubkey.is_some()
+                    || lineage.scope.source_id.as_ref() != Some(source_id)
+                    || lineage.record_type.as_str() != "connected-brain-index-page"
+                {
+                    return Err(ContinuityStoreError::InvalidRecord);
+                }
+                if lineage.lineage_head_record_id != target.expected_head_record_id {
+                    return Err(ContinuityStoreError::CompareAndSwapConflict);
+                }
+                Ok(lineage)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ledger = RevisionLedger::from_snapshot(current.snapshot.clone())
+            .map_err(map_continuity_error)?;
+        for lineage in lineages {
+            if next == PurgeExecutionStatusV1::Authorized {
+                // A retry resumes from its persisted phase, never authorizes a
+                // forgotten lineage again or revives a completed tombstone.
+                if lineage.lifecycle == RevisionLifecycle::Forgotten {
+                    return Err(ContinuityStoreError::LifecycleConflict);
+                }
+                ledger
+                    .apply(connected_index_forget_request(lineage)?)
+                    .map_err(map_continuity_error)?;
+            } else {
+                ledger
+                    .advance_purge(&lineage.lineage_root_id, next)
+                    .map_err(map_continuity_error)?;
+            }
+        }
+        let candidate = ledger.export_snapshot().map_err(map_continuity_error)?;
+        let token = persist_transition(
+            &transaction,
+            expectation,
+            Some(&current),
+            current.token.active_root_key_version,
+            &candidate,
+            false,
+            false,
+        )?;
+        transaction
+            .commit()
+            .map_err(|_| ContinuityStoreError::Unavailable)?;
+        Ok(token)
+    }
+
     /// Replace one complete owner generation for a later confirmed protected
     /// restore. This assigns a fresh epoch so every pre-restore token is stale.
     pub(crate) fn replace_owner_revision_generation_atomically(
@@ -1086,6 +1185,41 @@ fn map_continuity_error(error: luca_continuity::ContinuityError) -> ContinuitySt
         E::RevisionConflict => ContinuityStoreError::CompareAndSwapConflict,
         _ => ContinuityStoreError::InvalidRecord,
     }
+}
+
+fn connected_index_forget_request(
+    lineage: &luca_continuity::RevisionLineageSnapshotV1,
+) -> Result<RevisionRequest, ContinuityStoreError> {
+    let digest = luca_protocol::canonical_sha256(&serde_json::json!({
+        "domain": "luca.connected-brain.forget-index.v1",
+        "lineage_root_id": lineage.lineage_root_id,
+        "head_record_id": lineage.lineage_head_record_id,
+    }))
+    .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    let request_ref = Sha256Ref::parse(format!("sha256:{digest}"))
+        .map_err(|_| ContinuityStoreError::InvalidRecord)?;
+    let mut request = RevisionRequest {
+        idempotency_key: request_ref.clone(),
+        operation: RevisionOperation::Forget,
+        lineage_root_id: lineage.lineage_root_id.clone(),
+        expected_head_record_id: Some(lineage.lineage_head_record_id.clone()),
+        actor: RevisionActor::Owner,
+        signed_source_event_refs: Vec::new(),
+        request_ref,
+        successor: None,
+        successor_ciphertext_ref: None,
+        rollback_source_record_id: None,
+        derived_artifact_refs: lineage.derived_artifact_refs.clone(),
+    };
+    request.idempotency_key = luca_continuity::derive_revision_idempotency_key(
+        &lineage.namespace,
+        &lineage.scope,
+        &lineage.record_type,
+        lineage.lineage_envelope_key_version,
+        &request,
+    )
+    .map_err(map_continuity_error)?;
+    Ok(request)
 }
 
 fn require_expectation(

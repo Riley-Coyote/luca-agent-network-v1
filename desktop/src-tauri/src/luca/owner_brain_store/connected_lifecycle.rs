@@ -1,4 +1,7 @@
 use super::*;
+use crate::luca::continuity_revision_authority::{
+    ConnectedIndexPurgeTargetV1, MAX_CONNECTED_INDEX_PURGE_TRANSITIONS,
+};
 use luca_continuity::PurgeExecutionStatusV1;
 use luca_protocol::{
     ConnectedBrainSourceStatusV1, ConnectedBrainSourceV1, RepositoryWorkGrantStateV1,
@@ -164,6 +167,9 @@ pub(super) fn purge_orphaned_index_pages(
     source_id: &OpaqueId,
     retained_lineages: &[OpaqueId],
 ) -> Result<(), OwnerBrainStoreError> {
+    if runtime.owner_pubkey != *owner {
+        return Err(OwnerBrainStoreError::Invalid);
+    }
     let generation = runtime
         .store
         .load_revision_generation(owner)
@@ -183,11 +189,55 @@ pub(super) fn purge_orphaned_index_pages(
                     .as_ref()
                     .is_none_or(|state| state.status != PurgeExecutionStatusV1::Completed)
         })
-        .map(|lineage| lineage.lineage_root_id.clone())
         .collect::<Vec<_>>();
-    purge.sort();
-    for lineage_id in purge {
-        purge_index_lineage(runtime, owner, &lineage_id)?;
+    purge.sort_by(|left, right| left.lineage_root_id.cmp(&right.lineage_root_id));
+    let mut authorize = Vec::new();
+    let mut start = Vec::new();
+    let mut complete = Vec::new();
+    for lineage in purge {
+        let target = ConnectedIndexPurgeTargetV1 {
+            lineage_root_id: lineage.lineage_root_id.clone(),
+            expected_head_record_id: lineage.lineage_head_record_id.clone(),
+        };
+        let status = if lineage.lifecycle == RevisionLifecycle::Forgotten {
+            lineage
+                .purge_execution
+                .as_ref()
+                .ok_or(OwnerBrainStoreError::Invalid)?
+                .status
+        } else {
+            authorize.push(target.clone());
+            PurgeExecutionStatusV1::Authorized
+        };
+        if matches!(
+            status,
+            PurgeExecutionStatusV1::Authorized | PurgeExecutionStatusV1::Failed
+        ) {
+            start.push(target.clone());
+        }
+        complete.push(target);
+    }
+    let mut token = generation.token;
+    drop(generation.snapshot);
+    // Each phase is independently durable. A failed chunk leaves its complete
+    // predecessor phase recoverable; a restart replans from the stored states.
+    // Carry only admitted IDs/heads across chunks, never a cached ledger.
+    for (next, targets) in [
+        (PurgeExecutionStatusV1::Authorized, authorize),
+        (PurgeExecutionStatusV1::InProgress, start),
+        (PurgeExecutionStatusV1::Completed, complete),
+    ] {
+        for batch in targets.chunks(MAX_CONNECTED_INDEX_PURGE_TRANSITIONS) {
+            token = runtime
+                .store
+                .purge_connected_index_batch_cas(
+                    &AuthorityExpectationV1::Existing(token),
+                    source_id,
+                    batch,
+                    next,
+                )
+                .map_err(map_store_write_error)?;
+        }
     }
     Ok(())
 }
@@ -248,101 +298,6 @@ fn set_connected_status_with_runtime(
         .apply_connected_brain_cas(
             &AuthorityExpectationV1::Existing(generation.token),
             vec![request],
-        )
-        .map_err(map_store_write_error)?;
-    Ok(())
-}
-
-fn purge_index_lineage(
-    runtime: &mut ContinuityRuntime,
-    owner: &Hex64,
-    lineage_id: &OpaqueId,
-) -> Result<(), OwnerBrainStoreError> {
-    let generation = runtime
-        .store
-        .load_revision_generation(owner)
-        .map_err(map_store_read_error)?
-        .ok_or(OwnerBrainStoreError::Invalid)?;
-    let lineage = generation
-        .snapshot
-        .lineages
-        .iter()
-        .find(|lineage| lineage.lineage_root_id == *lineage_id)
-        .ok_or(OwnerBrainStoreError::Invalid)?;
-    if lineage.record_type.as_str() != CONNECTED_INDEX_PAGE_RECORD {
-        return Err(OwnerBrainStoreError::Invalid);
-    }
-    let (mut token, mut purge_status) = if lineage.lifecycle == RevisionLifecycle::Forgotten {
-        (
-            generation.token,
-            lineage
-                .purge_execution
-                .as_ref()
-                .ok_or(OwnerBrainStoreError::Invalid)?
-                .status,
-        )
-    } else {
-        let request_ref = sha_ref_for(&serde_json::json!({
-            "domain": "luca.connected-brain.forget-index.v1",
-            "lineage_root_id": lineage_id,
-            "head_record_id": lineage.lineage_head_record_id,
-        }))?;
-        let mut request = RevisionRequest {
-            idempotency_key: request_ref.clone(),
-            operation: RevisionOperation::Forget,
-            lineage_root_id: lineage_id.clone(),
-            expected_head_record_id: Some(lineage.lineage_head_record_id.clone()),
-            actor: RevisionActor::Owner,
-            signed_source_event_refs: Vec::new(),
-            request_ref,
-            successor: None,
-            successor_ciphertext_ref: None,
-            rollback_source_record_id: None,
-            derived_artifact_refs: lineage.derived_artifact_refs.clone(),
-        };
-        request.idempotency_key = derive_revision_idempotency_key(
-            &lineage.namespace,
-            &lineage.scope,
-            &lineage.record_type,
-            lineage.lineage_envelope_key_version,
-            &request,
-        )
-        .map_err(|_| OwnerBrainStoreError::Invalid)?;
-        let result = runtime
-            .store
-            .apply_revision_transition_cas(
-                &AuthorityExpectationV1::Existing(generation.token),
-                request,
-            )
-            .map_err(map_store_write_error)?;
-        (result.token, PurgeExecutionStatusV1::Authorized)
-    };
-    if purge_status == PurgeExecutionStatusV1::Completed {
-        return Ok(());
-    }
-    if matches!(
-        purge_status,
-        PurgeExecutionStatusV1::Authorized | PurgeExecutionStatusV1::Failed
-    ) {
-        token = runtime
-            .store
-            .advance_purge_transition_cas(
-                &AuthorityExpectationV1::Existing(token),
-                lineage_id,
-                PurgeExecutionStatusV1::InProgress,
-            )
-            .map_err(map_store_write_error)?;
-        purge_status = PurgeExecutionStatusV1::InProgress;
-    }
-    if purge_status != PurgeExecutionStatusV1::InProgress {
-        return Err(OwnerBrainStoreError::Invalid);
-    }
-    runtime
-        .store
-        .advance_purge_transition_cas(
-            &AuthorityExpectationV1::Existing(token),
-            lineage_id,
-            PurgeExecutionStatusV1::Completed,
         )
         .map_err(map_store_write_error)?;
     Ok(())
