@@ -3638,6 +3638,79 @@ mod tests {
         }
     }
 
+    fn mcp_tool_call(session_id: &str, tool_call_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": tool_call_id,
+                    "title": "mcp.luca-repositories.propose_resident",
+                    "kind": "execute",
+                    "status": "in_progress",
+                    "rawInput": {
+                        "server": "luca-repositories",
+                        "tool": "propose_resident",
+                        "arguments": {
+                            "runtime_family": "hermes",
+                            "provisioning_intent": "import",
+                            "native_profile_name": "luca-qa-hermes-20260905-continuation",
+                            "secret": "PRIVATE_SECRET",
+                            "body": "PRIVATE_BODY",
+                            "code": "PRIVATE_CODE"
+                        }
+                    },
+                    "_meta": {"is_mcp_tool_call": true}
+                }
+            }
+        })
+    }
+
+    fn partial_mcp_permission(session_id: &str, tool_call_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "sessionId": session_id,
+            "toolCall": {
+                "toolCallId": tool_call_id,
+                "kind": "execute",
+                "status": "pending"
+            },
+            "_meta": {"is_mcp_tool_approval": true}
+        })
+    }
+
+    #[test]
+    fn sparse_mcp_permission_reuses_only_exact_sanitized_tool_display() {
+        let mut cache = PermissionDisplayCache::default();
+        let id = "exec-f9df6f9e-3990-4f73-b0c3-4b7a7a9ddd21";
+        cache.observe(&mcp_tool_call("session-1", id));
+
+        let display = managed_permission_display_fields(
+            Some(&partial_mcp_permission("session-1", id)),
+            &cache,
+        );
+        assert_eq!(display.title, "Prepare resident setup review");
+        assert_eq!(
+            display.action_preview.as_deref(),
+            Some("luca-repositories.propose_resident · runtime hermes · intent import · profile luca-qa-hermes-20260905-continuation")
+        );
+        let cached = format!("{cache:?}");
+        for private in ["PRIVATE_SECRET", "PRIVATE_BODY", "PRIVATE_CODE"] {
+            assert!(!cached.contains(private));
+        }
+
+        let mut wrong_kind = partial_mcp_permission("session-1", id);
+        wrong_kind["toolCall"]["kind"] = serde_json::json!("edit");
+        for params in [
+            partial_mcp_permission("session-2", id),
+            partial_mcp_permission("session-1", "exec-other"),
+            wrong_kind,
+        ] {
+            assert!(managed_permission_display_fields(Some(&params), &cache)
+                .action_preview
+                .is_none());
+        }
+    }
+
     #[test]
     fn explicit_permission_action_never_borrows_cached_display() {
         let mut cache = PermissionDisplayCache::default();

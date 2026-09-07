@@ -865,6 +865,9 @@ fn activity_detail(
 pub(crate) fn permission_action_presentation(
     tool_call: &serde_json::Value,
 ) -> Option<(String, Option<String>)> {
+    if let Some(presentation) = permission_mcp_action_presentation(tool_call) {
+        return Some(presentation);
+    }
     let kind = activity_kind(tool_call);
     let detail = activity_detail(kind, tool_call).or_else(|| match kind {
         ManagedPresentationActivityKindV1::File => typed_diff_path_detail(tool_call),
@@ -872,6 +875,91 @@ pub(crate) fn permission_action_presentation(
     });
     let title = activity_label(kind, tool_call, detail.as_deref())?;
     Some((title, detail))
+}
+
+const MAX_PERMISSION_MCP_IDENTIFIER_BYTES: usize = 128;
+
+/// Project the typed MCP envelope used by Codex tool approvals without
+/// carrying the argument object into the permission channel.
+fn permission_mcp_action_presentation(
+    tool_call: &serde_json::Value,
+) -> Option<(String, Option<String>)> {
+    if !tool_call.pointer("/_meta/is_mcp_tool_call")?.as_bool()? {
+        return None;
+    }
+    let raw_input = tool_call.get("rawInput")?.as_object()?;
+    let server = permission_mcp_identifier(raw_input.get("server")?)?;
+    let tool = permission_mcp_identifier(raw_input.get("tool")?)?;
+    let arguments = raw_input.get("arguments")?.as_object()?;
+    let identity = bounded_text(
+        &format!("{server}.{tool}"),
+        MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES,
+    )?;
+
+    if server == "luca-repositories" && tool == "propose_resident" {
+        let mut preview = identity;
+        if let Some(runtime) = arguments
+            .get("runtime_family")
+            .and_then(valid_resident_runtime_family)
+        {
+            preview.push_str(" · runtime ");
+            preview.push_str(runtime);
+        }
+        if let Some(intent) = arguments
+            .get("provisioning_intent")
+            .and_then(valid_resident_provisioning_intent)
+        {
+            preview.push_str(" · intent ");
+            preview.push_str(intent);
+        }
+        if let Some(profile) = arguments
+            .get("native_profile_name")
+            .and_then(valid_native_profile_slug)
+        {
+            preview.push_str(" · profile ");
+            preview.push_str(profile);
+        }
+        return Some((
+            "Prepare resident setup review".to_owned(),
+            bounded_text(&preview, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES),
+        ));
+    }
+
+    Some(("Use MCP tool".to_owned(), Some(identity)))
+}
+
+fn permission_mcp_identifier(value: &serde_json::Value) -> Option<&str> {
+    let value = value.as_str()?;
+    (!value.is_empty()
+        && value.len() <= MAX_PERMISSION_MCP_IDENTIFIER_BYTES
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'-' | b'_' | b'.'))
+        }))
+    .then_some(value)
+}
+
+fn valid_resident_runtime_family(value: &serde_json::Value) -> Option<&str> {
+    value
+        .as_str()
+        .filter(|value| matches!(*value, "codex" | "claude_code" | "hermes" | "openclaw"))
+}
+
+fn valid_resident_provisioning_intent(value: &serde_json::Value) -> Option<&str> {
+    value
+        .as_str()
+        .filter(|value| matches!(*value, "fresh" | "template" | "advanced" | "import"))
+}
+
+fn valid_native_profile_slug(value: &serde_json::Value) -> Option<&str> {
+    let value = value.as_str()?;
+    (!value.is_empty()
+        && value.len() <= 64
+        && value.bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_lowercase()
+                || byte.is_ascii_digit()
+                || (index > 0 && matches!(byte, b'_' | b'-'))
+        }))
+    .then_some(value)
 }
 
 /// Extract only ACP's typed diff paths. Diff bodies and arbitrary content
@@ -1340,6 +1428,104 @@ mod tests {
             MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES
         );
         assert!(preview.ends_with('…'));
+    }
+
+    #[test]
+    fn permission_preview_projects_only_typed_mcp_identity_and_safe_resident_selectors() {
+        let tool_call = serde_json::json!({
+            "toolCallId": "exec-f9df6f9e-3990-4f73-b0c3-4b7a7a9ddd21",
+            "title": "mcp.luca-repositories.propose_resident",
+            "kind": "execute",
+            "status": "in_progress",
+            "rawInput": {
+                "server": "luca-repositories",
+                "tool": "propose_resident",
+                "arguments": {
+                    "runtime_family": "hermes",
+                    "provisioning_intent": "import",
+                    "native_profile_name": "luca-qa-hermes-20260905-continuation",
+                    "system_prompt": "PRIVATE_INSTRUCTIONS",
+                    "credential": "PRIVATE_CREDENTIAL",
+                    "script": "PRIVATE_SCRIPT"
+                }
+            },
+            "rawOutput": {"body": "PRIVATE_OUTPUT"},
+            "_meta": {"is_mcp_tool_call": true}
+        });
+        let presentation = permission_action_presentation(&tool_call).expect("MCP presentation");
+        assert_eq!(presentation.0, "Prepare resident setup review");
+        assert_eq!(
+            presentation.1.as_deref(),
+            Some("luca-repositories.propose_resident · runtime hermes · intent import · profile luca-qa-hermes-20260905-continuation")
+        );
+        let encoded = format!("{presentation:?}");
+        for private in [
+            "PRIVATE_INSTRUCTIONS",
+            "PRIVATE_CREDENTIAL",
+            "PRIVATE_SCRIPT",
+            "PRIVATE_OUTPUT",
+        ] {
+            assert!(!encoded.contains(private));
+        }
+    }
+
+    #[test]
+    fn permission_mcp_projection_requires_marker_and_valid_typed_envelope() {
+        let base = serde_json::json!({
+            "kind": "execute",
+            "rawInput": {
+                "server": "example-server",
+                "tool": "safe_tool",
+                "arguments": {"private": "PRIVATE_BODY"}
+            },
+            "_meta": {"is_mcp_tool_call": true}
+        });
+        assert_eq!(
+            permission_mcp_action_presentation(&base),
+            Some((
+                "Use MCP tool".into(),
+                Some("example-server.safe_tool".into())
+            ))
+        );
+
+        for pointer in ["/_meta", "/rawInput/arguments"] {
+            let mut malformed = base.clone();
+            *malformed.pointer_mut(pointer).unwrap() = serde_json::Value::Null;
+            assert!(permission_mcp_action_presentation(&malformed).is_none());
+        }
+        for (field, value) in [
+            ("server", ".bad-server".to_owned()),
+            ("tool", "x".repeat(MAX_PERMISSION_MCP_IDENTIFIER_BYTES + 1)),
+        ] {
+            let mut malformed = base.clone();
+            malformed["rawInput"][field] = serde_json::json!(value);
+            assert!(permission_mcp_action_presentation(&malformed).is_none());
+        }
+    }
+
+    #[test]
+    fn malformed_resident_selectors_are_omitted_from_mcp_preview() {
+        let tool_call = serde_json::json!({
+            "kind": "execute",
+            "rawInput": {
+                "server": "luca-repositories",
+                "tool": "propose_resident",
+                "arguments": {
+                    "runtime_family": "shell",
+                    "provisioning_intent": "overwrite",
+                    "native_profile_name": "X".repeat(65),
+                    "other": "PRIVATE_BODY"
+                }
+            },
+            "_meta": {"is_mcp_tool_call": true}
+        });
+        let presentation = permission_mcp_action_presentation(&tool_call).expect("safe identity");
+        assert_eq!(presentation.0, "Prepare resident setup review");
+        assert_eq!(
+            presentation.1.as_deref(),
+            Some("luca-repositories.propose_resident")
+        );
+        assert!(!format!("{presentation:?}").contains("PRIVATE_BODY"));
     }
 
     #[test]
