@@ -184,6 +184,172 @@ esac
     }
 
     #[test]
+    fn two_fresh_profiles_remain_isolated_when_the_second_is_rolled_back() {
+        let fixture = Fixture::new();
+        // Match fresh native bootstrap scaffolding without copying source material.
+        let fresh_env = "# Fresh profile environment overrides\n";
+        let native = fs::read_to_string(&fixture.executable).unwrap().replace(
+            "    /bin/mkdir -p \"$root/profiles/$3\"",
+            "    /bin/mkdir -p \"$root/profiles/$3/memories\" \"$root/profiles/$3/sessions\" \"$root/profiles/$3/skills\"\n    printf '# Fresh profile environment overrides\\n' > \"$root/profiles/$3/.env\"",
+        );
+        fs::write(&fixture.executable, native).unwrap();
+        let template = fixture.root.join("profiles/template");
+        let mut sentinels = Vec::new();
+        for directory in [&fixture.root, &template] {
+            fs::create_dir_all(directory.join("memories")).unwrap();
+            fs::create_dir_all(directory.join("sessions")).unwrap();
+            for relative in [
+                "auth.json",
+                ".env",
+                "SOUL.md",
+                "memories/MEMORY.md",
+                "sessions/session.json",
+            ] {
+                let path = directory.join(relative);
+                let bytes = format!("synthetic source-only {} {relative}", directory.display())
+                    .into_bytes();
+                fs::write(&path, &bytes).unwrap();
+                sentinels.push((path, bytes));
+            }
+        }
+        fs::write(template.join("config.yaml"), "model: template-only-model\n").unwrap();
+        for directory in [&fixture.root, &template] {
+            let path = directory.join("config.yaml");
+            sentinels.push((path.clone(), fs::read(path).unwrap()));
+        }
+        let source = crate::managed_agents::build_hermes_runtime_binding(
+            "template".into(),
+            template,
+            fixture.executable.clone(),
+            "0.17.0".into(),
+            None,
+        );
+        let mode = AgentProvisioningModeV1::Fresh;
+        let mut first = HermesJournal::prepare(
+            "owner",
+            "transaction-a",
+            "request-a",
+            source.clone(),
+            "scout-a",
+        )
+        .unwrap();
+        let first_path = fixture.base.join("journal-a.json");
+        let second_path = fixture.base.join("journal-b.json");
+        let mut first_request = request(mode.clone());
+        first_request.display_name = "Scout A".into();
+        first_request.system_prompt = "Find reliable sources for A.".into();
+        fixture.approve(&mut first);
+        first.save(&first_path).unwrap();
+        hermes::execute(&first_request, &mut first, &first_path).unwrap();
+        let first_candidate = hermes::candidate(&first, &mode).unwrap();
+        // A later native memory write belongs only to the first profile.
+        fs::create_dir_all(first.destination.join("memories")).unwrap();
+        fs::write(
+            first.destination.join("memories/MEMORY.md"),
+            "synthetic memory owned by A",
+        )
+        .unwrap();
+        let first_bytes: Vec<_> = ["config.yaml", "SOUL.md", "memories/MEMORY.md"]
+            .into_iter()
+            .map(|relative| {
+                (
+                    relative,
+                    fs::read(first.destination.join(relative)).unwrap(),
+                )
+            })
+            .collect();
+        let mut second =
+            HermesJournal::prepare("owner", "transaction-b", "request-b", source, "scout-b")
+                .unwrap();
+        let mut second_request = request(mode.clone());
+        second_request.display_name = "Scout B".into();
+        second_request.system_prompt = "Check independent evidence for B.".into();
+        fixture.approve(&mut second);
+        second.save(&second_path).unwrap();
+        hermes::execute(&second_request, &mut second, &second_path).unwrap();
+        let second_candidate = hermes::candidate(&second, &mode).unwrap();
+        assert_ne!(
+            first.destination.canonicalize().unwrap(),
+            second.destination.canonicalize().unwrap()
+        );
+        assert_ne!(first.slug, second.slug);
+        assert_ne!(first_candidate.native_id, second_candidate.native_id);
+        assert_ne!(first_candidate.semantic_id, second_candidate.semantic_id);
+        assert_ne!(
+            first_candidate.canonical_location,
+            second_candidate.canonical_location
+        );
+        for (journal, instructions) in [
+            (&first, &first_request.system_prompt),
+            (&second, &second_request.system_prompt),
+        ] {
+            let config: serde_yaml::Value =
+                serde_yaml::from_slice(&fs::read(journal.destination.join("config.yaml")).unwrap())
+                    .unwrap();
+            assert_eq!(config["model"]["provider"], "openai-codex");
+            assert_eq!(config["model"]["default"], "gpt-5.5");
+            assert_eq!(
+                fs::read_to_string(journal.destination.join("SOUL.md")).unwrap(),
+                *instructions
+            );
+            assert!(!journal.destination.join("auth.json").exists());
+            let env = fs::read(journal.destination.join(".env")).unwrap();
+            assert_eq!(env, fresh_env.as_bytes());
+            for (path, bytes) in &sentinels {
+                if path.file_name().unwrap() == ".env" {
+                    assert_ne!(&env, bytes);
+                }
+            }
+            assert_eq!(
+                fs::read_dir(journal.destination.join("sessions"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            assert_eq!(
+                fs::read_dir(journal.destination.join("skills"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+        }
+        assert_eq!(
+            fs::read_dir(second.destination.join("memories"))
+                .unwrap()
+                .count(),
+            0
+        );
+        assert_eq!(
+            fs::read_dir(first.destination.join("memories"))
+                .unwrap()
+                .count(),
+            1
+        );
+        for (relative, bytes) in &first_bytes {
+            assert_eq!(fs::read(first.destination.join(relative)).unwrap(), *bytes);
+        }
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes);
+        }
+        hermes::rollback_at_home(&mut second, &second_path, &fixture.home).unwrap();
+        assert!(!second.destination.exists());
+        assert!(second.removed);
+        let first =
+            HermesJournal::load(&first_path, "owner", "transaction-a", "request-a").unwrap();
+        first.verify_created().unwrap();
+        assert_eq!(
+            hermes::candidate(&first, &mode).unwrap().semantic_id,
+            first_candidate.semantic_id
+        );
+        for (relative, bytes) in &first_bytes {
+            assert_eq!(fs::read(first.destination.join(relative)).unwrap(), *bytes);
+        }
+        for (path, bytes) in &sentinels {
+            assert_eq!(fs::read(path).unwrap(), *bytes);
+        }
+    }
+
+    #[test]
     fn fresh_profile_inherits_reviewed_root_model_without_copying_native_credentials() {
         let fixture = Fixture::new();
         let config = "model:\n  default: gpt-5.5\n  provider: openai-codex\n";

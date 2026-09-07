@@ -119,6 +119,27 @@ async function installCreateDefaultBridge(
             }
             if (!realInvoke) throw new Error("Mock IPC missing");
             const result = await realInvoke(command, payload, options);
+            if (command === "preview_native_agent_provisioning") {
+              const request = (
+                payload as { request?: { runtime?: string; mode?: string } }
+              )?.request;
+              if (request?.runtime === "hermes" && request.mode === "fresh") {
+                const preview =
+                  result as import("../../../src/shared/api/tauriOperatorForge").NativeProvisioningPreviewV1;
+                return {
+                  ...preview,
+                  changes: [
+                    ...preview.changes,
+                    {
+                      subject: "Native model preferences",
+                      action: "Inherit",
+                      detail:
+                        "Use gpt-5.5 with openai-codex, from this Hermes installation's root settings. Memory, sessions and credentials are not copied.",
+                    },
+                  ],
+                };
+              }
+            }
             if (command !== "get_operator_forge_settings") return result;
             const settings =
               result as import("../../../src/shared/api/tauriOperatorForge").OperatorForgeSettingsV1;
@@ -217,9 +238,15 @@ test("Agents Create honors confirmed Hermes over the managed app default", async
   await expect(
     page.getByRole("region", { name: "Provisioning review" }),
   ).toContainText("Hermes profile");
+  const review = page.getByRole("region", { name: "Provisioning review" });
+  await expect(review).toContainText("Native model preferences");
+  await expect(review).toContainText("Use gpt-5.5 with openai-codex");
+  await expect(review).toContainText(
+    "Memory, sessions and credentials are not copied.",
+  );
   expect(await libraryCreationCalls(page)).toEqual([]);
   await waitForAnimations(page);
-  await page.screenshot({
+  await review.screenshot({
     path: testInfo.outputPath("confirmed-hermes-create-review.png"),
   });
   await page.getByRole("button", { name: "Create agent", exact: true }).click();
