@@ -468,6 +468,20 @@ fn choose_recommendation(
         .or_else(|| {
             options
                 .iter()
+                .find(|option| {
+                    option.readiness == RuntimeReadinessV1::Ready
+                        && matches!(
+                            &option.target,
+                            AgentRuntimeTargetV1::Native {
+                                runtime: NativeRuntimeFamilyV1::Hermes
+                            }
+                        )
+                })
+                .map(|option| option.target.clone())
+        })
+        .or_else(|| {
+            options
+                .iter()
                 .find(|option| option.readiness == RuntimeReadinessV1::Ready)
                 .map(|option| option.target.clone())
         })
@@ -635,54 +649,106 @@ mod tests {
         );
     }
 
-    fn option(target: AgentRuntimeTargetV1, ready: bool) -> RuntimeTargetOptionV1 {
+    fn option(
+        target: AgentRuntimeTargetV1,
+        readiness: RuntimeReadinessV1,
+    ) -> RuntimeTargetOptionV1 {
         RuntimeTargetOptionV1 {
             target,
             label: "test".into(),
-            readiness: if ready {
-                RuntimeReadinessV1::Ready
-            } else {
-                RuntimeReadinessV1::Unavailable
-            },
+            readiness,
             reason: None,
             recommended: false,
         }
     }
 
     #[test]
-    fn recommendation_preserves_a_ready_existing_preference() {
-        let codex = AgentRuntimeTargetV1::Managed {
-            runtime_id: "codex".into(),
-        };
-        let hermes = AgentRuntimeTargetV1::Native {
-            runtime: NativeRuntimeFamilyV1::Hermes,
-        };
-        let options = vec![option(codex.clone(), true), option(hermes.clone(), true)];
-        assert_eq!(choose_recommendation(Some(&hermes), &options), Some(hermes));
+    fn recommendation_preserves_every_ready_confirmed_choice() {
+        let targets = vec![
+            AgentRuntimeTargetV1::Managed {
+                runtime_id: "codex".into(),
+            },
+            AgentRuntimeTargetV1::Managed {
+                runtime_id: "claude".into(),
+            },
+            AgentRuntimeTargetV1::Native {
+                runtime: NativeRuntimeFamilyV1::Hermes,
+            },
+            AgentRuntimeTargetV1::Native {
+                runtime: NativeRuntimeFamilyV1::Openclaw,
+            },
+        ];
+        let options = targets
+            .iter()
+            .cloned()
+            .map(|target| option(target, RuntimeReadinessV1::Ready))
+            .collect::<Vec<_>>();
+
+        for target in targets {
+            assert_eq!(choose_recommendation(Some(&target), &options), Some(target));
+        }
     }
 
     #[test]
-    fn recommendation_uses_catalog_order_for_an_unconfirmed_profile() {
+    fn recommendation_prefers_ready_hermes_regardless_of_catalog_order() {
         let codex = AgentRuntimeTargetV1::Managed {
             runtime_id: "codex".into(),
         };
         let hermes = AgentRuntimeTargetV1::Native {
             runtime: NativeRuntimeFamilyV1::Hermes,
         };
-        let options = vec![option(codex.clone(), true), option(hermes.clone(), true)];
-        assert_eq!(choose_recommendation(None, &options), Some(codex));
+        for options in [
+            vec![
+                option(codex.clone(), RuntimeReadinessV1::Ready),
+                option(hermes.clone(), RuntimeReadinessV1::Ready),
+            ],
+            vec![
+                option(hermes.clone(), RuntimeReadinessV1::Ready),
+                option(codex.clone(), RuntimeReadinessV1::Ready),
+            ],
+        ] {
+            assert_eq!(choose_recommendation(None, &options), Some(hermes.clone()));
+        }
     }
 
     #[test]
-    fn recommendation_falls_back_to_another_ready_runtime_when_hermes_is_not_ready() {
+    fn recommendation_falls_back_to_first_ready_when_hermes_is_not_ready() {
         let codex = AgentRuntimeTargetV1::Managed {
             runtime_id: "codex".into(),
         };
         let hermes = AgentRuntimeTargetV1::Native {
             runtime: NativeRuntimeFamilyV1::Hermes,
         };
-        let options = vec![option(codex.clone(), true), option(hermes, false)];
-        assert_eq!(choose_recommendation(None, &options), Some(codex));
+        for readiness in [
+            RuntimeReadinessV1::SetupRequired,
+            RuntimeReadinessV1::Unavailable,
+        ] {
+            let options = vec![
+                option(codex.clone(), RuntimeReadinessV1::Ready),
+                option(hermes.clone(), readiness),
+            ];
+            assert_eq!(choose_recommendation(None, &options), Some(codex.clone()));
+        }
+    }
+
+    #[test]
+    fn recommendation_is_none_when_no_runtime_is_ready() {
+        let options = vec![
+            option(
+                AgentRuntimeTargetV1::Managed {
+                    runtime_id: "codex".into(),
+                },
+                RuntimeReadinessV1::SetupRequired,
+            ),
+            option(
+                AgentRuntimeTargetV1::Native {
+                    runtime: NativeRuntimeFamilyV1::Hermes,
+                },
+                RuntimeReadinessV1::Unavailable,
+            ),
+        ];
+
+        assert_eq!(choose_recommendation(None, &options), None);
     }
 
     #[test]
@@ -703,17 +769,12 @@ mod tests {
                     AgentRuntimeTargetV1::Managed {
                         runtime_id: "codex".into(),
                     },
-                    true,
+                    RuntimeReadinessV1::Ready,
                 ),
-                option(hermes.clone(), true),
+                option(hermes.clone(), RuntimeReadinessV1::Ready),
             ],
         );
-        assert_eq!(
-            settings.recommendation,
-            Some(AgentRuntimeTargetV1::Managed {
-                runtime_id: "codex".into(),
-            })
-        );
+        assert_eq!(settings.recommendation, Some(hermes));
     }
 
     #[test]
