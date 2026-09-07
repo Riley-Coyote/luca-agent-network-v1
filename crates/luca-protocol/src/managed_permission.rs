@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Hex64, OpaqueId, SafeU53};
+use crate::{Hex64, OpaqueId, SafeU53, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES};
 
 /// Stable wire identifier for the managed local permission protocol.
 pub const MANAGED_PERMISSION_PROTOCOL: &str = "luca.managed.permission.v1";
@@ -58,6 +58,10 @@ pub struct ManagedPermissionRequestV1 {
     /// Optional runtime tool-call correlation id, never treated as authority.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Optional bounded action preview for display only. It is never authority
+    /// for the selected runtime option or the operation that later executes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_preview: Option<String>,
     /// Exact, bounded set of runtime-advertised choices.
     pub options: Vec<ManagedPermissionOptionV1>,
 }
@@ -108,6 +112,11 @@ impl ManagedPermissionRequestV1 {
                 .tool_call_id
                 .as_ref()
                 .is_some_and(|value| value.len() > 512)
+            || self.action_preview.as_ref().is_some_and(|value| {
+                value.is_empty()
+                    || value.len() > MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES
+                    || !is_display_safe(value)
+            })
             || self.options.is_empty()
             || self.options.len() > 32
             || self.options.iter().any(|option| {
@@ -121,6 +130,16 @@ impl ManagedPermissionRequestV1 {
         }
         Ok(())
     }
+}
+
+fn is_display_safe(value: &str) -> bool {
+    !value.chars().any(|character| {
+        character.is_control()
+            || matches!(
+                character,
+                '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+            )
+    })
 }
 
 impl ManagedPermissionDecisionV1 {
@@ -171,6 +190,7 @@ mod tests {
             acp_request_id: "7".into(),
             title: "Write file".into(),
             tool_call_id: Some("tool-1".into()),
+            action_preview: Some("src/app.ts".into()),
             options: vec![
                 ManagedPermissionOptionV1 {
                     option_id: "allow-7".into(),
@@ -222,5 +242,23 @@ mod tests {
             decision.validate_for(&request),
             Err(ManagedPermissionError::Binding)
         );
+    }
+
+    #[test]
+    fn action_preview_is_optional_and_display_safe() {
+        let mut json = serde_json::to_value(request()).expect("request json");
+        json.as_object_mut()
+            .expect("request object")
+            .remove("action_preview");
+        let mut value: ManagedPermissionRequestV1 =
+            serde_json::from_value(json).expect("legacy request without preview");
+        assert_eq!(value.action_preview, None);
+        assert_eq!(value.validate(), Ok(()));
+
+        value.action_preview = Some("a".repeat(MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES + 1));
+        assert_eq!(value.validate(), Err(ManagedPermissionError::Protocol));
+
+        value.action_preview = Some("safe\u{202e}spoofed".into());
+        assert_eq!(value.validate(), Err(ManagedPermissionError::Protocol));
     }
 }

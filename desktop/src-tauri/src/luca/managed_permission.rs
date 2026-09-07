@@ -595,6 +595,7 @@ mod tests {
             acp_request_id: acp_request_id.into(),
             title: "Synthetic managed permission".into(),
             tool_call_id: None,
+            action_preview: None,
             options: vec![
                 ManagedPermissionOptionV1 {
                     option_id: "runtime-allow".into(),

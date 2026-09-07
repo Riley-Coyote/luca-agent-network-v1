@@ -93,6 +93,144 @@ struct ManagedPermissionClient {
     session_epoch: luca_protocol::SafeU53,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ManagedPermissionDisplayFields {
+    title: String,
+    tool_call_id: Option<String>,
+    action_preview: Option<String>,
+}
+
+const MAX_PERMISSION_DISPLAY_CACHE_ENTRIES: usize = 64;
+const MAX_PERMISSION_DISPLAY_KEY_BYTES: usize = 128;
+
+#[derive(Debug, Clone)]
+struct CachedPermissionDisplay {
+    kind: String,
+    display: ManagedPermissionDisplayFields,
+}
+
+/// Synchronous, per-managed-turn projection of active ACP tool calls. Entries
+/// contain display-safe strings only; raw inputs and diff bodies are never kept.
+#[derive(Debug, Default)]
+struct PermissionDisplayCache {
+    session_id: Option<String>,
+    entries: std::collections::HashMap<String, CachedPermissionDisplay>,
+}
+
+impl PermissionDisplayCache {
+    fn clear(&mut self) {
+        self.session_id = None;
+        self.entries.clear();
+    }
+
+    fn observe(&mut self, msg: &serde_json::Value) {
+        let Some(params) = msg.get("params").and_then(serde_json::Value::as_object) else {
+            return;
+        };
+        let Some(session_id) = bounded_permission_cache_key(params.get("sessionId")) else {
+            return;
+        };
+        if self.session_id.as_deref() != Some(session_id) {
+            self.entries.clear();
+            self.session_id = Some(session_id.to_owned());
+        }
+        let Some(update_value) = params.get("update") else {
+            return;
+        };
+        let Some(update) = update_value.as_object() else {
+            return;
+        };
+        let Some(tool_call_id) = bounded_permission_cache_key(update.get("toolCallId")) else {
+            return;
+        };
+        let update_type = update
+            .get("sessionUpdate")
+            .and_then(serde_json::Value::as_str);
+        let terminal = update
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|status| matches!(status, "completed" | "failed" | "cancelled"));
+        match update_type {
+            Some("tool_call" | "tool_call_update") if terminal => {
+                self.entries.remove(tool_call_id);
+            }
+            Some("tool_call") => self.replace(tool_call_id, update_value),
+            Some("tool_call_update") => {
+                if permission_update_has_action_fields(update) {
+                    self.replace(tool_call_id, update_value);
+                } else if let Some(kind) = update.get("kind") {
+                    let compatible = kind.as_str().is_some_and(|kind| {
+                        self.entries
+                            .get(tool_call_id)
+                            .is_some_and(|entry| entry.kind == kind)
+                    });
+                    if !compatible {
+                        self.entries.remove(tool_call_id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn replace(&mut self, tool_call_id: &str, update: &serde_json::Value) {
+        let kind = update
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .filter(|kind| !kind.is_empty() && kind.len() <= MAX_PERMISSION_DISPLAY_KEY_BYTES);
+        let display = crate::managed_presentation::permission_action_presentation(update);
+        let Some((kind, (title, action_preview))) = kind.zip(display) else {
+            self.entries.remove(tool_call_id);
+            return;
+        };
+        if !self.entries.contains_key(tool_call_id)
+            && self.entries.len() >= MAX_PERMISSION_DISPLAY_CACHE_ENTRIES
+        {
+            self.entries.clear();
+        }
+        self.entries.insert(
+            tool_call_id.to_owned(),
+            CachedPermissionDisplay {
+                kind: kind.to_owned(),
+                display: ManagedPermissionDisplayFields {
+                    title,
+                    tool_call_id: Some(tool_call_id.to_owned()),
+                    action_preview,
+                },
+            },
+        );
+    }
+
+    fn get(
+        &self,
+        session_id: &str,
+        tool_call_id: &str,
+        kind: &str,
+    ) -> Option<ManagedPermissionDisplayFields> {
+        if self.session_id.as_deref() != Some(session_id) {
+            return None;
+        }
+        self.entries
+            .get(tool_call_id)
+            .filter(|entry| entry.kind == kind)
+            .map(|entry| entry.display.clone())
+    }
+}
+
+fn bounded_permission_cache_key(value: Option<&serde_json::Value>) -> Option<&str> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty() && value.len() <= MAX_PERMISSION_DISPLAY_KEY_BYTES)
+}
+
+fn permission_update_has_action_fields(
+    update: &serde_json::Map<String, serde_json::Value>,
+) -> bool {
+    ["title", "toolName", "rawInput", "locations", "content"]
+        .iter()
+        .any(|field| update.contains_key(*field))
+}
+
 #[cfg(unix)]
 impl ManagedPermissionClient {
     fn from_inherited_fd() -> Result<Option<std::sync::Arc<Self>>, AcpError> {
@@ -164,8 +302,7 @@ impl ManagedPermissionClient {
         turn_id: &str,
         conversation_id: &str,
         acp_request_id: &serde_json::Value,
-        title: String,
-        tool_call_id: Option<String>,
+        display: ManagedPermissionDisplayFields,
         options: Vec<luca_protocol::ManagedPermissionOptionV1>,
     ) -> Result<luca_protocol::ManagedPermissionDecisionV1, AcpError> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -178,8 +315,9 @@ impl ManagedPermissionClient {
             conversation_id: luca_protocol::OpaqueId::parse(conversation_id)
                 .map_err(|_| AcpError::Protocol("invalid managed conversation id".into()))?,
             acp_request_id: serde_json::to_string(acp_request_id).map_err(AcpError::Json)?,
-            title,
-            tool_call_id,
+            title: display.title,
+            tool_call_id: display.tool_call_id,
+            action_preview: display.action_preview,
             options,
         };
         request
@@ -425,6 +563,7 @@ pub struct AcpClient {
     deny_unmanaged_permissions: bool,
     managed_turn_id: Option<String>,
     managed_conversation_id: Option<String>,
+    permission_display_cache: PermissionDisplayCache,
     /// The JSON-RPC id of the most recently sent `session/prompt` request.
     /// Used by [`cancel_with_cleanup`] to drain the correct response.
     /// Set in [`session_prompt_with_idle_timeout`]; consumed in [`cancel_with_cleanup`].
@@ -838,6 +977,7 @@ impl AcpClient {
             deny_unmanaged_permissions: false,
             managed_turn_id: None,
             managed_conversation_id: None,
+            permission_display_cache: PermissionDisplayCache::default(),
             last_prompt_id: None,
             current_hard_deadline: None,
             observer: None,
@@ -999,6 +1139,7 @@ impl AcpClient {
         system_prompt: Option<&str>,
         meta: Option<serde_json::Value>,
     ) -> Result<SessionNewResponse, AcpError> {
+        self.permission_display_cache.clear();
         if self.managed_identity
             && mcp_servers
                 .iter()
@@ -1298,12 +1439,14 @@ impl AcpClient {
     /// harness turn. Cleared on every prompt return path.
     pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
         self.artifact_observer.clear_tool_calls();
+        self.permission_display_cache.clear();
         self.managed_turn_id = Some(turn_id.to_owned());
         self.managed_conversation_id = conversation_id.map(str::to_owned);
     }
 
     pub fn clear_managed_turn_id(&mut self) {
         self.artifact_observer.clear_tool_calls();
+        self.permission_display_cache.clear();
         self.managed_turn_id = None;
         self.managed_conversation_id = None;
     }
@@ -2024,6 +2167,9 @@ impl AcpClient {
     /// `_meta.goose.activeRunId`, which seeds [`active_run_id`](Self::active_run_id)
     /// so callers can target `_goose/unstable/session/steer` at the correct run.
     fn handle_session_update(&mut self, msg: &serde_json::Value) -> bool {
+        if self.managed_turn_id.is_some() {
+            self.permission_display_cache.observe(msg);
+        }
         let update = &msg["params"]["update"];
         let update_type = update
             .get("sessionUpdate")
@@ -2263,26 +2409,12 @@ impl AcpClient {
                     })
                 })
                 .collect::<Vec<_>>();
-            let title = msg
-                .get("params")
-                .and_then(|params| params.get("title"))
-                .and_then(|value| value.as_str())
-                .unwrap_or_default()
-                .to_owned();
-            let tool_call_id = msg
-                .get("params")
-                .and_then(|params| params.get("toolCallId"))
-                .and_then(|value| value.as_str())
-                .map(str::to_owned);
+            let display = managed_permission_display_fields(
+                msg.get("params"),
+                &self.permission_display_cache,
+            );
             let decision = match permission
-                .decide(
-                    turn_id,
-                    conversation_id,
-                    &id,
-                    title,
-                    tool_call_id,
-                    runtime_options,
-                )
+                .decide(turn_id, conversation_id, &id, display, runtime_options)
                 .await
             {
                 Ok(decision) => decision,
@@ -2789,6 +2921,66 @@ fn build_steer_params(
         "expectedRunId": expected_run_id,
         "prompt": blocks,
     })
+}
+
+/// Extract only bounded display fields from an ACP permission request.
+///
+/// ACP v1 nests these fields in `params.toolCall`. A flattened request is
+/// retained solely for older adapters. Once `toolCall` is present, malformed
+/// nested metadata stays empty instead of borrowing conflicting flat fields.
+fn managed_permission_display_fields(
+    params: Option<&serde_json::Value>,
+    cache: &PermissionDisplayCache,
+) -> ManagedPermissionDisplayFields {
+    let Some(params) = params.and_then(serde_json::Value::as_object) else {
+        return ManagedPermissionDisplayFields::default();
+    };
+    if let Some(tool_call) = params.get("toolCall") {
+        let Some(tool_call_object) = tool_call.as_object() else {
+            return ManagedPermissionDisplayFields::default();
+        };
+        let tool_call_id = tool_call_object
+            .get("toolCallId")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if !permission_update_has_action_fields(tool_call_object) {
+            let cached = params
+                .get("sessionId")
+                .and_then(|value| bounded_permission_cache_key(Some(value)))
+                .zip(bounded_permission_cache_key(
+                    tool_call_object.get("toolCallId"),
+                ))
+                .zip(bounded_permission_cache_key(tool_call_object.get("kind")))
+                .and_then(|((session_id, tool_call_id), kind)| {
+                    cache.get(session_id, tool_call_id, kind)
+                });
+            if let Some(cached) = cached {
+                return cached;
+            }
+        }
+        let (title, action_preview) =
+            crate::managed_presentation::permission_action_presentation(tool_call)
+                .unwrap_or_default();
+        return ManagedPermissionDisplayFields {
+            title,
+            tool_call_id,
+            action_preview,
+        };
+    }
+    let title = params
+        .get("title")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .to_owned();
+    let tool_call_id = params
+        .get("toolCallId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned);
+    ManagedPermissionDisplayFields {
+        title,
+        tool_call_id,
+        action_preview: None,
+    }
 }
 
 /// Build a JSON-RPC permission response with `outcome: "selected"`.
@@ -3320,6 +3512,225 @@ mod tests {
         assert_eq!(prompt[0]["text"].as_str(), Some("/goal ship it"));
         assert!(prompt[0]["text"].as_str().unwrap().starts_with('/'));
         assert_eq!(prompt[1]["type"].as_str(), Some("text"));
+    }
+
+    #[test]
+    fn managed_permission_uses_nested_tool_call_display_fields() {
+        let params = serde_json::json!({
+            "toolCall": {
+                "toolCallId": "codex-call-1",
+                "kind": "execute",
+                "status": "pending",
+                "rawInput": {"command": "git status --short"}
+            },
+            "title": "Spoofed flat title",
+            "toolCallId": "spoofed-flat-id"
+        });
+        assert_eq!(
+            managed_permission_display_fields(Some(&params), &PermissionDisplayCache::default()),
+            ManagedPermissionDisplayFields {
+                title: "Running git status --short".into(),
+                tool_call_id: Some("codex-call-1".into()),
+                action_preview: Some("git status --short".into()),
+            }
+        );
+    }
+
+    #[test]
+    fn malformed_nested_permission_never_falls_back_to_flat_fields() {
+        let params = serde_json::json!({
+            "toolCall": "malformed",
+            "title": "Spoofed flat title",
+            "toolCallId": "spoofed-flat-id"
+        });
+        assert_eq!(
+            managed_permission_display_fields(Some(&params), &PermissionDisplayCache::default()),
+            ManagedPermissionDisplayFields::default()
+        );
+    }
+
+    #[test]
+    fn managed_permission_retains_legacy_flat_display_fields() {
+        let params = serde_json::json!({
+            "title": "Legacy permission",
+            "toolCallId": "legacy-call"
+        });
+        assert_eq!(
+            managed_permission_display_fields(Some(&params), &PermissionDisplayCache::default()),
+            ManagedPermissionDisplayFields {
+                title: "Legacy permission".into(),
+                tool_call_id: Some("legacy-call".into()),
+                action_preview: None,
+            }
+        );
+    }
+
+    fn file_tool_call(session_id: &str, tool_call_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "params": {
+                "sessionId": session_id,
+                "update": {
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": tool_call_id,
+                    "title": "Editing files",
+                    "kind": "edit",
+                    "status": "in_progress",
+                    "content": [
+                        {
+                            "type": "diff",
+                            "path": "desktop/src/first.ts",
+                            "oldText": "PRIVATE_OLD_BODY",
+                            "newText": "PRIVATE_NEW_BODY"
+                        },
+                        {"type": "diff", "path": "desktop/src/second.ts"},
+                        {"type": "text", "text": "PRIVATE_ARBITRARY_BODY"}
+                    ]
+                }
+            }
+        })
+    }
+
+    fn partial_file_permission(session_id: &str, tool_call_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "sessionId": session_id,
+            "toolCall": {
+                "toolCallId": tool_call_id,
+                "kind": "edit",
+                "status": "pending"
+            },
+            "title": "Spoofed flat title",
+            "toolCallId": "spoofed-flat-id"
+        })
+    }
+
+    #[test]
+    fn partial_file_permission_reuses_only_sanitized_exact_tool_display() {
+        let mut cache = PermissionDisplayCache::default();
+        cache.observe(&file_tool_call("session-1", "file-1"));
+
+        let display = managed_permission_display_fields(
+            Some(&partial_file_permission("session-1", "file-1")),
+            &cache,
+        );
+        assert_eq!(
+            display,
+            ManagedPermissionDisplayFields {
+                title: "Editing files".into(),
+                tool_call_id: Some("file-1".into()),
+                action_preview: Some("desktop/src/first.ts (+1 file)".into()),
+            }
+        );
+        let cached = format!("{cache:?}");
+        assert!(!cached.contains("PRIVATE_OLD_BODY"));
+        assert!(!cached.contains("PRIVATE_NEW_BODY"));
+        assert!(!cached.contains("PRIVATE_ARBITRARY_BODY"));
+
+        let mut incompatible_kind = partial_file_permission("session-1", "file-1");
+        incompatible_kind["toolCall"]["kind"] = serde_json::json!("execute");
+        for params in [
+            partial_file_permission("session-2", "file-1"),
+            partial_file_permission("session-1", "file-2"),
+            incompatible_kind,
+        ] {
+            assert!(managed_permission_display_fields(Some(&params), &cache)
+                .action_preview
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn explicit_permission_action_never_borrows_cached_display() {
+        let mut cache = PermissionDisplayCache::default();
+        cache.observe(&file_tool_call("session-1", "file-1"));
+
+        for action in [
+            serde_json::json!({"rawInput": {"path": "explicit.rs"}}),
+            serde_json::json!({"content": null}),
+            serde_json::json!({"rawInput": "malformed"}),
+        ] {
+            let mut params = partial_file_permission("session-1", "file-1");
+            let tool_call = params["toolCall"].as_object_mut().unwrap();
+            tool_call.extend(action.as_object().unwrap().clone());
+            let display = managed_permission_display_fields(Some(&params), &cache);
+            assert_ne!(
+                display.action_preview.as_deref(),
+                Some("desktop/src/first.ts (+1 file)")
+            );
+        }
+    }
+
+    #[test]
+    fn permission_display_cache_clears_or_invalidates_stale_actions() {
+        let mut cache = PermissionDisplayCache::default();
+        cache.observe(&file_tool_call("session-1", "file-1"));
+        cache.observe(&serde_json::json!({
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
+                "status": "in_progress"
+            }}
+        }));
+        assert_eq!(cache.entries.len(), 1);
+        cache.observe(&serde_json::json!({
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
+                "status": "in_progress", "content": null
+            }}
+        }));
+        assert!(managed_permission_display_fields(
+            Some(&partial_file_permission("session-1", "file-1")),
+            &cache
+        )
+        .action_preview
+        .is_none());
+
+        cache.observe(&file_tool_call("session-1", "file-1"));
+        cache.observe(&serde_json::json!({
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
+                "status": "in_progress", "title": "Editing another file", "kind": "edit",
+                "content": [{"type": "diff", "path": "desktop/src/replacement.ts"}]
+            }}
+        }));
+        assert_eq!(
+            cache.entries["file-1"].display.action_preview.as_deref(),
+            Some("desktop/src/replacement.ts")
+        );
+        cache.observe(&serde_json::json!({
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
+                "status": "completed"
+            }}
+        }));
+        assert!(cache.entries.is_empty());
+
+        let mut already_terminal = file_tool_call("session-1", "file-terminal");
+        already_terminal["params"]["update"]["status"] = serde_json::json!("failed");
+        cache.observe(&already_terminal);
+        assert!(!cache.entries.contains_key("file-terminal"));
+
+        cache.observe(&file_tool_call("session-1", "file-1"));
+        cache.observe(&file_tool_call("session-2", "file-2"));
+        assert_eq!(cache.session_id.as_deref(), Some("session-2"));
+        assert_eq!(cache.entries.len(), 1);
+        cache.clear();
+        assert!(cache.entries.is_empty());
+        assert!(cache.session_id.is_none());
+    }
+
+    #[test]
+    fn permission_display_cache_has_bounded_keys_and_entry_count() {
+        let mut cache = PermissionDisplayCache::default();
+        for index in 0..=MAX_PERMISSION_DISPLAY_CACHE_ENTRIES {
+            cache.observe(&file_tool_call("session-1", &format!("file-{index}")));
+        }
+        assert!(cache.entries.len() <= MAX_PERMISSION_DISPLAY_CACHE_ENTRIES);
+
+        let before = cache.entries.len();
+        cache.observe(&file_tool_call(
+            "session-1",
+            &"x".repeat(MAX_PERMISSION_DISPLAY_KEY_BYTES + 1),
+        ));
+        assert_eq!(cache.entries.len(), before);
     }
 
     #[test]
@@ -4666,6 +5077,34 @@ mod tests {
         AcpClient::spawn("cat", &[], &[], false)
             .await
             .expect("spawn cat as inert client")
+    }
+
+    #[tokio::test]
+    async fn managed_turn_context_bounds_permission_display_cache_lifetime() {
+        let mut client = spawn_inert_client().await;
+        let tool_call = file_tool_call("session-1", "file-1");
+        let permission = partial_file_permission("session-1", "file-1");
+
+        let _ = client.handle_session_update(&tool_call);
+        assert!(client.permission_display_cache.entries.is_empty());
+
+        client.set_managed_turn_context("turn-1", Some("conversation-1"));
+        let _ = client.handle_session_update(&tool_call);
+        assert_eq!(
+            managed_permission_display_fields(Some(&permission), &client.permission_display_cache)
+                .action_preview
+                .as_deref(),
+            Some("desktop/src/first.ts (+1 file)")
+        );
+
+        client.clear_managed_turn_id();
+        client.set_managed_turn_context("turn-2", Some("conversation-1"));
+        assert!(managed_permission_display_fields(
+            Some(&permission),
+            &client.permission_display_cache
+        )
+        .action_preview
+        .is_none());
     }
 
     #[tokio::test]

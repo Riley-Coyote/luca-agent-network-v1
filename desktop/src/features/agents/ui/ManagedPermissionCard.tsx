@@ -64,7 +64,7 @@ export function ManagedPermissionCard({
   return (
     <section
       aria-label="Agent permission required"
-      className="border border-border bg-card text-card-foreground shadow-sm"
+      className="min-w-0 max-w-full border border-border bg-card text-card-foreground shadow-sm"
       data-testid="managed-permission-card"
     >
       <div className={compact ? "p-3" : "p-4"}>
@@ -75,7 +75,10 @@ export function ManagedPermissionCard({
           />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Permission required</p>
-            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            <p
+              className="mt-1 wrap-anywhere text-sm leading-5 text-muted-foreground"
+              data-testid="managed-permission-operation"
+            >
               {structured
                 ? request.operation
                 : request.title || "An agent is waiting for your decision."}
@@ -84,6 +87,18 @@ export function ManagedPermissionCard({
               <p className="mt-2 truncate font-mono text-badge uppercase tracking-caps-wide text-ink-faint">
                 {request.resource.displayName}
               </p>
+            ) : request.actionPreview ? (
+              <div
+                className="mt-3"
+                data-testid="managed-permission-action-preview"
+              >
+                <p className="text-badge font-medium uppercase tracking-caps-wide text-ink-faint">
+                  Action preview
+                </p>
+                <p className="mt-1 whitespace-pre-wrap wrap-anywhere font-mono text-xs leading-5 text-foreground">
+                  {request.actionPreview}
+                </p>
+              </div>
             ) : request.toolCallId ? (
               <p className="mt-2 truncate font-mono text-badge uppercase tracking-caps-wide text-ink-faint">
                 {request.toolCallId}

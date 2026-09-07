@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const PRESENTATION_EVENT = "luca://managed-presentation";
@@ -226,23 +227,131 @@ test("restart hydration is body-free, deduplicated, compact, and accessible", as
 
 test("attachment and permission failures stay sanitized while text remains available", async ({
   page,
-}) => {
+}, testInfo) => {
   await openConversation(page);
+  const longTitle = `Running ${"x".repeat(220)}`;
+  const longPreview = `${"y".repeat(500)} …`;
+  await page.evaluate(
+    ({ actionPreview, conversationId, residentPubkey, title }) => {
+      type BaseFixture = Parameters<
+        NonNullable<typeof window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__>
+      >[0][number];
+      type PreviewFixture = BaseFixture & {
+        request: BaseFixture["request"] & { action_preview: string };
+      };
+      const permission: PreviewFixture = {
+        pendingId: "safe-permission",
+        request: {
+          protocol: "luca.managed.permission.v1",
+          resident_pubkey: residentPubkey,
+          conversation_id: conversationId,
+          session_epoch: 7,
+          turn_id: "permission-turn",
+          acp_request_id: "acp-safe",
+          title,
+          action_preview: actionPreview,
+          options: [
+            {
+              option_id: "allow-exact-runtime-option",
+              name: "Allow",
+              kind: "allow_once",
+            },
+            { option_id: "reject", name: "Reject", kind: "reject_once" },
+          ],
+        },
+      };
+      window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([permission]);
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-pending", {});
+    },
+    {
+      actionPreview: longPreview,
+      conversationId: CHANNEL_ID,
+      residentPubkey: CLAUDE,
+      title: longTitle,
+    },
+  );
+  const permissionCard = page.getByTestId("managed-permission-card");
+  const operation = page.getByTestId("managed-permission-operation");
+  const preview = page.getByTestId("managed-permission-action-preview");
+  await expect(permissionCard).toBeVisible();
+  await expect(operation).toHaveText(longTitle);
+  await expect(preview).toContainText("Action preview");
+  await expect(preview).toContainText(longPreview);
+  await expect(preview.locator("p").last()).toHaveCSS(
+    "white-space",
+    "pre-wrap",
+  );
+  const [titleFits, previewFits] = await Promise.all([
+    operation.evaluate((element) => element.scrollWidth <= element.clientWidth),
+    preview
+      .locator("p")
+      .last()
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ]);
+  expect(titleFits).toBe(true);
+  expect(previewFits).toBe(true);
+  const [cardBounds, viewport] = await Promise.all([
+    permissionCard.boundingBox(),
+    page.evaluate(() => ({
+      height: document.documentElement.clientHeight,
+      width: document.documentElement.clientWidth,
+    })),
+  ]);
+  expect(cardBounds).not.toBeNull();
+  expect(cardBounds?.x ?? -1).toBeGreaterThanOrEqual(0);
+  expect(
+    (cardBounds?.x ?? viewport.width) + (cardBounds?.width ?? 1),
+  ).toBeLessThanOrEqual(viewport.width);
+  await expect
+    .poll(() =>
+      permissionCard.evaluate((card) => {
+        const preview = card.querySelector(
+          '[data-testid="managed-permission-action-preview"]',
+        );
+        const choices = card.querySelector("button");
+        return Boolean(
+          preview &&
+            choices &&
+            (preview.compareDocumentPosition(choices) &
+              Node.DOCUMENT_POSITION_FOLLOWING) !==
+              0,
+        );
+      }),
+    )
+    .toBe(true);
+  await waitForAnimations(page);
+  await permissionCard.screenshot({
+    path: testInfo.outputPath("managed-permission-action-preview.png"),
+  });
+  await permissionCard.getByRole("button", { name: "Allow" }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).findLast(
+            (entry) => entry.command === "resolve_managed_permission",
+          )?.payload,
+      ),
+    )
+    .toMatchObject({
+      pendingId: "safe-permission",
+      optionId: "allow-exact-runtime-option",
+    });
+  await expect(permissionCard).toHaveCount(0);
   await page.evaluate(
     ({ conversationId, residentPubkey }) => {
       window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([
         {
-          pendingId: "safe-permission",
+          pendingId: "restart-permission",
           request: {
             protocol: "luca.managed.permission.v1",
             resident_pubkey: residentPubkey,
             conversation_id: conversationId,
             session_epoch: 7,
-            turn_id: "permission-turn",
-            acp_request_id: "acp-safe",
-            title: "Allow this local action?",
+            turn_id: "restart-turn",
+            acp_request_id: "acp-restart",
+            title: "Restart-sensitive permission",
             options: [
-              { option_id: "allow", name: "Allow", kind: "allow_once" },
               { option_id: "reject", name: "Reject", kind: "reject_once" },
             ],
           },
@@ -252,10 +361,11 @@ test("attachment and permission failures stay sanitized while text remains avail
     },
     { conversationId: CHANNEL_ID, residentPubkey: CLAUDE },
   );
-  await expect(page.getByTestId("managed-permission-card")).toBeVisible();
+  await expect(permissionCard).toBeVisible();
+  await expect(permissionCard).toContainText("Restart-sensitive permission");
   await page.evaluate(() => {
     window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-resolved", {
-      pendingId: "safe-permission",
+      pendingId: "restart-permission",
       outcome: "session_replaced",
     });
   });

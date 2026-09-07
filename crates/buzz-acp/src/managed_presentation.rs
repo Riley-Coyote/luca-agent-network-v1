@@ -857,6 +857,50 @@ fn activity_detail(
         .and_then(|value| bounded_text(value, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES))
 }
 
+/// Build the bounded, display-only fields carried beside a managed permission.
+///
+/// The permission broker receives the same ACP `ToolCallUpdate` shape as the
+/// activity feed. Reusing this projection keeps commands, paths, and domains
+/// under the existing display bounds without transporting raw tool payloads.
+pub(crate) fn permission_action_presentation(
+    tool_call: &serde_json::Value,
+) -> Option<(String, Option<String>)> {
+    let kind = activity_kind(tool_call);
+    let detail = activity_detail(kind, tool_call).or_else(|| match kind {
+        ManagedPresentationActivityKindV1::File => typed_diff_path_detail(tool_call),
+        _ => None,
+    });
+    let title = activity_label(kind, tool_call, detail.as_deref())?;
+    Some((title, detail))
+}
+
+/// Extract only ACP's typed diff paths. Diff bodies and arbitrary content
+/// blocks are deliberately ignored by the permission surface.
+fn typed_diff_path_detail(tool_call: &serde_json::Value) -> Option<String> {
+    let diffs = tool_call.get("content")?.as_array()?;
+    let mut paths = diffs.iter().filter_map(|content| {
+        if content.get("type").and_then(serde_json::Value::as_str) != Some("diff") {
+            return None;
+        }
+        content.get("path")?.as_str()
+    });
+    let first = paths.next()?;
+    let additional = paths.count();
+    if additional == 0 {
+        return bounded_text(first, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES);
+    }
+    let suffix = if additional == 1 {
+        " (+1 file)".to_owned()
+    } else {
+        format!(" (+{additional} files)")
+    };
+    let path = bounded_text(
+        first,
+        MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES.saturating_sub(suffix.len()),
+    )?;
+    Some(format!("{path}{suffix}"))
+}
+
 /// The guard's pre-scrub COUNT: computed from the original update so the
 /// sanitizer can carry it after rawOutput is stripped. A count is the one
 /// piece of step texture safe to carry through the artifact guard — a
@@ -1278,6 +1322,51 @@ mod tests {
         );
         assert_eq!(activity.step.map(SafeU53::get), Some(1));
         assert_eq!(frame_with(Some(activity)).validate(), Ok(()));
+    }
+
+    #[test]
+    fn permission_preview_is_visibly_clipped_to_the_existing_bound() {
+        let command = "x".repeat(MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES + 80);
+        let tool_call = serde_json::json!({
+            "toolCallId": "call-long-command",
+            "title": "shell",
+            "kind": "execute",
+            "rawInput": {"command": command},
+        });
+        let (_, preview) = permission_action_presentation(&tool_call).expect("safe presentation");
+        let preview = preview.expect("command preview");
+        assert_eq!(
+            preview.len(),
+            MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES
+        );
+        assert!(preview.ends_with('…'));
+    }
+
+    #[test]
+    fn permission_preview_uses_only_typed_diff_paths() {
+        let tool_call = serde_json::json!({
+            "toolCallId": "call-file-change",
+            "title": "Editing files",
+            "kind": "edit",
+            "content": [
+                {
+                    "type": "diff",
+                    "path": "src/first.rs",
+                    "oldText": "PRIVATE_OLD_BODY",
+                    "newText": "PRIVATE_NEW_BODY"
+                },
+                {"type": "diff", "path": "src/second.rs"},
+                {"type": "text", "path": "spoofed.rs", "text": "PRIVATE_TEXT_BODY"}
+            ]
+        });
+        let presentation = permission_action_presentation(&tool_call).expect("safe presentation");
+        assert_eq!(presentation.0, "Editing files");
+        assert_eq!(presentation.1.as_deref(), Some("src/first.rs (+1 file)"));
+        let encoded = format!("{presentation:?}");
+        assert!(!encoded.contains("PRIVATE_OLD_BODY"));
+        assert!(!encoded.contains("PRIVATE_NEW_BODY"));
+        assert!(!encoded.contains("PRIVATE_TEXT_BODY"));
+        assert!(!encoded.contains("spoofed.rs"));
     }
 
     #[test]

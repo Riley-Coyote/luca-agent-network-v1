@@ -173,13 +173,15 @@ function stringifyPayload(value: unknown) {
 
 function describePermissionRequest(payload: Record<string, unknown>) {
   const params = asRecord(payload.params);
+  const hasNestedToolCall = Object.hasOwn(params, "toolCall");
+  const display = hasNestedToolCall ? asRecord(params.toolCall) : params;
   const title =
-    asString(params.title) ??
-    asString(params.message) ??
-    asString(params.reason) ??
+    asString(display.title) ??
+    asString(display.message) ??
+    asString(display.reason) ??
     "Permission requested";
   const toolCallId =
-    asString(params.toolCallId) ?? asString(params.tool_call_id);
+    asString(display.toolCallId) ?? asString(display.tool_call_id);
   const options = Array.isArray(params.options)
     ? params.options
         .map((option) => {

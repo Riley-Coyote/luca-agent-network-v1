@@ -592,6 +592,63 @@ test("buildTranscript surfaces session/request_permission as a permission lifecy
   assert.match(transcript[0].text, /Confirm force-with-lease push/);
 });
 
+test("buildTranscript reads nested permission metadata before conflicting flat fields", () => {
+  const transcript = buildTranscript([
+    {
+      ...baseEvent,
+      kind: "acp_read",
+      payload: {
+        id: "permission-1",
+        method: "session/request_permission",
+        params: {
+          toolCall: {
+            toolCallId: "nested-tool-1",
+            title: "Run git status --short",
+            rawInput: { command: "git status --short" },
+          },
+          toolCallId: "spoofed-flat-id",
+          title: "Spoofed flat title",
+          options: [
+            { optionId: "allow", kind: "allow_once", name: "Allow" },
+            { optionId: "reject", kind: "reject_once", name: "Decline" },
+          ],
+        },
+      },
+    },
+  ]);
+
+  assert.equal(transcript.length, 1);
+  assert.match(transcript[0].text, /Run git status --short/);
+  assert.match(transcript[0].text, /Tool call: nested-tool-1/);
+  assert.doesNotMatch(transcript[0].text, /Spoofed flat/);
+  assert.doesNotMatch(transcript[0].text, /git status --short\nOptions/);
+});
+
+test("buildTranscript does not fall back when nested permission metadata is malformed", () => {
+  const transcript = buildTranscript([
+    {
+      ...baseEvent,
+      kind: "acp_read",
+      payload: {
+        id: "permission-2",
+        method: "session/request_permission",
+        params: {
+          toolCall: "malformed",
+          toolCallId: "spoofed-flat-id",
+          title: "Spoofed flat title",
+          options: [
+            { optionId: "reject", kind: "reject_once", name: "Decline" },
+          ],
+        },
+      },
+    },
+  ]);
+
+  assert.equal(transcript.length, 1);
+  assert.doesNotMatch(transcript[0].text, /Spoofed flat/);
+  assert.match(transcript[0].text, /Options: Decline/);
+});
+
 test("buildTranscript stamps completedAt when a terminal tool update is inserted first", () => {
   const transcript = buildTranscript([
     {

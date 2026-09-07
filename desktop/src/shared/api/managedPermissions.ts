@@ -16,6 +16,7 @@ type RawRuntimeManagedPermissionRequest = {
   acp_request_id: string;
   title: string;
   tool_call_id?: string | null;
+  action_preview?: string | null;
   options: Array<{ option_id: string; name: string; kind: string }>;
 };
 
@@ -46,7 +47,8 @@ type RawPendingManagedPermission = {
   request: RawManagedPermissionRequest;
 };
 
-function normalizeRequest(
+/** Convert the local broker wire shape into the desktop permission model. */
+export function normalizeManagedPermissionRequest(
   request: RawManagedPermissionRequest,
 ): ManagedPermissionRequest {
   if (request.protocol === "luca.managed.permission.v2") {
@@ -77,6 +79,7 @@ function normalizeRequest(
     acpRequestId: request.acp_request_id,
     title: request.title,
     toolCallId: request.tool_call_id ?? null,
+    actionPreview: request.action_preview ?? null,
     options: request.options.map((option) => ({
       optionId: option.option_id,
       name: option.name,
@@ -90,7 +93,7 @@ function normalizePending(
 ): PendingManagedPermission {
   return {
     pendingId: pending.pendingId,
-    request: normalizeRequest(pending.request),
+    request: normalizeManagedPermissionRequest(pending.request),
   };
 }
 

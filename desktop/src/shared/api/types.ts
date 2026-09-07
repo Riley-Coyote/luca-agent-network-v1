@@ -523,6 +523,7 @@ export type RuntimeManagedPermissionRequest = {
   acpRequestId: string;
   title: string;
   toolCallId: string | null;
+  actionPreview: string | null;
   options: ManagedPermissionOption[];
 };
 
