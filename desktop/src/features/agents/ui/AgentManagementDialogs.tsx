@@ -3,6 +3,7 @@ import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQu
 import { AgentDialog } from "./AgentDialog";
 import { NativeAgentProvisioningDialog } from "./NativeAgentProvisioningDialog";
 import { NativeResidentImportSection } from "./NativeResidentImportSection";
+import { Button } from "@/shared/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -38,12 +39,52 @@ export function AgentManagementDialogs() {
         : requestedRuntime === undefined && effectiveTarget?.kind === "managed"
           ? effectiveTarget.runtimeId
           : undefined;
-  const waitingForOwnerTarget =
+  const needsOwnerTarget =
     management.request?.action === "create" &&
     requestedRuntime === undefined &&
-    operatorSettings.isLoading;
+    !operatorSettings.data;
 
-  if (waitingForOwnerTarget) return null;
+  if (needsOwnerTarget) {
+    return (
+      <Dialog
+        onOpenChange={(open) => {
+          if (!open) management.dismiss();
+        }}
+        open
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create agent</DialogTitle>
+            <DialogDescription>
+              Luca needs your runtime default before it can prepare this agent
+              for review.
+            </DialogDescription>
+          </DialogHeader>
+          <p
+            className="text-sm text-muted-foreground"
+            role={operatorSettings.isError ? "alert" : "status"}
+          >
+            {operatorSettings.isError
+              ? "Your runtime default could not be loaded. Try again to continue this review."
+              : "Loading your runtime default…"}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button onClick={management.dismiss} variant="outline">
+              Cancel
+            </Button>
+            {operatorSettings.isError ? (
+              <Button
+                disabled={operatorSettings.isFetching}
+                onClick={() => void operatorSettings.refetch()}
+              >
+                {operatorSettings.isFetching ? "Retrying…" : "Try again"}
+              </Button>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <>

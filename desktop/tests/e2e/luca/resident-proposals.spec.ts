@@ -38,6 +38,7 @@ type HostState = {
   closeFailures: number;
   importHeld: boolean;
   rejectImport: boolean;
+  operatorSettingsUnavailable: boolean;
 };
 
 declare global {
@@ -80,6 +81,7 @@ async function installProposalHost(
     closeFailures?: number;
     holdImport?: boolean;
     reuseProfile?: DiscoveredResidentCandidate;
+    operatorSettingsUnavailable?: boolean;
   } = {},
 ) {
   await page.addInitScript(
@@ -94,6 +96,7 @@ async function installProposalHost(
       preferenceFailures,
       closeFailures,
       holdImport,
+      operatorSettingsUnavailable,
     }) => {
       const state: HostState = {
         calls: [],
@@ -112,6 +115,7 @@ async function installProposalHost(
         closeFailures,
         importHeld: holdImport,
         rejectImport: false,
+        operatorSettingsUnavailable,
       };
       window.__RESIDENT_PROPOSAL_TEST__ = state;
       type Invoke = (
@@ -142,6 +146,12 @@ async function installProposalHost(
               payload: JSON.parse(JSON.stringify(payload ?? null)),
             };
             state.calls.push(call);
+            if (
+              command === "get_operator_forge_settings" &&
+              state.operatorSettingsUnavailable
+            ) {
+              throw new Error("Runtime defaults unavailable");
+            }
             if (command === "list_resident_proposals")
               return Object.values(state.pending);
             if (command === "authorize_resident_proposal") {
@@ -388,6 +398,7 @@ async function installProposalHost(
       preferenceFailures: options.preferenceFailures ?? 0,
       closeFailures: options.closeFailures ?? 0,
       holdImport: options.holdImport ?? false,
+      operatorSettingsUnavailable: options.operatorSettingsUnavailable ?? false,
     },
   );
   await installMockBridge(page, {
@@ -537,6 +548,89 @@ for (const ingress of ["event", "snapshot"] as const) {
     await expect(
       page.getByRole("heading", { name: "Create a native agent" }),
     ).not.toBeVisible();
+    expect(await calls(page, "execute_native_agent_provisioning")).toHaveLength(
+      0,
+    );
+  });
+}
+
+test("an implicit proposal blocks on runtime-default failure and retries the same review into Hermes", async ({
+  page,
+}, testInfo) => {
+  const request = proposal({ runtimeFamily: undefined });
+  await installProposalHost(page, {
+    snapshot: [request],
+    operatorSettingsUnavailable: true,
+  });
+  await openHost(page);
+
+  await expect(page.getByRole("alert")).toHaveText(
+    "Your runtime default could not be loaded. Try again to continue this review.",
+  );
+  await expect(page.getByTestId("persona-dialog")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).toHaveCount(0);
+  for (const command of [
+    "preview_native_agent_provisioning",
+    "create_persona",
+    "execute_native_agent_provisioning",
+    "create_luca_resident",
+  ]) {
+    expect(await calls(page, command)).toHaveLength(0);
+  }
+  await waitForAnimations(page);
+  await page.getByRole("dialog").screenshot({
+    path: testInfo.outputPath("implicit-runtime-default-recovery.png"),
+  });
+
+  await page.evaluate(() => {
+    const state = window.__RESIDENT_PROPOSAL_TEST__;
+    if (!state) throw new Error("Proposal host is unavailable.");
+    state.operatorSettingsUnavailable = false;
+  });
+  await page.getByRole("button", { name: "Try again", exact: true }).click();
+
+  await expect(
+    page.getByRole("heading", { name: "Create a native agent" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Runtime")).toHaveValue("hermes");
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+    request.displayName,
+  );
+  expect(await calls(page, "create_persona")).toHaveLength(0);
+  expect(await calls(page, "execute_native_agent_provisioning")).toHaveLength(
+    0,
+  );
+});
+
+for (const runtimeFamily of ["hermes", "codex"] as const) {
+  test(`an explicit ${runtimeFamily} proposal ignores an unrelated runtime-default failure`, async ({
+    page,
+  }) => {
+    const request = proposal({
+      runtimeFamily,
+      provisioningIntent: runtimeFamily === "hermes" ? "fresh" : null,
+    });
+    await installProposalHost(page, {
+      snapshot: [request],
+      managedRuntimeReady: runtimeFamily === "codex",
+      operatorSettingsUnavailable: true,
+    });
+    await openHost(page);
+
+    if (runtimeFamily === "hermes") {
+      await expect(
+        page.getByRole("heading", { name: "Create a native agent" }),
+      ).toBeVisible();
+      await expect(page.getByLabel("Runtime")).toHaveValue("hermes");
+    } else {
+      await expect(page.getByTestId("persona-dialog")).toBeVisible();
+      await expect(
+        page.getByLabel("Agent harness", { exact: true }),
+      ).toContainText("Codex");
+    }
+    expect(await calls(page, "create_persona")).toHaveLength(0);
     expect(await calls(page, "execute_native_agent_provisioning")).toHaveLength(
       0,
     );
