@@ -41,6 +41,21 @@ pub(crate) const MAX_OWNER_BRAIN_IMPORT_TRANSITIONS: usize = 40;
 /// Upper bound for one atomic phase of connected-index cleanup.
 pub(crate) const MAX_CONNECTED_INDEX_PURGE_TRANSITIONS: usize = 32;
 
+#[cfg(test)]
+thread_local! {
+    static LOAD_REVISION_GENERATION_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_load_revision_generation_calls() {
+    LOAD_REVISION_GENERATION_CALLS.set(0);
+}
+
+#[cfg(test)]
+pub(crate) fn load_revision_generation_calls() -> usize {
+    LOAD_REVISION_GENERATION_CALLS.get()
+}
+
 /// Exact retained head admitted for connected-index cleanup. Rechecked inside
 /// each phase transaction, together with owner, source and record-kind authority.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -431,6 +446,8 @@ impl ContinuityStore {
         &self,
         owner_pubkey: &Hex64,
     ) -> Result<Option<StoredRevisionGenerationV1>, ContinuityStoreError> {
+        #[cfg(test)]
+        LOAD_REVISION_GENERATION_CALLS.set(LOAD_REVISION_GENERATION_CALLS.get() + 1);
         load_generation(&self.connection, owner_pubkey)
     }
 

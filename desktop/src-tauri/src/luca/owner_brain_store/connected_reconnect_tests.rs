@@ -39,6 +39,270 @@ fn candidate(path: &Path) -> ConnectedBrainDiscoveryCandidateV1 {
     }
 }
 
+fn connect_fixture_source(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    repository: &Path,
+) -> OpaqueId {
+    fs::create_dir(repository).unwrap();
+    assert!(std::process::Command::new("git")
+        .args(["init", "--quiet"])
+        .arg(repository)
+        .status()
+        .unwrap()
+        .success());
+    fs::write(repository.join("fact.md"), "A bounded startup fact.").unwrap();
+    let candidate = candidate(repository);
+    let source_id = source_id_for_candidate(&candidate).unwrap();
+    connect_source_with_runtime(
+        root,
+        runtime,
+        owner(),
+        candidate.clone(),
+        build_index(&source_id, &candidate).unwrap(),
+        &[],
+    )
+    .unwrap();
+    source_id
+}
+
+#[test]
+fn startup_watcher_batch_loads_one_generation_and_matches_individual_reads() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = ContinuityMasterKey::new_for_test([51_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let first_root = temp.path().join("first-repository");
+    let second_root = temp.path().join("second-repository");
+    let first_id = connect_fixture_source(&root, &mut runtime, &first_root);
+    let second_id = connect_fixture_source(&root, &mut runtime, &second_root);
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let batch = connected::read_connected_startup_sources_with_runtime(&root, &runtime).unwrap();
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        1
+    );
+    assert_eq!(batch.catalog.sources.len(), 2);
+    assert_eq!(batch.registrations.len(), 2);
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let prior_catalog = connected::read_connected_catalog_with_runtime(&runtime, || {
+        Ok(ContinuityMasterKey::new_for_test([51_u8; 32]))
+    })
+    .unwrap();
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        1
+    );
+    assert_eq!(batch.catalog.sources.len(), prior_catalog.sources.len());
+    for (actual, expected) in batch.catalog.sources.iter().zip(&prior_catalog.sources) {
+        assert!(actual.source == expected.source);
+        assert_eq!(actual.item_count, expected.item_count);
+        assert_eq!(actual.entry_count, expected.entry_count);
+    }
+    assert_eq!(
+        batch.catalog.recall_grants.len(),
+        prior_catalog.recall_grants.len()
+    );
+    assert_eq!(
+        batch.catalog.repository_grants.len(),
+        prior_catalog.repository_grants.len()
+    );
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let individual = [first_id, second_id]
+        .into_iter()
+        .map(|source_id| {
+            let candidate =
+                connected::read_connected_candidate_with_runtime(&root, &runtime, &source_id)
+                    .unwrap();
+            (source_id, candidate)
+        })
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        2
+    );
+    for registration in batch.registrations {
+        let actual = registration.candidate.unwrap();
+        let expected = individual.get(&registration.source_id).unwrap();
+        assert_eq!(actual.source_kind, expected.source_kind);
+        assert_eq!(actual.display_name, expected.display_name);
+        assert_eq!(actual.canonical_root, expected.canonical_root);
+        assert_eq!(actual.item_count, expected.item_count);
+        assert_eq!(actual.latest_at, expected.latest_at);
+    }
+}
+
+#[test]
+fn startup_watcher_batch_isolates_stale_and_invalid_bindings() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = ContinuityMasterKey::new_for_test([52_u8; 32]);
+    let mut runtime = runtime(&temp);
+    let stale_root = temp.path().join("stale-repository");
+    let current_root = temp.path().join("current-repository");
+    connect_fixture_source(&root, &mut runtime, &stale_root);
+    connect_fixture_source(&root, &mut runtime, &current_root);
+    fs::remove_dir_all(&stale_root).unwrap();
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let stale = connected::read_connected_startup_sources_with_runtime(&root, &runtime).unwrap();
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        1
+    );
+    assert_eq!(
+        stale
+            .registrations
+            .iter()
+            .filter(|registration| registration.candidate.is_ok())
+            .count(),
+        1
+    );
+    assert_eq!(
+        stale
+            .registrations
+            .iter()
+            .filter_map(|registration| registration.candidate.as_ref().err())
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![OwnerBrainStoreError::Stale]
+    );
+
+    fs::create_dir(&stale_root).unwrap();
+    fs::write(stale_root.join("fact.md"), "A restored startup fact.").unwrap();
+
+    let mut generation = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    generation
+        .snapshot
+        .records
+        .iter_mut()
+        .find(|record| record.record_type.as_str() == CONNECTED_BINDING_RECORD)
+        .unwrap()
+        .ciphertext_b64 = "AAAA".to_owned();
+    let key_version = runtime.store.active_owner_key_version(&owner()).unwrap();
+    let namespace = owner_brain_namespace(&owner(), key_version).unwrap();
+    let namespace_key = derive_namespace_key(&root, &namespace).unwrap();
+    let invalid = connected::startup_sources_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(invalid.catalog.sources.len(), 2);
+    assert_eq!(
+        invalid
+            .registrations
+            .iter()
+            .filter(|registration| registration.candidate.is_ok())
+            .count(),
+        1
+    );
+    assert_eq!(
+        invalid
+            .registrations
+            .iter()
+            .filter_map(|registration| registration.candidate.as_ref().err())
+            .copied()
+            .collect::<Vec<_>>(),
+        vec![OwnerBrainStoreError::Invalid]
+    );
+}
+
+#[test]
+fn startup_watcher_batch_fails_closed_for_unready_runtime_states() {
+    let lifecycle = ContinuityLifecycleLock::new_for_test();
+    for (state, expected) in [
+        (
+            ContinuityRuntimeState::Uninitialized,
+            OwnerBrainStoreError::Unavailable,
+        ),
+        (
+            ContinuityRuntimeState::Degraded(ContinuityRuntimeDegradedReason::RestorePending),
+            OwnerBrainStoreError::Stale,
+        ),
+    ] {
+        let state = Mutex::new(state);
+        let root_reads = std::cell::Cell::new(0);
+        let result = connected::read_connected_startup_sources_with_load_root(
+            &lifecycle,
+            &state,
+            &owner(),
+            || {
+                root_reads.set(root_reads.get() + 1);
+                panic!("unready runtime must fail before root load")
+            },
+        );
+        match result {
+            Ok(_) => panic!("unready runtime must fail closed"),
+            Err(actual) => assert_eq!(actual, expected),
+        }
+        assert_eq!(root_reads.get(), 0);
+    }
+}
+
+#[test]
+fn startup_watcher_batch_loads_root_under_lifecycle_lock_for_present_generation() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = ContinuityMasterKey::new_for_test([53_u8; 32]);
+    let mut ready = runtime(&temp);
+    connect_fixture_source(&root, &mut ready, &temp.path().join("repository"));
+    let lifecycle = ContinuityLifecycleLock::new_for_test();
+    let state = Mutex::new(ContinuityRuntimeState::Ready(ready));
+    let root_reads = std::cell::Cell::new(0);
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let startup = connected::read_connected_startup_sources_with_load_root(
+        &lifecycle,
+        &state,
+        &owner(),
+        || {
+            assert!(lifecycle.is_locked_for_test());
+            root_reads.set(root_reads.get() + 1);
+            Ok(ContinuityMasterKey::new_for_test([53_u8; 32]))
+        },
+    )
+    .unwrap();
+    assert_eq!(root_reads.get(), 1);
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        1
+    );
+    assert_eq!(startup.registrations.len(), 1);
+    assert!(startup.registrations[0].candidate.is_ok());
+}
+
+#[test]
+fn startup_watcher_batch_skips_root_load_for_empty_generation() {
+    let temp = tempfile::tempdir().unwrap();
+    let lifecycle = ContinuityLifecycleLock::new_for_test();
+    let state = Mutex::new(ContinuityRuntimeState::Ready(runtime(&temp)));
+    let root_reads = std::cell::Cell::new(0);
+
+    crate::luca::continuity_revision_authority::reset_load_revision_generation_calls();
+    let startup = connected::read_connected_startup_sources_with_load_root(
+        &lifecycle,
+        &state,
+        &owner(),
+        || {
+            root_reads.set(root_reads.get() + 1);
+            panic!("empty generation must return before root load")
+        },
+    )
+    .unwrap();
+    assert_eq!(root_reads.get(), 0);
+    assert_eq!(
+        crate::luca::continuity_revision_authority::load_revision_generation_calls(),
+        1
+    );
+    assert!(startup.catalog.sources.is_empty());
+    assert!(startup.registrations.is_empty());
+}
+
 #[test]
 fn disconnected_repository_reconnects_unchanged_without_reviving_forgotten_pages() {
     let temp = tempfile::tempdir().unwrap();

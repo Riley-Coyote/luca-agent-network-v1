@@ -116,6 +116,18 @@ pub(crate) struct ConnectedBrainConnectResultV1 {
     pub replayed: bool,
 }
 
+/// Native-only startup view derived from one immutable authority generation.
+pub(crate) struct ConnectedBrainStartupReadV1 {
+    pub(crate) catalog: ConnectedBrainCatalogV1,
+    pub(crate) registrations: Vec<ConnectedBrainStartupRegistrationV1>,
+}
+
+/// One connected source's isolated watcher-registration result.
+pub(crate) struct ConnectedBrainStartupRegistrationV1 {
+    pub(crate) source_id: OpaqueId,
+    pub(crate) candidate: Result<ConnectedBrainDiscoveryCandidateV1, OwnerBrainStoreError>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn connect_source(
     lifecycle: &ContinuityLifecycleLock,
@@ -170,6 +182,117 @@ pub(crate) fn read_connected_catalog(
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime(&state, owner_pubkey)?;
     read_connected_catalog_with_runtime(runtime, load_root_key)
+}
+
+/// Resolve the startup catalog and all watcher roots from one fully validated
+/// immutable authority generation.
+pub(crate) fn read_connected_startup_sources(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    read_connected_startup_sources_with_load_root(
+        lifecycle,
+        runtime_state,
+        owner_pubkey,
+        load_root_key,
+    )
+}
+
+pub(super) fn read_connected_startup_sources_with_load_root(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    load_root: impl FnOnce() -> Result<ContinuityMasterKey, OwnerBrainStoreError>,
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    read_connected_startup_sources_with_state(runtime_state, owner_pubkey, load_root)
+}
+
+pub(super) fn read_connected_startup_sources_with_state(
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    load_root: impl FnOnce() -> Result<ContinuityMasterKey, OwnerBrainStoreError>,
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    let state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime(&state, owner_pubkey)?;
+    let Some(generation) = load_connected_generation(runtime)? else {
+        return Ok(empty_startup_read());
+    };
+    let root = load_root()?;
+    startup_sources_from_loaded_generation(&root, runtime, &generation)
+}
+
+#[cfg(test)]
+pub(super) fn read_connected_startup_sources_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    let Some(generation) = load_connected_generation(runtime)? else {
+        return Ok(empty_startup_read());
+    };
+    startup_sources_from_loaded_generation(root, runtime, &generation)
+}
+
+fn load_connected_generation(
+    runtime: &ContinuityRuntime,
+) -> Result<Option<StoredRevisionGenerationV1>, OwnerBrainStoreError> {
+    runtime
+        .store
+        .load_revision_generation(&runtime.owner_pubkey)
+        .map_err(map_store_read_error)
+}
+
+fn empty_startup_read() -> ConnectedBrainStartupReadV1 {
+    ConnectedBrainStartupReadV1 {
+        catalog: ConnectedBrainCatalogV1::default(),
+        registrations: Vec::new(),
+    }
+}
+
+fn startup_sources_from_loaded_generation(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+    generation: &StoredRevisionGenerationV1,
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&runtime.owner_pubkey)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&runtime.owner_pubkey, key_version)?;
+    let namespace_key =
+        derive_namespace_key(root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    startup_sources_from_generation(generation, &namespace, namespace_key.as_bytes())
+}
+
+pub(super) fn startup_sources_from_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+) -> Result<ConnectedBrainStartupReadV1, OwnerBrainStoreError> {
+    let catalog = catalog_from_generation(generation, namespace, namespace_key)?;
+    let registrations = catalog
+        .sources
+        .iter()
+        .filter(|source| source.source.status != ConnectedBrainSourceStatusV1::Disconnected)
+        .map(|source| ConnectedBrainStartupRegistrationV1 {
+            source_id: source.source.source_id.clone(),
+            candidate: connected_candidate_from_generation(
+                generation,
+                namespace,
+                namespace_key,
+                &source.source.source_id,
+            ),
+        })
+        .collect();
+    Ok(ConnectedBrainStartupReadV1 {
+        catalog,
+        registrations,
+    })
 }
 
 pub(crate) fn rebind_source_with_runtime(
@@ -290,14 +413,34 @@ pub(crate) fn read_connected_candidate(
         .lock()
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime(&state, owner_pubkey)?;
-    let Some((generation, namespace, namespace_key)) = connected_generation(&root, runtime)? else {
+    read_connected_candidate_with_runtime(&root, runtime, source_id)
+}
+
+pub(super) fn read_connected_candidate_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+    source_id: &OpaqueId,
+) -> Result<ConnectedBrainDiscoveryCandidateV1, OwnerBrainStoreError> {
+    let Some((generation, namespace, namespace_key)) = connected_generation(root, runtime)? else {
         return Err(OwnerBrainStoreError::Invalid);
     };
-    let manifest =
-        find_connected_manifest(&generation, &namespace, namespace_key.as_bytes(), source_id)?
-            .ok_or(OwnerBrainStoreError::Invalid)?;
-    let binding =
-        find_connected_binding(&generation, &namespace, namespace_key.as_bytes(), source_id)?;
+    connected_candidate_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        source_id,
+    )
+}
+
+fn connected_candidate_from_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    namespace_key: &[u8; 32],
+    source_id: &OpaqueId,
+) -> Result<ConnectedBrainDiscoveryCandidateV1, OwnerBrainStoreError> {
+    let manifest = find_connected_manifest(generation, namespace, namespace_key, source_id)?
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    let binding = find_connected_binding(generation, namespace, namespace_key, source_id)?;
     let canonical_root = PathBuf::from(binding.canonical_root)
         .canonicalize()
         .map_err(|_| OwnerBrainStoreError::Stale)?;

@@ -542,6 +542,20 @@ impl AppState {
         )
     }
 
+    /// Resolve the startup catalog and watcher roots from one immutable
+    /// connected-Brain authority generation.
+    pub(crate) fn read_connected_brain_startup_sources(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+    ) -> Result<crate::luca::owner_brain_store::ConnectedBrainStartupReadV1, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::read_connected_startup_sources(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+        )
+    }
+
     /// Resolve an encrypted binding into a process-local refresh candidate.
     pub(crate) fn read_connected_brain_candidate(
         &self,

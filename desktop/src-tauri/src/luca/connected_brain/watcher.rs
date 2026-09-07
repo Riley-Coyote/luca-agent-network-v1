@@ -202,19 +202,27 @@ pub(crate) fn unregister_connected_source(
 fn reconcile_connected_sources(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<AppState>();
     let owner = active_owner(&state)?;
-    let catalog = state
-        .read_connected_brain_catalog(&owner)
+    let startup = state
+        .read_connected_brain_startup_sources(&owner)
         .map_err(|error| error.code().to_owned())?;
-    for source in catalog
-        .sources
-        .into_iter()
-        .filter(|source| source.source.status != ConnectedBrainSourceStatusV1::Disconnected)
-    {
-        match state.read_connected_brain_candidate(&owner, &source.source.source_id) {
+    let owner_brain_store::ConnectedBrainStartupReadV1 {
+        catalog,
+        registrations,
+    } = startup;
+    debug_assert_eq!(
+        registrations.len(),
+        catalog
+            .sources
+            .iter()
+            .filter(|source| source.source.status != ConnectedBrainSourceStatusV1::Disconnected)
+            .count()
+    );
+    for registration in registrations {
+        match registration.candidate {
             Ok(candidate) => {
                 if register_connected_source(
                     &state,
-                    source.source.source_id.clone(),
+                    registration.source_id,
                     &candidate.canonical_root,
                 )
                 .is_err()
@@ -227,7 +235,7 @@ fn reconcile_connected_sources(app: &AppHandle) -> Result<(), String> {
             Err(_) => {
                 let _ = state.set_connected_brain_status(
                     &owner,
-                    &source.source.source_id,
+                    &registration.source_id,
                     ConnectedBrainSourceStatusV1::NeedsAttention,
                 );
             }
