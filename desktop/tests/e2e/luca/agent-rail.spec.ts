@@ -165,3 +165,39 @@ test("on a phone the column takes the rail's place and backs out of it", async (
   await expect(column).toHaveCount(0);
   await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
 });
+
+// Two regressions Codex reproduced in review (agent-rail-review.spec.ts,
+// folded in here so the rail has one spec).
+
+test("starting a resident's thread on a phone reveals the conversation", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?e2e=mock");
+
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  await expect(page).toHaveURL(/#\/channels\//);
+  // The sheet steps aside for the thread it just opened, exactly as it does
+  // when an existing row is chosen.
+  await expect(
+    page.getByRole("dialog", { name: "Sidebar", exact: true }),
+  ).toBeHidden({ timeout: 1500 });
+});
+
+test("column rows keep the rail's context actions", async ({ page }) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  const row = page
+    .getByTestId("agent-chats-column")
+    .locator('[data-testid^="agent-column-chat-"]');
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveAttribute("data-channel-id", /.+/);
+  await row.click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: /mark.*unread/i }),
+  ).toBeVisible({ timeout: 1500 });
+});

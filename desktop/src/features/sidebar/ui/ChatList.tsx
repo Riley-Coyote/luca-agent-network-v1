@@ -52,8 +52,12 @@ export {
  * and canonical room routes remain unchanged.
  */
 
-type RowProps = {
+export type ChatRowProps = {
   item: ChatListItem;
+  /** Where the row lives, for tests; defaults to the rail's channel-<name>. */
+  testId?: string;
+  /** A quiet second line under the label — the agent column's project tag. */
+  detail?: React.ReactNode;
   selectedChannelId: string | null;
   unreadChannelIds: ReadonlySet<string>;
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
@@ -65,15 +69,17 @@ type RowProps = {
   onMarkChannelUnread: (channelId: string) => void;
 };
 
-function ChatRow({
+export function ChatRow({
   item,
+  testId,
+  detail,
   selectedChannelId,
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
   onMarkChannelRead,
   onMarkChannelUnread,
-}: RowProps) {
+}: ChatRowProps) {
   const { channel, label } = item;
   const isActive = channel.id === selectedChannelId;
   const isUnread = unreadChannelIds.has(channel.id);
@@ -100,7 +106,7 @@ function ChatRow({
       data-active={isActive ? "true" : undefined}
       data-sidebar="menu-button"
       data-channel-id={channel.id}
-      data-testid={`channel-${channel.name}`}
+      data-testid={testId ?? `channel-${channel.name}`}
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
@@ -112,14 +118,17 @@ function ChatRow({
         )}
       </span>
 
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-sm",
-          isUnread && !isActive && "font-medium text-sidebar-foreground",
-        )}
-        data-sidebar-row-label
-      >
-        {label}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span
+          className={cn(
+            "truncate text-sm",
+            isUnread && !isActive && "font-medium text-sidebar-foreground",
+          )}
+          data-sidebar-row-label
+        >
+          {label}
+        </span>
+        {detail}
       </span>
 
       {/* ONE trailing slot, never two, and no fixed width — a reserved column
