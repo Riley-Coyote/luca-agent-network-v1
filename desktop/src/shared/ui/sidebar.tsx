@@ -197,6 +197,12 @@ const Sidebar = React.forwardRef<
     side?: "left" | "right";
     variant?: "sidebar" | "floating" | "inset";
     collapsible?: "offcanvas" | "icon" | "none";
+    /** A companion pane (the agent column) is open beside the rail. While it
+     *  is, collapsing hides the rail but keeps the companion on screen as the
+     *  pane — the owner can still move between a resident's chats with the
+     *  rail put away. The owner sets `--sidebar-width` to the companion's
+     *  width in that state. */
+    railCompanionOpen?: boolean;
     /** Applied to the outermost rail element — the one that owns `--sidebar-width`. */
     rootStyle?: React.CSSProperties;
   }
@@ -208,6 +214,7 @@ const Sidebar = React.forwardRef<
       collapsible = "offcanvas",
       className,
       children,
+      railCompanionOpen = false,
       rootStyle,
       ...props
     },
@@ -310,7 +317,13 @@ const Sidebar = React.forwardRef<
         ref={ref}
         className="group peer relative hidden text-sidebar-foreground md:block"
         data-state={state}
-        data-collapsible={state === "collapsed" ? collapsible : ""}
+        data-collapsible={
+          state === "collapsed"
+            ? railCompanionOpen
+              ? "companion"
+              : collapsible
+            : ""
+        }
         data-peek={canPeek && peek ? "true" : undefined}
         data-resizing={isResizing}
         onMouseEnter={canPeek ? openPeek : undefined}

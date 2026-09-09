@@ -662,12 +662,17 @@ export function AppSidebar({
       rootStyle={
         {
           "--agent-column-width": "232px",
+          // Rail + column while the rail is open; the column alone when the
+          // owner has put the rail away — the column stays as the pane.
           "--sidebar-width":
             selectedAgent && !isMobile
-              ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
+              ? sidebarOpen
+                ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
+                : "var(--agent-column-width)"
               : undefined,
         } as React.CSSProperties
       }
+      railCompanionOpen={Boolean(selectedAgent) && !isMobile}
       variant="sidebar"
     >
       {selectedAgent ? (
@@ -697,6 +702,7 @@ export function AppSidebar({
             onSelectChannel(channelId);
           }}
           projectByChannelId={roomProjects}
+          railHidden={!sidebarOpen && !isMobile}
           selectedChannelId={selectedChannelId}
           unreadChannelIds={unreadChannelIds}
           workingByChannelId={activeWorkingByChannelId}
@@ -705,8 +711,9 @@ export function AppSidebar({
       <div
         className={cn(
           "relative flex min-h-0 w-(--sidebar-rail-width) shrink-0 flex-col overflow-hidden",
-          // In the mobile sheet the column takes the rail's place outright.
-          isMobile && selectedAgent && "hidden",
+          // In the mobile sheet the column takes the rail's place outright;
+          // with the rail collapsed on desktop, likewise — the column is the pane.
+          selectedAgent && (isMobile || !sidebarOpen) && "hidden",
         )}
         data-testid="app-sidebar-scroll-anchor"
       >
