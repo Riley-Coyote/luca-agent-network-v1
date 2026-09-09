@@ -244,6 +244,13 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
   await expect
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeLessThanOrEqual(1);
+  // The column's header sits below the window-controls strip, as the rail's
+  // first row does — nothing of it hides under the traffic lights or the nav.
+  const chrome = await page.getByTestId("app-top-chrome").boundingBox();
+  const header = await column.locator("header").boundingBox();
+  expect(header?.y ?? -1).toBeGreaterThanOrEqual(
+    (chrome?.y ?? 0) + (chrome?.height ?? 0) - 1,
+  );
   await row.click({ button: "right" });
   await expect(
     page.getByRole("menuitem", { name: /mark.*unread/i }),

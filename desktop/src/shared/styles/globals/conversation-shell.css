@@ -616,6 +616,13 @@
   padding-top: calc(var(--mn-card-lip) + var(--mn-header-height));
 }
 
+/* With the rail collapsed, the agent column is the window's leading surface
+   and yields the same row for the same reason — the window controls and the
+   floating chrome sit over it. Same two values, so it tracks the rail. */
+:root[data-luca-shell] [data-testid="agent-column-chrome-band"] {
+  height: calc(var(--mn-card-lip) + var(--mn-header-height));
+}
+
 :root[data-luca-shell] [data-sidebar="group"] {
   padding-block: 4px;
 }
