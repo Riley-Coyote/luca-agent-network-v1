@@ -290,3 +290,35 @@ test("with the rail collapsed, hovering the column's edge peeks the rail beside 
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeLessThanOrEqual(1);
 });
+
+test("the rail still scrolls while a resident's column is open", async ({
+  page,
+}) => {
+  // Short enough that the rail's list must scroll.
+  await page.setViewportSize({ width: 1280, height: 520 });
+  await page.goto("/?e2e=mock&projectDemo=1");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await expect(page.getByTestId("agent-chats-column")).toBeVisible();
+
+  const anchor = page.getByTestId("app-sidebar-scroll-anchor");
+  const viewport = await page.viewportSize();
+  const anchorBox = await anchor.boundingBox();
+  // The rail is sized to the window, not to its content.
+  expect(anchorBox?.height ?? 0).toBeLessThanOrEqual(viewport?.height ?? 0);
+
+  await page.getByTestId("agent-rail-atlas").hover();
+  await page.mouse.wheel(0, 400);
+  await expect
+    .poll(() =>
+      anchor.evaluate((el) =>
+        Math.max(
+          0,
+          ...Array.from(el.querySelectorAll<HTMLElement>("*")).map(
+            (node) => node.scrollTop,
+          ),
+        ),
+      ),
+    )
+    .toBeGreaterThan(0);
+});
