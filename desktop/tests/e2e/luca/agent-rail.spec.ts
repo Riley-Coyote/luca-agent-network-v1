@@ -492,3 +492,50 @@ test("a runtime and a resident's column never open together", async ({
   await expect(column).toHaveAttribute("data-panel-open", "true");
   await expect(runtimePanel).toHaveCount(0);
 });
+
+test("the rail slides by transform, the inset changes once, and the phone sheet is on the drawer curve", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  const container = page.getByTestId("app-sidebar");
+  const styles = () =>
+    container.evaluate((el) => ({
+      container: getComputedStyle(el).transitionProperty,
+      gapDuration: el.previousElementSibling
+        ? getComputedStyle(el.previousElementSibling).transitionDuration
+        : "",
+      translate: getComputedStyle(el).translate,
+    }));
+  const resting = await styles();
+  expect(resting.container).toMatch(/transform|translate/);
+  expect(resting.container).not.toMatch(/left|right/);
+  expect(resting.gapDuration).toBe("0s");
+
+  // Collapse: the container leaves by translate; the gap is gone at once.
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await expect.poll(async () => (await styles()).translate).toMatch(/^-\d+px/);
+  expect(
+    await container.evaluate((el) =>
+      el.previousElementSibling
+        ? el.previousElementSibling.getBoundingClientRect().width
+        : -1,
+    ),
+  ).toBe(0);
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await expect
+    .poll(async () => (await styles()).translate)
+    .toMatch(/^(none|0px)/);
+
+  // The phone sheet arrives on the house drawer curve.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+  const sheet = page.getByRole("dialog", { name: "Sidebar", exact: true });
+  await expect(sheet).toBeVisible();
+  const motion = await sheet.evaluate((el) => ({
+    duration: getComputedStyle(el).animationDuration,
+    easing: getComputedStyle(el).animationTimingFunction,
+  }));
+  expect(motion.duration).toBe("0.26s");
+  expect(motion.easing).toBe("cubic-bezier(0.32, 0.72, 0, 1)");
+});

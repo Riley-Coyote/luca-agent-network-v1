@@ -343,10 +343,12 @@ const Sidebar = React.forwardRef<
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            // Stock shadcn ships this linear — it stops dead. The rail settles
-            // on the house standard curve instead.
-            "relative w-(--sidebar-width) bg-transparent transition-[width] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)]",
-            "group-data-[resizing=true]:transition-none",
+            // Deliberately no transition. The content inset changes once, at
+            // the start of a collapse or an expand, and the rail alone moves
+            // (by transform, below). Animating this width relayouts the
+            // reading plane every frame and, through MainInsetProvider, turns
+            // each of those frames into a React commit of the conversation.
+            "relative w-(--sidebar-width) bg-transparent",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"
@@ -356,11 +358,15 @@ const Sidebar = React.forwardRef<
         />
         <div
           className={cn(
-            "absolute inset-y-0 z-10 hidden h-full w-(--sidebar-width) transition-[left,right,width] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] md:flex",
+            // The slide is the compositor's: offcanvas is a transform, never
+            // `left`, on the house standard curve. Width still transitions,
+            // but only for the column's arrival and the companion peek —
+            // overlays whose relayout is three boxes and never the plane.
+            "absolute inset-y-0 z-10 hidden h-full w-(--sidebar-width) transition-[width,translate] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] motion-reduce:transition-none md:flex",
             "group-data-[resizing=true]:transition-none",
             side === "left"
-              ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:left-0"
-              : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)] group-data-[peek=true]:right-0",
+              ? "left-0 group-data-[collapsible=offcanvas]:-translate-x-(--sidebar-width) group-data-[peek=true]:translate-x-0"
+              : "right-0 group-data-[collapsible=offcanvas]:translate-x-(--sidebar-width) group-data-[peek=true]:translate-x-0",
             // A peeked rail is the one thing in this shell that genuinely
             // floats over content, so it is the one place a shadow is correct:
             // wide blur, low opacity. z-30 clears the composer overlay.

@@ -40,7 +40,9 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out",
+  // A surface that arrives with weight: the house drawer curve and duration
+  // (motion.css), not the stock 500/300 ms ease-in-out.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:[animation-duration:var(--motion-duration-drawer)] data-[state=closed]:[animation-duration:var(--motion-duration-drawer)] data-[state=open]:[animation-timing-function:var(--motion-ease-drawer)] data-[state=closed]:[animation-timing-function:var(--motion-ease-drawer)] motion-reduce:animate-none",
   {
     variants: {
       side: {
