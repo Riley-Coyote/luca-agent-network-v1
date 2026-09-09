@@ -225,3 +225,36 @@ test("a thread that fails to open says so and leaves the column in place", async
     page.getByRole("dialog", { name: "Sidebar", exact: true }),
   ).toBeVisible();
 });
+
+test("collapsing the rail keeps the resident's column as the pane", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  const column = page.getByTestId("agent-chats-column");
+  const row = column.locator('[data-testid^="agent-column-chat-"]');
+  await expect(row).toHaveCount(1);
+
+  // Put the rail away: the column stays, at the left edge, and still works.
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
+  await expect(column).toBeVisible();
+  await expect
+    .poll(async () => (await column.boundingBox())?.x ?? -1)
+    .toBeLessThanOrEqual(1);
+  await row.click({ button: "right" });
+  await expect(
+    page.getByRole("menuitem", { name: /mark.*unread/i }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // Bring the rail back: it returns beside the column, which never left.
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
+  await expect(column).toBeVisible();
+  await expect
+    .poll(async () => (await column.boundingBox())?.x ?? -1)
+    .toBeGreaterThan(100);
+});

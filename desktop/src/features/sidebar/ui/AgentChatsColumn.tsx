@@ -20,6 +20,7 @@ export function AgentChatsColumn({
   agent,
   items,
   mobile = false,
+  railHidden = false,
   onClose,
   onNewChat,
   projectByChannelId,
@@ -30,6 +31,8 @@ export function AgentChatsColumn({
   /** In the mobile sheet the column takes the rail's place rather than
    *  sitting beside it, and the close control reads as "back". */
   mobile?: boolean;
+  /** The rail is collapsed: the column sits at the left edge as the pane. */
+  railHidden?: boolean;
   onClose: () => void;
   onNewChat: () => void;
   projectByChannelId: ReadonlyMap<string, RoomProject>;
@@ -53,7 +56,9 @@ export function AgentChatsColumn({
         "flex flex-col bg-sidebar",
         mobile
           ? "min-h-0 w-full flex-1"
-          : "absolute inset-y-0 left-(--sidebar-rail-width) z-20 w-(--agent-column-width) border-l border-border/50",
+          : railHidden
+            ? "absolute inset-y-0 left-0 z-20 w-(--agent-column-width)"
+            : "absolute inset-y-0 left-(--sidebar-rail-width) z-20 w-(--agent-column-width) border-l border-border/50",
       )}
       data-testid="agent-chats-column"
     >
