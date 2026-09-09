@@ -162,3 +162,11 @@ contrastT1, buttonsWithFiveStates, matrixToggleWorks, replayReachesVektor, reduc
 maxMonoLabelsInView, kitScriptsLoaded, sizesTested`.
 
 **Report:** the report format above. Leave the server running.
+
+**Landed** 2026-09-08 · `1c0528868` fast-forwarded onto `codex/quickchat` · `home.html` + `tools/home-beats.mjs` ·
+all checks measured and passing at 1440/1280/390 · deviations accepted: generated 7×7 marks for the four
+runtimes without supplied art; chrome mono lowercase except nav/footer to hold the two-label quota against
+a sticky nav; rail rows 33px; band cell 7px; thread bottom-anchored. **Open for Riley:** trim the hero sub
+to two sentences? · nav mapping Home/Rooms/Brain/Beta. **Next:** WP-02, the second half (Rooms, Continuity,
+Luca, the trust layer, who it's for, FAQ).
+
