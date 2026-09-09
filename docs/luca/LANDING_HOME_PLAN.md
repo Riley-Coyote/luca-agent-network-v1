@@ -290,3 +290,12 @@ doorMarksFromSeed, runtimeMarksFromAperture, hoverDimsOthers, reducedMotionStati
 buttonsWithFiveStates, nonGreyColoursArePhosphor, sizesTested`.
 
 **Report:** the report format. Leave the server running.
+
+**Landed** 2026-09-08 · `1ae1c183b` fast-forwarded onto `codex/quickchat` · `house.html` + `tools/house-beats.mjs` ·
+all checks measured, real GPU, 1440/1280/390 + reduced motion · deviations accepted: aperture's `identityGlyph`
+(the app's current algorithm) over the vendored engine, which turned out to be the superseded 4×7 system; runtime
+marks monochrome; residents visible unlit before they light; closing lines in a sticky column; see-off row at the
+exit; mobile nav drops the pill. **Open for Riley:** Luca on Kimi Code or Claude Code? · unlit residents in the
+room margin? · trim the hero sub? · greeting times absolute or relative? **Next:** Riley's verdict on the house;
+then Brain, Library, Notebook as rooms.
+
