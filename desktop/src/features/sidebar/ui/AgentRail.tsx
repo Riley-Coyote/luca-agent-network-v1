@@ -2,6 +2,11 @@ import * as React from "react";
 import { Plus } from "lucide-react";
 
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import {
+  RAIL_CONTROL_CLASS,
+  RAIL_ROW_CLASS,
+  UNREAD_DOT_CLASS,
+} from "@/features/sidebar/ui/ChatList";
 import { cn } from "@/shared/lib/cn";
 
 /**
@@ -43,7 +48,7 @@ export const AgentRail = React.memo(function AgentRail({
         <span>Agents</span>
         <button
           aria-label="New agent"
-          className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+          className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
           data-testid="create-direct-message"
           onClick={onCreateAgent}
           title="New agent"
@@ -61,10 +66,7 @@ export const AgentRail = React.memo(function AgentRail({
           <button
             aria-label={isUnread ? `${agent.name}, unread` : agent.name}
             aria-pressed={isActive}
-            className={cn(
-              "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
-              "transition-colors duration-100 data-[active=true]:duration-0",
-            )}
+            className={RAIL_ROW_CLASS}
             data-active={isActive ? "true" : undefined}
             data-sidebar="menu-button"
             data-testid={`agent-rail-${agent.name.toLowerCase()}`}
@@ -92,10 +94,7 @@ export const AgentRail = React.memo(function AgentRail({
             </span>
             <span className="flex shrink-0 justify-end">
               {isUnread ? (
-                <span
-                  aria-hidden
-                  className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
-                />
+                <span aria-hidden className={UNREAD_DOT_CLASS} />
               ) : (
                 <span className="text-2xs tabular-nums text-ink-faint">
                   {activity?.recent ?? ""}

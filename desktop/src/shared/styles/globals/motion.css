@@ -97,6 +97,29 @@
   }
 }
 
+/* A small signal appearing in place — an unread dot, a status mark. Opacity
+   only, at the instant token: feedback, not choreography. */
+.motion-enter-signal {
+  animation: motion-enter-signal var(--motion-duration-instant)
+    var(--motion-ease-standard) both;
+}
+
+@keyframes motion-enter-signal {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-enter-signal {
+    animation: none;
+  }
+}
+
 /*
  * Welcome kickoff stage: the starter-team characters arrive from below with
  * a staggered entrance while the team is being set up, then the stage fades

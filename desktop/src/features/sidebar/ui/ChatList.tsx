@@ -65,6 +65,33 @@ export type ChatRowProps = {
   onSelectChannel: (channelId: string) => void;
 };
 
+/**
+ * The rail's row wears the app's menu-button identity, and the Luca shell
+ * owns its states: resting, hover and active colours
+ * (conversation-shell.css), colour changes at the instant token with an
+ * instant press (theme.css), and focus as a 1px inset outline — the row's
+ * own edge brightening in place, never a second ring. The utilities here
+ * give the same focus edge anywhere the shell is not.
+ */
+const RAIL_FOCUS_CLASS =
+  "focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-foreground/50";
+
+export const RAIL_ROW_CLASS = cn(
+  "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none transition-colors",
+  RAIL_FOCUS_CLASS,
+);
+
+/** The rail's small controls — the "+" buttons and the column's close. */
+export const RAIL_CONTROL_CLASS = cn(
+  "flex items-center justify-center rounded-md text-ink-faint outline-none transition-colors",
+  "hover:bg-sidebar-accent hover:text-sidebar-foreground",
+  RAIL_FOCUS_CLASS,
+);
+
+/** An unread dot arrives at the instant token (motion.css); reduced motion, at once. */
+export const UNREAD_DOT_CLASS =
+  "motion-enter-signal size-1.5 self-center rounded-full bg-sidebar-foreground/70";
+
 /** The actions a list's context menu can perform on the row underneath. */
 export type ChatRowMenuProps = {
   onMarkChannelRead: (
@@ -100,15 +127,7 @@ export const ChatRow = React.memo(function ChatRow({
   return (
     <button
       aria-label={isUnread ? `${label}, unread` : label}
-      // Wearing the app's own menu-button identity rather than hand-rolling
-      // active/hover colours: conversation-shell.css already owns those states.
-      className={cn(
-        "group flex w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
-        // Hover resolves fast enough to feel attached to the pointer without
-        // flickering as the cursor crosses the list; active is instant, because
-        // a press that animates feels laggy no matter how brief.
-        "min-h-8 transition-colors duration-100 data-[active=true]:duration-0",
-      )}
+      className={RAIL_ROW_CLASS}
       data-active={isActive ? "true" : undefined}
       data-sidebar="menu-button"
       data-channel-id={channel.id}
@@ -150,7 +169,7 @@ export const ChatRow = React.memo(function ChatRow({
         {isUnread && !isActive ? (
           <span
             aria-hidden
-            className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
+            className={UNREAD_DOT_CLASS}
             data-testid={`channel-unread-${channel.name}`}
           />
         ) : liveLabel ? (
@@ -261,10 +280,7 @@ const ProjectRow = React.memo(function ProjectRow({
   return (
     <button
       aria-label={isUnread ? `${project.label}, unread` : project.label}
-      className={cn(
-        "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
-        "transition-colors duration-100 data-[active=true]:duration-0",
-      )}
+      className={RAIL_ROW_CLASS}
       data-active={isActive ? "true" : undefined}
       data-sidebar="menu-button"
       data-testid={`project-row-${project.id}`}
@@ -284,10 +300,7 @@ const ProjectRow = React.memo(function ProjectRow({
       </span>
       <span className="flex shrink-0 justify-end">
         {isUnread && !isActive ? (
-          <span
-            aria-hidden
-            className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
-          />
+          <span aria-hidden className={UNREAD_DOT_CLASS} />
         ) : workingCount > 0 ? (
           <span className="truncate text-2xs text-ink-faint">
             {workingCount > 1 ? `${workingCount} working` : "working"}…
@@ -429,7 +442,7 @@ export function ChatList({
             <span>Projects</span>
             <button
               aria-label="New project"
-              className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+              className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
               data-testid="create-channel"
               onClick={onCreateProject}
               title="New project"
@@ -455,7 +468,10 @@ export function ChatList({
           })}
           {orderedProjects.length === 0 ? (
             <button
-              className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              className={cn(
+                RAIL_CONTROL_CLASS,
+                "min-h-8 justify-start gap-2.5 px-2 text-left text-sm",
+              )}
               onClick={onCreateProject}
               type="button"
             >

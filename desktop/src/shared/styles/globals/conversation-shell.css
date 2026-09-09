@@ -657,6 +657,8 @@
   background: hsl(var(--sidebar-active));
   border-color: hsl(var(--mn-ink) / 0.06);
   color: hsl(var(--sidebar-active-foreground));
+  /* A press is instant: the colours land, they do not animate. */
+  transition-duration: 0s;
   /* 500, not 520. The active row earns a step of weight, but it should be a
      step ON the ramp — 520 was one of a set of one-off weights (520, 540,
      560) that no token described. */

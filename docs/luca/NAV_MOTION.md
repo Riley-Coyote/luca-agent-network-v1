@@ -35,9 +35,9 @@ parts move. Every change to them is judged against it.
 | Edge peek in / out | rail container as overlay | `translateX` + shadow | fast · standard (leave after a 220ms intent delay) | everything — peek is an overlay, never layout |
 | Agent column open | column | `opacity` 0→1 and `translateX(−8px)`→0; rail widens with it | fast · arrival | rail rows; the conversation shifts once |
 | Agent column close | column | reverse of open | instant · standard | rail rows |
-| Collapse with column open | rail then column | rail `translateX` out while the column slides from `left: rail` to `left: 0` — same duration, same curve, so they read as one plane | standard · standard | the column's rows (they move as a block, never relayout) |
+| Collapse with column open | rail then column | rail `translateX` out while the column's mover `translateX`es from beside the rail to the edge — same duration, same curve, so they read as one plane | standard · standard | the column's rows (they move as a block, never relayout) |
 | Expand with column open | the reverse | | standard · standard | |
-| Project row → navigator | navigator | `opacity` + `translateX(−8px)` in; conversation shifts once | fast · arrival | rail |
+| Project row → navigator | the content plane | the route transition (`luca-nav-in`: `opacity` + the stamped drift) carries the navigator in; the navigator has no motion of its own | standard · arrival | rail |
 | Agent switch (Atlas → Bex) | column contents | crossfade at `instant` | instant · standard | the column frame |
 | Chat select | row active state | colour, no motion | 0 (active is instant) | everything |
 | Hover / pressed | row | `background-color`, `color` | instant · standard | |
@@ -218,3 +218,53 @@ navigator leaving (+304 px) and the column arriving (−232 px) land as one
 +72 px reflow instead of a 304 px jump chased by a 240 ms slide, and the
 timeline stops re-rendering per frame. What is left after that is the
 timeline's own mount and re-measure cost, outside the nav.
+
+## After D — choreography, focus, keyboard (2026-09-09, claude/rail-fold)
+
+The column now lives under `PanelPresence`, the app's own panel pattern:
+it stays mounted through its exit, Escape closes it, and focus returns to
+the rail row that opened it. On the desktop it is three layers inside the
+sidebar's container. A **stage** clipped to the container, so the pane's
+edge is what reveals and swallows the column and nothing of it ever paints
+over the conversation (the container itself does not clip, and a closing
+column would otherwise overhang the returning plane). A **mover** that
+slides by `transform` when the rail is put away or peeked, on the rail's
+own duration and curve so the two read as one plane; this replaces the
+`left` transition that existed in only one branch and snapped. And the
+**column**, which arrives by opacity and an 8 px drift at fast · arrival
+and leaves at instant · standard. A keyboard open — the resident's row
+activated while it showed its focus state — puts focus on the column's
+first control once the rows have landed (and not before the column is
+open: while it arrives it is inert); a pointer open leaves focus alone.
+
+The hover finding was misattributed: rows never ran at their own
+`duration-100` — the Luca shell's global rule for every button
+(`theme.css`, `:is(button, a, [role="button"], [role="tab"])`) set a raw
+150 ms and outranked it. That rule now uses the instant token and the
+standard ease, and the active row's press is instant where the shell
+defines the active state. Focus was already right: the shell's blanket
+`:focus-visible` is a 1 px inset outline — the element's own edge
+brightening in place — so rows, project rows and the rail's controls now
+share one class (`RAIL_ROW_CLASS`, `RAIL_CONTROL_CLASS`) that defers to it
+and carries the same edge as a utility for anywhere the shell is not.
+Unread dots arrive by opacity at instant (`motion-enter-signal`). The
+companion's frame follows the same tokens. Reduced motion: no transitions
+and no animations, verified with `getAnimations()`.
+
+Not added: a navigator entrance. The content plane's route transition
+(`luca-nav-in`, standard · arrival, with the stamped drift) already carries
+the navigator in; a second motion on it would be the two things moving that
+rule 2 forbids. The choreography row is corrected above.
+
+Keyboard menus: the browser turns its menu key into a `contextmenu` event
+on the focused row — Shift+F10 is not that key on macOS — and the delegated
+menu handles the event exactly as the per-row triggers did.
+
+| Transition (task on the click) | After C | After D |
+|---|---|---|
+| Column open, plain room | 5.0 ms | 6.2 ms (PanelPresence's retained render) |
+| Column close, plain room | 4.9 ms | 6.6 ms |
+
+Rail spec: 17 cases, the new four being Escape with focus return, a
+pointer open leaving focus alone, compositor-only transitions with
+reduced-motion stillness, and the keyboard's menu on a column row.
