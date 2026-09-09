@@ -100,7 +100,12 @@ const DialogContent = React.forwardRef<
       >
         <DialogPrimitive.Content
           className={cn(
-            "pointer-events-auto relative grid w-[calc(100vw-2rem)] max-w-2xl gap-4 outline-hidden",
+            // A column flex box, not a grid. WKWebView sizes a lone auto grid
+            // track inside this box to its items' max-content — the width of
+            // the longest unwrapped line — as though the box had no width,
+            // and the rows then run past the card. Flex items stretch to the
+            // box's real content width in every engine.
+            "pointer-events-auto relative flex w-[calc(100vw-2rem)] max-w-2xl flex-col gap-4 outline-hidden",
             surface === "default" && "rounded-2xl bg-background p-6 shadow-2xl",
             surface === "none" && "bg-transparent p-0 shadow-none",
             surface === "textured" &&
