@@ -322,3 +322,49 @@ test("the rail still scrolls while a resident's column is open", async ({
     )
     .toBeGreaterThan(0);
 });
+
+test("both second-column headers sit at the height of the rail's first row", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock&projectDemo=1");
+  const railFirstRow = await page
+    .getByTestId("sidebar-pinned-header")
+    .evaluate((el) => {
+      const first = el.querySelector("button, input, [role='button']");
+      return (first ?? el).getBoundingClientRect().top;
+    });
+
+  // Rail open: the agent column's header lines up with the rail's search row.
+  await page.getByTestId("agent-rail-atlas").click();
+  const columnHeader = page.getByTestId("agent-chats-column").locator("header");
+  await expect
+    .poll(async () =>
+      Math.abs(((await columnHeader.boundingBox())?.y ?? -99) - railFirstRow),
+    )
+    .toBeLessThanOrEqual(6);
+
+  // Same for the project navigator's title.
+  await page.getByTestId("project-row-luca").click();
+  const navigatorHeader = page
+    .getByTestId("project-room-navigator")
+    .locator("header");
+  await expect(navigatorHeader).toBeVisible();
+  const navigatorTitle = await navigatorHeader
+    .locator("[data-luca-header-meta]")
+    .boundingBox();
+  expect(
+    Math.abs((navigatorTitle?.y ?? -99) - railFirstRow),
+  ).toBeLessThanOrEqual(8);
+
+  // Collapse the rail: the navigator is now the leading surface and its
+  // title is clear of the strip where the window controls and nav live.
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  const chrome = await page.getByTestId("app-top-chrome").boundingBox();
+  await expect
+    .poll(
+      async () =>
+        (await navigatorHeader.locator("[data-luca-header-meta]").boundingBox())
+          ?.y ?? -1,
+    )
+    .toBeGreaterThanOrEqual((chrome?.y ?? 0) + (chrome?.height ?? 0) - 1);
+});

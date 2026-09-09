@@ -897,13 +897,16 @@
   padding: 20px 20px 18px;
 }
 
-/* With the global rail collapsed, the project navigator becomes the native
-   window's leading surface. Clear the same inset as AppTopChrome rather than
-   maintaining a second traffic-light measurement. */
+/* On the desktop the navigator's header sits at the height of the rail's
+   first row: the card starts at the lip, so lip + header height lands its
+   title exactly where the rail's search row lands. With the rail collapsed
+   the navigator becomes the window's leading surface, and its title is then
+   already below the traffic lights and the floating chrome — no second
+   inset measurement needed. */
 :root[data-luca-shell]
-  .luca-project-room-navigator[data-native-traffic-light-inset="true"]
+  .luca-project-room-workspace
   .luca-project-room-navigator__header {
-  padding-left: var(--buzz-native-traffic-light-inset, 80px);
+  padding-top: var(--mn-header-height);
 }
 
 :root[data-luca-shell] .luca-project-icon-button {
