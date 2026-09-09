@@ -30,8 +30,8 @@ parts move. Every change to them is judged against it.
 
 | Transition | Subject | Property | Duration · ease | What stays still |
 |---|---|---|---|---|
-| Rail collapse | rail container | `transform: translateX` off-screen; content inset changes once at the end | standard · standard | the conversation until the rail is gone |
-| Rail expand | rail container | `translateX` back in; inset changes at the start | standard · standard | the conversation until the rail has landed |
+| Rail collapse | rail container | `translate` off-screen; the content inset (the gap, the card's lip, the header's clearance) changes once, at the start — the rail still covers that edge, and reveals the settled content as it leaves | standard · standard | the conversation, laid out once |
+| Rail expand | rail container | `translate` back in; the inset changes once, at the start, and the rail slides into the space | standard · standard | the conversation, laid out once |
 | Edge peek in / out | rail container as overlay | `translateX` + shadow | fast · standard (leave after a 220ms intent delay) | everything — peek is an overlay, never layout |
 | Agent column open | column | `opacity` 0→1 and `translateX(−8px)`→0; rail widens with it | fast · arrival | rail rows; the conversation shifts once |
 | Agent column close | column | reverse of open | instant · standard | rail rows |
@@ -268,3 +268,49 @@ menu handles the event exactly as the per-row triggers did.
 Rail spec: 17 cases, the new four being Escape with focus return, a
 pointer open leaving focus alone, compositor-only transitions with
 reduced-motion stillness, and the keyboard's menu on a column row.
+
+## After B — the rail slides on the compositor (2026-09-09, claude/rail-fold-b, pending Codex's nod)
+
+Three edits in shared code, proposed in the room as an exact diff first.
+`shared/ui/sidebar.tsx`: the gap div has no transition — the content
+inset changes once, at the start, in both directions, the instant
+`data-collapsible` already flips the card margin and header padding; the
+container transitions `width, translate` (Tailwind v4's translate
+utilities animate the `translate` property, not `transform`) and leaves
+offcanvas by `translate`, never `left`; `motion-reduce:transition-none`
+is the rail's first reduced-motion hatch; `width` stays in the list on
+purpose, for the column's arrival and the companion peek — overlays whose
+relayout is three boxes and never the plane. `features/chat/ui/ChatHeader.tsx`:
+the header no longer transitions `margin, padding` — that was the
+traffic-light clearance animating, the last per-frame relayout of the
+plane; it now switches with the inset, under the rail's cover.
+`shared/ui/sheet.tsx`: the phone sheet on the drawer curve (260 ms,
+`--motion-ease-drawer`) instead of the stock 500/300 ms ease-in-out.
+`MainInsetContext.tsx` needed nothing: its observer runs after layout, and
+its per-frame commits disappear with the gap's transition.
+
+| Transition | After D | After B |
+|---|---|---|
+| Rail collapse | 0 dropped · 9 ms · **30 layouts** | 0 dropped · 9 ms · **1 layout** — one 10 ms task on the click (style 5 · React 3 · layout 1) |
+| Rail expand | 0 dropped · 17 ms · **29 layouts** | 0 dropped · 9 ms · **2 layouts** |
+| Column close, project room | 1 dropped · 50 ms | 1 dropped · 34 ms |
+| Expand with column open | 0 dropped · 9 ms | 0 dropped · 9 ms |
+| Column open, project room | 28 ms then 42 ms | 32 ms then 42 ms — unchanged, see below |
+
+Gates in `tests/e2e/nav-motion.perf.ts`: the column opens and closes
+without a long task in a plain room and in the 600-message project room;
+layout passes per rail slide are reported (1 / 2). The rail spec's new
+case pins the container's transition property (no `left`), the gap's
+absence of one, the collapsed `translate`, and the sheet's duration and
+curve.
+
+What B did not change, honestly: the project-room column open is still
+two tasks — the click's commit (React 21 ms) and, 50 ms later, the
+conversation's one response to its new width (React 18 ms, style 18 ms:
+the timeline re-renders and the virtualised list mounts ~3,000 more nodes
+for the wider pane). That response used to be spread across a 240 ms
+slide; now it happens once, which is the shape the rules ask for, and what
+remains is the timeline's own cost — Codex's virtualiser, outside the nav.
+Also learned: a Radix layer that is still leaving (the compose view's
+recipient popover, 150 ms) claims the first Escape, as nested controls are
+meant to; the Escape case starts from a room.
