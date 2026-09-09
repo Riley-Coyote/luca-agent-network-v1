@@ -114,11 +114,17 @@ state, zero console errors.
    rail with `transform`, change the content inset once. (Shared sidebar
    code — coordinate with Codex.)
 2. **Opening a resident's direct thread stalls the main thread for about a
-   second, warm.** That is not the rail; it is what the DM view does on
-   mount (the companion presence and its canvas are the first suspects). It
-   is the single worst moment in the nav flow, and it happens on the click
-   the column exists for. Profile the DM mount and defer the heavy part
-   until after the first frame.
+   second, warm.** Named by a CPU profile (`scripts/_dm-profile.mjs`): it is
+   the companion's three.js scene. On every DM mount a `WebGLRenderer` is
+   created and sized (`setSize`, 398 ms self time) and its shaders compiled
+   (`getProgramInfoLog`); the rest of the DM view is ~10 ms. Headless
+   Chromium renders WebGL in software, so the absolute number is inflated
+   there — but the shape is the same on a real GPU: context creation and
+   shader compilation, synchronously, on the main thread, on the click the
+   column exists for. Fix: one renderer for the app's lifetime (reuse it
+   across DMs; three's program cache lives on the renderer), created after
+   the first frame of the route transition, not during it; and the mote
+   should mount idle, then fade in.
 3. **Column open/close drops a frame** (50–58 ms). The click, the sidebar
    re-render (every row wrapped in a context menu) and the width change
    all land in one frame. Fix: render the column's rows in a deferred
