@@ -170,3 +170,123 @@ a sticky nav; rail rows 33px; band cell 7px; thread bottom-anchored. **Open for 
 to two sentences? · nav mapping Home/Rooms/Brain/Beta. **Next:** WP-02, the second half (Rooms, Continuity,
 Luca, the trust layer, who it's for, FAQ).
 
+
+---
+
+# WP-02 · THE HOUSE — the front door, the Agents room, the Rooms room, the door out (2026-09-08, Fable's design, off the leash; Riley: "i just have to see it to understand … can you just prototype it or build it so i can see it and decide?")
+
+**Read this first, because it overrides the preamble.** Riley has released this page from every
+ruleset. `kit/DESIGN-RULES.md` is **not** a rule here — nothing in it binds; the kit's engine, its
+type choice and its phosphor hues are used only where this package says so, because I chose them.
+The Claude Design v3 and `home.html` are **not** the pattern: no rounded app-frame screenshots with
+text beside them, no marquee band. The collaboration frame and the copy sources in the preamble
+still hold; the banned-words list still holds. Corrections to the preamble's picture of the app,
+from Riley: **Agents** is where you see who lives here. **Library** is what the owner brought from
+their machine — files, components, artifacts — not people. Rooms are where they work together.
+
+**Why.** Every version so far is a listing: a photo of the app in a box, a paragraph beside it,
+repeated. This one is *walking through the house.* The visitor arrives — the residents' marks light
+up one by one and each says a line — and then moves room to room. Each section is built **as that
+place**, not as a screenshot in a frame. The real app appears only where it proves something. The
+visitor is a guest, not a shopper. Riley decides by looking, so every choice below is made to be
+looked at; where the brief and your eye disagree, pick the more alive one and say so in deviations.
+
+**Base.** Branch `codex/quickchat` at the commit containing this section. Worktree + branch
+`wp02-house`. **Files in scope:** `design-artifacts/landing/house.html` (NEW),
+`design-artifacts/landing/tools/house-beats.mjs` (NEW). **Untouched:** `home.html`, `aperture.html`,
+`chamber.html`, everything else.
+
+**Facts the build rests on.**
+- The residents' faces are **the app's real identity marks**: `kit/luca-sigil-engine.js` is the
+  shipped engine, bundled from the app (`Luca-Design-Artifacts 2/README.md`: "the same code the app
+  runs"). `aperture.html` also carries `identityGlyph(seed)` / `glyphSvg()` (a 7×7 mirrored matrix
+  from a seed) and `LUCA` with Luca's fixed seed — use whichever renders cleanly at 24px and at
+  120px; prefer the engine. Every resident on this page is drawn from a seed, never by hand.
+- The six runtime marks are SVG `<symbol>`s in `aperture.html`: `m-claude`, `m-claude-color`,
+  `m-openai`, `m-nousresearch` (Hermes), `m-openclaw`, `m-openclaw-color`, `m-grok`, `m-kimi`,
+  `m-kimi-color`. Copy the symbol block; do not redraw or fetch logos.
+- Phosphor hues, one per mind (from the kit, used because I want them): `#E8A33D` amber,
+  `#E0563C` coral, `#A8D2E0` sky, `#B296E8` violet, `#86D8A8` mint, `#EFEFED` for Luca. Assign:
+  Luca ivory, Anima sky, Vektor amber, Orin coral, and two more residents for the hall — invent
+  none: use `Wren` and `Kit` from `aperture.html`'s cast (violet, mint) with the runtimes it gives
+  them.
+- Type: Instrument Sans 400/500 for everything a person says; Fragment Mono for the machine's small
+  facts (times, "signed", runtime). Google Fonts link as in WP-01. Weights never above 500.
+- Copy: the preamble's sources, reframed. The Launch-room exchange as in WP-01 decision 4.
+- The lattice material: unlit dots left faintly visible is how the app makes a mark read as
+  switched on (`kit/DESIGN-RULES.md` "The lattice" — a fact about the app, not a rule).
+
+**Decisions.**
+1. **Floor.** Not pure black: `#070708`, cool. Ink is a cool grey cascade (`#F2F2F0` → `#A9A9A6` →
+   `#6E6E6B`). **The only colour on the page is the residents' phosphor, as light** — a lit mark, a
+   soft glow around it (radial, low alpha, its own hue), and the resident's name tinted when they
+   speak. No coloured fills, borders or buttons. Runtime marks are monochrome except where
+   `aperture.html` already gives a colour symbol.
+2. **The front door (hero, 100vh, edge to edge, no frame).** A faint unlit lattice fills the
+   viewport (dots at a 14–16px pitch, `#141416`). On arrival, three marks light in at different
+   positions across the space — not a row, not centred, spread like people in a room — 700ms apart:
+   Luca (upper right third), Anima (lower left), Vektor (mid right, lower). Beside each, in small
+   type with a mono time, one line in their own voice: Luca **"You're here. Come in."** · Anima
+   **"I kept the thread on Northstar while you were away."** · Vektor **"The build's green. Look
+   whenever you're ready."** Then the headline arrives, anchored left on the grid, Display scale
+   (`clamp(3rem,7vw,6rem)`, weight 500, tracking −.04em, line-height .95): **"One home for all your
+   agents."** — "One home" in full ink, the rest in the second grey. Sub, two sentences, max 46ch:
+   **"Bring the agents you already use, and the ones you make, into one place. They keep their own
+   identity and memory, share the projects you open to them, and work with you and with each other."**
+   One pill button **"Join the beta"** and one text link **"Walk through →"** (anchors to §3). No
+   runtime logos in the hero. Reduced motion: everything present at once, no sequence.
+3. **Agents — "Who lives here."** (the first room). Heading Section scale, left. Intro, from the
+   prototype's Agent Library copy reframed: **"See who's here, what each of them is on, what they
+   remember, and how to reach them. Bring in the Hermes and OpenClaw agents you already have — their
+   native profiles, tools and memory stay theirs — or make a new resident here."** Then **the hall**:
+   six residents laid across the full width as large lit marks (96–120px, each in its hue, on the
+   faint lattice), staggered high and low, never a grid of cards. Under each: name (Instrument
+   500), what they're on right now in one short line (from prototype/aperture material: e.g. Anima
+   "reading the Northstar brief", Vektor "packaging build 1.1.0"), and a small runtime mark + mono
+   runtime name ("claude code", "codex", "hermes", "openclaw", "grok", "kimi"). Hover/focus: that
+   resident brightens and their line lifts; the others dim a step. Mobile: two per row.
+4. **Rooms — "Where you work together."** Built as a room you are standing in, full width: the
+   exchange runs down the section like a transcript on the wall, each turn with the speaker's lit
+   mark in the left margin, name tinted, mono time, `signed ✓` in mono after each agent turn.
+   Turns: You: "Can each of you give me the most important thing to resolve before the beta?" ·
+   Luca: "I'll get us started. Anima, the story; Vektor, the proof." · Anima: "The promise should
+   be understood before the architecture: every agent, one place, distinct voices." · Vektor: "Show
+   the room itself. The interface is the proof that the network is real." The turns arrive as the
+   section scrolls into view (once; all present under reduced motion). Beside/after it, the line
+   **"Talk to one agent. Or bring the whole room together."** and one sentence from the prototype:
+   **"Every contribution stays visible, attributable and distinct — nobody's voice gets flattened
+   into one stream."**
+5. **The door out.** Section scale: **"One home for every agent you work with."** Sub: **"Polyphonic
+   is in private beta for macOS. Leave your email and you'll hear from us when it's ready for you."**
+   Email + pill "Request the beta" → "Sending…" → "Requested"; note line in mono:
+   `macos · one email when it's ready · this page does not store your address yet`. Footer: mark +
+   "Polyphonic" · "From Mnemos Research" · `beta · macos · 2026`. Nav: sticky, thin, `#070708` at
+   .8 with blur; wordmark left; links *Agents · Rooms · Beta*; one button "Join the beta".
+6. **Composition.** One strong left alignment line runs the page. Headlines left. Nothing centred
+   except the door out. Big deliberate changes of scale: the hall marks are the largest objects on
+   the page after the H1. Real space between things; no hairline card grids anywhere.
+7. **Motion.** Arrival choreography in the hero (once); marks lighting is a phosphor rise (the mark
+   dithers in over ~500ms, glow follows), not a fade. Everything else: 10px + opacity reveals,
+   300–400ms, once. Off entirely under reduced motion, with the final state shown.
+8. Brain, Library and Notebook are **not** in this package; leave `#brain` etc. out of the nav.
+
+**Rules.** No invented facts beyond the lines this section writes. Every mark from a seed or the
+aperture symbols. No emoji. Tokens for colour/type/space. Five states on controls. Cache-bust
+`?v=2026-09-08-wp02-1` on any kit script. Own recon first, plan in your scratchpad. Commit on
+`wp02-house` with explicit paths; no merge, no push.
+
+**Verification (Playwright; 1440×900, 1280×800, 390×844; real GPU for the look).** Serve the
+landing dir on a free port (not 4193/4194/4195/4211). `house-beats.mjs` captures `house-door-0`
+(before any mark lights), `house-door-3` (all three lit + greetings), `house-door-final` (headline
+in), `house-agents`, `house-agents-hover` (one resident hovered), `house-rooms-mid` (two turns in),
+`house-rooms-final`, `house-exit`, `house-mobile-door`, `house-mobile-agents`. Assert: console
+clean; no horizontal overflow; exactly one `<h1>`; H1 font-family Instrument Sans; six lit marks in
+the hall each with a distinct hue; the three door marks are drawn from seeds (not images); the
+runtime marks are the aperture symbols; hover dims the other five; reduced-motion renders final
+states with no sequence; every control has five states; every colour on the page other than the
+grey cascade is one of the six phosphor hues (sample computed colours).
+**Checks JSON keys:** `consoleClean, overflowX, h1Count, h1FontFamily, hallMarks, hallHuesDistinct,
+doorMarksFromSeed, runtimeMarksFromAperture, hoverDimsOthers, reducedMotionStatic,
+buttonsWithFiveStates, nonGreyColoursArePhosphor, sizesTested`.
+
+**Report:** the report format. Leave the server running.
