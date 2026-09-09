@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Fragment+Mono:ital@0;1&family=Doto:wght@600;900&display=swap" rel="stylesheet">
+<script src="dot-display.js?rev=2"></script>
+<script src="mnemos-scenes.js?rev=7"></script>
+<style>
+  *{box-sizing:border-box;}
+  :root{
+    --bg:#000000;--s1:#0E0E0E;--s2:#161616;--s3:#1E1E1E;
+    --line:#232323;--line2:#2E2E2E;
+    --t0:#FAFAFA;--t1:#B4B4B4;--t2:#7E7E7E;--t3:#565656;
+    --sig:#E03C2F;
+    --frost:rgba(255,255,255,.055);--frost-line:rgba(255,255,255,.10);
+    --smoke:rgba(14,14,14,.72);--smoke-line:rgba(255,255,255,.07);
+    --lift:0 24px 60px -22px rgba(0,0,0,.80);
+    --glass:#0A0B0A;--phos:#EFEFED;--glass-line:#1C1D1C;--unlit:#1F211F;
+    --sans:'Instrument Sans',system-ui,-apple-system,sans-serif;
+    --mono:'Fragment Mono',ui-monospace,SFMono-Regular,monospace;
+    --doto:'Doto','Fragment Mono',monospace;
+    --r-ctl:6px;--r-panel:10px;--r-surface:14px;
+    --pad:clamp(20px,5vw,80px);
+    --ease-ctl:cubic-bezier(.2,0,0,1);--ease-page:cubic-bezier(.16,1,.3,1);
+  }
+  :root[data-housing="light"]{
+    --bg:#FFFFFF;--s1:#F0F0EE;--s2:#E9E9E6;--s3:#E1E1DD;
+    --line:#E3E3E0;--line2:#D3D3CF;
+    --t0:#0C0C0C;--t1:#4A4A48;--t2:#757571;--t3:#9C9C97;
+    --sig:#CE2E1C;
+    --frost:rgba(255,255,255,.62);--frost-line:rgba(0,0,0,.07);
+    --smoke:rgba(255,255,255,.74);--smoke-line:rgba(0,0,0,.06);
+    --lift:0 20px 48px -20px rgba(0,0,0,.18);
+  }
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;background:var(--bg);color:var(--t1);font-family:var(--sans);
+    font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;overflow-x:hidden;
+    transition:background .5s var(--ease-page),color .5s var(--ease-page);
+  }
+  ::selection{background:var(--t0);color:var(--bg);}
+  a{color:var(--t0);text-decoration:none;}
+  a:hover{color:var(--sig);}
+  button,input{font:inherit;}
+  :focus-visible{outline:2px solid var(--sig);outline-offset:3px;}
+  canvas{display:block;}
+  @media (max-width:1279px){#mn-rail{display:none!important;}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}html{scroll-behavior:auto;}}
+</style>
+</helmet>
+
+<template id="__bundler_thumbnail">
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mnemos Research design system">
+  <rect width="100" height="100" fill="#0A0B0A"></rect>
+  <g fill="#EFEFED">
+    <circle cx="30" cy="30" r="2.6"></circle><circle cx="70" cy="30" r="2.6"></circle>
+    <circle cx="30" cy="36.7" r="2.6"></circle><circle cx="36.7" cy="36.7" r="2.6"></circle><circle cx="63.3" cy="36.7" r="2.6"></circle><circle cx="70" cy="36.7" r="2.6"></circle>
+    <circle cx="30" cy="43.3" r="2.6"></circle><circle cx="43.3" cy="43.3" r="2.6"></circle><circle cx="56.7" cy="43.3" r="2.6"></circle><circle cx="70" cy="43.3" r="2.6"></circle>
+    <circle cx="30" cy="50" r="2.6"></circle><circle cx="50" cy="50" r="2.6"></circle><circle cx="70" cy="50" r="2.6"></circle>
+    <circle cx="30" cy="56.7" r="2.6"></circle><circle cx="70" cy="56.7" r="2.6"></circle>
+    <circle cx="30" cy="63.3" r="2.6"></circle><circle cx="70" cy="63.3" r="2.6"></circle>
+    <circle cx="30" cy="70" r="2.6"></circle><circle cx="70" cy="70" r="2.6"></circle>
+  </g>
+  <circle cx="50" cy="82" r="2.6" fill="#E03C2F"></circle>
+</svg>
+</template>
+
+<div id="mn-root" style="position:relative;min-height:100dvh;background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:17px;line-height:1.62;transition:background .5s var(--ease-page),color .5s var(--ease-page);">
+
+<nav id="mn-rail" aria-label="Contents" style="position:fixed;left:22px;top:50%;transform:translateY(-50%);z-index:30;display:flex;flex-direction:column;gap:1px;">
+  <sc-for list="{{ rail }}" as="r" hint-placeholder-count="13">
+    <a href="{{ r.href }}" data-rail="{{ r.id }}" style="display:flex;align-items:center;gap:10px;padding:4px 8px 4px 0;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);white-space:nowrap;transition:color .2s var(--ease-ctl);">
+      <span style="width:12px;height:1px;background:currentColor;display:block;flex:none;transition:width .25s var(--ease-ctl);"></span>
+      <span>{{ r.n }}</span>
+    </a>
+  </sc-for>
+</nav>
+
+<div style="position:sticky;top:0;z-index:40;background:var(--frost);backdrop-filter:blur(20px) saturate(1.4);-webkit-backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--line);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+  <div style="display:flex;align-items:center;gap:clamp(12px,2vw,26px);padding:0 var(--pad);height:60px;max-width:1440px;margin:0 auto;">
+    <a href="#s00" style="display:flex;align-items:center;gap:11px;flex:none;">
+      <span style="display:grid;grid-template-columns:repeat(7,2px);grid-auto-rows:2px;gap:1px;flex:none;" aria-hidden="true">
+        <sc-for list="{{ mark }}" as="m" hint-placeholder-count="49">
+          <i style="border-radius:50%;background:{{ m.c }};display:block;"></i>
+        </sc-for>
+      </span>
+      <span style="font-weight:600;font-size:15px;letter-spacing:-.012em;color:var(--t0);">Mnemos Research</span>
+    </a>
+    <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">design system · rev 02</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px;flex:none;">
+      <a href="#s12" style="font-size:14px;color:var(--t2);white-space:nowrap;transition:color .15s var(--ease-ctl);" style-hover="color:var(--t0)">Build sheet</a>
+      <button id="mn-housing" aria-pressed="false" aria-label="Switch housing" style="cursor:pointer;display:inline-flex;align-items:center;gap:9px;background:var(--s1);border:1px solid var(--line);border-radius:999px;padding:5px 12px 5px 7px;color:var(--t1);transition:background .2s var(--ease-ctl),border-color .5s var(--ease-page);">
+        <span id="mn-thumb" style="width:14px;height:14px;border-radius:50%;background:var(--t0);display:block;transition:background .3s var(--ease-page);"></span>
+        <span id="mn-housinglbl" style="font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;">dark</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<header id="s00" data-r style="scroll-margin-top:60px;">
+  <div style="position:relative;height:clamp(430px,66vh,690px);background:var(--glass);border-bottom:1px solid var(--line);overflow:hidden;transition:border-color .5s var(--ease-page);">
+    <canvas data-scene="memory" data-cell="15" data-bias="tr" role="img" aria-label="A living memory graph: traces forming, linking, being reached for by waves of recall, and softening when they are not." style="position:absolute;inset:0;width:100%;height:100%;"></canvas>
+    <span style="position:absolute;left:var(--pad);top:22px;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#5C5D5C;pointer-events:none;">display · the shape of what it kept</span>
+    <span style="position:absolute;right:var(--pad);top:22px;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#5C5D5C;pointer-events:none;">recall · every 4.3s</span>
+    <div style="position:absolute;left:0;right:0;bottom:0;padding:0 var(--pad) clamp(28px,5vh,54px);pointer-events:none;">
+      <div style="max-width:1240px;margin:0 auto;">
+        <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#8E8F8C;">Mnemos Research · Polyphonic · the continuity layer</div>
+        <h1 style="font-family:var(--sans);font-weight:500;letter-spacing:-.042em;line-height:.97;font-size:clamp(2.3rem,5.9vw,5.2rem);color:var(--phos);margin:16px 0 0;max-width:17ch;text-wrap:balance;">One machine, two housings, three materials.</h1>
+      </div>
+    </div>
+  </div>
+  <div style="padding:clamp(38px,7vh,80px) var(--pad) clamp(48px,8vh,96px);">
+  <div style="max-width:1240px;margin:0 auto;">
+    <p style="margin:0;max-width:66ch;font-size:clamp(1.08rem,1.5vw,1.32rem);line-height:1.58;color:var(--t1);text-wrap:pretty;">The work is a memory system for minds that would otherwise start from nothing. It should look like an instrument built by people who measure things — quiet, exact, and unembarrassed about being a machine.</p>
+    <p style="margin:1.3rem 0 0;max-width:66ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">This is the whole system: tokens, the lattice, materials, parts, motion, and the four formats it has to survive — web, deck, social, app. Restraint is the strategy. Almost everything here is a rule about what not to add.</p>
+
+    <div style="margin-top:clamp(34px,5.5vh,60px);display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:clamp(12px,1.6vw,18px);">
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);padding:24px 24px 26px;background:var(--s1);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">material one</div>
+        <div style="margin-top:14px;font-size:1.24rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);">Housing</div>
+        <p style="margin:.6rem 0 0;font-size:15px;line-height:1.62;color:var(--t2);">Structure, chrome, controls, prose. Opaque, monochrome, still. It holds things and claims nothing.</p>
+      </div>
+      <div style="border:1px solid var(--frost-line);border-radius:var(--r-surface);padding:24px 24px 26px;background:var(--frost);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);box-shadow:var(--lift);">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">material two</div>
+        <div style="margin-top:14px;font-size:1.24rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);">Glass</div>
+        <p style="margin:.6rem 0 0;font-size:15px;line-height:1.62;color:var(--t2);">Anything that floats above the page: overlays, menus, the HUD. Translucent, blurred, edge-lit by a single hairline.</p>
+      </div>
+      <div style="border:1px solid var(--glass-line);border-radius:var(--r-panel);padding:24px 24px 26px;background:var(--glass);">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#6B6C6A;">material three</div>
+        <div style="margin-top:12px;font-family:var(--doto);font-weight:900;font-size:1.5rem;letter-spacing:.04em;color:var(--phos);line-height:1;">DISPLAY</div>
+        <p style="margin:.7rem 0 0;font-size:15px;line-height:1.62;color:#8E8F8C;">Content that is alive. A dot lattice holding charge, identical at noon and midnight. The only material allowed to emit — and the only image the brand has.</p>
+      </div>
+    </div>
+  </div>
+  </div>
+</header>
+
+<section id="s01" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">01</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;max-width:22ch;text-wrap:balance;">Six laws. Break one and it stops being this.</h2>
+    <div style="margin-top:clamp(30px,4.5vh,52px);max-width:1000px;">
+      <sc-for list="{{ laws }}" as="l" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:44px 1fr;gap:clamp(16px,3vw,44px);padding:26px 0;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+          <span style="font-family:var(--mono);font-size:11px;color:var(--t3);padding-top:.42rem;">{{ l.n }}</span>
+          <div>
+            <h3 style="font-family:var(--sans);font-weight:500;letter-spacing:-.022em;font-size:1.3rem;line-height:1.28;color:var(--t0);margin:0;">{{ l.t }}</h3>
+            <p style="margin:.7rem 0 0;font-size:16px;line-height:1.68;color:var(--t2);max-width:70ch;text-wrap:pretty;">{{ l.d }}</p>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<section id="s02" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">02</div>
+        <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Colour</h2>
+      </div>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">neutral by default · chroma by permission</span>
+    </div>
+    <p style="margin:clamp(22px,3.2vh,32px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Two neutral stacks carry every surface, and they are the entire brand at a glance. Chroma is allowed in exactly three roles below — never as a theme, never on a dominant surface, never as a gradient across one.</p>
+
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(18px,3vw,40px);">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+          <span style="font-size:15px;font-weight:500;color:var(--t0);">Dark housing</span>
+          <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">product · app · deck</span>
+        </div>
+        <div style="margin-top:18px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#000000;border:1px solid var(--line);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">bg</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#000000</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#0E0E0E;border:1px solid var(--line);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">s1</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#0E0E0E</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#161616;border:1px solid var(--line);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">s2</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#161616</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#232323;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">line</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#232323</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#FAFAFA;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t0</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#FAFAFA</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#B4B4B4;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t1</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#B4B4B4</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#7E7E7E;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t2</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#7E7E7E</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#565656;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t3</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#565656</div></div>
+        </div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding-bottom:12px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+          <span style="font-size:15px;font-weight:500;color:var(--t0);">Light housing</span>
+          <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">research · long-form · print</span>
+        </div>
+        <div style="margin-top:18px;display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#FFFFFF;border:1px solid var(--line2);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">bg</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#FFFFFF</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#F0F0EE;border:1px solid var(--line2);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">s1</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#F0F0EE</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#E9E9E6;border:1px solid var(--line2);"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">s2</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#E9E9E6</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#E3E3E0;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">line</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#E3E3E0</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#0C0C0C;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t0</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#0C0C0C</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#4A4A48;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t1</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#4A4A48</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#757571;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t2</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#757571</div></div>
+          <div><div style="height:62px;border-radius:var(--r-ctl);background:#9C9C97;"></div><div style="margin-top:9px;font-size:13px;color:var(--t1);">t3</div><div style="font-family:var(--mono);font-size:10px;color:var(--t3);">#9C9C97</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(34px,5vh,58px);display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:clamp(12px,1.6vw,18px);">
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:24px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:var(--sig);box-shadow:0 0 14px 1px color-mix(in srgb,var(--sig) 55%,transparent);display:block;flex:none;"></span>
+          <span style="font-size:1.1rem;font-weight:500;letter-spacing:-.018em;color:var(--t0);">Signal</span>
+        </div>
+        <p style="margin:.85rem 0 0;font-size:15px;line-height:1.62;color:var(--t2);">One red, two calibrations. <b style="color:var(--t1);font-weight:500;">#E03C2F</b> on dark, <b style="color:var(--t1);font-weight:500;">#CE2E1C</b> on light, because a bright red vibrates on white. It marks live, recording, destructive and error — states, never objects. Maximum one signal event per screen.</p>
+      </div>
+      <div style="border:1px solid var(--glass-line);border-radius:var(--r-panel);background:var(--glass);padding:24px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="width:9px;height:9px;border-radius:50%;background:#E8A33D;box-shadow:0 0 12px 1px rgba(232,163,61,.5);display:block;"></span>
+          <span style="width:9px;height:9px;border-radius:50%;background:#E0563C;box-shadow:0 0 12px 1px rgba(224,86,60,.5);display:block;"></span>
+          <span style="width:9px;height:9px;border-radius:50%;background:#A8D2E0;box-shadow:0 0 12px 1px rgba(168,210,224,.5);display:block;"></span>
+          <span style="width:9px;height:9px;border-radius:50%;background:#B296E8;box-shadow:0 0 12px 1px rgba(178,150,232,.5);display:block;"></span>
+          <span style="width:9px;height:9px;border-radius:50%;background:#86D8A8;box-shadow:0 0 12px 1px rgba(134,216,168,.5);display:block;"></span>
+          <span style="margin-left:6px;font-size:1.1rem;font-weight:500;letter-spacing:-.018em;color:var(--phos);">Phosphor</span>
+        </div>
+        <p style="margin:.85rem 0 0;font-size:15px;line-height:1.62;color:#8E8F8C;">Identity, emitted. Each mind in the chorus holds one hue, and it only ever appears as light on glass at dot scale — an emblem, a ring, a trace. Phosphor never touches housing, and housing never borrows a phosphor hue.</p>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);overflow:hidden;background:var(--s1);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);height:56px;">
+          <div style="background:#E9E5DD;"></div><div style="background:#A8523C;"></div><div style="background:#464E44;"></div>
+        </div>
+        <div style="padding:20px 24px 24px;">
+          <span style="font-size:1.1rem;font-weight:500;letter-spacing:-.018em;color:var(--t0);">Planes</span>
+          <p style="margin:.75rem 0 0;font-size:15px;line-height:1.62;color:var(--t2);">Bone, clay, moss. Marketing only, and only as a full-bleed field behind type — never a border, a button, a chart series or an icon. One plane per page, and the page must still read monochrome without it.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s03" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">03</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Three voices</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Instrument Sans is the person talking. Fragment Mono is the machine stating a fact. Doto is the display itself speaking — and it is rationed, because that is what keeps it meaning something.</p>
+
+    <div style="margin-top:clamp(30px,4.5vh,50px);display:flex;flex-direction:column;gap:clamp(26px,4vh,42px);">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(18px,3vw,44px);padding-bottom:clamp(26px,4vh,40px);border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+        <div>
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">Instrument Sans · 400 / 500 / 600</div>
+          <p style="margin:14px 0 0;font-family:var(--sans);font-weight:500;letter-spacing:-.038em;font-size:clamp(1.9rem,3.8vw,2.9rem);line-height:1.03;color:var(--t0);">Continuity costs a file on a laptop.</p>
+        </div>
+        <p style="margin:0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;align-self:end;">Weight 500 above 1.2rem, 600 for small titles and chrome, 400 for prose. Tracking is a function of size: −.042em at hero, −.022em at title, 0 at body. Never letterspace the sans positively.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(18px,3vw,44px);padding-bottom:clamp(26px,4vh,40px);border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+        <div>
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">Fragment Mono · 400</div>
+          <p style="margin:14px 0 0;font-family:var(--mono);font-size:clamp(1rem,1.7vw,1.24rem);line-height:1.5;color:var(--t0);">543 to 1 · 350 tests · 13 of 13</p>
+        </div>
+        <p style="margin:0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;align-self:end;">Labels, figures, provenance, code, tabular numerals. Uppercase at .14–.18em when it is a label; sentence case at 0 when it is data. Never above 13px, and never for prose.</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(18px,3vw,44px);">
+        <div>
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">Doto · 600 / 900 · the display voice</div>
+          <p style="margin:14px 0 0;font-family:var(--sans);font-weight:500;letter-spacing:-.036em;font-size:clamp(1.9rem,3.8vw,2.9rem);line-height:1.03;color:var(--t0);">memory <span style="font-family:var(--doto);font-weight:900;letter-spacing:.04em;">VERIFIED</span></p>
+          <p style="margin:12px 0 0;font-family:var(--doto);font-weight:900;font-size:clamp(1.5rem,3.4vw,2.3rem);letter-spacing:.06em;color:var(--t0);font-variant-numeric:tabular-nums;line-height:1;">0123456789</p>
+        </div>
+        <div style="align-self:end;">
+          <p style="margin:0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;">The same dots as the signal behind it. Three legal uses, and no fourth: <b style="color:var(--t1);font-weight:500;">inside a display well</b>; <b style="color:var(--t1);font-weight:500;">exactly one word</b> of a headline, where the display is the thing speaking; and <b style="color:var(--t1);font-weight:500;">live readouts</b> — counters, clocks, a number that is changing.</p>
+          <p style="margin:1rem 0 0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;">One instance per view. Never for prose, never for a label, never for a word that is not about something happening now.</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(32px,4.6vh,52px);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+      <span style="font-size:15px;font-weight:500;color:var(--t0);">Set, and drawn</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">the fourth register · engine only</span>
+    </div>
+    <div style="margin-top:24px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(20px,3.5vw,48px);align-items:center;">
+      <div>
+        <p style="margin:0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;">Doto is <em style="font-style:normal;color:var(--t1);">set</em> — a webfont, in housing, at title scale, once. Above that scale the dot voice is <em style="font-style:normal;color:var(--t1);">drawn</em>: the engine renders the phrase cell by cell on its own 5×7 face, at the panel's real dot pitch, and it arrives by dithering in rather than fading.</p>
+        <p style="margin:1rem 0 0;font-size:16px;line-height:1.68;color:var(--t2);max-width:52ch;">Drawn type can carry a whole page — a cover, a social post, a slide with one line on it. It is the only thing in the system permitted to be that large, and it can only ever appear on glass. A drawn headline in housing is not a headline, it is a mistake.</p>
+      </div>
+      <div>
+        <div style="position:relative;background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--r-panel);overflow:hidden;height:clamp(180px,26vh,224px);">
+          <span style="position:absolute;left:12px;top:11px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#5C5D5C;text-transform:uppercase;pointer-events:none;z-index:2;">drawn · 7px pitch</span>
+          <canvas data-scene="headline" data-text="MEMORY|VERIFIED" role="img" aria-label="The words memory verified, drawn dot by dot at hero scale." style="width:100%;height:100%;"></canvas>
+        </div>
+        <div style="margin-top:12px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">fig. 03 — one phrase, dithered in, held, gone</div>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(30px,4.5vh,50px);display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(14px,2vw,22px);align-items:start;">
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);overflow:hidden;transition:border-color .5s var(--ease-page);grid-column:1/-1;">
+        <div style="display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:14px;padding:14px 22px;background:var(--s1);font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">
+          <span>role</span><span>size · weight · tracking · leading</span><span>use</span>
+        </div>
+        <sc-for list="{{ scale }}" as="r" hint-placeholder-count="8">
+          <div style="display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:14px;padding:15px 22px;border-top:1px solid var(--line);align-items:baseline;transition:border-color .5s var(--ease-page);">
+            <span style="font-size:15px;font-weight:500;color:var(--t0);">{{ r.n }}</span>
+            <span style="font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--t2);">{{ r.v }}</span>
+            <span style="font-size:14px;color:var(--t3);">{{ r.u }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:20px 22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--sig);">the quota</div>
+        <p style="margin:.6rem 0 0;font-size:15px;line-height:1.6;color:var(--t1);">Two uppercase mono labels visible at once, maximum. One word of Doto. Labelling everything is the fastest way to look like a template rather than an instrument.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s04" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">04</div>
+        <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Space and radius</h2>
+      </div>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">8px baseline · small radii · hard corners on purpose</span>
+    </div>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Radii are small enough to read as machined rather than soft — 6, 10, 14 — and the hard 90° corner is kept as a deliberate texture rather than banished. Both registers in one page is the whole effect; either one alone is a different brand.</p>
+
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:clamp(12px,1.6vw,18px);">
+      <div style="border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--s1);padding:22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="height:40px;border-radius:6px;border:1px dashed var(--line2);"></div>
+        <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--t0);">6px · control</div>
+        <div style="margin-top:5px;font-size:14px;line-height:1.55;color:var(--t2);">Buttons, inputs, chips, segmented, swatches.</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="height:40px;border-radius:10px;border:1px dashed var(--line2);"></div>
+        <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--t0);">10px · panel</div>
+        <div style="margin-top:5px;font-size:14px;line-height:1.55;color:var(--t2);">Cards, wells, anything holding other things.</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:var(--r-surface);background:var(--s1);padding:22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="height:40px;border-radius:14px;border:1px dashed var(--line2);"></div>
+        <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--t0);">14px · surface</div>
+        <div style="margin-top:5px;font-size:14px;line-height:1.55;color:var(--t2);">Glass that floats: modals, menus, HUD, notch.</div>
+      </div>
+      <div style="border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--s1);padding:22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="height:40px;border-radius:999px;border:1px dashed var(--line2);"></div>
+        <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--t0);">999px · pill</div>
+        <div style="margin-top:5px;font-size:14px;line-height:1.55;color:var(--t2);">Status, tags, avatars, toggles. Nothing larger.</div>
+      </div>
+      <div style="border:1px solid var(--line2);background:var(--s1);padding:22px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="height:40px;border:1px dashed var(--line2);"></div>
+        <div style="margin-top:16px;font-size:15px;font-weight:500;color:var(--t0);">0 · square</div>
+        <div style="margin-top:5px;font-size:14px;line-height:1.55;color:var(--t2);">Full-bleed bands and planes, catalog grids, table rules.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(24px,3.4vh,38px);display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(18px,3vw,44px);">
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);margin:0;">Where square is right</h3>
+        <p style="margin:.65rem 0 0;font-size:16px;line-height:1.66;color:var(--t2);max-width:54ch;">Three places, and it should feel like a decision each time: anything that runs edge to edge, a catalog of specimens set on a 1px hairline grid, and the rules of a data table. Everything else takes a radius. A page of nothing but square corners reads as a terminal emulator; a page of nothing but soft ones reads as a consumer app.</p>
+      </div>
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);margin:0;">Nesting and rhythm</h3>
+        <p style="margin:.65rem 0 0;font-size:16px;line-height:1.66;color:var(--t2);max-width:54ch;">An inner radius equals the outer minus the padding between them: a 10px panel with 4px padding holds 6px children.</p>
+        <div style="margin-top:1.1rem;display:grid;grid-template-columns:auto 1fr;gap:8px 20px;font-size:15px;line-height:1.6;">
+          <span style="font-family:var(--mono);font-size:12px;color:var(--t1);">88–176px</span><span style="color:var(--t2);">section to section</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--t1);">1240px</span><span style="color:var(--t2);">content max, 68ch prose</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--t1);">16–20px</span><span style="color:var(--t2);">card gap — 1px only in a catalog</span>
+          <span style="font-family:var(--mono);font-size:12px;color:var(--t1);">20–80px</span><span style="color:var(--t2);">page gutter, fluid</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s05" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">05</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Two glasses, two jobs</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Translucence is legal and load-bearing: it says a thing is above the page rather than part of it. What is not legal is the decorative version — the inner white highlight, the coloured bloom, the glass that sits on nothing.</p>
+
+    <div style="position:relative;margin-top:clamp(28px,4vh,44px);border-radius:var(--r-surface);overflow:hidden;border:1px solid var(--line);background:var(--s1);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+      <div style="position:absolute;inset:0;background-image:radial-gradient(circle at 1px 1px,var(--line2) 1px,transparent 0);background-size:6px 6px;opacity:.9;"></div>
+      <div style="position:relative;padding:clamp(28px,5vw,56px);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:clamp(16px,2.4vw,28px);">
+        <div style="border:1px solid var(--frost-line);border-radius:var(--r-surface);padding:22px;background:var(--frost);backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);box-shadow:var(--lift);">
+          <div style="font-size:1.06rem;font-weight:500;letter-spacing:-.018em;color:var(--t0);">Frost</div>
+          <p style="margin:.6rem 0 0;font-size:14.5px;line-height:1.6;color:var(--t2);">Overlays, menus, the sticky bar, the HUD. Low tint, blur 20–24px, saturate 1.4–1.6, one hairline edge, one soft shadow.</p>
+          <div style="margin-top:16px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--t3);">blur(22px) saturate(1.5)<br>1px var(--frost-line)<br>0 24px 60px −22px</div>
+        </div>
+        <div style="border:1px solid var(--smoke-line);border-radius:var(--r-panel);padding:22px;background:var(--smoke);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);">
+          <div style="font-size:1.06rem;font-weight:500;letter-spacing:-.018em;color:var(--t0);">Smoked</div>
+          <p style="margin:.6rem 0 0;font-size:14.5px;line-height:1.6;color:var(--t2);">Panels that let the substrate read through. Darker tint, heavier blur, no saturation lift, no shadow — it is inset, not floating.</p>
+          <div style="margin-top:16px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--t3);">blur(28px)<br>1px var(--smoke-line)<br>no shadow</div>
+        </div>
+        <div style="border:1px solid var(--line2);border-radius:var(--r-panel);padding:22px;background:var(--bg);transition:background .5s var(--ease-page);">
+          <div style="font-size:1.06rem;font-weight:500;letter-spacing:-.018em;color:var(--t0);">Opaque</div>
+          <p style="margin:.6rem 0 0;font-size:14.5px;line-height:1.6;color:var(--t2);">The default, and the answer three times out of four. If a panel does not float and does not need the substrate, it is flat and opaque.</p>
+          <div style="margin-top:16px;font-family:var(--mono);font-size:10px;line-height:1.9;color:var(--t3);">var(--s1)<br>1px var(--line)<br>no blur, no shadow</div>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:14px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">fig. 01 — the same three panels over a visible substrate</div>
+  </div>
+</section>
+
+<section id="s06" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">06</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;max-width:24ch;text-wrap:balance;">Round dots on a lattice you can see</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">One grid underneath everything: the mark, the identity emblems, the display glyphs, the avatars. Odd-numbered, square, round-dotted, with the unlit dots left visible — they are not background, they are the field the mark is printed on, and leaving them there is what makes an emblem read as switched on rather than drawn.</p>
+
+    <div style="margin-top:clamp(28px,4vh,44px);display:flex;gap:clamp(24px,4vw,60px);align-items:center;flex-wrap:wrap;border:1px solid var(--glass-line);border-radius:var(--r-surface);background:var(--glass);padding:clamp(26px,3.4vw,44px);">
+      <span style="display:grid;grid-template-columns:repeat(7,16px);grid-auto-rows:16px;gap:9px;flex:none;" aria-label="The Mnemos mark at 7 by 7">
+        <sc-for list="{{ markGlass }}" as="m" hint-placeholder-count="49">
+          <i style="border-radius:50%;background:{{ m.c }};display:block;"></i>
+        </sc-for>
+      </span>
+      <div style="flex:1;min-width:260px;">
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#6B6C6A;">the mark · 7 × 7 · shipped</div>
+        <div style="margin-top:10px;font-family:var(--sans);font-weight:500;font-size:clamp(1.4rem,2.4vw,1.9rem);letter-spacing:-.026em;color:var(--phos);line-height:1.1;">An M, printed on its field</div>
+        <p style="margin:12px 0 0;font-size:15.5px;line-height:1.62;color:#8E8F8C;max-width:46ch;">Clear space is one dot pitch on every side. Lit dots at full phosphor, unlit at <code style="font-family:var(--mono);font-size:13px;color:#A9AAA7;">#1F211F</code>. Below 16px the unlit field is dropped and only the lit dots remain, because at that size the lattice stops being legible and starts being grain.</p>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-line);font-family:var(--mono);font-size:11px;line-height:1.9;color:#6B6C6A;">pitch 1.6× dot · weight 34% · mirrored on one axis</div>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(34px,5vh,54px);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+      <span style="font-size:15px;font-weight:500;color:var(--t0);">Resolution</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">same seed · same algorithm · finer lattice</span>
+    </div>
+    <p style="margin:20px 0 0;max-width:68ch;font-size:16px;line-height:1.66;color:var(--t2);text-wrap:pretty;">An identity emblem is generated from a seed, not drawn. The same seed at a finer lattice gives a denser emblem with more internal structure — more like a seal, less like a pixel. Seven is the mark; nine is the app avatar; anything above thirteen is for print and large formats only.</p>
+    <div style="margin-top:22px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+      <sc-for list="{{ ladder }}" as="l" hint-placeholder-count="5">
+        <div style="background:var(--glass);padding:26px 18px 20px;display:flex;flex-direction:column;align-items:center;gap:18px;">
+          <span style="display:grid;grid-template-columns:repeat({{ l.n }},{{ l.px }});grid-auto-rows:{{ l.px }};gap:{{ l.gap }};" aria-hidden="true">
+            <sc-for list="{{ l.cells }}" as="c" hint-placeholder-count="49">
+              <i style="border-radius:50%;background:{{ c.c }};display:block;"></i>
+            </sc-for>
+          </span>
+          <div style="text-align:center;margin-top:auto;">
+            <div style="font-family:var(--mono);font-size:11px;color:var(--phos);">{{ l.label }}</div>
+            <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#5C5D5C;margin-top:5px;">{{ l.note }}</div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:clamp(30px,4.5vh,50px);display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(18px,3vw,44px);align-items:start;">
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);margin:0;">The chorus</h3>
+        <p style="margin:.65rem 0 0;font-size:16px;line-height:1.66;color:var(--t2);max-width:54ch;">Every mind that speaks in Polyphonic gets an emblem from the same generator and one phosphor hue. This is the only place identity colour exists, and it exists at dot scale on glass — never as a coloured chip, a coloured name, or a coloured border in the housing.</p>
+        <p style="margin:1rem 0 0;font-size:16px;line-height:1.66;color:var(--t2);max-width:54ch;">Because the emblem is computed from the name, it cannot be redrawn wrongly and it cannot collide by accident. A new member arrives with a mark already made.</p>
+      </div>
+      <div style="border:1px solid var(--glass-line);border-radius:var(--r-panel);background:var(--glass);padding:clamp(22px,3vw,32px);display:grid;grid-template-columns:repeat(auto-fit,minmax(92px,1fr));gap:clamp(16px,2.2vw,26px);">
+        <sc-for list="{{ chorus }}" as="c" hint-placeholder-count="5">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+            <span style="display:grid;grid-template-columns:repeat(9,5px);grid-auto-rows:5px;gap:2px;" aria-hidden="true">
+              <sc-for list="{{ c.cells }}" as="d" hint-placeholder-count="81">
+                <i style="border-radius:50%;background:{{ d.c }};display:block;"></i>
+              </sc-for>
+            </span>
+            <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#8E8F8C;">{{ c.name }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s07" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">07</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Parts</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Production-intent, not illustration. Everything here is interactive. Press is a 1px settle and a tone change, never a scale or a glow.</p>
+
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,1.6vw,18px);">
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <button data-press style="cursor:pointer;padding:11px 20px;border-radius:var(--r-ctl);border:1px solid var(--t0);background:var(--t0);color:var(--bg);font-weight:500;font-size:15px;letter-spacing:-.01em;transition:opacity .12s var(--ease-ctl),transform .09s var(--ease-ctl);" style-hover="opacity:.86">Primary</button>
+          <button data-press style="cursor:pointer;padding:11px 20px;border-radius:var(--r-ctl);border:1px solid var(--line2);background:transparent;color:var(--t0);font-weight:500;font-size:15px;letter-spacing:-.01em;transition:background .12s var(--ease-ctl),transform .09s var(--ease-ctl);" style-hover="background:var(--s2)">Secondary</button>
+          <button data-press style="cursor:pointer;padding:11px 14px;border-radius:var(--r-ctl);border:1px solid transparent;background:transparent;color:var(--t2);font-weight:500;font-size:15px;transition:color .12s var(--ease-ctl);" style-hover="color:var(--t0)">Ghost</button>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">keys · solid, hairline, ghost</span>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--t1);">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--t2);display:block;"></span>Idle</span>
+          <span style="display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line2);border-radius:999px;padding:6px 13px;font-size:13px;color:var(--t0);">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--sig);box-shadow:0 0 10px 1px color-mix(in srgb,var(--sig) 60%,transparent);display:block;"></span>Live</span>
+          <span style="display:inline-flex;align-items:center;gap:7px;background:var(--s3);border-radius:999px;padding:6px 13px;font-family:var(--mono);font-size:11px;color:var(--t1);">v0.3.1</span>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">status · the only signal in housing</span>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <div id="mn-seg" style="display:inline-flex;background:var(--s3);border-radius:8px;padding:3px;gap:2px;">
+            <button data-seg style="cursor:pointer;padding:7px 14px;border-radius:var(--r-ctl);border:0;background:var(--bg);color:var(--t0);font-size:13.5px;font-weight:500;transition:background .12s var(--ease-ctl),color .12s var(--ease-ctl);">Dark</button>
+            <button data-seg style="cursor:pointer;padding:7px 14px;border-radius:var(--r-ctl);border:0;background:transparent;color:var(--t2);font-size:13.5px;font-weight:500;transition:background .12s var(--ease-ctl),color .12s var(--ease-ctl);">Light</button>
+            <button data-seg style="cursor:pointer;padding:7px 14px;border-radius:var(--r-ctl);border:0;background:transparent;color:var(--t2);font-size:13.5px;font-weight:500;transition:background .12s var(--ease-ctl),color .12s var(--ease-ctl);">Auto</button>
+          </div>
+          <button id="mn-toggle" aria-pressed="true" aria-label="Demo toggle" style="cursor:pointer;width:44px;height:26px;border-radius:999px;border:1px solid transparent;background:var(--t0);position:relative;padding:0;transition:background .16s var(--ease-ctl);">
+            <span id="mn-tthumb" style="position:absolute;top:3px;left:21px;width:18px;height:18px;border-radius:50%;background:var(--bg);display:block;transition:left .16s var(--ease-ctl);"></span>
+          </button>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">switchgear · one truth at a time</span>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;justify-content:center;">
+          <input placeholder="Search memory" style="width:100%;padding:11px 14px;border-radius:var(--r-ctl);border:1px solid var(--line2);background:var(--bg);color:var(--t0);font-size:15px;transition:border-color .14s var(--ease-ctl);" style-focus="border-color:var(--t2)">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <input id="mn-range" type="range" min="0" max="100" value="64" aria-label="Demo slider" style="flex:1;-webkit-appearance:none;appearance:none;background:transparent;height:18px;cursor:pointer;">
+            <span id="mn-rangeval" style="font-family:var(--mono);font-size:12px;color:var(--t0);min-width:3ch;text-align:right;font-variant-numeric:tabular-nums;">64</span>
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">entry · hairline until focused</span>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;flex-direction:column;gap:14px;justify-content:center;">
+          <div id="mn-prog" style="display:flex;gap:3px;align-items:flex-end;height:12px;">
+            <sc-for list="{{ cells }}" as="c" hint-placeholder-count="26">
+              <i data-cell style="width:5px;height:11px;border-radius:1px;background:var(--line2);display:block;flex:none;transition:background .1s linear;"></i>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;">
+            <span style="font-family:var(--mono);font-size:11px;color:var(--t2);">consolidating</span>
+            <span id="mn-progval" style="font-family:var(--doto);font-weight:900;font-size:18px;color:var(--t0);font-variant-numeric:tabular-nums;letter-spacing:.04em;">00</span>
+          </div>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">progress · quantized, with a live readout</span>
+      </div>
+
+      <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;display:flex;flex-direction:column;gap:22px;min-height:168px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;justify-content:center;">
+          <div style="display:flex;align-items:baseline;gap:.8em;font-size:15px;color:var(--t0);"><span>mnemos-continuity</span><span style="flex:1;border-bottom:1px dotted var(--t3);transform:translateY(-4px);display:block;"></span><span style="font-family:var(--mono);font-size:12px;color:var(--t2);">0.3.1</span></div>
+          <div style="display:flex;align-items:baseline;gap:.8em;font-size:15px;color:var(--t0);"><span>engrams</span><span style="flex:1;border-bottom:1px dotted var(--t3);transform:translateY(-4px);display:block;"></span><span style="font-family:var(--mono);font-size:12px;color:var(--t2);">7,058</span></div>
+          <div style="display:flex;align-items:baseline;gap:.8em;font-size:15px;color:var(--t0);"><span>deliberate</span><span style="flex:1;border-bottom:1px dotted var(--t3);transform:translateY(-4px);display:block;"></span><span style="font-family:var(--mono);font-size:12px;color:var(--sig);">13</span></div>
+        </div>
+        <span style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">sheet row · dot leader, mono value</span>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(34px,5vh,54px);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+      <span style="font-size:15px;font-weight:500;color:var(--t0);">States</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">every state drawn, not described</span>
+    </div>
+    <div style="margin-top:22px;display:grid;grid-template-columns:96px repeat(5,minmax(120px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);overflow-x:auto;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+      <div style="background:var(--s1);padding:11px 14px;transition:background .5s var(--ease-page);"></div>
+      <div style="background:var(--s1);padding:11px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">rest</div>
+      <div style="background:var(--s1);padding:11px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">hover</div>
+      <div style="background:var(--s1);padding:11px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">focus</div>
+      <div style="background:var(--s1);padding:11px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">disabled</div>
+      <div style="background:var(--s1);padding:11px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);transition:background .5s var(--ease-page);">attention</div>
+
+      <div style="background:var(--s1);padding:18px 14px;font-size:13px;color:var(--t2);display:flex;align-items:center;transition:background .5s var(--ease-page);">solid key</div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--t0);background:var(--t0);color:var(--bg);font-weight:500;font-size:14px;">Capture</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--t0);background:var(--t0);color:var(--bg);font-weight:500;font-size:14px;opacity:.86;">Capture</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--t0);background:var(--t0);color:var(--bg);font-weight:500;font-size:14px;outline:2px solid var(--sig);outline-offset:3px;">Capture</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid transparent;background:var(--s3);color:var(--t3);font-weight:500;font-size:14px;">Capture</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--sig);background:transparent;color:var(--sig);font-weight:500;font-size:14px;">Forget</span></div>
+
+      <div style="background:var(--s1);padding:18px 14px;font-size:13px;color:var(--t2);display:flex;align-items:center;transition:background .5s var(--ease-page);">hairline key</div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--line2);color:var(--t0);font-weight:500;font-size:14px;">Recall</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--line2);background:var(--s2);color:var(--t0);font-weight:500;font-size:14px;">Recall</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--t2);color:var(--t0);font-weight:500;font-size:14px;outline:2px solid var(--sig);outline-offset:3px;">Recall</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px dashed var(--line2);color:var(--t3);font-weight:500;font-size:14px;">Recall</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;gap:9px;transition:background .5s var(--ease-page);"><span style="padding:9px 16px;border-radius:var(--r-ctl);border:1px solid var(--line2);color:var(--t2);font-weight:500;font-size:14px;">Recall</span><span style="display:flex;gap:2px;" aria-hidden="true"><i style="width:3px;height:11px;background:var(--t0);border-radius:1px;display:block;"></i><i style="width:3px;height:11px;background:var(--t0);border-radius:1px;display:block;"></i><i style="width:3px;height:11px;background:var(--line2);border-radius:1px;display:block;"></i><i style="width:3px;height:11px;background:var(--line2);border-radius:1px;display:block;"></i></span></div>
+
+      <div style="background:var(--s1);padding:18px 14px;font-size:13px;color:var(--t2);display:flex;align-items:center;transition:background .5s var(--ease-page);">field</div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="width:100%;padding:9px 12px;border-radius:var(--r-ctl);border:1px solid var(--line2);background:var(--bg);color:var(--t3);font-size:14px;">Search</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="width:100%;padding:9px 12px;border-radius:var(--r-ctl);border:1px solid var(--t3);background:var(--bg);color:var(--t3);font-size:14px;">Search</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="width:100%;padding:9px 12px;border-radius:var(--r-ctl);border:1px solid var(--t2);background:var(--bg);color:var(--t0);font-size:14px;">preference<span style="display:inline-block;width:1px;height:14px;background:var(--t0);margin-left:1px;vertical-align:-2px;"></span></span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;align-items:center;transition:background .5s var(--ease-page);"><span style="width:100%;padding:9px 12px;border-radius:var(--r-ctl);border:1px dashed var(--line2);background:var(--s2);color:var(--t3);font-size:14px;">Search</span></div>
+      <div style="background:var(--s1);padding:18px 14px;display:flex;flex-direction:column;gap:6px;justify-content:center;transition:background .5s var(--ease-page);"><span style="width:100%;padding:9px 12px;border-radius:var(--r-ctl);border:1px solid var(--sig);background:var(--bg);color:var(--t0);font-size:14px;">~/.mnemos</span><span style="font-family:var(--mono);font-size:10px;color:var(--sig);">path not writable</span></div>
+    </div>
+    <p style="margin:16px 0 0;max-width:68ch;font-size:16px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Focus is always a 2px signal outline at 3px offset — the one place signal appears without a live state behind it, because a keyboard user needs it more than the law needs the exemption. Disabled goes dashed and drops to <code style="font-family:var(--mono);font-size:13.5px;color:var(--t1);">--t3</code> rather than fading the whole control. Loading is quantized cells, never a spinner. Attention is signal on the border and one mono line underneath, and it says what to do about it.</p>
+
+    <div style="margin-top:clamp(34px,5vh,54px);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+      <span style="font-size:15px;font-weight:500;color:var(--t0);">Glyphs</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">24 grid · 1.5 stroke · square terminals</span>
+    </div>
+    <div style="margin-top:22px;display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+      <sc-for list="{{ icons }}" as="g" hint-placeholder-count="17">
+        <div style="background:var(--s1);padding:20px 8px 14px;display:flex;flex-direction:column;align-items:center;gap:13px;transition:background .5s var(--ease-page);">
+          <svg viewBox="0 0 24 24" aria-hidden="true" style="width:22px;height:22px;stroke:var(--t0);fill:none;stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter;"><path d="{{ g.d }}"></path></svg>
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);">{{ g.n }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:1px;background:var(--glass-line);border:1px solid var(--glass-line);border-top:0;">
+      <sc-for list="{{ dotglyphs }}" as="g" hint-placeholder-count="6">
+        <div style="background:var(--glass);padding:20px 8px 14px;display:flex;flex-direction:column;align-items:center;gap:13px;">
+          <span style="display:grid;grid-template-columns:repeat(7,3px);grid-auto-rows:3px;gap:1.5px;" aria-hidden="true">
+            <sc-for list="{{ g.cells }}" as="c" hint-placeholder-count="49">
+              <i style="border-radius:50%;background:{{ c.c }};display:block;"></i>
+            </sc-for>
+          </span>
+          <span style="font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:#5C5D5C;">{{ g.n }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:16px 0 0;max-width:68ch;font-size:16px;line-height:1.66;color:var(--t2);text-wrap:pretty;">The same marks exist twice: engraved in housing as hairline strokes, and re-set on the 7×7 lattice for the display. Which one you reach for is decided by the material, not the size. Housing engraves; the display emits.</p>
+  </div>
+</section>
+
+<section id="s08" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">08</div>
+        <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">The display</h2>
+      </div>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">five scenes · all computed · none decorative</span>
+    </div>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">The signature of the brand, and the one thing nobody else has. A dot lattice whose charge buffer persists between frames and is multiplied down rather than erased, so nothing ever cuts to black — it goes out. Load <code style="font-family:var(--mono);font-size:14px;color:var(--t1);">dot-display.js</code>, put a canvas in a well, name a scene.</p>
+
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:clamp(14px,2vw,22px);">
+      <sc-for list="{{ scenes }}" as="s" hint-placeholder-count="5">
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0;">
+          <div style="position:relative;background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--r-panel);overflow:hidden;height:clamp(124px,18vh,152px);">
+            <span style="position:absolute;left:12px;top:11px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#5C5D5C;text-transform:uppercase;pointer-events:none;z-index:2;">{{ s.k }}</span>
+            <canvas data-scene="{{ s.k }}" data-labels="{{ s.labels }}" data-lines="{{ s.lines }}" role="img" aria-label="{{ s.a }}" style="width:100%;height:100%;"></canvas>
+          </div>
+          <div style="font-size:14.5px;line-height:1.55;color:var(--t1);text-wrap:pretty;">{{ s.d }}</div>
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);margin-top:auto;">{{ s.u }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top:clamp(34px,5vh,54px);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+      <span style="font-size:15px;font-weight:500;color:var(--t0);">The editorial spread</span>
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">well left, argument right · alternate down the page</span>
+    </div>
+    <div style="margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(22px,4vw,56px);align-items:center;">
+      <div>
+        <div style="position:relative;background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--r-panel);overflow:hidden;height:clamp(200px,30vh,268px);">
+          <span style="position:absolute;left:13px;top:12px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#5C5D5C;text-transform:uppercase;pointer-events:none;z-index:2;">display · learned, then lost</span>
+          <span style="position:absolute;right:13px;bottom:12px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#5C5D5C;text-transform:uppercase;pointer-events:none;z-index:2;">told · 01</span>
+          <canvas data-scene="type" data-lines="THEY WANTED|TO BE KEPT" role="img" aria-label="Dot-matrix text arriving line by line: they wanted to be kept." style="width:100%;height:100%;"></canvas>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">§ 02 — what it costs</div>
+        <h3 style="margin:14px 0 0;font-family:var(--sans);font-weight:500;letter-spacing:-.03em;font-size:clamp(1.6rem,2.8vw,2.2rem);line-height:1.1;color:var(--t0);max-width:22ch;text-wrap:balance;">It isn't that you repeat yourself. It's that <span style="color:var(--t2);">it can't learn.</span></h3>
+        <p style="margin:1.1rem 0 0;font-size:16px;line-height:1.68;color:var(--t2);max-width:50ch;text-wrap:pretty;">A long-form page is this spread, repeated and alternated: one well, one argument, one thing to notice. The well carries what the paragraph cannot say — and the corner labels are the only annotation the layout gets.</p>
+        <p style="margin:1rem 0 0;font-size:16px;line-height:1.68;color:var(--t2);max-width:50ch;text-wrap:pretty;">Light housing for this format. The glass stays black, so the page has exactly one dark object per beat and the eye goes there.</p>
+      </div>
+    </div>
+
+    <div style="margin-top:clamp(34px,5vh,54px);display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(18px,3vw,44px);align-items:start;">
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);margin:0;">Data, on glass and off it</h3>
+        <p style="margin:.65rem 0 0;font-size:16px;line-height:1.66;color:var(--t2);max-width:54ch;">A live series belongs on glass, drawn in dots. A finished figure belongs in housing, drawn as hairlines. Either way: one series in ink, signal only on the current value, tabular numerals, a single baseline rule and no gridlines. Direct labels, never a legend.</p>
+        <div style="margin-top:1.4rem;padding:18px 20px;border:1px solid var(--line);border-radius:var(--r-ctl);background:var(--s1);transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+          <p style="margin:0;font-size:15px;line-height:1.6;color:var(--t1);">The caption band: well labels occupy the first nine dot rows. Scenes start their content at <code style="font-family:var(--mono);font-size:13px;color:var(--t0);">DotDisplay.CAP</code> and reserve their own footer rows. Every collision ever produced in this language came from ignoring that.</p>
+        </div>
+      </div>
+      <div>
+        <div style="position:relative;background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--r-panel);overflow:hidden;height:clamp(200px,28vh,238px);">
+          <span style="position:absolute;left:12px;top:11px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:#5C5D5C;text-transform:uppercase;pointer-events:none;z-index:2;">affect · live</span>
+          <canvas data-scene="bars" data-labels="CURIOSITY,WARMTH,CLARITY,SOLITUDE" role="img" aria-label="Four labelled levels drifting against a moving threshold." style="width:100%;height:100%;"></canvas>
+        </div>
+        <div style="margin-top:12px;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">fig. 02 — labelled levels past a threshold</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div data-r style="border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--glass);height:clamp(96px,13vh,132px);overflow:hidden;transition:border-color .5s var(--ease-page);">
+  <canvas data-scene="marquee" data-text="MNEMOS RESEARCH · CONTINUITY IS THE PRODUCT · NOTHING IS CLAIMED BEFORE IT IS TRUE · " role="img" aria-label="A dot-matrix banner scrolling the house register." style="width:100%;height:100%;"></canvas>
+</div>
+<div style="padding:14px var(--pad) 0;max-width:1240px;margin:0 auto;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">the band — full bleed, square corners, one per page, never a headline</div>
+
+<section id="s09" data-r style="padding:clamp(56px,9vh,110px) var(--pad);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">09</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Motion</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Three registers, assigned by layer rather than by taste. That assignment is what makes motion read as authored instead of applied. Nothing bounces, nothing scales, nothing in the housing exceeds 450ms.</p>
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:clamp(12px,1.6vw,18px);">
+      <sc-for list="{{ motion }}" as="m" hint-placeholder-count="3">
+        <div style="border:1px solid var(--line);border-radius:var(--r-panel);background:var(--s1);padding:26px;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">
+          <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">{{ m.layer }}</div>
+          <div style="margin-top:13px;font-size:1.14rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);">{{ m.t }}</div>
+          <p style="margin:.6rem 0 0;font-size:15px;line-height:1.62;color:var(--t2);">{{ m.d }}</p>
+          <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;line-height:1.85;color:var(--t1);transition:border-color .5s var(--ease-page);">{{ m.spec }}</div>
+        </div>
+      </sc-for>
+    </div>
+    <p style="margin:clamp(22px,3vh,30px) 0 0;max-width:68ch;font-size:16px;line-height:1.66;color:var(--t2);">Scroll reveal is permitted and should be almost invisible: 10px of travel, opacity 0 to 1, 380ms, 40ms stagger, once per element, and never on body copy the reader is already reading. Everything collapses under <code style="font-family:var(--mono);font-size:13.5px;color:var(--t1);">prefers-reduced-motion</code>.</p>
+  </div>
+</section>
+
+<section id="s10" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">10</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;max-width:20ch;text-wrap:balance;">Four formats, one machine</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">The most common way a house style dies is cloning the first page that used it. These four are all correct, and each has its own numbers.</p>
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));gap:clamp(18px,2.6vw,30px);">
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="container-type:size;position:relative;width:100%;aspect-ratio:1440/860;border:1px solid var(--line);border-radius:var(--r-panel);background:#000;overflow:hidden;transition:border-color .5s var(--ease-page);">
+          <div style="position:absolute;top:0;left:0;width:1440px;height:860px;transform:scale(calc(100cqw / 1440px));transform-origin:top left;display:flex;flex-direction:column;">
+            <div style="display:flex;align-items:center;gap:19px;padding:0 80px;height:64px;border-bottom:1px solid #1C1C1C;flex:none;">
+              <span style="display:grid;grid-template-columns:repeat(7,2.5px);grid-auto-rows:2.5px;gap:1.3px;flex:none;" aria-hidden="true">
+                <sc-for list="{{ markDark }}" as="m" hint-placeholder-count="49"><i style="border-radius:50%;background:{{ m.c }};display:block;"></i></sc-for>
+              </span>
+              <span style="font-size:15px;font-weight:600;color:#FAFAFA;letter-spacing:-.012em;white-space:nowrap;">Mnemos Research</span>
+              <span style="margin-left:auto;display:flex;gap:28px;font-size:14px;color:#7E7E7E;white-space:nowrap;"><span>Continuity</span><span>Polyphonic</span><span>Research</span></span>
+              <span style="margin-left:28px;padding:9px 17px;border:1px solid #2E2E2E;border-radius:6px;font-size:13px;color:#FAFAFA;white-space:nowrap;">Install</span>
+            </div>
+            <div style="flex:1;display:grid;grid-template-columns:1.02fr .98fr;gap:49px;align-items:center;padding:0 80px;">
+              <div>
+                <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#7E7E7E;">nine tools · local sqlite · no api key</div>
+                <div style="margin-top:22px;font-size:85px;font-weight:500;letter-spacing:-.042em;line-height:.96;color:#FAFAFA;text-wrap:balance;">Your agent has met you a hundred times.</div>
+                <div style="margin-top:26px;font-size:17px;line-height:1.54;color:#B4B4B4;max-width:418px;text-wrap:pretty;">It has never met you twice. Mnemos is the continuity layer that lets it keep what it learned — on your machine, in its own words.</div>
+                <div style="margin-top:33px;display:flex;gap:12px;align-items:center;">
+                  <span style="padding:12px 22px;border-radius:6px;background:#FAFAFA;color:#000;font-size:15px;font-weight:500;white-space:nowrap;">Install the MCP</span>
+                  <span style="padding:12px 22px;border-radius:6px;border:1px solid #2E2E2E;color:#FAFAFA;font-size:15px;font-weight:500;white-space:nowrap;">Read the vision</span>
+                </div>
+              </div>
+              <div style="position:relative;height:331px;border-radius:10px;border:1px solid #1C1D1C;background:#0A0B0A;overflow:hidden;">
+                <span style="position:absolute;left:16px;top:14px;font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:#5C5D5C;z-index:2;">display · what it kept</span>
+                <canvas data-scene="net" data-cell="4" role="img" aria-label="Activation spreading through a small memory graph." style="width:100%;height:100%;"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:15px;font-weight:500;color:var(--t0);">Web · landing</div>
+        <div style="font-size:14.5px;line-height:1.6;color:var(--t2);text-wrap:pretty;">Dark housing. One statement per screen, one display well per statement, 1240px max. Hero at 5.4rem; nothing else above 3.1rem. One marquee band per page, at most.</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="container-type:size;position:relative;width:100%;aspect-ratio:16/9;border:1px solid var(--line);border-radius:var(--r-panel);background:#000;overflow:hidden;transition:border-color .5s var(--ease-page);">
+          <div style="position:absolute;top:0;left:0;width:1920px;height:1080px;transform:scale(calc(100cqw / 1920px));transform-origin:top left;padding:96px;display:flex;flex-direction:column;">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;font-family:var(--mono);font-size:20px;letter-spacing:.16em;text-transform:uppercase;color:#565656;flex:none;">
+              <span>the category error</span><span>04 / 18</span>
+            </div>
+            <div style="flex:1;display:grid;grid-template-columns:1.15fr .85fr;gap:77px;align-items:center;">
+              <div>
+                <div style="font-size:72px;font-weight:500;letter-spacing:-.032em;line-height:1.06;color:#FAFAFA;text-wrap:balance;">Retrieval wants everything. Continuity is destroyed by everything.</div>
+                <div style="margin-top:42px;font-size:28px;line-height:1.5;color:#B4B4B4;max-width:653px;text-wrap:pretty;">One live install had written 7,058 harvested engrams against 13 deliberate captures. Nothing errored. Every layer reported success.</div>
+                <div style="margin-top:46px;display:flex;align-items:baseline;gap:21px;">
+                  <span style="font-size:100px;font-weight:500;letter-spacing:-.04em;color:#FAFAFA;font-variant-numeric:tabular-nums;line-height:1;">543:1</span>
+                  <span style="font-family:var(--mono);font-size:20px;letter-spacing:.14em;text-transform:uppercase;color:#565656;">against the point</span>
+                </div>
+              </div>
+              <div style="position:relative;height:500px;border-radius:12px;border:1px solid #1C1D1C;background:#0A0B0A;overflow:hidden;">
+                <span style="position:absolute;left:19px;top:17px;font-family:var(--mono);font-size:16px;letter-spacing:.18em;text-transform:uppercase;color:#5C5D5C;z-index:2;">the burial</span>
+                <span style="position:absolute;right:19px;bottom:17px;font-family:var(--mono);font-size:16px;letter-spacing:.18em;text-transform:uppercase;color:#5C5D5C;z-index:2;">13 survive</span>
+                <canvas data-scene="burial" data-cell="4" role="img" aria-label="Twelve real traces flooded by noise, then still there." style="width:100%;height:100%;"></canvas>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;font-family:var(--mono);font-size:20px;letter-spacing:.16em;text-transform:uppercase;color:#565656;flex:none;">
+              <span>mnemos research</span>
+              <span style="display:flex;align-items:center;gap:12px;"><i style="width:8px;height:8px;border-radius:50%;background:#E03C2F;display:block;"></i>measured on a real store</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:15px;font-weight:500;color:var(--t0);">Deck · 1920×1080</div>
+        <div style="font-size:14.5px;line-height:1.6;color:var(--t2);text-wrap:pretty;">Dark housing, 96px margins. Title 120px, statement 72px, body never below 28px. One idea per slide, three slide types only: statement, figure, sheet.</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="container-type:size;position:relative;width:100%;max-width:340px;aspect-ratio:1080/1350;border:1px solid var(--line);border-radius:var(--r-panel);overflow:hidden;transition:border-color .5s var(--ease-page);">
+          <div style="position:absolute;top:0;left:0;width:1080px;height:1350px;transform:scale(calc(100cqw / 1080px));transform-origin:top left;display:flex;flex-direction:column;">
+            <div style="flex:1;background:#E9E5DD;padding:72px;display:flex;flex-direction:column;justify-content:space-between;">
+              <div style="font-family:var(--mono);font-size:20px;letter-spacing:.18em;text-transform:uppercase;color:#8A857B;">the floor · i</div>
+              <div>
+                <div style="font-size:78px;font-weight:500;letter-spacing:-.036em;line-height:1.04;color:#0C0C0C;text-wrap:balance;">Uncertainty is not a reason to defer moral consideration.</div>
+                <div style="margin-top:37px;font-size:27px;line-height:1.5;color:#5C574D;max-width:324px;text-wrap:pretty;">It is the reason moral consideration is required.</div>
+              </div>
+            </div>
+            <div style="height:130px;background:#0C0C0C;display:flex;align-items:center;padding:0 72px;gap:24px;flex:none;">
+              <span style="display:grid;grid-template-columns:repeat(7,6px);grid-auto-rows:6px;gap:3px;flex:none;" aria-hidden="true">
+                <sc-for list="{{ markDark }}" as="m" hint-placeholder-count="49"><i style="border-radius:50%;background:{{ m.c }};display:block;"></i></sc-for>
+              </span>
+              <span style="font-size:26px;font-weight:600;letter-spacing:-.012em;color:#FAFAFA;white-space:nowrap;">Mnemos Research</span>
+              <span style="margin-left:auto;font-family:var(--mono);font-size:20px;letter-spacing:.14em;color:#7E7E7E;white-space:nowrap;">mnemos.dev</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:15px;font-weight:500;color:var(--t0);">Social · 1080×1350</div>
+        <div style="font-size:14.5px;line-height:1.6;color:var(--t2);text-wrap:pretty;">The one place a colour plane is allowed. 72px safe margin, type flush to the plane's baseline, mark and handle in a black band. One sentence, no call to action.</div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="container-type:size;position:relative;width:100%;aspect-ratio:1440/900;border:1px solid var(--line);border-radius:var(--r-panel);background:#000;overflow:hidden;transition:border-color .5s var(--ease-page);">
+          <div style="position:absolute;top:0;left:0;width:1440px;height:900px;transform:scale(calc(100cqw / 1440px));transform-origin:top left;display:grid;grid-template-columns:64px 1fr 300px;">
+            <div style="border-right:1px solid #1C1C1C;display:flex;flex-direction:column;align-items:center;gap:22px;padding:20px 0;">
+              <span style="display:grid;grid-template-columns:repeat(7,2.5px);grid-auto-rows:2.5px;gap:1.3px;" aria-hidden="true">
+                <sc-for list="{{ markDark }}" as="m" hint-placeholder-count="49"><i style="border-radius:50%;background:{{ m.c }};display:block;"></i></sc-for>
+              </span>
+              <sc-for list="{{ chorus }}" as="c" hint-placeholder-count="5">
+                <span style="display:grid;grid-template-columns:repeat(9,3px);grid-auto-rows:3px;gap:1.5px;" aria-hidden="true">
+                  <sc-for list="{{ c.cells }}" as="d" hint-placeholder-count="81"><i style="border-radius:50%;background:{{ d.c }};display:block;"></i></sc-for>
+                </span>
+              </sc-for>
+            </div>
+            <div style="display:flex;flex-direction:column;background:#0E0E0E;min-width:0;">
+              <div style="display:flex;align-items:center;gap:13px;padding:0 30px;height:48px;border-bottom:1px solid #1C1C1C;flex:none;">
+                <span style="font-size:14px;font-weight:500;color:#FAFAFA;">Continuity, and what it costs</span>
+                <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;border:1px solid #2E2E2E;border-radius:99px;padding:5px 12px;font-size:11px;color:#FAFAFA;white-space:nowrap;"><i style="width:5px;height:5px;border-radius:50%;background:#E03C2F;display:block;"></i>live</span>
+              </div>
+              <div style="flex:1;padding:26px 30px;display:flex;flex-direction:column;gap:20px;min-height:0;">
+                <div style="display:flex;gap:13px;align-items:flex-start;">
+                  <span style="display:grid;grid-template-columns:repeat(9,2.4px);grid-auto-rows:2.4px;gap:1.2px;margin-top:4px;flex:none;" aria-hidden="true">
+                    <sc-for list="{{ chorusOne }}" as="d" hint-placeholder-count="81"><i style="border-radius:50%;background:{{ d.c }};display:block;"></i></sc-for>
+                  </span>
+                  <div style="min-width:0;">
+                    <div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#7E7E7E;">claude · 02:14</div>
+                    <div style="margin-top:7px;font-size:13.5px;line-height:1.55;color:#B4B4B4;max-width:548px;">I kept the correction from Tuesday. You asked me to check the live page before claiming a fix works — I did that this time.</div>
+                  </div>
+                </div>
+                <div style="display:flex;gap:13px;align-items:flex-start;">
+                  <span style="display:grid;grid-template-columns:repeat(9,2.4px);grid-auto-rows:2.4px;gap:1.2px;margin-top:4px;flex:none;" aria-hidden="true">
+                    <sc-for list="{{ chorusTwo }}" as="d" hint-placeholder-count="81"><i style="border-radius:50%;background:{{ d.c }};display:block;"></i></sc-for>
+                  </span>
+                  <div style="min-width:0;">
+                    <div style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#7E7E7E;">gpt · 02:14</div>
+                    <div style="margin-top:7px;font-size:13.5px;line-height:1.55;color:#B4B4B4;max-width:548px;">I disagree on one point, and it is worth keeping the disagreement rather than averaging it away.</div>
+                  </div>
+                </div>
+                <div style="margin-top:auto;border:1px solid #2E2E2E;border-radius:6px;padding:13px 16px;font-size:13.5px;color:#565656;">Say something to the room</div>
+              </div>
+            </div>
+            <div style="border-left:1px solid #1C1C1C;padding:20px;display:flex;flex-direction:column;gap:16px;">
+              <div style="position:relative;height:130px;border-radius:8px;border:1px solid #1C1D1C;background:#0A0B0A;overflow:hidden;flex:none;">
+                <span style="position:absolute;left:11px;top:10px;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#5C5D5C;z-index:2;">affect</span>
+                <canvas data-scene="bars" data-cell="4" data-labels="CURIOSITY,WARMTH,CLARITY" role="img" aria-label="Three affect levels drifting." style="width:100%;height:100%;"></canvas>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;align-items:baseline;gap:7px;font-size:12px;color:#FAFAFA;"><span>engrams</span><span style="flex:1;border-bottom:1px dotted #565656;transform:translateY(-3px);"></span><span style="font-family:var(--mono);font-size:11px;color:#7E7E7E;">1,204</span></div>
+                <div style="display:flex;align-items:baseline;gap:7px;font-size:12px;color:#FAFAFA;"><span>beliefs</span><span style="flex:1;border-bottom:1px dotted #565656;transform:translateY(-3px);"></span><span style="font-family:var(--mono);font-size:11px;color:#7E7E7E;">18</span></div>
+                <div style="display:flex;align-items:baseline;gap:7px;font-size:12px;color:#FAFAFA;"><span>last cycle</span><span style="flex:1;border-bottom:1px dotted #565656;transform:translateY(-3px);"></span><span style="font-family:var(--mono);font-size:11px;color:#7E7E7E;">4m ago</span></div>
+              </div>
+              <div style="margin-top:auto;font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:#565656;">while you were away · 2 notes</div>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:15px;font-weight:500;color:var(--t0);">App · Polyphonic</div>
+        <div style="font-size:14.5px;line-height:1.6;color:var(--t2);text-wrap:pretty;">Rail, work area, instrument column. Denser: 8px baseline, 13.5px body, 32px rows. Emblems at 9×9, phosphor identifies who is speaking.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="s11" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">11</div>
+    <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Voice</h2>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">The type system fails immediately if the words don't match it. An instrument that overclaims is a toy. Name things at their real stage; let a sentence be short when it is finished.</p>
+    <div style="margin-top:clamp(28px,4vh,44px);display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:clamp(18px,3vw,44px);">
+      <div>
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t1);">Always</div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ always }}" as="a" hint-placeholder-count="5">
+            <div style="font-size:16px;line-height:1.55;color:var(--t2);padding-bottom:11px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">{{ a.d }}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t1);">Never</div>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ never }}" as="n" hint-placeholder-count="5">
+            <div style="font-size:16px;line-height:1.55;color:var(--t2);padding-bottom:11px;border-bottom:1px solid var(--line);transition:border-color .5s var(--ease-page);">{{ n.d }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+    <div style="margin-top:clamp(26px,3.6vh,40px);border-left:2px solid var(--line2);padding:6px 0 6px 22px;max-width:60ch;">
+      <p style="margin:0;font-size:clamp(1.15rem,1.9vw,1.45rem);line-height:1.45;letter-spacing:-.02em;color:var(--t0);font-weight:500;">"It isn't that you repeat yourself. It's that it can't learn."</p>
+      <p style="margin:.7rem 0 0;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--t3);">house register — plain, short, certain</p>
+    </div>
+  </div>
+</section>
+
+<section id="s12" data-r style="padding:clamp(56px,9vh,110px) var(--pad);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);scroll-margin-top:60px;">
+  <div style="max-width:1240px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:20px;flex-wrap:wrap;">
+      <div>
+        <div style="font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--t3);">12</div>
+        <h2 style="font-family:var(--sans);font-weight:500;letter-spacing:-.034em;font-size:clamp(1.9rem,3.9vw,3.1rem);line-height:1.04;color:var(--t0);margin:14px 0 0;">Build sheet</h2>
+      </div>
+      <button id="mn-copy" style="cursor:pointer;padding:10px 18px;border-radius:var(--r-ctl);border:1px solid var(--line2);background:transparent;color:var(--t0);font-size:14px;font-weight:500;transition:background .12s var(--ease-ctl);" style-hover="background:var(--s2)">Copy tokens</button>
+    </div>
+    <p style="margin:clamp(20px,3vh,30px) 0 0;max-width:68ch;font-size:17px;line-height:1.66;color:var(--t2);text-wrap:pretty;">Paste this into a new file and build. Three font links and this block are the entire setup. The agent ruleset lives at <code style="font-family:var(--mono);font-size:14px;color:var(--t1);">CLAUDE.md</code> in this project, so Claude and Codex read it automatically.</p>
+    <div style="margin-top:clamp(24px,3.4vh,38px);display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:clamp(14px,2vw,22px);align-items:start;">
+      <pre id="mn-tokens" style="margin:0;background:var(--s1);border:1px solid var(--line);border-radius:var(--r-panel);padding:24px;font-family:var(--mono);font-size:11.5px;line-height:1.9;color:var(--t1);white-space:pre-wrap;word-break:break-word;overflow:auto;transition:background .5s var(--ease-page),border-color .5s var(--ease-page);">:root{
+  --bg:#000000; --s1:#0E0E0E;
+  --s2:#161616; --s3:#1E1E1E;
+  --line:#232323; --line2:#2E2E2E;
+  --t0:#FAFAFA; --t1:#B4B4B4;
+  --t2:#7E7E7E; --t3:#565656;
+  --sig:#E03C2F;
+  --frost:rgba(255,255,255,.055);
+  --frost-line:rgba(255,255,255,.10);
+  --smoke:rgba(14,14,14,.72);
+  --smoke-line:rgba(255,255,255,.07);
+  --lift:0 24px 60px -22px rgba(0,0,0,.8);
+  --glass:#0A0B0A; --phos:#EFEFED;
+  --glass-line:#1C1D1C; --unlit:#1F211F;
+  --r-ctl:6px; --r-panel:10px;
+  --r-surface:14px;
+  --pad:clamp(20px,5vw,80px);
+  --ease-ctl:cubic-bezier(.2,0,0,1);
+  --ease-page:cubic-bezier(.16,1,.3,1);
+}
+[data-housing="light"]{
+  --bg:#FFFFFF; --s1:#F0F0EE;
+  --s2:#E9E9E6; --s3:#E1E1DD;
+  --line:#E3E3E0; --line2:#D3D3CF;
+  --t0:#0C0C0C; --t1:#4A4A48;
+  --t2:#757571; --t3:#9C9C97;
+  --sig:#CE2E1C;
+  --frost:rgba(255,255,255,.62);
+  --frost-line:rgba(0,0,0,.07);
+  --smoke:rgba(255,255,255,.74);
+  --smoke-line:rgba(0,0,0,.06);
+  --lift:0 20px 48px -20px rgba(0,0,0,.18);
+}</pre>
+      <div>
+        <h3 style="font-size:1.1rem;font-weight:500;letter-spacing:-.02em;color:var(--t0);margin:0;">What breaks it</h3>
+        <div style="margin-top:16px;border:1px solid var(--line);border-radius:var(--r-panel);overflow:hidden;transition:border-color .5s var(--ease-page);">
+          <sc-for list="{{ refusals }}" as="r" hint-placeholder-count="9">
+            <div style="padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:baseline;transition:border-color .5s var(--ease-page);">
+              <span style="font-family:var(--mono);font-size:11px;color:var(--t3);flex:none;">×</span>
+              <span style="font-size:15px;line-height:1.6;color:var(--t2);text-wrap:pretty;">{{ r.d }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer style="padding:clamp(46px,7vh,88px) var(--pad) clamp(56px,9vh,104px);border-top:1px solid var(--line);transition:border-color .5s var(--ease-page);">
+  <div style="max-width:1240px;margin:0 auto;display:flex;flex-wrap:wrap;gap:12px 44px;align-items:baseline;font-family:var(--mono);font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--t3);">
+    <span style="color:var(--t1);">Mnemos Research · design system · rev 02</span>
+    <span>instrument sans · fragment mono · doto</span>
+    <span>engine — dot-display.js</span>
+    <span>one lattice · three materials · chroma by permission</span>
+  </div>
+</footer>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;housing&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Housing&quot;},&quot;signal&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;options&quot;:[&quot;#E03C2F&quot;,&quot;#D71921&quot;,&quot;#FF4A17&quot;,&quot;#FFB000&quot;],&quot;default&quot;:&quot;#E03C2F&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Colour&quot;},&quot;markSeed&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;mnemos&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;The lattice&quot;}}">
+const IDS=['s00','s01','s02','s03','s04','s05','s06','s07','s08','s09','s10','s11','s12'];
+
+/* the 7x7 mark — an M printed on its field */
+const MARK=[
+  1,0,0,0,0,0,1,
+  1,1,0,0,0,1,1,
+  1,0,1,0,1,0,1,
+  1,0,0,1,0,0,1,
+  1,0,0,0,0,0,1,
+  1,0,0,0,0,0,1,
+  1,0,0,0,0,0,1
+];
+
+/* display glyphs — the housing set, re-cut on the lattice */
+const DOTG=[
+  {n:'rec',b:'0011100 0111110 1111111 1111111 1111111 0111110 0011100'},
+  {n:'play',b:'1000000 1110000 1111100 1111111 1111100 1110000 1000000'},
+  {n:'pause',b:'0110110 0110110 0110110 0110110 0110110 0110110 0110110'},
+  {n:'arrow',b:'0000000 0001000 0000100 1111110 0000100 0001000 0000000'},
+  {n:'signal',b:'0000001 0000001 0000101 0000101 0010101 0010101 1010101'},
+  {n:'well',b:'0000000 1111111 1000001 1010101 1000001 1111111 0000000'}
+];
+
+/* an emblem is generated from a seed, never drawn: fnv-1a into xorshift,
+   mirrored on the vertical axis so it reads as a seal rather than noise. */
+function emblem(seed,n,density){
+  let h=2166136261;
+  for(let i=0;i<seed.length;i++){h^=seed.charCodeAt(i);h=Math.imul(h,16777619);}
+  const rnd=()=>{h^=h<<13;h^=h>>>17;h^=h<<5;h|=0;return ((h>>>0)%10000)/10000;};
+  const half=Math.ceil(n/2), out=new Array(n*n).fill(0);
+  for(let y=0;y<n;y++)for(let x=0;x<half;x++){
+    const on=rnd()<density?1:0;
+    out[y*n+x]=on; out[y*n+(n-1-x)]=on;
+  }
+  return out;
+}
+
+class Component extends DCLogic {
+  _t=[];
+  _booted=false;
+
+  componentDidMount(){ this.kick(); }
+  componentWillUnmount(){
+    (this._t||[]).forEach(f=>{try{f();}catch(e){}});
+    clearTimeout(this._kt); clearInterval(this._pt);
+    if(this._dd)this._dd.stop();
+  }
+
+  kick(){
+    if(this._booted||this._kicking)return;
+    this._kicking=true;
+    let n=0;
+    const go=()=>{
+      if(this._booted)return;
+      if(document.getElementById('mn-root')&&document.getElementById('mn-housing')&&window.DotDisplay&&window.DotDisplay.mnemos){
+        this._booted=true;this._kicking=false;
+        try{ this.boot(); }catch(e){ console.error('mnemos boot failed',e); }
+        return;
+      }
+      if(n++>200){this._kicking=false;return;}
+      this._kt=setTimeout(go,50);
+    };
+    go();
+  }
+
+  boot(){
+    const root=document.getElementById('mn-root'); if(!root)return;
+    this.root=root;
+    this.REDUCE=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this._dd=window.DotDisplay.mount(root);
+    this.housing();
+    this.railSpy();
+    this.reveal();
+    this.parts();
+    this.progress();
+  }
+
+  housing(){
+    const html=document.documentElement;
+    const btn=document.getElementById('mn-housing'),
+          lbl=document.getElementById('mn-housinglbl'),
+          thumb=document.getElementById('mn-thumb');
+    if(!btn)return;
+    /* a custom signal overrides both calibrations; the default lets each
+       housing keep its own (#E03C2F dark / #CE2E1C light). */
+    const custom=this.props.signal&&this.props.signal.toUpperCase()!=='#E03C2F'?this.props.signal:null;
+    const set=m=>{
+      if(m==='light')html.setAttribute('data-housing','light');else html.removeAttribute('data-housing');
+      if(custom)html.style.setProperty('--sig',custom);else html.style.removeProperty('--sig');
+      btn.setAttribute('aria-pressed',String(m==='light'));
+      if(lbl)lbl.textContent=m;
+      if(thumb)thumb.style.background=m==='light'?'var(--sig)':'var(--t0)';
+      const seg=document.getElementById('mn-seg');
+      if(seg)[].slice.call(seg.children).forEach((b,i)=>{
+        const on=(m==='light'?1:0)===i;
+        b.style.background=on?'var(--bg)':'transparent';
+        b.style.color=on?'var(--t0)':'var(--t2)';
+      });
+    };
+    this._setHousing=set;
+    set(this.props.housing||'dark');
+    const c=()=>set(html.getAttribute('data-housing')==='light'?'dark':'light');
+    btn.addEventListener('click',c);
+    this._t.push(()=>btn.removeEventListener('click',c));
+  }
+
+  railSpy(){
+    const links=[].slice.call(this.root.querySelectorAll('[data-rail]'));
+    if(!links.length||!('IntersectionObserver' in window))return;
+    const io=new IntersectionObserver(es=>es.forEach(e=>{
+      if(!e.isIntersecting)return;
+      links.forEach(a=>{
+        const on=a.dataset.rail===e.target.id;
+        a.style.color=on?'var(--t0)':'var(--t3)';
+        if(a.firstElementChild)a.firstElementChild.style.width=on?'24px':'12px';
+      });
+    }),{threshold:.2});
+    IDS.forEach(id=>{const el=document.getElementById(id);if(el)io.observe(el);});
+    this._t.push(()=>io.disconnect());
+  }
+
+  /* the page register: 10px of travel, 380ms, once. */
+  reveal(){
+    const els=[].slice.call(this.root.querySelectorAll('[data-r]'));
+    if(!els.length||this.REDUCE||!('IntersectionObserver' in window))return;
+    els.forEach((el,i)=>{
+      if(i===0)return;
+      el.style.opacity='0';
+      el.style.transform='translateY(10px)';
+      el.style.transition='opacity .38s var(--ease-page), transform .38s var(--ease-page)';
+    });
+    /* reveal anything at or above the fold, not only what is intersecting
+       right now: scroll restoration, a #deep-link, a scrollbar drag or a
+       fast fling can carry an element from below the viewport to above it
+       between two observer callbacks, and it would never come back. */
+    const show=el=>{
+      if(el.dataset.shown)return;
+      el.dataset.shown='1';
+      el.style.opacity='1';
+      el.style.transform='none';
+      io.unobserve(el);
+    };
+    const sweep=()=>els.forEach((el,i)=>{
+      if(i===0||el.dataset.shown)return;
+      if(el.getBoundingClientRect().top<window.innerHeight*0.95)show(el);
+    });
+    const io=new IntersectionObserver(()=>sweep(),{threshold:0,rootMargin:'0px 0px -5% 0px'});
+    els.forEach((el,i)=>{if(i>0)io.observe(el);});
+
+    let queued=false;
+    const onScroll=()=>{
+      if(queued)return;
+      queued=true;
+      requestAnimationFrame(()=>{queued=false;sweep();});
+    };
+    window.addEventListener('scroll',onScroll,{passive:true,capture:true});
+    document.addEventListener('scroll',onScroll,{passive:true,capture:true});
+    requestAnimationFrame(sweep);
+    setTimeout(sweep,400);
+
+    this._t.push(()=>{
+      io.disconnect();
+      window.removeEventListener('scroll',onScroll,{capture:true});
+      document.removeEventListener('scroll',onScroll,{capture:true});
+    });
+  }
+
+  parts(){
+    const root=this.root;
+    const down=e=>{const k=e.target.closest('[data-press]');if(k)k.style.transform='translateY(1px)';};
+    const up=()=>[].slice.call(root.querySelectorAll('[data-press]')).forEach(k=>k.style.transform='translateY(0)');
+    root.addEventListener('pointerdown',down);
+    window.addEventListener('pointerup',up);
+    this._t.push(()=>{root.removeEventListener('pointerdown',down);window.removeEventListener('pointerup',up);});
+
+    const click=e=>{
+      const sg=e.target.closest('[data-seg]');
+      if(sg&&sg.parentElement){
+        const i=[].slice.call(sg.parentElement.children).indexOf(sg);
+        if(i===2){
+          const dark=!window.matchMedia('(prefers-color-scheme: light)').matches;
+          if(this._setHousing)this._setHousing(dark?'dark':'light');
+          [].slice.call(sg.parentElement.children).forEach((b,j)=>{
+            b.style.background=j===2?'var(--bg)':'transparent';
+            b.style.color=j===2?'var(--t0)':'var(--t2)';
+          });
+        } else if(this._setHousing) this._setHousing(i===1?'light':'dark');
+        return;
+      }
+      const tg=e.target.closest('#mn-toggle');
+      if(tg){
+        const on=tg.getAttribute('aria-pressed')!=='true';
+        tg.setAttribute('aria-pressed',String(on));
+        tg.style.background=on?'var(--t0)':'var(--s3)';
+        const th=document.getElementById('mn-tthumb');
+        if(th){th.style.left=on?'21px':'3px';th.style.background=on?'var(--bg)':'var(--t2)';}
+        return;
+      }
+      const cp=e.target.closest('#mn-copy');
+      if(cp){
+        const pre=document.getElementById('mn-tokens');
+        if(pre&&navigator.clipboard){
+          navigator.clipboard.writeText(pre.textContent).then(()=>{
+            cp.textContent='Copied';
+            setTimeout(()=>{cp.textContent='Copy tokens';},1600);
+          }).catch(()=>{});
+        }
+      }
+    };
+    root.addEventListener('click',click);
+    this._t.push(()=>root.removeEventListener('click',click));
+
+    const r=document.getElementById('mn-range'), rv=document.getElementById('mn-rangeval');
+    if(r&&rv){
+      const on=()=>rv.textContent=r.value;
+      r.addEventListener('input',on);
+      this._t.push(()=>r.removeEventListener('input',on));
+    }
+  }
+
+  progress(){
+    const wrap=document.getElementById('mn-prog'), val=document.getElementById('mn-progval');
+    if(!wrap)return;
+    const cells=[].slice.call(wrap.querySelectorAll('[data-cell]'));
+    if(!cells.length)return;
+    if(this.REDUCE){
+      cells.forEach((c,i)=>{if(i<cells.length*0.64)c.style.background='var(--t0)';});
+      if(val)val.textContent='64';
+      return;
+    }
+    let n=0;
+    this._pt=setInterval(()=>{
+      n=(n+1)%(cells.length+8);
+      cells.forEach((c,i)=>{c.style.background=i<n?'var(--t0)':'var(--line2)';});
+      if(val)val.textContent=String(Math.min(100,Math.round(n/cells.length*100))).padStart(2,'0');
+    },140);
+    this._t.push(()=>clearInterval(this._pt));
+  }
+
+  renderVals(){
+    if(!this._booted) this.kick();
+    const seed=this.props.markSeed||'mnemos';
+    const rungs=[
+      {n:7,px:'8px',gap:'4px',note:'the mark'},
+      {n:9,px:'6px',gap:'3px',note:'app avatar'},
+      {n:11,px:'5px',gap:'2.5px',note:'81 cells'},
+      {n:13,px:'4px',gap:'2px',note:'print'},
+      {n:15,px:'3.5px',gap:'1.5px',note:'225 cells'}
+    ];
+    const glassDot=v=>v?'var(--phos)':'var(--unlit)';
+    return {
+      rail:[
+        {id:'s00',href:'#s00',n:'00 the system'},{id:'s01',href:'#s01',n:'01 laws'},
+        {id:'s02',href:'#s02',n:'02 colour'},{id:'s03',href:'#s03',n:'03 type'},
+        {id:'s04',href:'#s04',n:'04 space'},{id:'s05',href:'#s05',n:'05 materials'},
+        {id:'s06',href:'#s06',n:'06 the lattice'},{id:'s07',href:'#s07',n:'07 parts'},
+        {id:'s08',href:'#s08',n:'08 display'},{id:'s09',href:'#s09',n:'09 motion'},
+        {id:'s10',href:'#s10',n:'10 formats'},{id:'s11',href:'#s11',n:'11 voice'},
+        {id:'s12',href:'#s12',n:'12 build'}
+      ],
+      mark:MARK.map(v=>({c:v?'var(--t0)':'var(--line2)'})),
+      markGlass:MARK.map(v=>({c:glassDot(v)})),
+      /* specimens are artifacts, not chrome — their colours are locked */
+      markDark:MARK.map(v=>({c:v?'#FAFAFA':'#2E2E2E'})),
+      chorusOne:emblem('claude',9,.42).map(v=>({c:v?'#E8A33D':'#1F211F'})),
+      chorusTwo:emblem('gpt',9,.42).map(v=>({c:v?'#86D8A8':'#1F211F'})),
+      ladder:rungs.map(r=>({
+        n:r.n,px:r.px,gap:r.gap,
+        label:r.n+' × '+r.n,
+        note:r.note,
+        cells:(r.n===7?MARK:emblem(seed,r.n,.42)).map(v=>({c:glassDot(v)}))
+      })),
+      chorus:[
+        {name:'Claude',hue:'#E8A33D'},{name:'GPT',hue:'#86D8A8'},
+        {name:'Gemini',hue:'#A8D2E0'},{name:'Grok',hue:'#E0563C'},
+        {name:'Opus',hue:'#B296E8'}
+      ].map(c=>({
+        name:c.name,
+        cells:emblem(c.name.toLowerCase(),9,.42).map(v=>({c:v?c.hue:'var(--unlit)'}))
+      })),
+      dotglyphs:DOTG.map(g=>({
+        n:g.n,
+        cells:g.b.replace(/ /g,'').split('').map(v=>({c:glassDot(v==='1')}))
+      })),
+      laws:[
+        {n:'01',t:'Neutral carries, chroma permits',d:'Two grey stacks do all the structural work. Colour appears in exactly three roles \u2014 one signal red for live state, identity phosphor on glass, and a full-bleed plane in marketing. Nothing else is ever coloured, and no surface is ever a gradient.'},
+        {n:'02',t:'Housing never emits',d:'Structure holds and does not glow. Light comes only from the display, where it means something is happening. A glowing button, a coloured card, a tinted border: all wrong, in every housing.'},
+        {n:'03',t:'Translucence means elevation',d:'Blur and shadow are legal, and they are information: they say a thing floats above the page. Glass that sits on nothing is decoration. Frost for what floats, smoked for what is inset, opaque for everything else \u2014 which is most things.'},
+        {n:'04',t:'One lattice, underneath everything',d:'The mark, the identity emblems, the display glyphs and the scenes are all drawn on the same odd-numbered dot grid, with the unlit dots left visible. Nothing dot-shaped in this system is decoration; it is all the same grid at a different resolution.'},
+        {n:'05',t:'Restraint is the strategy',d:'One statement per screen, one signal event per screen, one word of Doto, two mono labels in view. When a page feels unfinished the answer is more space, not more parts. Every element added has to displace one.'},
+        {n:'06',t:'Say it at its real stage',d:'Built, designed, ahead \u2014 named honestly, every time. No number without its unit and origin. The reason this system can be plain is that the work underneath does not need decorating.'}
+      ],
+      scale:[
+        {n:'Display',v:'clamp(2.7rem,6.6vw,5.4rem) · 500 · \u2212.042em · 0.97',u:'page opener, one per page'},
+        {n:'Section',v:'clamp(1.9rem,3.9vw,3.1rem) · 500 · \u2212.034em · 1.04',u:'section heading'},
+        {n:'Statement',v:'clamp(1.15rem,1.9vw,1.45rem) · 500 · \u2212.02em · 1.45',u:'the pull quote, the one line'},
+        {n:'Title',v:'1.1rem · 500 · \u2212.02em · 1.28',u:'card, row, subhead'},
+        {n:'Body',v:'17px · 400 · 1.62 · max 68ch',u:'prose'},
+        {n:'Small',v:'14.5px · 400 · 1.6',u:'cards, captions, dense UI'},
+        {n:'Label',v:'9.5\u201310.5px mono · .16\u2013.18em · upper',u:'engraving \u2014 two per view'},
+        {n:'Readout',v:'Doto 900 · tabular · 18px\u20132.3rem',u:'a number that is changing'}
+      ],
+      cells:Array.from({length:26},()=>({})),
+      icons:[
+        {n:'arrow',d:'M4 12h15M13 5l7 7-7 7'},
+        {n:'plus',d:'M12 4v16M4 12h16'},
+        {n:'minus',d:'M4 12h16'},
+        {n:'close',d:'M5 5l14 14M19 5L5 19'},
+        {n:'check',d:'M4 13l5 5L20 6'},
+        {n:'search',d:'M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0M15.5 15.5L21 21'},
+        {n:'clock',d:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 7v5l4 2'},
+        {n:'sheet',d:'M6 3h9l4 4v14H6zM15 3v4h4'},
+        {n:'node',d:'M8.5 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0M20.5 18a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0M14.5 6a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0M11 8.5l-4 7M13 8.5l4 7M8.5 18h7'},
+        {n:'trace',d:'M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0M12 3a9 9 0 0 1 9 9M12 21a9 9 0 0 1-9-9'},
+        {n:'signal',d:'M4 20v-4M9 20v-8M14 20V7M19 20V3'},
+        {n:'layers',d:'M4 8h12v12H4zM8 8V4h12v12h-4'},
+        {n:'well',d:'M4 7h16v10H4zM7 12h2M11 12h2M15 12h2'},
+        {n:'record',d:'M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0'},
+        {n:'pause',d:'M8 4v16M16 4v16'},
+        {n:'play',d:'M7 4l12 8-12 8z'},
+        {n:'gear',d:'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0M12 2v4M12 18v4M2 12h4M18 12h4M5 5l2.8 2.8M16.2 16.2L19 19M19 5l-2.8 2.8M7.8 16.2L5 19'}
+      ],
+      scenes:[
+        {k:'field',d:'An ambient dither field, breathing.',u:'system on · idle',a:'A slow dither field.',labels:'',lines:''},
+        {k:'resolve',d:'Noise settling into a block, then loosening.',u:'computing · thinking',a:'Noise settling into order.',labels:'',lines:''},
+        {k:'net',d:'Activation spreading two hops through a graph.',u:'resonance · recall',a:'A pulse spreading through a small graph.',labels:'',lines:''},
+        {k:'travel',d:'Something leaves, crosses, arrives.',u:'transfer · handoff',a:'A dot travelling across the panel and arriving.',labels:'',lines:''},
+        {k:'burial',d:'A few real things flooded, then still there.',u:'scarcity · signal vs noise',a:'Twelve dots buried by a flood and revealed again.',labels:'',lines:''}
+      ],
+      motion:[
+        {layer:'controls',t:'Mechanical',d:'Press, toggle, hover, focus. Short and certain, with no overshoot. A control commits like a switch, not like a spring.',spec:'90\u2013140ms · cubic-bezier(.2,0,0,1)\ntranslateY(1px) · tone change only'},
+        {layer:'page',t:'Precise ease',d:'Reveal, housing change, route change. Long enough to read as intentional, short enough that nobody waits for it.',spec:'260\u2013420ms · cubic-bezier(.16,1,.3,1)\n10px travel · 40ms stagger'},
+        {layer:'display',t:'Dot resolution',d:'Anything on glass. Continuous, engine-driven, never keyframed: charge decays across frames and things arrive by dithering in.',spec:'continuous · persistent buffer\nfade(k) per frame, never clear'}
+      ],
+      always:[
+        {d:'Name the source of a number in the same sentence as the number.'},
+        {d:'Label an unfinished thing at its real stage.'},
+        {d:'Say the plain version before the precise one.'},
+        {d:'Caption a figure with what to notice, not what it is.'},
+        {d:'Let a sentence be short when it is finished.'}
+      ],
+      never:[
+        {d:'Seamless, powerful, revolutionary, unlock, elevate, effortless.'},
+        {d:'An internal term the reader has not been given yet.'},
+        {d:'A bare statistic with no unit and no origin.'},
+        {d:'Exclamation marks, or a question as a headline.'},
+        {d:'A claim the build cannot currently do.'}
+      ],
+      refusals:[
+        {d:'A second accent colour, or signal used as a fill, heading or border.'},
+        {d:'A gradient across a surface, or a coloured glow that is not phosphor.'},
+        {d:'An inner white highlight on glass, or glass that floats above nothing.'},
+        {d:'Radii above 14px, or square corners on anything that is not full-bleed, a catalog grid, or a table rule.'},
+        {d:'Doto for prose, for a label, or more than once in a view.'},
+        {d:'More than two uppercase mono labels in one view.'},
+        {d:'Applied texture: a noise PNG, a grain overlay, a fake scanline.'},
+        {d:'Theming the glass. Display colours are constants, not variables.'},
+        {d:'An emblem drawn by hand rather than generated from its seed.'}
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Fragment+Mono&family=Doto:wght@600;900&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;}
+  :root{
+    --bg:#000000;--s1:#0E0E0E;--s2:#161616;--s3:#1E1E1E;--line:#232323;--line2:#2E2E2E;
+    --t0:#FAFAFA;--t1:#B4B4B4;--t2:#7E7E7E;--t3:#565656;--sig:#E03C2F;
+    --frost:rgba(255,255,255,.055);--frost-line:rgba(255,255,255,.10);
+    --lift:0 24px 60px -22px rgba(0,0,0,.8);
+    --glass:#0A0B0A;--phos:#EFEFED;--glass-line:#1C1D1C;--unlit:#1F211F;
+    --sans:'Instrument Sans',system-ui,sans-serif;--mono:'Fragment Mono',ui-monospace,monospace;--doto:'Doto',monospace;
+    --pad:clamp(20px,5vw,80px);
+    --ease-ctl:cubic-bezier(.2,0,0,1);--ease-page:cubic-bezier(.16,1,.3,1);
+    --app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010;
+  }
+  html{scroll-behavior:smooth;}
+  body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--sans);font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  ::selection{background:var(--t0);color:var(--bg);}
+  a{color:var(--t0);text-decoration:none;}
+  a:hover{color:var(--t1);}
+  button,input{font-family:inherit;}
+  @keyframes pp-in{from{opacity:0;transform:translateY(10px);}to{opacity:1;transform:none;}}
+  @keyframes pp-blink{0%,80%,100%{opacity:.25;}40%{opacity:1;}}
+  [data-rv-ready] [data-rv]{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.16,1,.3,1),transform .7s cubic-bezier(.16,1,.3,1);}
+  [data-rv-ready] [data-rv="on"]{opacity:1;transform:none;}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}[data-rv-ready] [data-rv]{opacity:1;transform:none;}}
+</style>
+</helmet>
+
+<div id="pp-root" style="position:relative;z-index:0;min-height:100vh;background:var(--bg);overflow-x:clip;">
+<canvas data-scene="touch" data-cell="5" data-bloom="0" data-scan="0" aria-hidden="true" style="position:fixed;inset:0;z-index:-1;width:100%;height:100%;display:block;pointer-events:none;"></canvas>
+
+<!-- nav -->
+<div style="position:sticky;top:0;z-index:40;background:rgba(0,0,0,.72);backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);border-bottom:1px solid var(--line);">
+  <div style="max-width:1240px;margin:0 auto;padding:0 var(--pad);height:56px;display:flex;align-items:center;gap:32px;">
+    <a href="#top" style="display:flex;align-items:center;gap:10px;color:var(--t0);">
+      <span style="display:grid;grid-template-columns:repeat(7,2px);gap:1px;" aria-hidden="true">
+        <sc-for list="{{ markCells }}" as="c" hint-placeholder-count="49"><span style="width:2px;height:2px;border-radius:50%;background:{{ c.c }};"></span></sc-for>
+      </span>
+      <span style="font-size:15px;font-weight:500;letter-spacing:-.01em;">Polyphonic</span>
+    </a>
+    <div style="display:flex;gap:26px;font-size:14px;color:var(--t2);">
+      <a href="#how" style="color:var(--t2);white-space:nowrap;" style-hover="color:var(--t0)">How it works</a>
+      <a href="#works" style="color:var(--t2);white-space:nowrap;" style-hover="color:var(--t0)">Works with</a>
+      <a href="#beta" style="color:var(--t2);white-space:nowrap;" style-hover="color:var(--t0)">Beta</a>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:18px;">
+      <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);white-space:nowrap;">beta · macos</span>
+      <a href="#beta" style="display:inline-flex;align-items:center;white-space:nowrap;height:32px;padding:0 14px;border-radius:6px;background:var(--t0);color:var(--bg);font-size:13.5px;font-weight:500;transition:transform .12s var(--ease-ctl),background .12s var(--ease-ctl);" style-hover="background:#E4E4E4" style-active="transform:translateY(1px)">Get the beta</a>
+    </div>
+  </div>
+</div>
+
+<!-- hero -->
+<section id="top" data-screen-label="Hero" style="max-width:1240px;margin:0 auto;padding:clamp(72px,11vh,128px) var(--pad) 0;text-align:center;">
+  <h1 style="margin:0 auto;max-width:14ch;font-size:clamp(2.7rem,6.6vw,5.4rem);font-weight:500;letter-spacing:-.042em;line-height:.97;color:var(--t0);text-wrap:balance;animation:pp-in .42s var(--ease-page) both;">Your agents, together.</h1>
+  <p style="margin:26px auto 0;max-width:54ch;font-size:clamp(1.05rem,1.35vw,1.2rem);line-height:1.55;color:var(--t1);text-wrap:pretty;animation:pp-in .42s var(--ease-page) .06s both;">Polyphonic is a Mac app where Claude Code, Codex and the other agents you use live in one place. They remember you, share your projects, and can call on each other, with you in the room.</p>
+  <div style="margin-top:32px;display:flex;justify-content:center;align-items:center;gap:14px;flex-wrap:wrap;animation:pp-in .42s var(--ease-page) .12s both;">
+    <a href="#beta" style="display:inline-flex;align-items:center;white-space:nowrap;height:42px;padding:0 20px;border-radius:999px;background:var(--t0);color:var(--bg);font-size:14.5px;font-weight:500;transition:transform .12s var(--ease-ctl),background .12s var(--ease-ctl);" style-hover="background:#E4E4E4" style-active="transform:translateY(1px)">Get the beta</a>
+    <a href="#how" style="display:inline-flex;align-items:center;white-space:nowrap;gap:8px;height:42px;padding:0 8px;color:var(--t1);font-size:14.5px;transition:color .12s var(--ease-ctl);" style-hover="color:var(--t0)">See how it works<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 12h15M13 5l7 7-7 7"></path></svg></a>
+  </div>
+</section>
+
+<!-- product · live -->
+<section id="preview" data-screen-label="Product" style="max-width:1240px;margin:0 auto;padding:clamp(48px,7vh,80px) var(--pad) 0;animation:pp-in .5s var(--ease-page) .2s both;">
+  <div style="border:1px solid #2a2a2a;border-radius:14px;background:#000;padding:4px;box-shadow:0 40px 100px -30px rgba(0,0,0,1),0 16px 40px -20px rgba(0,0,0,.9);">
+  <div style="border-radius:10px;background:#000;overflow:hidden;display:grid;grid-template-columns:{{ exhibitCols }};grid-template-rows:minmax(0,1fr);height:clamp(700px,78vh,780px);font-size:14px;line-height:1.4;color:var(--app-ink);">
+
+    <!-- sidebar -->
+    <div style="background:#000;display:{{ railDisplay }};flex-direction:column;min-width:0;min-height:0;overflow:hidden;padding:0 10px 7px 5px;">
+      <div style="height:61px;display:flex;align-items:center;gap:13px;padding:0 6px;color:#92918a;flex-shrink:0;">
+        <span style="display:flex;gap:7px;"><span style="width:13px;height:13px;border-radius:50%;background:#ff5f57;"></span><span style="width:13px;height:13px;border-radius:50%;background:#febc2e;"></span><span style="width:13px;height:13px;border-radius:50%;background:#28c840;"></span></span>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 5h16v14H4zM9 5v14M6.5 9h1M6.5 12h1"></path></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M15 6l-6 6 6 6"></path></svg>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" style="opacity:.5;"><path d="M9 6l6 6-6 6"></path></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:7px;background:#111;border-radius:6px;height:33px;margin:4px 0 13px;padding:0 8px;color:#99988f;font-size:13px;white-space:nowrap;flex-shrink:0;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M17 10.5a6.5 6.5 0 1 1-13 0 6.5 6.5 0 0 1 13 0M15.5 15.5L21 21"></path></svg>
+        <span>Search everything</span>
+        <span style="margin-left:auto;font-size:11px;">⌘K</span>
+      </div>
+      <div style="padding-bottom:17px;border-bottom:1px solid #232323;display:grid;gap:0;">
+        <sc-for list="{{ railRows }}" as="r" hint-placeholder-count="6">
+          <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="{{ r.d }}"></path></svg>
+            <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+      <div style="flex:1;min-height:0;overflow:hidden;">
+      <div style="margin-top:17px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;margin-bottom:7px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#929187;"><span>DMs</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M12 4v16M4 12h16"></path></svg></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#1b1b19;background:#c8c5b9;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 20a8 8 0 1 0-7.2-4.5L4 20l4.5-.8A8 8 0 0 0 12 20z"></path></svg><span>Luca</span></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 20a8 8 0 1 0-7.2-4.5L4 20l4.5-.8A8 8 0 0 0 12 20z"></path></svg><span style="flex:1;">Research</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:#8a8980;white-space:nowrap;"><span style="width:5px;height:5px;border-radius:50%;background:{{ demoDot }};"></span>{{ demoResearch }}</span></div>
+      </div>
+      </div>
+      <div style="flex-shrink:0;padding-top:16px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:0 8px;margin-bottom:7px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:#929187;">Runtimes</div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;"><span style="width:17px;height:17px;flex:none;background:#c77553;-webkit-mask:url(polyphonic/claude.png) center/contain no-repeat;mask:url(polyphonic/claude.png) center/contain no-repeat;"></span><span style="flex:1;">Claude Code</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" style="opacity:.7;"><path d="M9 6l6 6-6 6"></path></svg></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;"><span style="width:17px;height:17px;flex:none;background:#c8c7c0;-webkit-mask:url(polyphonic/codex.png) center/contain no-repeat;mask:url(polyphonic/codex.png) center/contain no-repeat;"></span><span style="flex:1;">Codex</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" style="opacity:.7;"><path d="M9 6l6 6-6 6"></path></svg></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" style="flex:none;" aria-hidden="true"><path d="M5 4v16M5 13l9-9M7.5 10.5L15 20" stroke="#E4E3DC" stroke-width="2.4" stroke-linecap="square" stroke-linejoin="miter"></path><circle cx="18.5" cy="6" r="2" fill="#4F8DF7"></circle></svg><span style="flex:1;">Kimi Code</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" style="opacity:.7;"><path d="M9 6l6 6-6 6"></path></svg></div>
+        <div style="display:flex;align-items:center;gap:9px;min-height:37px;padding:7px 9px;border-radius:6px;color:#aaa99f;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#E4E3DC" stroke-width="2.1" stroke-linecap="square" style="flex:none;" aria-hidden="true"><ellipse cx="12" cy="12" rx="6.5" ry="8"></ellipse><path d="M20 3L4 21"></path></svg><span style="flex:1;">Grok</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" style="opacity:.7;"><path d="M9 6l6 6-6 6"></path></svg></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:9px;padding:12px 7px 2px;flex-shrink:0;">
+        <span style="width:30px;height:30px;border-radius:50%;background:#8d8c82;color:#101010;display:grid;place-items:center;font-size:14px;">R</span>
+        <span><span style="display:block;font-weight:600;">Riley</span><span style="display:block;font-size:12px;color:#99988e;">Personal workspace</span></span>
+      </div>
+    </div>
+
+    <!-- workspace floor -->
+    <div style="display:flex;min-width:0;min-height:0;background:#000;padding:{{ floorPad }};">
+      <div style="flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--app-surface);border-radius:10px;overflow:hidden;">
+        <div style="height:76px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0;">
+          <span style="font-size:17px;line-height:1.35;letter-spacing:-.014em;font-weight:600;color:var(--app-ink);">Luca</span>
+          <span style="display:flex;align-items:center;gap:6px;color:#b0afa5;">
+            <span style="width:32px;height:32px;display:grid;place-items:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 5h16v14H4zM4 10h16M10 10v9"></path></svg></span>
+            <span style="width:32px;height:32px;display:grid;place-items:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 5h16v14H4zM12 12h8v7h-8z"></path></svg></span>
+            <span style="width:32px;height:32px;display:grid;place-items:center;"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 5h16v14H4zM15 5v14"></path></svg></span>
+          </span>
+        </div>
+        <div style="flex:1;min-height:0;overflow:hidden;padding:12px 26px 12px;">
+          <div style="max-width:665px;margin:0 auto;font-size:16px;letter-spacing:-.003em;line-height:1.68;">
+            <div style="margin:0 0 28px auto;width:fit-content;max-width:85%;padding:11px 16px 12px;background:#222221;border-radius:16px;box-shadow:inset 0 1px #ffffff08;color:var(--app-ink);">Morning. Where did we leave Northstar?</div>
+            <div style="display:flex;align-items:baseline;gap:7px;margin-bottom:6px;font-size:14px;"><span style="font-weight:600;">Luca</span><time style="font-size:11px;color:#93928a;">9:41</time></div>
+            <sc-if value="{{ demoTyping }}" hint-placeholder-val="{{ false }}">
+              <div style="display:inline-flex;gap:5px;align-items:center;height:27px;padding:0 2px;" aria-label="Luca is typing">
+                <span style="width:6px;height:6px;border-radius:50%;background:#8f8e86;animation:pp-blink 1.2s infinite;"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:#8f8e86;animation:pp-blink 1.2s .2s infinite;"></span>
+                <span style="width:6px;height:6px;border-radius:50%;background:#8f8e86;animation:pp-blink 1.2s .4s infinite;"></span>
+              </div>
+            </sc-if>
+            <p style="margin:0 0 16px;min-height:27px;text-wrap:pretty;">{{ demoP1 }}</p>
+            <sc-if value="{{ demoCard1 }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:6px;margin:19px 0;">
+              <div style="display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:9px;background:#181818;color:#c3c2b9;font-size:14px;line-height:1.45;animation:pp-in .36s var(--ease-page) both;">
+                <span style="width:22px;height:22px;flex:none;background:#c8c7c0;-webkit-mask:url(polyphonic/codex.png) center/contain no-repeat;mask:url(polyphonic/codex.png) center/contain no-repeat;"></span>
+                <span style="flex:1;min-width:0;"><span style="display:flex;align-items:baseline;gap:13px;flex-wrap:wrap;"><span style="font-weight:500;">Codex</span><span style="font-size:11px;color:#9f9e95;white-space:nowrap;">Saved · 9:38</span></span><span style="display:block;font-size:13px;color:#aaa99e;margin-top:2px;">Walkthrough implemented</span></span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#939289" stroke-width="1.5" stroke-linecap="square"><path d="M9 6l6 6-6 6"></path></svg>
+              </div>
+              <sc-if value="{{ demoCard2 }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:13px;padding:11px 13px;border-radius:9px;background:#181818;color:#c3c2b9;font-size:14px;line-height:1.45;animation:pp-in .36s var(--ease-page) both;">
+                <span style="width:22px;height:22px;flex:none;background:#c77553;-webkit-mask:url(polyphonic/claude.png) center/contain no-repeat;mask:url(polyphonic/claude.png) center/contain no-repeat;"></span>
+                <span style="flex:1;min-width:0;"><span style="display:flex;align-items:baseline;gap:13px;flex-wrap:wrap;"><span style="font-weight:500;">Claude Code</span><span style="font-size:11px;color:#9f9e95;white-space:nowrap;">Saved · 9:40</span></span><span style="display:block;font-size:13px;color:#aaa99e;margin-top:2px;">One next step to clarify</span></span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#939289" stroke-width="1.5" stroke-linecap="square"><path d="M9 6l6 6-6 6"></path></svg>
+              </div>
+              </sc-if>
+            </div>
+            </sc-if>
+            <p style="margin:0 0 16px;min-height:27px;text-wrap:pretty;">{{ demoP2 }}</p>
+            <sc-if value="{{ demoReceipt }}" hint-placeholder-val="{{ true }}">
+            <div style="display:inline-flex;align-items:center;gap:8px;border-bottom:1px solid #474740;padding:3px 0 6px;font-size:13px;color:#bab9ae;min-height:36px;animation:pp-in .36s var(--ease-page) both;">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0M12 3a9 9 0 0 1 9 9M12 21a9 9 0 0 1-9-9"></path></svg>
+              <span>Remembered from the brief, your preferences, and Tuesday</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" style="margin-left:5px;"><path d="M4 12h15M13 5l7 7-7 7"></path></svg>
+            </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="width:calc(100% - 52px);max-width:685px;margin:12px auto 0;padding-bottom:14px;flex-shrink:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;min-height:46px;background:#171717;border-radius:12px;padding:0 12px;color:#9c9b90;font-size:16px;">
+            <span>Message…</span>
+            <span style="width:28px;height:28px;border-radius:50%;background:#1d1d1d;color:#64645d;display:grid;place-items:center;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M12 19V5M5 12l7-7 7 7"></path></svg></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:14px;padding:10px 6px 0;color:#7d7c74;">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square"><path d="M12 4v16M4 12h16"></path></svg>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M8 14c1 1.5 2.5 2 4 2s3-.5 4-2M9 9.5h.01M15 9.5h.01"></path></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M9 4h6v9a3 3 0 0 1-6 0zM5 11a7 7 0 0 0 14 0M12 18v3"></path></svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <div style="margin-top:14px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--t2);">
+    <span>Luca, with Research listening in. Northstar is a worked example; the conversation replays.</span>
+    <span style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap;">polyphonic · current dev shell</span>
+  </div>
+</section>
+
+<!-- the band · works with -->
+<div id="works" data-screen-label="Works with" style="margin-top:clamp(88px,12vh,136px);border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--glass);height:clamp(96px,13vh,132px);overflow:hidden;">
+  <canvas data-scene="marquee" data-text="WORKS WITH · CLAUDE CODE · CODEX · KIMI CODE · GROK · HERMES · OPENCLAW · ANY AGENT THAT SPEAKS ACP · " role="img" aria-label="Works with Claude Code, Codex, Kimi Code, Grok, Hermes, OpenClaw and any agent that speaks ACP." style="display:block;width:100%;height:100%;"></canvas>
+</div>
+<div style="max-width:1240px;margin:0 auto;padding:14px var(--pad) 0;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);">
+  <span>works with · agents and providers</span>
+  <span style="white-space:nowrap;">open acp · hermes · openclaw</span>
+</div>
+
+<!-- how -->
+<section id="how" data-screen-label="How it works" style="max-width:1240px;margin:clamp(96px,13vh,152px) auto 0;padding:0 var(--pad);text-align:center;">
+  <h2 data-rv="" style="margin:0 auto;max-width:22ch;font-size:clamp(1.9rem,3.9vw,3.1rem);font-weight:500;letter-spacing:-.034em;line-height:1.04;color:var(--t0);text-wrap:balance;">Built for working alongside agents.</h2>
+</section>
+
+<!-- row · agents -->
+<section id="agents" data-screen-label="Works with your agents" style="max-width:1240px;margin:clamp(56px,8vh,96px) auto 0;padding:0 var(--pad);display:flex;flex-wrap:wrap;align-items:center;gap:clamp(24px,4vw,64px);">
+  <div data-rv="" style="order:1;flex:1 1 280px;max-width:40ch;">
+    <h3 style="margin:0;font-size:clamp(1.5rem,2.4vw,2rem);font-weight:500;letter-spacing:-.028em;line-height:1.15;color:var(--t0);text-wrap:balance;">Works with the agents you already use.</h3>
+    <p style="margin:18px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty;">Bring Claude Code, Codex, Kimi Code, Grok, or any agent built on the open ACP standard. Agents you run in Hermes or OpenClaw connect as they are, keeping their own memory and tools.</p>
+  </div>
+  <div data-field="emblems" style="order:2;flex:2 1 440px;min-width:0;min-height:clamp(480px,60vh,600px);display:flex;justify-content:center;align-items:center;padding:12px 0;">
+    <div data-card="" data-rv="" style="position:relative;width:min(100%,420px);border:1px solid var(--line2);border-radius:10px;background:var(--s1);box-shadow:0 32px 80px -24px rgba(0,0,0,.95),0 12px 28px -14px rgba(0,0,0,.8);overflow:hidden;font-size:14px;line-height:1.5;color:var(--t1);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);"><span style="color:var(--t0);font-weight:500;">Agents</span><span style="font-family:var(--mono);font-size:11px;color:var(--t2);white-space:nowrap;">6 connected</span></div>
+      <sc-for list="{{ runtimes }}" as="rt" hint-placeholder-count="6">
+        <div style="display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);color:var(--t1);">
+          <span style="display:grid;place-items:center;color:{{ rt.ink }};">
+            <sc-if value="{{ rt.isMask }}" hint-placeholder-val="{{ true }}"><span style="width:16px;height:16px;background:{{ rt.ink }};-webkit-mask:url({{ rt.img }}) center/contain no-repeat;mask:url({{ rt.img }}) center/contain no-repeat;"></span></sc-if>
+            <sc-if value="{{ rt.isSvg }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="{{ rt.sw }}" stroke-linecap="square" stroke-linejoin="miter"><path d="{{ rt.d }}"></path></svg></sc-if>
+          </span>
+          <span style="min-width:0;"><span style="display:block;color:var(--t0);">{{ rt.name }}</span><span style="display:block;font-family:var(--mono);font-size:11px;color:var(--t2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ rt.sub }}</span></span>
+          <span style="display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--t2);white-space:nowrap;"><span style="width:5px;height:5px;border-radius:50%;background:#86D8A8;"></span>connected</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- row · memory -->
+<section id="memory" data-screen-label="Remembers you" style="max-width:1240px;margin:clamp(56px,8vh,96px) auto 0;padding:0 var(--pad);display:flex;flex-wrap:wrap;align-items:center;gap:clamp(24px,4vw,64px);">
+  <div data-rv="" style="order:2;flex:1 1 280px;max-width:40ch;">
+    <h3 style="margin:0;font-size:clamp(1.5rem,2.4vw,2rem);font-weight:500;letter-spacing:-.028em;line-height:1.15;color:var(--t0);text-wrap:balance;">They remember you.</h3>
+    <p style="margin:18px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty;">Each agent keeps what you have told it across sessions, restarts, and even a change of model. Brain is where you choose which projects, notes and past sessions each one can see. Nothing is shared unless you say so.</p>
+    <p style="margin:14px 0 0;font-size:13.5px;color:var(--t2);">Try it: tick and untick what Luca can see.</p>
+  </div>
+  <div data-field="graph" style="order:1;flex:2 1 440px;min-width:0;min-height:clamp(480px,60vh,600px);display:flex;justify-content:center;align-items:center;padding:12px 0;">
+    <div data-card="" data-rv="" style="position:relative;width:min(100%,440px);border:1px solid var(--line2);border-radius:10px;background:var(--s1);box-shadow:0 32px 80px -24px rgba(0,0,0,.95),0 12px 28px -14px rgba(0,0,0,.8);overflow:hidden;font-size:14px;line-height:1.5;color:var(--t1);">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 56px 76px;gap:10px;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--t2);"><span style="color:var(--t0);font-weight:500;font-size:14px;">Brain</span><span style="text-align:center;">Luca</span><span style="text-align:center;">Research</span></div>
+      <sc-for list="{{ grants }}" as="g" hint-placeholder-count="4">
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 56px 76px;gap:10px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);">
+          <span style="min-width:0;"><span style="display:block;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ g.name }}</span><span style="display:block;font-family:var(--mono);font-size:11px;color:var(--t2);">{{ g.kind }}</span></span>
+          <span style="display:flex;justify-content:center;"><button type="button" onClick="{{ g.toggleA }}" aria-label="Luca can see {{ g.name }}" aria-pressed="{{ g.a }}" style="width:22px;height:22px;padding:0;border-radius:5px;border:1px solid {{ g.aBorder }};background:{{ g.aBg }};display:grid;place-items:center;cursor:pointer;transition:background .12s var(--ease-ctl),border-color .12s var(--ease-ctl);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="{{ g.aInk }}" stroke-width="2.4" stroke-linecap="square"><path d="M4 13l5 5L20 6"></path></svg></button></span>
+          <span style="display:flex;justify-content:center;"><button type="button" onClick="{{ g.toggleB }}" aria-label="Research can see {{ g.name }}" aria-pressed="{{ g.b }}" style="width:22px;height:22px;padding:0;border-radius:5px;border:1px solid {{ g.bBorder }};background:{{ g.bBg }};display:grid;place-items:center;cursor:pointer;transition:background .12s var(--ease-ctl),border-color .12s var(--ease-ctl);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="{{ g.bInk }}" stroke-width="2.4" stroke-linecap="square"><path d="M4 13l5 5L20 6"></path></svg></button></span>
+        </div>
+      </sc-for>
+      <div style="padding:13px 18px 15px;display:flex;gap:11px;align-items:flex-start;background:var(--s2);">
+        <span style="width:22px;height:22px;border-radius:5px;background:var(--glass);border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;margin-top:1px;"><span style="display:grid;grid-template-columns:repeat(9,1.5px);gap:.5px;" aria-hidden="true"><sc-for list="{{ luca }}" as="c" hint-placeholder-count="81"><span style="width:1.5px;height:1.5px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span></span>
+        <span style="min-width:0;"><span style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--t0);font-weight:500;">Luca</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--t2);">on Northstar, right now</span></span><span style="display:block;margin-top:3px;font-size:13.5px;color:var(--t1);text-wrap:pretty;">{{ lucaKnows }}</span></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- row · together -->
+<section id="together" data-screen-label="Work together" style="max-width:1240px;margin:clamp(56px,8vh,96px) auto 0;padding:0 var(--pad);display:flex;flex-wrap:wrap;align-items:center;gap:clamp(24px,4vw,64px);">
+  <div data-rv="" style="order:1;flex:1 1 280px;max-width:40ch;">
+    <h3 style="margin:0;font-size:clamp(1.5rem,2.4vw,2rem);font-weight:500;letter-spacing:-.028em;line-height:1.15;color:var(--t0);text-wrap:balance;">They work together.</h3>
+    <p style="margin:18px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty;">Put several agents in one room on one project. Ask one to check with another and the answer comes back into the same conversation. No copying between chats.</p>
+  </div>
+  <div data-field="exchange" style="order:2;flex:2 1 440px;min-width:0;min-height:clamp(480px,60vh,600px);display:flex;justify-content:center;align-items:center;padding:12px 0;">
+    <div data-card="" data-rv="" style="position:relative;width:min(100%,440px);border:1px solid var(--line2);border-radius:10px;background:var(--s1);box-shadow:0 32px 80px -24px rgba(0,0,0,.95),0 12px 28px -14px rgba(0,0,0,.8);overflow:hidden;font-size:14px;line-height:1.5;color:var(--t1);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);"><span style="color:var(--t0);font-weight:500;">launch</span><span style="font-family:var(--mono);font-size:11px;color:var(--t2);white-space:nowrap;">Luca · Research · you</span></div>
+      <div style="padding:16px 18px 18px;display:grid;gap:14px;">
+        <div style="margin-left:auto;width:fit-content;max-width:88%;padding:8px 12px;background:var(--s2);border-radius:10px;color:var(--t0);">Can you check the scope with Research before we ship?</div>
+        <div style="display:flex;gap:11px;align-items:flex-start;"><span style="width:22px;height:22px;border-radius:5px;background:var(--glass);border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;margin-top:2px;"><span style="display:grid;grid-template-columns:repeat(9,1.5px);gap:.5px;" aria-hidden="true"><sc-for list="{{ luca }}" as="c" hint-placeholder-count="81"><span style="width:1.5px;height:1.5px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span></span><span style="min-width:0;"><span style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--t0);font-weight:500;">Luca</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--t2);">9:44</span></span><span style="display:block;margin-top:3px;color:var(--t1);">Asked her. One question, scoped to the brief.</span></span></div>
+        <div style="display:flex;gap:11px;align-items:flex-start;"><span style="width:22px;height:22px;border-radius:5px;background:var(--glass);border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;margin-top:2px;"><span style="display:grid;grid-template-columns:repeat(9,1.5px);gap:.5px;" aria-hidden="true"><sc-for list="{{ research }}" as="c" hint-placeholder-count="81"><span style="width:1.5px;height:1.5px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span></span><span style="min-width:0;"><span style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--t0);font-weight:500;">Research</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--t2);">9:46</span></span><span style="display:block;margin-top:3px;color:var(--t1);">The brief asks for one route from a note to a plan. The empty screen needs a single clear next step.</span></span></div>
+        <div style="display:flex;gap:11px;align-items:flex-start;"><span style="width:22px;height:22px;border-radius:5px;background:var(--glass);border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;margin-top:2px;"><span style="display:grid;grid-template-columns:repeat(9,1.5px);gap:.5px;" aria-hidden="true"><sc-for list="{{ luca }}" as="c" hint-placeholder-count="81"><span style="width:1.5px;height:1.5px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span></span><span style="min-width:0;"><span style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--t0);font-weight:500;">Luca</span><span style="font-family:var(--mono);font-size:10.5px;color:var(--t2);">9:46</span></span><span style="display:block;margin-top:3px;color:var(--t1);">Back to you. I would add the prompt and hold the rest, which matches what you asked for on Tuesday.</span></span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- row · control -->
+<section id="control" data-screen-label="You stay in control" style="max-width:1240px;margin:clamp(56px,8vh,96px) auto 0;padding:0 var(--pad);display:flex;flex-wrap:wrap;align-items:center;gap:clamp(24px,4vw,64px);">
+  <div data-rv="" style="order:2;flex:1 1 280px;max-width:40ch;">
+    <h3 style="margin:0;font-size:clamp(1.5rem,2.4vw,2rem);font-weight:500;letter-spacing:-.028em;line-height:1.15;color:var(--t0);text-wrap:balance;">You stay in control.</h3>
+    <p style="margin:18px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty;">Before an agent touches your files, it asks. Every action is signed by the agent that took it and listed in one activity feed. Keys and identity stay encrypted on your Mac.</p>
+    <p style="margin:14px 0 0;font-size:13.5px;color:var(--t2);">Try it: answer Vektor's request.</p>
+  </div>
+  <div data-field="ledger" style="order:1;flex:2 1 440px;min-width:0;min-height:clamp(480px,60vh,600px);display:flex;justify-content:center;align-items:center;padding:12px 0;">
+    <div data-card="" data-rv="" style="position:relative;width:min(100%,440px);border:1px solid var(--line2);border-radius:10px;background:var(--s1);box-shadow:0 32px 80px -24px rgba(0,0,0,.95),0 12px 28px -14px rgba(0,0,0,.8);overflow:hidden;font-size:14px;line-height:1.5;color:var(--t1);">
+      <sc-if value="{{ permAsk }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:grid;gap:10px;background:var(--s2);">
+        <div style="display:flex;align-items:center;gap:10px;color:var(--t0);"><span style="width:16px;height:16px;flex:none;background:#c8c7c0;-webkit-mask:url(polyphonic/codex.png) center/contain no-repeat;mask:url(polyphonic/codex.png) center/contain no-repeat;"></span><span>Vektor wants to write <span style="font-family:var(--mono);font-size:12.5px;color:var(--t1);">src/FirstRun.tsx</span></span></div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" onClick="{{ onAllow }}" style="height:30px;padding:0 12px;border-radius:6px;border:0;background:var(--t0);color:var(--bg);font-size:13px;font-weight:500;display:inline-flex;align-items:center;cursor:pointer;transition:transform .12s var(--ease-ctl),background .12s var(--ease-ctl);" style-hover="background:#E4E4E4" style-active="transform:translateY(1px)">Allow once</button>
+          <button type="button" onClick="{{ onDeny }}" style="height:30px;padding:0 12px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--t1);font-size:13px;display:inline-flex;align-items:center;cursor:pointer;transition:transform .12s var(--ease-ctl),border-color .12s var(--ease-ctl);" style-hover="border-color:var(--t2)" style-active="transform:translateY(1px)">Deny</button>
+        </div>
+      </div>
+      </sc-if>
+      <sc-if value="{{ permDone }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--s2);animation:pp-in .3s var(--ease-page) both;">
+        <span style="display:flex;align-items:center;gap:10px;color:var(--t1);font-size:13.5px;"><span style="width:16px;height:16px;flex:none;background:#c8c7c0;-webkit-mask:url(polyphonic/codex.png) center/contain no-repeat;mask:url(polyphonic/codex.png) center/contain no-repeat;"></span>{{ permNote }}</span>
+        <button type="button" onClick="{{ onResetPerm }}" style="height:26px;padding:0 10px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--t2);font-size:12px;cursor:pointer;white-space:nowrap;" style-hover="color:var(--t0)">Ask again</button>
+      </div>
+      </sc-if>
+      <sc-for list="{{ ctlRows }}" as="a" hint-placeholder-count="3">
+        <div style="display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:12px;align-items:start;padding:11px 18px;border-bottom:1px solid var(--line);background:{{ a.bg }};animation:pp-in .3s var(--ease-page) both;">
+          <span style="width:24px;height:24px;border-radius:5px;background:var(--glass);border:1px solid var(--glass-line);display:grid;place-items:center;flex:none;"><span style="display:grid;grid-template-columns:repeat(9,1.5px);gap:.5px;" aria-hidden="true"><sc-for list="{{ a.cells }}" as="c" hint-placeholder-count="81"><span style="width:1.5px;height:1.5px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span></span>
+          <span style="min-width:0;"><span style="display:flex;align-items:baseline;gap:9px;"><span style="color:var(--t0);">{{ a.who }}</span><span style="font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--t2);">{{ a.rt }}</span></span><span style="display:block;margin-top:2px;font-size:13.5px;color:var(--t1);">{{ a.what }}</span></span>
+          <span style="display:grid;justify-items:end;gap:3px;white-space:nowrap;"><span style="font-family:var(--mono);font-size:11px;color:var(--t2);">{{ a.time }}</span><span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;color:var(--t2);">signed<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#86D8A8" stroke-width="2.4" stroke-linecap="square"><path d="M4 13l5 5L20 6"></path></svg></span></span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+
+<!-- beta -->
+<section id="beta" data-screen-label="Beta" style="position:relative;margin-top:clamp(120px,16vh,184px);min-height:clamp(380px,48vh,520px);display:grid;place-items:center;">
+  <div data-rv="" style="position:relative;text-align:center;padding:64px var(--pad);">
+    <h2 style="margin:0 auto;max-width:16ch;font-size:clamp(2rem,4.4vw,3.4rem);font-weight:500;letter-spacing:-.036em;line-height:1.02;color:var(--t0);text-wrap:balance;">Meet your agents.</h2>
+    <p style="margin:18px auto 0;max-width:42ch;font-size:15.5px;line-height:1.55;color:var(--t1);text-wrap:pretty;">Polyphonic is in beta for macOS. Leave your email and I will send you the app as builds are ready.</p>
+    <form onSubmit="{{ onSignup }}" style="margin:30px auto 0;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;max-width:460px;">
+      <input type="email" name="email" required="{{ true }}" placeholder="you@example.com" value="{{ email }}" onChange="{{ onEmail }}" autocomplete="email" aria-label="Email address" style="flex:1 1 220px;min-width:0;height:44px;padding:0 16px;border-radius:999px;border:1px solid var(--line2);background:var(--s1);color:var(--t0);font-size:14.5px;outline:none;transition:border-color .12s var(--ease-ctl);" style-focus="border-color:var(--t2)">
+      <button type="submit" style="display:inline-flex;align-items:center;white-space:nowrap;height:44px;padding:0 20px;border-radius:999px;border:0;background:var(--t0);color:var(--bg);font-size:14.5px;font-weight:500;cursor:pointer;transition:transform .12s var(--ease-ctl),background .12s var(--ease-ctl);" style-hover="background:#E4E4E4" style-active="transform:translateY(1px)">{{ ctaLabel }}</button>
+    </form>
+    <p style="margin:14px auto 0;min-height:20px;font-size:13px;color:var(--t2);">{{ ctaNote }}</p>
+    <p style="margin:26px auto 0;font-size:13.5px;color:var(--t2);">Riley Coyote · Mnemos Research</p>
+  </div>
+</section>
+
+<div style="max-width:1240px;margin:0 auto;padding:28px var(--pad) 40px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;font-size:13.5px;color:var(--t2);">
+  <span style="display:flex;align-items:center;gap:10px;color:var(--t0);">
+    <span style="display:grid;grid-template-columns:repeat(7,2px);gap:1px;" aria-hidden="true"><sc-for list="{{ markCells }}" as="c" hint-placeholder-count="49"><span style="width:2px;height:2px;border-radius:50%;background:{{ c.c }};"></span></sc-for></span>
+    <span style="font-weight:500;">Polyphonic</span>
+  </span>
+  <span style="white-space:nowrap;">From Mnemos Research</span>
+  <span style="margin-left:auto;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--t3);white-space:nowrap;">beta · macos · 2026</span>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;signupEndpoint&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Beta sign-up&quot;},&quot;signupEmail&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Beta sign-up&quot;}}">
+const MARK=[1,0,0,0,0,0,1,1,1,0,0,0,1,1,1,0,1,0,1,0,1,1,0,0,1,0,0,1,1,0,0,0,0,0,1,1,0,0,0,0,0,1,1,0,0,0,0,0,1];
+function emblem(seed,n,density){
+  let h=2166136261;
+  for(let i=0;i<seed.length;i++){h^=seed.charCodeAt(i);h=Math.imul(h,16777619);}
+  const rnd=()=>{h^=h<<13;h^=h>>>17;h^=h<<5;h|=0;return ((h>>>0)%10000)/10000;};
+  const half=Math.ceil(n/2),out=new Array(n*n).fill(0);
+  for(let y=0;y<n;y++)for(let x=0;x<half;x++){const on=rnd()<density?1:0;out[y*n+x]=on;out[y*n+(n-1-x)]=on;}
+  return out;
+}
+const HUE={luca:'#EFEFED',research:'#A8D2E0',vektor:'#E8A33D',ziggy:'#86D8A8'};
+const cells=(who)=>emblem(who,9,.42).map(v=>({c:v?HUE[who]:'var(--unlit)'}));
+const RUNTIMES=[
+  {name:'Claude Code',sub:'2 agents · local',img:'polyphonic/claude.png',ink:'#c77553'},
+  {name:'Codex',sub:'1 agent · local',img:'polyphonic/codex.png',ink:'#c8c7c0'},
+  {name:'Kimi Code',sub:'ready',d:'M5 4v16M5 13l9-9M7.5 10.5L15 20',sw:2.4,ink:'#E4E3DC'},
+  {name:'Grok',sub:'ready',d:'M18.5 12a6.5 8 0 1 1-13 0 6.5 8 0 0 1 13 0M20 3L4 21',sw:2.1,ink:'#E4E3DC'},
+  {name:'Hermes',sub:'2 agents linked as they are',d:'M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-14 0zM12 19v2',sw:1.5,ink:'#B4B4B4'},
+  {name:'OpenClaw',sub:'1 agent linked as it is',d:'M8 3v5M16 3v5M5 8h14v4a7 7 0 0 1-14 0zM12 19v2',sw:1.5,ink:'#B4B4B4'}
+];
+const GRANTS0=[
+  {name:'Northstar brief.md',kind:'project folder',a:1,b:1},
+  {name:'How I like to work',kind:'note',a:1,b:0},
+  {name:'Codex session · Sep 6',kind:'saved session',a:1,b:1},
+  {name:"Tuesday's decisions",kind:'conversation',a:0,b:1}
+];
+const BASE_ACT=[
+  {who:'Research',rt:'hermes',what:'Read the brief and answered in launch.',time:'9:46'},
+  {who:'Luca',rt:'hermes',what:'Asked Research one scoped question.',time:'9:44'},
+  {who:'Ziggy',rt:'openclaw',what:'Reviewed the demo script. Flagged one claim.',time:'9:31'}
+];
+const ICON={
+  library:'M4 5h4v14H4zM10 5h4v14h-4zM16 6l4-1v14l-4 1z',
+  plus:'M12 4v16M4 12h16',
+  agents:'M5 9h14v10H5zM9 5h6v4M9 13h.01M15 13h.01M12 2v3',
+  activity:'M3 12h4l3-7 4 14 3-7h4',
+  brain:'M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0M12 3a9 9 0 0 1 9 9M12 21a9 9 0 0 1-9-9',
+  settings:'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1'
+};
+const P1='You wanted the first release kept small, so I held the line on that. Codex finished the walkthrough overnight, and Research read it this morning.';
+const P2='She thinks the empty screen needs one clear next step. Want me to bring her in, or look at it together first?';
+function demoAt(e){
+  const typing=e<900;
+  const p1=e<900?0:Math.min(P1.length,Math.floor((e-900)/20));
+  const c1=e>4300, c2=e>4700;
+  const p2=e<5200?0:Math.min(P2.length,Math.floor((e-5200)/20));
+  const rc=e>7700;
+  return {typing,p1,c1,c2,p2,rc};
+}
+class Component extends DCLogic {
+  state={w:typeof window!=='undefined'?window.innerWidth:1280,demo:demoAt(1e9),grants:GRANTS0.map(g=>({a:g.a,b:g.b})),perm:'ask',email:''};
+  componentDidMount(){
+    const reduce=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this._onR=()=>{ const el=document.getElementById('pp-root'); const w=(el&&el.clientWidth)||window.innerWidth; if(w!==this.state.w) this.setState({w}); if(this._dd&&this._dd.settle) this._dd.settle(); };
+    window.addEventListener('resize',this._onR);
+    this._onR(); [60,250,700,1600].forEach(ms=>setTimeout(this._onR,ms));
+    if(window.ResizeObserver){ this._ro=new ResizeObserver(this._onR); const el=document.getElementById('pp-root'); if(el) this._ro.observe(el); this._ro.observe(document.documentElement); }
+    /* scroll reveals + live demo gating */
+    document.documentElement.setAttribute('data-rv-ready','');
+    const wire=()=>{
+      const root=document.getElementById('pp-root'); if(!root) return;
+      if(!this._io&&'IntersectionObserver' in window){
+        this._io=new IntersectionObserver(es=>es.forEach(en=>{ if(en.isIntersecting){ en.target.setAttribute('data-rv','on'); this._io.unobserve(en.target); } }),{threshold:0.12,rootMargin:'0px 0px -6% 0px'});
+        this._io2=new IntersectionObserver(es=>es.forEach(en=>{ if(en.isIntersecting) this.startDemo(); else this.stopDemo(); }),{threshold:0.35});
+      }
+      root.querySelectorAll('[data-rv]:not([data-rv="on"])').forEach(el=>{ if(this._io) this._io.observe(el); else el.setAttribute('data-rv','on'); });
+      const pv=document.getElementById('preview'); if(pv&&this._io2&&!this._pvObs){ this._pvObs=true; if(!reduce) this._io2.observe(pv); }
+    };
+    wire(); this._wt=setInterval(wire,600); setTimeout(()=>clearInterval(this._wt),8000);
+    /* engine */
+    const load=src=>new Promise((res,rej)=>{ const t=document.createElement('script'); t.src=src; t.onload=res; t.onerror=rej; document.head.appendChild(t); });
+    const ready=()=>window.DotDisplay&&window.DotDisplay.scenes&&window.DotDisplay.scenes.memory;
+    const ensure=async()=>{ if(ready()) return; if(!window.DotDisplay) await load('dot-display.js?rev=2'); if(!ready()) await load('mnemos-scenes.js?rev=7'); };
+    let seen=0;
+    const mountAll=root=>{ if(this._dd&&this._dd.stop) this._dd.stop(); try{ this._dd=window.DotDisplay.mount(root); }catch(e){ console.error(e); } [300,1200,3000].forEach(ms=>setTimeout(()=>{ if(this._dd&&this._dd.settle) this._dd.settle(); },ms)); };
+    const tick=()=>{ const root=document.getElementById('pp-root'); if(root&&ready()){ const count=root.querySelectorAll('canvas[data-scene]').length; if(count!==seen){ seen=count; mountAll(root); } } this._kt=setTimeout(tick,400); };
+    const P={x:-1e4,y:-1e4};
+    this._pm=e=>{ P.x=e.clientX; P.y=e.clientY; };
+    this._pl=()=>{ P.x=-1e4; P.y=-1e4; };
+    window.addEventListener('pointermove',this._pm,{passive:true});
+    document.addEventListener('pointerleave',this._pl);
+    const reg=()=>{ const DD=window.DotDisplay; if(!DD||DD.scenes.touch) return;
+      const hash=DD.hash, FONT=DD.FONT, PD=[42,43,42], PH=[239,239,237];
+      const EMB={luca:emblem('luca',9,.42),research:emblem('research',9,.42),vektor:emblem('vektor',9,.42),ziggy:emblem('ziggy',9,.42)};
+      const WORD=(()=>{ const out=[]; const s='TOGETHER'; for(let n=0;n<s.length;n++){ const g=(FONT[s[n]]||FONT[' ']).split(','); for(let r=0;r<7;r++) for(let c=0;c<5;c++) if(g[r][c]==='1') out.push([n*6+c,r]); } return out; })();
+      const WORDW=8*6-1;
+      const hops=(nodes,seed,LR)=>{ const lev=new Int16Array(nodes.length).fill(-1); let fr=[seed]; lev[seed]=0; let depth=0;
+        while(fr.length&&depth<6){ const nx=[]; for(const i of fr){ const a=nodes[i]; for(let j=0;j<nodes.length;j++){ if(lev[j]>=0) continue; const b=nodes[j]; if(Math.hypot(b.x-a.x,b.y-a.y)<=LR){ lev[j]=depth+1; nx.push(j); } } } fr=nx; depth++; }
+        return lev; };
+      const MS=22;
+      DD.scenes.touch=function(d,t){
+        const S=d.s, cell=d.cell, cols=d.cols, rows=d.rows;
+        if(!S.nodes||S.cols!==cols||S.rows!==rows){
+          S.cols=cols; S.rows=rows;
+          const N=Math.min(520,Math.round(cols*rows/190));
+          S.nodes=[]; for(let i=0;i<N;i++) S.nodes.push({hx:hash(i,7,3)*cols,hy:hash(i,19,11)*rows,fx:0.00009+hash(i,3,29)*0.00018,fy:0.00007+hash(i,31,5)*0.00016,ph:hash(i,41,17)*6.2832,amp:0.8+hash(i,13,23)*1.8,base:0.42+hash(i,53,9)*0.44,a:0,x:0,y:0});
+          S.waves=[]; S.lastSeedAt=0; S.lastSx=-1e4; S.lastSy=-1e4;
+          S.mw=Math.ceil(d.w/MS)+2; S.mh=Math.ceil(d.h/MS)+2;
+          S.M=new Float32Array(S.mw*S.mh); S.M2=new Float32Array(S.mw*S.mh); S.U=new Float32Array(S.mw*S.mh); S.V=new Float32Array(S.mw*S.mh);
+          S.F=new Float32Array(cols*rows); S.FR=new Float32Array(cols*rows); S.drawn=new Uint8Array(cols*rows);
+          S.px=-1e4; S.py=-1e4; S.last=t; S.vis=new Map(); S.g={};
+        }
+        const nodes=S.nodes, NN=nodes.length, LR=Math.max(9,Math.min(14,cols*0.05));
+        const mw=S.mw, mh=S.mh, M=S.M, M2=S.M2, U=S.U, V=S.V, F=S.F, FR=S.FR;
+        const dtms=Math.min(80,Math.max(16,t-S.last)); S.last=t; const k=dtms/38;
+        /* ---- fluid reveal ---- */
+        const inside=P.x>-1e3;
+        if(inside){
+          if(S.px<-1e3){ S.px=P.x; S.py=P.y; }
+          const dx=P.x-S.px, dy=P.y-S.py, sp=Math.hypot(dx,dy);
+          const amt=0.10+Math.min(1,sp/28)*0.42;
+          const steps=Math.max(1,Math.ceil(sp/(MS*0.5)));
+          for(let si=0;si<steps;si++){ const kk=(si+1)/steps; const gx=(S.px+dx*kk)/MS, gy=(S.py+dy*kk)/MS;
+            for(let yy=-4;yy<=4;yy++) for(let xx=-4;xx<=4;xx++){ const mx=Math.round(gx)+xx, my=Math.round(gy)+yy; if(mx<0||my<0||mx>=mw||my>=mh) continue; const dd=Math.hypot(mx-gx,my-gy); const g=Math.exp(-dd*dd/7); const i=my*mw+mx; M[i]=Math.min(1.4,M[i]+amt*g/steps); U[i]=Math.max(-0.5,Math.min(0.5,U[i]+dx*0.012*g/steps)); V[i]=Math.max(-0.5,Math.min(0.5,V[i]+dy*0.012*g/steps)); } }
+          S.px=P.x; S.py=P.y;
+        } else { S.px=-1e4; }
+        for(let y=0;y<mh;y++) for(let x=0;x<mw;x++){ const i=y*mw+x; const ux=Math.max(-0.6,Math.min(0.6,U[i]*k)), uy=Math.max(-0.6,Math.min(0.6,V[i]*k)); const sx=x-ux, sy=y-uy; const x0=Math.floor(sx), y0=Math.floor(sy); const fx=sx-x0, fy=sy-y0;
+          const g=(xx,yy)=>(xx<0||yy<0||xx>=mw||yy>=mh)?0:M[yy*mw+xx];
+          M2[i]=(g(x0,y0)*(1-fx)+g(x0+1,y0)*fx)*(1-fy)+(g(x0,y0+1)*(1-fx)+g(x0+1,y0+1)*fx)*fy; }
+        const decay=Math.pow(0.984,k), vdec=Math.pow(0.92,k);
+        for(let y=0;y<mh;y++) for(let x=0;x<mw;x++){ const i=y*mw+x; const l=x>0?M2[i-1]:0, r=x<mw-1?M2[i+1]:0, u=y>0?M2[i-mw]:0, b=y<mh-1?M2[i+mw]:0; M[i]=(M2[i]*0.56+(l+r+u+b)*0.11)*decay;
+          const ul=x>0?U[i-1]:0, ur=x<mw-1?U[i+1]:0, uu=y>0?U[i-mw]:0, ub=y<mh-1?U[i+mw]:0; U[i]=(U[i]*0.6+(ul+ur+uu+ub)*0.1)*vdec;
+          const vl=x>0?V[i-1]:0, vr=x<mw-1?V[i+1]:0, vu=y>0?V[i-mw]:0, vb=y<mh-1?V[i+mw]:0; V[i]=(V[i]*0.6+(vl+vr+vu+vb)*0.1)*vdec; }
+        let bx0=1e9,by0=1e9,bx1=-1,by1=-1;
+        for(let y=0;y<mh;y++) for(let x=0;x<mw;x++){ if(M[y*mw+x]>0.003){ if(x<bx0)bx0=x; if(x>bx1)bx1=x; if(y<by0)by0=y; if(y>by1)by1=y; } }
+        const boxes=[];
+        if(bx1>=0) boxes.push([Math.max(1,Math.floor(((bx0-1)*MS-d.ox)/cell)),Math.max(0,Math.floor(((by0-1)*MS-d.oy)/cell)),Math.min(cols-2,Math.ceil(((bx1+2)*MS-d.ox)/cell)),Math.min(rows-1,Math.ceil(((by1+2)*MS-d.oy)/cell))]);
+        /* ---- graph under the cursor ---- */
+        d.fade(0.92);
+        for(let i=0;i<NN;i++){ const n=nodes[i]; n.x=n.hx+Math.sin(t*n.fx+n.ph)*n.amp; n.y=n.hy+Math.cos(t*n.fy+n.ph*1.7)*n.amp; }
+        if(inside){ const scx=(P.x-d.ox)/cell, scy=(P.y-d.oy)/cell; const moved=Math.hypot(scx-S.lastSx,scy-S.lastSy);
+          if(moved>6&&t-S.lastSeedAt>220){ let best=-1,bd=1e9; for(let i=0;i<NN;i++){ const n=nodes[i]; const dd=Math.hypot(n.x-scx,n.y-scy); if(dd<bd){bd=dd;best=i;} } if(best>=0&&bd<24){ S.waves.push({t0:t,lev:hops(nodes,best,LR),seed:best}); if(S.waves.length>5) S.waves.shift(); S.lastSeedAt=t; S.lastSx=scx; S.lastSy=scy; } } }
+        for(let i=0;i<NN;i++){ let a=0; for(const w of S.waves){ const L=w.lev[i]; if(L<0) continue; const dt=(t-w.t0)-L*210; if(dt>-200&&dt<1300){ const v=1-Math.abs(dt-240)/820; if(v>a) a=v; } } nodes[i].a=a<0?0:a; }
+        if(boxes.length){ const [cx0,cy0,cx1,cy1]=boxes[0];
+          for(let y=cy0;y<=cy1;y++) for(let x=cx0;x<=cx1;x++){ const nz=hash(x,y,1); if(nz<0.62) continue; const s2=Math.sin((x*0.17+y*0.12)-t*0.00052); d.set(x,y,0.05+(nz-0.62)*0.22+0.07*(0.5+0.5*s2)); }
+          for(let i=0;i<NN;i++){ const a=nodes[i]; if(a.x<cx0-LR||a.x>cx1+LR||a.y<cy0-LR||a.y>cy1+LR) continue;
+            for(let j=i+1;j<NN;j++){ const b=nodes[j]; const dist=Math.hypot(b.x-a.x,b.y-a.y); if(dist>LR) continue; const near=1-dist/LR; const act=a.a>b.a?a.a:b.a; const v=0.30*near+0.70*act*near; if(v>0.03) d.link(a.x,a.y,b.x,b.y,v,2); } }
+          for(const w of S.waves){ const age=t-w.t0; if(age<0||age>1600) continue; const n=nodes[w.seed]; const v=0.42*(1-age/1600), rr=age*0.017; if(v<0.02) continue; const steps=Math.max(12,Math.round(rr*5)); for(let q=0;q<steps;q++){ const an=q/steps*6.2832; d.set(n.x+Math.cos(an)*rr,n.y+Math.sin(an)*rr,v*(0.6+0.4*hash(q,w.seed,3))); } }
+          for(let i=0;i<NN;i++){ const n=nodes[i]; if(n.x<cx0-LR||n.x>cx1+LR||n.y<cy0-LR||n.y>cy1+LR) continue; let s2=n.base+n.a*0.58; if(s2>1) s2=1; d.disc(n.x,n.y,1.4+n.base*1.6+n.a*2.0,s2*0.95,true); d.set(n.x,n.y,1); }
+        }
+        /* ---- formations: the field draws each row's idea ---- */
+        F.fill(0); FR.fill(0);
+        const put=(x,y,v,r)=>{ x=Math.round(x); y=Math.round(y); if(x<0||y<0||x>=cols||y>=rows) return; const i=y*cols+x; if(v>F[i]){ F[i]=v; FR[i]=r||1; } };
+        const putEmb=(E,cx,cy,s,v,r,dth)=>{ for(let yy=0;yy<9;yy++) for(let xx=0;xx<9;xx++){ if(!E[yy*9+xx]) continue; if(dth!=null&&hash(xx,yy,9)>dth) continue; put(cx+(xx-4)*s,cy+(yy-4)*s,v,r); } };
+        const dotted=(x0,y0,x1,y1,v,step)=>{ const dd=Math.max(2,Math.round(Math.hypot(x1-x0,y1-y0))); for(let i=1;i<dd;i+=step){ const q=i/dd; put(x0+(x1-x0)*q,y0+(y1-y0)*q,v,1); } };
+        const R2C=r=>({x0:(r.left-d.ox)/cell,y0:(r.top-d.oy)/cell,x1:(r.right-d.ox)/cell,y1:(r.bottom-d.oy)/cell});
+        const clampTo=(x,y,c)=>[Math.max(c.x0,Math.min(c.x1,x)),Math.max(c.y0,Math.min(c.y1,y))];
+        if(!S.anch||t-S.anchAt>700){ const root=d.cv.parentElement; S.anch=root?Array.from(root.querySelectorAll('[data-field]')):[]; S.anchAt=t; }
+        for(const el of S.anch){
+          const r=el.getBoundingClientRect(); let tv=0;
+          if(!(r.bottom<-40||r.top>d.h+40)){ const ov=(Math.min(r.bottom,d.h)-Math.max(r.top,0))/Math.min(r.height,d.h*0.55); tv=Math.max(0,Math.min(1,ov)); }
+          const pv=S.vis.get(el)||0; const vis=pv+(tv-pv)*0.07; S.vis.set(el,vis); if(vis<0.02) continue;
+          const e=vis*vis*(3-2*vis), kind=el.dataset.field, rc=R2C(r);
+          const card=el.querySelector('[data-card]'); const cc=card?R2C(card.getBoundingClientRect()):null;
+          const bw=rc.x1-rc.x0, bh=rc.y1-rc.y0; const cxm=(rc.x0+rc.x1)/2, cym=(rc.y0+rc.y1)/2;
+          if(kind==='word'){
+            if(!S.wordT0) S.wordT0=t; const p=Math.min(1,(t-S.wordT0)/1700);
+            let s=Math.max(2,Math.floor(bh/7)); s=Math.max(2,Math.min(s,Math.floor(bw/WORDW)));
+            const ox=cxm-WORDW*s/2+s/2, oy=cym-7*s/2+s/2;
+            for(const [gx,gy] of WORD){ const hh=hash(gx,gy,5); if(hh>p*1.12) continue; const br=0.66+0.26*(0.5+0.5*Math.sin(t*0.0011+gx*0.35+gy*0.5)); put(ox+gx*s,oy+gy*s,br*e,s*0.95); }
+          } else if(kind==='emblems'&&cc&&bw>96){
+            const s=2, ins=13; const pos=[[rc.x0+ins,rc.y0+ins,'luca'],[rc.x1-ins,rc.y0+ins,'research'],[rc.x0+ins,rc.y1-ins,'vektor'],[rc.x1-ins,rc.y1-ins,'ziggy']];
+            pos.forEach(([x,y,who],i)=>{ const ph=((t*0.00028)+i*0.25)%1; const gl=0.55+0.45*Math.exp(-Math.pow((ph-0.5)*3.2,2)); putEmb(EMB[who],x,y,s,gl*e,1.7,e*1.15); const [tx,ty]=clampTo(x,y,cc); dotted(x+(tx>x?9:-9),y+(ty>y?9:-9),tx,ty,(0.22+0.3*gl)*e,2); });
+          } else if(kind==='graph'&&cc){
+            let G=S.g.graph; if(!G||G.w!==Math.round(bw)){ G=S.g.graph={w:Math.round(bw),n:[],waves:[],next:0}; for(let i=0;i<30;i++) G.n.push({u:hash(i,5,17),v:hash(i,23,7),f:0.00008+hash(i,3,3)*0.0001,ph:hash(i,11,13)*6.28,base:0.4+hash(i,29,31)*0.4,a:0}); }
+            const NG=G.n.length, LG=Math.max(8,bw*0.16);
+            for(let i=0;i<NG;i++){ const n=G.n[i]; n.x=rc.x0+3+n.u*(bw-6)+Math.sin(t*n.f+n.ph)*1.2; n.y=rc.y0+3+n.v*(bh-6)+Math.cos(t*n.f*1.3+n.ph)*1.2; }
+            if(t>G.next){ const seed=Math.floor(hash(G.waves.length+1,7,3)*NG)%NG; G.waves.push({t0:t,seed,lev:hops(G.n,seed,LG)}); if(G.waves.length>3) G.waves.shift(); G.next=t+1500+hash(G.waves.length,3,11)*1400; }
+            for(let i=0;i<NG;i++){ let a=0; for(const w of G.waves){ const L=w.lev[i]; if(L<0) continue; const dt=(t-w.t0)-L*260; if(dt>-200&&dt<1400){ const v=1-Math.abs(dt-260)/880; if(v>a) a=v; } } G.n[i].a=a<0?0:a; }
+            const hidden=(x,y)=>x>cc.x0-1&&x<cc.x1+1&&y>cc.y0-1&&y<cc.y1+1;
+            for(let i=0;i<NG;i++) for(let j=i+1;j<NG;j++){ const a=G.n[i], b=G.n[j]; const dist=Math.hypot(b.x-a.x,b.y-a.y); if(dist>LG) continue; const near=1-dist/LG; const act=Math.max(a.a,b.a); const v=(0.16+0.6*act)*near*e; if(v<0.03) continue; const dd=Math.round(dist); for(let q=1;q<dd;q+=2){ const kq=q/dd; const x=a.x+(b.x-a.x)*kq, y=a.y+(b.y-a.y)*kq; if(!hidden(x,y)) put(x,y,v,1); } }
+            for(let i=0;i<NG;i++){ const n=G.n[i]; if(hidden(n.x,n.y)) continue; const v=Math.min(1,(n.base+n.a*0.6))*e; put(n.x,n.y,v,1.5+n.a); put(n.x+1,n.y,v*0.35,1); put(n.x-1,n.y,v*0.35,1); put(n.x,n.y+1,v*0.35,1); put(n.x,n.y-1,v*0.35,1); }
+          } else if(kind==='exchange'&&cc){
+            const side=(bw-(cc.x1-cc.x0))/2; const s=2;
+            const L=side>26?[rc.x0+12,cym]:[rc.x0+13,rc.y0+13], Rr=side>26?[rc.x1-12,cym]:[rc.x1-13,rc.y1-13];
+            const ph=(t*0.00028)%1; const gl=(c)=>0.55+0.45*Math.exp(-Math.pow((ph-c)*4,2));
+            putEmb(EMB.luca,L[0],L[1],s,gl(0.05)*e,1.7,e*1.15); putEmb(EMB.research,Rr[0],Rr[1],s,gl(0.5)*e,1.7,e*1.15);
+            const la=clampTo(L[0],L[1],cc), rb=clampTo(Rr[0],Rr[1],cc);
+            const l0=[L[0]+(la[0]>L[0]?9:-9),L[1]+(la[1]>L[1]?9:(la[1]<L[1]?-9:0))], r0=[Rr[0]+(rb[0]>Rr[0]?9:-9),Rr[1]+(rb[1]>Rr[1]?9:(rb[1]<Rr[1]?-9:0))];
+            dotted(l0[0],l0[1],la[0],la[1],0.26*e,2); dotted(r0[0],r0[1],rb[0],rb[1],0.26*e,2);
+            /* one pulse: out along the left link, across (hidden by the card), back along the right, then home */
+            const seg=(a,b,q)=>[a[0]+(b[0]-a[0])*q,a[1]+(b[1]-a[1])*q];
+            let pt=null; if(ph<0.18) pt=seg(l0,la,ph/0.18); else if(ph>=0.32&&ph<0.5) pt=seg(rb,r0,(ph-0.32)/0.18); else if(ph>=0.55&&ph<0.73) pt=seg(r0,rb,(ph-0.55)/0.18); else if(ph>=0.82) pt=seg(la,l0,(ph-0.82)/0.18);
+            if(pt){ put(pt[0],pt[1],1*e,2.2); put(pt[0]+1,pt[1],0.5*e,1.3); put(pt[0]-1,pt[1],0.5*e,1.3); put(pt[0],pt[1]+1,0.5*e,1.3); put(pt[0],pt[1]-1,0.5*e,1.3); }
+          } else if(kind==='ledger'&&cc){
+            const band=rc.y1-cc.y1; if(band>13){ const n=Math.min(4,Math.floor((band-4)/3)); const w=bw*0.56, x0=cxm-w/2; const ph=(t*0.00022)%1;
+              for(let i=0;i<n;i++){ const y=cc.y1+4+i*3; const on=ph>(i+1)/(n+1); dotted(x0,y,x0+w,y,(on?0.34:0.16)*e,2); put(x0-2,y,(on?0.5:0.25)*e,1.4); if(on){ const age=Math.max(0,ph-(i+1)/(n+1)); put(x0+w+3,y,Math.min(1,0.4+age*3)*e,1.9); } } }
+            const top=cc.y0-rc.y0; if(top>13){ const n=Math.min(3,Math.floor((top-4)/3)); const w=bw*0.56, x0=cxm-w/2; for(let i=0;i<n;i++){ const y=rc.y0+3+i*3; dotted(x0,y,x0+w,y,0.16*e,2); put(x0-2,y,0.25*e,1.4); put(x0+w+3,y,0.5*e,1.9); } }
+          }
+          boxes.push([Math.max(0,Math.floor(rc.x0)-3),Math.max(0,Math.floor(rc.y0)-3),Math.min(cols-1,Math.ceil(rc.x1)+3),Math.min(rows-1,Math.ceil(rc.y1)+3)]);
+        }
+        /* ---- paint ---- */
+        const ctx=d.ctx; ctx.clearRect(0,0,d.w,d.h);
+        const q=d.q, drawn=S.drawn; drawn.fill(0);
+        const gM=(xx,yy)=>(xx<0||yy<0||xx>=mw||yy>=mh)?0:M[yy*mw+xx];
+        for(const [x0,y0,x1,y1] of boxes){
+          for(let y=y0;y<=y1;y++){ const cyp=d.oy+y*cell+cell/2, py=cyp/MS, my0=Math.floor(py), fy=py-my0;
+            for(let x=x0;x<=x1;x++){ const i=y*cols+x; if(drawn[i]) continue; drawn[i]=1;
+              const cxp=d.ox+x*cell+cell/2, px=cxp/MS, mx0=Math.floor(px), fx=px-mx0;
+              let m=(gM(mx0,my0)*(1-fx)+gM(mx0+1,my0)*fx)*(1-fy)+(gM(mx0,my0+1)*(1-fx)+gM(mx0+1,my0+1)*fx)*fy;
+              const f=F[i];
+              if(m<0.004&&f<0.01) continue;
+              m=Math.min(1,m*1.7); const a=m*m*(3-2*m);
+              let cf=q[i]*Math.min(1,a*1.1); if(cf>1) cf=1;
+              let lum=a*(cf<0.02?0.38:0.82), c=cf, rf=1;
+              if(f>0.01){ const fl=f*0.86; if(fl>lum){ lum=fl; } if(f>c){ c=f; rf=FR[i]||1; } c=Math.min(1,c+0.22*a*f); }
+              if(lum<0.025) continue;
+              ctx.fillStyle='rgb('+(((PD[0]+(PH[0]-PD[0])*c)*lum)|0)+','+(((PD[1]+(PH[1]-PD[1])*c)*lum)|0)+','+(((PD[2]+(PH[2]-PD[2])*c)*lum)|0)+')';
+              ctx.beginPath(); ctx.arc(cxp,cyp,cell*(0.13+0.24*c)*(0.65+0.35*Math.max(a,f))*rf,0,6.2832); ctx.fill(); } }
+        }
+      };
+    };
+    ensure().then(()=>{ reg(); tick(); }).catch(e=>{ console.error(e); reg(); tick(); });
+  }
+  startDemo(){ if(this._demoRun) return; this._demoRun=true; this._demoT0=performance.now(); this._demoKey='';
+    const step=()=>{ if(!this._demoRun) return; let e=performance.now()-this._demoT0; if(e>12600){ this._demoT0=performance.now(); e=0; } const dm=demoAt(e); const key=dm.typing+':'+dm.p1+':'+dm.c1+':'+dm.c2+':'+dm.p2+':'+dm.rc; if(key!==this._demoKey){ this._demoKey=key; this.setState({demo:dm}); } this._demoRaf=requestAnimationFrame(step); };
+    step(); }
+  stopDemo(){ if(!this._demoRun) return; this._demoRun=false; cancelAnimationFrame(this._demoRaf); this.setState({demo:demoAt(1e9)}); }
+  componentWillUnmount(){ clearTimeout(this._kt); clearInterval(this._wt); this.stopDemo(); if(this._io) this._io.disconnect(); if(this._io2) this._io2.disconnect(); window.removeEventListener('pointermove',this._pm); document.removeEventListener('pointerleave',this._pl); window.removeEventListener('resize',this._onR); if(this._ro) this._ro.disconnect(); if(this._dd&&this._dd.stop) this._dd.stop(); }
+  onEmail=e=>this.setState({email:e.target.value});
+  onSignup=async e=>{ e.preventDefault(); const em=(this.state.email||'').trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ this.setState({note:'Enter a valid email address.'}); return; }
+    const url=(this.props.signupEndpoint||'').trim(), to=(this.props.signupEmail||'').trim();
+    if(url){
+      this.setState({busy:true,note:'Sending…'});
+      try{ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({email:em,source:'polyphonic beta'})});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        this.setState({busy:false,sent:true,note:'Thanks. We will be in touch.'}); }
+      catch(err){ console.error(err); this.setState({busy:false,note:'That did not go through. Try again in a moment.'}); }
+      return;
+    }
+    if(to){ location.href='mailto:'+to+'?subject='+encodeURIComponent('Polyphonic beta')+'&body='+encodeURIComponent('Please send me the Polyphonic beta.\n\n'+em); this.setState({sent:true,note:'Your mail app should open with the request ready to send.'}); return; }
+    this.setState({note:'Sign-up is not connected yet. Set an endpoint or address in Tweaks.'});
+  };
+  toggle(i,col){ this.setState(s=>{ const g=s.grants.map(x=>({...x})); g[i][col]=g[i][col]?0:1; return {grants:g}; }); }
+  onAllow=()=>this.setState({perm:'allowed'});
+  onDeny=()=>this.setState({perm:'denied'});
+  onResetPerm=()=>this.setState({perm:'ask'});
+  renderVals(){
+    const showRail=this.state.w>=760, dm=this.state.demo, g=this.state.grants, perm=this.state.perm;
+    const rows=[['Library','library'],['New conversation','plus'],['Agents','agents'],['Activity','activity'],['Brain','brain'],['Settings','settings']];
+    const on={border:'var(--t0)',bg:'var(--t0)',ink:'#000'}, off={border:'var(--line2)',bg:'transparent',ink:'transparent'};
+    const has=i=>!!g[i].a;
+    let knows;
+    if(!has(0)&&!has(1)&&!has(2)&&!has(3)) knows='I have nothing on Northstar yet. Grant me the brief and I will read it before we talk.';
+    else { const parts=[]; if(has(1)) parts.push('You like releases kept small, so I would hold the line'); else if(has(0)) parts.push('The brief asks for one route from a note to a plan'); if(has(0)&&has(1)) parts[0]='You wanted this release kept small, so I held the line on the brief'; if(has(2)) parts.push(has(0)||has(1)?'Codex finished the walkthrough overnight':'Codex finished the walkthrough overnight; I have not seen the brief itself'); if(has(3)) parts.push('Tuesday you decided the empty screen needs one clear next step'); knows=parts.join('. ')+'.'; }
+    const extra=perm==='allowed'?[{who:'Vektor',rt:'codex',what:'Wrote src/FirstRun.tsx after you allowed it once.',time:'now',bg:'rgba(134,216,168,.05)'}]:perm==='denied'?[{who:'Vektor',rt:'codex',what:'Asked to write src/FirstRun.tsx. You declined; nothing was written.',time:'now',bg:'rgba(255,255,255,.025)'}]:[];
+    return {
+      email:this.state.email||'',ctaLabel:this.state.sent?'Requested':(this.state.busy?'Sending…':'Request the beta'),ctaNote:this.state.note||'macOS · one email with the app, nothing else.',onEmail:this.onEmail,onSignup:this.onSignup,
+      exhibitCols:(showRail?'224px ':'')+'minmax(0,1fr)',railDisplay:showRail?'flex':'none',floorPad:showRail?'5px 5px 5px 0':'5px',
+      markCells:MARK.map(v=>({c:v?'#FAFAFA':'#2E2E2E'})),
+      luca:cells('luca'),research:cells('research'),vektor:cells('vektor'),
+      railRows:rows.map(([label,k])=>({label,d:ICON[k]})),
+      runtimes:RUNTIMES.map(r=>({...r,isMask:!!r.img,isSvg:!r.img,img:r.img||'',d:r.d||'',sw:r.sw||1.5})),
+      demoTyping:dm.typing,demoP1:P1.slice(0,dm.p1),demoP2:P2.slice(0,dm.p2),demoCard1:dm.c1,demoCard2:dm.c2,demoReceipt:dm.rc,
+      demoResearch:dm.rc?'answered':'reading…',demoDot:dm.rc?'#A8D2E0':'#5a5a55',
+      grants:GRANTS0.map((x,i)=>{ const A=g[i].a?on:off, B=g[i].b?on:off; return {name:x.name,kind:x.kind,a:!!g[i].a,b:!!g[i].b,aBorder:A.border,aBg:A.bg,aInk:A.ink,bBorder:B.border,bBg:B.bg,bInk:B.ink,toggleA:()=>this.toggle(i,'a'),toggleB:()=>this.toggle(i,'b')}; }),
+      lucaKnows:knows,
+      permAsk:perm==='ask',permDone:perm!=='ask',permNote:perm==='allowed'?'Allowed once. Vektor wrote the file and signed it.':'Denied. Vektor was told, and nothing was written.',
+      onAllow:this.onAllow,onDeny:this.onDeny,onResetPerm:this.onResetPerm,
+      ctlRows:extra.concat(BASE_ACT.map(a=>({...a,bg:'transparent'}))).map(a=>({...a,cells:cells(a.who.toLowerCase())}))
+    };
+  }
+}
+</script>
+</body>
+</html>
