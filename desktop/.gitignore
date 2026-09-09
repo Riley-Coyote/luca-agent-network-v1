@@ -28,3 +28,6 @@ test-results
 *.njsproj
 *.sln
 *.sw?
+
+# The nav state grid (tests/e2e/luca/nav-state-grid.spec.ts) — review by eye, never committed
+nav-grid

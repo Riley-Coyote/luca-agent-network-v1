@@ -314,3 +314,25 @@ remains is the timeline's own cost — Codex's virtualiser, outside the nav.
 Also learned: a Radix layer that is still leaving (the compose view's
 recipient popover, 150 ms) claims the first Escape, as nested controls are
 meant to; the Escape case starts from a room.
+
+## After E — locked (2026-09-09, claude/rail-fold-b)
+
+- `tests/e2e/nav-motion.perf.ts` (perf project): the column opens and
+  closes without a long task in a plain room and in the 600-message
+  project room; layout passes per rail slide reported (1 / 2).
+- `tests/e2e/dm-open.perf.ts`: a warm open of a resident's thread holds at
+  0 ms of long tasks.
+- `tests/e2e/luca/agent-rail.spec.ts`: 18 cases; `resident-mote.spec.ts`: 2.
+- `tests/e2e/luca/nav-state-grid.spec.ts`: 108 settled states — rail open /
+  collapsed / peek × column none / open × home / room / project / empty
+  project, at 1280 px in three text scales and at 900 px, plus the phone
+  sheet on every route — into `desktop/nav-grid/` for review by eye. An
+  instrument, not a gate: it asserts only that the column's header clears
+  the window-controls strip in every state.
+- Seen in the grid, not fixed: at text scale 1.25 the column's header sits
+  about 10 px below the rail's first row (the chrome band and the rail's
+  row scale differently); within the 6 px the spec asks at scale 1.
+- Pending: the native 120 Hz pass on Riley's display, worst frame per
+  transition, to be recorded here; `tests/e2e/sidebar.spec.ts`'s constants
+  with Codex's nod; Codex's final review of claude/rail-fold-b; the merge
+  into claude/rail-fold.
