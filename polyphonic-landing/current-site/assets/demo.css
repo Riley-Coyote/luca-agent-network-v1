@@ -112,7 +112,7 @@ img[src$="/hermes.png"]{border-radius:4px}
 
 /* Native-shell alignment: conversation-shell.css, AppSidebarPinnedHeader,
    MessageComposer and ExchangeReceiptRow; fictional content only. */
-.demo-app{grid-template-columns:238px minmax(0,1fr);height:790px;padding:5px;background:#000;color:#bdbbb1;--d-ink:#bdbbb1;--d-muted:#96948b;font-family:var(--sans);border-radius:17px}
+.demo-app{grid-template-columns:238px minmax(0,1fr);height:880px;padding:5px;background:#000;color:#bdbbb1;--d-ink:#bdbbb1;--d-muted:#96948b;font-family:var(--sans);border-radius:17px}
 .d-sidebar{padding:7px 12px 8px 6px;overflow:hidden;gap:0}
 .d-window{height:56px}.d-lights{gap:8px;margin-left:5px;margin-right:12px}.d-lights i{width:12px;height:12px}
 .demo-app .d-search{margin:10px 0 9px;min-height:34px;background:#111110;font-size:13px;border-radius:7px}

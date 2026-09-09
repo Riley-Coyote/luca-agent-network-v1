@@ -47,7 +47,7 @@
 
   const form=$('#beta-form'), email=$('#email'), submit=$('#signup-submit'), note=$('#signup-note');
   const config=window.POLYPHONIC_CONFIG||{};let busy=false;
-  if(config.signupEndpoint)note.textContent='Beta news and access. No unrelated emails.';
+  if(config.signupEndpoint)note.textContent='Beta builds and news only. No unrelated email.';
   if(config.privacyUrl){const a=document.createElement('a');a.textContent='Privacy';a.href=config.privacyUrl;a.className='privacy-link';$('.creator').after(a)}
   email.addEventListener('input',()=>{email.removeAttribute('aria-invalid');if(!busy){submit.disabled=false;submit.textContent='Request the beta';}});
   form.addEventListener('submit',async e=>{
@@ -59,10 +59,10 @@
     busy=true;submit.disabled=true;submit.textContent='Requesting…';form.setAttribute('aria-busy','true');note.textContent='Sending your request…';
     const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),12000);
     try{
-      const response=await fetch(config.signupEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({email:email.value.trim(),source:'polyphonic-beta'}),signal:controller.signal});
+      const response=await fetch(config.signupEndpoint,{method:'POST',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({email:email.value.trim(),source:'polyphonic-beta',website:form.querySelector('#website')?.value||''}),signal:controller.signal});
       if(!response.ok)throw new Error(`Signup failed: ${response.status}`);
       const result=await response.json().catch(()=>({}));
-      note.textContent=result.status==='already_subscribed'?'You’re already on the list. We’ll email you when your build is ready.':result.status==='confirmation_required'?'Check your inbox to confirm your email address.':'You’re on the list. We’ll email you when your build is ready.';submit.textContent='Requested';email.value='';submit.disabled=true;
+      note.textContent=result.status==='already_subscribed'?'You’re already on the list. We’ll email your download link when a build is ready.':result.status==='confirmation_required'?'Check your inbox to confirm your email address.':'You’re on the list. We’ll email your download link when a build is ready.';submit.textContent='Requested';email.value='';submit.disabled=true;
     }catch{
       note.textContent='Your request couldn’t be confirmed. Please try again.';submit.textContent='Request the beta';submit.disabled=false;
     }finally{clearTimeout(timeout);busy=false;form.removeAttribute('aria-busy')}

@@ -48,25 +48,7 @@ See `LOVABLE-HANDOFF.md` for the transfer package and signup contract.
 
 ## Beta connection and publishing
 
-The beta destination has not been supplied. The form validates addresses, but with empty configuration it clearly reports that the email was not sent or saved. The preview does not collect email.
-
-For the provided form flow, set `signupEndpoint` to a **same-origin** endpoint that accepts:
-
-```json
-{"email":"person@example.com","source":"polyphonic-beta"}
-```
-
-A successful 2xx response must mean the request was accepted by the signup service. Non-2xx responses and a 12-second timeout produce a retry state. The frontend prevents concurrent submissions; the service must also validate, rate limit, handle duplicate addresses, and provide the actual email workflow. Set `privacyUrl` to the real privacy notice.
-
-An existing hosted waitlist or download URL can instead be wired to the CTA when Riley supplies it. No backend, account, or mailing service has been invented.
-
-Before public deployment:
-
-1. Connect and verify the real beta destination and privacy notice.
-2. Confirm the launch claims and example flows against the shipping app; these are fictional presentational components, not native captures.
-3. Set the real canonical domain and social preview metadata. The unused `siteUrl` configuration slot is reserved for that decision; it does not currently create a canonical tag.
-4. Remove `noindex, nofollow` from `index.html` and replace the preview-only `Disallow: /` in the build script. Indexing is deliberately blocked until these decisions are complete.
-5. Deploy `dist/` to a static host with HTTPS. Carry over or configure equivalent security headers from `scripts/serve.mjs`; adapt `connect-src` only if a verified service requires it.
+See [CLAUDE-HANDOFF.md](CLAUDE-HANDOFF.md#website-integration-and-signup-wired-2026-09-09) for the deploy build flags, the `/beta` destination, and the Supabase signup backend. With no flags, `npm run build` produces the local preview: indexing blocked, no signup endpoint, and the form says so.
 
 ## Verify
 

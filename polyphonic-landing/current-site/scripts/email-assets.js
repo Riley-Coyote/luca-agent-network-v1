@@ -1,0 +1,24 @@
+window.__assets = null;
+(async () => {
+  await Promise.all([document.fonts.load('900 96px "Doto"'), document.fonts.load('500 116px "Instrument Sans"')]);
+  await document.fonts.ready;
+  const svg = await (await fetch('../assets/brand/polyphonic-solid.svg')).text();
+  const recolored = svg.replace(/currentColor/g, '#f2f2ee');
+  const img = new Image();
+  await new Promise((ok, err) => { img.onload = ok; img.onerror = err; img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(recolored); });
+  const m = document.getElementById('mark').getContext('2d');
+  m.drawImage(img, 0, 0, 44, 44);
+  const c = document.getElementById('together');
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, c.width, c.height);
+  g.fillStyle = '#ffffff';
+  g.textBaseline = 'alphabetic';
+  g.font = '500 116px "Instrument Sans"';
+  g.letterSpacing = '-5px';
+  g.fillText('Your agents,', 0, 112);
+  g.fillStyle = '#ececE6';
+  g.font = '900 96px "Doto"';
+  g.letterSpacing = '7px';
+  g.fillText('TOGETHER', 4, 262);
+  window.__assets = { mark: document.getElementById('mark').toDataURL('image/png'), together: c.toDataURL('image/png') };
+})().catch(e => { window.__assets = { error: String(e) }; });

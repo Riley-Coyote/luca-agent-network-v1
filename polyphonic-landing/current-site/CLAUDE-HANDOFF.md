@@ -27,11 +27,22 @@ Node 20+; these commands require no dependency install. The server serves `dist/
 - Do not reintroduce prototype character avatars or generated background artwork.
 - Important illustrative interactions matter; full feature parity with the desktop app is not the goal.
 
-## Next work: website integration and signup
+## Website integration and signup (wired 2026-09-09)
 
-Read `LOVABLE-HANDOFF.md` for the endpoint contract, deployment considerations, and existing audit history. Configure actual signup storage/endpoint and privacy URL in `assets/config.js` or equivalent destination configuration. The current preview does not collect email. Set canonical/social metadata and remove preview indexing restrictions only when publishing. Validate shipping claims, subscription compatibility, and beta availability.
+The page ships as static files at **polyphonic.chat/beta** inside the Polyphonic web app repo (`Riley-Coyote/polyphonic-v2`, `public/beta/`, deployed by Lovable). Rebuild and re-copy after any edit here:
 
-If porting into a framework, preserve listener/timer/canvas cleanup, pause/reduced-motion behavior, detached-window state sharing, project rooms, draft isolation, and keyboard focus. Re-test signup success/failure/duplicates and the key demo flows on the destination domain.
+```sh
+BASE_PATH=/beta/ PUBLISH=1 \
+SIGNUP_ENDPOINT=https://kknchdnrujzheulqzowv.supabase.co/functions/v1/beta-signup \
+PRIVACY_URL=https://polyphonic.chat/privacy npm run build
+# then copy dist/ over polyphonic-v2/public/beta/ and push main
+```
+
+`PUBLISH=1` drops the preview `noindex` tag; `BASE_PATH` rewrites asset URLs; the signup endpoint and privacy URL are written into `dist/assets/config.js` (source `assets/config.js` stays empty). A plain `npm run build` is still the local preview.
+
+Signup backend lives in polyphonic-v2 Supabase: `beta_signups` table, public `beta-signup` edge function (validation, honeypot field `website`, per-IP rate limit, duplicate → `already_subscribed`), and service-role-only `beta-invite`, which sends the download email (`_shared/email-templates/beta-invite.tsx`) through the existing transactional email queue. Share card: `assets/share/polyphonic-beta.png` (source `scripts/share-card.html`); email images: `assets/email/` (source `scripts/email-assets.html`). Both render from the preview server with Playwright.
+
+Copy decisions: no support matrix. The page says "Start with Claude Code or Codex for the best experience" and the marquee reads "One home for …" rather than "Works with …".
 
 ## Provenance and verification
 
