@@ -1,16 +1,19 @@
 /* The calm field — the front door's hero canvas.
  *
  * A fine, slow, greyscale particle cloud in the register of the signed-out
- * polyphonic.chat page: uniform points drifting on a divergence-free curl flow,
- * each held loosely to a home so the cloud never thins or wraps, the cursor
- * parting them softly and letting them back over seconds.
+ * polyphonic.chat page: points drifting on a divergence-free curl flow, each held
+ * loosely to a home so the cloud never thins or wraps, the cursor parting them
+ * softly and letting them back over seconds. The cloud is not even: it thickens
+ * and brightens towards a heart, the way the live page gathers near its centre,
+ * and the heart is placed where the dendrite grows.
  *
  * The dendrite from the first mock survives only as structure. A
- * diffusion-limited-aggregation skeleton grows invisibly on a 3 px lattice over
+ * diffusion-limited-aggregation skeleton grows invisibly on a 4 px lattice over
  * about ninety seconds and never resets; particles that drift close to a grown
- * cell ease onto it and settle a little brighter. Nothing is ever drawn per
- * lattice cell, so the cloud slowly organises into a dendrite without a single
- * lit square. Greyscale only, no sparkle, no re-lights, no colour.
+ * cell ease onto it and settle brighter, and a few a second are drawn in from the
+ * growth front so the figure visibly accretes. Nothing is ever drawn per lattice
+ * cell, so the cloud organises into a soft branching constellation without a
+ * single lit square. Greyscale only, no sparkle, no re-lights, no colour.
  */
 (() => {
   const canvas = document.querySelector('.home-field');
@@ -23,15 +26,24 @@
   const narrow = () => matchMedia('(max-width: 760px)').matches;
 
   // ── Look ──────────────────────────────────────────────────────────────────
-  const AREA_PER_PARTICLE = 600;      // CSS px² per particle, wide screens
-  const AREA_PER_PARTICLE_NARROW = 900;
-  const ALPHA_MIN = 0.06, ALPHA_MAX = 0.30;
+  const AREA_PER_PARTICLE = 400;      // CSS px² per particle, wide screens
+  const AREA_PER_PARTICLE_NARROW = 650;
+  const ALPHA_MIN = 0.08, ALPHA_MAX = 0.42;
+  const ALPHA_SHAPE = 1.15;           // how the range is populated: ~even, faint side weighted
   const CORE_MIN = 1.0, CORE_MAX = 1.6;  // core diameter, CSS px
-  const HALO_SCALE = 2.2;             // the second, larger, fainter point
-  const HALO_ALPHA = 0.16;
+  const HALO_SCALE = 3.2;             // the second, larger, fainter point
+  const HALO_ALPHA = 0.26;
+
+  // ── The heart ─────────────────────────────────────────────────────────────
+  // Inside the dendrite's disc the cloud is thicker and a little brighter, and
+  // it thins back to the ambient across the disc's outer third. Both are static
+  // per-particle facts settled at seed time — nothing here ever animates.
+  const HEART_DENSITY = 0.6;          // ×1.6 the ambient density at the core
+  const HEART_ALPHA = 0.3;            // ×1.3 the ambient resting alpha
+  const HEART_PLATEAU = 0.72;         // full strength out to 72 % of the radius
 
   // ── Motion ────────────────────────────────────────────────────────────────
-  const FLOW = 15;                    // curl amplitude, CSS px/s (|curl| ≤ 1.55)
+  const FLOW = 28;                    // curl amplitude, CSS px/s (|curl| ≤ 1.55)
   const HOME_RATE = 0.30;             // spring back to home, per second
   const K1X = 0.0036, K1Y = 0.0029, K2X = 0.0078, K2Y = 0.0066;
   const TA = 0.00022, TB = 0.00035;   // the flow itself morphs, slowly
@@ -43,10 +55,21 @@
   const GROW_TAU_MS = 19000;          // ≥99 % of the bound by 90 s
   const BREATH_MS = 7000, BREATH_AMP = 0.10, BREATH_RAMP_MS = 4000;
   const CAPTURE_TAU_MS = 850;         // ~2.5 s onto the cell
-  const CAPTURE_NEAR = 4;             // CSS px
-  const CAPTURE_ALPHA_CAP = 0.42;
-  const CAPTURE_ALPHA_MIN = 0.26;     // settled points read as structure, not dust
-  const CELL = 3;                     // skeleton lattice, CSS px
+  const CAPTURE_NEAR = 5;             // CSS px
+  const CAPTURE_ALPHA_CAP = 0.55;
+  const CAPTURE_ALPHA_MIN = 0.34;     // settled points read as structure, not dust
+  const CAPTURE_LIFT = 0.14;
+  const CELL = 4;                     // skeleton lattice, CSS px
+
+  // ── Settlers ──────────────────────────────────────────────────────────────
+  // A few a second, from about six seconds on, a point already drifting near the
+  // growth front is handed the nearest branch cell and takes the ordinary
+  // two-to-three-second ease onto it. Nothing is created and nothing jumps; the
+  // figure simply accretes while you watch.
+  const SETTLE_PER_S = 5;             // at 1440×836, scaled by area
+  const SETTLE_START_MS = 6000;
+  const SETTLE_REACH = 24;            // CSS px
+  const REF_AREA = 1440 * 836;
 
   // ── Deterministic per-particle randomness ────────────────────────────────
   const hash = (i, salt) => {
@@ -62,7 +85,7 @@
   let t0 = 0, lastT = 0, raf = 0;
   let paused = false, hidden = false, staticDraw = false;
   let cursorX = 0, cursorY = 0, cursorOn = false;
-  let maxSpeed = 0;
+  let maxSpeed = 0, settleAcc = 0;
   const frameMs = [];
 
   // A point: one solid core disc plus one larger, fainter disc behind it,
@@ -107,7 +130,22 @@
       const a = Math.random() * Math.PI * 2;
       walkers.push({ x: cx + Math.cos(a) * 3, y: cy + Math.sin(a) * 3 });
     }
-    return { gw, gh, cx, cy, stuck, list, walkers, bound, radius: 1, done: false, doneAt: 0 };
+    return {
+      gw, gh, cx, cy, stuck, list, walkers, bound, radius: 1, done: false, doneAt: 0,
+      // The same disc in CSS pixels: where the heart sits and where settlers come from.
+      discX: (cx + 0.5) * CELL, discY: (cy + 0.5) * CELL, discR: bound * CELL,
+    };
+  }
+
+  // 1 through the dendrite's core, easing to 0 at the edge of its disc.
+  function heartAt(x, y, cx, cy, r) {
+    if (!(r > 0)) return 0;
+    const dx = x - cx, dy = y - cy;
+    const d = Math.sqrt(dx * dx + dy * dy) / r;
+    if (d <= HEART_PLATEAU) return 1;
+    if (d >= 1) return 0;
+    const u = 1 - (d - HEART_PLATEAU) / (1 - HEART_PLATEAU);
+    return u * u * (3 - 2 * u);
   }
 
   function growSkeleton(t, elapsed) {
@@ -153,11 +191,22 @@
     VX = new Float32Array(N); VY = new Float32Array(N);
     A0 = new Float32Array(N); SPR = new Uint8Array(N);
     CAP = new Float32Array(N); CTX_ = new Float32Array(N); CTY_ = new Float32Array(N);
+    const s = skeleton;
+    const hcx = s ? s.discX : W * 0.5, hcy = s ? s.discY : H * 0.5, hr = s ? s.discR : 0;
     for (let i = 0; i < N; i++) {
-      HX[i] = hash(i, 1.7); HY[i] = hash(i, 3.1);          // normalised homes
-      PX[i] = HX[i] * W; PY[i] = HY[i] * H;
+      // Homes are uniform, then rejection-sampled against the heart's weight:
+      // eight deterministic candidates from the same hash, first accepted wins.
+      // The total is unchanged — the heart is a redistribution, not an addition.
+      let nx = 0, ny = 0, h = 0;
+      for (let k = 0; k < 8; k++) {
+        nx = hash(i, 1.7 + k * 0.37); ny = hash(i, 3.1 + k * 0.53);
+        h = heartAt(nx * W, ny * H, hcx, hcy, hr);
+        if (hash(i, 9.4 + k * 0.19) * (1 + HEART_DENSITY) <= 1 + HEART_DENSITY * h) break;
+      }
+      HX[i] = nx; HY[i] = ny;                              // normalised homes
+      PX[i] = nx * W; PY[i] = ny * H;
       const layer = hash(i, 5.9);
-      A0[i] = ALPHA_MIN + layer * layer * (ALPHA_MAX - ALPHA_MIN);
+      A0[i] = (ALPHA_MIN + Math.pow(layer, ALPHA_SHAPE) * (ALPHA_MAX - ALPHA_MIN)) * (1 + HEART_ALPHA * h);
       SPR[i] = Math.min(SPRITE_STEPS - 1, (hash(i, 8.3) * SPRITE_STEPS) | 0);
     }
   }
@@ -178,20 +227,63 @@
     PW = Math.round(W * dpr); PH = Math.round(H * dpr);
     canvas.width = PW; canvas.height = PH;
     if (d !== oldD || !sprites.length) buildSprites();
+    skeleton = makeSkeleton();          // before seeding: the heart needs its disc
     const per = W >= 761 ? AREA_PER_PARTICLE : AREA_PER_PARTICLE_NARROW;
     const want = Math.max(120, Math.round((W * H) / per));
     // Keep the cloud we already have unless the count is meaningfully wrong;
     // re-seeding on every drag frame would read as a jump.
     if (!oldN || Math.abs(want - oldN) / oldN > 0.25) seedParticles();
     else reproject(oldW, oldH);
-    skeleton = makeSkeleton();
     if (!isRunning()) draw(lastT || 0);
+  }
+
+  // ── Settlers ──────────────────────────────────────────────────────────────
+  // Draw a few points a second in from the growth front so the figure accretes
+  // where a viewer is already looking. A settler is an ordinary drifting point
+  // handed a branch cell within reach; it then takes the same two-to-three-second
+  // ease as any other capture. Nothing is born and nothing jumps.
+  function recruitSettlers(elapsed, dt) {
+    const s = skeleton;
+    if (!s || elapsed < SETTLE_START_MS || s.radius < 6) return;
+    settleAcc += SETTLE_PER_S * Math.min(2, (W * H) / REF_AREA) * dt;
+    let want = settleAcc | 0;
+    if (!want) return;
+    settleAcc -= want;
+    const { gw, gh, stuck, discX, discY } = s;
+    const inner = s.radius * 0.5 * CELL, outer = (s.radius + 3) * CELL;
+    const reach = Math.ceil(SETTLE_REACH / CELL);
+    let guard = want * 60;
+    while (want > 0 && guard-- > 0) {
+      const i = (Math.random() * N) | 0;
+      if (CAP[i] > 0) continue;
+      const px = PX[i], py = PY[i];
+      const ddx = px - discX, ddy = py - discY;
+      const d = Math.sqrt(ddx * ddx + ddy * ddy);
+      if (d < inner || d > outer) continue;
+      const gx = (px / CELL) | 0, gy = (py / CELL) | 0;
+      let bd = SETTLE_REACH * SETTLE_REACH, found = false;
+      for (let oy = -reach; oy <= reach; oy++) {
+        const yy = gy + oy;
+        if (yy < 1 || yy >= gh - 1) continue;
+        for (let ox = -reach; ox <= reach; ox++) {
+          const xx = gx + ox;
+          if (xx < 1 || xx >= gw - 1 || !stuck[yy * gw + xx]) continue;
+          const cxp = (xx + 0.5) * CELL, cyp = (yy + 0.5) * CELL;
+          const d2 = (px - cxp) * (px - cxp) + (py - cyp) * (py - cyp);
+          if (d2 < bd) { bd = d2; found = true; CTX_[i] = cxp; CTY_[i] = cyp; }
+        }
+      }
+      if (!found) continue;
+      CAP[i] = 0.0001;
+      want--;
+    }
   }
 
   // ── Step ──────────────────────────────────────────────────────────────────
   function step(t, dt) {
     const elapsed = t - t0;
     growSkeleton(t, elapsed);
+    recruitSettlers(elapsed, dt);
     const s = skeleton;
     const gw = s.gw, gh = s.gh, stuck = s.stuck;
     const tA = t * TA, tB = t * TB;
@@ -207,8 +299,10 @@
         // Captured: ease onto the cell and stay there. No flow, no jitter.
         CAP[i] = cap + (1 - cap) * capEase;
         const k = CAP[i];
-        PX[i] += (CTX_[i] - PX[i]) * capEase;
-        PY[i] += (CTY_[i] - PY[i]) * capEase;
+        const mx = (CTX_[i] - PX[i]) * capEase, my = (CTY_[i] - PY[i]) * capEase;
+        PX[i] += mx; PY[i] += my;
+        const csp = Math.sqrt(mx * mx + my * my) / (dt || 1 / 60);
+        if (csp > peak) peak = csp;
         if (k > 0.999) CAP[i] = 1;
         continue;
       }
@@ -293,7 +387,7 @@
     for (let i = 0; i < N; i++) {
       const cap = CAP[i];
       let a = A0[i];
-      if (cap > 0) a = a + (Math.min(CAPTURE_ALPHA_CAP, Math.max(a + 0.12, CAPTURE_ALPHA_MIN)) - a) * cap;
+      if (cap > 0) a = a + (Math.min(CAPTURE_ALPHA_CAP, Math.max(a + CAPTURE_LIFT, CAPTURE_ALPHA_MIN)) - a) * cap;
       a *= gain;
       if (a < 0.012) continue;
       const s = sprites[SPR[i]];
