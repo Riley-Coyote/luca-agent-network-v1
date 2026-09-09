@@ -1,5 +1,6 @@
 import * as React from "react";
 
+import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import "@/shared/ui/mote3d.js";
 import {
   DropdownMenu,
@@ -13,6 +14,11 @@ import "./residentMote.css";
 
 const RESIDENT_MOTE_TINT = "#c96442";
 const RESIDENT_MOTE_SIZE_KEY = "luca.resident-mote-size.v1";
+// Scheduling budgets, not motion durations: how long the companion may wait
+// for an idle moment before it mounts anyway, and how long the app may wait
+// before warming a renderer.
+const RESIDENT_MOTE_ARRIVAL_TIMEOUT_MS = 240;
+const RESIDENT_MOTE_WARMUP_TIMEOUT_MS = 4_000;
 
 const MOTE_SIZES = {
   small: { height: 42, unitWidth: 30 },
@@ -72,6 +78,29 @@ function setMoteSize(size: ResidentMoteSize) {
   for (const listener of moteSizeListeners) listener();
 }
 
+type Mote3DConstructor = CustomElementConstructor & {
+  warm?: (size: { width: number; height: number }) => Promise<void>;
+};
+
+/**
+ * Warm a companion renderer at idle, so the first thread with a resident
+ * opens on compiled shaders and an allocated drawing buffer instead of
+ * paying for a WebGL context, a compile and a resize on the click. The
+ * element keeps a document-wide renderer pool; this only asks it to fill
+ * the first slot early, at the box a single companion will use.
+ */
+export function useResidentMoteWarmup(enabled: boolean) {
+  const ready = useDeferredLoad({ timeoutMs: RESIDENT_MOTE_WARMUP_TIMEOUT_MS });
+  React.useEffect(() => {
+    if (!enabled || !ready) return;
+    const element = customElements.get("mote-3d") as
+      | Mote3DConstructor
+      | undefined;
+    const { height } = MOTE_SIZES[getMoteSize()];
+    void element?.warm?.({ width: height, height });
+  }, [enabled, ready]);
+}
+
 type ResidentMoteProps = {
   count: number;
 };
@@ -83,6 +112,11 @@ export function ResidentMote({ count }: ResidentMoteProps) {
     getMoteSize,
     () => "large",
   );
+  // The conversation lands first. The frame reserves the companion's box at
+  // once; the element itself mounts when the thread is idle and fades in.
+  const arrived = useDeferredLoad({
+    timeoutMs: RESIDENT_MOTE_ARRIVAL_TIMEOUT_MS,
+  });
   if (residentCount === 0) return null;
 
   const dimensions = MOTE_SIZES[size];
@@ -117,7 +151,7 @@ export function ResidentMote({ count }: ResidentMoteProps) {
           title={`${companionLabel} · ${size} size`}
           type="button"
         >
-          {React.createElement("mote-3d", attributes)}
+          {arrived ? React.createElement("mote-3d", attributes) : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-36">

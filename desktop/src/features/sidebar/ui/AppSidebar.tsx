@@ -5,6 +5,7 @@ import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
 import { shouldShowProjectsSection } from "@/features/communities/communityStorage";
+import { useResidentMoteWarmup } from "@/features/luca/residents/ResidentMote";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import { useStableCallback } from "@/shared/hooks/useStableReference";
@@ -250,6 +251,9 @@ export function AppSidebar({
         : null,
     [railAgents, selectedAgentPubkey],
   );
+  // Residents exist, so a thread with one is likely: warm the companion's
+  // renderer at idle rather than on that click.
+  useResidentMoteWarmup(railAgents.length > 0);
   // A column for a resident who is no longer here closes itself — but only
   // once the roster has actually loaded, so a slow query cannot flicker it
   // away on the way in.

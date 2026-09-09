@@ -26,10 +26,18 @@
   outline-offset: 2px;
 }
 
+/* The companion arrives after the conversation: the element mounts once the
+   thread is idle and fades in when its first frame has rendered. */
 .luca-resident-mote {
   display: block;
   max-width: 440px;
+  opacity: 0;
   overflow: visible;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-arrival);
+}
+
+.luca-resident-mote[data-ready] {
+  opacity: 1;
 }
 
 .luca-resident-mote canvas {
@@ -39,5 +47,6 @@
 @media (prefers-reduced-motion: reduce) {
   .luca-resident-mote {
     pointer-events: none;
+    transition: none;
   }
 }
