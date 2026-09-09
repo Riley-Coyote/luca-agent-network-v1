@@ -710,7 +710,10 @@ export function AppSidebar({
       ) : null}
       <div
         className={cn(
-          "relative flex min-h-0 w-(--sidebar-rail-width) shrink-0 flex-col overflow-hidden",
+          // The rail fills the sidebar's height (flex-1 + min-h-0 is what lets
+          // its list scroll) and keeps its own width even while the column
+          // widens the sidebar beside it.
+          "relative flex min-h-0 w-(--sidebar-rail-width) flex-1 shrink flex-col overflow-hidden",
           // In the mobile sheet the column takes the rail's place outright;
           // with the rail collapsed on desktop, likewise — the column is the pane.
           selectedAgent && (isMobile || !sidebarOpen) && "hidden",
