@@ -27,7 +27,7 @@ import {
 import { useProfileQuery } from "@/features/profile/hooks";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomWorkspace } from "@/features/projects/ui/ProjectRoomWorkspace";
-import { useSelectedAgentPubkey } from "@/features/sidebar/lib/agentColumn";
+import { useAgentColumnOpen } from "@/features/sidebar/lib/agentColumn";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -137,10 +137,6 @@ function ChannelConversationSurface({
   const identityQuery = useIdentityQuery();
   const communities = useCommunities();
   const profileQuery = useProfileQuery();
-  // While the rail's agent column is open the project navigator steps aside
-  // (ProjectRoomWorkspace owns that rule); the conversation should lay itself
-  // out for the room it actually has.
-  const agentColumnOpen = useSelectedAgentPubkey() !== null;
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
@@ -175,6 +171,14 @@ function ChannelConversationSurface({
     projectByChannelId,
     projectCatalog,
   ]);
+  // While the rail's agent column is open the project navigator steps aside
+  // (ProjectRoomWorkspace owns that rule), and the conversation lays itself
+  // out for the room it actually has. Only a room with a navigator to lose
+  // watches the column: a plain room never re-renders for a toggle, and never
+  // reserves a navigator's width it does not show.
+  const navigatorOffered = Boolean(projectViewModel) && projectNavigatorVisible;
+  const agentColumnOpen = useAgentColumnOpen(navigatorOffered);
+  const navigatorShown = navigatorOffered && !agentColumnOpen;
   const [targetMessageEvents, setTargetMessageEvents] = React.useState<
     RelayEvent[]
   >(() => {
@@ -281,7 +285,7 @@ function ChannelConversationSurface({
             }
           : null
       }
-      projectNavigatorVisible={projectNavigatorVisible && !agentColumnOpen}
+      projectNavigatorVisible={navigatorShown}
       projectRoomNavigation={
         projectViewModel
           ? {

@@ -6,6 +6,7 @@ import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
+import { useStableCallback } from "@/shared/hooks/useStableReference";
 import {
   useChannelSections,
   type ChannelSection,
@@ -70,6 +71,8 @@ import { runtimeConnectionKey } from "@/features/runtime-sessions/runtimeSession
  *  false = the original CHANNELS / DIRECT MESSAGES sections. Kept so the two
  *  can be compared side by side before anything is deleted. */
 const USE_CHAT_LIST = true;
+
+const closeAgentColumn = () => setSelectedAgentPubkey(null);
 import {
   ChannelGroupSection,
   CustomChannelSection,
@@ -643,6 +646,66 @@ export function AppSidebar({
     [isMobile, onNewMessage, selectedView, setOpenMobile],
   );
 
+  // Stable handlers for the rail's memoised rows and the column: the shell
+  // hands this component fresh arrows on every render, and a row must not
+  // re-render because of them.
+  const selectChannelFromRail = useStableCallback((channelId: string) => {
+    if (isMobile) setOpenMobile(false);
+    onSelectChannel(channelId);
+  });
+  const selectProjectFromRail = useStableCallback(
+    (projectId: string, preferredRoomId: string | null) => {
+      if (isMobile) setOpenMobile(false);
+      // One second column at a time: a project replaces whichever agent
+      // column was open.
+      setSelectedAgentPubkey(null);
+      onSelectProject(projectId, preferredRoomId);
+    },
+  );
+  const createProjectFromRail = React.useCallback(
+    () => setIsCreateProjectOpen(true),
+    [],
+  );
+  const createAgentFromRail = useStableCallback(() => onCreateAgent());
+  const startAgentChat = useStableCallback(() => {
+    if (!selectedAgent) return;
+    // Like choosing a row: once the thread is open, the phone's sheet gets
+    // out of the way of the conversation it just started.
+    void (async () => {
+      try {
+        await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
+      } catch {
+        // The shell has already told the owner; the column and the sheet
+        // stay exactly where they were.
+        return;
+      }
+      if (isMobile) setOpenMobile(false);
+    })();
+  });
+  const columnItems = React.useMemo(
+    () =>
+      selectedAgent ? chatsWithAgent(chatListItems, selectedAgent.pubkey) : [],
+    [chatListItems, selectedAgent],
+  );
+  // With an agent chosen the rail grows by one column; the rail's own width
+  // is still what the provider published, so nothing inside it reflows — the
+  // column simply appears beside it.
+  const hasAgentColumn = Boolean(selectedAgent) && !isMobile;
+  const rootStyle = React.useMemo(
+    () =>
+      ({
+        "--agent-column-width": "232px",
+        // Rail + column while the rail is open; the column alone when the
+        // owner has put the rail away — the column stays as the pane.
+        "--sidebar-width": hasAgentColumn
+          ? sidebarOpen
+            ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
+            : "var(--agent-column-width)"
+          : undefined,
+      }) as React.CSSProperties,
+    [hasAgentColumn, sidebarOpen],
+  );
+
   return React.createElement(
     React.Fragment,
     null,
@@ -656,51 +719,20 @@ export function AppSidebar({
       // defeats the point of an identity mark.
       collapsible="offcanvas"
       data-testid="app-sidebar"
-      // With an agent chosen the rail grows by one column; the rail's own
-      // width is still what the provider published, so nothing inside it
-      // reflows — the column simply appears beside it.
-      rootStyle={
-        {
-          "--agent-column-width": "232px",
-          // Rail + column while the rail is open; the column alone when the
-          // owner has put the rail away — the column stays as the pane.
-          "--sidebar-width":
-            selectedAgent && !isMobile
-              ? sidebarOpen
-                ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
-                : "var(--agent-column-width)"
-              : undefined,
-        } as React.CSSProperties
-      }
-      railCompanionOpen={Boolean(selectedAgent) && !isMobile}
+      rootStyle={rootStyle}
+      railCompanionOpen={hasAgentColumn}
       variant="sidebar"
     >
       {selectedAgent ? (
         <AgentChatsColumn
           agent={selectedAgent}
-          items={chatsWithAgent(chatListItems, selectedAgent.pubkey)}
+          items={columnItems}
           mobile={isMobile}
-          onClose={() => setSelectedAgentPubkey(null)}
+          onClose={closeAgentColumn}
           onMarkChannelRead={onMarkChannelRead}
           onMarkChannelUnread={onMarkChannelUnread}
-          onNewChat={() => {
-            // Like choosing a row: once the thread is open, the phone's sheet
-            // gets out of the way of the conversation it just started.
-            void (async () => {
-              try {
-                await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
-              } catch {
-                // The shell has already told the owner; the column and the
-                // sheet stay exactly where they were.
-                return;
-              }
-              if (isMobile) setOpenMobile(false);
-            })();
-          }}
-          onSelectChannel={(channelId) => {
-            if (isMobile) setOpenMobile(false);
-            onSelectChannel(channelId);
-          }}
+          onNewChat={startAgentChat}
+          onSelectChannel={selectChannelFromRail}
           projectByChannelId={roomProjects}
           railHidden={!sidebarOpen && !isMobile}
           selectedChannelId={selectedChannelId}
@@ -798,19 +830,10 @@ export function AppSidebar({
                     <>
                       <ChatList
                         items={chatListItems}
-                        onSelectChannel={(channelId) => {
-                          if (isMobile) setOpenMobile(false);
-                          onSelectChannel(channelId);
-                        }}
-                        onSelectProject={(projectId, preferredRoomId) => {
-                          if (isMobile) setOpenMobile(false);
-                          // One second column at a time: a project replaces
-                          // whichever agent column was open.
-                          setSelectedAgentPubkey(null);
-                          onSelectProject(projectId, preferredRoomId);
-                        }}
-                        onCreateProject={() => setIsCreateProjectOpen(true)}
-                        onCreateAgent={onCreateAgent}
+                        onSelectChannel={selectChannelFromRail}
+                        onSelectProject={selectProjectFromRail}
+                        onCreateProject={createProjectFromRail}
+                        onCreateAgent={createAgentFromRail}
                         onMarkChannelRead={onMarkChannelRead}
                         onMarkChannelUnread={onMarkChannelUnread}
                         projectByChannelId={roomProjects}

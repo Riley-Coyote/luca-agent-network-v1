@@ -60,6 +60,50 @@ export function chatsWithAgent(
   );
 }
 
+export type AgentActivity = {
+  /** Newest message in any chat with the resident, as an ISO time. */
+  newest: string | null;
+  unread: boolean;
+};
+
+/**
+ * Per resident: the newest thing said anywhere they are, and whether any of
+ * it is unread. One pass over the chats, indexed by participant, rather than
+ * a filter and a sort per resident. Keyed by the resident's lowercased
+ * pubkey, as the rail looks it up.
+ */
+export function agentActivity(
+  items: readonly ChatListItem[],
+  agents: readonly { pubkey: string }[],
+  unreadChannelIds: ReadonlySet<string>,
+): Map<string, AgentActivity> {
+  const byParticipant = new Map<string, AgentActivity>();
+  const byPubkey = new Map<string, AgentActivity>();
+  for (const agent of agents) {
+    const activity: AgentActivity = { newest: null, unread: false };
+    byParticipant.set(normalizePubkey(agent.pubkey), activity);
+    byPubkey.set(agent.pubkey.toLowerCase(), activity);
+  }
+  if (byParticipant.size === 0) return byPubkey;
+  for (const item of items) {
+    const at = item.channel.lastMessageAt ?? null;
+    const unread = unreadChannelIds.has(item.channel.id);
+    for (const participant of item.participants) {
+      const activity = byParticipant.get(normalizePubkey(participant));
+      if (!activity) continue;
+      if (
+        at &&
+        (activity.newest === null ||
+          Date.parse(at) > Date.parse(activity.newest))
+      ) {
+        activity.newest = at;
+      }
+      if (unread) activity.unread = true;
+    }
+  }
+  return byPubkey;
+}
+
 /** Keep rail semantics binary: one counterpart or a group conversation. */
 export function isMultiParticipantChat(
   item: Pick<ChatListItem, "markPubkeys">,

@@ -1,3 +1,4 @@
+import * as React from "react";
 import { Plus } from "lucide-react";
 
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
@@ -21,7 +22,9 @@ export type AgentRailActivity = {
   unread: boolean;
 };
 
-export function AgentRail({
+// Memoised so a column toggle (which changes only `selectedAgentPubkey`)
+// re-renders these few rows and nothing beside them.
+export const AgentRail = React.memo(function AgentRail({
   activityByPubkey,
   agents,
   onCreateAgent,
@@ -104,4 +107,4 @@ export function AgentRail({
       })}
     </div>
   );
-}
+});

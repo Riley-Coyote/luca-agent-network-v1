@@ -51,3 +51,16 @@ export function useSelectedAgentPubkey(): string | null {
     () => null,
   );
 }
+
+/**
+ * Whether a resident's column is open — watched only while it can matter to
+ * the caller. With `enabled` false the snapshot is a constant, so a surface
+ * that has nothing to step aside for never re-renders on a toggle.
+ */
+export function useAgentColumnOpen(enabled: boolean): boolean {
+  return React.useSyncExternalStore(
+    subscribe,
+    () => enabled && selectedAgentPubkey !== null,
+    () => false,
+  );
+}
