@@ -714,6 +714,11 @@ export function AppSidebar({
           // In the mobile sheet the column takes the rail's place outright;
           // with the rail collapsed on desktop, likewise — the column is the pane.
           selectedAgent && (isMobile || !sidebarOpen) && "hidden",
+          // …until the owner peeks: then the rail slides in beside the column.
+          selectedAgent &&
+            !isMobile &&
+            !sidebarOpen &&
+            "group-data-[peek=companion]:flex",
         )}
         data-testid="app-sidebar-scroll-anchor"
       >

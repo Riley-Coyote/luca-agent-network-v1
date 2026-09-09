@@ -57,7 +57,7 @@ export function AgentChatsColumn({
         mobile
           ? "min-h-0 w-full flex-1"
           : railHidden
-            ? "absolute inset-y-0 left-0 z-20 w-(--agent-column-width)"
+            ? "absolute inset-y-0 left-0 z-20 w-(--agent-column-width) transition-[left] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] group-data-[peek=companion]:left-(--sidebar-rail-width) group-data-[peek=companion]:border-l group-data-[peek=companion]:border-border/50"
             : "absolute inset-y-0 left-(--sidebar-rail-width) z-20 w-(--agent-column-width) border-l border-border/50",
       )}
       data-testid="agent-chats-column"

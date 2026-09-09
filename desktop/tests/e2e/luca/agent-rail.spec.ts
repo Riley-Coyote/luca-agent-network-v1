@@ -258,3 +258,28 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeGreaterThan(100);
 });
+
+test("with the rail collapsed, hovering the column's edge peeks the rail beside it", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  const column = page.getByTestId("agent-chats-column");
+  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
+
+  await page.getByTestId("sidebar-peek-edge").hover();
+  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
+  await expect
+    .poll(async () => (await column.boundingBox())?.x ?? -1)
+    .toBeGreaterThan(100);
+
+  // Leaving the sidebar altogether puts the rail away again; the column
+  // returns to the edge and the collapse was never undone.
+  await page.mouse.move(1000, 400);
+  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
+  await expect
+    .poll(async () => (await column.boundingBox())?.x ?? -1)
+    .toBeLessThanOrEqual(1);
+});
