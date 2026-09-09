@@ -17,6 +17,7 @@ import {
 } from "@/features/channels/lib/roomProjects";
 import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useSelectedAgentPubkey } from "@/features/sidebar/lib/agentColumn";
 import { useActiveWorkingChannelsById } from "@/features/sidebar/lib/useActiveWorkingChannelsById";
 import {
   filterProjectRooms,
@@ -478,6 +479,10 @@ export function ProjectRoomWorkspace({
   viewModel: ProjectNavigatorViewModel;
 }) {
   const isMobile = useIsMobile();
+  // The rail's agent column and this navigator are both "the second column".
+  // While the owner has an agent open, the navigator steps aside and only the
+  // conversation (or the empty project) shows — navigation is never doubled.
+  const agentColumnOpen = useSelectedAgentPubkey() !== null;
   const [mobileView, setMobileView] = React.useState<"rooms" | "conversation">(
     viewModel.selectedRoomId || viewModel.rooms.length === 0
       ? "conversation"
@@ -491,6 +496,10 @@ export function ProjectRoomWorkspace({
     },
     [onSelectRoom],
   );
+
+  if (agentColumnOpen) {
+    return <div className="flex min-h-0 min-w-0 flex-1">{children}</div>;
+  }
 
   if (isMobile) {
     return mobileView === "rooms" ? (

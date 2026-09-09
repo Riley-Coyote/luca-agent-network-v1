@@ -6,15 +6,42 @@ import {
   type RoomProject,
 } from "@/features/channels/lib/roomProjects";
 import { ProjectTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
+import {
+  AgentRail,
+  type AgentRailActivity,
+  type AgentRailAgent,
+} from "@/features/sidebar/ui/AgentRail";
 import { ChannelContextMenuItems } from "@/features/sidebar/ui/ChannelContextMenu";
-import type { Channel } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { conversationMarkSeeds } from "@/features/channels/lib/conversationMarks";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuTrigger,
 } from "@/shared/ui/context-menu";
+
+import {
+  buildChatListItems,
+  type ChatGroup,
+  type ChatListItem,
+  chatsWithAgent,
+  groupChats,
+  isMultiParticipantChat,
+  partitionConversationItems,
+  relativeTime,
+  sortChats,
+} from "@/features/sidebar/lib/chatListModel";
+
+export {
+  buildChatListItems,
+  type ChatGroup,
+  type ChatListItem,
+  chatsWithAgent,
+  groupChats,
+  isMultiParticipantChat,
+  partitionConversationItems,
+  relativeTime,
+  sortChats,
+};
 
 /**
  * Luca's persistent conversation rail.
@@ -24,103 +51,6 @@ import {
  * the contextual room navigator after selection. The underlying channel model
  * and canonical room routes remain unchanged.
  */
-
-export type ChatListItem = {
-  channel: Channel;
-  /** Display name: the resident, or the people in a group. */
-  label: string;
-  /** Other participants represented by this chat. */
-  markPubkeys: string[];
-};
-
-export function partitionConversationItems(items: readonly ChatListItem[]) {
-  const channels: ChatListItem[] = [];
-  const directMessages: ChatListItem[] = [];
-
-  for (const item of items) {
-    if (item.channel.channelType === "dm") directMessages.push(item);
-    else channels.push(item);
-  }
-
-  return {
-    channels,
-    directMessages: sortChats(directMessages),
-  };
-}
-
-/** Keep rail semantics binary: one counterpart or a group conversation. */
-export function isMultiParticipantChat(
-  item: Pick<ChatListItem, "markPubkeys">,
-): boolean {
-  return item.markPubkeys.length > 1;
-}
-
-function relativeTime(iso: string | null): string {
-  if (!iso) return "";
-  const then = Date.parse(iso);
-  if (!Number.isFinite(then)) return "";
-  const mins = Math.floor((Date.now() - then) / 60000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  return days < 7 ? `${days}d` : `${Math.floor(days / 7)}w`;
-}
-
-export type ChatGroup = {
-  /** null = no project. These are your own rooms — resident chats, loose work. */
-  project: RoomProject | null;
-  items: ChatListItem[];
-  /** Newest activity anywhere in the group, which is what orders the groups. */
-  mostRecent: number;
-};
-
-/** Group rooms by project for global-rail projection and project selection. */
-export function groupChats(
-  items: readonly ChatListItem[],
-  projectByChannelId: ReadonlyMap<string, RoomProject>,
-): ChatGroup[] {
-  const lastActive = (item: ChatListItem) =>
-    item.channel.lastMessageAt ? Date.parse(item.channel.lastMessageAt) : 0;
-
-  const groups = new Map<string, ChatGroup>();
-  for (const item of items) {
-    const project = projectByChannelId.get(item.channel.id) ?? null;
-    const key = project?.id ?? "";
-    let group = groups.get(key);
-    if (!group) {
-      group = { project, items: [], mostRecent: 0 };
-      groups.set(key, group);
-    }
-    group.items.push(item);
-    group.mostRecent = Math.max(group.mostRecent, lastActive(item));
-  }
-
-  for (const group of groups.values()) group.items = sortChats(group.items);
-
-  return [...groups.values()].sort((a, b) => {
-    if (!a.project) return -1;
-    if (!b.project) return 1;
-    if (a.mostRecent !== b.mostRecent) return b.mostRecent - a.mostRecent;
-    return a.project.label.localeCompare(b.project.label);
-  });
-}
-
-/** Recency first; never-messaged residents fall to the bottom, alphabetically,
- *  so the list has a stable tail rather than an arbitrary one. */
-export function sortChats(items: readonly ChatListItem[]): ChatListItem[] {
-  return [...items].sort((a, b) => {
-    const at = a.channel.lastMessageAt
-      ? Date.parse(a.channel.lastMessageAt)
-      : 0;
-    const bt = b.channel.lastMessageAt
-      ? Date.parse(b.channel.lastMessageAt)
-      : 0;
-    if (at !== bt) return bt - at;
-    return a.label.localeCompare(b.label);
-  });
-}
 
 type RowProps = {
   item: ChatListItem;
@@ -318,10 +248,17 @@ export function ChatList({
   onMarkChannelUnread,
   onSelectProject,
   onCreateProject,
-  onCreateDm,
+  onCreateAgent,
   projects,
   selectedProjectId,
+  agents,
+  selectedAgentPubkey,
+  onSelectAgent,
 }: {
+  /** The residents the rail lists, in display order. */
+  agents: readonly AgentRailAgent[];
+  selectedAgentPubkey: string | null;
+  onSelectAgent: (pubkey: string) => void;
   items: readonly ChatListItem[];
   projectByChannelId: ReadonlyMap<string, RoomProject>;
   projects: readonly RoomProject[];
@@ -339,7 +276,7 @@ export function ChatList({
   onMarkChannelUnread: (channelId: string) => void;
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
   onCreateProject: () => void;
-  onCreateDm: () => void;
+  onCreateAgent: () => void;
 }) {
   const { channels, directMessages } = React.useMemo(
     () => partitionConversationItems(items),
@@ -358,6 +295,31 @@ export function ChatList({
     onMarkChannelUnread,
   };
   const looseRooms = groups.find((group) => group.project === null);
+  // Per resident: the newest thing said anywhere they are, and whether any of
+  // it is unread. The rail row wears that instead of a per-chat clock.
+  const activityByPubkey = React.useMemo(() => {
+    const map = new Map<string, AgentRailActivity>();
+    for (const agent of agents) {
+      const mine = chatsWithAgent(items, agent.pubkey);
+      const newest = sortChats(mine)[0]?.channel.lastMessageAt ?? null;
+      map.set(agent.pubkey.toLowerCase(), {
+        recent: relativeTime(newest),
+        unread: mine.some((item) => unreadChannelIds.has(item.channel.id)),
+      });
+    }
+    return map;
+  }, [agents, items, unreadChannelIds]);
+  const knownAgents = new Set(
+    agents.map((agent) => agent.pubkey.toLowerCase()),
+  );
+  // A chat with any managed resident in it belongs in that resident's column,
+  // judged on the whole membership — not the few marks the row can wear.
+  const unaffiliatedDirectMessages = directMessages.filter(
+    (item) =>
+      !item.participants.some((pubkey) =>
+        knownAgents.has(pubkey.toLowerCase()),
+      ),
+  );
   const groupsByProjectId = new Map(
     groups.flatMap((group) =>
       group.project ? [[group.project.id, group] as const] : [],
@@ -380,13 +342,13 @@ export function ChatList({
     <div className="flex flex-col px-2" data-testid="chat-list">
       <div className="mt-2 flex flex-col" data-testid="chat-channels">
         <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-          <span>Channels</span>
+          <span>Projects</span>
           <button
-            aria-label="New channel"
+            aria-label="New project"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
             data-testid="create-channel"
             onClick={onCreateProject}
-            title="New channel"
+            title="New project"
             type="button"
           >
             <Plus className="size-3.5" />
@@ -416,7 +378,7 @@ export function ChatList({
             <span className="flex size-5 items-center justify-center">
               <Plus className="size-3.5" />
             </span>
-            New channel
+            New project
           </button>
         ) : null}
         {looseRooms?.items.map((item) => (
@@ -424,43 +386,16 @@ export function ChatList({
         ))}
       </div>
 
-      <div className="mt-3 flex flex-col" data-testid="chat-direct-messages">
-        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-          <span>DMs</span>
-          <button
-            aria-label="New direct message"
-            className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-            data-testid="create-direct-message"
-            onClick={onCreateDm}
-            title="New direct message"
-            type="button"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
-        {directMessages.map((item) => (
-          <ChatRow item={item} key={item.channel.id} {...rowProps} />
-        ))}
-      </div>
+      <AgentRail
+        activityByPubkey={activityByPubkey}
+        agents={agents}
+        onCreateAgent={onCreateAgent}
+        onSelectAgent={onSelectAgent}
+        selectedAgentPubkey={selectedAgentPubkey}
+      />
+      {unaffiliatedDirectMessages.map((item) => (
+        <ChatRow item={item} key={item.channel.id} {...rowProps} />
+      ))}
     </div>
   );
-}
-
-/** Build list items from the raw channel set, resolving each chat's marks. */
-export function buildChatListItems({
-  channels,
-  labels,
-  currentPubkey,
-}: {
-  channels: readonly Channel[];
-  /** Resolved display names by channel id. A plain record, matching
-   *  what the DM label hook already returns. */
-  labels: Readonly<Record<string, string>>;
-  currentPubkey?: string | null;
-}): ChatListItem[] {
-  return channels.map((channel) => ({
-    channel,
-    label: labels[channel.id] ?? channel.name,
-    markPubkeys: conversationMarkSeeds(channel, currentPubkey, 3),
-  }));
 }

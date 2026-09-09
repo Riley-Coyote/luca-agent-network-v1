@@ -2,16 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  chatParticipants,
+  chatsWithAgent,
   groupChats,
   isMultiParticipantChat,
   partitionConversationItems,
   sortChats,
-} from "./ChatList.tsx";
+} from "../lib/chatListModel.ts";
 
 const room = (id, lastMessageAt, label = id) => ({
   channel: { id, name: id, lastMessageAt },
   label,
   markPubkeys: [],
+  participants: [],
 });
 
 const projects = (assignments) =>
@@ -160,4 +163,67 @@ test("the rail keeps shared channels separate from durable DMs", () => {
     result.directMessages.map((item) => item.channel.id),
     ["direct", "group"],
   );
+});
+
+test("a chat belongs to an agent by its whole membership, not its few marks", () => {
+  // The row can only wear three marks; a five-person group with Luca in it
+  // is still one of Luca's chats.
+  const luca = "f".repeat(64);
+  const people = ["a", "b", "c", "d"].map((c) => c.repeat(64));
+  const big = {
+    channel: {
+      id: "big",
+      name: "big",
+      channelType: "dm",
+      lastMessageAt: null,
+      participantPubkeys: [...people, luca],
+    },
+    label: "big",
+    markPubkeys: people.slice(0, 3),
+    participants: [...people, luca],
+  };
+  const pair = {
+    channel: {
+      id: "pair",
+      name: "pair",
+      channelType: "dm",
+      lastMessageAt: null,
+    },
+    label: "Luca",
+    markPubkeys: [luca],
+    participants: [luca],
+  };
+  const human = {
+    channel: {
+      id: "human",
+      name: "human",
+      channelType: "dm",
+      lastMessageAt: null,
+    },
+    label: "alice",
+    markPubkeys: [people[0]],
+    participants: [people[0]],
+  };
+  assert.deepEqual(
+    chatsWithAgent([big, pair, human], luca.toUpperCase()).map(
+      (i) => i.channel.id,
+    ),
+    ["big", "pair"],
+  );
+});
+
+test("participants are everyone but the owner, members as the fallback", () => {
+  const me = "0".repeat(64);
+  const other = "1".repeat(64);
+  assert.deepEqual(chatParticipants({ participantPubkeys: [me, other] }, me), [
+    other,
+  ]);
+  assert.deepEqual(
+    chatParticipants(
+      { participantPubkeys: [], memberPubkeys: [other, me] },
+      me,
+    ),
+    [other],
+  );
+  assert.deepEqual(chatParticipants({}, me), []);
 });
