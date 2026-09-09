@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { resetAgentColumnStore } from "@/features/sidebar/lib/agentColumn";
 
 import { relayClient } from "@/shared/api/relayClient";
 import { resetRateLimitGate } from "@/shared/api/relayRateLimitGate";
@@ -58,6 +59,7 @@ function resetCommunityState(): void {
   resetExchangeStore();
   resetPaneState();
   resetBackgroundTasks();
+  resetAgentColumnStore();
 }
 
 type CommunityInitResult =
