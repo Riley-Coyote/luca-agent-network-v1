@@ -676,7 +676,16 @@ export function AppSidebar({
           items={chatsWithAgent(chatListItems, selectedAgent.pubkey)}
           mobile={isMobile}
           onClose={() => setSelectedAgentPubkey(null)}
-          onNewChat={() => void onOpenDm({ pubkeys: [selectedAgent.pubkey] })}
+          onMarkChannelRead={onMarkChannelRead}
+          onMarkChannelUnread={onMarkChannelUnread}
+          onNewChat={() => {
+            // Like choosing a row: once the thread is open, the phone's sheet
+            // gets out of the way of the conversation it just started.
+            void (async () => {
+              await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
+              if (isMobile) setOpenMobile(false);
+            })();
+          }}
           onSelectChannel={(channelId) => {
             if (isMobile) setOpenMobile(false);
             onSelectChannel(channelId);
@@ -684,6 +693,7 @@ export function AppSidebar({
           projectByChannelId={roomProjects}
           selectedChannelId={selectedChannelId}
           unreadChannelIds={unreadChannelIds}
+          workingByChannelId={activeWorkingByChannelId}
         />
       ) : null}
       <div

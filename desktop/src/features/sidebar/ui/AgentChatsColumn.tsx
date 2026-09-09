@@ -1,18 +1,11 @@
-import {
-  ArrowLeft,
-  MessageCircle,
-  MessagesSquare,
-  Plus,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Plus, X } from "lucide-react";
 
 import type { RoomProject } from "@/features/channels/lib/roomProjects";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
+import { ChatRow, type ChatRowProps } from "@/features/sidebar/ui/ChatList";
 import {
   type ChatListItem,
-  isMultiParticipantChat,
-  relativeTime,
   sortChats,
 } from "@/features/sidebar/lib/chatListModel";
 import { cn } from "@/shared/lib/cn";
@@ -29,10 +22,8 @@ export function AgentChatsColumn({
   mobile = false,
   onClose,
   onNewChat,
-  onSelectChannel,
   projectByChannelId,
-  selectedChannelId,
-  unreadChannelIds,
+  ...rowProps
 }: {
   agent: AgentRailAgent;
   items: readonly ChatListItem[];
@@ -41,11 +32,8 @@ export function AgentChatsColumn({
   mobile?: boolean;
   onClose: () => void;
   onNewChat: () => void;
-  onSelectChannel: (channelId: string) => void;
   projectByChannelId: ReadonlyMap<string, RoomProject>;
-  selectedChannelId: string | null;
-  unreadChannelIds: ReadonlySet<string>;
-}) {
+} & Omit<ChatRowProps, "item" | "testId" | "detail">) {
   const ordered = sortChats(items);
   const wanted = agent.pubkey.toLowerCase();
   // The direct thread with this resident is a single durable conversation.
@@ -113,67 +101,28 @@ export function AgentChatsColumn({
           </button>
         )}
 
+        {/* The same row as the rail — context menu, unread dot, working
+            label, channel id — so nothing a chat could do out there is lost
+            in here. Only its address and its project tag are the column's. */}
         {ordered.map((item) => {
-          const { channel, label } = item;
-          const isActive = channel.id === selectedChannelId;
-          const isUnread = unreadChannelIds.has(channel.id) && !isActive;
-          const project = projectByChannelId.get(channel.id) ?? null;
-          const group = isMultiParticipantChat(item);
-          // The direct thread wears the resident's own name, like every
-          // other row: a person's chats, not a list of channel types.
-          const title = label;
+          const project = projectByChannelId.get(item.channel.id) ?? null;
           return (
-            <button
-              aria-label={isUnread ? `${title}, unread` : title}
-              className={cn(
-                "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none",
-                "transition-colors duration-100 data-[active=true]:duration-0",
-              )}
-              data-active={isActive ? "true" : undefined}
-              data-sidebar="menu-button"
-              data-testid={`agent-column-chat-${channel.name}`}
-              key={channel.id}
-              onClick={() => onSelectChannel(channel.id)}
-              type="button"
-            >
-              <span className="flex size-5 shrink-0 items-center justify-center text-ink-faint">
-                {group ? (
-                  <MessagesSquare aria-hidden className="size-3.5" />
-                ) : (
-                  <MessageCircle aria-hidden className="size-3.5" />
-                )}
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span
-                  className={cn(
-                    "truncate text-sm",
-                    isUnread && "font-medium text-sidebar-foreground",
-                  )}
-                >
-                  {title}
-                </span>
-                {project ? (
+            <ChatRow
+              detail={
+                project ? (
                   <span
                     className="truncate text-3xs uppercase tracking-caps text-ink-faint"
                     data-testid="agent-column-project-tag"
                   >
                     {project.label}
                   </span>
-                ) : null}
-              </span>
-              <span className="flex shrink-0 justify-end">
-                {isUnread ? (
-                  <span
-                    aria-hidden
-                    className="size-1.5 self-center rounded-full bg-sidebar-foreground/70"
-                  />
-                ) : (
-                  <span className="text-2xs tabular-nums text-ink-faint">
-                    {relativeTime(channel.lastMessageAt)}
-                  </span>
-                )}
-              </span>
-            </button>
+                ) : null
+              }
+              item={item}
+              key={item.channel.id}
+              testId={`agent-column-chat-${item.channel.name}`}
+              {...rowProps}
+            />
           );
         })}
       </div>
