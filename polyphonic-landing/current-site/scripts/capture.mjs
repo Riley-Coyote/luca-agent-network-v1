@@ -1,0 +1,7 @@
+import {chromium} from 'playwright';
+import fs from 'node:fs/promises';
+const browser=await chromium.launch();const p=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});const errors=[];p.on('pageerror',e=>errors.push(e.message));p.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+await p.goto('http://127.0.0.1:8744/',{waitUntil:'networkidle'});await p.screenshot({path:'audit/final-hero.png'});await p.screenshot({path:'audit/final-full.png',fullPage:true});
+await p.locator('#agents').scrollIntoViewIfNeeded();await p.screenshot({path:'audit/final-agents.png'});await p.locator('#memory').scrollIntoViewIfNeeded();await p.screenshot({path:'audit/final-brain.png'});
+const sizes=[];for(const width of [390,320]){await p.setViewportSize({width,height:844});await p.evaluate(()=>window.scrollTo(0,0));await p.screenshot({path:`audit/final-${width}-hero.png`});await p.locator('#preview').scrollIntoViewIfNeeded();await p.screenshot({path:`audit/final-${width}-app.png`});await p.locator('#memory').scrollIntoViewIfNeeded();await p.screenshot({path:`audit/final-${width}-brain.png`});sizes.push(await p.evaluate(()=>({w:innerWidth,overflow:document.documentElement.scrollWidth,clipped:[...document.querySelectorAll('main *')].filter(e=>e.getBoundingClientRect().right>innerWidth+1).map(e=>({tag:e.tagName,class:e.className,text:e.textContent.slice(0,35)})).slice(0,10)})))}
+console.log(JSON.stringify({errors,sizes}));await browser.close();

@@ -1,0 +1,19 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const browser=await chromium.launch();const page=await browser.newPage({viewport:{width:1440,height:1000}});
+const report={checks:[],errors:[],broken:[]};
+page.on('pageerror',e=>report.errors.push(e.message));page.on('response',r=>{if(r.status()>=400)report.broken.push(r.url())});
+await page.goto('http://127.0.0.1:8744/',{waitUntil:'networkidle'});
+const app=page.locator('.demo-app');await app.scrollIntoViewIfNeeded();
+await page.locator('#demo-message').fill('An unsent thought');await app.getByRole('button',{name:'Toggle conversation drawer',exact:true}).click();assert.equal(await page.locator('#demo-message').inputValue(),'An unsent thought');
+await page.evaluate(()=>PolyphonicDemo.navigate('Brain'));await page.evaluate(()=>PolyphonicDemo.navigate('Luca'));assert.equal(await page.locator('#demo-message').inputValue(),'An unsent thought');report.checks.push('Draft survives drawer and section changes');
+await app.getByRole('button',{name:'Toggle split view',exact:true}).click();const split=app.locator('.d-secondary');await split.locator('input').fill('What do you remember?');await split.getByRole('button',{name:'Send demo message'}).click();assert.equal(await app.locator('.d-title strong').innerText(),'Mira');assert.match(await app.locator('.d-primary .d-transcript').innerText(),/What do you remember/);report.checks.push('Split Mira reply stays in Mira conversation');
+await page.evaluate(()=>PolyphonicDemo.navigate('Luca'));assert.equal(await page.locator('#demo-message').inputValue(),'An unsent thought');
+await app.getByRole('button',{name:'Toggle split view',exact:true}).click();
+for(let i=0;i<12;i++){await page.locator('#demo-message').fill('Give me an update '+i);await app.locator('.d-primary').getByRole('button',{name:'Send demo message'}).click();}
+assert.equal(await page.locator('#demo-message').inputValue(),'');assert.equal(await app.locator('.d-primary .d-bubble').count(),13);await page.waitForTimeout(700);assert.ok(await app.locator('.d-primary .d-chat-scroll').evaluate(e=>e.scrollHeight-e.clientHeight-e.scrollTop<10));report.checks.push('Twelve-message session scrolls to reply and clears submitted drafts');
+const brokenAnchors=await page.evaluate(()=>[...document.querySelectorAll('a[href^="#"]')].filter(a=>!document.getElementById(a.hash.slice(1))).map(a=>a.hash));assert.deepEqual(brokenAnchors,[]);report.checks.push('All internal links resolve');
+await page.locator('#replay-demo').click();await page.locator('#demo-message').focus();await page.keyboard.type('hello');assert.equal(await page.evaluate(()=>PolyphonicDemo.state.touring),false);report.checks.push('Keyboard input stops guided tour');
+for(const [status,copy] of [['already_subscribed','already on the list'],['confirmation_required','Check your inbox']]){const p=await browser.newPage();await p.route('**/assets/config.js',r=>r.fulfill({contentType:'text/javascript',body:"window.POLYPHONIC_CONFIG={signupEndpoint:'/api/beta'}"}));await p.route('**/api/beta',r=>r.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status})}));await p.goto('http://127.0.0.1:8744/');await p.locator('#email').fill('test@example.test');await p.locator('#signup-submit').click();await p.waitForFunction(t=>document.querySelector('#signup-note').textContent.includes(t),copy);await p.locator('#email').fill('second@example.test');assert.equal(await p.locator('#signup-submit').isEnabled(),true);await p.close();report.checks.push('Signup '+status+' and editing after completion');}
+assert.deepEqual(report.errors,[]);assert.deepEqual(report.broken,[]);await fs.writeFile('audit/release-verification.json',JSON.stringify(report,null,2));console.log(report);await browser.close();
