@@ -32,11 +32,16 @@ await installMockBridge(page, {
 const cdp = await page.context().newCDPSession(page);
 await cdp.send("Performance.enable");
 
-await page.goto(`${BASE}/?e2e=mock&projectDemo=1`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/?e2e=mock&projectDemo=1`, {
+  waitUntil: "networkidle",
+});
 await page.getByTestId("agent-rail-atlas").waitFor();
 // A heavy reading plane: the deep-history room, so layout has real cost.
 await page.getByTestId("project-row-luca").click();
-await page.getByTestId("project-room-navigator").getByRole("button", { name: /deep-history/i }).click();
+await page
+  .getByTestId("project-room-navigator")
+  .getByRole("button", { name: /deep-history/i })
+  .click();
 await page.waitForTimeout(1200);
 
 const metrics = async () => {
@@ -64,7 +69,8 @@ const startSampling = () =>
     requestAnimationFrame(tick);
     try {
       const po = new PerformanceObserver((list) => {
-        for (const e of list.getEntries()) window.__navLong.push(Math.round(e.duration));
+        for (const e of list.getEntries())
+          window.__navLong.push(Math.round(e.duration));
       });
       po.observe({ type: "longtask", buffered: false });
       window.__navPO = po;
@@ -110,7 +116,8 @@ async function measure(name, action, settleMs = WINDOW_MS) {
   console.log(JSON.stringify(row));
 }
 
-const toggle = () => page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+const toggle = () =>
+  page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
 const atlas = () => page.getByTestId("agent-rail-atlas").click();
 const bex = () => page.getByTestId("agent-rail-bex").click();
 
@@ -139,45 +146,94 @@ await measure("column close (Atlas)", atlas);
 // Leave the Luca project first so the next click is a real navigator entrance.
 await page.getByTestId("project-row-field-unit").click();
 await page.waitForTimeout(800);
-await measure("project row → navigator (Field Unit → Luca)", () => page.getByTestId("project-row-luca").click());
-await measure("chat select from column (cold: creates + opens the DM)", async () => {
-  await atlas();
-  await page.waitForTimeout(300);
-  const row = page.getByTestId("agent-chats-column").locator('[data-testid^="agent-column-chat-"]').first();
-  if (await row.count()) await row.click();
-  else await page.getByTestId("agent-column-new-chat").click();
-}, 1400);
-await measure("chat select warm (rail row: watercooler)", () => page.getByTestId("channel-watercooler").click(), 1000);
-await measure("chat select warm (back to the column's DM)", () =>
-  page.getByTestId("agent-chats-column").locator('[data-testid^="agent-column-chat-"]').first().click(), 1000);
-await measure("chat select warm (rail row: announcements)", () => page.getByTestId("channel-announcements").click(), 1000);
+await measure("project row → navigator (Field Unit → Luca)", () =>
+  page.getByTestId("project-row-luca").click(),
+);
+await measure(
+  "chat select from column (cold: creates + opens the DM)",
+  async () => {
+    await atlas();
+    await page.waitForTimeout(300);
+    const row = page
+      .getByTestId("agent-chats-column")
+      .locator('[data-testid^="agent-column-chat-"]')
+      .first();
+    if (await row.count()) await row.click();
+    else await page.getByTestId("agent-column-new-chat").click();
+  },
+  1400,
+);
+await measure(
+  "chat select warm (rail row: watercooler)",
+  () => page.getByTestId("channel-watercooler").click(),
+  1000,
+);
+await measure(
+  "chat select warm (back to the column's DM)",
+  () =>
+    page
+      .getByTestId("agent-chats-column")
+      .locator('[data-testid^="agent-column-chat-"]')
+      .first()
+      .click(),
+  1000,
+);
+await measure(
+  "chat select warm (rail row: announcements)",
+  () => page.getByTestId("channel-announcements").click(),
+  1000,
+);
 
 // Torture: rapid interruption.
 const torture = {};
 async function state() {
   return page.evaluate(() => ({
-    railState: document.querySelector('[data-testid="app-sidebar"]')?.closest("[data-state]")?.getAttribute("data-state") ?? null,
-    collapsible: document.querySelector("[data-collapsible]")?.getAttribute("data-collapsible") ?? null,
-    column: document.querySelectorAll('[data-testid="agent-chats-column"]').length,
+    railState:
+      document
+        .querySelector('[data-testid="app-sidebar"]')
+        ?.closest("[data-state]")
+        ?.getAttribute("data-state") ?? null,
+    collapsible:
+      document
+        .querySelector("[data-collapsible]")
+        ?.getAttribute("data-collapsible") ?? null,
+    column: document.querySelectorAll('[data-testid="agent-chats-column"]')
+      .length,
     railVisible: (() => {
-      const a = document.querySelector('[data-testid="app-sidebar-scroll-anchor"]');
+      const a = document.querySelector(
+        '[data-testid="app-sidebar-scroll-anchor"]',
+      );
       return a ? getComputedStyle(a).display !== "none" : null;
     })(),
   }));
 }
-for (let i = 0; i < 6; i++) { await toggle(); await page.waitForTimeout(60); }
+for (let i = 0; i < 6; i++) {
+  await toggle();
+  await page.waitForTimeout(60);
+}
 await page.waitForTimeout(500);
 torture.rapidToggleEven = await state();
-for (let i = 0; i < 6; i++) { await atlas(); await page.waitForTimeout(60); }
+for (let i = 0; i < 6; i++) {
+  await atlas();
+  await page.waitForTimeout(60);
+}
 await page.waitForTimeout(500);
 torture.rapidColumnEven = await state();
-await atlas(); await page.waitForTimeout(300);
-for (let i = 0; i < 5; i++) { await toggle(); await page.waitForTimeout(80); }
+await atlas();
+await page.waitForTimeout(300);
+for (let i = 0; i < 5; i++) {
+  await toggle();
+  await page.waitForTimeout(80);
+}
 await page.waitForTimeout(500);
 torture.rapidToggleWithColumnOdd = await state();
-await toggle(); await page.waitForTimeout(400);
+await toggle();
+await page.waitForTimeout(400);
 for (let i = 0; i < 6; i++) {
-  await page.getByTestId("sidebar-peek-edge").hover().catch(() => {});
+  await page
+    .getByTestId("sidebar-peek-edge")
+    .hover()
+    .catch(() => {});
   await page.waitForTimeout(40);
   await page.mouse.move(900, 400);
   await page.waitForTimeout(40);
@@ -187,7 +243,10 @@ torture.peekFlicker = await state();
 await page.screenshot({ path: path.join(OUT, "after-torture.png") });
 
 const report = { results, torture, errors };
-fs.writeFileSync(path.join(OUT, "nav-trace.json"), JSON.stringify(report, null, 2));
+fs.writeFileSync(
+  path.join(OUT, "nav-trace.json"),
+  JSON.stringify(report, null, 2),
+);
 console.log("TORTURE " + JSON.stringify(torture));
 console.log("ERRORS " + JSON.stringify(errors));
 await browser.close();

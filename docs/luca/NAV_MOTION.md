@@ -144,3 +144,28 @@ DM mount stall (2) · rail transform slide (1, with Codex) · column open
 deferral and lazy menus (3) · column and navigator entrances, sheet curve,
 hover token (5) · navigator recalc (4) · then the state grid and the native
 120 Hz pass.
+
+## After A — the companion's renderers persist (2026-09-09, claude/rail-fold)
+
+`mote3d.js` now keeps a document-wide pool of up to four stages (renderer,
+canvas, PMREM environment). An element borrows a stage on connect and hands
+it back on disconnect; geometries and textures live once
+(`mote3dScene.js`); per-instance materials are never disposed, so three's
+program cache stays warm; the rail warms one stage at idle, sized to the
+companion's box, whenever residents exist; the companion mounts after the
+thread is idle and fades in at fast · arrival; reduced motion parks the loop
+live; a lost context is re-borrowed; the pointer listener exists only while
+a companion is live.
+
+| Transition | Before | After A |
+|---|---|---|
+| Chat select, resident's DM (warm) | 1 dropped · 960 ms · long tasks 554 + 402 | 1 dropped · 33 ms · none — the same frame as a room |
+| Chat select, resident's DM (cold, from deep-history) | 2 dropped · 640 ms · 591 + 445 | 3 dropped · 525 ms · one task, the route out of the 600-message room; three.js 18 ms in the profile |
+| Warm DM open, long-task total (gate: `tests/e2e/dm-open.perf.ts`) | — | 0 ms, three runs of three opens |
+| DM open, three.js self time (`scripts/_dm-profile.mjs`) | ~1 s (`setSize` 398 ms, shader compile) | warm 19 ms · cold after warm-up 11 ms |
+
+What remains on the cold row is not the companion: leaving a 600-message
+room is one native task (unmount, layout, GC). Noted for the timeline;
+outside the nav. `tests/e2e/luca/resident-mote.spec.ts` pins the pool's
+behaviour: the fade, the same stage across opens, a DOM move, reduced
+motion.
