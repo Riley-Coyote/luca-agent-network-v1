@@ -169,3 +169,52 @@ room is one native task (unmount, layout, GC). Noted for the timeline;
 outside the nav. `tests/e2e/luca/resident-mote.spec.ts` pins the pool's
 behaviour: the fade, the same stage across opens, a DOM move, reduced
 motion.
+
+## After C — the column's frame (2026-09-09, claude/rail-fold)
+
+Two more instruments, because window totals could not say which frame
+dropped or why: `scripts/_nav-profile.mjs <scenario>` (a CPU profile plus
+the engine's layout / style / script totals for one transition) and
+`scripts/_nav-frames.mjs <scenario>` (the longest main-thread tasks from a
+Chrome trace, broken down into script, style recalc, layout, paint).
+
+What they said, before any change: **in a plain room, opening or closing
+the column has no main-thread task over 8 ms.** The 50–58 ms frame in the
+baseline table belongs to the room the trace measures in — the 600-message
+`deep-history` room inside the Luca project. There, opening the column also
+makes the project navigator step aside, the reading plane changes width, and
+the timeline re-renders: a 28 ms click task (React 19 ms) and, 60 ms later,
+a 42 ms task (React 20 ms, style recalc 19 ms) as the virtualised list
+mounts ~3,000 more nodes for the wider pane. Likewise the "navigator
+entrance" (finding 4) is the remembered room's 13,000-node timeline
+mounting on the route change (React 24 ms, style 20 ms), not the navigator.
+
+What changed:
+
+- `ChannelRouteScreen` watches the column only when the room has a
+  navigator to lose (`useAgentColumnOpen(enabled)`): a plain room never
+  re-renders for a toggle. The flag it hands the conversation now means "a
+  navigator is shown" — plain rooms used to pass `true` and reserve a
+  navigator's width in the layout thresholds they never had.
+- `ChatRow`, `ProjectRow`, `AgentRail`, `AgentChatsColumn` are memoised, and
+  the handlers the shell recreates every render reach them through
+  `useStableCallback`; `rootStyle` and the column's items are memoised.
+- One context menu per list (`ChatRowContextMenu`), not one Radix root per
+  row: the container is the trigger and names the row under the pointer.
+- The column paints its frame first and its rows in a deferred render
+  (`useDeferredValue(items, [])`).
+- The rail's per-resident activity is one pass over the chats
+  (`agentActivity`), unit-tested, instead of a filter and a sort per resident.
+
+| Transition (task on the click) | Before C | After C |
+|---|---|---|
+| Column open, plain room | 7.2 ms (React 3.7 · style 2.7) | 5.0 ms (React 2.2 · style 2.3) |
+| Column close, plain room | 6.2 ms (React 3.3 · style 2.4) | 4.9 ms (React 1.7 · style 2.7) |
+| Column open, project room (`deep-history`) | 28 ms then 42 ms | 31 ms then 43 ms — the conversation's, unchanged |
+
+Small in the mock's ten-row rail; the structure is what matters with a real
+one. The project-room frame is B's: with the inset changing once, the
+navigator leaving (+304 px) and the column arriving (−232 px) land as one
++72 px reflow instead of a 304 px jump chased by a 240 ms slide, and the
+timeline stops re-rendering per frame. What is left after that is the
+timeline's own mount and re-measure cost, outside the nav.

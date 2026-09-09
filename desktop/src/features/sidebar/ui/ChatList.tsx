@@ -20,6 +20,7 @@ import {
 } from "@/shared/ui/context-menu";
 
 import {
+  agentActivity,
   buildChatListItems,
   type ChatGroup,
   type ChatListItem,
@@ -57,11 +58,15 @@ export type ChatRowProps = {
   /** Where the row lives, for tests; defaults to the rail's channel-<name>. */
   testId?: string;
   /** A quiet second line under the label — the agent column's project tag. */
-  detail?: React.ReactNode;
+  tag?: string | null;
   selectedChannelId: string | null;
   unreadChannelIds: ReadonlySet<string>;
   workingByChannelId?: ReadonlyMap<string, { agentCount: number }>;
   onSelectChannel: (channelId: string) => void;
+};
+
+/** The actions a list's context menu can perform on the row underneath. */
+export type ChatRowMenuProps = {
   onMarkChannelRead: (
     channelId: string,
     lastMessageAt: string | null | undefined,
@@ -69,16 +74,17 @@ export type ChatRowProps = {
   onMarkChannelUnread: (channelId: string) => void;
 };
 
-export function ChatRow({
+// Memoised: a column toggle, or a new message somewhere else, must not
+// re-render every row in the rail. Each prop is a primitive, a collection the
+// shell keeps stable, or a stable callback, so the bail-out holds.
+export const ChatRow = React.memo(function ChatRow({
   item,
   testId,
-  detail,
+  tag,
   selectedChannelId,
   unreadChannelIds,
   workingByChannelId,
   onSelectChannel,
-  onMarkChannelRead,
-  onMarkChannelUnread,
 }: ChatRowProps) {
   const { channel, label } = item;
   const isActive = channel.id === selectedChannelId;
@@ -91,7 +97,7 @@ export function ChatRow({
       : "working"
     : null;
 
-  const row = (
+  return (
     <button
       aria-label={isUnread ? `${label}, unread` : label}
       // Wearing the app's own menu-button identity rather than hand-rolling
@@ -128,7 +134,14 @@ export function ChatRow({
         >
           {label}
         </span>
-        {detail}
+        {tag ? (
+          <span
+            className="truncate text-3xs uppercase tracking-caps text-ink-faint"
+            data-testid="agent-column-project-tag"
+          >
+            {tag}
+          </span>
+        ) : null}
       </span>
 
       {/* ONE trailing slot, never two, and no fixed width — a reserved column
@@ -150,17 +163,63 @@ export function ChatRow({
       </span>
     </button>
   );
+});
 
+/**
+ * One context menu for a whole list of rows, not one Radix root per row. The
+ * list's container is the trigger; a right-click, or the keyboard's menu key
+ * on a focused row, names the row underneath and the menu renders that
+ * channel's actions. A right-click that lands on no row opens nothing.
+ */
+export function ChatRowContextMenu({
+  children,
+  items,
+  unreadChannelIds,
+  onMarkChannelRead,
+  onMarkChannelUnread,
+}: ChatRowMenuProps & {
+  children: React.ReactElement;
+  items: readonly ChatListItem[];
+  unreadChannelIds: ReadonlySet<string>;
+}) {
+  const [channelId, setChannelId] = React.useState<string | null>(null);
+  const item = channelId
+    ? (items.find((candidate) => candidate.channel.id === channelId) ?? null)
+    : null;
+  const rowUnder = (event: React.SyntheticEvent) =>
+    event.target instanceof Element
+      ? (event.target
+          .closest("[data-channel-id]")
+          ?.getAttribute("data-channel-id") ?? null)
+      : null;
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+      <ContextMenuTrigger
+        asChild
+        onContextMenuCapture={(event) => {
+          const id = rowUnder(event);
+          if (!id) {
+            // Not a row: nothing to offer, so the trigger below must not open.
+            event.stopPropagation();
+            return;
+          }
+          setChannelId(id);
+        }}
+        // A touch long-press opens without a contextmenu event; name the row
+        // at the press instead.
+        onPointerDownCapture={(event) => setChannelId(rowUnder(event))}
+      >
+        {children}
+      </ContextMenuTrigger>
       <ContextMenuContent>
-        <ChannelContextMenuItems
-          channel={channel}
-          hasUnread={isUnread}
-          onMarkChannelRead={onMarkChannelRead}
-          onMarkChannelUnread={onMarkChannelUnread}
-        />
+        {item ? (
+          <ChannelContextMenuItems
+            channel={item.channel}
+            hasUnread={unreadChannelIds.has(item.channel.id)}
+            onMarkChannelRead={onMarkChannelRead}
+            onMarkChannelUnread={onMarkChannelUnread}
+          />
+        ) : null}
       </ContextMenuContent>
     </ContextMenu>
   );
@@ -174,7 +233,7 @@ type ProjectRowProps = {
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
 };
 
-function ProjectRow({
+const ProjectRow = React.memo(function ProjectRow({
   group,
   isActive,
   unreadChannelIds,
@@ -244,7 +303,7 @@ function ProjectRow({
       </span>
     </button>
   );
-}
+});
 
 export function ChatList({
   items,
@@ -300,47 +359,57 @@ export function ChatList({
     unreadChannelIds,
     workingByChannelId,
     onSelectChannel,
-    onMarkChannelRead,
-    onMarkChannelUnread,
   };
   const looseRooms = groups.find((group) => group.project === null);
   // Per resident: the newest thing said anywhere they are, and whether any of
   // it is unread. The rail row wears that instead of a per-chat clock.
   const activityByPubkey = React.useMemo(() => {
     const map = new Map<string, AgentRailActivity>();
-    for (const agent of agents) {
-      const mine = chatsWithAgent(items, agent.pubkey);
-      const newest = sortChats(mine)[0]?.channel.lastMessageAt ?? null;
-      map.set(agent.pubkey.toLowerCase(), {
-        recent: relativeTime(newest),
-        unread: mine.some((item) => unreadChannelIds.has(item.channel.id)),
+    for (const [pubkey, activity] of agentActivity(
+      items,
+      agents,
+      unreadChannelIds,
+    )) {
+      map.set(pubkey, {
+        recent: relativeTime(activity.newest),
+        unread: activity.unread,
       });
     }
     return map;
   }, [agents, items, unreadChannelIds]);
-  const knownAgents = new Set(
-    agents.map((agent) => agent.pubkey.toLowerCase()),
-  );
   // A chat with any managed resident in it belongs in that resident's column,
   // judged on the whole membership — not the few marks the row can wear.
-  const unaffiliatedDirectMessages = directMessages.filter(
-    (item) =>
-      !item.participants.some((pubkey) =>
-        knownAgents.has(pubkey.toLowerCase()),
+  const unaffiliatedDirectMessages = React.useMemo(() => {
+    const knownAgents = new Set(
+      agents.map((agent) => agent.pubkey.toLowerCase()),
+    );
+    return directMessages.filter(
+      (item) =>
+        !item.participants.some((pubkey) =>
+          knownAgents.has(pubkey.toLowerCase()),
+        ),
+    );
+  }, [agents, directMessages]);
+  const groupsByProjectId = React.useMemo(
+    () =>
+      new Map(
+        groups.flatMap((group) =>
+          group.project ? [[group.project.id, group] as const] : [],
+        ),
       ),
+    [groups],
   );
-  const groupsByProjectId = new Map(
-    groups.flatMap((group) =>
-      group.project ? [[group.project.id, group] as const] : [],
-    ),
+  const orderedProjects = React.useMemo(
+    () =>
+      [...projects].sort((a, b) => {
+        const aRecent = groupsByProjectId.get(a.id)?.mostRecent ?? 0;
+        const bRecent = groupsByProjectId.get(b.id)?.mostRecent ?? 0;
+        return bRecent !== aRecent
+          ? bRecent - aRecent
+          : a.label.localeCompare(b.label);
+      }),
+    [groupsByProjectId, projects],
   );
-  const orderedProjects = [...projects].sort((a, b) => {
-    const aRecent = groupsByProjectId.get(a.id)?.mostRecent ?? 0;
-    const bRecent = groupsByProjectId.get(b.id)?.mostRecent ?? 0;
-    return bRecent !== aRecent
-      ? bRecent - aRecent
-      : a.label.localeCompare(b.label);
-  });
   const effectiveProjectId =
     selectedProjectId ??
     (selectedChannelId
@@ -348,63 +417,70 @@ export function ChatList({
       : null);
 
   return (
-    <div className="flex flex-col px-2" data-testid="chat-list">
-      <div className="mt-2 flex flex-col" data-testid="chat-channels">
-        <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-          <span>Projects</span>
-          <button
-            aria-label="New project"
-            className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-            data-testid="create-channel"
-            onClick={onCreateProject}
-            title="New project"
-            type="button"
-          >
-            <Plus className="size-3.5" />
-          </button>
-        </div>
-        {orderedProjects.map((project) => {
-          const group =
-            groupsByProjectId.get(project.id) ??
-            ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
-          return (
-            <ProjectRow
-              group={group}
-              isActive={effectiveProjectId === project.id}
-              key={project.id}
-              onSelectProject={onSelectProject}
-              unreadChannelIds={unreadChannelIds}
-              workingByChannelId={workingByChannelId}
-            />
-          );
-        })}
-        {orderedProjects.length === 0 ? (
-          <button
-            className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            onClick={onCreateProject}
-            type="button"
-          >
-            <span className="flex size-5 items-center justify-center">
+    <ChatRowContextMenu
+      items={items}
+      onMarkChannelRead={onMarkChannelRead}
+      onMarkChannelUnread={onMarkChannelUnread}
+      unreadChannelIds={unreadChannelIds}
+    >
+      <div className="flex flex-col px-2" data-testid="chat-list">
+        <div className="mt-2 flex flex-col" data-testid="chat-channels">
+          <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
+            <span>Projects</span>
+            <button
+              aria-label="New project"
+              className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+              data-testid="create-channel"
+              onClick={onCreateProject}
+              title="New project"
+              type="button"
+            >
               <Plus className="size-3.5" />
-            </span>
-            New project
-          </button>
-        ) : null}
-        {looseRooms?.items.map((item) => (
+            </button>
+          </div>
+          {orderedProjects.map((project) => {
+            const group =
+              groupsByProjectId.get(project.id) ??
+              ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
+            return (
+              <ProjectRow
+                group={group}
+                isActive={effectiveProjectId === project.id}
+                key={project.id}
+                onSelectProject={onSelectProject}
+                unreadChannelIds={unreadChannelIds}
+                workingByChannelId={workingByChannelId}
+              />
+            );
+          })}
+          {orderedProjects.length === 0 ? (
+            <button
+              className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              onClick={onCreateProject}
+              type="button"
+            >
+              <span className="flex size-5 items-center justify-center">
+                <Plus className="size-3.5" />
+              </span>
+              New project
+            </button>
+          ) : null}
+          {looseRooms?.items.map((item) => (
+            <ChatRow item={item} key={item.channel.id} {...rowProps} />
+          ))}
+        </div>
+
+        <AgentRail
+          activityByPubkey={activityByPubkey}
+          agents={agents}
+          onCreateAgent={onCreateAgent}
+          onSelectAgent={onSelectAgent}
+          selectedAgentPubkey={selectedAgentPubkey}
+        />
+        {unaffiliatedDirectMessages.map((item) => (
           <ChatRow item={item} key={item.channel.id} {...rowProps} />
         ))}
       </div>
-
-      <AgentRail
-        activityByPubkey={activityByPubkey}
-        agents={agents}
-        onCreateAgent={onCreateAgent}
-        onSelectAgent={onSelectAgent}
-        selectedAgentPubkey={selectedAgentPubkey}
-      />
-      {unaffiliatedDirectMessages.map((item) => (
-        <ChatRow item={item} key={item.channel.id} {...rowProps} />
-      ))}
-    </div>
+    </ChatRowContextMenu>
   );
 }

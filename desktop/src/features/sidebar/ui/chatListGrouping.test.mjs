@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentActivity,
   chatParticipants,
   chatsWithAgent,
   groupChats,
@@ -9,6 +10,38 @@ import {
   partitionConversationItems,
   sortChats,
 } from "../lib/chatListModel.ts";
+
+test("a resident's activity is the newest message anywhere they are, and any unread", () => {
+  const atlas = "a".repeat(64);
+  const bex = "b".repeat(64);
+  const chat = (id, lastMessageAt, participants) => ({
+    channel: { id, name: id, lastMessageAt, channelType: "dm" },
+    label: id,
+    markPubkeys: participants,
+    participants,
+  });
+  const items = [
+    chat("atlas-dm", "2026-09-01T00:00:00.000Z", [atlas]),
+    chat("atlas-and-bex", "2026-09-03T00:00:00.000Z", [atlas, bex]),
+    chat("bex-dm", null, [bex]),
+    chat("someone-else", "2026-09-05T00:00:00.000Z", ["c".repeat(64)]),
+  ];
+  const activity = agentActivity(
+    items,
+    [{ pubkey: atlas.toUpperCase() }, { pubkey: bex }],
+    new Set(["atlas-dm"]),
+  );
+  assert.equal(activity.size, 2);
+  assert.deepEqual(activity.get(atlas), {
+    newest: "2026-09-03T00:00:00.000Z",
+    unread: true,
+  });
+  assert.deepEqual(activity.get(bex), {
+    newest: "2026-09-03T00:00:00.000Z",
+    unread: false,
+  });
+  assert.equal(agentActivity(items, [], new Set()).size, 0);
+});
 
 const room = (id, lastMessageAt, label = id) => ({
   channel: { id, name: id, lastMessageAt },

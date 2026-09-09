@@ -1,14 +1,22 @@
+import * as React from "react";
 import { ArrowLeft, Plus, X } from "lucide-react";
 
 import type { RoomProject } from "@/features/channels/lib/roomProjects";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
-import { ChatRow, type ChatRowProps } from "@/features/sidebar/ui/ChatList";
+import {
+  ChatRow,
+  ChatRowContextMenu,
+  type ChatRowMenuProps,
+  type ChatRowProps,
+} from "@/features/sidebar/ui/ChatList";
 import {
   type ChatListItem,
   sortChats,
 } from "@/features/sidebar/lib/chatListModel";
 import { cn } from "@/shared/lib/cn";
+
+const NO_ITEMS: readonly ChatListItem[] = [];
 
 /**
  * The agent column: everything you and one resident have talked about, in
@@ -16,28 +24,38 @@ import { cn } from "@/shared/lib/cn";
  * project's name as a tag — the room's home, said quietly, so the column
  * reads as a person's history rather than a list of channels.
  */
-export function AgentChatsColumn({
+export const AgentChatsColumn = React.memo(function AgentChatsColumn({
   agent,
   items,
   mobile = false,
   railHidden = false,
   onClose,
+  onMarkChannelRead,
+  onMarkChannelUnread,
   onNewChat,
   projectByChannelId,
   ...rowProps
-}: {
-  agent: AgentRailAgent;
-  items: readonly ChatListItem[];
-  /** In the mobile sheet the column takes the rail's place rather than
-   *  sitting beside it, and the close control reads as "back". */
-  mobile?: boolean;
-  /** The rail is collapsed: the column sits at the left edge as the pane. */
-  railHidden?: boolean;
-  onClose: () => void;
-  onNewChat: () => void;
-  projectByChannelId: ReadonlyMap<string, RoomProject>;
-} & Omit<ChatRowProps, "item" | "testId" | "detail">) {
-  const ordered = sortChats(items);
+}: ChatRowMenuProps &
+  Omit<ChatRowProps, "item" | "testId" | "tag"> & {
+    agent: AgentRailAgent;
+    items: readonly ChatListItem[];
+    /** In the mobile sheet the column takes the rail's place rather than
+     *  sitting beside it, and the close control reads as "back". */
+    mobile?: boolean;
+    /** The rail is collapsed: the column sits at the left edge as the pane. */
+    railHidden?: boolean;
+    onClose: () => void;
+    onNewChat: () => void;
+    projectByChannelId: ReadonlyMap<string, RoomProject>;
+  }) {
+  // The frame paints first — the header and the offer of a thread — and the
+  // rows land in a deferred render, so the frame that starts the column's
+  // entrance has nothing else to do.
+  const deferredItems = React.useDeferredValue(items, NO_ITEMS);
+  const ordered = React.useMemo(
+    () => sortChats(deferredItems),
+    [deferredItems],
+  );
   const wanted = agent.pubkey.toLowerCase();
   // The direct thread with this resident is a single durable conversation.
   // Once it exists the column lists it like any other chat; until then the
@@ -105,46 +123,41 @@ export function AgentChatsColumn({
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
-        {hasDirectChat ? null : (
-          <button
-            className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
-            data-testid="agent-column-new-chat"
-            onClick={onNewChat}
-            type="button"
-          >
-            <span className="flex size-5 items-center justify-center">
-              <Plus className="size-3.5" />
-            </span>
-            Chat with {agent.name}
-          </button>
-        )}
+      <ChatRowContextMenu
+        items={deferredItems}
+        onMarkChannelRead={onMarkChannelRead}
+        onMarkChannelUnread={onMarkChannelUnread}
+        unreadChannelIds={rowProps.unreadChannelIds}
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2">
+          {hasDirectChat ? null : (
+            <button
+              className="flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-sm text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+              data-testid="agent-column-new-chat"
+              onClick={onNewChat}
+              type="button"
+            >
+              <span className="flex size-5 items-center justify-center">
+                <Plus className="size-3.5" />
+              </span>
+              Chat with {agent.name}
+            </button>
+          )}
 
-        {/* The same row as the rail — context menu, unread dot, working
-            label, channel id — so nothing a chat could do out there is lost
-            in here. Only its address and its project tag are the column's. */}
-        {ordered.map((item) => {
-          const project = projectByChannelId.get(item.channel.id) ?? null;
-          return (
+          {/* The same row as the rail — context menu, unread dot, working
+              label, channel id — so nothing a chat could do out there is lost
+              in here. Only its address and its project tag are the column's. */}
+          {ordered.map((item) => (
             <ChatRow
-              detail={
-                project ? (
-                  <span
-                    className="truncate text-3xs uppercase tracking-caps text-ink-faint"
-                    data-testid="agent-column-project-tag"
-                  >
-                    {project.label}
-                  </span>
-                ) : null
-              }
               item={item}
               key={item.channel.id}
+              tag={projectByChannelId.get(item.channel.id)?.label ?? null}
               testId={`agent-column-chat-${item.channel.name}`}
               {...rowProps}
             />
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      </ChatRowContextMenu>
     </aside>
   );
-}
+});

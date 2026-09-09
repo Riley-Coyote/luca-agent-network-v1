@@ -54,6 +54,23 @@ function arraysShallowEqual(
 }
 
 /**
+ * A callback whose identity never changes and that always calls the latest
+ * `fn`. For handlers handed across a `React.memo` boundary when the parent's
+ * own handler is an inline arrow recreated on every render. The latest `fn`
+ * is committed in a layout effect, so the returned callback is for events,
+ * not for use during render.
+ */
+export function useStableCallback<A extends unknown[], R>(
+  fn: (...args: A) => R,
+): (...args: A) => R {
+  const ref = React.useRef(fn);
+  React.useLayoutEffect(() => {
+    ref.current = fn;
+  });
+  return React.useCallback((...args: A) => ref.current(...args), []);
+}
+
+/**
  * Returns `next` but preserves the previous reference when the two Sets have
  * identical membership. Same purpose as `useStableMap` for Set-valued derived
  * state (e.g. pubkey sets rebuilt whenever a polling query re-materialises
