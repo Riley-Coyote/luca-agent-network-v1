@@ -1030,11 +1030,24 @@ export function AppShell() {
                             onMarkChannelUnread={markChannelUnread}
                             onBrowseChannels={handleOpenBrowseChannels}
                             onOpenDm={async ({ pubkeys }) => {
-                              const directMessage =
-                                await openDmMutation.mutateAsync({
-                                  pubkeys,
+                              // A thread that fails to open says so where the
+                              // owner is looking, then rethrows so the caller
+                              // stays put instead of pretending to navigate.
+                              try {
+                                const directMessage =
+                                  await openDmMutation.mutateAsync({
+                                    pubkeys,
+                                  });
+                                await goChannel(directMessage.id);
+                              } catch (error) {
+                                toast.error("Couldn't open the conversation", {
+                                  description:
+                                    error instanceof Error
+                                      ? error.message
+                                      : String(error),
                                 });
-                              await goChannel(directMessage.id);
+                                throw error;
+                              }
                             }}
                             onSelectAgents={() => void goAgents()}
                             onSelectArtifacts={() => void goArtifacts()}
