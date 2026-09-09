@@ -41,7 +41,8 @@ const AlertDialogContent = React.forwardRef<
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto p-4 pointer-events-none">
       <AlertDialogPrimitive.Content
         className={cn(
-          "pointer-events-auto grid w-[calc(100vw-2rem)] max-w-md gap-4 rounded-3xl bg-background p-6 shadow-2xl outline-hidden",
+          // Flex column rather than grid: see DialogContent.
+          "pointer-events-auto flex w-[calc(100vw-2rem)] max-w-md flex-col gap-4 rounded-3xl bg-background p-6 shadow-2xl outline-hidden",
           MODAL_CONTENT_MOTION_CLASS,
           className,
         )}
