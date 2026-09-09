@@ -324,9 +324,17 @@ const Sidebar = React.forwardRef<
               : collapsible
             : ""
         }
-        data-peek={canPeek && peek ? "true" : undefined}
+        data-peek={
+          canPeek && peek
+            ? railCompanionOpen
+              ? "companion"
+              : "true"
+            : undefined
+        }
         data-resizing={isResizing}
-        onMouseEnter={canPeek ? openPeek : undefined}
+        // With a companion pane on screen the whole wrapper is a real surface,
+        // so entering it must not peek; the companion edge strip below does.
+        onMouseEnter={canPeek && !railCompanionOpen ? openPeek : undefined}
         onMouseLeave={canPeek ? closePeek : undefined}
         data-variant={variant}
         data-side={side}
@@ -357,6 +365,10 @@ const Sidebar = React.forwardRef<
             // floats over content, so it is the one place a shadow is correct:
             // wide blur, low opacity. z-30 clears the composer overlay.
             "group-data-[peek=true]:z-30 group-data-[peek=true]:shadow-[0_0_40px_-4px_rgb(0_0_0_/_0.55)]",
+            // Companion peek: the rail slides in beside the column as an
+            // overlay — the pane grows by the rail's width, the content
+            // underneath does not move.
+            "group-data-[peek=companion]:z-30 group-data-[peek=companion]:w-[calc(var(--sidebar-rail-width)+var(--sidebar-width))] group-data-[peek=companion]:shadow-[0_0_40px_-4px_rgb(0_0_0_/_0.55)]",
             variant === "floating" || variant === "inset"
               ? "p-[8px] group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)_+_18px)]"
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
@@ -370,6 +382,16 @@ const Sidebar = React.forwardRef<
           >
             {children}
           </div>
+          {canPeek && railCompanionOpen ? (
+            // The companion's left edge is the peek zone, the same screen edge
+            // the plain collapsed rail peeks from.
+            <div
+              aria-hidden
+              className="absolute inset-y-0 left-0 z-30 w-2"
+              data-testid="sidebar-peek-edge"
+              onMouseEnter={openPeek}
+            />
+          ) : null}
         </div>
       </div>
     );
