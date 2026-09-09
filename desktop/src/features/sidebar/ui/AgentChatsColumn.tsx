@@ -62,19 +62,20 @@ export function AgentChatsColumn({
       )}
       data-testid="agent-chats-column"
     >
-      {railHidden ? (
-        // As the window's leading surface the column yields the rail's top
-        // row: the strip where the macOS window controls and the floating
-        // chrome live stays clear, and stays draggable, exactly as it does
-        // over the rail. conversation-shell.css sizes it from the same two
-        // values as the rail's pinned header; the utility is the fallback
-        // outside the Luca shell.
+      {mobile ? null : (
+        // The column's header sits at the height of the rail's first row,
+        // always: the strip above — where the macOS window controls and the
+        // floating chrome live — stays clear and draggable, exactly as it
+        // does over the rail, so putting the rail away never slides the
+        // header under the lights. conversation-shell.css sizes the band
+        // from the same two values as the rail's pinned header; the utility
+        // is the fallback outside the Luca shell.
         <div
           className="h-(--buzz-top-chrome-height,32px) shrink-0"
           data-tauri-drag-region
           data-testid="agent-column-chrome-band"
         />
-      ) : null}
+      )}
       <header className="flex h-12 shrink-0 items-center gap-2 px-3">
         <ResidentIdentityMark
           accessibleName={agent.name}
