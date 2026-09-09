@@ -62,9 +62,9 @@ test("a resident's column offers the direct thread until it exists, then lists i
   // is a row wearing the resident's own name.
   await expect(start).toHaveCount(0);
   await expect(page).toHaveURL(/#\/channels\//);
-  await expect(column.locator('[data-testid^="agent-column-chat-"]')).toHaveCount(
-    1,
-  );
+  await expect(
+    column.locator('[data-testid^="agent-column-chat-"]'),
+  ).toHaveCount(1);
   await expect(
     column.locator('[data-testid^="agent-column-chat-"]'),
   ).toContainText("Atlas");
@@ -73,9 +73,9 @@ test("a resident's column offers the direct thread until it exists, then lists i
   // the rail never show a chat that belongs to a resident.
   await page.getByTestId("agent-rail-bex").click();
   await expect(column).toContainText("Bex");
-  await expect(column.locator('[data-testid^="agent-column-chat-"]')).toHaveCount(
-    0,
-  );
+  await expect(
+    column.locator('[data-testid^="agent-column-chat-"]'),
+  ).toHaveCount(0);
   await expect(page.getByTestId("agent-column-new-chat")).toHaveText(
     /Chat with Bex/,
   );
@@ -200,4 +200,28 @@ test("column rows keep the rail's context actions", async ({ page }) => {
   await expect(
     page.getByRole("menuitem", { name: /mark.*unread/i }),
   ).toBeVisible({ timeout: 1500 });
+});
+
+test("a thread that fails to open says so and leaves the column in place", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: [{ name: "Atlas", pubkey: ATLAS_PUBKEY, status: "running" }],
+    openDmErrors: ["Runtime unavailable."],
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?e2e=mock");
+
+  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+
+  await expect(page.getByText("Couldn't open the conversation")).toBeVisible();
+  await expect(page.getByText("Runtime unavailable.")).toBeVisible();
+  await expect(page).not.toHaveURL(/#\/channels\//);
+  await expect(page.getByTestId("agent-chats-column")).toBeVisible();
+  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Sidebar", exact: true }),
+  ).toBeVisible();
 });

@@ -320,6 +320,8 @@ type MockBridgeOptions = {
   /** Delay (ms) for `apply_workspace`; see e2eBridge mock config. */
   applyCommunityDelayMs?: number;
   openDmDelayMs?: number;
+  /** Reject successive mock `open_dm` calls, then resume. */
+  openDmErrors?: string[];
   sendMessageDelayMs?: number;
   /** Close the first channel-window live REQ; its retry is accepted. */
   closeChannelLiveSubscriptionOnce?: boolean;

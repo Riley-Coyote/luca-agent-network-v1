@@ -318,6 +318,8 @@ type E2eConfig = {
      *  community-switch gate. 0/undefined = instant. */
     applyCommunityDelayMs?: number;
     openDmDelayMs?: number;
+    /** Reject successive mock `open_dm` calls, then resume. */
+    openDmErrors?: string[];
     sendMessageDelayMs?: number;
     /** Close the first channel-window live REQ; its retry is accepted. */
     closeChannelLiveSubscriptionOnce?: boolean;
@@ -6841,6 +6843,10 @@ async function handleOpenDm(
   const delayMs = config?.mock?.openDmDelayMs ?? 0;
   if (delayMs > 0) {
     await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+  }
+  const openDmError = config?.mock?.openDmErrors?.shift();
+  if (openDmError) {
+    throw new Error(openDmError);
   }
 
   const normalizedPubkeys = normalizeParticipantPubkeys(args.pubkeys);

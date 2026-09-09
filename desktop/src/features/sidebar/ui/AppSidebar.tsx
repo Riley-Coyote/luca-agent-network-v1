@@ -682,7 +682,13 @@ export function AppSidebar({
             // Like choosing a row: once the thread is open, the phone's sheet
             // gets out of the way of the conversation it just started.
             void (async () => {
-              await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
+              try {
+                await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
+              } catch {
+                // The shell has already told the owner; the column and the
+                // sheet stay exactly where they were.
+                return;
+              }
               if (isMobile) setOpenMobile(false);
             })();
           }}
