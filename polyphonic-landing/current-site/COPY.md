@@ -108,6 +108,34 @@ Button "Request the beta" and the on-the-list messages: keep.
 
 ---
 
+## Band · seven windows (WP-06, 2026-09-10)
+
+Replaces card 1. Under the beat-1 headline and body, a full-width row of Polyphonic conversation windows drifts slowly left: seven agents, each on its own runtime, each mid-exchange. Same product, seven marks. Static text; the drift is the only motion. Order in the row alternates runtimes: Luca · Iris · Mira · Otto · Ziggy · Wren · Nia. Header of each window: the agent's name, and a pill with the runtime's mark and name.
+
+1. **Luca · Hermes**
+   - you — Anything I should know before I open the laptop?
+   - Luca — Two things. Codex finished the walkthrough overnight, and Mira flagged the empty screen. I'd start there. Everything else held.
+2. **Iris · Claude Code**
+   - you — Add one clear next step to the welcome screen.
+   - Iris — Done in FirstRun.tsx. One prompt, nothing else added, two tests updated. Want the diff here or in the room?
+3. **Mira · Hermes**
+   - you — Does the welcome screen still match the brief?
+   - Mira — Nearly. One route from a note to a plan, as promised. The empty screen doesn't point anywhere yet, so it needs one clear next step. The rest holds.
+4. **Otto · Kimi Code**
+   - you — Three actions on the first screen, or one?
+   - Otto — One. Three competing actions is a menu. One is an invitation. Put the rest a click away.
+5. **Ziggy · OpenClaw**
+   - you — Anything left in the release notes?
+   - Ziggy — One claim I'd soften. We say "syncs instantly" and it takes about a second. "Keeps every window in step" is true. Everything else checks out.
+6. **Wren · Codex**
+   - you — Does the project survive opening a second window?
+   - Wren — It does now. Both windows read the same state and move together. I left what changed in Project sync.
+7. **Nia · Grok**
+   - you — Does the launch page promise what the app does?
+   - Nia — Mostly. Lead with one home for your agents, and show them working together before you explain how. The word "instantly" has to go.
+
+Composer line in every window: *Message…* (static).
+
 ## Not touching
 
 The hero demo's own dialogue. It's already in the right voice (*"Want me to bring her in, or look at it together first?"*) and it's the model for the rest. Marquee, nav, footer.
