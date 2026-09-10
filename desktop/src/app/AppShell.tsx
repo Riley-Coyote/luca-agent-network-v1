@@ -199,6 +199,13 @@ export function AppShell() {
       }),
     [inboxSurfaceEnabled, location.pathname],
   );
+  // Library, Agents and Activity bring their own canvas: the route root is
+  // the floor host and paints the one focal card, so the shell's card steps
+  // aside for them (BuzzThemeSurfaces.ContentSurface).
+  const routeOwnsFloor =
+    selectedView === "artifacts" ||
+    selectedView === "agents" ||
+    selectedView === "pulse";
   const selectedProjectId = React.useMemo(() => {
     if (!location.pathname.startsWith("/projects/")) return null;
     const [, , rawProjectId] = location.pathname.split("/");
@@ -1130,14 +1137,12 @@ export function AppShell() {
                                       // stamp the host on their route root
                                       // instead — exactly one host per route.
                                       data-luca-floor-host={
-                                        selectedView !== "artifacts" &&
-                                        selectedView !== "agents" &&
-                                        selectedView !== "pulse"
-                                          ? true
-                                          : undefined
+                                        routeOwnsFloor ? undefined : true
                                       }
                                     >
-                                      <BuzzTheme.ContentSurface>
+                                      <BuzzTheme.ContentSurface
+                                        card={!routeOwnsFloor}
+                                      >
                                         {SUPPORTS_VIEW_TRANSITIONS ? (
                                           /* The content plane. Route changes
                                            snapshot exactly this element —
