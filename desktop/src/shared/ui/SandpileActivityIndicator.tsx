@@ -4,15 +4,16 @@ const GRID_SIZE = 32;
 const CELL_COUNT = GRID_SIZE * GRID_SIZE;
 const CENTER = GRID_SIZE >> 1;
 const RADIUS = GRID_SIZE / 2 - 0.5;
+const APERTURE_INSET = 1.5;
 const POUR_RATE_PER_SECOND = 16;
 const HEAT_DECAY = 0.82;
 const SCALE_LOG = Math.log2(4096);
 
 const FIELD = [
-  [10, 12, 16],
-  [21, 25, 33],
-  [33, 39, 51],
-  [50, 58, 74],
+  [0, 0, 0],
+  [0, 0, 0],
+  [6, 6, 6],
+  [14, 14, 14],
 ] as const;
 
 type HeatStop = readonly [number, readonly [number, number, number]];
@@ -61,9 +62,8 @@ function seedOffset(seed: string) {
 
 /**
  * A compact, circular adaptation of the original "cascade by magnitude"
- * study. One logical cell is exactly one CSS pixel; the renderer expands it
- * into whole device-pixel blocks, so the 32px field stays cellular rather
- * than blending a denser simulation down into a soft thumbnail.
+ * study. The renderer samples the logical field with crisp nearest-cell colour
+ * while keeping the circle edge smooth at device-pixel resolution.
  */
 export function SandpileActivityIndicator({
   active = true,
@@ -131,15 +131,15 @@ export function SandpileActivityIndicator({
       // is never interpolated or filtered.
       const physicalRadius = physicalSize / 2;
       for (let y = 0; y < physicalSize; y += 1) {
-        const logicalY = Math.min(
-          GRID_SIZE - 1,
-          Math.floor((y * GRID_SIZE) / physicalSize),
+        const logicalY = Math.floor(
+          APERTURE_INSET +
+            ((y + 0.5) / physicalSize) * (GRID_SIZE - APERTURE_INSET * 2),
         );
         for (let x = 0; x < physicalSize; x += 1) {
           const pixel = y * physicalSize + x;
-          const logicalX = Math.min(
-            GRID_SIZE - 1,
-            Math.floor((x * GRID_SIZE) / physicalSize),
+          const logicalX = Math.floor(
+            APERTURE_INSET +
+              ((x + 0.5) / physicalSize) * (GRID_SIZE - APERTURE_INSET * 2),
           );
           sourceCellByPixel[pixel] = logicalY * GRID_SIZE + logicalX;
           const dx = x + 0.5 - physicalRadius;

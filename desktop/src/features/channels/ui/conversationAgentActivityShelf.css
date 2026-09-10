@@ -351,6 +351,12 @@
   white-space: nowrap;
 }
 
+:root[data-luca-shell]
+  .luca-activity-item__resident--status-only
+  .luca-activity-item__state {
+  flex: 0 1 auto;
+}
+
 :root[data-luca-shell] .luca-activity-item__action,
 :root[data-luca-shell] .luca-activity-shelf__stop-all,
 :root[data-luca-shell] .luca-activity-popover__stop-all {

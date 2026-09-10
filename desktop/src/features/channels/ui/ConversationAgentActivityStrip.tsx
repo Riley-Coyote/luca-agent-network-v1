@@ -498,11 +498,17 @@ function ActivityItem({
       <ActivityPulse seed={item.pubkey} state={item.state} />
       <button
         aria-label={`Open details for ${item.name}`}
-        className="luca-activity-item__resident"
+        className={cn(
+          "luca-activity-item__resident",
+          !compact && "luca-activity-item__resident--status-only",
+        )}
         onClick={() => onOpenResident(item.pubkey)}
+        title={item.name}
         type="button"
       >
-        <span className="luca-activity-item__name">{item.name}</span>
+        {compact ? (
+          <span className="luca-activity-item__name">{item.name}</span>
+        ) : null}
         {live && item.startedAt !== null ? (
           <ActivityWait
             detail={step ? managedActivityStepDetail(step) : null}
