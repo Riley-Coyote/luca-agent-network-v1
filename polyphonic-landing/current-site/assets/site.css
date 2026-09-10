@@ -107,9 +107,9 @@ html[data-motion=paused] .reveal-enter{animation:none}
    radii, paddings, type sizes and the composer bar — so the band and the product cannot drift
    apart. The windows sit on the pinned interior tokens (see the pin above); the band around them
    is the page's. */
-.band-intro{margin-top:84px}
-.band-intro .feature-copy{max-width:none}
-.band-intro .feature-description{max-width:560px}
+.band-intro{margin-top:84px;text-align:center} /* centred under the centred section title (Riley, 2026-09-10) */
+.band-intro .feature-copy{max-width:none;margin-inline:auto}
+.band-intro .feature-description{max-width:560px;margin-inline:auto}
 
 /* The band breaks the container: it is a plain block in <main>, so it is already viewport-wide,
    and its own overflow keeps the document from ever scrolling sideways. */
