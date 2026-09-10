@@ -121,12 +121,10 @@ html[data-motion=paused] .reveal-enter{animation:none}
 .pw-half{display:contents}
 .pw-band:hover .pw-track,.pw-band:focus-within .pw-track,html[data-motion=paused] .pw-track{animation-play-state:paused}
 
-.pw-window{flex:0 0 400px;width:400px;margin-right:24px;display:flex;flex-direction:column;padding:6px;border:1px solid #ffffff28;border-radius:15px;background:#080808;color:#c7c6bc;box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008;font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.65;text-align:left;-webkit-font-smoothing:antialiased}
+.pw-window{flex:0 0 400px;width:400px;min-height:520px;margin-right:24px;display:flex;flex-direction:column;padding:6px;border:1px solid #ffffff28;border-radius:15px;background:#080808;color:#c7c6bc;box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008;font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.65;text-align:left;-webkit-font-smoothing:antialiased}
 .pw-head{flex:none;display:flex;align-items:center;gap:10px;height:67px;padding:12px 16px;background:#141413;border-bottom:1px solid #ffffff0a;border-radius:9px 9px 0 0}
 .pw-lights{display:flex;gap:8px;flex:none}
-.pw-lights i{width:12px;height:12px;border-radius:50%;background:#ff5f57}
-.pw-lights i:nth-child(2){background:#ffbd2e}
-.pw-lights i:nth-child(3){background:#28c840}
+.pw-lights i{width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.14)} /* quiet: seven windows of macOS lights would be the loudest colour on the page */
 .pw-avatar{width:26px;height:26px;flex:none;display:grid;place-items:center;overflow:hidden}
 .pw-mark{border-radius:50%;background:var(--glass);border:1px solid var(--glass-line)}
 .pw-glyph{border-radius:7px;background:var(--s3);color:var(--t1);font:10px var(--app-mono);letter-spacing:.02em}
@@ -169,3 +167,4 @@ html[data-motion=paused] .reveal-enter{animation:none}
 @media(prefers-reduced-motion:reduce) and (max-width:760px){.pw-band{padding-inline:20px;scroll-padding-inline:20px}}
 @media(prefers-contrast:more){.pw-window{border-color:rgba(236,232,224,.45)}}
 @media print{.pw-band{display:none!important}}
+@media(max-width:760px){.pw-window{min-height:390px}} /* WP-06 review: portrait like the real pop-out, at phone width */
