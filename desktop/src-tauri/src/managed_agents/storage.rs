@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
     fs::{self, File, OpenOptions},
@@ -5,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::app_state::keyring_service;
 use crate::managed_agents::ManagedAgentRecord;
@@ -32,7 +33,7 @@ fn agent_secret_store() -> Option<&'static SecretStore> {
 
 pub fn managed_agents_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data dir: {error}"))?
         .join("agents");

@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs},
@@ -134,7 +135,7 @@ fn validate_app_artifact(
         return Err("preview artifact was not found".to_string());
     }
     let app_data_dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "preview artifact store is unavailable".to_string())?;
     let store = crate::luca::artifacts::ArtifactStore::open(&app_data_dir)
@@ -810,7 +811,7 @@ fn persist_preview_attachment(
 ) -> Result<(), String> {
     let (origin, port) = sanitized_preview_origin(display_url)?;
     let app_data_dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "artifact-unavailable".to_string())?;
     crate::luca::artifacts::ArtifactStore::open(&app_data_dir)

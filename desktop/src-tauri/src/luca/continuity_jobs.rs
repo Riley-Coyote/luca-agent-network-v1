@@ -1,5 +1,6 @@
 //! Durable body-free jobs for the V1 resident handoff loop.
 
+use crate::data_dir::BuzzPathExt;
 use std::{path::Path, time::Duration};
 
 use luca_protocol::{
@@ -618,7 +619,7 @@ fn transition_terminal(
 
 fn job_store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let directory = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "resolve continuity job directory".to_owned())?
         .join("continuity");

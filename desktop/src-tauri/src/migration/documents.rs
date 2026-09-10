@@ -41,9 +41,8 @@
 //! No `writes.jsonl` line is appended: nobody wrote anything from the desktop,
 //! and the journal is a record of desktop writes.
 
+use crate::data_dir::BuzzPathExt;
 use std::path::Path;
-
-use tauri::Manager as _;
 
 use crate::luca::resident_documents::{
     documents_hash, ensure_dir_at, ensure_root_at, is_valid_pubkey, load, relative_dir,
@@ -55,7 +54,7 @@ use super::{canonical_dev_data_dir, patch_json_records};
 /// Give every keyed managed-agent record an agent folder. See the module docs
 /// for the exact rule.
 pub fn materialize_resident_documents(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];

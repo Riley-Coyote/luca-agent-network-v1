@@ -34,6 +34,7 @@
 //! a document with its `hash` and passes it back as `expected_hash`; a
 //! mismatch is [`WriteError::Conflict`], never a silent overwrite.
 
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::BTreeMap,
     io::Write as _,
@@ -42,7 +43,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager as _};
+use tauri::AppHandle;
 
 use crate::managed_agents::ManagedAgentRecord;
 
@@ -389,7 +390,7 @@ fn validate_pubkey(pubkey: &str) -> Result<(), String> {
 /// [`ensure_resident_dir`].
 pub(crate) fn residents_root(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "resolve app data dir".to_owned())?
         .join(RESIDENTS_DIR))

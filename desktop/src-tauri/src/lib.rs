@@ -3,6 +3,7 @@ mod app_state;
 mod archive;
 mod builderlab;
 mod commands;
+mod data_dir;
 mod deep_link;
 mod event_sync;
 mod events;
@@ -30,6 +31,7 @@ mod secret_store;
 mod shutdown;
 mod templates;
 mod util;
+use crate::data_dir::BuzzPathExt;
 use app_state::{build_app_state, resolve_persisted_identity, AppState};
 use builderlab::*;
 use commands::*;
@@ -474,7 +476,7 @@ pub fn run() {
             //
             // init_nest_dir is called early here (normally it runs inside
             // run_boot_migrations) so reset::run_boot_reset can call nest_dir().
-            let app_data_dir = app_handle.path().app_data_dir().ok();
+            let app_data_dir = app_handle.buzz_path().app_data_dir().ok();
             let is_dev_for_reset = app_data_dir
                 .as_ref()
                 .and_then(|data_dir| data_dir.file_name())
@@ -551,7 +553,7 @@ pub fn run() {
             // Recovery, keychain, restore-journal, or store failures remain a
             // body-free degraded state and never block normal messaging.
             match (
-                app_handle.path().app_data_dir(),
+                app_handle.buzz_path().app_data_dir(),
                 luca_protocol::Hex64::parse(owner_keys.public_key().to_hex()),
             ) {
                 (Ok(app_data_dir), Ok(owner_pubkey)) => {
@@ -564,7 +566,7 @@ pub fn run() {
             // blob catalog off the setup thread. Artifact failures are
             // deliberately fail-soft and never block messaging or residents.
             let _ = crate::luca::artifacts::presentation::revoke_all();
-            if let Ok(app_data_dir) = app_handle.path().app_data_dir() {
+            if let Ok(app_data_dir) = app_handle.buzz_path().app_data_dir() {
                 let artifacts_app = app_handle.clone();
                 tauri::async_runtime::spawn_blocking(move || {
                     match crate::luca::artifacts::ArtifactStore::open(&app_data_dir)

@@ -15,9 +15,9 @@
 //! discovery table. Ensures known providers always have their canonical
 //! `mcp_command`; unknown/custom agents are left untouched.
 
+use crate::data_dir::BuzzPathExt;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use tauri::Manager;
 
 use crate::util::replace_with_symlink;
 
@@ -150,7 +150,7 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
     // operation that calls nest_dir(). The discriminator matches the existing
     // pattern used by reconcile_target_dir: dev instances have an app-data-dir
     // name starting with CANONICAL_DEV_IDENTIFIER.
-    let is_dev = if let Ok(data_dir) = app.path().app_data_dir() {
+    let is_dev = if let Ok(data_dir) = app.buzz_path().app_data_dir() {
         let dev = data_dir
             .file_name()
             .and_then(|n| n.to_str())
@@ -222,7 +222,7 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
 /// data path, so without this copy a product rename would look like a fresh
 /// install and users would lose their persisted identity and agent settings.
 pub fn migrate_legacy_app_data_dir(app: &tauri::AppHandle) {
-    let current_dir = match app.path().app_data_dir() {
+    let current_dir = match app.buzz_path().app_data_dir() {
         Ok(dir) => dir,
         Err(e) => {
             eprintln!("buzz-desktop: app-data-migration: cannot resolve app data dir: {e}");
@@ -584,7 +584,7 @@ struct LegacyAvatarMatch<'a> {
 /// idempotent and avoids relying on timestamps or other persona fields the
 /// user may also have edited.
 fn refresh_builtin_agent_avatars(app: &tauri::AppHandle) {
-    let Ok(dir) = app.path().app_data_dir() else {
+    let Ok(dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let path = dir.join("agents/managed-agents.json");
@@ -810,7 +810,7 @@ pub fn sync_shared_agent_data(app: &tauri::AppHandle) {
         return;
     }
 
-    let current_dir = match app.path().app_data_dir() {
+    let current_dir = match app.buzz_path().app_data_dir() {
         Ok(dir) => dir,
         Err(e) => {
             eprintln!("buzz-desktop: shared-agent-sync: cannot resolve app data dir: {e}");
@@ -1216,7 +1216,7 @@ fn reconcile_legacy_team_persona_runtime_files(dir: &Path) {
 /// Reconcile exact built-in command values persisted before the Sprout→Buzz
 /// rename. Custom commands and explicit paths are left untouched.
 pub fn reconcile_legacy_command_names(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];
@@ -1246,7 +1246,7 @@ pub fn reconcile_legacy_command_names(app: &tauri::AppHandle) {
 /// unknown/custom agents are left untouched. Covers both the current
 /// app data dir and the canonical dev data dir (for worktree instances).
 pub fn reconcile_provider_mcp_commands(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];
@@ -1354,7 +1354,7 @@ pub fn reconcile_databricks_v1_to_v2(app: &tauri::AppHandle) {
         .get("BUZZ_AGENT_PROVIDER")
         .map(|v| v == "databricks_v2")
         .unwrap_or(false);
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];
@@ -1386,7 +1386,7 @@ fn rename_provider_to_runtime_in_personas(path: &Path) {
 }
 
 pub fn migrate_persona_provider_to_runtime(app: &tauri::AppHandle) {
-    let Ok(dir) = app.path().app_data_dir() else {
+    let Ok(dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let path = dir.join("agents/personas.json");

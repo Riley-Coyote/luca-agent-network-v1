@@ -1,13 +1,13 @@
+use crate::data_dir::BuzzPathExt;
 use std::{fs, path::PathBuf};
 
 use tauri::AppHandle;
-use tauri::Manager;
 
 use crate::templates::ChannelTemplateRecord;
 
 fn channel_templates_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("app data dir: {error}"))?
         .join("templates");

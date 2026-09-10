@@ -4,6 +4,7 @@
 //! profile. It owns confirmation receipts, cancellation and presentation only;
 //! the provider remains the worker and retains its own session history.
 
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
     fs,
@@ -291,7 +292,7 @@ async fn start_runtime_task_internal(
     let (command, adapter) = command_for(runtime_family)?;
     let session_epoch = next_session_epoch()?;
     let app_data_dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "runtime session purpose storage is unavailable".to_owned())?;
     let purpose_store = super::runtime_session_purpose::prepare_resident_store(
@@ -1121,7 +1122,7 @@ fn update_projection(app: &AppHandle, projection: &RuntimeTaskProjectionV1) {
 
 fn receipt_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "runtime task receipt storage is unavailable".to_owned())?
         .join("luca")
@@ -1137,7 +1138,7 @@ fn receipt_directory(app: &AppHandle) -> Result<PathBuf, String> {
 
 fn result_directory(app: &AppHandle) -> Result<PathBuf, String> {
     let directory = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "runtime task result storage is unavailable".to_owned())?
         .join("luca")

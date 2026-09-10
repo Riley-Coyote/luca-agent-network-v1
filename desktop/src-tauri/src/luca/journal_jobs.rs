@@ -4,6 +4,7 @@
 //! terminalizes unfinished work rather than persisting notebook plaintext in a
 //! scheduler database.
 
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
     path::Path,
@@ -429,7 +430,7 @@ fn status_by_id(
 
 fn job_store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     let directory = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "resolve journal job directory".to_owned())?
         .join("continuity");

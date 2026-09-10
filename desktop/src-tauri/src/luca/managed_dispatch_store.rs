@@ -1,6 +1,7 @@
 //! Desktop-owned admission records for Luca-managed resident turns.
 //!
 //! Exact signed owner events authorize turns; relay chronology does not.
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
@@ -15,7 +16,7 @@ use luca_protocol::{
 };
 use nostr::{Event, EventId};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::managed_dispatch_routing::routing_from_event;
 
@@ -2257,7 +2258,7 @@ fn validate_artifact_binding(
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
     let root = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("resolve app data directory: {error}"))?;
     Ok(root.join("luca").join("managed-dispatches.json"))

@@ -12,9 +12,8 @@
 //! switch off on purpose, and a boot must never turn it back on. The marker,
 //! not the record, remembers that the default was offered.
 
+use crate::data_dir::BuzzPathExt;
 use std::path::Path;
-
-use tauri::Manager as _;
 
 use crate::managed_agents::LUCA_PERSONA_ID;
 
@@ -26,7 +25,7 @@ pub const LUCA_WARM_APPLIED_MARKER: &str = "agents/.luca-wakes-with-app.applied"
 
 /// Flip existing canonical-Luca records to wake with the app, once per store.
 pub fn warm_luca_on_launch(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];

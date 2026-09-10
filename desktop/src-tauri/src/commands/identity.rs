@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use nostr::{
     nips::nip44, Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp, ToBech32,
 };
@@ -316,7 +317,7 @@ pub async fn import_identity(
         let _mutation_guard = state.identity_mutation.lock().map_err(|e| e.to_string())?;
 
         let data_dir = app_handle
-            .path()
+            .buzz_path()
             .app_data_dir()
             .map_err(|e| format!("app data dir: {e}"))?;
         std::fs::create_dir_all(&data_dir).map_err(|e| format!("create app data dir: {e}"))?;
@@ -400,7 +401,7 @@ pub async fn persist_current_identity(
         let keys = state.keys.lock().map_err(|e| e.to_string())?.clone();
 
         let data_dir = app_handle
-            .path()
+            .buzz_path()
             .app_data_dir()
             .map_err(|e| format!("app data dir: {e}"))?;
         std::fs::create_dir_all(&data_dir).map_err(|e| format!("create app data dir: {e}"))?;
@@ -460,7 +461,7 @@ pub async fn sign_out(app: tauri::AppHandle) -> Result<(), String> {
 
     // Write the reset sentinel — destruction happens on next boot.
     let data_dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|e| format!("app data dir: {e}"))?;
     crate::reset::write_sentinel(&data_dir)?;

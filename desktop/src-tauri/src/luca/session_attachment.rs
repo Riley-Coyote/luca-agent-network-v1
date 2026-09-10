@@ -1,5 +1,6 @@
 //! Local, body-free session attachments. Opaque IDs and a relative locator persist locally;
 //! paths are resolved from the connected source for an authorized resident turn.
+use crate::data_dir::BuzzPathExt;
 use std::path::{Path, PathBuf};
 
 use luca_protocol::{Hex64, OpaqueId};
@@ -48,7 +49,7 @@ fn resolve(
         .read_connected_brain_candidate(owner, &item.source_id)
         .map_err(|_| "Attached session source is disconnected or unavailable")?;
     let excluded = runtime_session_purpose::excluded_provider_session_ids(
-        &app.path()
+        &app.buzz_path()
             .app_data_dir()
             .map_err(|_| "Local store unavailable")?,
         &item.runtime_id,
@@ -85,7 +86,7 @@ pub(crate) fn attach(
     };
     resolve(app, &state, &owner, &item)?;
     let root = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "Local store unavailable")?;
     let path = record_path(&root, owner.as_str(), &relay, conversation);
@@ -107,7 +108,7 @@ pub(crate) fn for_dispatch(
         return Err("Attachment owner is no longer active".into());
     }
     let root = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|_| "Local store unavailable")?;
     let path = record_path(&root, owner.as_str(), &relay, conversation);

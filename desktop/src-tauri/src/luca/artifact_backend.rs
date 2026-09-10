@@ -1,5 +1,6 @@
 //! Durable storage and loopback-preview implementation for the artifact broker.
 
+use crate::data_dir::BuzzPathExt;
 use std::path::{Path, PathBuf};
 
 use luca_protocol::{
@@ -7,7 +8,7 @@ use luca_protocol::{
     ArtifactToolOperationV1, ArtifactToolOutcomeV1, ArtifactToolRequestV1, ArtifactToolResultV1,
     OpaqueId, SafeU53, ARTIFACT_TOOL_PROTOCOL,
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::{
     artifact_bridge::ArtifactBrokerBackend,
@@ -25,7 +26,7 @@ impl DesktopArtifactBackend {
     /// starting any preview process.
     pub(crate) fn new(app: &AppHandle) -> Result<Self, String> {
         let app_data_dir = app
-            .path()
+            .buzz_path()
             .app_data_dir()
             .map_err(|_| "artifact storage root is unavailable".to_string())?;
         Ok(Self {

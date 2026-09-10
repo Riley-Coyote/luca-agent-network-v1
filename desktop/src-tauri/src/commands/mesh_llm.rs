@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager, State};
@@ -14,7 +15,7 @@ struct MeshSharingConfig {
 
 fn mesh_sharing_config_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data dir: {error}"))?
         .join("mesh-sharing.json"))
