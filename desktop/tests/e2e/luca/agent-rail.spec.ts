@@ -471,3 +471,24 @@ test("the keyboard opens a column row's menu", async ({ page }) => {
     page.getByRole("menuitem", { name: /mark.*unread/i }),
   ).toBeVisible({ timeout: 1500 });
 });
+
+test("a runtime and a resident's column never open together", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+  const column = page.getByTestId("agent-chats-column");
+  const runtimePanel = page.getByTestId("runtime-sessions-panel");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await expect(column).toHaveAttribute("data-panel-open", "true");
+
+  // A runtime replaces the column.
+  await page.getByTestId("runtime-rail-claude_code").click();
+  await expect(runtimePanel).toBeVisible();
+  await expect(column).toHaveCount(0);
+
+  // And a resident replaces the runtime panel.
+  await page.getByTestId("agent-rail-atlas").click();
+  await expect(column).toHaveAttribute("data-panel-open", "true");
+  await expect(runtimePanel).toHaveCount(0);
+});

@@ -628,6 +628,9 @@ export function AppSidebar({
 
   const handleSelectRuntime = React.useCallback(
     (runtime: RuntimeConnectionStatusV1) => {
+      // One second column at a time: a runtime replaces whichever agent
+      // column was open.
+      setSelectedAgentPubkey(null);
       if (selectedView !== "messages") {
         pendingRuntimeSelectionRef.current = runtime;
         selectedRuntimeRef.current = null;
@@ -667,6 +670,13 @@ export function AppSidebar({
     () => setIsCreateProjectOpen(true),
     [],
   );
+  const selectAgentFromRail = useStableCallback((pubkey: string) => {
+    // ...and an agent replaces whichever runtime panel was open.
+    pendingRuntimeSelectionRef.current = null;
+    selectedRuntimeRef.current = null;
+    setSelectedRuntime(null);
+    toggleSelectedAgentPubkey(pubkey);
+  });
   const createAgentFromRail = useStableCallback(() => onCreateAgent());
   const startAgentChat = useStableCallback(() => {
     if (!selectedAgent) return;
@@ -855,7 +865,7 @@ export function AppSidebar({
                         workingByChannelId={activeWorkingByChannelId}
                         agents={railAgents}
                         selectedAgentPubkey={selectedAgentPubkey}
-                        onSelectAgent={toggleSelectedAgentPubkey}
+                        onSelectAgent={selectAgentFromRail}
                       />
                       <RuntimeRailSection
                         onSelect={handleSelectRuntime}
