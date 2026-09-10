@@ -371,6 +371,16 @@
   margin: 0;
 }
 
+/* The floor host is the ground the focal card rests on — the shell's own,
+   or a route root that brings its canvas (Library, Agents, Activity). It is
+   the FLOOR, the same tone as the rail, on every route; a route root that
+   painted the surface tone here read as a second, lighter floor beside the
+   rail. The native glass themes (glass-floor.css) still make it transparent
+   so their backdrop shows through. */
+:root[data-luca-shell] [data-luca-floor-host] {
+  background: hsl(var(--mn-floor));
+}
+
 :root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card] {
   background: hsl(var(--mn-surface));
   border: 1px solid transparent;

@@ -303,7 +303,7 @@ export function AgentsView({
   return (
     <>
       <div
-        className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit] bg-card/40"
+        className="flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-[inherit]"
         data-luca-floor-host
         data-testid="agents-view"
       >

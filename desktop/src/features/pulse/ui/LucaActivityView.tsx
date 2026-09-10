@@ -399,7 +399,7 @@ export function LucaActivityView() {
 
   return (
     <main
-      className="flex min-h-0 flex-1 overflow-hidden bg-background"
+      className="flex min-h-0 flex-1 overflow-hidden"
       data-luca-floor-host
       data-testid="owner-activity-view"
     >

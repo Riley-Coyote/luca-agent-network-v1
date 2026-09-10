@@ -3,7 +3,6 @@
   --artifact-library-detail-title: 1.25rem;
   --artifact-library-body: 0.875rem;
   --artifact-library-caption: 0.75rem;
-  background: hsl(var(--mn-surface));
   color: hsl(var(--mn-ink));
   display: flex;
   flex: 1;
