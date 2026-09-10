@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await installMockBridge(page);
 });
 
-test("Library opens the shared Canvas with a sandboxed static HTML preview", async ({
+test("Library opens shared Canvas with HTML safely paused and exportable", async ({
   page,
 }) => {
   await page.goto("/?e2e=mock#/artifacts");
@@ -35,44 +35,47 @@ test("Library opens the shared Canvas with a sandboxed static HTML preview", asy
   const canvas = page.getByTestId("artifact-canvas");
   await expect(canvas).toBeVisible();
   await expect(canvas).toContainText("threshold-study.html");
-  const frame = page.getByTestId("artifact-html-preview");
-  await expect(frame).toHaveAttribute("sandbox", "allow-scripts");
-  await expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
-  await expect(frame).toHaveAttribute("tabindex", "-1");
-  await expect(frame).toHaveAttribute("src", /^data:text\/html/);
-  const prepareInvocation = await page.evaluate(() =>
-    window.__BUZZ_E2E_COMMAND_PAYLOADS__?.find(
-      (entry) => entry.command === "prepare_artifact_preview",
+  await expect(
+    canvas.getByText("HTML preview paused for safety"),
+  ).toBeVisible();
+  await expect(canvas.getByTestId("artifact-html-preview")).toHaveCount(0);
+  await expect(
+    canvas.getByRole("button", { name: "Export HTML" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      window.__BUZZ_E2E_COMMAND_PAYLOADS__?.some(
+        (entry) => entry.command === "prepare_artifact_preview",
+      ),
     ),
-  );
-  expect(prepareInvocation?.payload).toEqual({
-    input: { artifactId: "threshold-study", version: 3 },
-  });
-  const preparedDto = await page.evaluate(() =>
-    window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("prepare_artifact_preview", {
+  ).toBe(false);
+
+  const nativePreviewDto = await page.evaluate(() =>
+    window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("read_artifact_preview", {
       input: { artifactId: "threshold-study", version: 3 },
     }),
   );
-  expect(preparedDto).toMatchObject({
-    artifactId: "threshold-study",
-    version: 3,
-    renderer: "sandboxed_html",
-    presentationId: "presentation-threshold-study-3",
-    mediaType: "text/html",
+  expect(nativePreviewDto).toMatchObject({
+    previewType: "text",
+    artifact: { id: "threshold-study", language: "html" },
+    version: { id: "threshold-study:v3", number: 3 },
   });
-  expect((preparedDto as { uri: string }).uri).toMatch(/^data:text\/html/);
 
   await page.getByRole("tab", { name: "preview" }).press("ArrowRight");
   await expect(page.getByRole("tab", { name: "source" })).toHaveAttribute(
     "aria-selected",
     "true",
   );
+  await expect(canvas).toContainText("The threshold is not a screen.");
   await page.getByRole("tab", { name: "source" }).press("End");
   await expect(page.getByRole("tab", { name: /versions/ })).toHaveAttribute(
     "aria-selected",
     "true",
   );
   await page.getByRole("tab", { name: /versions/ }).press("Home");
+
+  await canvas.getByRole("button", { name: "Export HTML" }).click();
+  await expect(canvas).toContainText("Artifact exported");
 
   await waitForAnimations(page);
   await canvas.screenshot({ path: "test-results/artifact-canvas-static.png" });
