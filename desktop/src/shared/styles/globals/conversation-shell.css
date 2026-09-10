@@ -107,6 +107,9 @@
    * The per-palette twin of this value lives in `shared/theme/adaptive-theme.ts`;
    * both obey the same rule. */
   --mn-focus: var(--mn-ink-faint);
+  /* The one signal colour. Slate, used only where a mark must mean "live" or
+     "new" — an unread dot, a rare emphasis. Never a fill, never a surface. */
+  --mn-signal: 214 45% 61%;
 
   /* The one light effect this system uses: a 1px lit top edge on raised
    * objects, simulating light from above catching the bevel. This is what
@@ -647,26 +650,52 @@
   min-height: 30px;
 }
 
+/* A rail row has four surfaces, all of them ink at an opacity so every
+   palette casts its own. Rest is the floor. Hover is a breath (4.5%). Open —
+   a row whose column is showing beside the rail — is a little more (6%) with
+   full ink, and no edge: the selection lives in that column. Active — the
+   place you are — is the house object: 8% fill, a 9% hairline, the lit top
+   edge. Never a weight step: the ink and the surface carry it. */
 :root[data-luca-shell]
   [data-sidebar="menu-button"]:not([data-active="true"]):hover {
-  background: hsl(var(--mn-hover));
+  background: hsl(var(--mn-ink) / 0.045);
   color: hsl(var(--mn-ink));
 }
 
+:root[data-luca-shell] [data-sidebar="menu-button"][data-open="true"] {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell] [data-sidebar="menu-button"][data-open="true"]:hover {
+  background: hsl(var(--mn-ink) / 0.075);
+}
+
 :root[data-luca-shell] [data-sidebar="menu-button"][data-active="true"] {
-  background: hsl(var(--sidebar-active));
-  border-color: hsl(var(--mn-ink) / 0.06);
-  color: hsl(var(--sidebar-active-foreground));
-  /* 500, not 520. The active row earns a step of weight, but it should be a
-     step ON the ramp — 520 was one of a set of one-off weights (520, 540,
-     560) that no token described. */
-  font-weight: 500;
+  background: hsl(var(--mn-ink) / 0.08);
+  border-color: hsl(var(--mn-ink) / 0.09);
+  box-shadow: var(--mn-lit-edge);
+  /* The ink itself, not --sidebar-active-foreground: the classic theme
+     re-points that token at the floor for its solid pill, and on a wash it
+     would print the label in the dark. */
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell] .luca-signal-dot {
+  background: hsl(var(--mn-signal));
+}
+
+/* The agent column is a pane that came out from the rail: a breath lighter
+   than the floor, so it reads as a surface of its own and not as the rail's
+   leftover width. */
+:root[data-luca-shell] [data-testid="agent-chats-column"] {
+  background: hsl(var(--mn-ink) / 0.035);
 }
 
 :root[data-luca-shell]
   [data-sidebar="menu-button"][data-active="true"]
   :is(svg, [data-sidebar-row-meta]) {
-  color: hsl(var(--sidebar-active-foreground) / 0.72);
+  color: hsl(var(--mn-ink) / 0.72);
 }
 
 :root[data-luca-shell] [data-testid="sidebar-search-trigger"] {

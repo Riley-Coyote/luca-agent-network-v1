@@ -145,7 +145,7 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
           personaId={agent.personaId}
           presentation="glyph"
           publicKey={agent.pubkey}
-          size={15}
+          size={14}
         />
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="truncate text-sm text-foreground">{agent.name}</span>

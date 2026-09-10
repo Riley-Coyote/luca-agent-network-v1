@@ -88,9 +88,32 @@ export const RAIL_CONTROL_CLASS = cn(
   RAIL_FOCUS_CLASS,
 );
 
-/** An unread dot arrives at the instant token (motion.css); reduced motion, at once. */
+/** An unread dot arrives at the instant token (motion.css); reduced motion,
+ *  at once. It wears the shell's one signal colour (conversation-shell.css):
+ *  the rail is monochrome, and this is the mark that means "something new". */
 export const UNREAD_DOT_CLASS =
-  "motion-enter-signal size-1.5 self-center rounded-full bg-sidebar-foreground/70";
+  "motion-enter-signal luca-signal-dot size-1.5 self-center rounded-full";
+
+/** Every section of the rail — Projects, Agents, Runtimes — starts with the
+ *  same header: one label register, one inset, one height, and one trailing
+ *  slot for a control (or none). Sections keep their rhythm from space, not
+ *  rules: RAIL_SECTION_CLASS is the gap above each. */
+export const RAIL_SECTION_CLASS = "mt-4 flex flex-col";
+
+export function RailSectionHeader({
+  action,
+  title,
+}: {
+  action?: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="flex h-7 items-center justify-between px-2 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
+      <span>{title}</span>
+      {action}
+    </div>
+  );
+}
 
 /** The actions a list's context menu can perform on the row underneath. */
 export type ChatRowMenuProps = {
@@ -147,7 +170,7 @@ export const ChatRow = React.memo(function ChatRow({
         <span
           className={cn(
             "truncate text-sm",
-            isUnread && !isActive && "font-medium text-sidebar-foreground",
+            isUnread && !isActive && "text-sidebar-foreground",
           )}
           data-sidebar-row-label
         >
@@ -293,7 +316,7 @@ const ProjectRow = React.memo(function ProjectRow({
       <span
         className={cn(
           "min-w-0 flex-1 truncate text-sm",
-          isUnread && !isActive && "font-medium text-sidebar-foreground",
+          isUnread && !isActive && "text-sidebar-foreground",
         )}
       >
         {project.label}
@@ -438,19 +461,21 @@ export function ChatList({
     >
       <div className="flex flex-col px-2" data-testid="chat-list">
         <div className="mt-2 flex flex-col" data-testid="chat-channels">
-          <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-            <span>Projects</span>
-            <button
-              aria-label="New project"
-              className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
-              data-testid="create-channel"
-              onClick={onCreateProject}
-              title="New project"
-              type="button"
-            >
-              <Plus className="size-3.5" />
-            </button>
-          </div>
+          <RailSectionHeader
+            action={
+              <button
+                aria-label="New project"
+                className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
+                data-testid="create-channel"
+                onClick={onCreateProject}
+                title="New project"
+                type="button"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            }
+            title="Projects"
+          />
           {orderedProjects.map((project) => {
             const group =
               groupsByProjectId.get(project.id) ??

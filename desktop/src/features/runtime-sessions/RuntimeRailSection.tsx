@@ -1,17 +1,13 @@
 import * as React from "react";
 
 import { useAcpRuntimesQuery } from "@/features/agents/hooks";
-import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/shared/ui/sidebar";
+  RAIL_ROW_CLASS,
+  RAIL_SECTION_CLASS,
+  RailSectionHeader,
+} from "@/features/sidebar/ui/ChatList";
 import type { RuntimeConnectionStatusV1 } from "@/shared/api/tauriMcp";
-import { cn } from "@/shared/lib/cn";
+import { HarnessLogo, harnessIdFromRuntimeId } from "@/shared/ui/HarnessLogo";
 
 import { useRuntimeConnectionsQuery } from "./hooks";
 import {
@@ -47,69 +43,67 @@ export function RuntimeRailSection({
   if (!isLoading && runtimes.length === 0) return null;
 
   return (
-    <SidebarGroup
-      className="group/runtime-section px-0 py-1"
+    // The rail's grammar, not the stock sidebar group's: the same header,
+    // inset and row as Projects and Agents above it.
+    <div
+      className={`${RAIL_SECTION_CLASS} px-2`}
       data-testid="sidebar-runtime-section"
     >
-      <SidebarGroupLabel className="px-2 font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
-        Runtimes
-      </SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {isLoading ? (
-            <li
-              aria-live="polite"
-              className="px-2 py-1.5 text-xs text-muted-foreground"
+      <RailSectionHeader title="Runtimes" />
+      {isLoading ? (
+        <div
+          aria-live="polite"
+          className="px-2 py-1.5 text-xs text-muted-foreground"
+        >
+          Checking installed runtimes…
+        </div>
+      ) : (
+        runtimes.map((runtime) => {
+          const key = runtimeConnectionKey(runtime);
+          const isOpen = key === selectedRuntimeKey;
+          const needsAttention =
+            runtime.readiness !== "ready" ||
+            runtime.authentication === "required";
+          const readiness = runtimeReadinessLabel(runtime);
+          return (
+            <button
+              aria-controls="runtime-sessions-panel"
+              aria-expanded={isOpen}
+              aria-label={`Open ${runtime.label} local sessions`}
+              className={RAIL_ROW_CLASS}
+              data-open={isOpen ? "true" : undefined}
+              data-runtime-connection-key={key}
+              data-sidebar="menu-button"
+              data-testid={`runtime-rail-${runtime.runtimeId}`}
+              key={key}
+              onClick={() => onSelect(runtime)}
+              title={`${runtime.label} · ${readiness}`}
+              type="button"
             >
-              Checking installed runtimes…
-            </li>
-          ) : (
-            runtimes.map((runtime) => {
-              const key = runtimeConnectionKey(runtime);
-              const isActive = key === selectedRuntimeKey;
-              return (
-                <SidebarMenuItem key={key}>
-                  <SidebarMenuButton
-                    aria-controls="runtime-sessions-panel"
-                    aria-expanded={isActive}
-                    aria-label={`Open ${runtime.label} local sessions`}
-                    className={cn(
-                      !isActive &&
-                        "group-hover/menu-item:bg-sidebar-accent group-hover/menu-item:text-sidebar-accent-foreground",
-                    )}
-                    data-runtime-connection-key={key}
-                    data-testid={`runtime-rail-${runtime.runtimeId}`}
-                    isActive={isActive}
-                    onClick={() => onSelect(runtime)}
-                    tooltip={`${runtime.label} · ${runtimeReadinessLabel(runtime)}`}
-                    type="button"
-                  >
-                    <HarnessLogo
-                      appearance="brand"
-                      decorative
-                      harness={harnessIdFromRuntimeId(runtime.runtimeId)}
-                      size={16}
-                    />
-                    <span className="min-w-0 flex-1 truncate">
-                      {runtime.label}
-                    </span>
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        "size-1.5 shrink-0 rounded-full",
-                        runtime.readiness === "ready" &&
-                          runtime.authentication !== "required"
-                          ? "bg-emerald-400/80"
-                          : "bg-amber-400/80",
-                      )}
-                    />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })
-          )}
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
+              <span className="flex size-5 shrink-0 items-center justify-center text-ink-muted group-data-[open=true]:text-foreground">
+                <HarnessLogo
+                  decorative
+                  harness={harnessIdFromRuntimeId(runtime.runtimeId)}
+                  size={14}
+                />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {runtime.label}
+              </span>
+              {/* Connected is the ordinary state and says nothing. Only a
+                  runtime that needs the owner wears a mark: a hollow ring,
+                  not the unread signal — it is a request, not news. */}
+              {needsAttention ? (
+                <span
+                  aria-label={readiness}
+                  className="size-1.5 shrink-0 rounded-full border border-ink-faint"
+                  role="img"
+                />
+              ) : null}
+            </button>
+          );
+        })
+      )}
+    </div>
   );
 }
