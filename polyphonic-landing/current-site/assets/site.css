@@ -75,3 +75,24 @@ html[data-motion=paused] .reveal-enter{animation:none}
 .app-frame,.d-popout{--bg:#000;--s1:#101010;--s2:#181818;--s3:#222;--line:#272727;--line2:#383838;--t0:#f5f5f5;--t1:#b5b5b5;--t2:#999;--t3:#909090;--glass:#0b0b0b;--glass-line:#282828;--unlit:#242424;--radius:14px;--app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010}
 /* The frame's outer edge is the page's, not the app's: flat, with one soft shadow. */
 #preview .app-frame{box-shadow:var(--lift)}
+
+/* WP-05 · the app sits in the page. The frame is still the product, but the page is not the app:
+   above the demo's single-column breakpoint it renders at 80 % of true scale, so the whole app —
+   rail, runtimes list, everything — reads as placed in the page with air around it.
+   CSS zoom, not transform: a transform would make the frame the containing block for the demo's
+   own position:fixed expanded mode. zoom reflows and leaves fixed positioning to the viewport.
+   The interior is untouched — it still lays out at its true 1240 CSS px and is painted at 992.
+   demo.css loads after this file, so these rules carry the id to win the cascade. */
+@media(min-width:861px){
+  /* The frame's visual footprint: 1240 × .8. Its outer size is the page's business. */
+  #preview.preview.container{width:min(calc(100% - 64px),992px)}
+  /* No width here on purpose. Percentages resolve in the element's own zoomed units, so the block's
+     auto width already lays the interior out at 992 / .8 = 1240 CSS px and paints it at 992 —
+     measured identically in Chromium, WebKit and Firefox. (125% would be 1550 px / 1240 visual.) */
+  #preview .app-frame{zoom:.8}
+  /* Expanded mode is the app at true size. .app-frame and .demo-app are the same element, so this
+     zoom replaces the one above rather than nesting with it: 1, not 1.25. */
+  #preview .app-frame.d-expanded{zoom:1}
+  /* The detached chat window is a real window, never the page's picture of the app. */
+  .d-chat-window #preview .app-frame{zoom:1}
+}
