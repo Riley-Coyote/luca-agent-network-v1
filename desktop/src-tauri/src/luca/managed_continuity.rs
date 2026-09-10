@@ -600,14 +600,6 @@ fn write_session_context_result(
     result.attached_session_context = attached_session_context;
     result.quick_chat_effort = quick_chat_effort;
     result.quick_chat_context = quick_chat_context;
-    eprintln!(
-        "[quickchat-effort] dispatch conversation={} event={} status={:?} effort={} report={}",
-        intent.conversation_id.as_str(),
-        intent.trigger_event_id.as_str(),
-        result.status,
-        result.quick_chat_effort.is_some(),
-        intent.quickchat_report.is_some()
-    );
     let bytes = serde_json::to_vec(&result)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
     if bytes.len() >= MAX_FRAME_BYTES {

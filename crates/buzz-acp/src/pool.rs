@@ -2004,7 +2004,7 @@ async fn managed_session_context(
         );
         return Ok(None);
     };
-    tracing::info!(conversation_id = %batch.channel_id, event_id = %trigger.id.to_hex(), status = ?result.status, effort = ?result.quick_chat_effort.as_ref().map(|item| (&item.config_id, &item.value)), "Quick Chat local context received");
+    tracing::debug!(conversation_id = %batch.channel_id, event_id = %trigger.id.to_hex(), status = ?result.status, effort = ?result.quick_chat_effort.as_ref().map(|item| (&item.config_id, &item.value)), "Quick Chat local context received");
     match managed_session_context_status_is_usable(result.status)? {
         true => Ok(Some(result)),
         false
@@ -2950,7 +2950,7 @@ pub async fn run_prompt_task(
                 "Quick Chat effort is not supported by this runtime session".into(),
             ))
         };
-        tracing::info!(session_id = %session_id, config_id = %effort.config_id, value = %effort.value, applied = result.is_ok(), "Quick Chat effort runtime result");
+        tracing::debug!(session_id = %session_id, config_id = %effort.config_id, value = %effort.value, applied = result.is_ok(), "Quick Chat effort runtime result");
         if let Some(batch) = batch.as_ref() {
             let report = serde_json::json!({"sessionId":session_id,"configOptions":agent.model_capabilities.as_ref().and_then(|caps|caps.effort_options_raw.get(&session_id)).cloned().unwrap_or_default(),"effortResult":{"configId":effort.config_id,"value":effort.value,"status":if result.is_ok(){"applied"}else{"failed"}}});
             let _ = managed_session_context(&ctx, batch, Some(report)).await;
