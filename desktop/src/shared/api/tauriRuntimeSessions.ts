@@ -54,3 +54,10 @@ export function getConnectedRuntimeSessionContext(input: {
 }): Promise<ConnectedRuntimeSessionContext> {
   return invoke("get_connected_runtime_session_context", { input });
 }
+
+export function attachConnectedRuntimeSession(
+  conversationId: string,
+  input: { runtimeId: IndexedRuntimeId; sessionId: string },
+): Promise<void> {
+  return invoke("attach_connected_runtime_session", { conversationId, input });
+}

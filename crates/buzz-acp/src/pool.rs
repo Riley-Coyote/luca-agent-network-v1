@@ -1961,6 +1961,13 @@ async fn managed_session_context(
     };
     match managed_session_context_status_is_usable(result.status)? {
         true => Ok(Some(result)),
+        false
+            if result.status
+                == crate::continuity_provider::ManagedSessionContextStatusV1::Empty
+                && result.attached_session_context.is_some() =>
+        {
+            Ok(Some(result))
+        }
         false => Ok(None),
     }
 }
@@ -2917,10 +2924,17 @@ pub async fn run_prompt_task(
         // Managed owner turns get at most one bounded, fail-soft read from the
         // dedicated desktop continuity channel. Legacy, heartbeat, invalid,
         // sibling, and otherwise ineligible work never invokes the provider.
-        let continuity_context =
+        let mut continuity_context =
             managed_continuity_prompt_blocks(&ctx, b, conversation_context.as_ref(), &turn_id)
                 .await
                 .unwrap_or_default();
+
+        if let Some(reference) = resolved_managed_context
+            .as_ref()
+            .and_then(|context| context.attached_session_context.as_ref())
+        {
+            continuity_context.push(reference.clone());
+        }
 
         let profile_lookup =
             fetch_prompt_profile_lookup(b, conversation_context.as_ref(), &ctx.rest_client).await;

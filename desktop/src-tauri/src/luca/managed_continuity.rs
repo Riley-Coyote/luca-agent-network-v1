@@ -122,6 +122,7 @@ struct ManagedSessionContextResultV1 {
     additional_directories: Vec<String>,
     selected_source_ids: Vec<OpaqueId>,
     native_roots_ref: Option<Sha256Ref>,
+    attached_session_context: Option<String>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -469,9 +470,11 @@ fn write_session_context_result(
         additional_directories: Vec::new(),
         selected_source_ids: Vec::new(),
         native_roots_ref: None,
+        attached_session_context: None,
     };
     let now_unix_ms = unix_time_millis();
-    let result = if now_unix_ms >= intent.deadline_unix_ms.get() {
+    let mut attached_session_context = None;
+    let mut result = if now_unix_ms >= intent.deadline_unix_ms.get() {
         unavailable(ManagedSessionContextStatusV1::Unavailable)
     } else {
         let authority = global_dispatch_store(app).ok().and_then(|store| {
@@ -489,64 +492,76 @@ fn write_session_context_result(
         });
         match authority {
             None => unavailable(ManagedSessionContextStatusV1::Denied),
-            Some(authority) => match authority.context_binding {
-                None => unavailable(ManagedSessionContextStatusV1::Empty),
-                Some(snapshot) => {
-                    let state = app.state::<AppState>();
-                    match super::conversation_context::resolve_dispatch_context(
-                        app,
-                        &state,
-                        &authority.owner_pubkey,
-                        &authority.conversation_id,
-                        &snapshot,
-                    ) {
-                        Ok(resolved) => {
-                            let cwd = resolved
-                                .cwd
-                                .as_ref()
-                                .and_then(|path| path.to_str())
-                                .map(str::to_owned);
-                            let additional_directories = resolved
-                                .additional_directories
-                                .iter()
-                                .map(|path| path.to_str().map(str::to_owned))
-                                .collect::<Option<Vec<_>>>();
-                            match (
-                                resolved.cwd.is_none() || cwd.is_some(),
-                                additional_directories,
-                            ) {
-                                (true, Some(additional_directories)) => {
-                                    ManagedSessionContextResultV1 {
-                                        protocol: SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
-                                        request_id: intent.request_id.clone(),
-                                        resident_pubkey: intent.resident_pubkey.clone(),
-                                        status: if resolved.degraded {
-                                            ManagedSessionContextStatusV1::Degraded
-                                        } else {
-                                            ManagedSessionContextStatusV1::Ready
-                                        },
-                                        snapshot_ref: Some(resolved.snapshot_ref),
-                                        revision: SafeU53::new(resolved.revision).unwrap_or_else(
-                                            |_| SafeU53::new(0).expect("zero safe sentinel"),
-                                        ),
-                                        cwd,
-                                        additional_directories,
-                                        selected_source_ids: resolved.selected_source_ids,
-                                        native_roots_ref: Some(resolved.native_roots_ref),
+            Some(authority) => {
+                attached_session_context = super::session_attachment::for_dispatch(
+                    app,
+                    &authority.owner_pubkey,
+                    intent.conversation_id.as_str(),
+                )
+                .ok()
+                .flatten();
+                match authority.context_binding {
+                    None => unavailable(ManagedSessionContextStatusV1::Empty),
+                    Some(snapshot) => {
+                        let state = app.state::<AppState>();
+                        match super::conversation_context::resolve_dispatch_context(
+                            app,
+                            &state,
+                            &authority.owner_pubkey,
+                            &authority.conversation_id,
+                            &snapshot,
+                        ) {
+                            Ok(resolved) => {
+                                let cwd = resolved
+                                    .cwd
+                                    .as_ref()
+                                    .and_then(|path| path.to_str())
+                                    .map(str::to_owned);
+                                let additional_directories = resolved
+                                    .additional_directories
+                                    .iter()
+                                    .map(|path| path.to_str().map(str::to_owned))
+                                    .collect::<Option<Vec<_>>>();
+                                match (
+                                    resolved.cwd.is_none() || cwd.is_some(),
+                                    additional_directories,
+                                ) {
+                                    (true, Some(additional_directories)) => {
+                                        ManagedSessionContextResultV1 {
+                                            protocol: SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
+                                            request_id: intent.request_id.clone(),
+                                            resident_pubkey: intent.resident_pubkey.clone(),
+                                            status: if resolved.degraded {
+                                                ManagedSessionContextStatusV1::Degraded
+                                            } else {
+                                                ManagedSessionContextStatusV1::Ready
+                                            },
+                                            snapshot_ref: Some(resolved.snapshot_ref),
+                                            revision: SafeU53::new(resolved.revision)
+                                                .unwrap_or_else(|_| {
+                                                    SafeU53::new(0).expect("zero safe sentinel")
+                                                }),
+                                            cwd,
+                                            additional_directories,
+                                            selected_source_ids: resolved.selected_source_ids,
+                                            native_roots_ref: Some(resolved.native_roots_ref),
+                                            attached_session_context: None,
+                                        }
                                     }
+                                    _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
                                 }
-                                _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
                             }
+                            Err(error) if error == "conversation_context:missing_primary" => {
+                                unavailable(ManagedSessionContextStatusV1::MissingPrimary)
+                            }
+                            Err(_) => unavailable(ManagedSessionContextStatusV1::Unavailable),
                         }
-                        Err(error) if error == "conversation_context:missing_primary" => {
-                            unavailable(ManagedSessionContextStatusV1::MissingPrimary)
-                        }
-                        Err(_) => unavailable(ManagedSessionContextStatusV1::Unavailable),
                     }
                 }
-            },
+            }
         }
     };
+    result.attached_session_context = attached_session_context;
     let bytes = serde_json::to_vec(&result)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
     if bytes.len() >= MAX_FRAME_BYTES {

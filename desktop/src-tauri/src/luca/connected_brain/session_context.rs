@@ -30,6 +30,7 @@ pub(crate) struct IndexedSessionListV1 {
 
 #[derive(Clone, Debug)]
 pub(crate) struct IndexedSessionContextV1 {
+    pub relative_locator: String,
     pub session_id: OpaqueId,
     pub title: String,
     pub summary: String,
@@ -139,11 +140,48 @@ pub(crate) fn context_for_native_session(
         summary.push_str(&next);
     }
     Ok(Some(IndexedSessionContextV1 {
+        relative_locator: file.relative_locator,
         session_id: selected_session_id,
         title,
         summary,
         visible_message_count: excerpts.len(),
         updated_at: file.updated_at,
+    }))
+}
+
+/// Resolve a selected session to local-only metadata, without parsing its transcript body.
+pub(crate) fn native_session_reference(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    selected_id: &OpaqueId,
+    relative_locator: &str,
+    excluded: &HashSet<String>,
+) -> Result<serde_json::Value, String> {
+    if session_id(source_id, relative_locator)? != *selected_id {
+        return Err("Attached session does not match its source locator".into());
+    }
+    let path = sessions::resolved_session_path(root, kind, relative_locator)?;
+    if sessions::session_file_is_excluded(&path, excluded) {
+        return Err("Attached session is excluded".into());
+    }
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("Invalid transcript name")?;
+    let native_id = stem
+        .get(stem.len().saturating_sub(36)..)
+        .filter(|id| uuid::Uuid::parse_str(id).is_ok())
+        .ok_or("Transcript has no native session UUID")?;
+    Ok(serde_json::json!({
+        "provider": match kind {
+            ConnectedBrainSourceKindV1::CodexHistory => "codex",
+            ConnectedBrainSourceKindV1::ClaudeHistory => "claude_code",
+            _ => return Err("Unsupported session provider".into()),
+        },
+        "session_id": native_id,
+        "transcript_path": path,
+        "source_updated_at": super::discovery::modified_timestamp(&path),
     }))
 }
 
@@ -178,6 +216,74 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    #[test]
+    fn native_reference_is_exact_and_does_not_need_a_readable_transcript_body() {
+        for (kind, name) in [
+            (
+                ConnectedBrainSourceKindV1::ClaudeHistory,
+                "5c76868e-d638-4e43-a3f9-dc389c1556e0.jsonl",
+            ),
+            (
+                ConnectedBrainSourceKindV1::CodexHistory,
+                "rollout-2026-09-10T12-00-00-5c76868e-d638-4e43-a3f9-dc389c1556e0.jsonl",
+            ),
+        ] {
+            let root = tempdir().unwrap();
+            let path = root.path().join(name);
+            fs::write(&path, "not JSON: body must not be read").unwrap();
+            let source = OpaqueId::parse("source-reference-test").unwrap();
+            let selected = session_id(&source, name).unwrap();
+            let reference = native_session_reference(
+                root.path(),
+                kind,
+                &source,
+                &selected,
+                name,
+                &HashSet::new(),
+            )
+            .unwrap();
+            assert_eq!(
+                reference["session_id"],
+                "5c76868e-d638-4e43-a3f9-dc389c1556e0"
+            );
+            assert_eq!(
+                reference["transcript_path"],
+                path.canonicalize().unwrap().to_str().unwrap()
+            );
+            assert!(!reference.to_string().contains("body must not"));
+            let excluded = HashSet::from(["5c76868e-d638-4e43-a3f9-dc389c1556e0".to_owned()]);
+            assert!(native_session_reference(
+                root.path(),
+                kind,
+                &source,
+                &selected,
+                name,
+                &excluded
+            )
+            .is_err());
+            let other_source = OpaqueId::parse("other-source").unwrap();
+            assert!(native_session_reference(
+                root.path(),
+                kind,
+                &other_source,
+                &selected,
+                name,
+                &HashSet::new()
+            )
+            .is_err());
+            fs::remove_file(path).unwrap();
+            assert!(native_session_reference(
+                root.path(),
+                kind,
+                &source,
+                &selected,
+                name,
+                &HashSet::new()
+            )
+            .is_err());
+        }
+    }
+
     #[test]
     fn indexed_context_contains_only_bounded_visible_messages() {
         let root = tempdir().unwrap();

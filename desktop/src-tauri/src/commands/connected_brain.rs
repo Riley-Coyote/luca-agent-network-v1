@@ -131,6 +131,10 @@ pub struct ConnectedRuntimeSessionContextInputV1 {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectedRuntimeSessionContextViewV1 {
+    #[serde(skip)]
+    source_id: String,
+    #[serde(skip)]
+    relative_locator: String,
     runtime_id: String,
     runtime_label: String,
     session_id: String,
@@ -600,6 +604,8 @@ pub async fn get_connected_runtime_session_context(
             };
             if let Some(context) = context {
                 return Ok(ConnectedRuntimeSessionContextViewV1 {
+                    source_id: source.source.source_id.as_str().to_owned(),
+                    relative_locator: context.relative_locator,
                     runtime_id: input.runtime_id,
                     runtime_label: source.source.display_name,
                     session_id: context.session_id.as_str().to_owned(),
@@ -823,4 +829,32 @@ mod tests {
             );
         }
     }
+}
+
+/// Persist the selected source reference locally before publishing the first message.
+#[tauri::command]
+pub async fn attach_connected_runtime_session(
+    input: ConnectedRuntimeSessionContextInputV1,
+    conversation_id: String,
+    app: AppHandle,
+) -> Result<(), String> {
+    let expected_scope = crate::luca::conversation_context::active_scope(&app.state::<AppState>())?;
+    let context = get_connected_runtime_session_context(input, app.clone()).await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        if crate::luca::conversation_context::active_scope(&app.state::<AppState>())?
+            != expected_scope
+        {
+            return Err("Active account changed before session attachment".into());
+        }
+        crate::luca::session_attachment::attach(
+            &app,
+            &conversation_id,
+            &context.runtime_id,
+            &context.source_id,
+            &context.session_id,
+            &context.relative_locator,
+        )
+    })
+    .await
+    .map_err(|_| "Session attachment worker failed".to_owned())?
 }

@@ -1002,7 +1002,7 @@ fn global_store(app: &AppHandle) -> Result<Arc<Mutex<ConversationContextStore>>,
         .ok_or_else(|| "initialize conversation context store".to_owned())
 }
 
-fn active_scope(state: &AppState) -> Result<(Hex64, String), String> {
+pub(crate) fn active_scope(state: &AppState) -> Result<(Hex64, String), String> {
     let owner = Hex64::parse(state.signing_keys()?.public_key().to_hex())
         .map_err(|_| "active owner identity is invalid".to_owned())?;
     let relay_url = relay::relay_ws_url_with_override(state);

@@ -37,6 +37,7 @@ import {
   useRuntimeSessionContextHandoff,
 } from "@/features/runtime-sessions/runtimeSessionHandoff";
 import { buildRuntimeSessionContextEnvelope } from "@/features/runtime-sessions/runtimeSessionModel";
+import { attachConnectedRuntimeSession } from "@/shared/api/tauriRuntimeSessions";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
 import type { Channel } from "@/shared/api/types";
 import { useSendMessageMutation } from "@/features/messages/hooks";
@@ -490,6 +491,12 @@ export function NewMessageScreen() {
       }
 
       try {
+        if (runtimeContext) {
+          await attachConnectedRuntimeSession(directMessage.id, {
+            runtimeId: runtimeContext.runtimeId,
+            sessionId: runtimeContext.sessionId,
+          });
+        }
         const outboundContent = runtimeContextEnvelope
           ? `${runtimeContextEnvelope}\n\n---\n\nYour message:\n${content}`
           : content;

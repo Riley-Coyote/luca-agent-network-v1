@@ -110,11 +110,17 @@ pub(crate) struct ManagedSessionContextResultV1 {
     pub(crate) additional_directories: Vec<String>,
     pub(crate) selected_source_ids: Vec<OpaqueId>,
     pub(crate) native_roots_ref: Option<Sha256Ref>,
+    #[serde(default)]
+    pub(crate) attached_session_context: Option<String>,
 }
 
 impl ManagedSessionContextResultV1 {
     fn is_valid(&self) -> bool {
         if self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
+            || self
+                .attached_session_context
+                .as_ref()
+                .is_some_and(|text| text.len() > 16384)
             || self.additional_directories.len() > 32
             || self.selected_source_ids.len() > 32
             || self
@@ -607,6 +613,9 @@ fn zeroize_result_packet(result: &mut ContinuityContextResultV1) {
 }
 
 fn zeroize_session_context_result(result: &mut ManagedSessionContextResultV1) {
+    if let Some(text) = result.attached_session_context.as_mut() {
+        text.zeroize();
+    }
     if let Some(cwd) = result.cwd.as_mut() {
         cwd.zeroize();
     }
@@ -1091,7 +1100,28 @@ mod tests {
             additional_directories: Vec::new(),
             selected_source_ids: Vec::new(),
             native_roots_ref: None,
+            attached_session_context: None,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn session_attachment_wire_is_local_bounded_and_debug_redacted() {
+        let intent = session_context_intent("attachment-request", unix_time_millis() + 1000);
+        let mut result = session_context_result(&intent);
+        result.attached_session_context = Some("/private/transcript-sentinel.jsonl".into());
+        assert!(result.is_valid_for(&intent));
+        let wire = serde_json::to_vec(&result).unwrap();
+        let decoded: ManagedSessionContextResultV1 = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(
+            decoded.attached_session_context,
+            result.attached_session_context
+        );
+        assert!(!format!("{result:?}").contains("transcript-sentinel"));
+        zeroize_session_context_result(&mut result);
+        assert_eq!(result.attached_session_context.as_deref(), Some(""));
+        result.attached_session_context = Some("x".repeat(16385));
+        assert!(!result.is_valid());
     }
 
     struct CountingManagedLookup {

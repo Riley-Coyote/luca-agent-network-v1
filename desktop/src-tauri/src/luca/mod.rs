@@ -33,6 +33,7 @@ pub(crate) mod continuity_runtime;
 #[allow(dead_code)]
 pub(crate) mod continuity_store;
 pub(crate) mod conversation_context;
+pub(crate) mod session_attachment;
 pub(crate) mod exchange;
 pub(crate) mod exchange_plan;
 pub(crate) mod exchange_relay;

@@ -924,6 +924,7 @@ pub fn run() {
             list_connected_brain_sources,
             list_connected_runtime_sessions,
             get_connected_runtime_session_context,
+            attach_connected_runtime_session,
             connect_connected_brain_source,
             refresh_connected_brain_source,
             disconnect_connected_brain_source,

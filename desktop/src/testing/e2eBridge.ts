@@ -12632,6 +12632,8 @@ export function maybeInstallE2eTauriMocks() {
           runtimeLabel,
         };
       }
+      case "attach_connected_runtime_session":
+        return null;
       case "get_connected_runtime_session_context": {
         const delayMs = activeConfig?.mock?.runtimeSessionContextDelayMs ?? 0;
         if (delayMs > 0) {

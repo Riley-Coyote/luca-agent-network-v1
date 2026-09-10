@@ -276,7 +276,7 @@ pub(super) fn read_messages(
     parse_file(&canonical, kind)
 }
 
-fn resolved_session_path(
+pub(super) fn resolved_session_path(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
     relative_path: &str,
@@ -369,7 +369,10 @@ fn session_files_excluding(
     Ok(files)
 }
 
-fn session_file_is_excluded(path: &Path, excluded_provider_session_ids: &HashSet<String>) -> bool {
+pub(super) fn session_file_is_excluded(
+    path: &Path,
+    excluded_provider_session_ids: &HashSet<String>,
+) -> bool {
     let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
         return false;
     };
