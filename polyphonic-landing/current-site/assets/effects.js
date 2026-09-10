@@ -11,7 +11,9 @@ function emblem(seed,n,density){
 }
 
 const reg=()=>{ const DD=window.DotDisplay; if(!DD||DD.scenes.touch) return;
-      const hash=DD.hash, FONT=DD.FONT, PD=[42,43,42], PH=[239,239,237];
+      /* Warm glass. Same ink as the page (236,232,224); the field rests ~20% dimmer
+         than it used to, and only its brightest tenth is pulled toward gold. */
+      const hash=DD.hash, FONT=DD.FONT, PD=[42,41,39], PH=[236,232,224], GOLD=[201,162,58], REST=0.8, GOLDMAX=0.35;
       const EMB={luca:emblem('luca',9,.42),research:emblem('research',9,.42),vektor:emblem('vektor',9,.42),ziggy:emblem('ziggy',9,.42)};
       const WORD=(()=>{ const out=[]; const s='TOGETHER'; for(let n=0;n<s.length;n++){ const g=(FONT[s[n]]||FONT[' ']).split(','); for(let r=0;r<7;r++) for(let c=0;c<5;c++) if(g[r][c]==='1') out.push([n*6+c,r]); } return out; })();
       const WORDW=8*6-1;
@@ -143,7 +145,10 @@ const reg=()=>{ const DD=window.DotDisplay; if(!DD||DD.scenes.touch) return;
               let lum=a*(cf<0.02?0.38:0.82), c=cf, rf=1;
               if(f>0.01){ const fl=f*0.86; if(fl>lum){ lum=fl; } if(f>c){ c=f; rf=FR[i]||1; } c=Math.min(1,c+0.22*a*f); }
               if(lum<0.025) continue;
-              ctx.fillStyle='rgb('+(((PD[0]+(PH[0]-PD[0])*c)*lum)|0)+','+(((PD[1]+(PH[1]-PD[1])*c)*lum)|0)+','+(((PD[2]+(PH[2]-PD[2])*c)*lum)|0)+')';
+              lum*=REST;
+              let cr=PD[0]+(PH[0]-PD[0])*c, cg=PD[1]+(PH[1]-PD[1])*c, cb=PD[2]+(PH[2]-PD[2])*c;
+              if(c>0.9){ const gw=GOLDMAX*(c-0.9)*10; cr+=(GOLD[0]-cr)*gw; cg+=(GOLD[1]-cg)*gw; cb+=(GOLD[2]-cb)*gw; }
+              ctx.fillStyle='rgb('+((cr*lum)|0)+','+((cg*lum)|0)+','+((cb*lum)|0)+')';
               ctx.beginPath(); ctx.arc(cxp,cyp,cell*(0.13+0.24*c)*(0.65+0.35*Math.max(a,f))*rf,0,6.2832); ctx.fill(); } }
         }
       };

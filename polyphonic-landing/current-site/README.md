@@ -30,6 +30,8 @@ After changing HTML, CSS, JavaScript, or configuration, rebuild and reload the b
 - `audit/` — baseline critique, comparison captures, verification results, and delivery notes.
 - `dist/` — generated deployable files; edit the sources instead.
 
+**Warm, flat, light (WP-02, 9 September 2026).** The page is set in Inter — 200 for display, 300 for body, 400 for chrome — with JetBrains Mono for meta labels in spaced caps; Instrument Sans and Fragment Mono are gone, Doto stays in `assets/fonts/` for the dot-matrix band's lineage. One warm ink, `236,232,224`, carries every text weight (.92/.72/.56/.40/.22) over a floor of `#0a0a0c` and surfaces `#0d0c0e` / `#121114` / `#17161a`; nothing is pure white. Cards, panels, the app frame, the email field and the footer have no borders — separation is surface tone, with the app frame's one soft shadow and the marquee band's two hairlines as the only exceptions. Every button is the same outlined pill (1px ink at 18%, hover 30%, focus 50% with no outline), and the dot canvases render in the same warm ink with the brightest tenth of their cells pulled toward `#c9a23a`.
+
 Historical migration tooling is deliberately omitted; build from the editable source files.
 
 The page has no React, Babel, CDN, live-agent, or account dependency. Its complete conversation and marketing content are present before JavaScript runs. The demonstrations never dispatch real tasks or change real access.

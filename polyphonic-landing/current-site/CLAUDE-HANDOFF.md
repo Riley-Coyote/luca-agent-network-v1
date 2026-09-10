@@ -17,7 +17,7 @@ Node 20+; these commands require no dependency install. The server serves `dist/
 
 ## Latest decisions to preserve
 
-- Keep the accepted page composition, neutral dark surfaces, Instrument Sans, and dot-matrix display language.
+- Keep the accepted page composition and the dot-matrix display language. Surfaces and type were retuned on 9 September 2026 (see below): warm, flat, light — Inter and JetBrains Mono, not Instrument Sans.
 - Polyphonic is one home for agents with continuity, memory, history, and persistent Mnemos identity. Frame agents as collaborators, not task-named tools.
 - Rounded Luca glyph is the Polyphonic mark: `assets/brand/polyphonic-solid.svg`, used in header/footer and favicon. Preserve the round stroke caps and joins.
 - Existing agent glyph system stays. `assets/brand/agents.html` is an exploratory study Riley chose not to pursue; do not integrate its candidates into the product.
@@ -26,6 +26,8 @@ Node 20+; these commands require no dependency install. The server serves `dist/
 - Conversation and right drawer are separate full-height cards; the conversation toolbar stays within its card. Split, popout, and rail collapse work in the demo.
 - Do not reintroduce prototype character avatars or generated background artwork.
 - Important illustrative interactions matter; full feature parity with the desktop app is not the goal.
+
+**WP-02 · warm, flat, light (9 September 2026).** Typography, palette and flatness now follow the old Polyphonic prototype at `GLOBAL-DESIGN-DOCS/polyphonic-particle-field-landing/`: Inter at 200/300/400 (no weight above 500, the hero set entirely in Inter 200 on two lines, no Doto), JetBrains Mono in spaced caps for meta, one warm ink `rgb(236,232,224)` at .92/.72/.56/.40/.22 over `#0a0a0c` with surfaces `#0d0c0e` / `#121114` / `#17161a`, no borders on cards, panels, the app frame, the email input or the footer, every control the same outlined pill, and the hero field and marquee band rendered in that warm ink with a `#c9a23a` glow at the peaks. Layout, copy, structure and JavaScript behaviour are unchanged. `scripts/email-assets.js` still names the old display face for its canvas render and needs the same swap before email assets are re-rendered.
 
 ## Website integration and signup (wired 2026-09-09)
 

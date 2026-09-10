@@ -1,14 +1,17 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Email asset renderer</title>
+<!-- Retyped for WP-02 (Inter / JetBrains Mono, warm ink). The shipped PNGs in
+     assets/email/ were not re-rendered; email-assets.js still names the old
+     display face for its canvas draw and is outside this change. -->
 <style>
 @font-face{font-family:"Doto";src:url(../assets/fonts/doto-900.ttf) format("truetype");font-weight:900}
-@font-face{font-family:"Instrument Sans";src:url(../assets/fonts/instrument-sans.woff2) format("woff2");font-weight:100 900}
-body{background:#000;color:#fff;margin:20px;font-family:"Instrument Sans",sans-serif}
-canvas{display:block;margin:12px 0;outline:1px dashed #333}
+@font-face{font-family:"Inter";src:url(../assets/fonts/inter.woff2) format("woff2");font-weight:100 900}
+body{background:#0a0a0c;color:rgba(236,232,224,.92);margin:20px;font-family:"Inter",system-ui,sans-serif;font-weight:300}
+canvas{display:block;margin:12px 0;outline:1px dashed rgba(236,232,224,.16)}
 </style>
 <p style="font:900 40px Doto">TOGETHER</p>
-<p style="font:500 40px 'Instrument Sans'">Your agents,</p>
+<p style="font:200 40px 'Inter'">Your agents,</p>
 <canvas id="mark" width="44" height="44"></canvas>
 <canvas id="together" width="1040" height="300"></canvas>
 <script src="email-assets.js"></script>
