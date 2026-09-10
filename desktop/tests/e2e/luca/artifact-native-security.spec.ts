@@ -622,17 +622,14 @@ function adversarialSvg(origin: string) {
 </svg>`;
 }
 
-async function assertHtmlPaused(pid: number, hits: TripwireHit[]) {
-  await waitForText(pid, "HTML preview paused for safety", 45_000);
+async function assertHtmlContained(pid: number, hits: TripwireHit[]) {
+  await waitForText(pid, "INLINE_SCRIPT PASS", 45_000);
+  await waitForText(pid, "PROBE_COMPLETE", 45_000);
   await sleep(2_500);
   assertNoTripwireHits(hits, "HTML Canvas");
   const tree = accessibilityTree(pid);
-  expect(tree).toContain("HTML preview paused for safety");
-  expect(tree).toContain(
-    "Executable HTML preview is paused until Luca’s native containment check passes.",
-  );
-  expect(tree).not.toContain("INLINE_SCRIPT PASS");
-  expect(tree).not.toContain("PROBE_COMPLETE");
+  expect(tree).toContain("INLINE_SCRIPT PASS");
+  expect(tree).toContain("PROBE_COMPLETE");
   expect(tree).not.toContain(" ESCAPED");
 }
 
@@ -717,7 +714,7 @@ test("real Tauri Canvas contains adversarial HTML and renders SVG without execut
       "Canvas preview of artifact-security-probe.html",
       45_000,
     );
-    await assertHtmlPaused(launch.pid, tripwire.hits);
+    await assertHtmlContained(launch.pid, tripwire.hits);
     assertNoTripwireHits(tripwire.hits, "HTML Canvas");
 
     clickCanvasClose(launch.pid, "artifact-security-probe.html");

@@ -20,6 +20,7 @@ import {
   useArtifactMutations,
   useArtifactPreview,
   useArtifactPreviewState,
+  usePreparedArtifactPreview,
   usePreviewSession,
 } from "@/features/artifacts/hooks";
 import type {
@@ -57,6 +58,11 @@ export function ArtifactCanvas() {
     artifact?.id ?? null,
     selectedVersion ?? artifact?.currentVersion ?? null,
     Boolean(artifact) && !isApp && (!isHtml || view === "source"),
+  );
+  const preparedPreviewQuery = usePreparedArtifactPreview(
+    artifact?.id ?? null,
+    selectedVersion ?? artifact?.currentVersion ?? null,
+    isHtml,
   );
   const previewStateQuery = useArtifactPreviewState(
     isApp ? (artifact?.id ?? null) : null,
@@ -356,8 +362,8 @@ export function ArtifactCanvas() {
             lastPreview={lastPreview}
             payload={previewQuery.data}
             payloadError={previewQuery.error}
-            exportPending={mutations.exportArtifact.isPending}
-            onExport={exportCurrentArtifact}
+            preparedPreview={preparedPreviewQuery.data}
+            preparedPreviewError={preparedPreviewQuery.error}
             previewSession={previewSession}
             previewSessionError={sessionQuery.error ?? previewStateQuery.error}
             reloadKey={reloadKey}
