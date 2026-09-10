@@ -82,6 +82,14 @@ pub(crate) fn stage(
     {
         return Err("Invalid effort option".into());
     }
+    eprintln!(
+        "[quickchat-effort] stage conversation={conversation} event={event} context={} effort={}",
+        context.is_some(),
+        effort
+            .as_ref()
+            .map(|item| format!("{}:{}", item.config_id, item.value))
+            .unwrap_or_else(|| "none".into())
+    );
     let (owner, relay) = active_scope(state)?;
     let mut entries = contexts()
         .lock()

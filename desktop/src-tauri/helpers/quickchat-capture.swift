@@ -3,7 +3,13 @@ import ScreenCaptureKit
 
 @main
 struct QuickChatCapture {
+    @MainActor
     static func main() async {
+        // Standalone helpers must establish an AppKit/WindowServer connection
+        // before ScreenCaptureKit creates its capture surface.
+        let application = NSApplication.shared
+        application.setActivationPolicy(.prohibited)
+        application.finishLaunching()
         do {
             guard #available(macOS 14.0, *) else { throw CaptureError.message("App capture requires macOS 14 or later") }
             guard CommandLine.arguments.count == 3, let pid = Int32(CommandLine.arguments[1]) else { throw CaptureError.message("Missing app identity") }

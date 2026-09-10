@@ -33,7 +33,8 @@ export function projectQuickChatMessages(
       (row) =>
         (row.kind === KIND_STREAM_MESSAGE ||
           row.kind === KIND_STREAM_MESSAGE_V2) &&
-        (row.pubkey === normalizedOwner || row.pubkey === normalizedResident),
+        (row.pubkey === normalizedOwner || row.pubkey === normalizedResident) &&
+        !(row.pubkey === normalizedOwner && row.body.trim() === "!cancel"),
     )
     .map((row) => ({
       id: row.id,

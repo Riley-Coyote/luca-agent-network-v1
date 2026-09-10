@@ -78,3 +78,26 @@ test("untrusted relay author claims stay hidden and signed final replaces stream
     ["Signed reply"],
   );
 });
+
+test("Stop controls stay out of history without hiding resident text", () => {
+  const rows = projectQuickChatMessages(
+    [
+      { ...latest, content: "!cancel" },
+      {
+        ...latest,
+        id: "resident-control-example",
+        pubkey: resident,
+        content: "!cancel",
+      },
+    ],
+    [],
+    null,
+    owner,
+    resident,
+    relay,
+  );
+  assert.deepEqual(
+    rows.map((row) => row.role),
+    ["assistant"],
+  );
+});
