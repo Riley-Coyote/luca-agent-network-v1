@@ -6,6 +6,7 @@ import type {
   ArtifactDetail,
   LastPreviewMetadata,
   ArtifactPreviewPayload,
+  PreparedArtifactPreview,
   PreviewSession,
 } from "@/features/artifacts/types";
 import { svgImageDataUrl } from "@/features/artifacts/lib/previewSecurity";
@@ -16,8 +17,8 @@ type ArtifactRendererProps = {
   lastPreview: LastPreviewMetadata | null;
   payload: ArtifactPreviewPayload | undefined;
   payloadError: Error | null;
-  exportPending: boolean;
-  onExport: () => void;
+  preparedPreview: PreparedArtifactPreview | undefined;
+  preparedPreviewError: Error | null;
   previewSession: PreviewSession | undefined;
   previewSessionError: Error | null;
   reloadKey: number;
@@ -29,8 +30,8 @@ export function ArtifactRenderer({
   lastPreview,
   payload,
   payloadError,
-  exportPending,
-  onExport,
+  preparedPreview,
+  preparedPreviewError,
   previewSession,
   previewSessionError,
   reloadKey,
@@ -48,13 +49,27 @@ export function ArtifactRenderer({
   }
 
   if (artifact.kind === "html") {
+    if (preparedPreviewError) {
+      return (
+        <RendererFallback
+          message={previewErrorMessage(preparedPreviewError)}
+          title="HTML preview unavailable"
+        />
+      );
+    }
+    if (!preparedPreview) {
+      return <RendererLoading label="Preparing secure preview" />;
+    }
     return (
-      <RendererFallback
-        actionDisabled={exportPending}
-        actionLabel={exportPending ? "Exporting…" : "Export HTML"}
-        message="Executable HTML preview is paused until Luca’s native containment check passes. The managed file remains available to export."
-        onAction={onExport}
-        title="HTML preview paused for safety"
+      <iframe
+        className="artifact-renderer-frame"
+        data-testid="artifact-html-preview"
+        ref={frameRef}
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
+        src={preparedPreview.uri}
+        tabIndex={-1}
+        title={`Preview of ${artifact.title}`}
       />
     );
   }

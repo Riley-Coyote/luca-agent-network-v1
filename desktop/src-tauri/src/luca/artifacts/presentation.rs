@@ -8,6 +8,7 @@ use chrono::{SecondsFormat, Utc};
 use luca_protocol::{ArtifactKindV1, Hex64, OpaqueId, SafeU53};
 use serde::Serialize;
 use tauri::http::{self, HeaderValue, Method, StatusCode};
+use url::Url;
 
 use super::{ArtifactStore, ArtifactStoreError};
 
@@ -56,6 +57,33 @@ static PRESENTATIONS: OnceLock<Mutex<HashMap<String, StoredPresentation>>> = Onc
 
 fn presentations() -> &'static Mutex<HashMap<String, StoredPresentation>> {
     PRESENTATIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Returns whether a currently registered static presentation owns this exact
+/// capability URL. The shell navigation policy stays installed after expiry or
+/// revocation; an expired presentation therefore cannot navigate elsewhere.
+pub(crate) fn allows_navigation(url: &Url) -> bool {
+    if url.scheme() != "luca-artifact"
+        || url.host_str() != Some("localhost")
+        || url.port().is_some()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        return false;
+    }
+    let Some(token) = url.path().strip_prefix('/') else {
+        return false;
+    };
+    if token.len() != 64 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return false;
+    }
+    let now = SystemTime::now();
+    presentations().lock().ok().is_some_and(|mut values| {
+        purge_expired(&mut values, now);
+        values.contains_key(token)
+    })
 }
 
 fn random_capability() -> String {
@@ -331,9 +359,33 @@ mod tests {
         );
 
         let (expired, _) = insert_test_presentation("owner", true);
+        assert!(!allows_navigation(
+            &Url::parse(&format!("luca-artifact://localhost/{expired}")).unwrap()
+        ));
         assert_eq!(
             handle(Some("owner"), &request(&expired)).status(),
             StatusCode::NOT_FOUND
         );
+    }
+
+    #[test]
+    fn navigation_allows_only_a_registered_exact_capability() {
+        let _guard = presentation_test_guard();
+        revoke_all().unwrap();
+        let (token, presentation_id) = insert_test_presentation("owner", false);
+        let exact = Url::parse(&format!("luca-artifact://localhost/{token}")).unwrap();
+        assert!(allows_navigation(&exact));
+        assert!(!allows_navigation(
+            &Url::parse(&format!(
+                "luca-artifact://localhost/{token}?redirect=http://evil.invalid"
+            ))
+            .unwrap()
+        ));
+        assert!(!allows_navigation(
+            &Url::parse("luca-artifact://evil.invalid/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+                .unwrap()
+        ));
+        assert!(revoke("owner", &presentation_id).unwrap());
+        assert!(!allows_navigation(&exact));
     }
 }

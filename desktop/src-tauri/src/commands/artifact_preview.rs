@@ -99,6 +99,24 @@ fn preview_sessions() -> &'static Mutex<HashMap<String, StoredPreviewSession>> {
     PREVIEW_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Returns whether a URL is served by a live Luca-owned app-preview proxy.
+/// The proxy authority is an unguessable per-session hostname and port; never
+/// widen this to an arbitrary localhost exception.
+pub(crate) fn allows_navigation(url: &Url) -> bool {
+    if url.scheme() != "http" || !url.username().is_empty() || url.password().is_some() {
+        return false;
+    }
+    preview_sessions().lock().ok().is_some_and(|sessions| {
+        sessions.values().any(|session| {
+            session.view.status != ArtifactPreviewStatus::Stopped
+                && !session.cancel.is_cancelled()
+                && Url::parse(&session.view.proxy_url)
+                    .ok()
+                    .is_some_and(|proxy| same_origin(&proxy, url))
+        })
+    })
+}
+
 fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
@@ -1248,6 +1266,37 @@ mod tests {
             &state
         )
         .is_none());
+    }
+
+    #[test]
+    fn navigation_allows_only_an_active_proxy_authority() {
+        let id = "navigation-policy";
+        let mut session = stored_session(binding(22, "navigation-dispatch"), id);
+        session.view.proxy_url = "http://luca-preview-navigation.localhost:45678/app".into();
+        {
+            let mut sessions = preview_sessions().lock().unwrap();
+            sessions.insert(id.into(), session);
+        }
+        assert!(allows_navigation(
+            &Url::parse("http://luca-preview-navigation.localhost:45678/next").unwrap()
+        ));
+        assert!(!allows_navigation(
+            &Url::parse("http://luca-preview-navigation.localhost:45679/next").unwrap()
+        ));
+        assert!(!allows_navigation(
+            &Url::parse("http://localhost:45678/next").unwrap()
+        ));
+        stop_preview_sessions_for_exact_dispatch(
+            binding(22, "navigation-dispatch").owner_pubkey.as_str(),
+            binding(22, "navigation-dispatch").conversation_id.as_str(),
+            binding(22, "navigation-dispatch").resident_pubkey.as_str(),
+            22,
+            "navigation-dispatch",
+        )
+        .unwrap();
+        assert!(!allows_navigation(
+            &Url::parse("http://luca-preview-navigation.localhost:45678/next").unwrap()
+        ));
     }
 
     #[test]

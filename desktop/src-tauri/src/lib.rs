@@ -61,9 +61,104 @@ use std::sync::{
 use tauri::Listener;
 use tauri::{Emitter, Manager, RunEvent};
 use tauri_plugin_window_state::StateFlags;
+use url::Url;
 
 #[cfg(target_os = "macos")]
 const INITIAL_RENDER_READY_EVENT: &str = "initial-render-ready";
+
+fn same_origin(left: &Url, right: &Url) -> bool {
+    left.scheme() == right.scheme()
+        && left.host_str() == right.host_str()
+        && left.port_or_known_default() == right.port_or_known_default()
+        && left.username().is_empty()
+        && left.password().is_none()
+        && right.username().is_empty()
+        && right.password().is_none()
+}
+
+fn is_packaged_shell_url(url: &Url) -> bool {
+    if url.scheme() == "tauri"
+        && url.host_str() == Some("localhost")
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+    {
+        return true;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return url.scheme() == "http"
+            && url.host_str() == Some("tauri.localhost")
+            && url.port().is_none()
+            && url.username().is_empty()
+            && url.password().is_none();
+    }
+    #[cfg(not(target_os = "windows"))]
+    false
+}
+
+fn allows_shell_navigation_for(url: &Url, dev_url: Option<&Url>) -> bool {
+    if url.as_str() == "about:blank" || is_packaged_shell_url(url) {
+        return true;
+    }
+    if dev_url.is_some_and(|origin| same_origin(origin, url)) {
+        return true;
+    }
+    luca::artifacts::presentation::allows_navigation(url) || commands::allows_navigation(url)
+}
+
+fn allows_shell_navigation<R: tauri::Runtime>(webview: &tauri::Webview<R>, url: &Url) -> bool {
+    let dev_url = if tauri::is_dev() {
+        webview.app_handle().config().build.dev_url.as_ref()
+    } else {
+        None
+    };
+    allows_shell_navigation_for(url, dev_url)
+}
+
+#[cfg(test)]
+mod shell_navigation_tests {
+    use super::*;
+
+    #[test]
+    fn shell_policy_allows_only_packaged_and_exact_dev_origins() {
+        let dev = Url::parse("http://localhost:1420").unwrap();
+        assert!(allows_shell_navigation_for(
+            &Url::parse("tauri://localhost/#/artifacts").unwrap(),
+            None,
+        ));
+        assert!(allows_shell_navigation_for(
+            &Url::parse("about:blank").unwrap(),
+            None
+        ));
+        assert!(allows_shell_navigation_for(
+            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
+            Some(&dev),
+        ));
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("http://localhost:4173/#/artifacts").unwrap(),
+            Some(&dev),
+        ));
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("https://example.com/").unwrap(),
+            None,
+        ));
+        for value in [
+            "file:///tmp/escape.html",
+            "data:text/html,escape",
+            "javascript:alert(1)",
+        ] {
+            assert!(!allows_shell_navigation_for(
+                &Url::parse(value).unwrap(),
+                None
+            ));
+        }
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
+            None,
+        ));
+    }
+}
 
 fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
     if let Err(error) = window.show() {
@@ -160,6 +255,11 @@ pub fn run() {
     }
 
     let builder = tauri::Builder::default()
+        .plugin(
+            tauri::plugin::Builder::<_, ()>::new("shell-navigation-policy")
+                .on_navigation(|webview, url| allows_shell_navigation(webview, url))
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // Focus the existing window when a duplicate instance launches.
             if let Some(w) = app.get_webview_window("main") {
