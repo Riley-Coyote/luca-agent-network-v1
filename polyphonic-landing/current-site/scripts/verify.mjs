@@ -13,6 +13,14 @@ const band=await page.evaluate(()=>{const b=document.querySelector('.pw-band'),t
 assert.equal(band.all,14);assert.equal(band.dup,7);assert.equal(band.dupHidden,'true');assert.equal(band.anim,'none');assert.equal(band.tabindex,'0');assert.equal(band.scrolls,true);
 assert.deepEqual(band.names,['Luca','Iris','Mira','Otto','Ziggy','Wren','Nia']);assert.deepEqual(band.runtimes,['Hermes','Claude Code','Hermes','Kimi Code','OpenClaw','Codex','Grok']);
 out.checks.push('Seven-window band: 7 windows + aria-hidden duplicate, static and scrollable under reduced motion');
+/* WP-07: the dot-matrix band is a sign now, not a marquee — it changes what it says in
+   place and never scrolls. The canvas is silent to a screen reader; one static sentence
+   next to it carries the whole line and never changes as the sign cycles. */
+const sign=await page.evaluate(()=>{const b=document.getElementById('works'),cv=b.querySelector('canvas'),t=b.querySelector('.sr-only');return{scene:cv.dataset.scene,hidden:cv.getAttribute('aria-hidden'),label:cv.getAttribute('aria-label'),text:cv.dataset.text,phrase:cv.dataset.phrase,names:cv.dataset.names,said:t&&t.textContent,h:Math.round(b.getBoundingClientRect().height)}});
+assert.equal(sign.scene,'sign');assert.equal(sign.hidden,'true');assert.equal(sign.label,null);assert.equal(sign.text,undefined);
+assert.equal(sign.phrase,'ONE HOME FOR');assert.equal(sign.names,'CLAUDE CODE|CODEX|KIMI CODE|GROK|HERMES|OPENCLAW');
+assert.equal(sign.said,'One home for Claude Code, Codex, Kimi Code, Grok, Hermes and OpenClaw.');assert.equal(sign.h,64);
+out.checks.push('Sign band: silent canvas, one static sentence, six runtimes in order, 64px band');
 /* WP-04: the grants are four switch chips for Luca alone; the empty state and the brief-only clause are the deck's. */
 for(const btn of await page.locator('.grant-chip').all())if(await btn.getAttribute('aria-checked')==='true')await btn.click();assert.match(await page.locator('#luca-knows').innerText(),/don’t have anything on Northstar yet/);await page.getByRole('switch',{name:'Northstar brief.md, project folder',exact:true}).focus();await page.keyboard.press('Space');assert.match(await page.locator('#luca-knows').innerText(),/The brief holds us to one route from a note to a plan/);out.checks.push('Brain grant state and response; Space key toggles');
 await page.getByRole('button',{name:'Deny',exact:true}).click();assert.match(await page.locator('#permission-result').innerText(),/Nothing changes/);assert.equal(await page.locator('#reset-permission').evaluate(e=>e===document.activeElement),true);await page.getByRole('button',{name:'Try again',exact:true}).click();await page.getByRole('button',{name:'Allow once',exact:true}).click();assert.match(await page.locator('#permission-result').innerText(),/Allowed once/);out.checks.push('Permission deny / allow / reset and focus return');

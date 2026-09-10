@@ -20,6 +20,8 @@
      data-level  lit-letter brightness    (1 = full phosphor, .55 = the quiet band)
    Scene content, where the scene reads it:
      data-text   marquee / hold
+     data-phrase sign            the fixed half, "ONE HOME FOR"
+     data-names  sign            "CLAUDE CODE|CODEX|GROK"
      data-lines  type            "A|B|C"
      data-labels bars            "CURIOSITY,WARMTH"
    ============================================================ */
@@ -246,6 +248,157 @@
     return out.length ? out : lines;
   }
 
+  /* ============================ THE SIGN ============================
+     Timings are the whole design, so they live in one place. A name
+     stands HOLD, then the change takes SWAP: the outgoing letters dim
+     over DECAY while the incoming ones begin ONSET later, each dot up
+     to JITTER after its neighbour, rising over RISE to the bloom and
+     easing back to rest over SETTLE. One name therefore owns SLOT ms
+     and the whole cycle is names × SLOT — 23.4s for six.             */
+  const SIGN = {
+    HOLD: 3200, DECAY: 700, ONSET: 200, JITTER: 120, RISE: 380, SETTLE: 300,
+    REST: 0.7375,   /* renders the band's .55 ink at level .68 */
+    PEAK: 0.95,     /* ... and the .68 first-light bloom */
+    DARK: 0.05,     /* how steep the dim is — smaller is more abrupt */
+    GUTTER: 3,      /* cells — the marquee's ' · ' separator group */
+    EDGE: 3,        /* cells of air the sign keeps at either end */
+    PITCH: [6, 5, 4],
+    FPS: 38
+  };
+  SIGN.SWAP = SIGN.ONSET + SIGN.JITTER + SIGN.RISE;   /* 700 */
+  SIGN.SLOT = SIGN.HOLD + SIGN.SWAP;                  /* 3900 */
+
+  function signState(cv) {
+    return cv.__sign || (cv.__sign = {
+      /* start past the first settle so the sign is simply ON at load */
+      clock: SIGN.SETTLE + SIGN.JITTER, at: null, pumped: false, steady: false, cols: 0, rows: 0
+    });
+  }
+
+  function signWords(cv) {
+    const ds = (cv && cv.dataset) || {};
+    return {
+      phrase: (ds.phrase || 'ONE HOME FOR').toUpperCase(),
+      names: (ds.names || 'CLAUDE CODE').split('|').map(s => s.trim().toUpperCase()).filter(Boolean)
+    };
+  }
+
+  /* One dot's brightness, tau ms into its own name's slot. Negative tau
+     is a name still arriving; past HOLD is one on its way out. */
+  function signLevel(tau, j) {
+    const on = j - SIGN.SWAP + SIGN.ONSET, pk = on + SIGN.RISE, rest = pk + SIGN.SETTLE;
+    if (tau < on) return 0;
+    if (tau < pk) return SIGN.PEAK * ease((tau - on) / SIGN.RISE);
+    if (tau < rest) return SIGN.PEAK + (SIGN.REST - SIGN.PEAK) * ease((tau - pk) / SIGN.SETTLE);
+    if (tau < SIGN.HOLD) return SIGN.REST;
+    if (tau < SIGN.SLOT) {
+      /* phosphor: quick at first, then a long tail, and it lands exactly on the
+         unlit lattice at the end of DECAY — off, never black. Normalised so the
+         dim actually occupies the whole 700ms; a raw fade() curve is spent in
+         half of it and leaves the slot empty at the mid-point. */
+      const u = (tau - SIGN.HOLD) / SIGN.DECAY;
+      const v = SIGN.REST * (Math.pow(SIGN.DARK, u) - SIGN.DARK) / (1 - SIGN.DARK);
+      return v < 0.004 ? 0 : v;
+    }
+    return 0;
+  }
+
+  /* The pitch the sign can actually hold its longest word at. It only
+     ever steps DOWN from the pitch the canvas asked for, and only on a
+     panel too narrow for it — the band's own lattice is untouched. */
+  function signFit(d, cv) {
+    const base = +((cv.dataset && cv.dataset.cell) || 6) || 6;
+    let widest = 0;
+    signWords(cv).names.forEach(n => { if (n.length * 6 > widest) widest = n.length * 6; });
+    for (let i = 0; i < SIGN.PITCH.length; i++) {
+      const p = SIGN.PITCH[i];
+      if (p > base) continue;
+      if (Math.floor(d.w / p) >= widest + SIGN.EDGE * 2) return p;
+    }
+    return SIGN.PITCH[SIGN.PITCH.length - 1];
+  }
+
+  function signLayout(d, cv) {
+    const { phrase, names } = signWords(cv);
+    let widest = 0;
+    names.forEach(n => { if (n.length * 6 > widest) widest = n.length * 6; });
+    const pw = phrase.length * 6, block = pw + SIGN.GUTTER * 6 + widest;
+    const both = d.cols >= block + SIGN.EDGE * 2;
+    const x0 = Math.round((d.cols - (both ? block : widest)) / 2);
+    return { phrase, names, both, px: x0, nx: x0 + pw + SIGN.GUTTER * 6, y: Math.round((d.rows - 7) / 2) };
+  }
+
+  function signWord(d, L, slot, clock) {
+    const n = L.names.length, name = L.names[((slot % n) + n) % n];
+    const ox = L.both ? L.nx : Math.round((d.cols - (name.length * 6 - 1)) / 2);
+    const tau = clock - slot * SIGN.SLOT;
+    for (let k = 0; k < name.length; k++) {
+      const g = (FONT[name[k]] || FONT[' ']).split(',');
+      for (let r = 0; r < 7; r++) {
+        const row = g[r];
+        for (let c = 0; c < 5; c++) {
+          if (row[c] !== '1') continue;
+          const x = ox + k * 6 + c, y = L.y + r;
+          const v = signLevel(tau, SIGN.JITTER * hash(x + 1, y + 1, slot + 1));
+          if (v > 0) d.set(x, y, v);
+        }
+      }
+    }
+  }
+
+  function signDraw(d, cv, st) {
+    if (!d.ok) return;
+    const fit = signFit(d, cv);
+    if (fit !== d.cell) { d.cell = fit; if (!d.resize()) return; }
+    const L = signLayout(d, cv);
+    const slot = Math.floor(st.clock / SIGN.SLOT), p = st.clock - slot * SIGN.SLOT;
+    d.clear();
+    if (L.both) d.text(L.phrase, L.px, L.y, SIGN.REST);
+    signWord(d, L, slot, st.clock);
+    if (p >= SIGN.HOLD) signWord(d, L, slot + 1, st.clock);   /* the one arriving */
+    d.draw(st.clock);
+    st.cols = d.cols; st.rows = d.rows; st.steady = signSteady(st);
+  }
+
+  /* Between the end of one change and the start of the next the sign is a
+     still picture. Say so, and the pump can stop repainting it. */
+  function signSteady(st) {
+    const p = st.clock % SIGN.SLOT;
+    return p >= SIGN.SETTLE + SIGN.JITTER && p < SIGN.HOLD;
+  }
+
+  /* The sign's own heartbeat. It runs only while there is something to
+     do: on screen, tab visible, and either the page is playing or a
+     change is still in flight. Everything else wakes it. */
+  function signPump(it, isLive) {
+    const d = it.d, cv = it.cv, st = signState(cv);
+    let raf = 0, last = 0, dead = false;
+    const inFlight = () => { const p = st.clock % SIGN.SLOT; return p >= SIGN.HOLD || p < SIGN.SETTLE; };
+    const held = () => document.documentElement.dataset.motion === 'paused' && !inFlight();
+    const busy = () => !dead && !document.hidden && isLive() && d.ok && !held();
+    const step = t => {
+      raf = 0;
+      if (!busy()) { st.at = null; last = 0; return; }
+      raf = requestAnimationFrame(step);
+      if (last && t - last < SIGN.FPS) return;
+      last = t;
+      if (st.at != null) st.clock += Math.min(80, t - st.at);
+      st.at = t;
+      if (st.steady && signSteady(st) && st.cols === d.cols && st.rows === d.rows) return;
+      signDraw(d, cv, st);
+    };
+    const wake = () => { if (!dead && !raf) raf = requestAnimationFrame(step); };
+    st.pumped = true;
+    const mo = new MutationObserver(wake);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-motion'] });
+    document.addEventListener('visibilitychange', wake);
+    wake();
+    return {
+      wake,
+      stop() { dead = true; st.pumped = false; cancelAnimationFrame(raf); mo.disconnect(); document.removeEventListener('visibilitychange', wake); }
+    };
+  }
+
   const scenes = {
     /* ambient — the system is on and nothing is being asked of it */
     field(d, t) {
@@ -346,6 +499,43 @@
       d.text(txt, -off, y, 0.95);
       d.text(txt, -off + w, y, 0.95);
       d.draw(t);
+    },
+    /* ---------------------------------------------------------------
+       THE SIGN — a fixed dot-matrix display that changes what it says
+       IN PLACE. Nothing in it ever moves sideways.
+
+       Two slots sit either side of a gutter the width of the marquee's
+       old ` · ` separator: the phrase (`data-phrase`, permanent) ends
+       flush against the gutter's left edge, the runtime name
+       (`data-names`, "A|B|C") starts flush against its right. Both are
+       placed from the WIDEST name, so the phrase never moves when the
+       name changes. Where the pair will not fit — a phone, a narrow
+       tablet — the phrase is dropped and the name stands alone, centred
+       (the page says the phrase in words just below the band).
+
+       A name leaves the way phosphor leaves: it dims down the ink-floor
+       ramp into the unlit lattice, it never blinks to black. The next
+       one warms up dot by dot, each dot up to JITTER late, overshooting
+       the band's .55 ink to .68 before settling back — that bloom is why
+       this preset carries `level .68` and a matched `inkLit`: at REST the
+       letters render at exactly the colour and dot size the .55 band had
+       (rgb(129,127,123), r 2.502 at cell 6) and .68 is the headroom the
+       first light needs. Halfway through a change both words are faint.
+       That is the intended look.
+
+       Frames: the sign drives its own (signPump, wired up in mount) so a
+       change that is already in flight can finish after the page's loop
+       stops. It holds still when the page is paused, when the tab is
+       hidden, and when it is scrolled out of view; under reduced motion
+       it never starts, and the settle frame stands.                     */
+    sign(d, t, cv) {
+      const st = signState(cv);
+      /* while the pump is running it owns every frame; a host loop calling in
+         as well would only paint the same moment twice. The one thing it is
+         still good for is the settle frame after a resize, when the glass is
+         bare and the pump may be up to a frame away. */
+      if (st.pumped && st.cols === d.cols && st.rows === d.rows) return;
+      signDraw(d, cv, st);
     },
     /* a note arriving line by line — data-lines "A|B|C".
        A line too wide for the panel is re-packed on WORD boundaries, never
@@ -509,6 +699,8 @@
     }
   };
 
+  scenes.sign.pump = signPump;
+
   /* per-scene defaults — a scene knows what glass it wants */
   const PRESETS = {
     field:   { cell: 4, glow: .86, bloom: .30, scan: .04 },
@@ -522,6 +714,12 @@
     /* the band on the page — its own scene, and a quiet one: letters at .55 ink over the
        floor, the unlit lattice at its usual floor, and no gold anywhere in it */
     'marquee-crisp': { level: .55 },
+    /* the sign that replaced it (WP-07) — the same glass, with the headroom a
+       .68 first light needs: at SIGN.REST it renders the .55 band's own ink
+       colour and dot size — inkLit is written as the old .26 scaled by the old
+       .95 letter over the new rest value precisely so the dot comes out the same
+       size to the last bit — and only the bloom goes above it */
+    sign:    { cell: 6, glow: .72, bloom: 0, scan: 0, ink: .17, inkLit: .26 * .95 / SIGN.REST, level: .68 },
     type:    { cell: 4, glow: .93, bloom: .42, scan: .03, ink: .175, inkLit: .28 },
     net:     { cell: 4, glow: .83, bloom: .40, scan: .05, inkLit: .27 },
     travel:  { cell: 4, glow: .80, bloom: .34, scan: .05 },
@@ -556,7 +754,7 @@
     if ('IntersectionObserver' in global) {
       const map = new Map(items.map(it => [it.cv, it]));
       items.forEach(it => it.live = false);
-      io = new IntersectionObserver(es => es.forEach(e => { const it = map.get(e.target); if (it) it.live = e.isIntersecting; }),
+      io = new IntersectionObserver(es => es.forEach(e => { const it = map.get(e.target); if (it) { it.live = e.isIntersecting; if (it.pump) it.pump.wake(); } }),
         { threshold: 0.01, rootMargin: '120px' });
       items.forEach(it => io.observe(it.cv));
     }
@@ -568,6 +766,13 @@
       if (it.d.ok) { it.d.clear(); try { it.fn(it.d, it.seed, it.cv); } catch (e) { } }
     });
     settle();
+
+    /* A scene may own its frames (the sign does: a change already in flight
+       has to be able to finish after the page's loop stops). Deliberately not
+       gated on opts.animate — a host that drives the shared loop itself still
+       wants the sign keeping its own time — but never under reduced motion,
+       where the settle frame above is the whole of it. */
+    if (!reduce) items.forEach(it => { if (it.fn.pump) it.pump = it.fn.pump(it, () => it.live); });
 
     let rz, raf = 0;
     const onResize = () => { clearTimeout(rz); rz = setTimeout(settle, 140); };
@@ -586,7 +791,7 @@
     }
     return {
       items, settle,
-      stop() { cancelAnimationFrame(raf); global.removeEventListener('resize', onResize); if (io) io.disconnect(); }
+      stop() { cancelAnimationFrame(raf); global.removeEventListener('resize', onResize); if (io) io.disconnect(); items.forEach(it => { if (it.pump) it.pump.stop(); }); }
     };
   }
 
