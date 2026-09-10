@@ -7,6 +7,7 @@ import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import { useStableCallback } from "@/shared/hooks/useStableReference";
+import { PanelPresence } from "@/shared/layout/PanelPresence";
 import {
   useChannelSections,
   type ChannelSection,
@@ -706,6 +707,24 @@ export function AppSidebar({
     [hasAgentColumn, sidebarOpen],
   );
 
+  const agentColumn = selectedAgent ? (
+    <AgentChatsColumn
+      agent={selectedAgent}
+      items={columnItems}
+      mobile={isMobile}
+      onClose={closeAgentColumn}
+      onMarkChannelRead={onMarkChannelRead}
+      onMarkChannelUnread={onMarkChannelUnread}
+      onNewChat={startAgentChat}
+      onSelectChannel={selectChannelFromRail}
+      projectByChannelId={roomProjects}
+      railHidden={!sidebarOpen && !isMobile}
+      selectedChannelId={selectedChannelId}
+      unreadChannelIds={unreadChannelIds}
+      workingByChannelId={activeWorkingByChannelId}
+    />
+  ) : null;
+
   return React.createElement(
     React.Fragment,
     null,
@@ -723,23 +742,15 @@ export function AppSidebar({
       railCompanionOpen={hasAgentColumn}
       variant="sidebar"
     >
-      {selectedAgent ? (
-        <AgentChatsColumn
-          agent={selectedAgent}
-          items={columnItems}
-          mobile={isMobile}
-          onClose={closeAgentColumn}
-          onMarkChannelRead={onMarkChannelRead}
-          onMarkChannelUnread={onMarkChannelUnread}
-          onNewChat={startAgentChat}
-          onSelectChannel={selectChannelFromRail}
-          projectByChannelId={roomProjects}
-          railHidden={!sidebarOpen && !isMobile}
-          selectedChannelId={selectedChannelId}
-          unreadChannelIds={unreadChannelIds}
-          workingByChannelId={activeWorkingByChannelId}
-        />
-      ) : null}
+      {isMobile ? (
+        agentColumn
+      ) : (
+        // On the desktop the column arrives and leaves under PanelPresence:
+        // it stays through its exit, Escape closes it, and focus returns to
+        // the rail row that opened it. In the phone sheet it simply replaces
+        // the rail, with no motion to retain.
+        <PanelPresence onClose={closeAgentColumn}>{agentColumn}</PanelPresence>
+      )}
       <div
         className={cn(
           // The rail fills the sidebar's height (flex-1 + min-h-0 is what lets

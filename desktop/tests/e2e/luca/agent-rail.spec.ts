@@ -349,12 +349,16 @@ test("both second-column headers sit at the height of the rail's first row", asy
     .getByTestId("project-room-navigator")
     .locator("header");
   await expect(navigatorHeader).toBeVisible();
-  const navigatorTitle = await navigatorHeader
-    .locator("[data-luca-header-meta]")
-    .boundingBox();
-  expect(
-    Math.abs((navigatorTitle?.y ?? -99) - railFirstRow),
-  ).toBeLessThanOrEqual(8);
+  // Polled: the plane is still arriving when the navigator first reports visible.
+  await expect
+    .poll(async () =>
+      Math.abs(
+        ((
+          await navigatorHeader.locator("[data-luca-header-meta]").boundingBox()
+        )?.y ?? -99) - railFirstRow,
+      ),
+    )
+    .toBeLessThanOrEqual(8);
 
   // Collapse the rail: the navigator is now the leading surface and its
   // title is clear of the strip where the window controls and nav live.
@@ -367,4 +371,99 @@ test("both second-column headers sit at the height of the rail's first row", asy
           ?.y ?? -1,
     )
     .toBeGreaterThanOrEqual((chrome?.y ?? 0) + (chrome?.height ?? 0) - 1);
+});
+
+test("Escape closes a keyboard-opened column and returns focus to the resident's row", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  const atlas = page.getByTestId("agent-rail-atlas");
+  const column = page.getByTestId("agent-chats-column");
+  const focusInsideColumn = () =>
+    page.evaluate(
+      () =>
+        document.activeElement?.closest(
+          '[data-testid="agent-chats-column"]',
+        ) !== null,
+    );
+  await atlas.focus();
+  await page.keyboard.press("Enter");
+  await expect(column).toBeVisible();
+  // Opened from the keyboard, the column takes focus at its first control
+  // once the rows have landed.
+  await expect.poll(focusInsideColumn).toBe(true);
+
+  await page.keyboard.press("Escape");
+  await expect(column).toHaveCount(0);
+  await expect(atlas).toBeFocused();
+});
+
+test("a pointer open leaves focus where it was", async ({ page }) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        document.activeElement?.closest(
+          '[data-testid="agent-chats-column"]',
+        ) !== null,
+    ),
+  ).toBe(false);
+});
+
+test("the column arrives and leaves on the compositor, and holds still under reduced motion", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+
+  const atlas = page.getByTestId("agent-rail-atlas");
+  const column = page.getByTestId("agent-chats-column");
+  await atlas.click();
+  await expect(column).toHaveAttribute("data-panel-open", "true");
+  const transitions = await column.evaluate((el) => ({
+    column: getComputedStyle(el).transitionProperty,
+    mover: el.parentElement
+      ? getComputedStyle(el.parentElement).transitionProperty
+      : "",
+  }));
+  // The column fades and drifts; the mover slides by transform. Nothing
+  // here animates `left` or `width`.
+  expect(transitions.column).toMatch(/opacity/);
+  expect(transitions.column).toMatch(/translate/);
+  expect(transitions.mover).toMatch(/transform|translate/);
+  expect(transitions.mover).not.toMatch(/left|width/);
+
+  // Closing keeps the column through its exit, then lets it go.
+  await atlas.click();
+  await expect(column).toHaveAttribute("data-panel-open", "false");
+  await expect(column).toHaveCount(0);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await atlas.click();
+  await expect(column).toHaveAttribute("data-panel-open", "true");
+  expect(
+    await column.evaluate((el) => el.getAnimations({ subtree: true }).length),
+  ).toBe(0);
+});
+
+test("the keyboard opens a column row's menu", async ({ page }) => {
+  await page.goto("/?e2e=mock");
+
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  const row = page
+    .getByTestId("agent-chats-column")
+    .locator('[data-testid^="agent-column-chat-"]')
+    .first();
+  await expect(row).toBeVisible();
+  await row.focus();
+  // The keyboard's menu key reaches the row as a `contextmenu` event from the
+  // browser (Shift+F10 is not one on macOS); this is what that event does.
+  await row.dispatchEvent("contextmenu");
+  await expect(
+    page.getByRole("menuitem", { name: /mark.*unread/i }),
+  ).toBeVisible({ timeout: 1500 });
 });
