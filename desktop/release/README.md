@@ -5,7 +5,7 @@ beta from this repo. It is applied on top of `desktop/src-tauri/tauri.conf.json`
 
 ```sh
 cd desktop
-pnpm exec tauri build --bundles app,dmg --config ../release/tauri.beta.conf.json --ci
+pnpm exec tauri build --bundles app,dmg --config release/tauri.beta.conf.json --ci
 ```
 
 What it changes:
@@ -50,3 +50,22 @@ Delete any test keychain item you create afterwards:
 ```sh
 security delete-generic-password -s buzz-desktop-test.smoke
 ```
+
+## Known residue: `.window-state.json`
+
+`tauri-plugin-window-state` resolves its own path through Tauri's path resolver, not
+through `BUZZ_DESKTOP_DATA_DIR`, so a smoke-test launch still leaves exactly one file:
+
+```
+~/Library/Application Support/<identifier>/.window-state.json
+```
+
+It is window geometry only — no identity, no keys, no user data. Delete the directory
+after a smoke run:
+
+```sh
+rm -rf ~/Library/"Application Support"/chat.polyphonic.desktop
+```
+
+Everything the app itself writes (identity, agents, continuity, luca) goes to
+`BUZZ_DESKTOP_DATA_DIR`; verified on 2026-09-10 with the 0.5.0-beta.2 candidate.
