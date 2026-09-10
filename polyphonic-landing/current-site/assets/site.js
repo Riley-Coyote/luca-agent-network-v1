@@ -72,4 +72,66 @@
     observer.unobserve(entry.target);
   }),{threshold:.12});
   document.querySelectorAll('.feature-copy,.product-panel,.how-intro,.beta-inner').forEach(el=>observer.observe(el));
+
+  /* WP-08: the loop has depth. One number per window — --d, its centre's distance from the
+     viewport centre over half the viewport, clamped to [-1,1] — and assets/site.css turns that
+     into perspective, shade and the top-edge light. d comes from the drift animation's own clock
+     and the track's fixed pitch, so no frame reads layout; the pitch, the window width, the
+     track's span and the band's resting left edge are measured once, and again on resize. The
+     loop runs only while it can change anything: it stops when the band leaves the screen and
+     when the drift is paused by hover, focus or the motion toggle — writing one last time so the
+     frozen picture is exact. Desktop drift only; below 761px and under reduced motion the row is
+     the flat scroller it has always been. */
+  const band=$('.pw-band'), track=$('.pw-track');
+  if(band&&track){
+    const wins=[...track.querySelectorAll('.pw-window')], last=wins.map(()=>NaN);
+    const wide=matchMedia('(min-width: 761px)');
+    let anim=null, byRect=false, pitch=424, winW=400, span=2968, base=0;
+    let rafId=0, grace=0, visible=true, active=false;
+    const clock=()=>{ // the track's own translateX in px, read from the animation, never from layout
+      if(!anim)return 0;
+      const t=anim.currentTime, ms=t&&typeof t==='object'?t.value:t;
+      const dur=anim.effect.getTiming().duration;
+      if(ms==null||!dur)return 0;
+      return -((ms%dur)/dur)*span;
+    };
+    const measure=()=>{
+      const list=track.getAnimations?track.getAnimations():[];
+      anim=list.find(a=>a.animationName==='pw-drift')||list[0]||null;
+      byRect=!anim; // no animation to read: fall back to per-frame rects
+      if(wins.length>1)pitch=wins[1].offsetLeft-wins[0].offsetLeft;
+      winW=wins[0].offsetWidth; span=track.offsetWidth/2;
+      // offsetLeft is layout, so the track's transform cannot corrupt this, and the band never moves.
+      base=band.getBoundingClientRect().left+(wins[0].offsetLeft-band.offsetLeft);
+    };
+    const update=()=>{
+      const half=innerWidth/2, t=clock();
+      for(let i=0;i<wins.length;i++){
+        const c=byRect?wins[i].getBoundingClientRect().left+winW/2:base+i*pitch+t+winW/2;
+        let d=(c-half)/half; d=d<-1?-1:d>1?1:d;
+        if(!(Math.abs(d-last[i])<5e-4)){last[i]=d;wins[i].style.setProperty('--d',d.toFixed(4))}
+      }
+    };
+    const paused=()=>anim?anim.playState==='paused':document.documentElement.dataset.motion==='paused';
+    const depthFrame=()=>{
+      rafId=0;update();if(grace>0)grace--;
+      if(!active||!visible||(paused()&&!grace))return;
+      rafId=requestAnimationFrame(depthFrame);
+    };
+    // A few frames of grace: hover and the toggle change play state through style, one frame late.
+    const kick=()=>{grace=4;if(!rafId&&active&&visible)rafId=requestAnimationFrame(depthFrame)};
+    const halt=()=>{if(rafId)cancelAnimationFrame(rafId);rafId=0};
+    const sync=()=>{
+      const on=wide.matches&&!reduced.matches&&wins.length>0;
+      if(on===active)return;
+      active=on;
+      if(on){measure();kick()}
+      else{halt();wins.forEach((el,i)=>{last[i]=NaN;el.style.removeProperty('--d')})}
+    };
+    new IntersectionObserver(es=>{visible=es[es.length-1].isIntersecting;visible?kick():halt()},{rootMargin:'120px'}).observe(band);
+    addEventListener('resize',()=>{if(active){measure();kick()}},{passive:true});
+    ['pointerenter','pointerleave','focusin','focusout'].forEach(e=>band.addEventListener(e,kick));
+    addEventListener('polyphonic:motion',kick);
+    wide.addEventListener('change',sync);reduced.addEventListener('change',sync);sync();
+  }
 })();

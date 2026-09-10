@@ -117,7 +117,9 @@ html[data-motion=paused] .reveal-enter{animation:none}
 
 /* The band breaks the container: it is a plain block in <main>, so it is already viewport-wide,
    and its own overflow keeps the document from ever scrolling sideways. */
-.pw-band{margin-top:48px;padding:14px 0 30px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent);mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent)}
+/* WP-08: the edge mask is eased, so a window descends into the dark instead of being cut off it.
+   Both narrow and reduced-motion scrollers switch it off, as they always did. */
+.pw-band{margin-top:48px;padding:14px 0 30px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,transparent 0,rgba(0,0,0,.35) 5%,rgba(0,0,0,.8) 10%,#000 16%,#000 84%,rgba(0,0,0,.8) 90%,rgba(0,0,0,.35) 95%,transparent 100%);mask-image:linear-gradient(to right,transparent 0,rgba(0,0,0,.35) 5%,rgba(0,0,0,.8) 10%,#000 16%,#000 84%,rgba(0,0,0,.8) 90%,rgba(0,0,0,.35) 95%,transparent 100%)}
 .pw-track{display:flex;align-items:stretch;width:max-content;will-change:transform;animation:pw-drift 123.667s linear infinite}
 /* Half the track is 7 × (400 + 24) = 2968 px; 2968 / 24 px per second = 123.667 s.
    The 24 px gap is each window's own margin, so -50% lands exactly one window-and-gap on. */
@@ -145,6 +147,37 @@ html[data-motion=paused] .reveal-enter{animation:none}
 .pw-composer{display:flex;align-items:center;gap:8px;min-height:48px;padding:5px 9px;border:1px solid #ffffff03;border-radius:13px;background:#171717}
 .pw-placeholder{flex:1;min-width:0;display:flex;align-items:center;min-height:38px;padding:7px 3px;font-size:16px;line-height:normal;color:#89877e}
 .pw-send{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:#20201e;color:#55544e}
+
+/* WP-08 · the loop has depth. The row is a loop rolling past the viewer: whatever crosses the
+   centre is closest — flat, full size, lit — and toward either edge a window turns away, drops
+   back in depth and descends into shadow. Depth is a function of screen position, never of window
+   index, so the picture is continuous while the loop drifts and exact the instant it stops:
+   assets/site.js writes one number per window, --d = (window centre − viewport centre) ÷ half the
+   viewport, clamped to [−1,1]; everything below is derived from it. a = d² keeps the middle ~40 %
+   of the viewport essentially flat and puts the recession at the edges. Desktop drift only — the
+   ≤760 px and reduced-motion scrollers stay flat. */
+@property --d{syntax:'<number>';inherits:false;initial-value:0}
+@media(min-width:761px) and (prefers-reduced-motion:no-preference){
+  /* Perspective belongs to the band, whose centre is the viewport's centre; the track only has to
+     pass it through to the windows, which are its flex items. */
+  .pw-band{perspective:1400px;perspective-origin:50% 50%;background:radial-gradient(60% 120% at 50% 50%,rgba(255,255,255,.025),transparent 70%)}
+  .pw-track{transform-style:preserve-3d}
+  .pw-window{
+    --a:calc(var(--d) * var(--d));--right:max(0,var(--d));--left:max(0,calc(-1 * var(--d)));
+    position:relative;
+    /* No scale(): the shared perspective does the foreshortening. At the viewport edge that is
+       about 10 % smaller and 9° turned — the right-hand windows turning their right edge away. */
+    transform:translateZ(calc(-160px * var(--a))) rotateY(calc(9deg * var(--d)));
+    backface-visibility:hidden;will-change:transform;
+    /* The top edge catches the light only when the window is near. */
+    box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008,inset 0 1px 0 rgba(255,255,255,calc(.10 * (1 - var(--a))))}
+  /* Light comes from the centre: the far edge of a turning window darkens first (the directional
+     layer), and the whole window sinks as it recedes (the uniform layer behind it). */
+  .pw-window::after{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+    background:
+      linear-gradient(to right,rgba(0,0,0,calc(.42 * var(--left) * var(--left))),rgba(0,0,0,calc(.42 * var(--right) * var(--right)))),
+      linear-gradient(rgba(0,0,0,calc(.22 * var(--a))),rgba(0,0,0,calc(.22 * var(--a))))}
+}
 
 /* Narrow screens and reduced motion get the same thing: no drift, one row of seven, scrolled by
    hand with snap, and an end you can see. */
