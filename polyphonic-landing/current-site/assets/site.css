@@ -71,8 +71,10 @@ html[data-motion=paused] .reveal-enter{animation:none}
 /* WP-02c · the frame is the product. The page's palette stops at the frame's edge: inside it every
    token the interior consumes is pinned to the app's own accepted values, so the page can be
    retuned again without touching the product. Not pinned, deliberately: --lift (the picture-frame's
-   shadow, which is the page's), --sans and --app-mono (the real desktop app's own typefaces). */
-.app-frame,.d-popout{--bg:#000;--s1:#101010;--s2:#181818;--s3:#222;--line:#272727;--line2:#383838;--t0:#f5f5f5;--t1:#b5b5b5;--t2:#999;--t3:#909090;--glass:#0b0b0b;--glass-line:#282828;--unlit:#242424;--radius:14px;--app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010}
+   shadow, which is the page's), --sans and --app-mono (the real desktop app's own typefaces).
+   WP-06 adds .pw-window: the band's seven conversation windows are the same product, so the page's
+   palette stops at their edge too. */
+.app-frame,.d-popout,.pw-window{--bg:#000;--s1:#101010;--s2:#181818;--s3:#222;--line:#272727;--line2:#383838;--t0:#f5f5f5;--t1:#b5b5b5;--t2:#999;--t3:#909090;--glass:#0b0b0b;--glass-line:#282828;--unlit:#242424;--radius:14px;--app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010}
 /* The frame's outer edge is the page's, not the app's: flat, with one soft shadow. */
 #preview .app-frame{box-shadow:var(--lift)}
 
@@ -98,3 +100,72 @@ html[data-motion=paused] .reveal-enter{animation:none}
   /* The pop-out lives in the top layer, outside the frame; it scales with the picture it came from. */
   .d-popout{zoom:.8}
 }
+
+/* WP-06 · seven windows. Card 1's list of agents becomes the thing itself: seven Polyphonic
+   conversation windows, one agent per runtime, drifting left at a walking pace. Every interior
+   value here was measured off the demo's real pop-out (.d-popout) in the running page — surfaces,
+   radii, paddings, type sizes and the composer bar — so the band and the product cannot drift
+   apart. The windows sit on the pinned interior tokens (see the pin above); the band around them
+   is the page's. */
+.band-intro{margin-top:84px}
+.band-intro .feature-copy{max-width:none}
+.band-intro .feature-description{max-width:560px}
+
+/* The band breaks the container: it is a plain block in <main>, so it is already viewport-wide,
+   and its own overflow keeps the document from ever scrolling sideways. */
+.pw-band{margin-top:48px;padding:14px 0 30px;overflow:hidden;-webkit-mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent);mask-image:linear-gradient(to right,transparent,#000 10%,#000 90%,transparent)}
+.pw-track{display:flex;align-items:stretch;width:max-content;will-change:transform;animation:pw-drift 123.667s linear infinite}
+/* Half the track is 7 × (400 + 24) = 2968 px; 2968 / 24 px per second = 123.667 s.
+   The 24 px gap is each window's own margin, so -50% lands exactly one window-and-gap on. */
+@keyframes pw-drift{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.pw-half{display:contents}
+.pw-band:hover .pw-track,.pw-band:focus-within .pw-track,html[data-motion=paused] .pw-track{animation-play-state:paused}
+
+.pw-window{flex:0 0 400px;width:400px;margin-right:24px;display:flex;flex-direction:column;padding:6px;border:1px solid #ffffff28;border-radius:15px;background:#080808;color:#c7c6bc;box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008;font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.65;text-align:left;-webkit-font-smoothing:antialiased}
+.pw-head{flex:none;display:flex;align-items:center;gap:10px;height:67px;padding:12px 16px;background:#141413;border-bottom:1px solid #ffffff0a;border-radius:9px 9px 0 0}
+.pw-lights{display:flex;gap:8px;flex:none}
+.pw-lights i{width:12px;height:12px;border-radius:50%;background:#ff5f57}
+.pw-lights i:nth-child(2){background:#ffbd2e}
+.pw-lights i:nth-child(3){background:#28c840}
+.pw-avatar{width:26px;height:26px;flex:none;display:grid;place-items:center;overflow:hidden}
+.pw-mark{border-radius:50%;background:var(--glass);border:1px solid var(--glass-line)}
+.pw-glyph{border-radius:7px;background:var(--s3);color:var(--t1);font:10px var(--app-mono);letter-spacing:.02em}
+.pw-name{min-width:0;font-size:14px;font-weight:500;color:#c7c6bc;white-space:nowrap}
+.pw-runtime{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;background:var(--s2);color:#aaa89f;font:10px var(--app-mono);white-space:nowrap}
+.pw-runtime img{width:14px;height:14px;flex:none;object-fit:contain}
+.pw-body{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--s1);border-radius:0 0 9px 9px;overflow:hidden}
+.pw-transcript{flex:1;min-height:0;padding:23px}
+.pw-bubble{width:fit-content;max-width:85%;margin:0 0 23px auto;padding:12px 16px;background:#222120;border:1px solid #ffffff04;border-radius:16px;color:#c6c3b8;font-size:13px;line-height:1.65}
+.pw-message{margin:0}
+.pw-message b{display:block;font-size:14px;font-weight:500;letter-spacing:.005em;color:#bdbbb1}
+.pw-message p{margin:10px 0 0;text-wrap:pretty}
+.pw-compose{flex:none;padding:12px 17px 14px;background:var(--s1)}
+.pw-composer{display:flex;align-items:center;gap:8px;min-height:48px;padding:5px 9px;border:1px solid #ffffff03;border-radius:13px;background:#171717}
+.pw-placeholder{flex:1;min-width:0;display:flex;align-items:center;min-height:38px;padding:7px 3px;font-size:16px;line-height:normal;color:#89877e}
+.pw-send{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:#20201e;color:#55544e}
+
+/* Narrow screens and reduced motion get the same thing: no drift, one row of seven, scrolled by
+   hand with snap, and an end you can see. */
+@media(max-width:760px){
+  .pw-band{margin-top:32px;padding:10px 20px 24px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scroll-padding-inline:20px;overscroll-behavior-x:contain;-webkit-mask-image:none;mask-image:none}
+  .pw-track{width:max-content;will-change:auto;animation:none;transform:none}
+  .pw-half-dup{display:none}
+  .pw-window{flex-basis:300px;width:300px;margin-right:16px;scroll-snap-align:start}
+  /* The real pop-out is full-screen below 761px; these are its own narrow-width values. */
+  .pw-transcript{padding:18px}
+  .pw-bubble{padding:11px 13px;margin-bottom:29px}
+  .pw-message b{font-size:13px}
+  .pw-compose{padding:10px 12px}
+  .band-intro{margin-top:76px}  /* the rhythm the first feature had here before WP-06 */
+}
+@media(prefers-reduced-motion:reduce){
+  /* The row lines up with the container it sits under, and scroll-padding matches that inset so
+     mandatory snap rests at 0 instead of pulling the first window under the page's left margin. */
+  .pw-band{padding-inline:max(32px,calc((100% - 1120px)/2));overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scroll-padding-inline:max(32px,calc((100% - 1120px)/2));overscroll-behavior-x:contain;-webkit-mask-image:none;mask-image:none}
+  .pw-track{will-change:auto;animation:none!important;transform:none!important}
+  .pw-half-dup{display:none}
+  .pw-window{scroll-snap-align:start}
+}
+@media(prefers-reduced-motion:reduce) and (max-width:760px){.pw-band{padding-inline:20px;scroll-padding-inline:20px}}
+@media(prefers-contrast:more){.pw-window{border-color:rgba(236,232,224,.45)}}
+@media print{.pw-band{display:none!important}}
