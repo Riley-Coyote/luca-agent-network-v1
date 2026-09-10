@@ -75,3 +75,5 @@ pub(crate) mod runtime_tasks;
 pub(crate) mod signing_broker;
 pub(crate) mod signing_transport;
 pub(crate) mod visits;
+
+pub(crate) mod quickchat;

@@ -659,6 +659,8 @@ export async function sendChannelMessage(
   managedAudience?: import("@/features/messages/lib/managedAudience").ManagedAudienceIntentV1,
   responseSurface?: import("@/features/messages/lib/managedAudience").ManagedResponseSurface,
   explicitMentionPubkeys?: string[],
+  quickChatContext?: import("@/features/quickchat/types").QuickChatContext,
+  quickChatEffort?: { configId: string; value: string },
 ): Promise<SendChannelMessageResult> {
   const response = await invokeTauri<RawSendChannelMessageResult>(
     "send_channel_message",
@@ -674,6 +676,8 @@ export async function sendChannelMessage(
       managedAudience: managedAudience ?? null,
       responseSurface: responseSurface ?? null,
       visitMentionPubkeys: explicitMentionPubkeys ?? null,
+      quickChatContext: quickChatContext ?? null,
+      quickChatEffort: quickChatEffort ?? null,
     },
   );
 
@@ -1129,8 +1133,15 @@ export async function getAgentConfigSurface(
 export async function putAgentSessionConfig(
   pubkey: string,
   payload: unknown,
+  channelId?: string | null,
+  sessionId?: string | null,
 ): Promise<void> {
-  return invokeTauri<void>("put_agent_session_config", { pubkey, payload });
+  return invokeTauri<void>("put_agent_session_config", {
+    pubkey,
+    payload,
+    channelId,
+    sessionId,
+  });
 }
 
 /** File-layer config for a runtime (e.g. `~/.config/goose/config.yaml`). */

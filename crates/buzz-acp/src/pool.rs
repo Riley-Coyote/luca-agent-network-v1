@@ -76,6 +76,8 @@ pub struct TaskMeta {
 /// Fields are read by the desktop's `get_agent_models` Tauri command (Phase 3).
 #[allow(dead_code)] // Scaffolding for desktop integration — fields read via serde.
 pub struct AgentModelCapabilities {
+    /// Session-advertised effort controls, validated again before application.
+    pub effort_options_raw: HashMap<String, Vec<serde_json::Value>>,
     /// Stable: configOptions with category "model" from session/new.
     pub config_options_raw: Vec<serde_json::Value>,
     /// Unstable: SessionModelState from session/new.
@@ -1032,9 +1034,30 @@ async fn create_session_and_apply_model(
     // Populate model capabilities on first session creation.
     if agent.model_capabilities.is_none() {
         agent.model_capabilities = Some(AgentModelCapabilities {
+            effort_options_raw: HashMap::new(),
             config_options_raw: extract_model_config_options(&resp.raw),
             available_models_raw: extract_model_state(&resp.raw),
         });
+    }
+
+    if let Some(caps) = agent.model_capabilities.as_mut() {
+        if caps.effort_options_raw.len() >= 256 {
+            caps.effort_options_raw.clear();
+        }
+        caps.effort_options_raw.insert(
+            resp.session_id.clone(),
+            resp.raw
+                .get("configOptions")
+                .and_then(|v| v.as_array())
+                .map(|options| {
+                    options
+                        .iter()
+                        .filter(|o| o["category"] == "thought_level")
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default(),
+        );
     }
 
     // Apply desired_model if set, matching against the fresh session/new response.
@@ -1090,6 +1113,7 @@ async fn create_session_and_apply_model(
     agent.acp.observe(
         "session_config_captured",
         serde_json::json!({
+            "sessionId": resp.session_id,
             "configOptions": resp.raw.get("configOptions").cloned().unwrap_or(serde_json::Value::Null),
             "modes": resp.raw.get("modes").cloned().unwrap_or(serde_json::Value::Null),
             "models": resp.raw.get("models").cloned().unwrap_or(serde_json::Value::Null),
@@ -1917,9 +1941,29 @@ async fn managed_continuity_prompt_blocks(
     Some(crate::continuity_provider::continuity_prompt_blocks(result))
 }
 
+fn quickchat_effort_advertised(
+    options: &[serde_json::Value],
+    config_id: &str,
+    value: &str,
+) -> bool {
+    options.iter().any(|option| {
+        option["category"] == "thought_level"
+            && option["id"]
+                .as_str()
+                .or_else(|| option["configId"].as_str())
+                == Some(config_id)
+            && option["options"].as_array().is_some_and(|options| {
+                options
+                    .iter()
+                    .any(|option| option["value"].as_str() == Some(value))
+            })
+    })
+}
+
 async fn managed_session_context(
     ctx: &PromptContext,
     batch: &FlushBatch,
+    report: Option<serde_json::Value>,
 ) -> Result<Option<crate::continuity_provider::ManagedSessionContextResultV1>, AcpError> {
     let Some(managed) = ctx.managed_final_publisher.as_ref() else {
         return Ok(None);
@@ -1936,7 +1980,7 @@ async fn managed_session_context(
     let deadline_unix_ms = now_unix_ms
         .checked_add(crate::continuity_provider::CONTINUITY_RESOLUTION_TIMEOUT.as_millis() as u64)
         .ok_or_else(|| AcpError::Protocol("local context deadline is invalid".into()))?;
-    let intent = crate::continuity_provider::ManagedSessionContextIntentV1::new(
+    let mut intent = crate::continuity_provider::ManagedSessionContextIntentV1::new(
         luca_protocol::OpaqueId::parse(Uuid::new_v4().to_string())
             .map_err(|_| AcpError::Protocol("local context request is invalid".into()))?,
         managed.resident_pubkey.clone(),
@@ -1949,6 +1993,7 @@ async fn managed_session_context(
             .map_err(|_| AcpError::Protocol("local context deadline is invalid".into()))?,
     )
     .ok_or_else(|| AcpError::Protocol("local context request is invalid".into()))?;
+    intent.quickchat_report = report;
     let Some(result) =
         crate::continuity_provider::resolve_inherited_managed_session_context(&intent).await
     else {
@@ -1964,7 +2009,9 @@ async fn managed_session_context(
         false
             if result.status
                 == crate::continuity_provider::ManagedSessionContextStatusV1::Empty
-                && result.attached_session_context.is_some() =>
+                && (result.attached_session_context.is_some()
+                    || result.quick_chat_effort.is_some()
+                    || result.quick_chat_context.is_some()) =>
         {
             Ok(Some(result))
         }
@@ -2372,21 +2419,22 @@ pub async fn run_prompt_task(
     // created. A native-root change rotates only this room. Brain-only changes
     // keep the provider session because their native root digest is unchanged.
     let resolved_managed_context = match (&source, batch.as_ref()) {
-        (PromptSource::Channel(_), Some(batch)) => match managed_session_context(&ctx, batch).await
-        {
-            Ok(context) => context,
-            Err(error) => {
-                send_prompt_result(
-                    &result_tx,
-                    &turn_id,
-                    agent,
-                    source,
-                    PromptOutcome::Error(error),
-                    requeue_batch_if_queue(&ctx, Some(batch.clone())),
-                );
-                return;
+        (PromptSource::Channel(_), Some(batch)) => {
+            match managed_session_context(&ctx, batch, None).await {
+                Ok(context) => context,
+                Err(error) => {
+                    send_prompt_result(
+                        &result_tx,
+                        &turn_id,
+                        agent,
+                        source,
+                        PromptOutcome::Error(error),
+                        requeue_batch_if_queue(&ctx, Some(batch.clone())),
+                    );
+                    return;
+                }
             }
-        },
+        }
         _ => None,
     };
     let mut context_rotated_session = false;
@@ -2869,6 +2917,66 @@ pub async fn run_prompt_task(
         }
     }
 
+    // A trusted exact-event request affects this room's ACP session only.
+    // Refuse the turn if the runtime cannot acknowledge the selected setting.
+    if let Some(effort) = resolved_managed_context
+        .as_ref()
+        .and_then(|context| context.quick_chat_effort.as_ref())
+    {
+        let advertised = agent.model_capabilities.as_ref().is_some_and(|caps| {
+            caps.effort_options_raw
+                .get(&session_id)
+                .is_some_and(|options| {
+                    quickchat_effort_advertised(options, &effort.config_id, &effort.value)
+                })
+        });
+        let result = if advertised {
+            match tokio::time::timeout(
+                Duration::from_secs(10),
+                agent
+                    .acp
+                    .session_set_config_option(&session_id, &effort.config_id, &effort.value),
+            )
+            .await
+            {
+                Ok(result) => result.map(|_| ()),
+                Err(_) => Err(AcpError::Protocol(
+                    "Quick Chat effort acknowledgement timed out".into(),
+                )),
+            }
+        } else {
+            Err(AcpError::Protocol(
+                "Quick Chat effort is not supported by this runtime session".into(),
+            ))
+        };
+        if let Some(batch) = batch.as_ref() {
+            let report = serde_json::json!({"sessionId":session_id,"configOptions":agent.model_capabilities.as_ref().and_then(|caps|caps.effort_options_raw.get(&session_id)).cloned().unwrap_or_default(),"effortResult":{"configId":effort.config_id,"value":effort.value,"status":if result.is_ok(){"applied"}else{"failed"}}});
+            let _ = managed_session_context(&ctx, batch, Some(report)).await;
+        }
+        if let Err(error) = result {
+            send_prompt_result(
+                &result_tx,
+                &turn_id,
+                agent,
+                source,
+                PromptOutcome::Error(error),
+                None,
+            );
+            return;
+        }
+    }
+
+    if resolved_managed_context
+        .as_ref()
+        .and_then(|context| context.quick_chat_effort.as_ref())
+        .is_none()
+    {
+        if let Some(batch) = batch.as_ref() {
+            let report = serde_json::json!({"sessionId":session_id,"configOptions":agent.model_capabilities.as_ref().and_then(|caps|caps.effort_options_raw.get(&session_id)).cloned().unwrap_or_default()});
+            let _ = managed_session_context(&ctx, batch, Some(report)).await;
+        }
+    }
+
     // When the batch is a single slash-command message (e.g. "@Eva /goal …"),
     // `slash_command` holds the bare command. It is sent as the FIRST prompt
     // content block so ACP connectors' slash-command detection
@@ -2934,6 +3042,13 @@ pub async fn run_prompt_task(
             .and_then(|context| context.attached_session_context.as_ref())
         {
             continuity_context.push(reference.clone());
+        }
+
+        if let Some(context) = resolved_managed_context
+            .as_ref()
+            .and_then(|context| context.quick_chat_context.as_ref())
+        {
+            continuity_context.push(context.clone());
         }
 
         let profile_lookup =
@@ -5197,6 +5312,28 @@ async fn clear_reactions(rest: crate::relay::RestClient, event_ids: Vec<String>)
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn quickchat_effort_accepts_only_advertised_thought_values() {
+        let options = vec![
+            serde_json::json!({"id":"thinking", "category":"thought_level", "options":[{"value":"low"},{"value":"high"}]}),
+        ];
+        assert!(super::quickchat_effort_advertised(
+            &options, "thinking", "high"
+        ));
+        assert!(!super::quickchat_effort_advertised(
+            &options, "thinking", "max"
+        ));
+        assert!(!super::quickchat_effort_advertised(
+            &options, "mode", "high"
+        ));
+        let models = vec![
+            serde_json::json!({"id":"thinking", "category":"model", "options":[{"value":"high"}]}),
+        ];
+        assert!(!super::quickchat_effort_advertised(
+            &models, "thinking", "high"
+        ));
+    }
+
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;

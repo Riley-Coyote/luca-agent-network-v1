@@ -87,3 +87,18 @@ fn inline_artifacts_never_require_source_path_access() {
     });
     assert!(validate_workspace_source(&operation, root.path()).is_ok());
 }
+
+#[test]
+fn highlight_arguments_cannot_carry_selectors_or_execution() {
+    assert_eq!(
+        parse_highlight(serde_json::json!({"target_id":"sidebar:projects"})),
+        Ok("sidebar:projects".into())
+    );
+    for value in [
+        serde_json::json!({"target_id":"#secret"}),
+        serde_json::json!({"target_id":"settings","script":"run"}),
+        serde_json::json!({"target_id":""}),
+    ] {
+        assert!(parse_highlight(value).is_err());
+    }
+}

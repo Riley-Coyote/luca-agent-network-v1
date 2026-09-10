@@ -388,6 +388,8 @@ pub async fn get_agent_config_surface(
 pub fn put_agent_session_config(
     pubkey: String,
     payload: serde_json::Value,
+    channel_id: Option<String>,
+    session_id: Option<String>,
     app: AppHandle,
     state: State<'_, AppState>,
 ) {
@@ -420,6 +422,15 @@ pub fn put_agent_session_config(
         captured_at: crate::util::now_iso(),
     };
 
+    if let (Some(channel), Some(session)) = (channel_id, session_id) {
+        crate::luca::quickchat::record_session_effort(
+            &state,
+            &pubkey,
+            &channel,
+            &session,
+            &cache.config_options,
+        );
+    }
     state.put_session_cache(&pubkey, cache);
 }
 

@@ -125,6 +125,31 @@ struct PreviewDetachParams {
     preview_session_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct QuickChatHighlightParams {
+    /// Exact target ID supplied in the current Quick Chat screen context.
+    target_id: String,
+}
+
+impl QuickChatHighlightParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        if self.target_id.is_empty()
+            || self.target_id.len() > 160
+            || !self
+                .target_id
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
+        {
+            return Err(ErrorData::invalid_params(
+                "Use a target ID from the current Quick Chat context.",
+                None,
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 struct ArtifactBrokerClient {
     endpoint: PathBuf,
@@ -332,6 +357,18 @@ impl LucaArtifactsMcp {
     }
 
     #[tool(
+        name = "quickchat_highlight",
+        description = "Briefly highlight a target ID supplied in the current Quick Chat screen context. Never clicks, navigates, or executes code. Stale or uncaptured targets are rejected."
+    )]
+    async fn quickchat_highlight(
+        &self,
+        Parameters(params): Parameters<QuickChatHighlightParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        params.validate()?;
+        self.broker.call("quickchat_highlight", params).await
+    }
+
+    #[tool(
         name = "artifact_create",
         description = "Create a durable Luca artifact from bounded inline text or a relative source path in the active project."
     )]
@@ -463,7 +500,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artifact_personality_exposes_exactly_seven_tools() {
+    fn artifact_personality_exposes_exactly_eight_tools() {
         let mut names = LucaArtifactsMcp::tool_router()
             .list_all()
             .into_iter()
@@ -480,8 +517,35 @@ mod tests {
                 "canvas_present",
                 "preview_attach",
                 "preview_detach",
+                "quickchat_highlight",
             ]
         );
+    }
+
+    #[test]
+    fn highlight_accepts_ids_but_rejects_selectors_and_unknown_fields() {
+        assert!(QuickChatHighlightParams {
+            target_id: "sidebar:projects".into()
+        }
+        .validate()
+        .is_ok());
+        for target in [
+            "",
+            "#settings",
+            "button[data-secret]",
+            "foo bar",
+            "javascript:alert(1)",
+        ] {
+            assert!(QuickChatHighlightParams {
+                target_id: target.into()
+            }
+            .validate()
+            .is_err());
+        }
+        assert!(serde_json::from_value::<QuickChatHighlightParams>(
+            serde_json::json!({"target_id":"settings", "script":"alert(1)"})
+        )
+        .is_err());
     }
 
     fn broker_client(endpoint: PathBuf, generation: u64) -> ArtifactBrokerClient {

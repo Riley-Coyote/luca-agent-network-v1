@@ -1,4 +1,5 @@
 "use client";
+import { UtilityOverlayHost, utilityEscapeHandler } from "./utilityOverlay";
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
@@ -110,8 +111,10 @@ const DialogContent = React.forwardRef<
           )}
           ref={ref}
           {...props}
+          onEscapeKeyDown={utilityEscapeHandler(props.onEscapeKeyDown)}
         >
           {children}
+          <UtilityOverlayHost />
           {showCloseButton ? (
             <DialogPrimitive.Close
               className={cn(

@@ -261,6 +261,8 @@ pub async fn send_channel_message(
     mention_pubkeys: Option<Vec<String>>,
     visit_mention_pubkeys: Option<Vec<String>>,
     kind: Option<u32>,
+    quick_chat_context: Option<crate::luca::quickchat::QuickChatContext>,
+    quick_chat_effort: Option<crate::luca::quickchat::EffortRequest>,
     mut managed_audience: Option<ManagedAudienceIntentV1>,
     response_surface: Option<ManagedResponseSurfaceV1>,
     state: State<'_, AppState>,
@@ -390,6 +392,15 @@ pub async fn send_channel_message(
             .sign_with_keys(&keys)
             .map_err(|error| format!("failed to sign event: {error}"))
     })?;
+    if quick_chat_context.is_some() || quick_chat_effort.is_some() {
+        crate::luca::quickchat::stage(
+            &state,
+            &channel_id,
+            &event.id.to_hex(),
+            quick_chat_context,
+            quick_chat_effort,
+        )?;
+    }
     let visit_commit_marker = if visit_plan.is_some() {
         Some((
             Hex64::parse(event.id.to_hex())

@@ -109,6 +109,8 @@ import {
 } from "@/shared/constants/kinds";
 
 export type SendMessageVariables = {
+  quickChatEffort?: { configId: string; value: string };
+  quickChatContext?: import("@/features/quickchat/types").QuickChatContext;
   channelId?: string;
   targetChannel?: Channel;
   content: string;
@@ -319,7 +321,10 @@ export function useChannelMessagesQuery(channel: Channel | null) {
   return query;
 }
 
-export function useChannelSubscription(channel: Channel | null) {
+export function useChannelSubscription(
+  channel: Channel | null,
+  { markVisible = true }: { markVisible?: boolean } = {},
+) {
   const queryClient = useQueryClient();
   const channelId = channel?.id ?? null;
   const channelType = channel?.channelType ?? null;
@@ -423,12 +428,12 @@ export function useChannelSubscription(channel: Channel | null) {
   // subscriptions are replayed first on reconnect, reducing latency on
   // degraded networks.
   useEffect(() => {
-    if (!channelId || channelType === "forum") return;
+    if (!markVisible || !channelId || channelType === "forum") return;
     setVisibleChannel(channelId);
     return () => {
       setVisibleChannel(null);
     };
-  }, [channelId, channelType]);
+  }, [channelId, channelType, markVisible]);
 
   useEffect(() => {
     if (!channelId || channelType === "forum") {
@@ -520,6 +525,8 @@ export function useSendMessageMutation(
     MessageQueryContext | undefined
   >({
     mutationFn: async ({
+      quickChatEffort,
+      quickChatContext,
       channelId: capturedChannelId,
       targetChannel,
       content,
@@ -610,6 +617,8 @@ export function useSendMessageMutation(
         audience,
         responseSurface,
         explicitMentionPubkeys,
+        quickChatContext,
+        quickChatEffort,
       );
       const replyTags = parentEventId
         ? buildReplyTags(

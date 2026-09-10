@@ -73,6 +73,7 @@ const ARTIFACT_TOOL_NAMES: &[&str] = &[
     "canvas_present",
     "preview_attach",
     "preview_detach",
+    "quickchat_highlight",
 ];
 
 #[cfg(unix)]

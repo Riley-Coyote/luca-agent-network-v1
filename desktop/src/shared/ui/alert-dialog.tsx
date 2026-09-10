@@ -1,4 +1,5 @@
 "use client";
+import { UtilityOverlayHost, utilityEscapeHandler } from "./utilityOverlay";
 
 import * as React from "react";
 import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog";
@@ -34,7 +35,7 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 const AlertDialogContent = React.forwardRef<
   React.ElementRef<typeof AlertDialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto p-4 pointer-events-none">
@@ -46,7 +47,11 @@ const AlertDialogContent = React.forwardRef<
         )}
         ref={ref}
         {...props}
-      />
+        onEscapeKeyDown={utilityEscapeHandler(props.onEscapeKeyDown)}
+      >
+        {children}
+        <UtilityOverlayHost />
+      </AlertDialogPrimitive.Content>
     </div>
   </AlertDialogPortal>
 ));

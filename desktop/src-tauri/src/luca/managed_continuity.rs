@@ -74,6 +74,8 @@ struct ManagedSessionContextIntentV1 {
     conversation_id: OpaqueId,
     trigger_event_id: Hex64,
     deadline_unix_ms: SafeU53,
+    #[serde(default)]
+    quickchat_report: Option<super::quickchat::RuntimeReport>,
 }
 
 impl ManagedSessionContextIntentV1 {
@@ -123,6 +125,10 @@ struct ManagedSessionContextResultV1 {
     selected_source_ids: Vec<OpaqueId>,
     native_roots_ref: Option<Sha256Ref>,
     attached_session_context: Option<String>,
+    #[serde(default)]
+    quick_chat_effort: Option<super::quickchat::EffortRequest>,
+    #[serde(default)]
+    quick_chat_context: Option<String>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -471,9 +477,13 @@ fn write_session_context_result(
         selected_source_ids: Vec::new(),
         native_roots_ref: None,
         attached_session_context: None,
+        quick_chat_effort: None,
+        quick_chat_context: None,
     };
     let now_unix_ms = unix_time_millis();
     let mut attached_session_context = None;
+    let mut quick_chat_effort = None;
+    let mut quick_chat_context = None;
     let mut result = if now_unix_ms >= intent.deadline_unix_ms.get() {
         unavailable(ManagedSessionContextStatusV1::Unavailable)
     } else {
@@ -493,6 +503,22 @@ fn write_session_context_result(
         match authority {
             None => unavailable(ManagedSessionContextStatusV1::Denied),
             Some(authority) => {
+                if let Some(report) = &intent.quickchat_report {
+                    super::quickchat::record_runtime_report(
+                        app,
+                        &authority.owner_pubkey,
+                        intent.resident_pubkey.as_str(),
+                        intent.conversation_id.as_str(),
+                        intent.trigger_event_id.as_str(),
+                        report,
+                    );
+                }
+                quick_chat_effort = super::quickchat::effort_for_dispatch(
+                    &app.state::<AppState>(),
+                    &authority.owner_pubkey,
+                    intent.conversation_id.as_str(),
+                    intent.trigger_event_id.as_str(),
+                );
                 attached_session_context = super::session_attachment::for_dispatch(
                     app,
                     &authority.owner_pubkey,
@@ -500,6 +526,14 @@ fn write_session_context_result(
                 )
                 .ok()
                 .flatten();
+                if let Ok(Some(context)) = super::quickchat::for_dispatch(
+                    &app.state::<AppState>(),
+                    &authority.owner_pubkey,
+                    intent.conversation_id.as_str(),
+                    intent.trigger_event_id.as_str(),
+                ) {
+                    quick_chat_context = Some(context);
+                }
                 match authority.context_binding {
                     None => unavailable(ManagedSessionContextStatusV1::Empty),
                     Some(snapshot) => {
@@ -546,6 +580,8 @@ fn write_session_context_result(
                                             selected_source_ids: resolved.selected_source_ids,
                                             native_roots_ref: Some(resolved.native_roots_ref),
                                             attached_session_context: None,
+                                            quick_chat_effort: None,
+                                            quick_chat_context: None,
                                         }
                                     }
                                     _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
@@ -562,6 +598,8 @@ fn write_session_context_result(
         }
     };
     result.attached_session_context = attached_session_context;
+    result.quick_chat_effort = quick_chat_effort;
+    result.quick_chat_context = quick_chat_context;
     let bytes = serde_json::to_vec(&result)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
     if bytes.len() >= MAX_FRAME_BYTES {

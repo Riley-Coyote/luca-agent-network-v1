@@ -836,6 +836,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            luca::quickchat::quickchat_capture_window,
+            luca::quickchat::quickchat_get_effort,
             take_pending_community_deep_link,
             acknowledge_pending_community_deep_link,
             start_builderlab_login,

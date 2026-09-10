@@ -431,9 +431,31 @@ async function handleRelayObserverEvent(
         listener(agentPubkey, parsed.channelId, surfaceRequest);
       }
     }
+    const quickChatPayload =
+      parsed.payload && typeof parsed.payload === "object"
+        ? (parsed.payload as Record<string, unknown>)
+        : {};
     if (parsed.kind === "session_config_captured") {
-      void putAgentSessionConfig(agentPubkey, parsed.payload);
+      void putAgentSessionConfig(
+        agentPubkey,
+        parsed.payload,
+        parsed.channelId,
+        typeof quickChatPayload.sessionId === "string"
+          ? quickChatPayload.sessionId
+          : parsed.sessionId,
+      );
       onSessionConfigCaptured?.(agentPubkey);
+    } else if (parsed.kind === "quickchat_effort_result") {
+      window.dispatchEvent(
+        new CustomEvent("quickchat-effort-result", {
+          detail: {
+            ...quickChatPayload,
+            residentPubkey: agentPubkey,
+            conversationId: parsed.channelId,
+            sessionId: parsed.sessionId,
+          },
+        }),
+      );
     } else if (parsed.kind === "control_result") {
       dispatchControlResult(agentPubkey, parsed.payload);
     }

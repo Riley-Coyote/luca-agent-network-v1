@@ -1,0 +1,378 @@
+.qc-launcher,
+.qc-panel {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  pointer-events: auto;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  box-shadow: 0 18px 65px #0005;
+  z-index: 90;
+}
+.qc-launcher {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.qc-panel {
+  max-width: calc(100vw - 24px);
+  max-height: calc(100dvh - 24px);
+  border-radius: 22px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  isolation: isolate;
+  animation: qc-land 0.16s ease-out;
+}
+.qc-panel button {
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.qc-panel button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.qc-panel button:focus-visible,
+.qc-launcher:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 3px;
+}
+.qc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.qc-header > span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qc-actions {
+  display: flex;
+  margin-left: auto;
+  color: hsl(var(--muted-foreground));
+}
+.qc-actions button,
+.qc-composer > button {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.qc-actions button:hover,
+.qc-picker-trigger:hover {
+  background: hsl(var(--accent));
+}
+.qc-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  line-height: 1.5;
+  scrollbar-width: thin;
+  overflow-wrap: anywhere;
+}
+.qc-owner {
+  align-self: flex-end;
+  max-width: 92%;
+  padding: 8px 11px;
+  border-radius: 10px;
+  background: hsl(var(--muted));
+  white-space: pre-wrap;
+}
+.qc-assistant {
+  flex-shrink: 0;
+  min-width: 0;
+}
+.qc-assistant p {
+  margin-bottom: 12px;
+}
+.qc-assistant p:last-child {
+  margin-bottom: 0;
+}
+.qc-assistant pre {
+  max-width: 100%;
+  overflow: auto;
+}
+.qc-empty {
+  margin: auto 8px;
+  text-align: center;
+}
+.qc-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 24px;
+  background: hsl(var(--muted));
+}
+.qc-composer textarea {
+  background: transparent;
+  resize: none;
+  outline: none;
+  min-width: 0;
+  flex: 1;
+  padding: 5px 2px;
+  field-sizing: content;
+  max-height: 120px;
+  font-size: inherit;
+  line-height: 20px;
+}
+.qc-composer .qc-send {
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
+.qc-picker-wrap {
+  position: relative;
+  align-self: flex-end;
+}
+.qc-picker-trigger {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: 999px;
+  max-width: 100px;
+  overflow: hidden;
+}
+.qc-picker,
+.qc-menu {
+  position: absolute;
+  border-radius: 18px;
+  padding: 12px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 14px 48px #0006;
+  z-index: 3;
+}
+.qc-picker {
+  right: -34px;
+  bottom: 42px;
+  width: 260px;
+  max-height: min(400px, 60vh);
+  overflow: auto;
+}
+.qc-menu {
+  right: 14px;
+  top: 44px;
+  display: grid;
+  gap: 4px;
+  max-width: calc(100% - 28px);
+}
+.qc-menu button,
+.qc-menu label {
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border-radius: 8px;
+}
+.qc-menu button:hover {
+  background: hsl(var(--accent));
+}
+.qc-residents {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 14px;
+}
+.qc-residents button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font-size: inherit;
+}
+.qc-residents button[aria-pressed="true"],
+.qc-residents button:hover {
+  background: hsl(var(--accent));
+}
+.qc-effort-meta {
+  display: flex;
+  justify-content: space-between;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 8px;
+}
+.qc-effort-track {
+  height: 28px;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  background: hsl(var(--background));
+}
+.qc-effort-track canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.qc-effort-track input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 28px;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+  outline: none;
+  touch-action: none;
+}
+.qc-effort-track input::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: hsl(var(--foreground));
+  box-shadow: 0 1px 4px #0005;
+}
+.qc-effort-track input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: hsl(var(--foreground));
+}
+.qc-effort-track:has(input:focus-visible) {
+  outline: 1px solid hsl(var(--foreground));
+  outline-offset: 3px;
+}
+.qc-resize {
+  position: absolute;
+  touch-action: none;
+  z-index: 2;
+}
+.qc-resize-top {
+  top: -3px;
+  left: 20px;
+  right: 20px;
+  height: 7px;
+  cursor: ns-resize;
+}
+.qc-resize-left {
+  left: -3px;
+  top: 20px;
+  bottom: 20px;
+  width: 7px;
+  cursor: ew-resize;
+}
+.qc-resize-corner {
+  left: -3px;
+  top: -3px;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  border-radius: 12px;
+}
+.qc-context {
+  color: hsl(var(--muted-foreground));
+  margin-top: -7px;
+  margin-bottom: -7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qc-attachment {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.qc-attachment img {
+  width: 40px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.qc-attachment span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+@keyframes qc-land {
+  from {
+    opacity: 0;
+    transform: translateY(7px) scale(0.982);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qc-panel {
+    animation: none;
+  }
+}
+@media (max-width: 480px) {
+  .qc-panel,
+  .qc-launcher {
+    right: 12px;
+    bottom: 12px;
+  }
+}
+/* The composer caret and range track provide focus; suppress the shell's generic rectangular outline. */
+:root[data-luca-shell] .qc-composer textarea:focus-visible,
+:root[data-luca-shell] .qc-effort-track input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+.qc-context-wrap {
+  position: relative;
+  margin-top: -7px;
+  margin-bottom: -7px;
+}
+.qc-context-wrap .qc-context {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  margin: 0;
+}
+.qc-context-details {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  max-height: min(340px, 50vh);
+  overflow: auto;
+  padding: 14px;
+  border-radius: 18px;
+  background: hsl(var(--popover));
+  box-shadow: 0 14px 48px #0006;
+  z-index: 4;
+  display: grid;
+  gap: 10px;
+}
+.qc-context-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.qc-context-details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.qc-context-details ul {
+  padding-left: 14px;
+  list-style: disc;
+}
+.qc-effort-status {
+  margin-top: 8px;
+}

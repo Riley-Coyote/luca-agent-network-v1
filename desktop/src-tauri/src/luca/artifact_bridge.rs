@@ -86,7 +86,34 @@ struct ArtifactBrokerResponseV1 {
     cancellation_epoch: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic_code: Option<&'static str>,
-    result: ArtifactToolResultV1,
+    result: BrokerResult,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum BrokerResult {
+    Artifact(ArtifactToolResultV1),
+    Highlight(Value),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HighlightArguments {
+    target_id: String,
+}
+
+fn parse_highlight(arguments: Value) -> Result<String, ()> {
+    let parsed: HighlightArguments = serde_json::from_value(arguments).map_err(|_| ())?;
+    if parsed.target_id.is_empty()
+        || parsed.target_id.len() > 160
+        || !parsed
+            .target_id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_:".contains(&b))
+    {
+        return Err(());
+    }
+    Ok(parsed.target_id)
 }
 
 /// Narrow integration seam for the durable artifact substrate. Implementors
@@ -285,14 +312,14 @@ fn unavailable_response(frame: &ArtifactBrokerFrameV1) -> ArtifactBrokerResponse
         dispatch_receipt_id: frame.dispatch_receipt_id.clone(),
         cancellation_epoch: frame.cancellation_epoch,
         diagnostic_code: Some("authority_unavailable"),
-        result: ArtifactToolResultV1 {
+        result: BrokerResult::Artifact(ArtifactToolResultV1 {
             protocol: ARTIFACT_TOOL_PROTOCOL.into(),
             request_id,
             outcome: ArtifactToolOutcomeV1::Rejected {
                 code: "authority_unavailable".into(),
                 message: "Artifact authority is unavailable.".into(),
             },
-        },
+        }),
     }
 }
 
@@ -304,13 +331,15 @@ impl ArtifactBridgeCore {
         };
         let fallback_id = OpaqueId::parse("invalid-request").expect("static request id");
         let request_id = OpaqueId::parse(frame.operation_request_id.clone()).unwrap_or(fallback_id);
-        let rejected = |code: &'static str, message: &'static str| ArtifactToolResultV1 {
-            protocol: ARTIFACT_TOOL_PROTOCOL.into(),
-            request_id: request_id.clone(),
-            outcome: ArtifactToolOutcomeV1::Rejected {
-                code: code.into(),
-                message: message.into(),
-            },
+        let rejected = |code: &'static str, message: &'static str| {
+            BrokerResult::Artifact(ArtifactToolResultV1 {
+                protocol: ARTIFACT_TOOL_PROTOCOL.into(),
+                request_id: request_id.clone(),
+                outcome: ArtifactToolOutcomeV1::Rejected {
+                    code: code.into(),
+                    message: message.into(),
+                },
+            })
         };
         let response = |ok, diagnostic_code, result| ArtifactBrokerResponseV1 {
             protocol: ARTIFACT_TOOL_PROTOCOL,
@@ -369,6 +398,55 @@ impl ArtifactBridgeCore {
                 rejected("turn_not_active", "The managed turn is no longer active."),
             );
         }
+        if frame.operation == "quickchat_highlight" {
+            let target = match parse_highlight(frame.arguments.clone()) {
+                Ok(target) => target,
+                Err(()) => {
+                    return response(
+                        false,
+                        Some("invalid_arguments"),
+                        rejected("invalid_arguments", "Highlight target is invalid."),
+                    )
+                }
+            };
+            let event_id = match authorize_turn(&self.app, &self.context, &coordinates) {
+                Ok(event) if self.active.load(Ordering::SeqCst) => event,
+                _ => {
+                    return response(
+                        false,
+                        Some("turn_not_active"),
+                        rejected("turn_not_active", "The managed turn is no longer active."),
+                    )
+                }
+            };
+            if super::quickchat::emit_highlight(
+                &self.app,
+                &self.context.owner_pubkey,
+                coordinates.conversation_id.as_str(),
+                &event_id,
+                &target,
+            )
+            .is_err()
+            {
+                return response(
+                    false,
+                    Some("highlight_unavailable"),
+                    rejected(
+                        "highlight_unavailable",
+                        "The target is no longer available in the current Quick Chat context.",
+                    ),
+                );
+            }
+            return response(
+                true,
+                None,
+                BrokerResult::Highlight(serde_json::json!({
+                    "protocol": ARTIFACT_TOOL_PROTOCOL,
+                    "request_id": frame.operation_request_id,
+                    "outcome": { "status": "highlight_requested", "target_id": target }
+                })),
+            );
+        }
         let operation = match parse_operation(&frame.operation, frame.arguments.clone()) {
             Ok(operation) => operation,
             Err(()) => {
@@ -425,7 +503,7 @@ impl ArtifactBridgeCore {
         if ok {
             emit_body_free_events(&self.app, &binding, &result);
         }
-        response(ok, None, result)
+        response(ok, None, BrokerResult::Artifact(result))
     }
 }
 
@@ -462,7 +540,7 @@ fn authorize_turn(
     app: &AppHandle,
     context: &ArtifactBrokerContext,
     coordinates: &TurnCoordinates,
-) -> Result<(), ()> {
+) -> Result<String, ()> {
     if coordinates.cancellation_epoch != context.session_epoch {
         return Err(());
     }
@@ -503,7 +581,7 @@ fn authorize_turn(
     if owner_keys.public_key().to_hex() != context.owner_pubkey.as_str() {
         return Err(());
     }
-    Ok(())
+    Ok(dispatch.trigger_event_id)
 }
 
 fn validate_workspace_source(operation: &ArtifactToolOperationV1, root: &Path) -> Result<(), ()> {

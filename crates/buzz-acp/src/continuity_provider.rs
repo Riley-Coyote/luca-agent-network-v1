@@ -50,6 +50,8 @@ pub(crate) struct ManagedSessionContextIntentV1 {
     conversation_id: OpaqueId,
     trigger_event_id: Hex64,
     deadline_unix_ms: SafeU53,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) quickchat_report: Option<serde_json::Value>,
 }
 
 impl ManagedSessionContextIntentV1 {
@@ -69,6 +71,7 @@ impl ManagedSessionContextIntentV1 {
             conversation_id,
             trigger_event_id,
             deadline_unix_ms,
+            quickchat_report: None,
         };
         value.is_valid().then_some(value)
     }
@@ -112,11 +115,30 @@ pub(crate) struct ManagedSessionContextResultV1 {
     pub(crate) native_roots_ref: Option<Sha256Ref>,
     #[serde(default)]
     pub(crate) attached_session_context: Option<String>,
+    #[serde(default)]
+    pub(crate) quick_chat_effort: Option<QuickChatEffort>,
+    #[serde(default)]
+    pub(crate) quick_chat_context: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct QuickChatEffort {
+    pub(crate) config_id: String,
+    pub(crate) value: String,
 }
 
 impl ManagedSessionContextResultV1 {
     fn is_valid(&self) -> bool {
-        if self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
+        if self
+            .quick_chat_context
+            .as_ref()
+            .is_some_and(|text| text.len() > 13000)
+            || self
+                .quick_chat_effort
+                .as_ref()
+                .is_some_and(|e| e.config_id.len() > 128 || e.value.len() > 128)
+            || self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
             || self
                 .attached_session_context
                 .as_ref()
@@ -613,6 +635,9 @@ fn zeroize_result_packet(result: &mut ContinuityContextResultV1) {
 }
 
 fn zeroize_session_context_result(result: &mut ManagedSessionContextResultV1) {
+    if let Some(text) = result.quick_chat_context.as_mut() {
+        text.zeroize();
+    }
     if let Some(text) = result.attached_session_context.as_mut() {
         text.zeroize();
     }
@@ -1101,7 +1126,31 @@ mod tests {
             selected_source_ids: Vec::new(),
             native_roots_ref: None,
             attached_session_context: None,
+            quick_chat_effort: None,
+            quick_chat_context: None,
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quickchat_context_wire_preserves_attachment_and_redacts_snapshot() {
+        let intent = session_context_intent("quickchat-request", unix_time_millis() + 1000);
+        let mut result = session_context_result(&intent);
+        result.attached_session_context = Some("existing session reference".into());
+        result.quick_chat_context = Some("private screen sentinel".into());
+        assert!(result.is_valid_for(&intent));
+        assert!(!format!("{result:?}").contains("private screen sentinel"));
+        let wire = serde_json::to_vec(&result).unwrap();
+        let decoded: ManagedSessionContextResultV1 = serde_json::from_slice(&wire).unwrap();
+        assert_eq!(decoded.quick_chat_context, result.quick_chat_context);
+        assert_eq!(
+            decoded.attached_session_context,
+            result.attached_session_context
+        );
+        zeroize_session_context_result(&mut result);
+        assert_eq!(result.quick_chat_context.as_deref(), Some(""));
+        result.quick_chat_context = Some("x".repeat(13001));
+        assert!(!result.is_valid());
     }
 
     #[cfg(unix)]

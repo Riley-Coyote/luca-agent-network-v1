@@ -5,6 +5,7 @@ include!("src/commands/reconnect_hook_config.rs");
 use base64::Engine as _;
 
 fn main() {
+    build_quickchat_capture();
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_URL");
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_HTTP");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_PUBLIC_KEY");
@@ -126,4 +127,27 @@ fn main() {
         ),
     )
     .expect("failed to build Tauri application");
+}
+
+fn build_quickchat_capture() {
+    println!("cargo:rerun-if-changed=helpers/quickchat-capture.swift");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
+        return;
+    }
+    let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap_or_default())
+        .join("quickchat-capture");
+    let status = std::process::Command::new("xcrun")
+        .args([
+            "swiftc",
+            "-parse-as-library",
+            "-O",
+            "helpers/quickchat-capture.swift",
+            "-o",
+        ])
+        .arg(output)
+        .status();
+    assert!(
+        matches!(status, Ok(status) if status.success()),
+        "Failed to compile Quick Chat capture helper"
+    );
 }
