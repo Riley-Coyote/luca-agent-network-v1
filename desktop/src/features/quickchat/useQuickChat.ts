@@ -164,6 +164,8 @@ export function useQuickChat({
     conversationId: string;
     residentPubkey: string;
     eventId: string | null;
+    configId: string;
+    value: string;
     buffered: Event[];
   } | null>(null);
   const [capabilityVersion, refreshCapabilities] = React.useReducer(
@@ -257,6 +259,11 @@ export function useQuickChat({
             ...value,
             value: choice ?? value.value,
             pending: previous.pending,
+            reason:
+              previous.configId === value.configId &&
+              previous.value === (choice ?? value.value)
+                ? (previous.reason ?? value.reason)
+                : value.reason,
           }));
         })
         .catch(() => {});
@@ -287,7 +294,10 @@ export function useQuickChat({
         !pending ||
         pending.scope !== scope ||
         pending.conversationId !== detail.conversationId ||
-        pending.residentPubkey !== detail.residentPubkey
+        pending.residentPubkey !== detail.residentPubkey ||
+        pending.configId !== detail.configId ||
+        pending.value !== detail.value ||
+        (detail.status !== "applied" && detail.status !== "failed")
       )
         return;
       if (!pending.eventId) {
@@ -306,7 +316,7 @@ export function useQuickChat({
                   ? "Applied by runtime"
                   : "Runtime could not apply this level",
             }
-          : current,
+          : { ...current, pending: false },
       );
       if (detail.status === "failed")
         setError(
@@ -410,6 +420,8 @@ export function useQuickChat({
           conversationId: id,
           residentPubkey: targetPubkey,
           eventId: null,
+          configId: capturedEffort.configId,
+          value: capturedEffort.value,
           buffered: [],
         };
       if (capturedEffort && selectedRef.current === targetPubkey)

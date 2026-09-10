@@ -149,3 +149,129 @@ test("Escape dismisses the resident picker even when native buttons leave focus 
   );
   await expect(page.getByTestId("quickchat-panel")).toBeVisible();
 });
+
+for (const refreshBeforeAck of [false, true]) {
+  test(`runtime effort acknowledgement survives ${refreshBeforeAck ? "a changed capability before acknowledgement" : "an in-flight capability refresh"}`, async ({
+    page,
+  }) => {
+    await expect(page.getByTestId("quickchat-launcher")).toBeVisible();
+    await page.evaluate((refreshBeforeAck) => {
+      const internals = (
+        window as unknown as {
+          __TAURI_INTERNALS__: {
+            invoke: (
+              command: string,
+              args?: Record<string, unknown>,
+            ) => Promise<unknown>;
+          };
+        }
+      ).__TAURI_INTERNALS__;
+      const original = internals.invoke.bind(internals);
+      const capabilities = {
+        supported: true,
+        configId: "thought_level",
+        value: "low",
+        pending: false,
+        values: [
+          { value: "low", label: "Low" },
+          { value: "high", label: "High" },
+        ],
+      };
+      let deferRefresh = false;
+      let lastSend: Record<string, unknown> | undefined;
+      const refreshResolvers: Array<(value: typeof capabilities) => void> = [];
+      internals.invoke = async (command, args) => {
+        if (command === "quickchat_get_effort") {
+          if (!deferRefresh) return capabilities;
+          document.body.dataset.effortRefreshWaiting = "true";
+          return new Promise((resolve) => refreshResolvers.push(resolve));
+        }
+        const result = await original(command, args);
+        if (command === "send_channel_message" && args?.quickChatEffort) {
+          lastSend = {
+            eventId: (result as { event_id: string }).event_id,
+            conversationId: args.channelId,
+            residentPubkey: "a".repeat(64),
+            ...(args.quickChatEffort as { configId: string; value: string }),
+          };
+        }
+        return result;
+      };
+      window.addEventListener("test-start-effort-refresh", () => {
+        if (!lastSend) throw new Error("Expected a sent effort request");
+        deferRefresh = true;
+        window.dispatchEvent(
+          new CustomEvent("quickchat-effort-capabilities", {
+            detail: lastSend,
+          }),
+        );
+      });
+      window.addEventListener("test-ack-effort", () => {
+        window.dispatchEvent(
+          new CustomEvent("quickchat-effort-result", {
+            detail: { ...lastSend, status: "applied" },
+          }),
+        );
+      });
+      window.addEventListener("test-finish-effort-refresh", () => {
+        // A changed label proves React consumed the delayed result before the
+        // assertion about the retained acknowledgement, avoiding a timing pass.
+        const refreshed = {
+          ...capabilities,
+          value: refreshBeforeAck ? "high" : "low",
+          values: [
+            { value: "low", label: "Low refreshed" },
+            { value: "high", label: "High refreshed" },
+          ],
+        };
+        for (const resolve of refreshResolvers.splice(0)) resolve(refreshed);
+      });
+    }, refreshBeforeAck);
+    await page.getByTestId("quickchat-launcher").click();
+    const input = page.getByTestId("quickchat-input");
+    await input.fill("Create a conversation for effort testing");
+    await page.getByTestId("quickchat-send").click();
+    await expect(input).toHaveValue("");
+    await page.getByTestId("quickchat-agent-picker").click();
+    const slider = page.getByTestId("quickchat-effort");
+    await expect(slider).toHaveAttribute("aria-valuetext", "Low");
+    await input.fill("Send with the selected effort");
+    await page.getByTestId("quickchat-send").click();
+    await expect(input).toHaveValue("");
+    await expect(slider).toBeDisabled();
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("test-start-effort-refresh")),
+    );
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-effort-refresh-waiting",
+      "true",
+    );
+    const status = page
+      .getByTestId("quickchat-panel")
+      .getByText("Applied by runtime");
+    if (refreshBeforeAck) {
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("test-finish-effort-refresh")),
+      );
+      await expect(slider).toHaveAttribute("aria-valuetext", "High refreshed");
+      await expect(slider).toBeDisabled();
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("test-ack-effort")),
+      );
+      // The low request settles without falsely confirming the now-displayed high level.
+      await expect(slider).toBeEnabled();
+      await expect(status).toHaveCount(0);
+    } else {
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("test-ack-effort")),
+      );
+      await expect(status).toBeVisible();
+      await page.evaluate(() =>
+        window.dispatchEvent(new Event("test-finish-effort-refresh")),
+      );
+      await expect(slider).toHaveAttribute("aria-valuetext", "Low refreshed");
+      await expect(status).toBeVisible();
+      await expect(slider).toBeEnabled();
+    }
+  });
+}
