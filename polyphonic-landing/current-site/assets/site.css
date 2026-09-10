@@ -83,7 +83,7 @@ html[data-motion=paused] .reveal-enter{animation:none}
    own position:fixed expanded mode. zoom reflows and leaves fixed positioning to the viewport.
    The interior is untouched — it still lays out at its true 1240 CSS px and is painted at 992.
    demo.css loads after this file, so these rules carry the id to win the cascade. */
-@media(min-width:861px){
+@media(min-width:1101px){
   /* The frame's visual footprint: 1240 × .8. Its outer size is the page's business. */
   #preview.preview.container{width:min(calc(100% - 64px),992px)}
   /* No width here on purpose. Percentages resolve in the element's own zoomed units, so the block's
@@ -95,4 +95,6 @@ html[data-motion=paused] .reveal-enter{animation:none}
   #preview .app-frame.d-expanded{zoom:1}
   /* The detached chat window is a real window, never the page's picture of the app. */
   .d-chat-window #preview .app-frame{zoom:1}
+  /* The pop-out lives in the top layer, outside the frame; it scales with the picture it came from. */
+  .d-popout{zoom:.8}
 }
