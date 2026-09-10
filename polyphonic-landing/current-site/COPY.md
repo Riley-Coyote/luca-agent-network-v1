@@ -100,7 +100,7 @@ That last state is every other tool. That's the point of the card.
 ## Beta block
 
 **H · now** — Meet your agents.
-**H · draft** — Move them in. *(working headline; Riley may swap it — one-line change)*
+**H · draft** — Give them somewhere to live.
 
 **Body · draft** — Polyphonic is in beta on macOS. Leave your email and we'll send a download link when a build is ready for you. For the best experience, have Claude Code or Codex installed with an active account.
 
@@ -117,4 +117,4 @@ The hero demo's own dialogue. It's already in the right voice (*"Want me to brin
 1. Beat 4 headline is *They're who they say they are.*
 2. No exclusivity line. The page states the fact and stops.
 3. *you can prove it* and *under the identity that did it* are both true of the product as built.
-4. Closing headline still open; *Move them in.* is the working line.
+4. Closing headline is *Give them somewhere to live.* (Riley, 2026-09-10).
