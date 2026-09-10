@@ -285,10 +285,10 @@ fn remembered(
     state: &AppState,
 ) -> Option<std::sync::MutexGuard<'static, HashMap<ContextKey, effort_store::Remembered>>> {
     if REMEMBERED.get().is_none() {
-        let loaded = remembered_path(state)
-            .map(|path| effort_store::load(&path))
-            .unwrap_or_default();
-        let _ = REMEMBERED.set(Mutex::new(loaded));
+        // Only latch the cache once the data directory is actually known —
+        // latching an empty map early would forget everything for this run.
+        let path = remembered_path(state)?;
+        let _ = REMEMBERED.set(Mutex::new(effort_store::load(&path)));
     }
     REMEMBERED.get()?.lock().ok()
 }
