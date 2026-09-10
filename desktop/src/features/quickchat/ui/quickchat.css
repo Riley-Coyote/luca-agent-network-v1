@@ -232,6 +232,12 @@
   outline: none;
   touch-action: none;
 }
+.qc-effort-track[data-inert="true"] {
+  opacity: 0.45;
+}
+.qc-effort-track[data-inert="true"] input {
+  cursor: default;
+}
 .qc-effort-track input::-webkit-slider-thumb {
   appearance: none;
   width: 24px;

@@ -77,3 +77,4 @@ pub(crate) mod signing_transport;
 pub(crate) mod visits;
 
 pub(crate) mod quickchat;
+pub(crate) mod quickchat_effort_store;

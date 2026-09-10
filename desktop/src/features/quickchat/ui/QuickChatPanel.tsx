@@ -55,13 +55,43 @@ function Effort({ model }: { model: QuickChatViewModel }) {
       fieldRef.current?.update();
     }
   }, [position]);
-  if (!model.effort.supported || values.length < 2)
+  if (!model.effort.supported || values.length < 2) {
+    // The runtime has said it owns thinking for this conversation: there is no
+    // ladder to draw, only the sentence.
+    if (!model.effort.awaitingFirstReply)
+      return (
+        <p className="text-xs text-muted-foreground">
+          {model.effort.reason ??
+            "Thinking effort is managed by this resident’s runtime."}
+        </p>
+      );
+    // Nothing reported yet. Show the control where it will be, inert, so the
+    // panel does not change shape after the first reply.
     return (
-      <p className="text-xs text-muted-foreground">
-        {model.effort.reason ??
-          "Thinking effort is managed by this resident’s runtime."}
-      </p>
+      <div>
+        <div className="qc-effort-meta text-xs">
+          <span>Thinking effort</span>
+          <span>—</span>
+        </div>
+        <div className="qc-effort-track" data-inert="true">
+          <input
+            data-testid="quickchat-effort-unavailable"
+            aria-label="Thinking effort"
+            type="range"
+            min={0}
+            max={3}
+            step={0.001}
+            value={0}
+            readOnly
+            disabled
+          />
+        </div>
+        <p className="qc-effort-status text-2xs text-muted-foreground">
+          {model.effort.reason ?? "Available after the first reply"}
+        </p>
+      </div>
     );
+  }
   const selected = values[Math.round((position / 3) * (values.length - 1))];
   const commit = () => {
     if (selected && selected.value !== model.effort.value)

@@ -1044,20 +1044,8 @@ async fn create_session_and_apply_model(
         if caps.effort_options_raw.len() >= 256 {
             caps.effort_options_raw.clear();
         }
-        caps.effort_options_raw.insert(
-            resp.session_id.clone(),
-            resp.raw
-                .get("configOptions")
-                .and_then(|v| v.as_array())
-                .map(|options| {
-                    options
-                        .iter()
-                        .filter(|o| o["category"] == "thought_level")
-                        .cloned()
-                        .collect()
-                })
-                .unwrap_or_default(),
-        );
+        caps.effort_options_raw
+            .insert(resp.session_id.clone(), thought_level_options(&resp.raw));
     }
 
     // Apply desired_model if set, matching against the fresh session/new response.
@@ -1069,12 +1057,23 @@ async fn create_session_and_apply_model(
             Some(method) => {
                 let applied =
                     apply_model_switch(&mut agent.acp, &resp.session_id, desired, &method).await?;
-                if strict_model_binding && !applied {
+                if strict_model_binding && applied.is_none() {
                     return Err(AcpError::Protocol(
                         "private continuity refused runtime model substitution".into(),
                     ));
                 }
-                applied
+                // The thinking ladder belongs to the model the turn will run
+                // on, not to the model `session/new` happened to open with.
+                if let Some(raw) = applied.as_ref() {
+                    let switched = thought_level_options(raw);
+                    if !switched.is_empty() {
+                        if let Some(caps) = agent.model_capabilities.as_mut() {
+                            caps.effort_options_raw
+                                .insert(resp.session_id.clone(), switched);
+                        }
+                    }
+                }
+                applied.is_some()
             }
             None => {
                 if strict_model_binding {
@@ -1209,18 +1208,36 @@ fn openclaw_session_meta(
     })))
 }
 
+/// The `thought_level` config options carried by a `session/new` or
+/// `session/set_config_option` result, in the runtime's own wire shape.
+fn thought_level_options(raw: &serde_json::Value) -> Vec<serde_json::Value> {
+    raw.get("configOptions")
+        .and_then(|value| value.as_array())
+        .map(|options| {
+            options
+                .iter()
+                .filter(|option| option["category"] == "thought_level")
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Send the appropriate ACP model-switch request with a timeout.
 ///
 /// On timeout or error, logs a warning and returns — the caller proceeds
 /// with the agent's default model. This is intentionally non-fatal: a stale
 /// response from a timed-out request is safely ignored by `read_until_response`
 /// (non-matching JSON-RPC IDs are skipped).
+///
+/// `Ok(Some(raw))` when the switch applied — `raw` is the runtime's response,
+/// which re-states the config options for the model now in force.
 async fn apply_model_switch(
     acp: &mut AcpClient,
     session_id: &str,
     desired: &str,
     method: &ModelSwitchMethod,
-) -> Result<bool, AcpError> {
+) -> Result<Option<serde_json::Value>, AcpError> {
     let method_label = match method {
         ModelSwitchMethod::ConfigOption { config_id, .. } => {
             format!("configOption (configId={config_id})")
@@ -1245,12 +1262,12 @@ async fn apply_model_switch(
     .await;
 
     match result {
-        Ok(Ok(_)) => {
+        Ok(Ok(raw)) => {
             tracing::info!(
                 target: "pool::model",
                 "applied model {desired} via {method_label} on session {session_id}"
             );
-            Ok(true)
+            Ok(Some(raw))
         }
         // Transport-class errors may have corrupted the stdio stream — propagate
         // so the caller can respawn the agent instead of reusing a poisoned one.
@@ -1271,7 +1288,7 @@ async fn apply_model_switch(
                 target: "pool::model",
                 "failed to set model {desired} via {method_label}: {e} — proceeding with agent default"
             );
-            Ok(false)
+            Ok(None)
         }
         Err(_) => {
             // Outer timeout fired — the inner send_request may have left the
@@ -5334,6 +5351,31 @@ mod tests {
         assert!(!super::quickchat_effort_advertised(
             &models, "thinking", "high"
         ));
+    }
+
+    /// The ladder shown to the owner must describe the model the turn actually
+    /// runs on, so it is re-read from the model-switch response.
+    #[test]
+    fn thought_level_options_come_from_the_post_switch_response() {
+        let session_new = serde_json::json!({"configOptions":[
+            {"id":"thinking","category":"thought_level","options":[{"value":"low"},{"value":"high"}]},
+            {"id":"mode","category":"mode","options":[{"value":"default"}]}
+        ]});
+        let after_switch = serde_json::json!({"configOptions":[
+            {"id":"thinking","category":"thought_level","options":[{"value":"low"},{"value":"high"},{"value":"xhigh"},{"value":"ultra"}]}
+        ]});
+        let before = super::thought_level_options(&session_new);
+        assert_eq!(before.len(), 1);
+        assert_eq!(before[0]["options"].as_array().expect("options").len(), 2);
+        let after = super::thought_level_options(&after_switch);
+        assert_eq!(after[0]["options"].as_array().expect("options").len(), 4);
+        assert!(super::quickchat_effort_advertised(
+            &after, "thinking", "ultra"
+        ));
+        assert!(!super::quickchat_effort_advertised(
+            &before, "thinking", "ultra"
+        ));
+        assert!(super::thought_level_options(&serde_json::json!({})).is_empty());
     }
 
     use super::*;

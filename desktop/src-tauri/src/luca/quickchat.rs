@@ -1,10 +1,12 @@
 //! Ephemeral exact-event Quick Chat context. Never serialized onto relay events.
 use super::conversation_context::active_scope;
+use super::quickchat_effort_store as effort_store;
 use crate::app_state::AppState;
 use luca_protocol::Hex64;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
@@ -269,6 +271,58 @@ struct SessionEffort {
     value: serde_json::Value,
 }
 static EFFORTS: OnceLock<Mutex<HashMap<ContextKey, SessionEffort>>> = OnceLock::new();
+
+/// Ladders this app was told about in an earlier run, loaded from disk once.
+static REMEMBERED: OnceLock<Mutex<HashMap<ContextKey, effort_store::Remembered>>> = OnceLock::new();
+
+fn remembered_path(state: &AppState) -> Option<PathBuf> {
+    use tauri::Manager;
+    let handle = state.app_handle.lock().ok()?.clone()?;
+    Some(effort_store::path_in(&handle.path().app_data_dir().ok()?))
+}
+
+fn remembered(
+    state: &AppState,
+) -> Option<std::sync::MutexGuard<'static, HashMap<ContextKey, effort_store::Remembered>>> {
+    if REMEMBERED.get().is_none() {
+        let loaded = remembered_path(state)
+            .map(|path| effort_store::load(&path))
+            .unwrap_or_default();
+        let _ = REMEMBERED.set(Mutex::new(loaded));
+    }
+    REMEMBERED.get()?.lock().ok()
+}
+
+/// Keep (or forget) what this conversation's runtime last advertised, so the
+/// panel can offer the same ladder before the next run's first turn.
+fn remember(state: &AppState, key: &ContextKey, options: &serde_json::Value) {
+    let sanitized = effort_store::sanitize(options);
+    let Some(mut cache) = remembered(state) else {
+        return;
+    };
+    match sanitized {
+        Some(options) => {
+            cache.insert(
+                key.clone(),
+                effort_store::Remembered {
+                    saved_at: effort_store::now_ms(),
+                    options,
+                },
+            );
+        }
+        // The runtime just told us this conversation has no thinking control;
+        // a ladder remembered from an older run would be a lie.
+        None if !cache.contains_key(key) => return,
+        None => {
+            cache.remove(key);
+        }
+    }
+    if let Some(path) = remembered_path(state) {
+        if let Err(error) = effort_store::save(&path, &cache) {
+            eprintln!("quickchat: could not remember the runtime thinking ladder — {error}");
+        }
+    }
+}
 pub(crate) fn record_session_effort(
     state: &AppState,
     resident: &str,
@@ -279,30 +333,34 @@ pub(crate) fn record_session_effort(
     let Ok((owner, relay)) = active_scope(state) else {
         return;
     };
-    let Ok(mut cache) = EFFORTS.get_or_init(Default::default).lock() else {
-        return;
-    };
-    cache.retain(|_, item| item.captured.elapsed() < Duration::from_secs(3600));
-    let mut value = serde_json::json!({"supported":false,"values":[],"value":null,"pending":false,"reason":"Managed by runtime"});
+    let mut value = serde_json::json!({"supported":false,"values":[],"value":null,"pending":false,"awaitingFirstReply":false,"reason":"Managed by runtime"});
     if let Some(option) = options.iter().find(|option| {
         option.category.as_deref() == Some("thought_level") && !option.options.is_empty()
     }) {
-        value = serde_json::json!({"supported":true,"configId":option.config_id,"sessionId":session,"values":option.options.iter().map(|o| serde_json::json!({"value":o.value,"label":o.display_name.as_ref().unwrap_or(&o.value)})).collect::<Vec<_>>(),"value":option.current_value,"pending":false});
+        value = serde_json::json!({"supported":true,"configId":option.config_id,"sessionId":session,"source":"runtime","values":option.options.iter().map(|o| serde_json::json!({"value":o.value,"label":o.display_name.as_ref().unwrap_or(&o.value)})).collect::<Vec<_>>(),"value":option.current_value,"pending":false,"awaitingFirstReply":false});
     }
-    if cache.len() < 256 {
-        cache.insert(
-            (
-                owner.as_str().into(),
-                relay,
-                resident.into(),
-                conversation.into(),
-            ),
-            SessionEffort {
-                captured: Instant::now(),
-                value,
-            },
-        );
+    let key: ContextKey = (
+        owner.as_str().into(),
+        relay,
+        resident.into(),
+        conversation.into(),
+    );
+    {
+        let Ok(mut cache) = EFFORTS.get_or_init(Default::default).lock() else {
+            return;
+        };
+        cache.retain(|_, item| item.captured.elapsed() < Duration::from_secs(3600));
+        if cache.len() < 256 {
+            cache.insert(
+                key.clone(),
+                SessionEffort {
+                    captured: Instant::now(),
+                    value: value.clone(),
+                },
+            );
+        }
     }
+    remember(state, &key, &value);
 }
 /// Report only runtime-discovered effort controls from this exact conversation.
 #[tauri::command]
@@ -311,23 +369,34 @@ pub(crate) fn quickchat_get_effort(
     resident_pubkey: String,
     state: tauri::State<'_, AppState>,
 ) -> serde_json::Value {
-    let unsupported = serde_json::json!({"supported":false,"values":[],"value":null,"pending":false,"reason":"Managed by runtime"});
+    // Nothing this app has ever been told about this conversation: the panel
+    // says so rather than claiming the runtime manages thinking.
+    let unknown = serde_json::json!({"supported":false,"values":[],"value":null,"pending":false,"awaitingFirstReply":true,"reason":"Available after the first reply"});
     let Ok((owner, relay)) = active_scope(&state) else {
-        return unsupported;
+        return unknown;
     };
-    let Ok(cache) = EFFORTS.get_or_init(Default::default).lock() else {
-        return unsupported;
-    };
-    cache
-        .get(&(
-            owner.as_str().into(),
-            relay,
-            resident_pubkey,
-            conversation_id,
-        ))
-        .filter(|item| item.captured.elapsed() < Duration::from_secs(3600))
-        .map(|item| item.value.clone())
-        .unwrap_or(unsupported)
+    let key: ContextKey = (
+        owner.as_str().into(),
+        relay,
+        resident_pubkey,
+        conversation_id,
+    );
+    let live = EFFORTS
+        .get_or_init(Default::default)
+        .lock()
+        .ok()
+        .and_then(|cache| {
+            cache
+                .get(&key)
+                .filter(|item| item.captured.elapsed() < Duration::from_secs(3600))
+                .map(|item| item.value.clone())
+        });
+    if let Some(value) = live {
+        return value;
+    }
+    remembered(&state)
+        .and_then(|cache| cache.get(&key).map(|item| item.options.clone()))
+        .unwrap_or(unknown)
 }
 
 /// Emit a temporary highlight only for an authorized turn's captured target ID.

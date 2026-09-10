@@ -275,3 +275,92 @@ for (const refreshBeforeAck of [false, true]) {
     }
   });
 }
+
+test("before any reply the thinking control is inert and says so", async ({
+  page,
+}) => {
+  await page.getByTestId("quickchat-launcher").click();
+  await page.getByTestId("quickchat-agent-picker").click();
+  const panel = page.getByTestId("quickchat-panel");
+  // No runtime has reported for this conversation, and nothing is remembered.
+  await expect(page.getByTestId("quickchat-effort")).toHaveCount(0);
+  const inert = page.getByTestId("quickchat-effort-unavailable");
+  await expect(inert).toBeVisible();
+  await expect(inert).toBeDisabled();
+  await expect(panel).toContainText("Available after the first reply");
+  await expect(panel).not.toContainText("managed by this resident");
+  await waitForAnimations(page);
+  await panel.screenshot({ path: "test-results/quickchat-effort-inert.png" });
+});
+
+test("a remembered ladder offers every level the runtime advertised", async ({
+  page,
+}) => {
+  await expect(page.getByTestId("quickchat-launcher")).toBeVisible();
+  await page.evaluate(() => {
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (
+            command: string,
+            args?: Record<string, unknown>,
+          ) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const original = internals.invoke.bind(internals);
+    internals.invoke = async (command, args) => {
+      if (command === "quickchat_get_effort")
+        return {
+          supported: true,
+          configId: "thought_level",
+          source: "remembered",
+          reason: "Selected for next message",
+          pending: false,
+          awaitingFirstReply: false,
+          value: "medium",
+          values: [
+            { value: "low", label: "Low" },
+            { value: "medium", label: "Medium" },
+            { value: "high", label: "High" },
+            { value: "xhigh", label: "Extra high" },
+            { value: "max", label: "Max" },
+            { value: "ultra", label: "Ultra" },
+          ],
+        };
+      return original(command, args);
+    };
+  });
+  await page.getByTestId("quickchat-launcher").click();
+  // A conversation must exist before the panel can ask about its runtime; the
+  // point of the remembered ladder is that this run never took a turn in it.
+  const input = page.getByTestId("quickchat-input");
+  await input.fill("Open a conversation");
+  await page.getByTestId("quickchat-send").click();
+  await expect(input).toHaveValue("");
+  await page.getByTestId("quickchat-agent-picker").click();
+  const panel = page.getByTestId("quickchat-panel");
+  const slider = page.getByTestId("quickchat-effort");
+  // Remembered, so the slider is live before this run's first turn.
+  await expect(slider).toBeEnabled();
+  await expect(slider).toHaveAttribute("aria-valuetext", "Medium");
+  await expect(panel).toContainText("Selected for next message");
+  // Four stops, six levels: the range is continuous and covers the whole
+  // ladder, so every advertised level is reachable.
+  const reachable: string[] = [];
+  for (const position of [0, 0.6, 1.2, 1.8, 2.4, 3]) {
+    await slider.fill(String(position));
+    const label = await slider.getAttribute("aria-valuetext");
+    if (label && !reachable.includes(label)) reachable.push(label);
+  }
+  expect(reachable).toEqual([
+    "Low",
+    "Medium",
+    "High",
+    "Extra high",
+    "Max",
+    "Ultra",
+  ]);
+  await waitForAnimations(page);
+  await panel.screenshot({ path: "test-results/quickchat-effort-ladder.png" });
+});

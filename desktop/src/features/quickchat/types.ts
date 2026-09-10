@@ -24,6 +24,11 @@ export type QuickChatEffort = {
   value: string | null;
   pending: boolean;
   reason?: string;
+  /** Where the levels came from: this conversation's live runtime report, or
+   * the last one it made, remembered across restarts. */
+  source?: "runtime" | "remembered";
+  /** True only when nothing has ever been reported for this conversation. */
+  awaitingFirstReply?: boolean;
 };
 export type QuickChatViewModel = {
   channelId: string | null;

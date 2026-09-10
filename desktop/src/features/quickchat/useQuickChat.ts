@@ -44,12 +44,15 @@ import type {
   QuickChatEffort,
 } from "./types";
 
+// Until this conversation's runtime has reported for itself — in this run or a
+// remembered earlier one — the panel has no levels to honestly offer.
 const MANAGED_EFFORT: QuickChatEffort = {
   supported: false,
   values: [],
   value: null,
   pending: false,
-  reason: "Thinking is managed by this resident’s runtime.",
+  awaitingFirstReply: true,
+  reason: "Available after the first reply",
 };
 
 export function useQuickChat({
