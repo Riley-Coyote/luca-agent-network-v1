@@ -377,6 +377,10 @@ test("Escape closes a keyboard-opened column and returns focus to the resident's
   page,
 }) => {
   await page.goto("/?e2e=mock");
+  // From a room, not the compose view: its recipient popover is still leaving
+  // when the column opens, and a leaving Radix layer claims the first Escape.
+  await page.getByTestId("channel-watercooler").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
 
   const atlas = page.getByTestId("agent-rail-atlas");
   const column = page.getByTestId("agent-chats-column");
