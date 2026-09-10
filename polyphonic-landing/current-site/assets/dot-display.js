@@ -17,6 +17,7 @@
      data-bloom  neighbour bleed          (0 … .45)
      data-scan   raster sweep lift        (0 … .06)
      data-ink    base dot radius fraction (default .19)
+     data-level  lit-letter brightness    (1 = full phosphor, .55 = the quiet band)
    Scene content, where the scene reads it:
      data-text   marquee / hold
      data-lines  type            "A|B|C"
@@ -62,8 +63,10 @@
      236,232,224, with the unlit floor carried at the same brightness in that hue.
      GOLD tints only the brightest tenth of a lit cell, and only where a scene
      asks for it (`gold`, 0 by default) — warmth as a glow at the peaks, never a
-     gold field. */
-  const PDIM = [34, 33, 31], PHOT = [236, 232, 224], GOLD = [201, 162, 58];
+     gold field. `level` lowers the lit endpoint toward FLOOR — the page's own
+     background — so a scene can say "these letters sit at .55 ink" and mean it;
+     level 1 is the full phosphor and changes nothing. */
+  const PDIM = [34, 33, 31], PHOT = [236, 232, 224], GOLD = [201, 162, 58], FLOOR = [10, 10, 12];
 
   class Display {
     constructor(cv, o) {
@@ -73,6 +76,9 @@
       this.ink = o.ink != null ? o.ink : 0.19;
       this.inkLit = o.inkLit != null ? o.inkLit : 0.25;
       this.gold = o.gold != null ? o.gold : 0;
+      this.level = o.level != null ? o.level : 1;
+      this.hot = this.level >= 1 ? PHOT
+        : [0, 1, 2].map(i => FLOOR[i] + (PHOT[i] - FLOOR[i]) * this.level);
       this.glow = o.glow != null ? o.glow : 0.84;
       /* Bloom bleeds a lit cell into its neighbours, and that bleed is always
          ONE CELL wide. At a 4px pitch that reads as a shimmer; at a 12px hero
@@ -171,7 +177,7 @@
     }
     draw(t) {
       if (!this.ok) return;
-      const { ctx, cell, cols, rows, ox, oy, q, b, ink, inkLit, bloom, gold } = this;
+      const { ctx, cell, cols, rows, ox, oy, q, b, ink, inkLit, bloom, gold, hot } = this;
       if (bloom > 0) {
         for (let y = 0; y < rows; y++) {
           const yo = y * cols;
@@ -196,9 +202,9 @@
         for (let x = 0; x < cols; x++) {
           let c = b[yo + x] + lift;
           if (c > 1) c = 1;
-          let cr = PDIM[0] + (PHOT[0] - PDIM[0]) * c,
-              cg = PDIM[1] + (PHOT[1] - PDIM[1]) * c,
-              cb = PDIM[2] + (PHOT[2] - PDIM[2]) * c;
+          let cr = PDIM[0] + (hot[0] - PDIM[0]) * c,
+              cg = PDIM[1] + (hot[1] - PDIM[1]) * c,
+              cb = PDIM[2] + (hot[2] - PDIM[2]) * c;
           if (gold > 0 && c > 0.9) {
             const w = gold * (c - 0.9) * 10;
             cr += (GOLD[0] - cr) * w; cg += (GOLD[1] - cg) * w; cb += (GOLD[2] - cb) * w;
@@ -513,8 +519,9 @@
     resolve: { cell: 4, glow: .84, bloom: .30, scan: .04 },
     wipe:    { cell: 4, glow: .80, bloom: .24, scan: .04 },
     marquee: { cell: 5, glow: .72, bloom: .34, scan: .04, inkLit: .27, gold: .35 },
-    /* the band on the page — its own scene, its own glass, warmth at the peaks */
-    'marquee-crisp': { gold: .35 },
+    /* the band on the page — its own scene, and a quiet one: letters at .55 ink over the
+       floor, the unlit lattice at its usual floor, and no gold anywhere in it */
+    'marquee-crisp': { level: .55 },
     type:    { cell: 4, glow: .93, bloom: .42, scan: .03, ink: .175, inkLit: .28 },
     net:     { cell: 4, glow: .83, bloom: .40, scan: .05, inkLit: .27 },
     travel:  { cell: 4, glow: .80, bloom: .34, scan: .05 },
@@ -524,7 +531,7 @@
 
   function cfgFrom(cv) {
     const o = {}, n = k => cv.dataset[k] != null ? parseFloat(cv.dataset[k]) : undefined;
-    ['cell', 'ink', 'inkLit', 'glow', 'bloom', 'scan', 'gold'].forEach(k => { const v = n(k); if (v != null && !isNaN(v)) o[k] = v; });
+    ['cell', 'ink', 'inkLit', 'glow', 'bloom', 'scan', 'gold', 'level'].forEach(k => { const v = n(k); if (v != null && !isNaN(v)) o[k] = v; });
     return o;
   }
 

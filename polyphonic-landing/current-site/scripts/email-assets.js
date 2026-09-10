@@ -1,6 +1,6 @@
 window.__assets = null;
 (async () => {
-  await Promise.all([document.fonts.load('900 96px "Doto"'), document.fonts.load('500 116px "Instrument Sans"')]);
+  await Promise.all([document.fonts.load('900 96px "Doto"'), document.fonts.load('300 116px "Inter"')]);
   await document.fonts.ready;
   const svg = await (await fetch('../assets/brand/polyphonic-solid.svg')).text();
   const recolored = svg.replace(/currentColor/g, '#f2f2ee');
@@ -13,7 +13,7 @@ window.__assets = null;
   g.clearRect(0, 0, c.width, c.height);
   g.fillStyle = '#ffffff';
   g.textBaseline = 'alphabetic';
-  g.font = '500 116px "Instrument Sans"';
+  g.font = '300 116px "Inter"';
   g.letterSpacing = '-5px';
   g.fillText('Your agents,', 0, 112);
   g.fillStyle = '#ececE6';
