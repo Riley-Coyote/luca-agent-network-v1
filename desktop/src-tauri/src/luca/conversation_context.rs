@@ -4,6 +4,7 @@
 //! Canonical filesystem paths stay inside the encrypted connected Brain
 //! binding store and are resolved only for one exact managed dispatch.
 
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
@@ -982,7 +983,7 @@ fn build_view(
 }
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
+    app.buzz_path()
         .app_data_dir()
         .map(|root| root.join("luca").join("conversation-context-v1.json"))
         .map_err(|error| format!("resolve conversation context directory: {error}"))

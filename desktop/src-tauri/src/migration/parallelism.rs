@@ -37,9 +37,8 @@
 //! right-sized again on the next launch. Each rewrite logs the agent name so
 //! that is visible rather than silent.
 
+use crate::data_dir::BuzzPathExt;
 use std::path::Path;
-
-use tauri::Manager as _;
 
 use crate::managed_agents::{DEFAULT_AGENT_PARALLELISM, LEGACY_TEAM_CHANNEL_PARALLELISM};
 
@@ -48,7 +47,7 @@ use super::{canonical_dev_data_dir, patch_json_records};
 /// Right-size the agent-process pool on records still carrying upstream
 /// Buzz's team-channel default. See the module docs for the exact rule.
 pub fn right_size_agent_parallelism(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];

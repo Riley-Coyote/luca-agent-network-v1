@@ -20,13 +20,14 @@
 //! Nothing in here reaches the network. Persistence is the same atomically
 //! replaced, owner-only JSON file the managed dispatch store uses.
 
+use crate::data_dir::BuzzPathExt;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use luca_protocol::{ExchangeRecordV1, ExchangeTurnTag, Hex64, OpaqueId};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use super::managed_dispatch_store::atomic_write_restricted;
 
@@ -562,7 +563,7 @@ fn visit_key(conversation_id: &OpaqueId, resident: &Hex64) -> String {
 
 fn store_path(app: &AppHandle) -> Result<PathBuf, String> {
     let root = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("resolve app data directory: {error}"))?;
     Ok(root.join("luca").join("exchanges.json"))

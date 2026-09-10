@@ -4,6 +4,7 @@
 //! This module submits the retained canonical JSON bytes directly; only the
 //! per-request NIP-98 authorization event is freshly signed.
 
+use crate::data_dir::BuzzPathExt;
 use std::{
     io::Read,
     path::PathBuf,
@@ -17,7 +18,7 @@ use luca_protocol::{
 };
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
 use super::{
     exchange::{classify_exchange_refusal, ExchangeDenial, ExchangeNote, ExchangeRefusal},
@@ -328,7 +329,7 @@ impl ManagedMessagePublisher {
             relay: Box::new(AppExchangeRelay::new(app.clone())),
             store: global_exchange_store(&app)?,
         };
-        let artifact_app_data_dir = app.path().app_data_dir().ok();
+        let artifact_app_data_dir = app.buzz_path().app_data_dir().ok();
         Ok(Self {
             resident_pubkey,
             dispatch_store,

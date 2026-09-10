@@ -3,6 +3,7 @@
 //! Discovery returns metadata and opaque capabilities only. Canonical paths,
 //! index postings, source bodies, and runtime authority never cross IPC.
 
+use crate::data_dir::BuzzPathExt;
 use crate::{
     app_state::AppState,
     luca::{connected_brain, owner_brain_store, resident_registry, runtime_session_purpose},
@@ -457,7 +458,7 @@ pub async fn list_connected_runtime_sessions(
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
         let app_data_dir = app
-            .path()
+            .buzz_path()
             .app_data_dir()
             .map_err(|_| "connected-runtime-session-store-unavailable".to_owned())?;
         let excluded_provider_session_ids =
@@ -569,7 +570,7 @@ pub async fn get_connected_runtime_session_context(
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
         let app_data_dir = app
-            .path()
+            .buzz_path()
             .app_data_dir()
             .map_err(|_| "connected-runtime-session-store-unavailable".to_owned())?;
         let excluded_provider_session_ids = runtime_session_purpose::excluded_provider_session_ids(

@@ -5,9 +5,8 @@
 //! helpers (`patch_json_records`, `load_persona_runtimes`,
 //! `canonical_dev_data_dir`).
 
+use crate::data_dir::BuzzPathExt;
 use std::path::Path;
-
-use tauri::Manager as _;
 
 use super::{canonical_dev_data_dir, load_persona_runtimes, patch_json_records};
 
@@ -22,7 +21,7 @@ use super::{canonical_dev_data_dir, load_persona_runtimes, patch_json_records};
 /// records with no linked persona or a persona without a runtime (both keep
 /// resolving through the legacy fallback path unchanged).
 pub fn materialize_agent_runtimes(app: &tauri::AppHandle) {
-    let Ok(current_dir) = app.path().app_data_dir() else {
+    let Ok(current_dir) = app.buzz_path().app_data_dir() else {
         return;
     };
     let mut dirs = vec![current_dir.clone()];

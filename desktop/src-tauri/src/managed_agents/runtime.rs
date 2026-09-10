@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     io::Read,
@@ -2408,8 +2409,7 @@ fn spawn_agent_child_unix(
     let installation_session_id = luca_protocol::OpaqueId::parse(current_instance_id(app))
         .map_err(|error| format!("invalid installation session identifier: {error}"))?;
     let app_data_dir = {
-        use tauri::Manager;
-        app.path()
+        app.buzz_path()
             .app_data_dir()
             .map_err(|error| format!("resolve managed agent data directory: {error}"))?
     };

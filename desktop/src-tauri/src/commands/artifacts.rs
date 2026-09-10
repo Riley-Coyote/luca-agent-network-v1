@@ -4,6 +4,7 @@
 //! responses contain no absolute paths, source-root handles, blob paths, or
 //! artifact bytes except for an explicitly selected bounded preview.
 
+use crate::data_dir::BuzzPathExt;
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
@@ -289,7 +290,7 @@ fn safe_version(value: u64) -> Result<SafeU53, String> {
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    app.path()
+    app.buzz_path()
         .app_data_dir()
         .map_err(|_| "artifact-unavailable".to_owned())
 }

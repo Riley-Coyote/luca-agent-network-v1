@@ -1,3 +1,4 @@
+use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{HashMap, VecDeque},
     fmt,
@@ -9,7 +10,7 @@ use std::{
 };
 
 use nostr::{Keys, ToBech32};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 #[cfg(feature = "mesh-llm")]
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -1010,7 +1011,7 @@ pub fn resolve_persisted_identity(app: &AppHandle, state: &AppState) -> Result<(
     }
 
     let data_dir = app
-        .path()
+        .buzz_path()
         .app_data_dir()
         .map_err(|e| format!("app data dir: {e}"))?;
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("create app data dir: {e}"))?;
