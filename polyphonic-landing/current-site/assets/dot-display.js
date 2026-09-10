@@ -63,12 +63,16 @@
 
   /* Phosphor endpoints. The glass is warm now: the same ink the page is set in,
      236,232,224, with the unlit floor carried at the same brightness in that hue.
+     WP-09 dropped the page floor four levels, to #060608; PDIM and FLOOR
+     stepped down with it by the same four, so the unlit lattice sits exactly
+     as far above the floor as it did — the band's lattice reads rgb(24,23,22)
+     over rgb(6,6,8), the same +18/+17/+14 it measured before.
      GOLD tints only the brightest tenth of a lit cell, and only where a scene
      asks for it (`gold`, 0 by default) — warmth as a glow at the peaks, never a
      gold field. `level` lowers the lit endpoint toward FLOOR — the page's own
      background — so a scene can say "these letters sit at .55 ink" and mean it;
      level 1 is the full phosphor and changes nothing. */
-  const PDIM = [34, 33, 31], PHOT = [236, 232, 224], GOLD = [201, 162, 58], FLOOR = [10, 10, 12];
+  const PDIM = [30, 29, 27], PHOT = [236, 232, 224], GOLD = [201, 162, 58], FLOOR = [6, 6, 8];
 
   class Display {
     constructor(cv, o) {
@@ -519,9 +523,10 @@
        the band's .55 ink to .68 before settling back — that bloom is why
        this preset carries `level .68` and a matched `inkLit`: at REST the
        letters render at exactly the colour and dot size the .55 band had
-       (rgb(129,127,123), r 2.502 at cell 6) and .68 is the headroom the
-       first light needs. Halfway through a change both words are faint.
-       That is the intended look.
+       (r 2.502 at cell 6; rgb(127,125,121) since WP-09 stepped the lattice
+       down with the floor, rgb(129,127,123) before it) and .68 is the
+       headroom the first light needs. Halfway through a change both words
+       are faint. That is the intended look.
 
        Frames: the sign drives its own (signPump, wired up in mount) so a
        change that is already in flight can finish after the page's loop

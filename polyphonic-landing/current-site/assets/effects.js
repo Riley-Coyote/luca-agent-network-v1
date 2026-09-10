@@ -12,8 +12,11 @@ function emblem(seed,n,density){
 
 const reg=()=>{ const DD=window.DotDisplay; if(!DD||DD.scenes.touch) return;
       /* Warm glass. Same ink as the page (236,232,224); the field rests ~20% dimmer
-         than it used to, and only its brightest tenth is pulled toward gold. */
-      const hash=DD.hash, FONT=DD.FONT, PD=[42,41,39], PH=[236,232,224], GOLD=[201,162,58], REST=0.8, GOLDMAX=0.35;
+         than it used to, and only its brightest tenth is pulled toward gold.
+         PD is the field's dim endpoint. WP-09 dropped the page floor four levels,
+         to #060608, and PD stepped down with it, so the dim end of the ramp keeps
+         the same +32/+31/+27 it always had above the floor. */
+      const hash=DD.hash, FONT=DD.FONT, PD=[38,37,35], PH=[236,232,224], GOLD=[201,162,58], REST=0.8, GOLDMAX=0.35;
       const EMB={luca:emblem('luca',9,.42),research:emblem('research',9,.42),vektor:emblem('vektor',9,.42),ziggy:emblem('ziggy',9,.42)};
       const WORD=(()=>{ const out=[]; const s='TOGETHER'; for(let n=0;n<s.length;n++){ const g=(FONT[s[n]]||FONT[' ']).split(','); for(let r=0;r<7;r++) for(let c=0;c<5;c++) if(g[r][c]==='1') out.push([n*6+c,r]); } return out; })();
       const WORDW=8*6-1;
