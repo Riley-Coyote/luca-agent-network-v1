@@ -17,25 +17,23 @@
   };
   $('#motion-toggle').addEventListener('click', () => {manualPause = !manualPause; applyMotion()});
   reduced.addEventListener('change', applyMotion); applyMotion();
-  // The demonstration grants never touch a real account or agent.
-  const grants = [[true,true],[true,false],[true,true],[false,true]];
+  // WP-04: one agent, four sources. The demonstration grants never touch a real account or agent.
+  const grants = [true,true,true,true];
   const knowledge = () => {
-    const has = i => grants[i][0]; const phrases=[];
-    if(has(0)&&has(1))phrases.push('You wanted this release kept small, so I held the line on the brief');
-    else if(has(0))phrases.push('The brief asks for one route from a note to a plan');
-    else if(has(1))phrases.push('You like releases kept small');
+    const has = i => grants[i]; const phrases=[];
+    if(has(0)&&has(1))phrases.push('You wanted this release kept small, so I’ve held us to the brief: one route from a note to a plan');
+    else if(has(0))phrases.push('The brief holds us to one route from a note to a plan');
+    else if(has(1))phrases.push('You like releases small, so I’ve kept this one small');
     if(has(2))phrases.push('Codex finished the walkthrough overnight');
-    if(has(3))phrases.push('Tuesday, you chose one clear next step for the empty screen');
-    $('#luca-knows').textContent = phrases.length ? phrases.join('. ')+'.' : 'I don’t have context on Northstar yet. Share the brief and we can pick up from there.';
+    if(has(3))phrases.push('Tuesday’s call stands: one clear next step for the empty screen');
+    $('#luca-knows').textContent = phrases.length ? phrases.join('. ')+'.' : 'Morning. I don’t have anything on Northstar yet. What is it?';
   };
-  document.querySelectorAll('.grant-toggle').forEach(btn=>btn.addEventListener('click',()=>{
-    const row=Number(btn.dataset.row),agent=btn.dataset.agent==='luca'?0:1;
-    grants[row][agent]=!grants[row][agent];btn.setAttribute('aria-checked',String(grants[row][agent]));
-    if(agent===0)knowledge();
-    else {
-      let status=$('#research-status');if(!status){status=document.createElement('span');status.id='research-status';status.className='sr-only';status.setAttribute('role','status');$('#brain-demo').append(status)}
-      status.textContent=`Mira can access ${grants.filter(g=>g[1]).length} of the four shared sources.`;
-    }
+  // Each chip also carries .grant-toggle[data-agent="luca"]: assets/demo.js reads that selector
+  // to mirror the grants into the app frame. Renaming it silently breaks the demo.
+  document.querySelectorAll('.grant-chip').forEach(btn=>btn.addEventListener('click',()=>{
+    const row=Number(btn.dataset.row);
+    grants[row]=!grants[row];btn.setAttribute('aria-checked',String(grants[row]));
+    knowledge();
   }));
   const resolvePermission = allowed => {
     $('#permission-request').hidden = true;$('#permission-result').hidden=false;
