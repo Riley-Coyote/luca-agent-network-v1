@@ -31,6 +31,8 @@ Node 20+; these commands require no dependency install. The server serves `dist/
 
 **WP-02b · quiet band, true app mono (9 September 2026).** The marquee band is quiet, not gone: floor background, no hairlines, letters at .55 ink (`level` on the `marquee-crisp` preset in `assets/dot-display.js`), unlit lattice unchanged, no gold in the band. The demo inside the app frame follows the desktop app, which sets its UI in Inter Variable and its mono in Fragment Mono — so `--app-mono` (base.css) puts Fragment Mono back on every mono element in the demo, at the demo's own tracking and case, while the page's own meta stays JetBrains Mono in `.24em` caps. `scripts/email-assets.js` now names Inter 300 for the display line; the shipped email PNGs were not re-rendered.
 
+**WP-02c · the frame is the product (9 September 2026).** Never restyle the app demo. `assets/demo.css` is the product's interior and is kept at its accepted content (plus the `--app-mono` swaps and the interior `font-weight: 400` baseline); `.app-frame` and `.d-popout` pin every token the interior consumes to the app's own values, so a page retune cannot leak in. Only the frame's outer edge — its border and shadow — belongs to the page. Measured against a build of the accepted commit: every interior colour identical (92/92 probes), frame-interior mean pixel difference 2.27 on 0-255 (glyph noise from Instrument Sans to Inter), and 0 style or geometry changes across the 345 elements outside the frame.
+
 ## Website integration and signup (wired 2026-09-09)
 
 The page ships as static files at **polyphonic.chat/beta** inside the Polyphonic web app repo (`Riley-Coyote/polyphonic-v2`, `public/beta/`, deployed by Lovable). Rebuild and re-copy after any edit here:

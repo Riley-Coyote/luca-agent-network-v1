@@ -166,74 +166,15 @@ img[src$="/hermes.png"]{border-radius:4px}
 .d-project-rooms>header>.d-icon{display:none}
 @media(max-width:700px){.d-project-rooms>header>.d-icon{display:flex;float:right}}
 
-/* WP-02 · warm, flat, light. The demo keeps its structure and copy; only its
-   colours move onto the page's surfaces and warm ink, and its last separators
-   drop to rgba(236,232,224,.06). Provider marks and online status stay semantic. */
-.demo-app,.d-popout{--d-surface:#0d0c0e;--d-raised:#121114;--d-hover:#17161a;--d-line:rgba(236,232,224,.06);--d-ink:rgba(236,232,224,.92);--d-muted:rgba(236,232,224,.56)}
-.demo-app{background:var(--s1);color:var(--d-ink);box-shadow:var(--lift)}
-.d-panes{background:var(--s1)}
-.d-workspace,.d-primary,.d-secondary,.d-drawer,.d-project-rooms{background:var(--s2)}
-.d-workspace{background:transparent}
-.d-drawer{border-left:6px solid var(--s1)}
-.demo-app .d-search{background:var(--s3)}
-.d-nav button[aria-current=page]{background:rgba(236,232,224,.1);color:var(--t0);box-shadow:none}
-.d-nav small{color:var(--t3)}.d-unread{background:rgba(236,232,224,.5)}
-.d-owner-mark{background:var(--s3);color:var(--d-ink)}
-.d-sidebar-label{color:var(--t3)}
-.demo-app button:hover,.d-popout button:hover{background:rgba(236,232,224,.06);color:var(--t0)}
-.demo-app :focus-visible,.d-popout :focus-visible{outline:1px solid rgba(236,232,224,.5);outline-offset:3px}
-.d-bubble{background:var(--s3);border:0;color:var(--d-ink)}
-.demo-app .d-exchange,.d-popout .d-exchange{background:var(--s3);border:0}
-.demo-app .d-exchange:hover{background:var(--d-hover);border:0}
-.demo-app .d-context-response,.demo-app .d-work-card,.d-popout .d-work-card,
-.demo-app .d-project,.demo-app .d-agent-card,.demo-app .d-document,
-.demo-app .d-code,.demo-app .d-list,.demo-app .d-grants{background:var(--d-raised);border:0}
-.demo-app .d-work-card:hover,.d-popout .d-work-card:hover,.demo-app .d-agent-card:hover{background:var(--d-hover);border:0}
-.demo-app .d-list>button,.demo-app .d-grants>div,.demo-app .d-timeline button,
-.d-settings-row,.d-saved,.d-runtime-heading,.d-drawer-tabs,.d-identity,
-.demo-app .d-search-result{border-color:var(--d-line)!important}
-.demo-app .d-document pre{background:var(--s1);color:rgba(236,232,224,.72)}
-.demo-app .d-meter{background:rgba(236,232,224,.08)}.demo-app .d-meter i{background:rgba(236,232,224,.72)}
-.demo-app .d-context-response p,.demo-app .d-page p,.demo-app .d-page small,
-.d-work-card small,.d-list small,.d-drawer .d-message p{color:var(--d-muted)}
-.demo-app .d-page h2,.demo-app .d-page h3,.demo-app h2,.demo-app h3,
-.d-work-card strong,.d-list strong,.d-context-response b,.d-message>b{color:var(--d-ink);font-weight:300}
-.d-composer{background:var(--s2);border:0;box-shadow:none}
-.d-composer:hover{border:0}
-.d-composer:focus-within{background:var(--s3);border:0;box-shadow:inset 0 0 0 1px rgba(236,232,224,.22)}
-.d-composer input{color:var(--d-ink);caret-color:#ece8e0}.d-composer input::placeholder{color:var(--t3)}
-.demo-app .d-send,.d-popout .d-send{background:rgba(236,232,224,.1);color:var(--t0);box-shadow:none}
-.d-composer:has(input:valid) .d-send{background:rgba(236,232,224,.92);color:var(--bg)}
-.d-composer:has(input:invalid) .d-send{background:rgba(236,232,224,.06);color:var(--t3)}
-.demo-app .d-send:hover,.d-popout .d-send:hover{background:#ece8e0;color:var(--bg)}
-.demo-app .d-prompts button{border-color:rgba(236,232,224,.18);color:var(--t1);background:transparent;border-radius:999px}
-.demo-app .d-prompts button:hover{border-color:rgba(236,232,224,.3);background:transparent;color:var(--t0)}
-.demo-app .d-small-button{border-color:rgba(236,232,224,.18);background:transparent;border-radius:999px}
-.demo-app .d-small-button:hover{background:rgba(236,232,224,.04);border-color:rgba(236,232,224,.3)}
-.d-project-mark,.d-identity-mark{border-color:rgba(236,232,224,.1);background:rgba(236,232,224,.03)}
-.d-pill{border:0;background:rgba(236,232,224,.06);color:var(--d-muted)}
-.demo-app .d-grant{border-color:rgba(236,232,224,.35)!important}
-.demo-app .d-grant[aria-checked=true]{background:rgba(236,232,224,.92)!important;color:var(--bg)!important}
-.d-grants .d-grant[aria-checked=true] svg{color:#0a0a0c}
-.d-search-input{background:var(--s3);border:0;color:var(--d-ink)}
-.d-search-input:focus{border:0;box-shadow:inset 0 0 0 1px rgba(236,232,224,.22)}
-.demo-app select{background-color:var(--s3);border-color:rgba(236,232,224,.14);color:var(--d-ink)}
-.d-popout{border:0;background:var(--s1);box-shadow:0 40px 120px rgba(0,0,0,.85)}
-.d-popout>header{background:var(--s3);border-bottom:0}
-.d-pop-content{background:var(--s2)}
-.d-header{border-bottom:0}
-.d-tools .d-icon{color:var(--d-muted)}
-.d-tools button[aria-expanded=true],.d-tools button[aria-pressed=true]{background:rgba(236,232,224,.08);color:var(--t0)}
-.d-nav-open .d-sidebar{background:var(--s1);border-right:0}
-.demo-app .d-room-back{border-bottom-color:var(--d-line)}
-.d-project-rooms header>small{color:var(--t3)}
-/* The demo shows the app, so its mono is the app's Fragment Mono and its tracking and case
-   are the app's too — only the ink is the page's warm ramp. Page chrome keeps JetBrains Mono. */
-.d-timeline time,.d-work-status,.d-page-heading>span,.d-kicker,.d-document>span{font-family:var(--app-mono);color:var(--t3)}
-/* The page sets its body at 300; the app sets its UI labels at 400. Inside the frame the app
-   wins, so every small label, pill and author line comes back off the page's body weight. */
-.demo-app small,.d-popout small,.demo-app .d-search,.demo-app .d-search span,
-.d-compose-footer>span,.d-pill,.d-title>span,.d-message>b,.d-person div>span{font-weight:400}
+/* WP-02c · the frame is the product. Everything above is the app's own interior, exactly as it
+   was accepted: the page's palette stops at the frame's edge. Only two things inside follow the
+   real desktop app rather than this file's history — its sans is Inter (via the page's --sans)
+   and its mono is Fragment Mono (via --app-mono, swapped in above). The page sets body at 300;
+   the app's UI baseline is 400, so the frame restates it and nothing inherits the page's weight. */
+.app-frame,.d-popout{font-weight:400}
+/* These two live outside the frame — the integrations row is appended to .hero and the glow is
+   the section's backdrop — so they keep the page's warm ink. They have to sit in this file
+   because it loads last and its own earlier rules would otherwise win. */
 .hero-integrations p{color:var(--t2)}
 .hero-integrations button{color:var(--t1)}
 .hero-integrations button:hover{color:var(--t0);background:rgba(236,232,224,.05)}
