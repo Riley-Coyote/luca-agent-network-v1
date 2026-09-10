@@ -1,9 +1,4 @@
-import {
-  AlertCircle,
-  LoaderCircle,
-  LockKeyhole,
-  ShieldCheck,
-} from "lucide-react";
+import { AlertCircle, LoaderCircle, LockKeyhole } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import * as React from "react";
 
@@ -188,10 +183,10 @@ export function BrainFilesDetails() {
   }
 
   return (
-    <div data-testid="brain-files-details">
+    <div className="min-w-0 space-y-5" data-testid="brain-files-details">
       {operationError ? (
         <div
-          className="mt-5 flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
+          className="flex items-start gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive"
           role="alert"
         >
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -199,73 +194,57 @@ export function BrainFilesDetails() {
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(15rem,0.72fr)_minmax(0,1.7fr)]">
-        <aside className="space-y-5">
-          <BrainImportPanel
-            activity={activity}
-            errorMessage={null}
-            isCommitting={actions.commitImport.isPending}
-            isPicking={actions.pickSource.isPending}
-            onCancel={() => void cancelImport()}
-            onCommit={() => void commitPreview()}
-            onDismissPreview={() => void dismissPreview()}
-            onPick={(kind) => void pickSource(kind)}
-            preview={preview}
-          />
-          {state.sources.length > 0 ? (
+      <BrainImportPanel
+        activity={activity}
+        errorMessage={null}
+        isCommitting={actions.commitImport.isPending}
+        isPicking={actions.pickSource.isPending}
+        onCancel={() => void cancelImport()}
+        onCommit={() => void commitPreview()}
+        onDismissPreview={() => void dismissPreview()}
+        onPick={(kind) => void pickSource(kind)}
+        preview={preview}
+      />
+
+      {!preview && state.sources.length > 0 ? (
+        <div className="grid min-w-0 gap-5 md:grid-cols-[minmax(12rem,0.72fr)_minmax(0,1.7fr)]">
+          <aside className="min-w-0">
             <BrainSourceList
               onSelect={setSelectedSourceId}
               selectedSourceId={selectedSourceId}
               sources={state.sources}
             />
-          ) : null}
-        </aside>
+          </aside>
 
-        <div className="min-w-0 space-y-5">
-          {selectedSource ? (
-            <>
-              <BrainSourceSummary
-                onChooseUpdate={() =>
-                  void pickSource(
-                    selectedSource.sourceKind === "text_folder"
-                      ? "folder"
-                      : "file",
-                  )
-                }
-                receipts={state.receipts}
-                source={selectedSource}
-              />
-              <BrainAccessPanel
-                grants={state.grants}
-                isMutating={isGrantMutating}
-                onAction={(action, resident) =>
-                  void changeGrant(action, resident)
-                }
-                residents={residentsQuery.data?.residents ?? []}
-                source={selectedSource}
-              />
-            </>
-          ) : (
-            <BrainEmptyState />
-          )}
+          <div className="min-w-0 space-y-5">
+            {selectedSource ? (
+              <>
+                <BrainSourceSummary
+                  onChooseUpdate={() =>
+                    void pickSource(
+                      selectedSource.sourceKind === "text_folder"
+                        ? "folder"
+                        : "file",
+                    )
+                  }
+                  receipts={state.receipts}
+                  source={selectedSource}
+                />
+                <BrainAccessPanel
+                  grants={state.grants}
+                  isMutating={isGrantMutating}
+                  onAction={(action, resident) =>
+                    void changeGrant(action, resident)
+                  }
+                  residents={residentsQuery.data?.residents ?? []}
+                  source={selectedSource}
+                />
+              </>
+            ) : null}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
-  );
-}
-
-function BrainEmptyState() {
-  return (
-    <section className="flex min-h-80 items-center justify-center rounded-2xl border border-dashed border-border/70 bg-card/15 px-6 text-center">
-      <div className="max-w-sm">
-        <ShieldCheck className="mx-auto h-6 w-6 text-muted-foreground" />
-        <h2 className="mt-3 text-base font-semibold">No private sources yet</h2>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-          Choose one Markdown file, text file, or folder. Luca will show what
-          can be imported and what will be excluded before any write.
-        </p>
-      </div>
-    </section>
   );
 }
 

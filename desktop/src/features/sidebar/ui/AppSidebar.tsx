@@ -862,7 +862,7 @@ export function AppSidebar({
                             toggleCollapsedGroup("channels")
                           }
                           selectedChannelId={selectedChannelId}
-                          title="Channels"
+                          title="Projects"
                           unreadChannelCounts={unreadChannelCounts}
                           unreadChannelIds={unreadChannelIds}
                           sections={channelSections}
@@ -918,7 +918,7 @@ export function AppSidebar({
                         presenceByChannelId={dmPresenceByChannelId}
                         selectedChannelId={selectedChannelId}
                         testId="dm-list"
-                        title="Direct messages"
+                        title="Messages"
                         sectionActionsOpen={dmActionsMenuOpen}
                         unreadChannelCounts={unreadChannelCounts}
                         unreadChannelIds={unreadChannelIds}

@@ -1010,6 +1010,14 @@ export function reconcileManagedPresentationFinal(
     conversationId,
   );
   if (!current) return null;
+  if (
+    finalMessageId &&
+    current.finalMessageId === finalMessageId &&
+    current.signedText === signedText &&
+    current.failure === null
+  ) {
+    return current;
+  }
   lookupToUiKey.set(finalLookupKey, current.uiKey);
   let next: ManagedPresentationTurn = {
     ...current,
@@ -1017,6 +1025,7 @@ export function reconcileManagedPresentationFinal(
     deadlineAt: null,
     dispatchReceiptId,
     durableReceiptId: dispatchReceiptId,
+    failure: null,
     finalMessageId: finalMessageId ?? current.finalMessageId,
     phase: "finalizing",
   };

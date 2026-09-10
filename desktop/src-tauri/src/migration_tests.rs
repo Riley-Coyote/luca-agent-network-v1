@@ -999,3 +999,15 @@ fn migrate_legacy_nest_preserves_user_edited_agents_md() {
         "a user-edited live AGENTS.md must never be clobbered"
     );
 }
+
+#[test]
+fn isolated_native_instances_never_reconcile_the_shared_dev_profile() {
+    let current = Path::new("/Users/me/Library/Application Support/com.luca.onboarding-test");
+    assert!(canonical_dev_data_dir_for_mode(current, true).is_none());
+    assert_eq!(
+        canonical_dev_data_dir_for_mode(current, false),
+        Some(PathBuf::from(
+            "/Users/me/Library/Application Support/xyz.block.buzz.app.dev"
+        ))
+    );
+}

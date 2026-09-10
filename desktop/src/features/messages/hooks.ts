@@ -52,6 +52,7 @@ import { managedAgentsQueryKey } from "@/features/agents/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { startManagedAgent } from "@/shared/api/tauriManagedAgents";
 import { managedDispatchReceiptIdFromTags } from "@/features/messages/managedPresentationProtocol";
+import { reconcileManagedHistoryFinals } from "@/features/messages/managedPresentationHistory";
 import {
   clearTimeoutState,
   recordTimeoutFromRejection,
@@ -285,10 +286,11 @@ export function useChannelWindowQuery(channel: Channel | null) {
 
 export function useChannelMessagesQuery(channel: Channel | null) {
   const queryClient = useQueryClient();
+  const channelId = channel?.id ?? null;
   const queryKey = channelMessagesKey(channel?.id ?? "none");
   const windowKey = channelWindowKey(channel?.id ?? "none");
 
-  return useQuery({
+  const query = useQuery({
     enabled: channel !== null && channel.channelType !== "forum",
     queryKey,
     queryFn: async () => {
@@ -307,6 +309,14 @@ export function useChannelMessagesQuery(channel: Channel | null) {
     staleTime: 5 * 60 * 1_000,
     gcTime: 60 * 60 * 1_000,
   });
+  useEffect(() => {
+    if (channelId && query.data) {
+      // A review screen can unmount the live subscription while Luca replies.
+      // History carries the same signed receipt needed to settle that turn.
+      reconcileManagedHistoryFinals(channelId, query.data);
+    }
+  }, [channelId, query.data]);
+  return query;
 }
 
 export function useChannelSubscription(channel: Channel | null) {

@@ -45,7 +45,7 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             validates_native_mutations: false,
             file_edit_fallback: "unavailable",
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
-            surface_navigation: "owner_encrypted_cli",
+            surface_navigation: "scoped_desktop_broker",
         }),
         "hermes" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -119,7 +119,7 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             validates_native_mutations: false,
             file_edit_fallback: "unavailable",
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
-            surface_navigation: "owner_encrypted_cli",
+            surface_navigation: "scoped_desktop_broker",
         }),
         _ => None,
     }

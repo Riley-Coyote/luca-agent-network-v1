@@ -1,5 +1,6 @@
 import { Bot, X } from "lucide-react";
 
+import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import type { UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -70,12 +71,22 @@ export function SelectedRecipientChip({
         }}
         type="button"
       >
-        <ProfileAvatar
-          avatarUrl={user.avatarUrl}
-          className="h-5 w-5 text-3xs shadow-none transition-opacity group-hover/remove-recipient:opacity-0 group-focus-visible/remove-recipient:opacity-0"
-          iconClassName="h-2.5 w-2.5"
-          label={label}
-        />
+        {user.isAgent ? (
+          <ResidentIdentityMark
+            accessibleName={label}
+            className="transition-opacity group-hover/remove-recipient:opacity-0 group-focus-visible/remove-recipient:opacity-0"
+            decorative
+            publicKey={user.pubkey}
+            size={20}
+          />
+        ) : (
+          <ProfileAvatar
+            avatarUrl={user.avatarUrl}
+            className="h-5 w-5 text-3xs shadow-none transition-opacity group-hover/remove-recipient:opacity-0 group-focus-visible/remove-recipient:opacity-0"
+            iconClassName="h-2.5 w-2.5"
+            label={label}
+          />
+        )}
         <span className="absolute inset-0 flex items-center justify-center rounded-full bg-foreground text-background opacity-0 transition-opacity group-hover/remove-recipient:opacity-100 group-focus-visible/remove-recipient:opacity-100">
           <X aria-hidden="true" className="h-3 w-3" />
         </span>

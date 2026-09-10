@@ -19,7 +19,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::{
     luca_final_publisher::{
-        PublicTextJoiner, CODEX_SKILL_BUDGET_NOTICE_PREFIX, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
+        PublicTextJoiner, CODEX_SKILL_BUDGET_NOTICE_PREFIXES, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
         CODEX_SKILL_CONTEXT_NOTICE, SILENT_ACTION_SENTINEL,
     },
     observer::{ObserverEvent, ObserverHandle},
@@ -114,10 +114,16 @@ impl RuntimeNoticeGate {
                     continue;
                 }
             }
-            if CODEX_SKILL_BUDGET_NOTICE_PREFIX.starts_with(&self.buffered) {
+            if CODEX_SKILL_BUDGET_NOTICE_PREFIXES
+                .iter()
+                .any(|prefix| prefix.starts_with(&self.buffered))
+            {
                 return None;
             }
-            if self.buffered.starts_with(CODEX_SKILL_BUDGET_NOTICE_PREFIX) {
+            if CODEX_SKILL_BUDGET_NOTICE_PREFIXES
+                .iter()
+                .any(|prefix| self.buffered.starts_with(prefix))
+            {
                 let suffix_start = self.buffered.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX)?;
                 let remainder = self.buffered
                     [suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..]
@@ -1360,6 +1366,18 @@ mod tests {
             None
         );
         assert_eq!(gate.push(SILENT_ACTION_SENTINEL), None);
+    }
+
+    #[test]
+    fn current_skill_budget_notice_is_suppressed_across_split_chunks() {
+        let notice = "Warning: Exceeded skills context budget. All skill descriptions were removed and 44 additional skills were not included in the model-visible skills list.";
+        let mut gate = RuntimeNoticeGate::default();
+        assert_eq!(gate.push(&notice[..47]), None);
+        assert_eq!(gate.push(&notice[47..103]), None);
+        assert_eq!(
+            gate.push(&format!("{}\n\nThe useful answer.", &notice[103..])),
+            Some("The useful answer.".into())
+        );
     }
 
     // ── Rich activity ────────────────────────────────────────────────────

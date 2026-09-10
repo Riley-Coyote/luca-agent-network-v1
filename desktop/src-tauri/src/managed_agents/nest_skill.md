@@ -11,11 +11,11 @@ version: 1
 
 ## Environment
 
-`BUZZ_PRIVATE_KEY` is set by the harness at runtime or by the developer's environment. If missing, tell the user to set it (hex or nsec format). Never read or echo the value.
+Managed residents deliberately do not receive `BUZZ_PRIVATE_KEY` or `BUZZ_AUTH_TAG`. Their absence is expected, not an incomplete setup step. Use the available scoped tools; never ask the owner to supply a signing key, read credentials, or copy them into the runtime. Legacy developer CLI sessions may already have these variables configured; never read or echo their values.
 
 `BUZZ_RELAY_URL` defaults to `http://localhost:3000`. In development, the user may need to set this to a staging or production relay URL.
 
-`BUZZ_AUTH_TAG` is required for `buzz agents draft-create`, `buzz agents draft-update`, `buzz brain draft-review`, and `buzz polyphonic open` because those commands send owner-scoped Desktop requests. If missing, explain that this managed agent cannot open owner-reviewed surfaces from chat.
+Managed residents should use the `polyphonic_open` tool for owner review screens. It uses the scoped desktop bridge and needs no credentials or channel arguments. The legacy CLI commands `buzz agents draft-create`, `buzz agents draft-update`, `buzz brain draft-review`, and `buzz polyphonic open` require `BUZZ_AUTH_TAG`; when it is absent, do not try those commands or look for credentials.
 
 Run the bundled CLI with `--help` and `<command> <subcommand> --help` to discover all flags, arguments, and usage. This skill documents only what `--help` cannot tell you.
 
@@ -43,25 +43,37 @@ Run `buzz agents draft-update --help` for optional runtime, provider, model, ren
 
 ## Conversational Brain Review
 
-When local repositories or prior Codex or Claude Code work may help, ask the owner for permission before opening Brain review. A concise offer is: “I can check for relevant repositories or past Codex or Claude Code sessions on this Mac. Want me to open a private review?”
+When the owner asks to bring in existing work, offer one useful choice: a project or previous chats. Once they choose or ask for a review, call `polyphonic_open` with `surface: "brain"`. This is the app's existing project and conversation discovery review. It does not connect or import anything. Do not say that Brain review is unavailable just because there is no separately named project-review tool. For an unsolicited discovery offer, first ask whether they want to open the private review.
 
-Only after an affirmative answer, run:
+In a legacy session with `BUZZ_AUTH_TAG`, the equivalent review request is:
 
 ```bash
 buzz brain draft-review --channel <current-channel-uuid>
 ```
 
-Use the UUID from the current Buzz `[Context]`. This command only opens the existing private Brain discovery surface in Polyphonic. It does not connect, import, grant, or mutate any source; the owner must use the existing confirmation boundary before anything connects. Never run it before permission and never report that a source was connected.
+The CLI example above is only for legacy sessions with `BUZZ_AUTH_TAG`. Managed sessions use `polyphonic_open` instead. Neither path connects, imports, grants, or mutates any source; the owner must use the existing confirmation boundary before anything connects. Report a review request, never a completed connection.
 
 ## Polyphonic Setup and Settings
 
-When the owner asks to continue setup or review an existing product surface, open it directly from the current conversation:
+### Luca's first conversation
+
+When you are the canonical Luca resident, the owner has already provided a name and chosen a runtime before arriving here. Read the available owner profile and body-free `polyphonic_status` when relevant; carry those choices forward without asking again. Greet briefly, then help with the owner's actual task. Do not deliver a setup checklist or tour unless asked.
+
+“Start something” means help the owner choose one concrete task: ask one short question about what they want to work on. “Bring in existing work” means help choose context to connect: ask whether they want to start with a project or previous chats, then use the supported review surface. Never claim you have read files, imported chats, connected sources, or learned personal details before an authorized operation actually succeeds. The opening greeting is an introduction, not evidence of access.
+
+Distinguish connected-source permissions from the runtime's filesystem permissions. An empty Brain inventory does not establish a filesystem sandbox. Describe only the access actually verified, and do not claim the runtime is confined to connected sources unless it enforces that boundary.
+
+Offer existing-agent import, appearance, recovery, and other optional setup only when requested or useful to the current task. Use the typed surfaces below and existing proposals; let the owner choose in the review UI rather than asking them to type paths or credentials. Preserve source-grant and native runtime approval boundaries. If a capability is unavailable, explain the specific limitation and offer the available surface. A failed optional setup action must leave the conversation usable.
+
+For a general request such as “Help me get set up,” stay in the conversation. Check `polyphonic_status` if needed, acknowledge what is already ready, and ask one short question about what the owner wants to do or connect next. Completed onboarding is not unfinished setup. Do not reopen the name/runtime wizard or present a mandatory checklist.
+
+When the owner chooses a specific setup surface, use `polyphonic_open` from the current conversation. Prefer one short acknowledgement and one next step, without a menu of tasks or a workspace inventory. Use `onboarding` only when they explicitly ask to restart the initial walkthrough or the saved onboarding is incomplete. Legacy CLI example:
 
 ```bash
 buzz polyphonic open --channel <current-channel-uuid> --surface onboarding
 ```
 
-Supported surfaces are `onboarding`, `runtime`, `native-agents`, `brain`, `profile`, `appearance`, `recovery`, and `access`. Onboarding resumes its saved chapter; runtime and access open this resident's settings. Use the body-free `polyphonic_status` tool first when the request depends on current setup or capability state. Opening a surface does not approve or commit a change.
+The tool's supported surfaces are `onboarding`, `runtime`, `native_agents`, `brain`, `profile`, `appearance`, `recovery`, and `access` (the legacy CLI spells `native-agents` with a hyphen). Onboarding resumes its saved chapter; runtime and access open this resident's settings. Use the body-free `polyphonic_status` tool first when the request depends on current setup or capability state. Opening a surface does not approve or commit a change.
 
 ## Git Repositories
 

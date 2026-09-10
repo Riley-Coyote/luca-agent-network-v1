@@ -194,7 +194,7 @@ function renderApp() {
     <React.StrictMode>
       <CommunitiesProvider>
         <CommunityOnboardingProvider>
-          <ThemeProvider defaultTheme="buzz">
+          <ThemeProvider>
             <TooltipProvider delayDuration={300}>
               <EmojiBurstProvider>
                 <PoofBurstProvider>

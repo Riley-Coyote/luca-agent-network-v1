@@ -7,6 +7,9 @@
 
 import type { ThemeRegistrationRaw } from "shiki";
 
+/** The appearance used on first launch, before an owner chooses a theme. */
+export const DEFAULT_THEME_NAME = "vitesse-black";
+
 /**
  * Legacy internal key for Luca's first-party shell theme. It intentionally
  * resolves to GitHub Dark for code highlighting while the app shell receives
@@ -378,6 +381,7 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
     ["rose-pine", "rose-pine-dawn"],
     ["slack-dark", "slack-ochin"],
     ["solarized-dark", "solarized-light"],
+    ["vitesse-black", "vitesse-light"],
     ["vitesse-dark", "vitesse-light"],
   ]);
 

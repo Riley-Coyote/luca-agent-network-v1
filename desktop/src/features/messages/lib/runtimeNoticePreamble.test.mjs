@@ -34,3 +34,17 @@ test("removes the variable Codex skills-budget notice", () => {
     "The actual answer.",
   );
 });
+
+test("removes the current Codex skills-budget notice and preserves its answer", () => {
+  const currentNotice =
+    "Warning: Exceeded skills context budget. All skill descriptions were removed and 44 additional skills were not included in the model-visible skills list.";
+  assert.equal(stripRuntimeNoticePreamble(currentNotice), "");
+  assert.equal(
+    stripRuntimeNoticePreamble(`${currentNotice}\n\nThe actual answer.`),
+    "The actual answer.",
+  );
+  assert.equal(
+    stripRuntimeNoticePreamble(`Here is the notice:\n${currentNotice}`),
+    `Here is the notice:\n${currentNotice}`,
+  );
+});

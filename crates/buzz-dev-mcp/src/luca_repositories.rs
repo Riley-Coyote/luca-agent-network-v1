@@ -21,6 +21,25 @@ const BROKER_DEADLINE: Duration = Duration::from_secs(130);
 const RESIDENT_PROPOSAL_DEADLINE: Duration = Duration::from_secs(16 * 60);
 const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(24 * 60 * 60 + 15 * 60);
 
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ReviewSurface {
+    Onboarding,
+    Runtime,
+    NativeAgents,
+    Brain,
+    Profile,
+    Appearance,
+    Recovery,
+    Access,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct OpenSurfaceParams {
+    surface: ReviewSurface,
+}
+
 #[derive(Clone)]
 struct RepositoryBrokerClient {
     endpoint: PathBuf,
@@ -432,6 +451,17 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "polyphonic_open",
+        description = "Request an owner review screen in Polyphonic from this conversation. For bringing in projects or previous chats, use surface brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
+    )]
+    async fn polyphonic_open(
+        &self,
+        Parameters(params): Parameters<OpenSurfaceParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.client.call("operator_open_surface", params).await
+    }
+
+    #[tool(
         name = "propose_runtime_task",
         description = "Ask the owner to confirm one new Codex or Claude Code task. This only opens Polyphonic's confirmation card; nothing runs until the owner chooses a working folder, permission mode, and Run. Use after a natural request such as 'send this to Codex'."
     )]
@@ -588,6 +618,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "polyphonic_open",
                 "polyphonic_status",
                 "propose_repository_connection",
                 "propose_resident",

@@ -159,7 +159,8 @@ export const MessageRow = React.memo(
     quotedParent = null,
     collapseLongBody = true,
     quickReactions = true,
-    agentNamesEnabled = false,
+    agentNamesEnabled = true,
+    visitActive = false,
     showDepthGuides = true,
     videoReviewContext,
   }: {
@@ -222,6 +223,8 @@ export const MessageRow = React.memo(
     /** One-tap emoji row in the hover bar; off in direct conversations. */
     quickReactions?: boolean;
     agentNamesEnabled?: boolean;
+    /** This row sits between a resident's visit entrance and exit. */
+    visitActive?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
   }) {
@@ -527,11 +530,17 @@ export const MessageRow = React.memo(
     };
 
     const isThreadReplyLayout = layoutVariant === "thread-reply";
-    const quietAgent = Boolean(message.isAgent && !agentNamesEnabled);
-    // Agent replies read directly on the conversation plane. Human contacts
-    // keep their avatar; the owner's aligned bubble needs no empty gutter.
+    // A visitor's name is structural: hiding it would leave a bare
+    // “visiting” label with no speaker. An explicit quiet-name preference
+    // still applies to agent turns outside a visit.
+    const quietAgent = Boolean(
+      message.isAgent && !agentNamesEnabled && !authorVisiting,
+    );
+    // Agent replies read directly on the conversation plane. Inside a visit
+    // they reserve the connector's column so its hairline cannot cross their
+    // words; human contacts keep their avatar there.
     const showResidentMarkGutter = Boolean(
-      !message.isAgent && !ownBubble && message.pubkey,
+      !ownBubble && message.pubkey && (!message.isAgent || visitActive),
     );
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
@@ -541,7 +550,10 @@ export const MessageRow = React.memo(
     // line breaks across it. Read from the reading plane by
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
-      showResidentMarkGutter && !isContinuation && !ownBubble;
+      showResidentMarkGutter &&
+      !message.isAgent &&
+      !isContinuation &&
+      !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
@@ -765,8 +777,12 @@ export const MessageRow = React.memo(
         </button>
       ) : null;
 
+    // Human messages can collapse into a compact continuation. Agent turns
+    // keep attribution on every row because adjacent residents may share a
+    // runtime and a multi-agent transcript must identify each authored turn.
+    const hideContinuationHeader = isContinuation && !message.isAgent;
     const continuationMetadataNode =
-      isContinuation && statusMetadataNode ? (
+      hideContinuationHeader && statusMetadataNode ? (
         <div className="mt-0.5 flex items-baseline gap-2 text-xs">
           {statusMetadataNode}
         </div>
@@ -779,7 +795,7 @@ export const MessageRow = React.memo(
         activityWord ||
         stopNode,
     );
-    const headerNode = isContinuation ? null : (
+    const headerNode = hideContinuationHeader ? null : (
       <MessageHeaderRow
         className={cn(
           "luca-msg-header",
@@ -803,11 +819,8 @@ export const MessageRow = React.memo(
         ) : (
           authorNode
         )}
-        {message.isAgent && agentNamesEnabled && message.pubkey ? (
-          <AgentMessageRuntime
-            publicKey={message.pubkey}
-            personaId={message.residentPersonaId}
-          />
+        {message.isAgent && !quietAgent && message.pubkey ? (
+          <AgentMessageRuntime publicKey={message.pubkey} />
         ) : null}
         {inlineMetadataNode}
         {!quietAgent &&
@@ -821,7 +834,7 @@ export const MessageRow = React.memo(
       </MessageHeaderRow>
     );
     const bodyContainerClass =
-      isContinuation || (quietAgent && !hasVisibleMetadata)
+      hideContinuationHeader || (quietAgent && !hasVisibleMetadata)
         ? "mt-0"
         : bodyOffsetClass;
 
@@ -1095,7 +1108,7 @@ export const MessageRow = React.memo(
             hoverBackground || isThreadReplyLayout ? "mx-1 px-2" : "px-2",
             "flex",
             (isThreadReplyLayout || showResidentMarkGutter) && "gap-2.5",
-            isContinuation ? "items-center" : "items-start",
+            hideContinuationHeader ? "items-center" : "items-start",
             hasActiveReminder ? "bg-foreground/[0.045]" : "",
             highlighted
               ? "-mx-4 rounded-none px-6 before:absolute before:-inset-y-1.5 before:inset-x-0 before:animate-[route-target-highlight-fade_2s_ease-out_forwards] before:bg-primary/10 before:content-[''] motion-reduce:before:animate-none sm:-mx-6 sm:px-8"
@@ -1140,7 +1153,7 @@ export const MessageRow = React.memo(
               className="mt-0.5 flex w-[21px] shrink-0 justify-center"
               data-message-mark
             >
-              {isContinuation || ownBubble ? (
+              {isContinuation || ownBubble || message.isAgent ? (
                 // Anchored right, the owner's turn says who it is by where it
                 // sits; a disc on the far left of the same row would be an
                 // orphan pointing back at a column the words no longer use.
@@ -1253,6 +1266,7 @@ export const MessageRow = React.memo(
     prev.playEntrance === next.playEntrance &&
     prev.profiles === next.profiles &&
     prev.agentNamesEnabled === next.agentNamesEnabled &&
+    prev.visitActive === next.visitActive &&
     prev.searchQuery === next.searchQuery &&
     prev.videoReviewContext === next.videoReviewContext,
 );

@@ -655,8 +655,7 @@ function ConversationAppearanceSettings({
               Show agent names in messages
             </label>
             <p className="text-sm font-normal text-muted-foreground">
-              Show who sent each agent reply. Hover a message to see its
-              runtime.
+              Show who sent each agent reply and which runtime they use.
             </p>
           </div>
           <Switch

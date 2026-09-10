@@ -3,10 +3,10 @@ import * as React from "react";
 import {
   CONVERSATION_APPEARANCE_VERSION,
   DEFAULT_CONVERSATION_APPEARANCE,
-  type ConversationAppearancePreferenceV2,
+  type ConversationAppearancePreferenceV3,
 } from "@/features/messages/conversationAppearanceTypes";
 
-const STORAGE_PREFIX = "luca.conversation-appearance.v2";
+const STORAGE_PREFIX = "luca.conversation-appearance.v3";
 const OWNER_PUBKEY_PATTERN = /^[0-9a-f]{64}$/;
 
 const agentNamesByOwner = new Map<string, boolean>();
@@ -26,7 +26,7 @@ export function conversationAppearanceStorageKey(
 
 function parsePreference(
   rawValue: string | null | undefined,
-): ConversationAppearancePreferenceV2 {
+): ConversationAppearancePreferenceV3 {
   if (!rawValue) return DEFAULT_CONVERSATION_APPEARANCE;
   try {
     const parsed: unknown = JSON.parse(rawValue);
@@ -124,7 +124,7 @@ export function setAgentNamesInMessages(
         JSON.stringify({
           version: CONVERSATION_APPEARANCE_VERSION,
           agentNamesInMessages: enabled,
-        } satisfies ConversationAppearancePreferenceV2),
+        } satisfies ConversationAppearancePreferenceV3),
       );
     } catch {
       // Persistence is best-effort; the live preference remains authoritative.

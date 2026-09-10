@@ -27,6 +27,7 @@ import { THEME_CLEAR_VARS } from "./role-registry";
 import {
   CRYSTALLINE_THEME_NAME,
   GRAPHITE_THEME_NAME,
+  DEFAULT_THEME_NAME,
   OBSIDIAN_THEME_NAME,
   PAPER_THEME_NAME,
   ASH_THEME_NAME,
@@ -727,7 +728,7 @@ async function applyTheme(
 
 export function ThemeProvider({
   children,
-  defaultTheme = "buzz",
+  defaultTheme = DEFAULT_THEME_NAME,
 }: ThemeProviderProps) {
   // Apply cached vars synchronously before first render
   const [selectedTheme, setSelectedTheme] = useState<string>(() => {
@@ -745,10 +746,8 @@ export function ThemeProvider({
   const [followSystem, setFollowSystemState] = useState<boolean>(() => {
     const stored = window.localStorage.getItem(FOLLOW_SYSTEM_KEY);
     if (stored !== null) return stored === "true";
-    // Fresh profiles (no saved theme) default to System mode so the Buzz
-    // default tracks the OS light/dark scheme. Profiles that picked a theme
-    // before this toggle existed keep their fixed theme until they opt in.
-    return window.localStorage.getItem(THEME_STORAGE_KEY) === null;
+    // First launch uses Vitesse Black. Following the OS is an explicit choice.
+    return false;
   });
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;

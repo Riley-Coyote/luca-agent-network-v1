@@ -51,7 +51,7 @@ pub(crate) fn plan_adapter_install<'c>(
         // doesn't hit EEXIST on the shared `codex-acp` bin-link, then install.
         Some(_) => Some(vec![
             "npm uninstall -g @zed-industries/codex-acp",
-            "npm install -g @agentclientprotocol/codex-acp",
+            "npm install -g @agentclientprotocol/codex-acp@1.11.0",
         ]),
         // Adapter missing: use the catalog's install commands directly.
         None => Some(adapter_install_commands.to_vec()),
@@ -178,8 +178,8 @@ fn install_acp_runtime_blocking(runtime_id: &str) -> Result<InstallRuntimeResult
 
     // Phase 2: Install adapter if missing (or outdated) and commands are available.
     // For the codex runtime, "found" is not enough — the resolved binary must also
-    // pass the 1.x version gate. An outdated 0.16.x adapter must be overwritten by
-    // the new npm install so the CODEX_CONFIG spawn contract works correctly.
+    // meet the supported stable minimum. An outdated adapter must be overwritten
+    // by the pinned npm install so current Codex models work correctly.
     let adapter_path = runtime
         .commands
         .iter()
@@ -979,7 +979,7 @@ mod tests {
     #[test]
     fn test_is_npm_global_install_accepts_catalog_codex_command() {
         assert!(is_npm_global_install(
-            "npm install -g @agentclientprotocol/codex-acp"
+            "npm install -g @agentclientprotocol/codex-acp@1.11.0"
         ));
     }
 
@@ -1041,8 +1041,8 @@ mod tests {
 
     /// plan_adapter_install is the pure install-plan seam used by
     /// install_acp_runtime_blocking. These tests verify:
-    ///   - A 0.x binary (AdapterOutdated) → uninstall-then-install sequence returned
-    ///   - A 1.x binary (Available) → None (no reinstall)
+    ///   - An outdated binary → uninstall-then-install sequence returned
+    ///   - A supported binary → None (no reinstall)
     ///   - Missing binary (None path) → catalog install commands returned
     #[cfg(unix)]
     #[test]
@@ -1056,7 +1056,7 @@ mod tests {
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
             .expect("chmod script");
 
-        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp"];
+        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp@1.11.0"];
         let plan = plan_adapter_install("codex", Some(&bin), install_cmds);
 
         assert!(
@@ -1069,7 +1069,7 @@ mod tests {
             cmds,
             vec![
                 "npm uninstall -g @zed-industries/codex-acp",
-                "npm install -g @agentclientprotocol/codex-acp",
+                "npm install -g @agentclientprotocol/codex-acp@1.11.0",
             ],
             "outdated codex adapter must produce uninstall-then-install sequence; got {cmds:?}"
         );
@@ -1077,39 +1077,39 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn test_plan_adapter_install_returns_none_for_current_1x_codex_binary() {
+    fn test_plan_adapter_install_returns_none_for_current_codex_binary() {
         use std::os::unix::fs::PermissionsExt;
 
         let dir = tempfile::tempdir().unwrap();
         let bin = dir.path().join("codex-acp");
-        // Simulate 1.x adapter: outputs version and exits 0
+        // Simulate the minimum supported adapter: outputs version and exits 0.
         std::fs::write(
             &bin,
-            "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.1.2'\nexit 0\n",
+            "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.11.0'\nexit 0\n",
         )
         .expect("write script");
         std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755))
             .expect("chmod script");
 
-        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp"];
+        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp@1.11.0"];
         let plan = plan_adapter_install("codex", Some(&bin), install_cmds);
 
         assert!(
             plan.is_none(),
-            "1.x codex adapter must not trigger install plan (no reinstall needed)"
+            "supported codex adapter must not trigger install plan"
         );
     }
 
     #[test]
     fn test_plan_adapter_install_returns_catalog_cmds_when_no_adapter_path() {
-        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp"];
+        let install_cmds = &["npm install -g @agentclientprotocol/codex-acp@1.11.0"];
         let plan = plan_adapter_install("codex", None, install_cmds);
         assert!(plan.is_some(), "missing adapter must trigger install plan");
         // Missing arm: use the catalog's install commands directly (no prior
         // package to uninstall — fresh install, not a reinstall).
         assert_eq!(
             plan.unwrap(),
-            vec!["npm install -g @agentclientprotocol/codex-acp"],
+            vec!["npm install -g @agentclientprotocol/codex-acp@1.11.0"],
             "missing codex adapter must use catalog install commands only"
         );
     }

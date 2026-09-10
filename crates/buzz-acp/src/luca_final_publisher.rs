@@ -20,8 +20,10 @@ use nostr::Event;
 use uuid::Uuid;
 
 pub(crate) const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
-pub(crate) const CODEX_SKILL_BUDGET_NOTICE_PREFIX: &str =
-    "Warning: Exceeded skills context budget of 2%.";
+pub(crate) const CODEX_SKILL_BUDGET_NOTICE_PREFIXES: [&str; 2] = [
+    "Warning: Exceeded skills context budget of 2%.",
+    "Warning: Exceeded skills context budget.",
+];
 pub(crate) const CODEX_SKILL_BUDGET_NOTICE_SUFFIX: &str = "model-visible skills list.";
 
 /// Exact acknowledgement for a successful, action-only Buzz tool turn. The
@@ -38,14 +40,17 @@ fn strip_runtime_notice_preamble(final_draft: String) -> String {
             return remainder.trim_start().to_owned();
         }
     }
-    if final_draft.starts_with(CODEX_SKILL_BUDGET_NOTICE_PREFIX) {
-        if let Some(suffix_start) = final_draft.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX) {
-            let remainder = &final_draft[suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..];
-            if remainder.is_empty() {
-                return String::new();
-            }
-            if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
-                return remainder.trim_start().to_owned();
+    for prefix in CODEX_SKILL_BUDGET_NOTICE_PREFIXES {
+        if final_draft.starts_with(prefix) {
+            if let Some(suffix_start) = final_draft.find(CODEX_SKILL_BUDGET_NOTICE_SUFFIX) {
+                let remainder =
+                    &final_draft[suffix_start + CODEX_SKILL_BUDGET_NOTICE_SUFFIX.len()..];
+                if remainder.is_empty() {
+                    return String::new();
+                }
+                if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                    return remainder.trim_start().to_owned();
+                }
             }
         }
     }
@@ -735,6 +740,29 @@ mod tests {
             "Warning: Exceeded skills context budget of 2%. All skill descriptions were removed and 1 additional skill was not included in the model-visible skills list.{SILENT_ACTION_SENTINEL}"
         );
         assert_eq!(strip_runtime_notice_preamble(draft), SILENT_ACTION_SENTINEL);
+    }
+
+    #[test]
+    fn luca_f09_current_skill_budget_notice_is_removed_but_answer_is_preserved() {
+        let notice = "Warning: Exceeded skills context budget. All skill descriptions were removed and 44 additional skills were not included in the model-visible skills list.";
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(&notice[..47])
+            .expect("split notice prefix");
+        chunks
+            .push_agent_message_chunk(&format!("{}\n\nThe useful answer.", &notice[47..]))
+            .expect("notice remainder and answer");
+        assert_eq!(chunks.finish(false).expect("final"), "The useful answer.");
+    }
+
+    #[test]
+    fn luca_f09_current_skill_budget_notice_is_prefix_only() {
+        let quoted = "A quoted diagnostic:\nWarning: Exceeded skills context budget. All skill descriptions were removed and 44 additional skills were not included in the model-visible skills list.";
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(quoted)
+            .expect("quoted notice");
+        assert_eq!(chunks.finish(false).expect("final"), quoted);
     }
 
     #[test]

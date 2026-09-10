@@ -158,7 +158,7 @@ export function PopoutApp() {
   usePopoutRenderReady();
 
   return (
-    <ThemeProvider defaultTheme="buzz">
+    <ThemeProvider>
       <TooltipProvider delayDuration={300}>
         <QueryClientProvider client={queryClient}>
           <CommunitiesProvider>

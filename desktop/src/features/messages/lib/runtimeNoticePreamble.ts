@@ -1,7 +1,9 @@
 const CODEX_SKILL_CONTEXT_NOTICE =
   "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
-const CODEX_SKILL_BUDGET_NOTICE_PREFIX =
-  "Warning: Exceeded skills context budget of 2%.";
+const CODEX_SKILL_BUDGET_NOTICE_PREFIXES = [
+  "Warning: Exceeded skills context budget of 2%.",
+  "Warning: Exceeded skills context budget.",
+];
 const CODEX_SKILL_BUDGET_NOTICE_SUFFIX = "model-visible skills list.";
 
 /**
@@ -14,7 +16,13 @@ export function stripRuntimeNoticePreamble(content: string): string {
   if (content.startsWith(`${CODEX_SKILL_CONTEXT_NOTICE}\n`)) {
     return content.slice(CODEX_SKILL_CONTEXT_NOTICE.length).trimStart();
   }
-  if (!content.startsWith(CODEX_SKILL_BUDGET_NOTICE_PREFIX)) return content;
+  if (
+    !CODEX_SKILL_BUDGET_NOTICE_PREFIXES.some((prefix) =>
+      content.startsWith(prefix),
+    )
+  ) {
+    return content;
+  }
   const suffixStart = content.indexOf(CODEX_SKILL_BUDGET_NOTICE_SUFFIX);
   if (suffixStart < 0) return content;
   const remainder = content.slice(

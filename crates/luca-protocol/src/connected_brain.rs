@@ -481,6 +481,8 @@ pub enum RepositoryToolOperationV1 {
     ProposeResident,
     /// Ask the owner to select one repository through the existing Brain review.
     ProposeRepositoryConnection,
+    /// Request a fixed owner review surface; does not approve any change.
+    OperatorOpenSurface,
     ProposeRuntimeTask,
     ReadRuntimeTaskResult,
     List,

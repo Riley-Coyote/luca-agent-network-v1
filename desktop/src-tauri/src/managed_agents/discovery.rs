@@ -141,7 +141,7 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         underlying_cli: Some("codex"),
         cli_install_commands: &["curl -fsSL https://chatgpt.com/codex/install.sh | sh"],
         cli_install_commands_windows: &["powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"irm https://chatgpt.com/codex/install.ps1 | iex\""],
-        adapter_install_commands: &["npm install -g @agentclientprotocol/codex-acp"],
+        adapter_install_commands: &["npm install -g @agentclientprotocol/codex-acp@1.11.0"],
         install_instructions_url: "https://github.com/agentclientprotocol/codex-acp",
         cli_install_hint: "Install the Codex CLI via the official install script.",
         adapter_install_hint: "Install the Codex ACP adapter via npm.",
@@ -1158,10 +1158,35 @@ pub(crate) fn probe_codex_acp_major_version(binary_path: &Path) -> Option<u64> {
         crate::managed_agents::readiness::cli_probe::augmented_path().as_deref(),
     )
 }
+
+const MINIMUM_CODEX_ACP_VERSION: (u64, u64, u64) = (1, 11, 0);
+
+fn parse_codex_acp_version_output(stdout: &str) -> Option<(u64, u64, u64)> {
+    let version = stdout.split_whitespace().last()?;
+    // Prereleases are not accepted as satisfying the stable minimum.
+    if version.contains('-') {
+        return None;
+    }
+    let core = version.split_once('+').map_or(version, |(core, _)| core);
+    let mut parts = core.split('.');
+    let parsed = (
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    );
+    (parts.next().is_none()).then_some(parsed)
+}
 pub(crate) fn probe_codex_acp_major_version_with_path(
     binary_path: &Path,
     augmented_path: Option<&str>,
 ) -> Option<u64> {
+    probe_codex_acp_version_with_path(binary_path, augmented_path).map(|version| version.0)
+}
+
+fn probe_codex_acp_version_with_path(
+    binary_path: &Path,
+    augmented_path: Option<&str>,
+) -> Option<(u64, u64, u64)> {
     use std::io::{Read as _, Seek as _, SeekFrom};
     use std::time::{Duration, Instant};
     const VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -1215,9 +1240,7 @@ pub(crate) fn probe_codex_acp_major_version_with_path(
 
     let stdout = String::from_utf8_lossy(&buf);
     // Output format: "<package-name> <major>.<minor>.<patch>"
-    let version_str = stdout.split_whitespace().last()?;
-    let major_str = version_str.split('.').next()?;
-    major_str.parse::<u64>().ok()
+    parse_codex_acp_version_output(&stdout)
 }
 
 /// Classifies a resolved codex-acp binary path as [`AcpAvailabilityStatus::Available`]
@@ -1225,20 +1248,28 @@ pub(crate) fn probe_codex_acp_major_version_with_path(
 ///
 /// The 0.16.x adapter (`@zed-industries/codex-acp`) does not recognise `--version`
 /// and exits non-zero — that probe failure yields `AdapterOutdated`. The 1.x adapter
-/// (`@agentclientprotocol/codex-acp`) prints its version and exits 0; major ≥ 1
-/// yields `Available`.
+/// (`@agentclientprotocol/codex-acp`) prints its version and exits 0. Stable
+/// versions at or above 1.11.0 yield `Available`.
 ///
 /// Used by `discover_acp_runtimes`, `cli_login_requirements`, and
 /// `install_acp_runtime_blocking` so the version-gate logic is not duplicated.
 pub(crate) fn codex_adapter_availability(path: &Path) -> AcpAvailabilityStatus {
-    match probe_codex_acp_major_version(path) {
-        Some(major) if major >= 1 => AcpAvailabilityStatus::Available,
+    match probe_codex_acp_version(path) {
+        Some(version) if version >= MINIMUM_CODEX_ACP_VERSION => AcpAvailabilityStatus::Available,
         _ => AcpAvailabilityStatus::AdapterOutdated,
     }
 }
 
-/// Returns `true` when the codex-acp binary at `path` is outdated (major version < 1)
-/// or cannot be probed. Thin wrapper around [`codex_adapter_availability`].
+fn probe_codex_acp_version(binary_path: &Path) -> Option<(u64, u64, u64)> {
+    probe_codex_acp_version_with_path(
+        binary_path,
+        crate::managed_agents::readiness::cli_probe::augmented_path().as_deref(),
+    )
+}
+
+/// Returns `true` when the codex-acp binary at `path` is older than the supported
+/// stable minimum or cannot be probed. Thin wrapper around
+/// [`codex_adapter_availability`].
 pub(crate) fn codex_adapter_is_outdated(path: &Path) -> bool {
     codex_adapter_availability(path) == AcpAvailabilityStatus::AdapterOutdated
 }
@@ -1277,8 +1308,8 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 classify_runtime(adapter_result, runtime.underlying_cli, underlying_cli_found);
 
             // For codex-acp: when the adapter resolves as Available, probe the
-            // version. An adapter with major version < 1 is treated as outdated —
-            // the CODEX_CONFIG spawn contract requires 1.x.
+            // version. Anything older than the supported stable minimum is
+            // treated as outdated so newer Codex models use a compatible adapter.
             if runtime.id == "codex"
                 && availability == AcpAvailabilityStatus::Available
                 && command.as_deref() == Some("codex-acp")

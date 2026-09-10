@@ -1,13 +1,13 @@
-export const CONVERSATION_APPEARANCE_VERSION = 2 as const;
+export const CONVERSATION_APPEARANCE_VERSION = 3 as const;
 
-export type ConversationAppearancePreferenceV2 = {
+export type ConversationAppearancePreferenceV3 = {
   version: typeof CONVERSATION_APPEARANCE_VERSION;
-  /** Show agent names above their replies; runtime attribution appears on hover. */
+  /** Show agent names and runtime attribution above their replies. */
   agentNamesInMessages: boolean;
 };
 
-export const DEFAULT_CONVERSATION_APPEARANCE: ConversationAppearancePreferenceV2 =
+export const DEFAULT_CONVERSATION_APPEARANCE: ConversationAppearancePreferenceV3 =
   {
     version: CONVERSATION_APPEARANCE_VERSION,
-    agentNamesInMessages: false,
+    agentNamesInMessages: true,
   };

@@ -6,9 +6,9 @@ use super::{
     codex_adapter_is_outdated, create_time_agent_command_override, default_agent_command,
     effective_agent_command, find_nvm_default_bin, find_via_login_shell,
     is_login_shell_path_uninit, is_safe_nvm_tag, managed_agent_avatar_url, normalize_agent_args,
-    parse_semver_tag, probe_codex_acp_major_version, record_agent_command,
-    refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL, CODEX_AVATAR_URL,
-    GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
+    parse_codex_acp_version_output, parse_semver_tag, probe_codex_acp_major_version,
+    record_agent_command, refresh_login_shell_path, BUZZ_AGENT_AVATAR_URL, CLAUDE_CODE_AVATAR_URL,
+    CODEX_AVATAR_URL, GOOSE_AVATAR_URL, GROK_AVATAR_URL, KIMI_AVATAR_URL,
 };
 use crate::managed_agents::{AcpAvailabilityStatus, ArtifactMcpSupport};
 
@@ -651,6 +651,27 @@ fn apply_agent_command_update_concrete_pin_keeps_materialized_runtime() {
 
 // ── probe_codex_acp_major_version ─────────────────────────────────────────────
 
+#[test]
+fn codex_acp_minimum_version_gate_is_stable_semver() {
+    assert!(
+        parse_codex_acp_version_output("@agentclientprotocol/codex-acp 1.1.7")
+            < Some(super::MINIMUM_CODEX_ACP_VERSION)
+    );
+    assert_eq!(
+        parse_codex_acp_version_output("@agentclientprotocol/codex-acp 1.11.0"),
+        Some(super::MINIMUM_CODEX_ACP_VERSION)
+    );
+    assert!(
+        parse_codex_acp_version_output("@agentclientprotocol/codex-acp 1.12.3")
+            > Some(super::MINIMUM_CODEX_ACP_VERSION)
+    );
+    assert_eq!(
+        parse_codex_acp_version_output("@agentclientprotocol/codex-acp 1.11.0-beta.1"),
+        None
+    );
+    assert_eq!(parse_codex_acp_version_output("not-a-version"), None);
+}
+
 mod managed_path_resolution;
 
 #[cfg(unix)]
@@ -713,7 +734,7 @@ fn probe_codex_acp_major_version_returns_none_for_missing_binary() {
 
 #[cfg(unix)]
 #[test]
-fn codex_adapter_availability_available_for_1x_binary() {
+fn codex_adapter_availability_available_for_current_binary() {
     use std::os::unix::fs::PermissionsExt;
 
     let dir = std::env::temp_dir().join(format!("buzz-avail-1x-{}", uuid::Uuid::new_v4()));
@@ -721,7 +742,7 @@ fn codex_adapter_availability_available_for_1x_binary() {
     let bin = dir.join("codex-acp");
     std::fs::write(
         &bin,
-        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.1.2'\nexit 0\n",
+        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.11.0'\nexit 0\n",
     )
     .expect("write script");
     std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).expect("chmod script");
@@ -732,7 +753,27 @@ fn codex_adapter_availability_available_for_1x_binary() {
     assert_eq!(
         status,
         AcpAvailabilityStatus::Available,
-        "1.x adapter must classify as Available"
+        "minimum supported adapter must classify as Available"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn codex_adapter_availability_outdated_for_1_1_7_binary() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let bin = dir.path().join("codex-acp");
+    std::fs::write(
+        &bin,
+        "#!/bin/sh\necho '@agentclientprotocol/codex-acp 1.1.7'\nexit 0\n",
+    )
+    .expect("write script");
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).expect("chmod script");
+
+    assert_eq!(
+        codex_adapter_availability(&bin),
+        AcpAvailabilityStatus::AdapterOutdated
     );
 }
 

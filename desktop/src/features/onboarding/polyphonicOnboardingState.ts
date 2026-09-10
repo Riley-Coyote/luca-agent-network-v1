@@ -73,7 +73,19 @@ export function readPolyphonicOnboardingTransaction(
       const legacy = parsed as Record<string, unknown>;
       const version = legacy.version;
       if (version !== 1 && version !== 2) {
-        return isTransaction(parsed, pubkey) ? parsed : null;
+        if (!isTransaction(parsed, pubkey)) return null;
+        // Existing-agent import now belongs in the conversation. Resume old
+        // in-progress setups without repeating a confirmed runtime choice.
+        if (parsed.chapter === "agents") {
+          return savePolyphonicOnboardingTransaction(
+            {
+              ...parsed,
+              chapter: parsed.runtimeConfirmed ? "preparing" : "runtime",
+            },
+            storage,
+          );
+        }
+        return parsed;
       }
       if (legacy.pubkey !== pubkey) return null;
       const migrated: PolyphonicOnboardingTransaction = {

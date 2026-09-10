@@ -1,3 +1,4 @@
+import { hasPendingLucaArrival } from "@/features/luca/lucaArrival";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation } from "@tanstack/react-router";
@@ -918,7 +919,10 @@ export function AppShell() {
                   <ConversationWorkspaceProvider
                     controller={conversationWorkspace}
                   >
-                    <SidebarProvider className="min-h-0 flex-1 flex-col overflow-hidden">
+                    <SidebarProvider
+                      defaultOpen={!hasPendingLucaArrival()}
+                      className="min-h-0 flex-1 flex-col overflow-hidden"
+                    >
                       {!settingsOpen ? (
                         <AppTopChrome
                           canGoBack={canGoBack}

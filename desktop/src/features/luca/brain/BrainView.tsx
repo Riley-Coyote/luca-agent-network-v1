@@ -347,12 +347,12 @@ export function BrainView() {
                     key={card.kind}
                     onAction={onAction}
                     onSecondaryAction={
-                      card.kind === "repository" && hasDetails
+                      card.kind === "repository" && (hasDetails || hasFound)
                         ? () => void run(() => actions.addRoot.mutateAsync())
                         : undefined
                     }
                     secondaryActionLabel={
-                      card.kind === "repository" && hasDetails
+                      card.kind === "repository" && (hasDetails || hasFound)
                         ? "Add folder"
                         : undefined
                     }
@@ -434,7 +434,7 @@ export function BrainView() {
             </DialogTitle>
             <DialogDescription>
               {detailCategory === "files"
-                ? "Imported snapshots, resident access, and body-free provenance."
+                ? "Bring in files for context. You choose which residents can use them."
                 : "Connection health, resident access, and local refresh details."}
             </DialogDescription>
           </DialogHeader>

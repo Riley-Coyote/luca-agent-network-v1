@@ -44,6 +44,9 @@ import {
   LUCA_INTRO_ROLE,
   ownerHasSpoken,
 } from "@/features/luca/canonicalLucaResident";
+import { isUntouchedLucaGreeting } from "@/features/luca/firstConversation";
+import { LucaFirstConversation } from "@/features/luca/ui/LucaFirstConversation";
+import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { useLucaArrival } from "@/features/luca/lucaArrival";
 import { pendingReplyRows } from "@/features/messages/lib/pendingReplyRows";
 import { usePendingReplyClock } from "@/features/messages/lib/usePendingReplyClock";
@@ -230,7 +233,6 @@ export const ChannelPane = React.memo(function ChannelPane({
     activeChannel,
     currentPubkey,
     messages,
-    isLoading: isTimelineLoading,
   });
   const activePermissionRequests = React.useMemo(
     () =>
@@ -637,13 +639,28 @@ export const ChannelPane = React.memo(function ChannelPane({
   // renders inside Luca's greeting row; the pane supplies the send.
   const showLucaChoices =
     lucaArrival.isLucaDm &&
-    !lucaArrival.arriving &&
     lucaArrival.lucaPubkey !== null &&
     currentPubkey !== undefined &&
     messages.some((message) =>
       isLucaGreeting(message, lucaArrival.lucaPubkey as string),
     ) &&
     !ownerHasSpoken(messages, currentPubkey);
+  const showFirstConversation =
+    showLucaChoices &&
+    !openThreadHeadId &&
+    !targetMessageId &&
+    !channelFind.isOpen &&
+    isUntouchedLucaGreeting(
+      messages,
+      lucaArrival.lucaPubkey,
+      historyExhausted === true,
+      isTimelineLoading,
+    );
+  const firstGreeting = showFirstConversation
+    ? messages.find((message) =>
+        isLucaGreeting(message, lucaArrival.lucaPubkey as string),
+      )
+    : undefined;
   // In a direct conversation the reply row itself is the indicator — the
   // resident's mark carries the state and Stop sits on the row — so the
   // activity strip carries no live agent activity there. It still surfaces
@@ -732,11 +749,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   );
   const lucaChoicesContext = React.useMemo(
     () => ({
-      active: showLucaChoices,
+      active: showLucaChoices && !showFirstConversation,
       onChoose: (choice: string) =>
         onSendMessage(choice, [], undefined, activeChannelId),
     }),
-    [activeChannelId, onSendMessage, showLucaChoices],
+    [activeChannelId, onSendMessage, showFirstConversation, showLucaChoices],
   );
   const stripWorkingPubkeys = React.useMemo(
     () => (isDirectConversation ? [] : composerWorkingBotPubkeys),
@@ -975,7 +992,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   : undefined
               }
             >
-              {header}
+              {showFirstConversation ? null : header}
               {channelFind.isOpen ? (
                 <div
                   className={cn("absolute inset-x-0 z-40", channelChrome.top)}
@@ -1002,94 +1019,92 @@ export const ChannelPane = React.memo(function ChannelPane({
                   replyCount={Math.max(0, mainTimelineEntries.length - 1)}
                 />
               ) : null}
-              <MessageTimeline
-                ref={messageTimelineRef}
-                channelId={activeChannel?.id}
-                // The channel intro is the top of the ROOM. In the focused view you
-                // are looking at one exchange, so showing "this is the beginning of
-                // #general" above it is simply false.
-                channelIntro={focusedThreadHead ? null : channelIntro}
-                directMessageIntro={
-                  focusedThreadHead ? null : directMessageIntro
-                }
-                scrollContainerRef={timelineScrollRef}
-                currentPubkey={currentPubkey}
-                fetchOlder={fetchOlder}
-                followThreadById={followThreadById}
-                hasComposerOverlay={hasMainComposerOverlay}
-                hasOlderMessages={hasOlderMessages}
-                historyExhausted={historyExhausted}
-                huddleMemberPubkeys={huddleMemberPubkeys}
-                huddleMemberPubkeysPending={huddleMemberPubkeysPending}
-                isFetchingOlder={isFetchingOlder}
-                isFollowingThreadById={isFollowingThreadById}
-                isMessageUnreadById={isMessageUnreadById}
-                messageFooters={messageFooters}
-                personaLookup={personaLookup}
-                profiles={profiles}
-                ownerProfiles={ownerProfiles}
-                unfollowThreadById={unfollowThreadById}
-                emptyDescription={
-                  activeChannel?.channelType === "forum"
-                    ? "Select a stream or DM to load real message history in this first integration pass."
-                    : "Messages and sub-replies will appear here once the relay has history for this channel."
-                }
-                emptyTitle={
-                  activeChannel
-                    ? activeChannel.channelType === "forum"
-                      ? "Forum channels are next"
-                      : "No messages yet"
-                    : "No channel selected"
-                }
-                isLoading={
-                  isTimelineLoading || lucaArrival.waitingForCanonicalIdentity
-                }
-                entranceMessageId={entranceMessageId}
-                onEntranceMessageComplete={onEntranceMessageComplete}
-                presentationMessageId={lucaArrival.presentationMessageId}
-                onMessagePresented={lucaArrival.onMessagePresented}
-                mainEntries={mainTimelineEntries}
-                threadSummaries={threadSummaries}
-                messages={projectedTimelineMessages}
-                firstUnreadMessageId={firstUnreadMessageId}
-                exchangeEntries={roomExchangeHistory}
-                unreadCount={unreadCount}
-                onDelete={onDelete}
-                onEdit={onEdit}
-                onOpenExchange={onOpenExchange}
-                onMarkUnread={onMarkUnread}
-                onMarkRead={onMarkRead}
-                expandedThreadHeadId={openThreadHeadId}
-                onExpandThreadReplies={onExpandThreadReplies}
-                onReply={
-                  activeChannel?.archivedAt
-                    ? undefined
-                    : openThreadHeadId
-                      ? onSelectThreadReplyTarget
-                      : onSelectDirectedReplyTarget
-                }
-                onToggleThread={
-                  activeChannel?.archivedAt ? undefined : onOpenThread
-                }
-                channelName={activeChannel?.name}
-                channelType={activeChannel?.channelType ?? null}
-                isSendingVideoReviewComment={isSending}
-                onSendVideoReviewComment={
-                  activeChannel?.archivedAt
-                    ? undefined
-                    : onSendVideoReviewComment
-                }
-                onTargetReached={onTargetReached}
-                onToggleReaction={onToggleReaction}
-                searchActiveMessageId={
-                  channelFind.activeMatch?.messageId ?? null
-                }
-                searchMatchingMessageIds={channelFind.matchingMessageIds}
-                searchQuery={channelFind.query}
-                targetMessageId={targetMessageId}
-                splitThreadPanelOpen={false}
-                threadUnreadCounts={threadUnreadCounts}
-              />
+              <div className={showFirstConversation ? "hidden" : "contents"}>
+                <MessageTimeline
+                  ref={messageTimelineRef}
+                  channelId={activeChannel?.id}
+                  // The channel intro is the top of the ROOM. In the focused view you
+                  // are looking at one exchange, so showing "this is the beginning of
+                  // #general" above it is simply false.
+                  channelIntro={focusedThreadHead ? null : channelIntro}
+                  directMessageIntro={
+                    focusedThreadHead ? null : directMessageIntro
+                  }
+                  scrollContainerRef={timelineScrollRef}
+                  currentPubkey={currentPubkey}
+                  fetchOlder={fetchOlder}
+                  followThreadById={followThreadById}
+                  hasComposerOverlay={hasMainComposerOverlay}
+                  hasOlderMessages={hasOlderMessages}
+                  historyExhausted={historyExhausted}
+                  huddleMemberPubkeys={huddleMemberPubkeys}
+                  huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+                  isFetchingOlder={isFetchingOlder}
+                  isFollowingThreadById={isFollowingThreadById}
+                  isMessageUnreadById={isMessageUnreadById}
+                  messageFooters={messageFooters}
+                  personaLookup={personaLookup}
+                  profiles={profiles}
+                  ownerProfiles={ownerProfiles}
+                  unfollowThreadById={unfollowThreadById}
+                  emptyDescription={
+                    activeChannel?.channelType === "forum"
+                      ? "Select a stream or DM to load real message history in this first integration pass."
+                      : "Messages and sub-replies will appear here once the relay has history for this channel."
+                  }
+                  emptyTitle={
+                    activeChannel
+                      ? activeChannel.channelType === "forum"
+                        ? "Forum channels are next"
+                        : "No messages yet"
+                      : "No channel selected"
+                  }
+                  isLoading={isTimelineLoading}
+                  entranceMessageId={entranceMessageId}
+                  onEntranceMessageComplete={onEntranceMessageComplete}
+                  mainEntries={mainTimelineEntries}
+                  threadSummaries={threadSummaries}
+                  messages={projectedTimelineMessages}
+                  firstUnreadMessageId={firstUnreadMessageId}
+                  exchangeEntries={roomExchangeHistory}
+                  unreadCount={unreadCount}
+                  onDelete={onDelete}
+                  onEdit={onEdit}
+                  onOpenExchange={onOpenExchange}
+                  onMarkUnread={onMarkUnread}
+                  onMarkRead={onMarkRead}
+                  expandedThreadHeadId={openThreadHeadId}
+                  onExpandThreadReplies={onExpandThreadReplies}
+                  onReply={
+                    activeChannel?.archivedAt
+                      ? undefined
+                      : openThreadHeadId
+                        ? onSelectThreadReplyTarget
+                        : onSelectDirectedReplyTarget
+                  }
+                  onToggleThread={
+                    activeChannel?.archivedAt ? undefined : onOpenThread
+                  }
+                  channelName={activeChannel?.name}
+                  channelType={activeChannel?.channelType ?? null}
+                  isSendingVideoReviewComment={isSending}
+                  onSendVideoReviewComment={
+                    activeChannel?.archivedAt
+                      ? undefined
+                      : onSendVideoReviewComment
+                  }
+                  onTargetReached={onTargetReached}
+                  onToggleReaction={onToggleReaction}
+                  searchActiveMessageId={
+                    channelFind.activeMatch?.messageId ?? null
+                  }
+                  searchMatchingMessageIds={channelFind.matchingMessageIds}
+                  searchQuery={channelFind.query}
+                  targetMessageId={targetMessageId}
+                  splitThreadPanelOpen={false}
+                  threadUnreadCounts={threadUnreadCounts}
+                />
+              </div>
               {isNonMemberView ? (
                 <div
                   data-testid="join-banner"
@@ -1118,7 +1133,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                 </div>
               ) : (
                 <div
-                  className="pointer-events-none absolute inset-x-0 bottom-0 z-40 isolate"
+                  className={cn(
+                    "pointer-events-none z-40 isolate",
+                    showFirstConversation
+                      ? "relative flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-5 py-10 sm:px-8"
+                      : "absolute inset-x-0 bottom-0",
+                  )}
                   data-testid="channel-composer-overlay"
                   ref={composerWrapperRef}
                 >
@@ -1129,9 +1149,15 @@ export const ChannelPane = React.memo(function ChannelPane({
                       cards, the composer itself) inside this isolate. */}
                   <div
                     aria-hidden="true"
-                    className="luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]"
+                    className={cn(
+                      "luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]",
+                      showFirstConversation && "hidden",
+                    )}
                   />
                   <div className="pointer-events-none">
+                    {firstGreeting ? (
+                      <LucaFirstConversation greeting={firstGreeting.body} />
+                    ) : null}
                     {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">
                         {exchangesNeedingDecision.map((exchange) => (
@@ -1299,7 +1325,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                               : activeChannel?.channelType === "forum"
                                 ? "Forum posting is not wired in this pass."
                                 : activeChannel
-                                  ? undefined
+                                  ? showFirstConversation
+                                    ? "Message Luca…"
+                                    : undefined
                                   : "Select a channel"
                       }
                       showTopBorder={false}
@@ -1310,6 +1338,14 @@ export const ChannelPane = React.memo(function ChannelPane({
                       }
                       typingRootEventId={openThreadHeadId ?? null}
                     />
+                    {showFirstConversation ? (
+                      <div className="luca-measure pointer-events-auto px-0">
+                        <LucaGreetingChoices
+                          disabled={isComposerDisabled || isSending}
+                          onChoose={lucaChoicesContext.onChoose}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               )}

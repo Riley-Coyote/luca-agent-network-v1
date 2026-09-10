@@ -99,11 +99,13 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
 
   await expect(page).toHaveURL(/#\/channels\//);
   await expect(
-    page.getByText(
-      "Hey Riley — I’m Luca. Tell me what you’re working on, or choose a place to begin.",
-      { exact: true },
-    ),
-  ).toHaveCount(1);
+    page
+      .getByTestId("luca-first-conversation")
+      .getByText(
+        "Hi Riley. I’m Luca. We can start with something you’re working on, or bring in your existing work so I have some context.",
+        { exact: true },
+      ),
+  ).toBeVisible();
   await expect(page.getByTestId("message-input")).toBeFocused();
 
   const evidence = await page.evaluate(() => ({
@@ -227,6 +229,10 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   expect(saved.failedRefreshes).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(page).toHaveURL(/#\/channels\//);
+  // The untouched first-use view intentionally has no conversation header.
+  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await page.getByTestId("message-input").fill("Hello, Luca.");
+  await page.getByTestId("message-input").press("Enter");
   await page
     .getByRole("button", { name: "Open conversation details", exact: true })
     .click();
@@ -288,10 +294,6 @@ test("the canonical Luca notice is trusted and published only once", async ({
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await expect(
-    page.getByRole("heading", { name: "Bring in agents you already use" }),
-  ).toBeFocused();
-  await page.getByRole("button", { name: "Not now" }).click();
 
   await expect(page).toHaveURL(/#\/channels\//);
   const channelId = decodeURIComponent(
@@ -384,10 +386,9 @@ for (const runtime of ["Hermes", "OpenClaw"]) {
   });
 }
 
-test("large native inventories stay contained and imports do not start agents", async ({
+test("large native inventories never delay first chat or import extra agents", async ({
   page,
 }) => {
-  await page.emulateMedia({ colorScheme: "dark" });
   await installMockBridge(
     page,
     {
@@ -400,58 +401,14 @@ test("large native inventories stay contained and imports do not start agents", 
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await expect(
-    page.getByRole("heading", { name: "Bring in agents you already use" }),
-  ).toBeFocused();
-
-  const inventory = page.getByTestId("onboarding-agent-import-list");
-  await expect(inventory).toHaveCount(0);
-  await expect(page.getByText("21 profiles found")).toBeVisible();
-  await expect(page.getByText("21 agents found")).toBeVisible();
-  await page.getByTestId("polyphonic-setup-continue").click();
-  await expect(
-    page.getByRole("heading", { name: "Choose agents" }),
-  ).toBeFocused();
-  await expect(inventory).toBeVisible();
-  await expect(page.getByTestId("polyphonic-setup-continue")).toBeVisible();
-  await expect(page.locator("h1:visible")).toHaveCount(1);
-  await expect(page.getByPlaceholder("Search agents")).toHaveCSS(
-    "background-color",
-    "rgb(14, 14, 16)",
-  );
-  await expect(inventory).toHaveCSS("background-color", "rgb(10, 10, 12)");
-  const pageOverflow = await page.evaluate(() => ({
-    horizontal:
-      document.documentElement.scrollWidth >
-      document.documentElement.clientWidth,
-    vertical:
-      document.documentElement.scrollHeight >
-      document.documentElement.clientHeight,
-  }));
-  expect(pageOverflow).toEqual({ horizontal: false, vertical: false });
-  expect(
-    await inventory.evaluate(
-      (element) => element.scrollHeight > element.clientHeight,
+  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);
+  const created = await page.evaluate(() =>
+    (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+      (entry) => entry.command === "create_luca_resident",
     ),
-  ).toBe(true);
-  await page.getByRole("button", { name: "Hermes profile 01" }).click();
-  await page.getByTestId("polyphonic-setup-continue").click();
-  await expect(page).toHaveURL(/#\/channels\//);
-
-  const evidence = await page.evaluate(() => ({
-    commands: window.__BUZZ_E2E_COMMANDS__ ?? [],
-    payloads: window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
-  }));
-  const imported = evidence.payloads.find(
-    (entry) =>
-      entry.command === "create_luca_resident" &&
-      (entry.payload as { input?: { name?: string } }).input?.name ===
-        "Hermes profile 01",
   );
-  expect(imported?.payload).toMatchObject({
-    input: { spawnAfterCreate: false, startOnAppLaunch: false },
-  });
-  expect(
-    evidence.commands.filter((command) => command === "start_managed_agent"),
-  ).toHaveLength(0);
+  expect(created).toHaveLength(1);
+  expect(created[0]?.payload).toMatchObject({ input: { name: "Luca" } });
 });

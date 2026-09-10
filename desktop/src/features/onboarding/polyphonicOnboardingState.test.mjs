@@ -19,7 +19,7 @@ function memoryStorage(initial = {}) {
   };
 }
 
-test("transaction resumes at the last safe chapter without sensitive fields", () => {
+test("older agent-import setups resume at preparation without sensitive fields", () => {
   const storage = memoryStorage();
   const started = createPolyphonicOnboardingTransaction("owner-pubkey");
   savePolyphonicOnboardingTransaction(
@@ -28,7 +28,7 @@ test("transaction resumes at the last safe chapter without sensitive fields", ()
   );
 
   const resumed = readPolyphonicOnboardingTransaction("owner-pubkey", storage);
-  assert.equal(resumed?.chapter, "agents");
+  assert.equal(resumed?.chapter, "preparing");
   assert.equal(resumed?.runtimeConfirmed, true);
   assert.deepEqual(Object.keys(resumed ?? {}).sort(), [
     "agentsReviewed",
@@ -93,5 +93,17 @@ test("set up later is session scoped and can be cleared", () => {
   assert.equal(
     isPolyphonicOnboardingSkippedForSession("owner-pubkey", storage),
     false,
+  );
+});
+
+test("an unconfirmed runtime cannot be skipped by an old agents chapter", () => {
+  const storage = memoryStorage();
+  savePolyphonicOnboardingTransaction(
+    { ...createPolyphonicOnboardingTransaction("owner"), chapter: "agents" },
+    storage,
+  );
+  assert.equal(
+    readPolyphonicOnboardingTransaction("owner", storage)?.chapter,
+    "runtime",
   );
 });

@@ -2,8 +2,7 @@ import * as React from "react";
 import { useUpdateProfileMutation } from "@/features/profile/hooks";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import {
-  BUZZ_DARK_THEME_NAME,
-  BUZZ_THEME_NAME,
+  DEFAULT_THEME_NAME,
   isLightTheme,
   PAPER_THEME_NAME,
 } from "@/shared/theme/theme-loader";
@@ -76,12 +75,12 @@ export const PolyphonicYouStep = React.forwardRef<
 
   function chooseAppearance(next: Appearance) {
     if (next === "system") {
-      theme.setTheme(BUZZ_THEME_NAME);
+      theme.setTheme(DEFAULT_THEME_NAME);
       theme.setFollowSystem(true);
       return;
     }
     theme.setFollowSystem(false);
-    theme.setTheme(next === "dark" ? BUZZ_DARK_THEME_NAME : PAPER_THEME_NAME);
+    theme.setTheme(next === "dark" ? DEFAULT_THEME_NAME : PAPER_THEME_NAME);
   }
 
   return (

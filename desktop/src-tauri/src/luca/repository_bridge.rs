@@ -28,10 +28,11 @@ use luca_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 mod operations;
 mod resident_directory;
+mod surface_navigation;
 
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
@@ -341,6 +342,9 @@ fn handle_frame(
             )
     {
         return Err("repository broker capability is stale".into());
+    }
+    if frame.operation == RepositoryToolOperationV1::OperatorOpenSurface {
+        return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments);
     }
     if frame.operation == RepositoryToolOperationV1::OperatorStatus {
         if frame
@@ -707,6 +711,12 @@ fn operator_status(
             "review_brain", "open_profile", "open_recovery", "open_access_settings",
             "configure_runtime"
         ],
+        "reviewNavigation": {
+            "tool": if record.native_runtime_binding.is_some() { None } else { Some("polyphonic_open") },
+            "existingWorkSurface": "brain",
+            "effect": "owner_review_only",
+            "connectsOrImports": false,
+        },
     }))
     .map_err(|_| "operator status response is invalid".to_string())?;
     Ok(RepositoryBrokerResponseV1 {

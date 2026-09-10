@@ -82,7 +82,9 @@ test.beforeEach(async ({ page }) => {
   await installDraftBridge(page);
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
-  await expect(page.getByTestId("message-input")).toBeEditable();
+  await expect(
+    page.locator('[data-testid="message-input"][contenteditable="true"]'),
+  ).toBeEditable();
 });
 
 test("reload keeps the current unsent draft without navigating away", async ({

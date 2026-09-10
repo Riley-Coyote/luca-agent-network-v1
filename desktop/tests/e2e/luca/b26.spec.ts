@@ -53,10 +53,54 @@ test("an empty Brain opens as a usable clean-profile state", async ({
     .getByTestId("brain-card-files")
     .getByRole("button", { name: "Add files" })
     .click();
-  await expect(page.getByText("No private sources yet")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your files" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Choose folder" }),
   ).toBeEnabled();
+});
+
+test("Files preview keeps its import action visible and usable at every width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(
+    "/?e2e=mock#/brain?brainFixture=empty&brainConnections=empty",
+  );
+  await page
+    .getByTestId("brain-card-files")
+    .getByRole("button", { name: "Add files" })
+    .click();
+  await page.getByRole("button", { name: "Choose file" }).click();
+  const preview = page.getByTestId("brain-preview-panel");
+  const importButton = preview.getByRole("button", { name: "Import source" });
+  await expect(preview).toBeVisible();
+  await expect(page.getByText("No private sources yet")).toHaveCount(0);
+  for (const width of [1280, 900, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    await waitForAnimations(page);
+    await expect(importButton).toBeEnabled();
+    const panelBounds = await preview.boundingBox();
+    const buttonBounds = await importButton.boundingBox();
+    expect(panelBounds).not.toBeNull();
+    expect(buttonBounds).not.toBeNull();
+    if (!panelBounds || !buttonBounds) throw new Error("Missing import UI");
+    expect(buttonBounds.x).toBeGreaterThanOrEqual(panelBounds.x);
+    expect(buttonBounds.x + buttonBounds.width).toBeLessThanOrEqual(
+      panelBounds.x + panelBounds.width,
+    );
+    await expect
+      .poll(() =>
+        preview.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth,
+        ),
+      )
+      .toBe(true);
+  }
+  await importButton.click();
+  await expect(page.getByTestId("brain-import-committed")).toBeVisible();
+  await expect(preview).toHaveCount(0);
 });
 
 test("Brain connects work while keeping controls and provenance quiet", async ({

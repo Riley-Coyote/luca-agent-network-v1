@@ -28,6 +28,7 @@ import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDi
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 import { ThemeProvider, useTheme } from "@/shared/theme/ThemeProvider";
+import { DEFAULT_THEME_NAME } from "@/shared/theme/theme-loader";
 import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
@@ -74,7 +75,7 @@ function seedStorage() {
   store.clear();
 
   // One build serves every palette: `?theme=graphite` (or any id from
-  // SYNTAX_THEMES) picks the theme; the default is the first-party `buzz`.
+  // SYNTAX_THEMES) picks the theme; otherwise use the application default.
   // Clearing the cache alongside it stops a stale entry from repainting the
   // boot backdrop.
   const requestedTheme = new URLSearchParams(window.location.search).get(
@@ -84,7 +85,7 @@ function seedStorage() {
     "buzz-theme",
     requestedTheme && /^[a-z0-9-]+$/i.test(requestedTheme)
       ? requestedTheme
-      : "buzz",
+      : DEFAULT_THEME_NAME,
   );
   store.removeItem("buzz-theme-cache");
   // The drawer width persists per session; the lab always shows the default.
@@ -284,7 +285,7 @@ function renderApp() {
     <React.StrictMode>
       <CommunitiesProvider>
         <CommunityOnboardingProvider>
-          <ThemeProvider defaultTheme="buzz">
+          <ThemeProvider>
             <LabThemeHandle />
             <TooltipProvider delayDuration={300}>
               <EmojiBurstProvider>

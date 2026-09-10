@@ -4,18 +4,20 @@ import { waitForAnimations } from "../../helpers/animations";
 
 const OWNER = "deadbeef".repeat(8);
 const ALICE = TEST_IDENTITIES.alice.pubkey;
-const preferenceKey = `luca.conversation-appearance.v2:${OWNER}`;
+const preferenceKey = `luca.conversation-appearance.v3:${OWNER}`;
 
-async function openConversation(page: Page, names = false) {
-  await page.addInitScript(
-    ({ key, names }) => {
-      localStorage.setItem(
-        key,
-        JSON.stringify({ version: 2, agentNamesInMessages: names }),
-      );
-    },
-    { key: preferenceKey, names },
-  );
+async function openConversation(page: Page, names?: boolean) {
+  if (names !== undefined) {
+    await page.addInitScript(
+      ({ key, enabled }) => {
+        localStorage.setItem(
+          key,
+          JSON.stringify({ version: 3, agentNamesInMessages: enabled }),
+        );
+      },
+      { enabled: names, key: preferenceKey },
+    );
+  }
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -130,17 +132,14 @@ for (const names of [false, true]) {
         "aria-label",
         "Current runtime: Codex",
       );
-      await page.mouse.move(5, 5);
-      await expect(runtime).toHaveCSS("opacity", "0");
-      // Measure hover after the message's own arrival motion has settled.
       await waitForAnimations(page);
+      await expect(runtime).toHaveCSS("opacity", "0.6");
       const before = await row.boundingBox();
       await row.hover();
-      await expect(runtime).toHaveCSS("opacity", "0.65");
+      await expect(runtime).toHaveCSS("opacity", "0.6");
       expect(await row.boundingBox()).toEqual(before);
-      await page.mouse.move(5, 5);
       await row.getByRole("button", { name: "Alice", exact: true }).focus();
-      await expect(runtime).toHaveCSS("opacity", "0.65");
+      await expect(runtime).toHaveCSS("opacity", "0.6");
     } else {
       await expect(runtime).toHaveCount(0);
       await expect(row).toHaveAttribute("aria-label", /Alice/);
@@ -162,33 +161,60 @@ test("the name preference responds to changes from another window", async ({
   await page.evaluate((key) => {
     localStorage.setItem(
       key,
-      JSON.stringify({ version: 2, agentNamesInMessages: true }),
+      JSON.stringify({ version: 3, agentNamesInMessages: false }),
     );
     window.dispatchEvent(new StorageEvent("storage", { key }));
   }, preferenceKey);
-  await expect(row.getByTestId("message-runtime")).toBeVisible();
+  await expect(row.getByTestId("message-runtime")).toHaveCount(0);
 });
 
-test("Settings exposes the default-off name choice and updates the conversation", async ({
+test("consecutive agent messages each retain name and runtime attribution", async ({
+  page,
+}) => {
+  await openConversation(page);
+  await page.evaluate(
+    (pubkey) =>
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "alice-tyler",
+        pubkey,
+        content: "A second consecutive agent reply.",
+      }),
+    ALICE,
+  );
+
+  for (const body of [
+    "A quiet reply for the polish check.",
+    "A second consecutive agent reply.",
+  ]) {
+    const row = page.getByTestId("message-row").filter({ hasText: body });
+    await expect(row.getByTestId("message-author")).toHaveText("Alice");
+    await expect(row.getByTestId("message-runtime")).toHaveAttribute(
+      "aria-label",
+      "Current runtime: Codex",
+    );
+  }
+});
+
+test("Settings exposes the default-on name choice and updates the conversation", async ({
   page,
 }) => {
   await openConversation(page);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
   const toggle = page.getByTestId("agent-names-in-messages-toggle");
-  await expect(toggle).not.toBeChecked();
-  await toggle.click();
   await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
   const row = page
     .getByTestId("message-row")
     .filter({ hasText: "A quiet reply for the polish check." });
-  await expect(row.getByTestId("message-runtime")).toHaveCount(1);
+  await expect(row.getByTestId("message-runtime")).toHaveCount(0);
   expect(
     await row
       .getByTestId("message-author")
       .evaluate((el) => Boolean(el.closest(".sr-only"))),
-  ).toBe(false);
+  ).toBe(true);
 });
 
 for (const viewport of [

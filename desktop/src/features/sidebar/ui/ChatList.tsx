@@ -380,7 +380,7 @@ export function ChatList({
     <div className="flex flex-col px-2" data-testid="chat-list">
       <div className="mt-2 flex flex-col" data-testid="chat-channels">
         <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-          <span>Channels</span>
+          <span>Projects</span>
           <button
             aria-label="New channel"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
@@ -426,7 +426,7 @@ export function ChatList({
 
       <div className="mt-3 flex flex-col" data-testid="chat-direct-messages">
         <div className="flex items-center justify-between px-2 pb-1 text-2xs font-medium uppercase tracking-caps-wide text-ink-faint">
-          <span>DMs</span>
+          <span>Messages</span>
           <button
             aria-label="New direct message"
             className="-mr-1 flex size-6 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"

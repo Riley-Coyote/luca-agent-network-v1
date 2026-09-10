@@ -1,5 +1,17 @@
 # Luca V1 continuation handoff
 
+> **Current source reconciliation (2026-09-10):** Riley authorized combining
+> the tested September 5–7 private-alpha baseline with the later onboarding,
+> Files, attribution and adapter-readiness fixes. Continue in
+> `codex/reconciled-beta-2026-09-10`, worktree
+> `luca-reconciled-beta-2026-09-10`. Its parent baseline is `4fdaf232f`;
+> `codex/preserved-onboarding-2026-09-10` preserves the original dirty source.
+> The old `codex/unified-dev` folder is an input/archive, not the integrated
+> source. `claude/rail-fold` and `claude/rail-fold-b` remain deferred.
+> Validation and installation receipts live in Riley's Luca-Design-Artifacts
+> `reconciliation-2026-09-10` folder. Check its `STATUS.md` before claiming an
+> installed or tester-ready result. Do not restart historical feature queues.
+
 > **Current consolidation override (2026-08-21):** Begin with
 > [`docs/luca/program-control/00_START_HERE.md`](docs/luca/program-control/00_START_HERE.md)
 > and [`docs/luca/program-control/CONSOLIDATION_PLAN.md`](docs/luca/program-control/CONSOLIDATION_PLAN.md).

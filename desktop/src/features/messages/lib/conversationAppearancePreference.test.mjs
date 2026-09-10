@@ -25,19 +25,20 @@ async function withStorage(storage, run) {
   }
 }
 
-test("missing, corrupt, and unsupported preferences default agent names off", async () => {
+test("missing, corrupt, and unsupported preferences default agent names on", async () => {
   for (const stored of [
     null,
     "{bad-json",
     JSON.stringify({ version: 1, residentMarksInMessages: true }),
     JSON.stringify({ version: 1, agentNamesInMessages: "no" }),
-    JSON.stringify({ version: 2, agentNamesInMessages: "yes" }),
-    JSON.stringify({ version: 3, agentNamesInMessages: true }),
+    JSON.stringify({ version: 2, agentNamesInMessages: false }),
+    JSON.stringify({ version: 3, agentNamesInMessages: "yes" }),
+    JSON.stringify({ version: 4, agentNamesInMessages: true }),
   ]) {
     await withStorage(
       { getItem: () => stored, setItem() {} },
       ({ getAgentNamesInMessages }) => {
-        assert.equal(getAgentNamesInMessages(OWNER), false);
+        assert.equal(getAgentNamesInMessages(OWNER), true);
       },
     );
   }
@@ -46,11 +47,12 @@ test("missing, corrupt, and unsupported preferences default agent names off", as
 test("an explicit name choice survives a cold read", async () => {
   await withStorage(
     {
-      getItem: () => JSON.stringify({ version: 2, agentNamesInMessages: true }),
+      getItem: () =>
+        JSON.stringify({ version: 3, agentNamesInMessages: false }),
       setItem() {},
     },
     ({ getAgentNamesInMessages }) =>
-      assert.equal(getAgentNamesInMessages(OWNER), true),
+      assert.equal(getAgentNamesInMessages(OWNER), false),
   );
 });
 
@@ -67,15 +69,15 @@ test("preference is scoped to the normalized owner pubkey", async () => {
       getAgentNamesInMessages,
       setAgentNamesInMessages,
     }) => {
-      setAgentNamesInMessages(OWNER.toUpperCase(), true);
-      assert.equal(getAgentNamesInMessages(OWNER), true);
-      assert.equal(getAgentNamesInMessages(secondOwner), false);
+      setAgentNamesInMessages(OWNER.toUpperCase(), false);
+      assert.equal(getAgentNamesInMessages(OWNER), false);
+      assert.equal(getAgentNamesInMessages(secondOwner), true);
 
       const key = conversationAppearanceStorageKey(OWNER);
       assert.ok(key);
       assert.deepEqual(JSON.parse(storedByKey.get(key)), {
-        version: 2,
-        agentNamesInMessages: true,
+        version: 3,
+        agentNamesInMessages: false,
       });
       assert.equal(conversationAppearanceStorageKey("not-a-pubkey"), null);
     },
@@ -91,9 +93,9 @@ test("the live value changes even when persistence is unavailable", async () => 
       },
     },
     ({ getAgentNamesInMessages, setAgentNamesInMessages }) => {
-      assert.equal(getAgentNamesInMessages(OWNER), false);
-      assert.doesNotThrow(() => setAgentNamesInMessages(OWNER, true));
       assert.equal(getAgentNamesInMessages(OWNER), true);
+      assert.doesNotThrow(() => setAgentNamesInMessages(OWNER, false));
+      assert.equal(getAgentNamesInMessages(OWNER), false);
     },
   );
 });

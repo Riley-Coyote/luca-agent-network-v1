@@ -1,4 +1,5 @@
 import * as React from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { classifyAgentManagementOrigin } from "@/features/agents/agentManagementBuffer";
@@ -7,7 +8,10 @@ import { subscribePolyphonicSurfaceRequests } from "@/features/agents/observerRe
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { POLYPHONIC_REOPEN_ONBOARDING_EVENT } from "@/features/onboarding/hooks";
 
-import type { PolyphonicSurfaceRequest } from "./polyphonicSurfaceRequest";
+import {
+  parsePolyphonicSurfaceRequest,
+  type PolyphonicSurfaceRequest,
+} from "./polyphonicSurfaceRequest";
 
 type Candidate = {
   agentPubkey: string;
@@ -105,4 +109,49 @@ export function usePolyphonicSurfaceNavigation() {
       ),
     [],
   );
+
+  // Managed residents use the scoped native broker; they never receive the
+  // credentials needed by the legacy encrypted CLI request transport.
+  React.useEffect(() => {
+    let disposed = false;
+    const subscription = listen<unknown>(
+      "polyphonic-native-surface-request",
+      ({ payload }) => {
+        if (disposed || typeof payload !== "object" || payload === null) return;
+        const value = payload as Record<string, unknown>;
+        const request = parsePolyphonicSurfaceRequest(value.request);
+        if (
+          !request ||
+          typeof value.agentPubkey !== "string" ||
+          value.observerChannelId !== request.channelId
+        )
+          return;
+        const candidate = {
+          agentPubkey: value.agentPubkey,
+          observerChannelId: request.channelId,
+          request,
+        };
+        if (
+          classifyAgentManagementOrigin(
+            managedAgentsRef.current,
+            channelsRef.current,
+            candidate.agentPubkey,
+            request.channelId,
+          ) === "buffer"
+        ) {
+          bufferedRef.current.push(candidate);
+          if (bufferedRef.current.length > 100) bufferedRef.current.shift();
+          return;
+        }
+        accept(candidate);
+      },
+    );
+    void subscription.catch(() => {
+      // Legacy relay navigation remains available outside the native shell.
+    });
+    return () => {
+      disposed = true;
+      void subscription.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, []);
 }

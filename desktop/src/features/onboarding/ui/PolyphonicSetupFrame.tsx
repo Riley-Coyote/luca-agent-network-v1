@@ -1,4 +1,4 @@
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -8,10 +8,6 @@ import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
 import {
-  POLYPHONIC_CARD_HEIGHT,
-  POLYPHONIC_CARD_WIDTH,
-  POLYPHONIC_PANE_TRACK,
-  POLYPHONIC_PANE_WIDTH,
   polyphonicCardFrameStyle,
   usePublishFieldAnchor,
 } from "../polyphonicOnboardingGeometry";
@@ -25,50 +21,12 @@ import {
 
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 
-/** Reveal radius: from the field's heart past the card's far corner and its shadow. */
-const REVEAL_RADIUS = Math.ceil(
-  Math.hypot(
-    POLYPHONIC_CARD_WIDTH - POLYPHONIC_PANE_WIDTH / 2,
-    POLYPHONIC_CARD_HEIGHT / 2,
-  ) + 220,
-);
-/**
- * The surface accretes outward from the field's heart with a soft edge — the
- * same gesture as the dendrite — rather than an iris wipe. `--reveal` is the
- * animated radius.
- */
-const REVEAL_MASK = `radial-gradient(circle at calc(${POLYPHONIC_PANE_TRACK} / 2) 50%, #000 calc(var(--reveal, 0px) - 140px), transparent var(--reveal, 0px))`;
-
-/** Chapters move with the direction of travel; arriving from the door waits
- *  for the surface to pass under the column first. */
-const chapterVariants = {
-  enter: (dir: number) => ({
-    opacity: 0,
-    y: dir < 0 ? -12 : dir > 0 ? 12 : 6,
-  }),
-  center: (dir: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: dir === 0 ? 0.36 : 0.06,
-      duration: 0.32,
-      ease: EASE,
-    },
-  }),
-  exit: (dir: number) => ({
-    opacity: 0,
-    y: dir < 0 ? 10 : -10,
-    transition: { duration: 0.18, ease: EASE },
-  }),
-};
-
 /**
  * The setup card: a living visual on the left, the interaction on the right.
  *
  * The visual is the same field that grew on the door — it is drawn by
  * PolyphonicOnboardingFieldLayer, not here; this frame only publishes where
- * its pane is. On mount the card materialises outward from the field. The
- * The doorway remains dark. Once the card is present, it reflects the
+ * its pane is. The doorway remains dark. Once the card is present, it reflects the
  * appearance the owner chooses so setup and the application open as one
  * continuous surface.
  */
@@ -77,7 +35,6 @@ export function PolyphonicSetupFrame({
   children,
   continueDisabled = false,
   continueLabel = "Continue",
-  direction = 1,
   footerSecondary,
   onBack,
   onContinue,
@@ -89,8 +46,6 @@ export function PolyphonicSetupFrame({
   children: ReactNode;
   continueDisabled?: boolean;
   continueLabel?: string;
-  /** -1 back, +1 forward, 0 arriving from the door. */
-  direction?: number;
   footerSecondary?: ReactNode;
   onBack: () => void;
   onContinue: () => void;
@@ -131,24 +86,13 @@ export function PolyphonicSetupFrame({
       </p>
       <div className="absolute inset-0 flex items-center justify-center p-4">
         <motion.section
-          animate={{ "--reveal": `${REVEAL_RADIUS}px`, opacity: 1 }}
+          animate={{ opacity: 1 }}
           aria-labelledby={`polyphonic-${stage}-heading`}
           className="relative grid overflow-hidden rounded-[15px] border border-[var(--prototype-hairline)] bg-[var(--prototype-raised)] shadow-[inset_0_1px_0_var(--prototype-hairline-soft),0_1px_2px_rgb(0_0_0/0.08),0_22px_64px_var(--prototype-shadow)]"
           data-testid="polyphonic-setup-assistant"
-          initial={reduceMotion ? false : { "--reveal": "0px", opacity: 0 }}
-          style={{
-            ...polyphonicCardFrameStyle,
-            WebkitMaskImage: REVEAL_MASK,
-            maskImage: REVEAL_MASK,
-          }}
-          transition={
-            reduceMotion
-              ? { duration: 0 }
-              : {
-                  "--reveal": { delay: 0.1, duration: 1.0, ease: EASE },
-                  opacity: { delay: 0.1, duration: 0.2 },
-                }
-          }
+          initial={reduceMotion ? false : { opacity: 0 }}
+          style={polyphonicCardFrameStyle}
+          transition={{ duration: reduceMotion ? 0 : 0.16, ease: EASE }}
         >
           {/* visual pane: the field lives here, drawn by the layer above. */}
           <div
@@ -184,37 +128,33 @@ export function PolyphonicSetupFrame({
                   className="flex items-center gap-1.5"
                   role="img"
                 >
-                  {Array.from({ length: steps.total }, (_, index) => (
+                  {Array.from(
+                    { length: steps.total },
+                    (_, index) => index + 1,
+                  ).map((step) => (
                     <span
                       className={cn(
                         "block h-px w-4 rounded-full bg-[var(--prototype-ink)] transition-opacity duration-300",
-                        index <= steps.current ? "opacity-100" : "opacity-20",
+                        step <= steps.current + 1
+                          ? "opacity-100"
+                          : "opacity-20",
                       )}
-                      // biome-ignore lint/suspicious/noArrayIndexKey: the marks are positional by nature — the third mark is the third step whatever it is called
-                      key={index}
+                      key={step}
                     />
                   ))}
                 </div>
               ) : null}
             </header>
             <div className="polyphonic-onboarding-body relative min-h-0 overflow-hidden px-9 pb-6 pt-2">
-              <AnimatePresence
-                custom={direction}
-                initial={false}
-                mode="popLayout"
+              <motion.div
+                animate={{ opacity: 1 }}
+                className="h-full min-h-0"
+                initial={reduceMotion ? false : { opacity: 0 }}
+                key={stage}
+                transition={{ duration: reduceMotion ? 0 : 0.12 }}
               >
-                <motion.div
-                  animate="center"
-                  className="h-full min-h-0"
-                  custom={direction}
-                  exit="exit"
-                  initial="enter"
-                  key={stage}
-                  variants={reduceMotion ? undefined : chapterVariants}
-                >
-                  {children}
-                </motion.div>
-              </AnimatePresence>
+                {children}
+              </motion.div>
             </div>
             <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4 px-9">
               {showFooter ? (

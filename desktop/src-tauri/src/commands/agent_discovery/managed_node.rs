@@ -427,7 +427,7 @@ mod tests {
     fn test_rewrite_npm_install_uses_private_prefix() {
         assert_eq!(
             rewrite_npm_global_install(
-                "npm install -g @agentclientprotocol/codex-acp",
+                "npm install -g @agentclientprotocol/codex-acp@1.11.0",
                 "'/tmp/Buzz Node'"
             ),
             "npm install --global --prefix '/tmp/Buzz Node' @agentclientprotocol/codex-acp"

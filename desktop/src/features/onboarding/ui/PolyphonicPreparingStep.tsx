@@ -1,7 +1,9 @@
 import * as React from "react";
 import { LoaderCircle } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
+  managedAgentsQueryKey,
   useAcpRuntimesQuery,
   useManagedAgentsQuery,
   usePersonasQuery,
@@ -14,7 +16,16 @@ import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQu
 import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
 import { markLucaArrival } from "@/features/luca/lucaArrival";
 import { createLucaResident } from "@/features/luca/residents/api";
-import { getManagedAgentLog } from "@/shared/api/tauri";
+import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
+import {
+  getManagedAgentLog,
+  listManagedAgents,
+  updateManagedAgent,
+} from "@/shared/api/tauri";
+import {
+  startManagedAgent,
+  stopManagedAgent,
+} from "@/shared/api/tauriManagedAgents";
 import { openDm } from "@/shared/api/tauriChannels";
 import { hasManagedAgentChannelMessageMarker } from "@/shared/api/tauriManagedAgentMessageMarkers";
 import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
@@ -49,19 +60,22 @@ async function waitForLucaChannelSubscription(
 
 /** A brief introduction that leaves room for the conversation to begin. */
 export function lucaGreeting(displayName: string): string {
-  return `Hey ${displayName.trim()} — I’m Luca. Tell me what you’re working on, or choose a place to begin.`;
+  return `Hi ${displayName.trim() || "there"}. I’m Luca. We can start with something you’re working on, or bring in your existing work so I have some context.`;
 }
 
 export function PolyphonicPreparingStep({
   displayName,
   onComplete,
+  onBack,
   showMark = true,
 }: {
   displayName: string;
   onComplete: (channelId: string) => void;
+  onBack?: () => void;
   /** Hide the inline brand mark when the frame already shows the mark. */
   showMark?: boolean;
 }) {
+  const queryClient = useQueryClient();
   const managed = useManagedAgentsQuery();
   const personas = usePersonasQuery();
   const runtimes = useAcpRuntimesQuery({ enabled: true });
@@ -101,9 +115,44 @@ export function PolyphonicPreparingStep({
         await setPersonaActive(LUCA_PERSONA_ID, true);
       }
 
-      let lucaPubkey = (managed.data ?? []).find(
+      const existingLuca = (managed.data ?? []).find(
         (resident) => resident.personaId === LUCA_PERSONA_ID,
-      )?.pubkey;
+      );
+      let lucaPubkey = existingLuca?.pubkey;
+      if (existingLuca && target.kind === "managed") {
+        if (existingLuca.nativeRuntimeBinding) {
+          throw new Error(
+            "Luca is already connected to a native runtime. Return to that runtime to finish setup.",
+          );
+        }
+        const available = await availableRuntimesForStart(runtimesRef.current);
+        const runtime = available.find(
+          (candidate) => candidate.id === target.runtimeId,
+        );
+        if (!runtime)
+          throw new Error("The selected runtime is no longer ready.");
+        const changedRuntime = existingLuca.agentCommand !== runtime.command;
+        if (changedRuntime) {
+          if (existingLuca.status === "running")
+            await stopManagedAgent(existingLuca.pubkey);
+          await updateManagedAgent({
+            pubkey: existingLuca.pubkey,
+            agentCommand: runtime.command,
+            harnessOverride: true,
+            agentArgs: runtime.defaultArgs,
+            mcpCommand: runtime.mcpCommand ?? "",
+            model: null,
+            provider: null,
+          });
+        }
+        if (changedRuntime || existingLuca.status !== "running") {
+          await startManagedAgent(existingLuca.pubkey);
+        }
+      } else if (existingLuca && !existingLuca.nativeRuntimeBinding) {
+        throw new Error(
+          "Luca has already been created with a managed runtime. Choose that runtime to finish setup; you can change it from Luca’s settings afterward.",
+        );
+      }
 
       if (!lucaPubkey && target.kind === "managed") {
         const available = await availableRuntimesForStart(runtimesRef.current);
@@ -163,9 +212,6 @@ export function PolyphonicPreparingStep({
           marker: GREETING_MARKER,
           markerScope: "channel",
         });
-        // The greeting is durable already; the conversation stages its
-        // arrival once so the owner sees Luca about to speak, then speak.
-        markLucaArrival(channel.id);
       }
       if (target.kind === "managed") {
         await waitForLucaChannelSubscription(lucaPubkey, channel.id);
@@ -178,10 +224,15 @@ export function PolyphonicPreparingStep({
     preparationRef.current ??= prepare();
     handoffRef.current ??= preparationRef.current.then(async (channelId) => {
       preparedChannelRef.current = channelId;
-      // Raw creation saves the resident without updating React Query. Refresh
-      // before the DM mounts so its first render recognizes our managed Luca.
-      // Keep this handoff promise through query-driven effect rerenders.
-      await refetchManaged({ throwOnError: true });
+      // Setup runs before the app's agents-data-changed listener is mounted.
+      // Publish the real resident list before enabling the first send: an
+      // empty cached audience would save the message without waking Luca.
+      queryClient.setQueryData(
+        managedAgentsQueryKey,
+        await listManagedAgents(),
+      );
+      await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
+      markLucaArrival(channelId);
       return channelId;
     });
     setWorking(true);
@@ -206,27 +257,30 @@ export function PolyphonicPreparingStep({
     managed.isPending,
     onComplete,
     personas.data,
-    refetchManaged,
+    queryClient,
     settings.data,
   ]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-start" role="status">
+    <div
+      className="flex w-full max-w-lg flex-col items-center text-center"
+      role="status"
+    >
       {showMark ? <PolyphonicBrandMark /> : null}
       <h1
         id="polyphonic-preparing-heading"
-        className="mt-5 text-[length:var(--prototype-heading-size)] font-medium leading-[1.15] tracking-[-0.018em] text-[var(--prototype-ink)]"
+        className="mt-5 text-2xl font-medium tracking-tight text-foreground"
       >
-        Getting Luca ready…
+        Connecting you with Luca…
       </h1>
-      <p className="mt-2 text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
-        Preparing your resident and opening your conversation.
+      <p className="mt-3 text-base leading-relaxed text-ink-muted">
+        Just a moment. You can set up everything else together in chat.
       </p>
       {working && !visibleError ? (
-        <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-[var(--prototype-muted)] motion-reduce:animate-none" />
+        <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-ink-muted motion-reduce:animate-none" />
       ) : null}
       {visibleError ? (
-        <div className="mt-6 flex flex-col items-start gap-4" role="alert">
+        <div className="mt-6 flex flex-col items-center gap-4" role="alert">
           <p className="break-words text-sm text-destructive">{visibleError}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -263,6 +317,11 @@ export function PolyphonicPreparingStep({
             >
               Retry
             </Button>
+            {onBack ? (
+              <Button onClick={onBack} type="button" variant="ghost">
+                Choose another runtime
+              </Button>
+            ) : null}
           </div>
         </div>
       ) : null}

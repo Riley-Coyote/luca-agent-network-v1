@@ -60,6 +60,16 @@ pub(crate) fn is_dev_data_dir_name(name: &str) -> bool {
 }
 
 fn canonical_dev_data_dir(current: &Path) -> Option<PathBuf> {
+    canonical_dev_data_dir_for_mode(
+        current,
+        crate::managed_agents::native_state_isolation_requested(),
+    )
+}
+
+fn canonical_dev_data_dir_for_mode(current: &Path, isolated: bool) -> Option<PathBuf> {
+    if isolated {
+        return None;
+    }
     current.parent().map(|p| p.join(CANONICAL_DEV_IDENTIFIER))
 }
 

@@ -63,11 +63,11 @@ export function BrainImportPanel({
     return (
       <section
         aria-labelledby="brain-import-heading"
-        className="rounded-2xl border border-border/60 bg-card/35 p-5"
+        className="min-w-0 rounded-xl border border-border/60 bg-card/35 p-5"
         data-testid="brain-import-panel"
       >
         <div className="flex items-start gap-3">
-          <div className="rounded-xl border border-border/60 bg-background/45 p-2.5 text-muted-foreground">
+          <div className="shrink-0 rounded-lg border border-border/60 bg-background/45 p-2.5 text-muted-foreground">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div className="min-w-0 flex-1">
@@ -75,39 +75,42 @@ export function BrainImportPanel({
               className="text-base font-semibold tracking-tight"
               id="brain-import-heading"
             >
-              Add a private source
+              Bring in your files
             </h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Luca previews Markdown and text locally before anything is
-              written. Importing a source does not give any resident access.
+              Choose a Markdown file, text file, or folder. Review what will be
+              imported before adding it. Your originals stay unchanged.
             </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                disabled={isPicking}
-                onClick={() => onPick("folder")}
-                size="sm"
-                type="button"
-              >
-                {isPicking ? (
-                  <LoaderCircle className="animate-spin" />
-                ) : (
-                  <FolderOpen />
-                )}
-                Choose folder
-              </Button>
-              <Button
-                disabled={isPicking}
-                onClick={() => onPick("file")}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                <FileText />
-                Choose file
-              </Button>
-            </div>
           </div>
         </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button
+            disabled={isPicking}
+            onClick={() => onPick("folder")}
+            size="sm"
+            type="button"
+          >
+            {isPicking ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <FolderOpen />
+            )}
+            Choose folder
+          </Button>
+          <Button
+            disabled={isPicking}
+            onClick={() => onPick("file")}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <FileText />
+            Choose file
+          </Button>
+        </div>
+        <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+          Imported files stay private until you grant a resident access.
+        </p>
 
         {activity.state !== "idle" ? (
           <ImportActivityNotice activity={activity} />
@@ -124,55 +127,35 @@ export function BrainImportPanel({
   return (
     <section
       aria-labelledby="brain-preview-heading"
-      className="overflow-hidden rounded-2xl border border-border/70 bg-card/45"
+      aria-busy={isCommitting}
+      className="min-w-0 overflow-hidden rounded-xl border border-border/70 bg-card/45"
       data-testid="brain-preview-panel"
     >
-      <div className="flex flex-col gap-4 border-b border-border/60 p-5 sm:flex-row sm:items-start sm:justify-between">
-        <div>
+      <div className="flex items-start gap-3 border-b border-border/60 p-5">
+        <div className="shrink-0 rounded-lg border border-border/60 bg-background/45 p-2.5 text-muted-foreground">
+          <FileText className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
           <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Zero-write preview
+            Review import
           </p>
           <h2
-            className="mt-1 text-lg font-semibold tracking-tight"
+            className="mt-1 text-lg font-semibold tracking-tight [overflow-wrap:anywhere]"
             id="brain-preview-heading"
           >
             {preview.displayName}
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             {includedRows} of {preview.rows.length} entries ·{" "}
             {formatBytes(preview.acceptedBytes)} ready
           </p>
-        </div>
-        <div className="flex shrink-0 gap-2">
-          <Button
-            disabled={isCommitting}
-            onClick={onDismissPreview}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Close
-          </Button>
-          <Button
-            disabled={!preview.canCommit || isCommitting}
-            onClick={onCommit}
-            size="sm"
-            type="button"
-          >
-            {isCommitting ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <Check />
-            )}
-            {isCommitting ? "Importing" : "Import source"}
-          </Button>
         </div>
       </div>
 
       {isCommitting ? (
         <div className="border-b border-border/60 px-5 py-4" role="status">
           <div className="mb-2 flex items-center justify-between gap-3 text-xs">
-            <span>Encrypting and indexing one atomic revision</span>
+            <span>Importing your files…</span>
             <button
               className="text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
               onClick={onCancel}
@@ -193,7 +176,10 @@ export function BrainImportPanel({
             key={`${row.relativePath}-${row.status}`}
           >
             <div className="min-w-0">
-              <p className="truncate font-mono text-xs text-ink">
+              <p
+                className="truncate font-mono text-xs text-ink"
+                title={row.relativePath}
+              >
                 {row.relativePath}
               </p>
               {row.reasonCode ? (
@@ -212,6 +198,37 @@ export function BrainImportPanel({
             </div>
           </div>
         ))}
+      </div>
+      <div className="flex flex-col gap-4 border-t border-border/60 bg-background/25 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="max-w-sm text-xs leading-relaxed text-muted-foreground">
+          Your originals stay unchanged. You choose which residents can use this
+          source after importing.
+        </p>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <Button
+            disabled={isCommitting}
+            onClick={onDismissPreview}
+            size="sm"
+            type="button"
+            variant="ghost"
+          >
+            Close
+          </Button>
+          <Button
+            className="shrink-0"
+            disabled={!preview.canCommit || isCommitting}
+            onClick={onCommit}
+            size="sm"
+            type="button"
+          >
+            {isCommitting ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <Check />
+            )}
+            {isCommitting ? "Importing…" : "Import source"}
+          </Button>
+        </div>
       </div>
       {activity.state !== "idle" ? (
         <div className="px-5 pb-5">
