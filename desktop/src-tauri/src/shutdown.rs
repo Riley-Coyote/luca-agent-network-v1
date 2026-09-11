@@ -24,6 +24,9 @@ pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::a
         }
         #[cfg(feature = "mesh-llm")]
         shutdown_mesh_runtime(app);
+        // WP-LOCAL1: the bundled single-node relay is our child. Stop it with
+        // the app so a relaunch never inherits a stale loopback listener.
+        crate::local_relay::stop(&app.state::<crate::local_relay::RuntimeState>());
     }
 }
 

@@ -468,6 +468,9 @@ pub fn run() {
         .manage(BuilderlabSession::default())
         .manage(BuilderlabLogin::default())
         .manage(commands::pairing::PairingHandle::new())
+        // WP-LOCAL1: supervises the bundled single-node relay. `apply_workspace`
+        // calls `app.state::<RuntimeState>()`, which panics unless it is managed.
+        .manage(local_relay::RuntimeState::default())
         .setup(move |app| {
             let app_handle = app.handle().clone();
 
