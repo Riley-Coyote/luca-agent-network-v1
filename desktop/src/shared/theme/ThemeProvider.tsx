@@ -83,7 +83,15 @@ export const ACCENT_COLORS = [
   { name: "Indigo", value: "#6366f1" },
 ] as const;
 
-const DEFAULT_ACCENT = "#60a5fa";
+/**
+ * A fresh profile starts neutral. Colour in this shell is signal, not
+ * surface: an accent the user never chose has no business writing itself
+ * onto `--primary`, `--sidebar-primary` and `--sidebar-active` on first
+ * run. Changing the default (rather than adding the default theme to
+ * `isFixedNeutralTheme`) leaves every saved `buzz-accent-color` alone —
+ * pinning the theme would override choices existing users already made.
+ */
+const DEFAULT_ACCENT = NEUTRAL_ACCENT;
 
 type ThemeContextValue = {
   themeName: string;
