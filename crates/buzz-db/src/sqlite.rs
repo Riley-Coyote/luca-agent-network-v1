@@ -4,7 +4,11 @@
 //! attempting to translate the production PostgreSQL migrations.
 
 use sha2::{Digest, Sha256};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use std::time::Duration;
+
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+};
 use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 use uuid::Uuid;
@@ -164,13 +168,50 @@ pub(crate) async fn connect(path_or_url: &str) -> Result<SqlitePool> {
     };
     let options = SqliteConnectOptions::from_str(&database_url)?
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        // WAL lets the relay's readers run while a write is in flight; the
+        // rollback journal blocks them and shows up as `database is locked`
+        // the moment two residents answer at once. `synchronous = NORMAL` is
+        // the standard companion: durable against a process crash, and only
+        // at risk from a power cut mid-commit.
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        // Wait for a contended lock instead of failing the query outright.
+        .busy_timeout(Duration::from_secs(5));
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect_with(options)
         .await?;
     migrate(&pool).await?;
     Ok(pool)
+}
+
+#[cfg(test)]
+mod connect_pragma_tests {
+    use super::*;
+
+    /// WP-LOCAL2 decision 8. Two residents answering at once must not collide
+    /// on the rollback journal.
+    #[tokio::test]
+    async fn connect_puts_the_database_in_wal_with_a_busy_timeout() {
+        let path =
+            std::env::temp_dir().join(format!("buzz-db-wal-{}.sqlite3", Uuid::new_v4()));
+        let pool = connect(path.to_str().expect("utf-8 path"))
+            .await
+            .expect("connect");
+
+        let mode: String = sqlx::query_scalar("PRAGMA journal_mode")
+            .fetch_one(&pool)
+            .await
+            .expect("journal_mode");
+        assert_eq!(mode.to_lowercase(), "wal");
+
+        let busy: i64 = sqlx::query_scalar("PRAGMA busy_timeout")
+            .fetch_one(&pool)
+            .await
+            .expect("busy_timeout");
+        assert!(busy >= 1000, "busy_timeout should be seconds, got {busy}ms");
+    }
 }
 
 pub(crate) async fn migrate(pool: &SqlitePool) -> Result<()> {
