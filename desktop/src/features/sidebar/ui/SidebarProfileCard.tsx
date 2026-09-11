@@ -13,6 +13,8 @@ import { StatusEmoji } from "@/features/user-status/ui/StatusEmoji";
 import type { Community } from "@/features/communities/types";
 import type { PresenceStatus, Profile, UserStatus } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { useIsDevBuild } from "@/shared/lib/useIsDevBuild";
+import { Badge } from "@/shared/ui/badge";
 
 type SidebarProfileCardProps = {
   activeCommunity: Community | null;
@@ -49,6 +51,7 @@ export function SidebarProfileCard({
   selfUserStatus,
 }: SidebarProfileCardProps) {
   const selfProfileCache = useSelfProfileCache();
+  const isDevBuild = useIsDevBuild();
   const [profilePopoverOpen, setProfilePopoverOpen] = React.useState(false);
   const profileCardRef = React.useRef<HTMLDivElement | null>(null);
   const toggleProfilePopover = React.useCallback(
@@ -73,6 +76,19 @@ export function SidebarProfileCard({
   // active relay context internally, but do not surface multi-community
   // controls while organizations and invited humans are deferred.
   const communityLabel = "Personal workspace";
+  // Dev-identified builds name themselves here. The Dev app and the beta build
+  // render the same UI; without this they are indistinguishable on a machine
+  // that has both. A label, not a status — so no fill, no accent.
+  const devChip = isDevBuild ? (
+    <Badge
+      className="relative shrink-0 border-border/70 bg-transparent px-1.5 pb-[2px] pt-[3px] text-badge tracking-caps-wider text-ink-muted"
+      data-testid="sidebar-dev-build-chip"
+      title="Development build"
+      variant="outline"
+    >
+      DEV
+    </Badge>
+  ) : null;
   const readonlyCommunityLabel = (
     <span
       className="flex min-w-0 cursor-pointer items-center text-xs leading-snug text-ink-muted"
@@ -166,11 +182,11 @@ export function SidebarProfileCard({
           </ProfilePopover>
 
           {hasStatus ? (
-            <div className="relative mt-0.5">
+            <div className="relative mt-0.5 flex min-w-0 items-center gap-1.5">
               <button
                 aria-label={`Open profile menu for ${resolvedDisplayName}`}
                 className={cn(
-                  "flex w-full min-w-0 items-center truncate rounded-sm text-left text-xs leading-snug text-ink-muted outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
+                  "flex min-w-0 flex-1 items-center truncate rounded-sm text-left text-xs leading-snug text-ink-muted outline-hidden transition-opacity duration-150 focus:outline-none focus-visible:outline-none group-hover/profile-card:opacity-0",
                   profilePopoverOpen && "opacity-100",
                 )}
                 data-buzz-sidebar-secondary
@@ -191,16 +207,20 @@ export function SidebarProfileCard({
               </button>
               <div
                 className={cn(
-                  "pointer-events-none absolute inset-0 flex min-w-0 items-center text-xs leading-snug text-ink-muted opacity-0 transition-opacity duration-150 group-hover/profile-card:opacity-100",
+                  "pointer-events-none absolute inset-y-0 left-0 right-0 flex min-w-0 items-center text-xs leading-snug text-ink-muted opacity-0 transition-opacity duration-150 group-hover/profile-card:opacity-100",
                   profilePopoverOpen && "opacity-0",
                 )}
                 data-buzz-sidebar-secondary
               >
                 {readonlyCommunityLabel}
               </div>
+              {devChip}
             </div>
           ) : (
-            <div className="relative mt-0.5">{readonlyCommunityLabel}</div>
+            <div className="relative mt-0.5 flex min-w-0 items-center gap-1.5">
+              {readonlyCommunityLabel}
+              {devChip}
+            </div>
           )}
         </div>
       </div>

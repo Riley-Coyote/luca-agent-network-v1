@@ -839,11 +839,36 @@ pub fn run() {
                 });
             }
 
+            // A dev-identified bundle names itself in the window title, so the
+            // Window menu and Mission Control tell it apart from the beta build
+            // (which renders the same UI). Release identities are left alone.
+            if crate::commands::is_dev_identifier(&app.config().identifier) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let base = {
+                        let current = window.title().unwrap_or_default();
+                        if current.trim().is_empty() {
+                            app.config().product_name.clone().unwrap_or_default()
+                        } else {
+                            current
+                        }
+                    };
+                    let marked = if base.trim().is_empty() {
+                        "DEV".to_owned()
+                    } else {
+                        format!("{base} \u{b7} DEV")
+                    };
+                    if let Err(error) = window.set_title(&marked) {
+                        eprintln!("buzz-desktop: could not set the DEV window title: {error}");
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             luca::quickchat::quickchat_capture_window,
             luca::quickchat::quickchat_get_effort,
+            get_build_identity,
             take_pending_community_deep_link,
             acknowledge_pending_community_deep_link,
             start_builderlab_login,
