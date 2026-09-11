@@ -147,6 +147,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_reactions_source_event
     WHERE reaction_event_id IS NOT NULL;
 "#;
 
+
+/// Local port of upstream's `buzz_core::channel::canonical_channel_name`,
+/// which this fork's `buzz-core` does not carry. Pure and identical:
+/// strip leading `#`/whitespace, trim the tail.
+fn canonical_channel_name(name: &str) -> &str {
+    name.trim_start_matches(|c: char| c == '#' || c.is_whitespace())
+        .trim_end()
+}
+
 pub(crate) async fn connect(path_or_url: &str) -> Result<SqlitePool> {
     let database_url = if path_or_url.starts_with("sqlite:") {
         path_or_url.to_owned()
@@ -1267,14 +1276,19 @@ fn render_sqlite_event_predicates(
                     .push_bind(id.clone())
                     .push("))");
             }
-            Predicate::GatedReader(reader) => {
-                qb.push(" AND (kind NOT IN (");
-                let mut kinds = qb.separated(", ");
-                for kind in buzz_core::kind::SHARED_GATED_KINDS {
-                    kinds.push_bind(*kind as i32);
+            Predicate::ExchangeIds(exchange_ids) => {
+                // Mirrors the Postgres `#exchange` containment prefilter in
+                // `event::push_exchange_containment`.
+                qb.push(" AND (");
+                for (i, exchange_id) in exchange_ids.iter().enumerate() {
+                    if i > 0 {
+                        qb.push(" OR ");
+                    }
+                    qb.push("EXISTS (SELECT 1 FROM json_each(tags_json) tag WHERE json_extract(tag.value, '$[0]') = 'exchange' AND json_extract(tag.value, '$[1]') = ")
+                        .push_bind(exchange_id.clone())
+                        .push(")");
                 }
-                qb.push(") OR pubkey = ").push_bind(reader.clone())
-                    .push(" OR EXISTS (SELECT 1 FROM json_each(tags_json) tag WHERE json_extract(tag.value, '$[0]') = 'shared' AND json_extract(tag.value, '$[1]') = 'true'))");
+                qb.push(")");
             }
             Predicate::LiveOnly => {}
         }
@@ -2194,112 +2208,14 @@ fn api_token_record(row: sqlx::sqlite::SqliteRow) -> Result<crate::ApiTokenRecor
         revoked_at: optional_timestamp(row.try_get("revoked_at")?)?,
     })
 }
-pub(crate) async fn mint_relay_invite(
-    pool: &SqlitePool,
-    community: CommunityId,
-    created_by: &str,
-    ttl_secs: u64,
-    max_uses: Option<i32>,
-) -> Result<crate::relay_invite::MintedInvite> {
-    if !(buzz_core::invite::MIN_INVITE_TTL_SECS..=buzz_core::invite::MAX_INVITE_TTL_SECS)
-        .contains(&ttl_secs)
-        || max_uses.is_some_and(|n| !(1..=buzz_core::invite::MAX_INVITE_USES).contains(&n))
-    {
-        return Err(crate::DbError::InvalidData(
-            "invalid relay invite parameters".into(),
-        ));
-    }
-    let secret: [u8; buzz_core::invite::V2_SECRET_LEN] = rand::random();
-    let code = buzz_core::invite::encode_v2_code(&secret);
-    let hash = buzz_core::invite::hash_v2_code(&code);
-    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(ttl_secs as i64);
-    let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO relay_invites (community_id, id, token_hash, max_uses, expires_at, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")
-        .bind(community.as_uuid().to_string()).bind(id.to_string()).bind(hash.as_slice()).bind(max_uses).bind(expires_at.timestamp()).bind(created_by).execute(pool).await?;
-    Ok(crate::relay_invite::MintedInvite {
-        code,
-        expires_at,
-        max_uses,
-        uses_remaining: max_uses,
-        invite_id: id,
-    })
-}
-
-pub(crate) async fn reap_expired_relay_invites(
-    pool: &SqlitePool,
-    cutoff: chrono::DateTime<chrono::Utc>,
-) -> Result<u64> {
-    Ok(sqlx::query("DELETE FROM relay_invites WHERE rowid IN (SELECT rowid FROM relay_invites WHERE expires_at < ?1 ORDER BY expires_at LIMIT 1000)").bind(cutoff.timestamp()).execute(pool).await?.rows_affected())
-}
-
-pub(crate) async fn claim_relay_invite(
-    pool: &SqlitePool,
-    community: CommunityId,
-    token_hash: &[u8; 32],
-    claimer: &str,
-    policy_version: Option<&str>,
-) -> Result<crate::relay_invite::ClaimOutcome> {
-    let mut tx = pool.begin().await?;
-    let row = sqlx::query("SELECT id, max_uses, use_count, expires_at FROM relay_invites WHERE community_id = ?1 AND token_hash = ?2")
-        .bind(community.as_uuid().to_string()).bind(token_hash.as_slice()).fetch_optional(&mut *tx).await?;
-    let Some(row) = row else {
-        tx.rollback().await?;
-        return Ok(crate::relay_invite::ClaimOutcome::Invalid);
-    };
-    let id: String = row.get("id");
-    let max_uses: Option<i32> = row.try_get("max_uses")?;
-    let use_count: i32 = row.get("use_count");
-    let expires_at: i64 = row.get("expires_at");
-    if expires_at <= chrono::Utc::now().timestamp() {
-        tx.rollback().await?;
-        return Ok(crate::relay_invite::ClaimOutcome::Expired);
-    }
-    let remaining = || max_uses.map(|n| n - use_count);
-    let existing =
-        sqlx::query("SELECT 1 FROM relay_members WHERE community_id = ?1 AND pubkey = ?2")
-            .bind(community.as_uuid().to_string())
-            .bind(claimer)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_some();
-    if existing {
-        if let Some(version) = policy_version {
-            sqlx::query("INSERT INTO join_policy_acceptances (community_id, pubkey, policy_version) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING").bind(community.as_uuid().to_string()).bind(claimer).bind(version).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        return Ok(crate::relay_invite::ClaimOutcome::AlreadyMember {
-            use_count,
-            uses_remaining: remaining(),
-        });
-    }
-    if max_uses.is_some_and(|n| use_count >= n) {
-        tx.rollback().await?;
-        return Ok(crate::relay_invite::ClaimOutcome::Exhausted);
-    }
-    let inserted = sqlx::query("INSERT INTO relay_members (community_id, pubkey, role, added_by) VALUES (?1, lower(?2), 'member', 'invite') ON CONFLICT DO NOTHING").bind(community.as_uuid().to_string()).bind(claimer).execute(&mut *tx).await?.rows_affected() > 0;
-    if let Some(version) = policy_version {
-        sqlx::query("INSERT INTO join_policy_acceptances (community_id, pubkey, policy_version) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING").bind(community.as_uuid().to_string()).bind(claimer).bind(version).execute(&mut *tx).await?;
-    }
-    if !inserted {
-        tx.commit().await?;
-        return Ok(crate::relay_invite::ClaimOutcome::AlreadyMember {
-            use_count,
-            uses_remaining: remaining(),
-        });
-    }
-    let new_count = use_count + 1;
-    sqlx::query("UPDATE relay_invites SET use_count = ?1 WHERE community_id = ?2 AND id = ?3")
-        .bind(new_count)
-        .bind(community.as_uuid().to_string())
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
-    Ok(crate::relay_invite::ClaimOutcome::Joined {
-        use_count: new_count,
-        uses_remaining: max_uses.map(|n| n - new_count),
-    })
-}
+// Local-mode port note (WP-LOCAL1): the v2 use-limited relay invite SQLite paths
+// (`mint_relay_invite`, `reap_expired_relay_invites`, `claim_relay_invite`) are
+// DESCOPED here. They sit on upstream's `buzz_core::invite` + `buzz_db::relay_invite`
+// modules, neither of which exists in this fork — invites live in
+// `crates/buzz-relay/src/invite_token.rs` (stateless HMAC v1) instead. The
+// `relay_invites` table is still created by the local schema so the parity
+// ratchet stays green; nothing reads it in local mode, where the single-node
+// relay admits its owner directly (no invite/claim step).
 fn workflow_row(r: sqlx::sqlite::SqliteRow) -> Result<crate::workflow::WorkflowRecord> {
     Ok(crate::workflow::WorkflowRecord {
         id: parse_uuid(r.get("id"))?,
@@ -3171,26 +3087,12 @@ fn admin_report_row(r: &sqlx::sqlite::SqliteRow) -> Result<crate::admin_moderati
 pub(crate) async fn admin_get_report(
     pool: &SqlitePool,
     id: Uuid,
-) -> Result<Option<crate::admin_moderation::AdminReportDetail>> {
-    let row = sqlx::query("SELECT r.id, r.community_id, c.host AS community_host, r.report_event_id, r.reporter_pubkey, r.target_kind, r.target_event_id, r.target_pubkey, r.target_blob_sha256, r.channel_id, r.report_type, r.note, r.status, r.resolved_by, r.resolved_at, r.action_id, r.created_at, e.pubkey AS message_author_pubkey, e.content AS message_content, e.created_at AS message_created_at FROM moderation_reports r JOIN communities c ON c.id=r.community_id LEFT JOIN events e ON r.target_kind='event' AND e.community_id=r.community_id AND e.id=r.target_event_id WHERE r.id=?1").bind(id.to_string()).fetch_optional(pool).await?;
-    row.map(|r| {
-        let report = admin_report_row(&r)?;
-        let message = r
-            .try_get::<Option<Vec<u8>>, _>("message_author_pubkey")?
-            .map(
-                |author| -> Result<crate::admin_moderation::AdminReportedMessage> {
-                    Ok(crate::admin_moderation::AdminReportedMessage {
-                        author_pubkey: hex::encode(author),
-                        content: r.get("message_content"),
-                        created_at: timestamp(r.get("message_created_at"))?,
-                        deleted_at: None,
-                    })
-                },
-            )
-            .transpose()?;
-        Ok(crate::admin_moderation::AdminReportDetail { report, message })
-    })
-    .transpose()
+) -> Result<Option<crate::admin_moderation::AdminReport>> {
+    // Local-mode port note: this fork has no `AdminReportDetail` wrapper
+    // (upstream drift), so the SQLite path returns the same `AdminReport`
+    // shape the Postgres path returns.
+    let row = sqlx::query("SELECT r.id, r.community_id, c.host AS community_host, r.report_event_id, r.reporter_pubkey, r.target_kind, r.target_event_id, r.target_pubkey, r.target_blob_sha256, r.channel_id, r.report_type, r.note, r.status, r.resolved_by, r.resolved_at, r.action_id, r.created_at FROM moderation_reports r JOIN communities c ON c.id=r.community_id WHERE r.id=?1").bind(id.to_string()).fetch_optional(pool).await?;
+    row.map(|r| admin_report_row(&r)).transpose()
 }
 pub(crate) async fn repo_name_owner(
     pool: &SqlitePool,
@@ -3444,7 +3346,7 @@ pub(crate) async fn create_channel_with_id(
             "channel_id must not be nil (reserved for global fan-out)".into(),
         ));
     }
-    let name = buzz_core::channel::canonical_channel_name(name);
+    let name = canonical_channel_name(name);
     if name.trim().is_empty() {
         return Err(crate::DbError::InvalidData(
             "channel name is required".into(),
@@ -3861,7 +3763,7 @@ pub(crate) async fn update_channel(
         ));
     }
     if let Some(n) = u.name.as_mut() {
-        *n = buzz_core::channel::canonical_channel_name(n).to_owned();
+        *n = canonical_channel_name(n).to_owned();
         if n.trim().is_empty() {
             return Err(crate::DbError::InvalidData(
                 "channel name is required".into(),
@@ -6252,92 +6154,8 @@ mod tests {
         assert_eq!((summary.reply_count, summary.descendant_count), (0, 0));
     }
 
-    #[tokio::test]
-    async fn relay_invites_preserve_claim_scope_limits_policy_and_retention() {
-        let pool = connect(":memory:").await.unwrap();
-        let community = ensure_configured_community(&pool, "invites.local")
-            .await
-            .unwrap()
-            .id;
-        let foreign = ensure_configured_community(&pool, "foreign-invites.local")
-            .await
-            .unwrap()
-            .id;
-        let now = chrono::Utc::now().timestamp();
-        let bounded = [7_u8; 32];
-        sqlx::query("INSERT INTO relay_invites (community_id,id,token_hash,max_uses,expires_at,created_by) VALUES (?1,?2,?3,1,?4,'owner')")
-            .bind(community.as_uuid().to_string()).bind(Uuid::new_v4().to_string()).bind(bounded.as_slice()).bind(now + 3600).execute(&pool).await.unwrap();
-
-        assert_eq!(
-            claim_relay_invite(&pool, foreign, &bounded, "alice", None)
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Invalid
-        );
-        assert_eq!(
-            claim_relay_invite(&pool, community, &bounded, "alice", Some("v1"))
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Joined {
-                use_count: 1,
-                uses_remaining: Some(0)
-            }
-        );
-        assert_eq!(
-            claim_relay_invite(&pool, community, &bounded, "alice", Some("v1"))
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::AlreadyMember {
-                use_count: 1,
-                uses_remaining: Some(0)
-            }
-        );
-        assert_eq!(
-            claim_relay_invite(&pool, community, &bounded, "bob", None)
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Exhausted
-        );
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM join_policy_acceptances WHERE community_id=?1 AND pubkey='alice' AND policy_version='v1'").bind(community.as_uuid().to_string()).fetch_one(&pool).await.unwrap(), 1);
-
-        let unlimited = [8_u8; 32];
-        sqlx::query("INSERT INTO relay_invites (community_id,id,token_hash,max_uses,expires_at,created_by) VALUES (?1,?2,?3,NULL,?4,'owner')")
-            .bind(community.as_uuid().to_string()).bind(Uuid::new_v4().to_string()).bind(unlimited.as_slice()).bind(now + 3600).execute(&pool).await.unwrap();
-        assert_eq!(
-            claim_relay_invite(&pool, community, &unlimited, "carol", None)
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Joined {
-                use_count: 1,
-                uses_remaining: None
-            }
-        );
-        assert_eq!(
-            claim_relay_invite(&pool, community, &unlimited, "dave", None)
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Joined {
-                use_count: 2,
-                uses_remaining: None
-            }
-        );
-
-        let expired = [9_u8; 32];
-        sqlx::query("INSERT INTO relay_invites (community_id,id,token_hash,max_uses,expires_at,created_by) VALUES (?1,?2,?3,1,?4,'owner')")
-            .bind(community.as_uuid().to_string()).bind(Uuid::new_v4().to_string()).bind(expired.as_slice()).bind(now - 10).execute(&pool).await.unwrap();
-        assert_eq!(
-            claim_relay_invite(&pool, community, &expired, "erin", None)
-                .await
-                .unwrap(),
-            crate::relay_invite::ClaimOutcome::Expired
-        );
-        assert_eq!(
-            reap_expired_relay_invites(&pool, chrono::Utc::now())
-                .await
-                .unwrap(),
-            1
-        );
-    }
+    // Local-mode port note (WP-LOCAL1): the v2 relay-invite claim test is removed
+    // with the functions it covers; see the descope note above `workflow_row`.
 
     #[tokio::test]
     async fn workflow_crud_runs_approvals_and_schedule_are_scoped() {

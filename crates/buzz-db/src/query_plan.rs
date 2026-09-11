@@ -5,7 +5,11 @@ use uuid::Uuid;
 
 use buzz_core::CommunityId;
 
-use crate::{DbError, EventQuery, Result, DEFAULT_MAX_PAGE_LIMIT};
+use crate::{DbError, EventQuery, Result};
+
+/// Default page clamp. Upstream exports this from `event`; this fork inlines
+/// the same value (`event::query_events` uses `q.max_limit.unwrap_or(1000)`).
+const DEFAULT_MAX_PAGE_LIMIT: i64 = 1_000;
 
 /// A normalized event query, split into row predicates and result modifiers.
 #[derive(Debug, Clone)]
@@ -33,7 +37,10 @@ pub(crate) enum Predicate {
     Since(DateTime<Utc>),
     Until(DateTime<Utc>),
     CursorBefore { until: DateTime<Utc>, id: Vec<u8> },
-    GatedReader(Vec<u8>),
+    /// Luca `#exchange` tag containment (this fork's `EventQuery::exchange_ids`).
+    /// Upstream's `GatedReader` predicate has no counterpart here — this fork's
+    /// `EventQuery` carries no `shared_gated_reader` field.
+    ExchangeIds(Vec<String>),
     LiveOnly,
 }
 
@@ -65,7 +72,7 @@ pub(crate) fn plan(query: &EventQuery) -> Result<QueryPlan> {
         e_tags,
         channel_ids,
         max_limit,
-        shared_gated_reader,
+        exchange_ids,
     } = query;
 
     if before_id.is_some() && until.is_none() {
@@ -84,6 +91,7 @@ pub(crate) fn plan(query: &EventQuery) -> Result<QueryPlan> {
         || authors.as_ref().is_some_and(Vec::is_empty)
         || ids.as_ref().is_some_and(Vec::is_empty)
         || e_tags.as_ref().is_some_and(Vec::is_empty)
+        || exchange_ids.as_ref().is_some_and(Vec::is_empty)
     {
         predicates.push(Predicate::MatchNone);
     }
@@ -133,8 +141,8 @@ pub(crate) fn plan(query: &EventQuery) -> Result<QueryPlan> {
     } else if let Some(d_tags) = d_tags.as_ref().filter(|values| !values.is_empty()) {
         predicates.push(Predicate::HasAnyDTag(d_tags.clone()));
     }
-    if let Some(reader) = shared_gated_reader {
-        predicates.push(Predicate::GatedReader(reader.clone()));
+    if let Some(exchange_ids) = exchange_ids.as_ref().filter(|values| !values.is_empty()) {
+        predicates.push(Predicate::ExchangeIds(exchange_ids.clone()));
     }
 
     Ok(QueryPlan {

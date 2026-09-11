@@ -468,10 +468,7 @@ impl Db {
             pool,
             max_connections: 0,
             read_pool: None,
-            read_max_connections: 0,
             fence: std::sync::Arc::new(replica_fence::ReplicaFence::new()),
-            replica_read_max_age: None,
-            reader_aurora_identity: std::sync::Arc::new(std::sync::OnceLock::new()),
         })
     }
 
@@ -602,6 +599,7 @@ impl Db {
     /// replication lag) result is acceptable to its caller. Keyset-cursor
     /// pagination over immutable history qualifies; head-of-channel fetches,
     /// auth/membership checks, locks, and anything inside a transaction do not.
+    #[sqlite_backend(unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer")]
     pub fn read(&self) -> &PgPool {
         self.read_pool.as_ref().unwrap_or(&self.pool)
     }
@@ -655,6 +653,7 @@ impl Db {
     }
 
     /// Pool utilisation stats for the read-replica pool, when configured.
+    #[sqlite_backend(unsupported = "PostgreSQL read-replica pool; single-node has one SQLite writer")]
     pub fn read_pool_stats(&self) -> Option<DbPoolStats> {
         self.read_pool.as_ref().map(|p| DbPoolStats {
             size: p.size(),
@@ -739,13 +738,10 @@ impl Db {
     pub async fn admin_get_report(
         &self,
         id: Uuid,
-    ) -> Result<Option<admin_moderation::AdminReportDetail>> {
+    ) -> Result<Option<admin_moderation::AdminReport>> {
         match &self.backend {
             DbBackend::SQLite(pool) => sqlite::admin_get_report(pool, id).await,
-            DbBackend::Postgres => {
-    ) -> Result<Option<admin_moderation::AdminReport>> {
-        admin_moderation::get_report(self.pg_pool()?, id).await
-            }
+            DbBackend::Postgres => admin_moderation::get_report(self.pg_pool()?, id).await,
         }
     }
 
@@ -1359,6 +1355,7 @@ impl Db {
     }
 
     /// Queries events matching the given filter parameters.
+    #[sqlite_backend(implemented)]
     pub async fn query_events(&self, q: &EventQuery) -> Result<Vec<StoredEvent>> {
         match &self.backend {
             DbBackend::SQLite(pool) => sqlite::query_events(pool, q).await,
@@ -1474,6 +1471,7 @@ impl Db {
     ///
     /// Includes soft-deleted rows and fails closed on corrupt or ambiguous
     /// storage instead of treating either condition as absence.
+    #[sqlite_backend(unsupported = "WP-LOCAL1: PostgreSQL-only strict fetch used by the bridge API")]
     pub async fn get_event_by_id_strict_including_deleted(
         &self,
         community_id: CommunityId,
@@ -1813,6 +1811,7 @@ impl Db {
     /// the relay-authored `(39002, channel)` coordinate. A membership snapshot
     /// replacement therefore cannot interleave between the comparison and the
     /// message insert.
+    #[sqlite_backend(unsupported = "WP-LOCAL1: compare-and-store guard uses a PostgreSQL advisory lock")]
     pub async fn insert_event_if_membership_snapshot_matches(
         &self,
         community_id: CommunityId,
@@ -1912,6 +1911,7 @@ impl Db {
     /// desktop treats "already spoken" as a signal to re-sign the reply under
     /// a fresh turn, so answering it for a plain retry would double-post.
     #[allow(clippy::too_many_arguments)]
+    #[sqlite_backend(unsupported = "WP-LOCAL1: exchange-turn guard uses a PostgreSQL advisory lock")]
     pub async fn insert_event_if_exchange_turn_unclaimed(
         &self,
         community_id: CommunityId,
@@ -4635,6 +4635,7 @@ impl Db {
     }
 
     /// Returns `true` if `pubkey` (64-char hex) is a member of `community`.
+    #[sqlite_backend(implemented)]
     pub async fn is_relay_member(&self, community: CommunityId, pubkey: &str) -> Result<bool> {
         match &self.backend {
             DbBackend::SQLite(pool) => sqlite::is_relay_member(pool, community, pubkey).await,
