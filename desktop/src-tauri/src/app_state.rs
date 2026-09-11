@@ -1038,6 +1038,9 @@ pub(crate) use keyring_config::keyring_service;
 mod identity;
 
 pub(crate) use identity::persist_imported_identity;
+// WP-LOCAL1: the bundled local relay persists its own service key with the
+// same atomic, owner-only semantics as desktop identities.
+pub(crate) use identity::save_key_file;
 #[cfg(test)]
 use identity::*;
 use identity::{load_or_create_identity, RecoveryState};

@@ -1186,7 +1186,6 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
         "local",
         "disabled",
         "local",
-        buzz_media::S3AddressingStyle::Path,
     )?;
     let search = SearchService::sqlite(db.sqlite_pool_clone()?);
     let replay: Arc<dyn Nip98ReplayGuard> = Arc::new(InProcessNip98ReplayGuard::new());
@@ -1233,6 +1232,16 @@ async fn run_single_node(config: Config, tracer_init: telemetry::TracerInit) -> 
 }
 
 /// ```
+/// Health-probe bind address. The single-node profile refuses to expose the
+/// probe off-loopback; production keeps this fork's behaviour of following the
+/// relay's own bind IP (upstream hardcodes `0.0.0.0` there).
+fn health_listener_ip(config: &Config) -> IpAddr {
+    match config.profile {
+        RelayProfile::SingleNode => IpAddr::V4(Ipv4Addr::LOCALHOST),
+        RelayProfile::Production => config.bind_addr.ip(),
+    }
+}
+
 async fn serve(
     router: axum::Router,
     health_router: axum::Router,
@@ -1240,7 +1249,7 @@ async fn serve(
 ) -> anyhow::Result<()> {
     let config = &state.config;
 
-    let health_host = health_listener_ip(config.profile);
+    let health_host = health_listener_ip(config);
     let health_listener = tokio::net::TcpListener::bind((health_host, config.health_port))
         .await
         .map_err(|e| anyhow::anyhow!("Failed to bind health port {}: {e}", config.health_port))?;
