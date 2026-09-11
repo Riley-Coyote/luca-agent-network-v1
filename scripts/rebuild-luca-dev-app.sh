@@ -62,7 +62,7 @@ TAURI_TARGET_DIR=$(cargo metadata \
 BUILD_APP="$TAURI_TARGET_DIR/debug/bundle/macos/Luca Agent Network Dev.app"
 BINARIES_DIR="$REPO_ROOT/desktop/src-tauri/binaries"
 mkdir -p "$BINARIES_DIR"
-for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz; do
+for bin in buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-relay; do
     cp "$TARGET_DIR/debug/$bin" "$BINARIES_DIR/$bin-$TARGET"
     chmod +x "$BINARIES_DIR/$bin-$TARGET"
 done
