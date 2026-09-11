@@ -202,7 +202,7 @@
     const active=document.activeElement, focusedInput=root.contains(active)&&active.matches('input')?{id:active.id,start:active.selectionStart,end:active.selectionEnd}:null;
     root.classList.add('demo-app');root.classList.toggle('d-expanded',state.expanded);root.classList.toggle('d-nav-open',state.sidebar);
     root.innerHTML=`${sidebar()}<div class="d-workspace"><div class="d-panes ${isProject()?'is-project':''} ${state.view==='Agents'?'is-agents':''} ${rooms[state.view]?'has-room':''} ${state.drawer?'has-drawer':''} ${state.split?'has-split':''}">${isProject()?roomNavigator():''}${state.view==='Agents'?agentColumn():''}<section class="d-primary" aria-label="${esc(state.view)} demo view">${rooms[state.view]?action('nav','Back to Northstar rooms',`${icon('back')} Northstar`,'class="d-room-back" data-view="Northstar"'):''}${toolbar()}${rooms[state.view]||isDm(state.view)?chat(state.view):state.view==='Northstar'?'<div class="d-room-placeholder"><h2>Northstar</h2><p>Choose a room to join the conversation.</p></div>':['Library','Northstar'].includes(state.view)?library():state.view==='Brain'?brain():state.view==='Agents'?agents():state.view==='Activity'?activity():state.view==='Settings'?settings():state.view==='New conversation'?newConversation():runtime(state.view)}</section>${state.split?`<section class="d-secondary" aria-label="Mira split conversation"><header><b>Mira</b>${ib('split','Close split view','close')}</header>${chat('Mira',true)}</section>`:''}${drawer()}</div></div>`;
-    const scroll=$('.d-chat-scroll,.d-page');if(scroll)scroll.scrollTop=scrollPositions.get(state.view)||0;
+    const scroll=$('.d-chat-scroll,.d-page');if(scroll){const saved=scrollPositions.get(state.view);scroll.scrollTop=saved!==undefined?saved:(scroll.classList.contains('d-chat-scroll')&&scroll.scrollHeight>scroll.clientHeight?scroll.scrollHeight:0);}
     root.querySelectorAll('[data-chat-form]').forEach(form=>form.elements.message.value=drafts.get(form.dataset.agent)||'');
     if(focusedInput&&document.getElementById(focusedInput.id)){const input=document.getElementById(focusedInput.id);input.focus({preventScroll:true});input.setSelectionRange(focusedInput.start,focusedInput.end);}
     if(state.drawer?.type==='search')search('');
@@ -343,6 +343,8 @@
       s.late.forEach((el,i)=>{shown[i]?lift(el):hide(el)});
       if(answered){if(s.status.isConnected)s.status.remove();s.mira.classList.remove('d-alive-veil');lift(s.mira)}
       else{if(!s.status.isConnected)s.row.append(s.status);s.mira.classList.remove('d-alive-shown');s.mira.classList.add('d-alive-veil')}
+
+      const sc=s.scroller;if(sc.scrollHeight>sc.clientHeight)sc.scrollTop=sc.scrollHeight;
     }
     function finish(disarm){
       if(disarm){armed=false;io.disconnect()}
@@ -356,7 +358,7 @@
       done.late.forEach(el=>el.classList.remove('d-alive-veil','d-alive-rise','d-alive-shown'));
       done.mira.classList.remove('d-alive-veil','d-alive-shown');
       done.message.removeAttribute('aria-busy');
-      if(done.scroller.scrollTop!==done.rest)done.scroller.scrollTo({top:done.rest,behavior:'instant'});
+      const sc=done.scroller;const to=sc.scrollHeight>sc.clientHeight?sc.scrollHeight:done.rest;if(sc.scrollTop!==to)sc.scrollTo({top:to,behavior:'instant'});
     }
     function start(){
       if(!armed||scene||state.paused||reduced.matches||document.hidden)return;
