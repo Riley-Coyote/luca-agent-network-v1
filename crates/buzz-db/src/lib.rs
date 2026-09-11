@@ -1471,13 +1471,25 @@ impl Db {
     ///
     /// Includes soft-deleted rows and fails closed on corrupt or ambiguous
     /// storage instead of treating either condition as absence.
-    #[sqlite_backend(unsupported = "WP-LOCAL1: PostgreSQL-only strict fetch used by the bridge API")]
+    #[sqlite_backend(implemented)]
     pub async fn get_event_by_id_strict_including_deleted(
         &self,
         community_id: CommunityId,
         id_bytes: &[u8],
     ) -> Result<Option<StoredEvent>> {
-        event::get_event_by_id_strict_including_deleted(&self.pool, community_id, id_bytes).await
+        match &self.backend {
+            DbBackend::SQLite(pool) => {
+                sqlite::get_event_by_id_strict_including_deleted(pool, community_id, id_bytes).await
+            }
+            DbBackend::Postgres => {
+                event::get_event_by_id_strict_including_deleted(
+                    self.pg_pool()?,
+                    community_id,
+                    id_bytes,
+                )
+                .await
+            }
+        }
     }
 
     /// Soft-deletes an event. Returns `Ok(true)` if deleted, `Ok(false)` if already deleted.
@@ -1811,7 +1823,7 @@ impl Db {
     /// the relay-authored `(39002, channel)` coordinate. A membership snapshot
     /// replacement therefore cannot interleave between the comparison and the
     /// message insert.
-    #[sqlite_backend(unsupported = "WP-LOCAL1: compare-and-store guard uses a PostgreSQL advisory lock")]
+    #[sqlite_backend(implemented)]
     pub async fn insert_event_if_membership_snapshot_matches(
         &self,
         community_id: CommunityId,
@@ -1821,6 +1833,18 @@ impl Db {
         expected_snapshot_id: &[u8; 32],
         thread_meta: Option<event::ThreadMetadataParams<'_>>,
     ) -> Result<MembershipSnapshotGuardedInsertOutcome> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::insert_event_if_membership_snapshot_matches(
+                pool,
+                community_id,
+                event,
+                channel_id,
+                relay_pubkey,
+                expected_snapshot_id,
+                thread_meta,
+            )
+            .await;
+        }
         let relay_pubkey_bytes = relay_pubkey.to_bytes();
         let lock_key = event_replacement_lock_key(
             community_id,
@@ -1911,7 +1935,7 @@ impl Db {
     /// desktop treats "already spoken" as a signal to re-sign the reply under
     /// a fresh turn, so answering it for a plain retry would double-post.
     #[allow(clippy::too_many_arguments)]
-    #[sqlite_backend(unsupported = "WP-LOCAL1: exchange-turn guard uses a PostgreSQL advisory lock")]
+    #[sqlite_backend(implemented)]
     pub async fn insert_event_if_exchange_turn_unclaimed(
         &self,
         community_id: CommunityId,
@@ -1924,6 +1948,21 @@ impl Db {
         claims_turn: fn(&[Vec<String>], &str, u8) -> bool,
         thread_meta: Option<event::ThreadMetadataParams<'_>>,
     ) -> Result<ExchangeTurnGuardedInsertOutcome> {
+        if let DbBackend::SQLite(pool) = &self.backend {
+            return sqlite::insert_event_if_exchange_turn_unclaimed(
+                pool,
+                community_id,
+                event,
+                channel_id,
+                exchange_id,
+                turn,
+                kinds,
+                members,
+                claims_turn,
+                thread_meta,
+            )
+            .await;
+        }
         let lock_key = exchange_turn_lock_key(community_id, exchange_id);
         let containment = serde_json::json!([["exchange", exchange_id]]);
         let event_id = event.id.as_bytes().to_vec();

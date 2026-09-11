@@ -2,7 +2,7 @@
 
 Generated from `#[sqlite_backend(...)]` declarations in `crates/buzz-db/src/lib.rs`.
 
-The 39 unsupported methods are deliberately out of local-mode v1 scope under
+The 36 unsupported methods are deliberately out of local-mode v1 scope under
 [the approved S6 decision record](../../docs/local-mode-s6-descope.md)
 (Logan, 2026-08-04), rather than accidental SQLite gaps. Relay route and
 handler guards preserve the S4 skip-list justification chain in
@@ -33,9 +33,6 @@ cargo test -p buzz-db backend_inventory_is_current -- --nocapture
 | `enqueue_push_wake` | unsupported | push delivery persistence is PostgreSQL-only |
 | `enqueue_push_wakes` | unsupported | push delivery persistence is PostgreSQL-only |
 | `fail_push_wake` | unsupported | push delivery persistence is PostgreSQL-only |
-| `get_event_by_id_strict_including_deleted` | unsupported | WP-LOCAL1: PostgreSQL-only strict fetch used by the bridge API |
-| `insert_event_if_exchange_turn_unclaimed` | unsupported | WP-LOCAL1: exchange-turn guard uses a PostgreSQL advisory lock |
-| `insert_event_if_membership_snapshot_matches` | unsupported | WP-LOCAL1: compare-and-store guard uses a PostgreSQL advisory lock |
 | `list_communities_owned_by` | unsupported | community lifecycle management is PostgreSQL-only |
 | `lookup_community_by_host_for_management` | unsupported | community lifecycle management is PostgreSQL-only |
 | `publish_nip43_membership_locked` | unsupported | relay membership maintenance is PostgreSQL-only |

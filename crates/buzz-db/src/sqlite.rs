@@ -1021,6 +1021,24 @@ pub(crate) async fn insert_event_with_thread_metadata(
     channel_id: Option<Uuid>,
     thread_meta: Option<crate::event::ThreadMetadataParams<'_>>,
 ) -> Result<(buzz_core::StoredEvent, bool)> {
+    let mut tx = pool.begin().await?;
+    let result =
+        insert_event_with_thread_metadata_tx(&mut tx, community, event, channel_id, thread_meta)
+            .await?;
+    tx.commit().await?;
+    Ok(result)
+}
+
+/// The body of [`insert_event_with_thread_metadata`], on a caller-owned
+/// transaction. The guarded inserts need the probe and the insert to share one
+/// transaction, so they cannot call the pool-level version.
+pub(crate) async fn insert_event_with_thread_metadata_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    community: CommunityId,
+    event: &nostr::Event,
+    channel_id: Option<Uuid>,
+    thread_meta: Option<crate::event::ThreadMetadataParams<'_>>,
+) -> Result<(buzz_core::StoredEvent, bool)> {
     let kind = u32::from(event.kind.as_u16());
     if kind == buzz_core::kind::KIND_AUTH {
         return Err(crate::DbError::AuthEventRejected);
@@ -1029,23 +1047,210 @@ pub(crate) async fn insert_event_with_thread_metadata(
         return Err(crate::DbError::EphemeralEventRejected(event.kind.as_u16()));
     }
     let received_at = chrono::Utc::now();
-    let mut tx = pool.begin().await?;
     let not_before = crate::event::extract_not_before(event);
     let inserted = sqlx::query("INSERT INTO events (community_id,id,pubkey,created_at,kind,tags_json,content,sig,channel_id,received_at,event_json,not_before) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12) ON CONFLICT DO NOTHING")
         .bind(community.as_uuid().to_string()).bind(event.id.as_bytes().as_slice()).bind(event.pubkey.to_bytes().as_slice())
         .bind(event.created_at.as_secs() as i64).bind(event.kind.as_u16() as i32).bind(serde_json::to_string(&event.tags)?)
         .bind(&event.content).bind(event.sig.serialize().as_slice()).bind(channel_id.map(|id| id.to_string()))
-        .bind(received_at.timestamp()).bind(serde_json::to_string(event)?).bind(not_before).execute(&mut *tx).await?.rows_affected() != 0;
+        .bind(received_at.timestamp()).bind(serde_json::to_string(event)?).bind(not_before).execute(&mut **tx).await?.rows_affected() != 0;
     if inserted {
         if let Some(meta) = &thread_meta {
-            insert_thread_metadata_tx(&mut tx, community, meta).await?;
+            insert_thread_metadata_tx(tx, community, meta).await?;
         }
     }
-    tx.commit().await?;
     Ok((
         buzz_core::StoredEvent::with_received_at(event.clone(), received_at, channel_id, true),
         inserted,
     ))
+}
+
+/// Serializes the compare-and-insert guards for the single-node profile.
+///
+/// On PostgreSQL these guards hold `pg_advisory_xact_lock` so the probe and the
+/// insert cannot interleave with a competing claim. The single-node relay is
+/// one process with one SQLite writer connection, so a process-wide async mutex
+/// held across the probe-and-insert transaction is an exact substitute: no
+/// other writer exists to race with.
+static GUARDED_INSERT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// SQLite counterpart of `Database::insert_event_if_membership_snapshot_matches`.
+pub(crate) async fn insert_event_if_membership_snapshot_matches(
+    pool: &SqlitePool,
+    community: CommunityId,
+    event: &nostr::Event,
+    channel_id: Uuid,
+    relay_pubkey: &nostr::PublicKey,
+    expected_snapshot_id: &[u8; 32],
+    thread_meta: Option<crate::event::ThreadMetadataParams<'_>>,
+) -> Result<crate::MembershipSnapshotGuardedInsertOutcome> {
+    let relay_pubkey_bytes = relay_pubkey.to_bytes();
+    let _guard = GUARDED_INSERT_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    let current_snapshot_id: Option<Vec<u8>> = sqlx::query_scalar(
+        // No `deleted_at IS NULL`: the SQLite backend hard-deletes
+        // (`soft_delete_event` issues a DELETE), so a removed snapshot is
+        // simply absent.
+        "SELECT id FROM events \
+         WHERE community_id = ?1 AND kind = ?2 AND pubkey = ?3 \
+           AND channel_id = ?4 \
+         ORDER BY created_at DESC, id ASC LIMIT 1",
+    )
+    .bind(community.as_uuid().to_string())
+    .bind(buzz_core::kind::KIND_NIP29_GROUP_MEMBERS as i32)
+    .bind(relay_pubkey_bytes.as_slice())
+    .bind(channel_id.to_string())
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if current_snapshot_id.as_deref() != Some(expected_snapshot_id.as_slice()) {
+        tx.rollback().await?;
+        return Ok(crate::MembershipSnapshotGuardedInsertOutcome::SnapshotChanged);
+    }
+
+    let (stored_event, was_inserted) = insert_event_with_thread_metadata_tx(
+        &mut tx,
+        community,
+        event,
+        Some(channel_id),
+        thread_meta,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(crate::MembershipSnapshotGuardedInsertOutcome::Inserted {
+        stored_event: Box::new(stored_event),
+        was_inserted,
+    })
+}
+
+/// SQLite counterpart of `Database::insert_event_if_exchange_turn_unclaimed`.
+///
+/// PostgreSQL prefilters candidates with the GIN-indexed containment
+/// `tags @> [["exchange", <id>]]`. SQLite stores the tags as JSON text, so the
+/// prefilter is a substring match on the serialized `["exchange","<id>"]`
+/// element. Both are *candidate* filters only — every candidate is re-checked
+/// with the caller's `claims_turn`, exactly as on PostgreSQL — so the weaker
+/// prefilter cannot change the decision, only the size of the candidate set.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn insert_event_if_exchange_turn_unclaimed(
+    pool: &SqlitePool,
+    community: CommunityId,
+    event: &nostr::Event,
+    channel_id: Uuid,
+    exchange_id: &str,
+    turn: u8,
+    kinds: &[i32],
+    members: &[Vec<u8>],
+    claims_turn: fn(&[Vec<String>], &str, u8) -> bool,
+    thread_meta: Option<crate::event::ThreadMetadataParams<'_>>,
+) -> Result<crate::ExchangeTurnGuardedInsertOutcome> {
+    let event_id = event.id.as_bytes().to_vec();
+    // Prefix of the serialized tag element, so it matches both the bare
+    // `["exchange", <id>]` form and the turn-carrying
+    // `["exchange", <id>, <turn>]` form. A prefilter only — `claims_turn`
+    // decides.
+    let needle = {
+        let mut needle = serde_json::to_string(&["exchange", exchange_id])?;
+        needle.pop(); // trailing ']'
+        needle
+    };
+
+    if kinds.is_empty() || members.is_empty() {
+        // No candidate can exist, but the insert must still happen under the
+        // guard so a concurrent claim cannot slip in behind it.
+        let _guard = GUARDED_INSERT_LOCK.lock().await;
+        let mut tx = pool.begin().await?;
+        let (stored_event, was_inserted) = insert_event_with_thread_metadata_tx(
+            &mut tx,
+            community,
+            event,
+            Some(channel_id),
+            thread_meta,
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(crate::ExchangeTurnGuardedInsertOutcome::Inserted {
+            stored_event: Box::new(stored_event),
+            was_inserted,
+        });
+    }
+
+    let kind_placeholders = (0..kinds.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let member_placeholders = (0..members.len())
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT id, tags_json FROM events \
+         WHERE community_id = ? AND kind IN ({kind_placeholders}) \
+           AND pubkey IN ({member_placeholders}) \
+           AND channel_id = ? AND instr(tags_json, ?) > 0 \
+         LIMIT ?"
+    );
+
+    let _guard = GUARDED_INSERT_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    // The only interpolation is the placeholder count for `kinds` / `members`
+    // (a run of "?" separated by commas); every value is still bound.
+    let mut query = sqlx::query_as::<_, (Vec<u8>, String)>(sqlx::AssertSqlSafe(sql))
+        .bind(community.as_uuid().to_string());
+    for kind in kinds {
+        query = query.bind(*kind);
+    }
+    for member in members {
+        query = query.bind(member.as_slice());
+    }
+    let candidates: Vec<(Vec<u8>, String)> = query
+        .bind(channel_id.to_string())
+        .bind(&needle)
+        .bind(crate::EXCHANGE_TURN_PROBE_LIMIT + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+
+    if candidates.len() as i64 > crate::EXCHANGE_TURN_PROBE_LIMIT {
+        tx.rollback().await?;
+        return Ok(crate::ExchangeTurnGuardedInsertOutcome::ProbeOverflow);
+    }
+
+    for (candidate_id, candidate_tags) in &candidates {
+        // This exact event already landed: a retry, not a second claim.
+        if candidate_id == &event_id {
+            continue;
+        }
+        let tags: Vec<Vec<String>> = match serde_json::from_str(candidate_tags) {
+            Ok(tags) => tags,
+            // Unreadable tags cannot be shown to be someone else's claim, and
+            // treating them as unclaimed would be a fail-open. Refuse instead.
+            Err(_) => {
+                tx.rollback().await?;
+                return Ok(crate::ExchangeTurnGuardedInsertOutcome::ProbeOverflow);
+            }
+        };
+        if claims_turn(&tags, exchange_id, turn) {
+            tx.rollback().await?;
+            return Ok(crate::ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken);
+        }
+    }
+
+    let (stored_event, was_inserted) = insert_event_with_thread_metadata_tx(
+        &mut tx,
+        community,
+        event,
+        Some(channel_id),
+        thread_meta,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(crate::ExchangeTurnGuardedInsertOutcome::Inserted {
+        stored_event: Box::new(stored_event),
+        was_inserted,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1190,6 +1395,46 @@ pub(crate) async fn get_event_by_id(
     let row = sqlx::query("SELECT event_json, received_at, channel_id FROM events WHERE community_id = ?1 AND id = ?2")
         .bind(community.as_uuid().to_string()).bind(id).fetch_optional(pool).await?;
     row.map(stored_event).transpose()
+}
+
+/// SQLite counterpart of `event::get_event_by_id_strict_including_deleted`.
+///
+/// Same contract as PostgreSQL: soft-deleted rows are included, and corrupt or
+/// ambiguous storage is an error rather than "absent" — the bridge API uses
+/// this to tell an exact duplicate apart from a missing event, and answering
+/// "missing" for a row it cannot read would republish it.
+pub(crate) async fn get_event_by_id_strict_including_deleted(
+    pool: &SqlitePool,
+    community: CommunityId,
+    id: &[u8],
+) -> Result<Option<buzz_core::StoredEvent>> {
+    if id.len() != 32 {
+        return Err(crate::DbError::InvalidData(
+            "strict event lookup requires a 32-byte ID".to_owned(),
+        ));
+    }
+    let mut rows = sqlx::query(
+        "SELECT event_json, received_at, channel_id FROM events \
+         WHERE community_id = ?1 AND id = ?2 ORDER BY created_at DESC LIMIT 2",
+    )
+    .bind(community.as_uuid().to_string())
+    .bind(id)
+    .fetch_all(pool)
+    .await?;
+    if rows.len() > 1 {
+        return Err(crate::DbError::InvalidData(
+            "strict event lookup found ambiguous rows".to_owned(),
+        ));
+    }
+    match rows.pop() {
+        None => Ok(None),
+        Some(row) => match stored_event(row) {
+            Ok(event) => Ok(Some(event)),
+            Err(_) => Err(crate::DbError::InvalidData(
+                "strict event lookup could not reconstruct stored event".to_owned(),
+            )),
+        },
+    }
 }
 
 pub(crate) async fn get_events_by_ids(
@@ -7065,5 +7310,252 @@ mod tests {
             .unwrap(),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod guarded_insert_tests {
+    use super::*;
+    use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
+
+    /// The protocol's own positional parse, mirrored from the relay handler:
+    /// a turn is claimed by an `["exchange", <id>, <turn>]` tag.
+    fn claims_turn(tags: &[Vec<String>], exchange_id: &str, turn: u8) -> bool {
+        tags.iter().any(|tag| {
+            tag.len() >= 3
+                && tag[0] == "exchange"
+                && tag[1] == exchange_id
+                && tag[2] == turn.to_string()
+        })
+    }
+
+    fn turn_event(keys: &Keys, exchange_id: &str, turn: u8, at: u64, body: &str) -> nostr::Event {
+        EventBuilder::new(Kind::Custom(9), body)
+            .tags([Tag::parse(["exchange", exchange_id, &turn.to_string()]).unwrap()])
+            .custom_created_at(Timestamp::from(at))
+            .sign_with_keys(keys)
+            .unwrap()
+    }
+
+    /// WP-LOCAL2 decision 2: two residents racing for the same turn — exactly
+    /// one may land.
+    #[tokio::test]
+    async fn two_concurrent_claimants_for_one_turn_leave_exactly_one_winner() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        let community = ensure_configured_community(&pool, "exchange.example")
+            .await
+            .unwrap()
+            .id;
+        let channel_id = Uuid::new_v4();
+        let a = Keys::generate();
+        let b = Keys::generate();
+        let members = vec![
+            a.public_key().to_bytes().to_vec(),
+            b.public_key().to_bytes().to_vec(),
+        ];
+        let kinds = vec![9_i32];
+        let exchange_id = "exchange-under-test";
+
+        let first = turn_event(&a, exchange_id, 1, 100, "from a");
+        let second = turn_event(&b, exchange_id, 1, 101, "from b");
+
+        let (left, right) = tokio::join!(
+            insert_event_if_exchange_turn_unclaimed(
+                &pool,
+                community,
+                &first,
+                channel_id,
+                exchange_id,
+                1,
+                &kinds,
+                &members,
+                claims_turn,
+                None,
+            ),
+            insert_event_if_exchange_turn_unclaimed(
+                &pool,
+                community,
+                &second,
+                channel_id,
+                exchange_id,
+                1,
+                &kinds,
+                &members,
+                claims_turn,
+                None,
+            )
+        );
+
+        let outcomes = [left.unwrap(), right.unwrap()];
+        let inserted = outcomes
+            .iter()
+            .filter(|outcome| {
+                matches!(
+                    outcome,
+                    crate::ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+                )
+            })
+            .count();
+        let spoken = outcomes
+            .iter()
+            .filter(|outcome| {
+                matches!(
+                    outcome,
+                    crate::ExchangeTurnGuardedInsertOutcome::TurnAlreadySpoken
+                )
+            })
+            .count();
+        assert_eq!(inserted, 1, "exactly one claimant may land: {outcomes:?}");
+        assert_eq!(spoken, 1, "the loser must be told the turn is spoken");
+    }
+
+    /// A byte-identical resubmission is a retry, not a second claim.
+    #[tokio::test]
+    async fn resubmitting_the_same_turn_event_is_a_duplicate_not_a_second_claim() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        let community = ensure_configured_community(&pool, "exchange-retry.example")
+            .await
+            .unwrap()
+            .id;
+        let channel_id = Uuid::new_v4();
+        let a = Keys::generate();
+        let members = vec![a.public_key().to_bytes().to_vec()];
+        let kinds = vec![9_i32];
+        let exchange_id = "retry-exchange";
+        let event = turn_event(&a, exchange_id, 2, 200, "only once");
+
+        for expected_inserted in [true, false] {
+            let outcome = insert_event_if_exchange_turn_unclaimed(
+                &pool,
+                community,
+                &event,
+                channel_id,
+                exchange_id,
+                2,
+                &kinds,
+                &members,
+                claims_turn,
+                None,
+            )
+            .await
+            .unwrap();
+            match outcome {
+                crate::ExchangeTurnGuardedInsertOutcome::Inserted { was_inserted, .. } => {
+                    assert_eq!(was_inserted, expected_inserted);
+                }
+                other => panic!("expected a duplicate-tolerant insert, got {other:?}"),
+            }
+        }
+    }
+
+    /// A different turn of the same exchange is not blocked by an earlier one.
+    #[tokio::test]
+    async fn a_later_turn_of_the_same_exchange_still_lands() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        let community = ensure_configured_community(&pool, "exchange-next.example")
+            .await
+            .unwrap()
+            .id;
+        let channel_id = Uuid::new_v4();
+        let a = Keys::generate();
+        let b = Keys::generate();
+        let members = vec![
+            a.public_key().to_bytes().to_vec(),
+            b.public_key().to_bytes().to_vec(),
+        ];
+        let kinds = vec![9_i32];
+        let exchange_id = "sequential-exchange";
+
+        for (keys, turn, at) in [(&a, 1_u8, 300_u64), (&b, 2, 301)] {
+            let event = turn_event(keys, exchange_id, turn, at, "turn");
+            let outcome = insert_event_if_exchange_turn_unclaimed(
+                &pool,
+                community,
+                &event,
+                channel_id,
+                exchange_id,
+                turn,
+                &kinds,
+                &members,
+                claims_turn,
+                None,
+            )
+            .await
+            .unwrap();
+            assert!(
+                matches!(
+                    outcome,
+                    crate::ExchangeTurnGuardedInsertOutcome::Inserted { .. }
+                ),
+                "turn {turn} should land, got {outcome:?}"
+            );
+        }
+    }
+
+    /// The membership-snapshot guard refuses when the snapshot moved.
+    #[tokio::test]
+    async fn membership_snapshot_guard_refuses_a_stale_snapshot() {
+        let pool = connect("sqlite::memory:").await.unwrap();
+        let community = ensure_configured_community(&pool, "snapshot.example")
+            .await
+            .unwrap()
+            .id;
+        let channel_id = Uuid::new_v4();
+        let relay = Keys::generate();
+        let sender = Keys::generate();
+
+        let snapshot = EventBuilder::new(
+            Kind::Custom(buzz_core::kind::KIND_NIP29_GROUP_MEMBERS as u16),
+            "members",
+        )
+        .custom_created_at(Timestamp::from(400_u64))
+        .sign_with_keys(&relay)
+        .unwrap();
+        insert_event(&pool, community, &snapshot, Some(channel_id))
+            .await
+            .unwrap();
+
+        let message = EventBuilder::new(Kind::Custom(9), "hello")
+            .custom_created_at(Timestamp::from(401_u64))
+            .sign_with_keys(&sender)
+            .unwrap();
+
+        let current: [u8; 32] = *snapshot.id.as_bytes();
+        let outcome = insert_event_if_membership_snapshot_matches(
+            &pool,
+            community,
+            &message,
+            channel_id,
+            &relay.public_key(),
+            &current,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::MembershipSnapshotGuardedInsertOutcome::Inserted { .. }
+        ));
+
+        let other = EventBuilder::new(Kind::Custom(9), "second")
+            .custom_created_at(Timestamp::from(402_u64))
+            .sign_with_keys(&sender)
+            .unwrap();
+        let stale = [0u8; 32];
+        let outcome = insert_event_if_membership_snapshot_matches(
+            &pool,
+            community,
+            &other,
+            channel_id,
+            &relay.public_key(),
+            &stale,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            crate::MembershipSnapshotGuardedInsertOutcome::SnapshotChanged
+        ));
     }
 }
