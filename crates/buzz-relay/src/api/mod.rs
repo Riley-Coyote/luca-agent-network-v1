@@ -113,6 +113,40 @@ pub mod relay_members {
                                 owner = %owner_hex,
                                 "NIP-OA membership granted via owner"
                             );
+                            // WP-LOCAL2 decision 4: on the single-node relay the
+                            // owner's residents are members by design, so record
+                            // the membership instead of re-deriving it from the
+                            // auth tag on every request. `relay_members` then
+                            // shows the owner and each resident, which is what an
+                            // operator (and the isolation checks) read.
+                            if state.config.profile.is_single_node() {
+                                match state
+                                    .db
+                                    .add_relay_member(
+                                        community,
+                                        &pubkey_hex,
+                                        "member",
+                                        Some(&owner_hex),
+                                    )
+                                    .await
+                                {
+                                    Ok(added) => {
+                                        if added {
+                                            info!(
+                                                agent = %pubkey_hex,
+                                                owner = %owner_hex,
+                                                "single-node: registered the owner's resident as a relay member"
+                                            );
+                                        }
+                                    }
+                                    // Never fail the request over the bookkeeping:
+                                    // the NIP-OA grant above already decided access.
+                                    Err(e) => info!(
+                                        agent = %pubkey_hex,
+                                        "single-node: could not persist resident membership: {e}"
+                                    ),
+                                }
+                            }
                             return Ok(MembershipDecision::ViaOwner(owner_pubkey));
                         }
                     }
