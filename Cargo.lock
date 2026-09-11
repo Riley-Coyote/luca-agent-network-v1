@@ -795,7 +795,6 @@ dependencies = [
  "futures-util",
  "hex",
  "httparse",
- "libc",
  "luca-continuity",
  "luca-diagnostics",
  "luca-protocol",
