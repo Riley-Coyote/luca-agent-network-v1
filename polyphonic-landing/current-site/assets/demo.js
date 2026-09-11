@@ -114,9 +114,17 @@
   }
   const toolbar = () => `<header class="d-header">${new URLSearchParams(location.search).get('demo')==='chat'&&state.view!=='Luca'?action('nav','Back to Luca',icon('back'),'class="d-pop-back" data-view="Luca"'):''}${ib('sidebar','Toggle app navigation','drawer','aria-expanded="'+state.sidebar+'"')}<div class="d-title"><strong>${esc(state.view)}</strong>${rooms[state.view]?`<span>Northstar · ${rooms[state.view].members}</span>`:''}</div><div class="d-tools">${ib('split','Toggle split view','split',`aria-pressed="${state.split}"`)}${ib('popout','Pop out chat','pop')}${ib('drawer','Toggle conversation drawer','drawer',`aria-expanded="${!!state.drawer}"`)}${ib('expand',state.expanded?'Close expanded demo':'Expand app demo',state.expanded?'close':'expand')}</div></header>`;
   function workCard(name){const pct=name==='Codex'?Math.min(100,state.progress+16):state.progress,who=workResident[name]||name;return action('nav',`Inspect ${who}’s work on ${name}`,`${providerMark(name)}<span><strong>${who}</strong><small>${workRoom[name]||runtimeData[name][0]} · ${name}</small><span class="d-meter" role="progressbar" aria-label="${who} demo progress" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></span></span><span class="d-work-status">${pct===100?'Ready to review':`${pct}%`}</span>${icon('chevron')}`,`class="d-work-card" data-view="${name}"`);}
+  /* WP-12 — the work Luca is reporting on, as the app shows it: two saved runtime
+     receipts and the memory line. The copy is the one the no-JS fallback in index.html
+     has always carried; the anatomy, marks and ink are the frame's own work-card and
+     context-link rules, so these read as app UI and not as page furniture. They carry
+     no progress meter, which is why the progress ticker skips `.d-saved-work`. */
+  const savedWork = {Codex:['Saved · 9:38','Walkthrough implemented'],'Claude Code':['Saved · 9:40','One next step to clarify']};
+  const savedCard = name => action('nav',`Open ${name}’s saved work`,`${providerMark(name)}<span><strong>${name}</strong><small>${savedWork[name][1]}</small></span><span class="d-work-status">${savedWork[name][0]}</span>${icon('chevron')}`,`class="d-work-card d-saved-work" data-view="${name}"`);
+  const memoryReceipt = () => action('brain','Open the sources behind this reply',`${icon('brain')}<span>From your brief, preferences, and Tuesday</span>${icon('chevron')}`,'class="d-context-link"');
   function chat(name='Luca',compact=false){
     const research=name==='Mira',group=name==='Luca & Mira',ziggy=name==='Ziggy';
-    let content=ziggy ? `<div class="d-bubble">Anything left in the Northstar release notes?</div><div class="d-message"><b>Ziggy <small>9:38</small></b><p>The walkthrough and the welcome screen are in. Offline mobile support stays out of this first release.</p><p>I’ll keep the notes with the project so Luca can bring them into Launch.</p>${action('nav','Open the Project sync room',`${icon('group')} Project sync`,'class="d-inline" data-view="Project sync"')}</div>` : research ? `<div class="d-message"><b>Mira</b><p>I read the Northstar brief and the latest Codex walkthrough. One thing stands out: the empty screen needs a single clear next step.</p><p>I’ve shared that with Luca. The rest can stay small.</p>${action('source','Read the project brief',`${icon('file')} Northstar brief.md`,'class="d-inline" data-source="0"')}</div>` : group ? `<div class="d-bubble">Could you two check the scope before we ship?</div><div class="d-message"><b>Luca <small>9:44</small></b><p>Mira, can you check the welcome screen against the brief?</p></div><div class="d-message"><b>Mira <small>9:46</small></b><p>One prompt is enough. Claude Code and Kimi can refine it together; Codex can keep the project sync steady.</p></div><div class="d-message"><b>Luca</b><p>Agreed. I’ll keep the work connected and bring the decisions back here.</p></div>` : `<div class="d-bubble">Morning. How’s Northstar coming along?</div><div class="d-message"><b>Luca <small>9:41</small></b><p>We’re keeping the first release small, just as you asked. Here’s where everyone left off.</p><p>Claude Code is working through the welcome screen with Kimi. Codex has the project-sync changes in progress.</p><p>Mira has read the brief. Want her perspective before we decide what ships?</p>${action('consult','See Luca and Mira’s exchange',`${icon('group')}<span><strong>Luca · Mira</strong><small>Between agents</small></span><small>3 turns</small>`,'class="d-exchange"')}</div>`;
+    let content=ziggy ? `<div class="d-bubble">Anything left in the Northstar release notes?</div><div class="d-message"><b>Ziggy <small>9:38</small></b><p>The walkthrough and the welcome screen are in. Offline mobile support stays out of this first release.</p><p>I’ll keep the notes with the project so Luca can bring them into Launch.</p>${action('nav','Open the Project sync room',`${icon('group')} Project sync`,'class="d-inline" data-view="Project sync"')}</div>` : research ? `<div class="d-message"><b>Mira</b><p>I read the Northstar brief and the latest Codex walkthrough. One thing stands out: the empty screen needs a single clear next step.</p><p>I’ve shared that with Luca. The rest can stay small.</p>${action('source','Read the project brief',`${icon('file')} Northstar brief.md`,'class="d-inline" data-source="0"')}</div>` : group ? `<div class="d-bubble">Could you two check the scope before we ship?</div><div class="d-message"><b>Luca <small>9:44</small></b><p>Mira, can you check the welcome screen against the brief?</p></div><div class="d-message"><b>Mira <small>9:46</small></b><p>One prompt is enough. Claude Code and Kimi can refine it together; Codex can keep the project sync steady.</p></div><div class="d-message"><b>Luca</b><p>Agreed. I’ll keep the work connected and bring the decisions back here.</p></div>` : `<div class="d-bubble">Morning. How’s Northstar coming along?</div><div class="d-message"><b>Luca <small>9:41</small></b><p>We’re keeping the first release small, just as you asked. Here’s where everyone left off.</p><div class="d-work-list">${savedCard('Codex')}${savedCard('Claude Code')}</div><p>Mira has read the brief. Want her perspective before we decide what ships?</p>${memoryReceipt()}${action('consult','See Luca and Mira’s exchange',`${icon('group')}<span><strong>Luca · Mira</strong><small>Between agents</small></span><small>3 turns</small>`,'class="d-exchange"')}</div>`;
     if(rooms[name]){const r=rooms[name],[first,...rest]=r.members.split(' · ').reverse();
       content=`<div class="d-day"><span>Monday</span></div><div class="d-system">You <small>created this channel</small></div><div class="d-system">${first} <small>was added by You, along with ${rest.join(' and ')}</small></div>`+r.turns.map(([author,text])=>`<div class="d-message"><b>${author}</b><p>${text}</p></div>`).join('')+action('consult','See the exchange between these agents',`${icon('group')}<span><strong>${r.members}</strong><small>Between agents</small></span><small>${r.turns.length} turns</small>`,'class="d-exchange"');}
     content+=state.extra.filter(m=>(m.agent||'Luca')===name).map(m=>`<div class="d-bubble">${esc(m.q)}</div><div class="d-message d-arrival"><b>${esc(rooms[name]?'Luca':name)}</b><p>${esc(m.a)}</p></div>`).join('');
@@ -216,7 +224,7 @@
   function startProgress(){clearInterval(progressTimer);if(state.paused||document.hidden||new URLSearchParams(location.search).get('demo')==='chat')return;progressTimer=setInterval(()=>{
     const box=root.getBoundingClientRect();if(Math.min(innerHeight,box.bottom)-Math.max(0,box.top)<Math.min(350,box.height*.45))return;
     state.progress=Math.min(100,state.progress+7);share();
-    root.querySelectorAll('.d-work-card').forEach(card=>{const pct=card.dataset.view==='Codex'?Math.min(100,state.progress+16):state.progress;card.querySelector('.d-meter').setAttribute('aria-valuenow',pct);card.querySelector('.d-meter i').style.width=pct+'%';card.querySelector('.d-work-status').textContent=pct===100?'Ready to review':pct+'%'});
+    root.querySelectorAll('.d-work-card:not(.d-saved-work)').forEach(card=>{const pct=card.dataset.view==='Codex'?Math.min(100,state.progress+16):state.progress;card.querySelector('.d-meter').setAttribute('aria-valuenow',pct);card.querySelector('.d-meter i').style.width=pct+'%';card.querySelector('.d-work-status').textContent=pct===100?'Ready to review':pct+'%'});
     if(state.progress===100){clearInterval(progressTimer);announce('Demo work is ready to review. Open a runtime to see the result.');}
   },1800);}
   function expanded(on){state.expanded=on;root.classList.toggle('d-expanded',on);document.body.classList.toggle('demo-open',on);document.querySelectorAll('.site-header,.hero,#preview ~ *, .footer,#preview>.product-caption').forEach(el=>el.inert=on);if(on){expandedFocus=document.activeElement;root.setAttribute('role','dialog');root.setAttribute('aria-modal','true');root.setAttribute('aria-label','Expanded Polyphonic app demo');}else{root.removeAttribute('role');root.removeAttribute('aria-modal');root.removeAttribute('aria-label');}render();if(on)$('[data-action=expand]').focus();else $('[data-action=expand]')?.focus();}
@@ -273,58 +281,68 @@
   function tour(){if(state.touring){stopTour();return}state.touring=true;if(state.progress===100){state.progress=62;startProgress();}const stages=['Luca','Brain','Agents','Activity','Luca'];let i=0;const next=()=>{if(!state.touring)return;nav(stages[i],false);document.getElementById('replay-demo').textContent=`Stop tour · ${i+1} / ${stages.length}`;if(i===4){state.drawer={type:'conversation'};render();stopTour();return;}i++;tourTimer=setTimeout(next,5500)};next();}
   const live=document.createElement('span');live.id='demo-announcement';live.className='sr-only';live.setAttribute('role','status');root.after(live);
   render();startProgress();
-  if(channel){channel.onmessage=({data})=>{if(data.type==='request'){share();return}if(data.type!=='state'||!Array.isArray(data.extra)||!providers.includes(data.runtime))return;let contextChanged=false;if(Array.isArray(data.grants)&&data.grants.length===4){document.querySelectorAll('.grant-toggle[data-agent="luca"]').forEach((btn,i)=>{if(typeof data.grants[i]==='boolean'&&(btn.getAttribute('aria-checked')==='true')!==data.grants[i]){btn.click();contextChanged=true}})}const changed=contextChanged||JSON.stringify(state.extra)!==JSON.stringify(data.extra)||state.runtime!==data.runtime;state.extra=data.extra;state.runtime=data.runtime;state.progress=data.progress;if(changed)render();else root.querySelectorAll('.d-work-card').forEach(card=>{const pct=card.dataset.view==='Codex'?Math.min(100,state.progress+16):state.progress;card.querySelector('.d-meter').setAttribute('aria-valuenow',pct);card.querySelector('.d-meter i').style.width=pct+'%';card.querySelector('.d-work-status').textContent=pct===100?'Ready to review':pct+'%'});};channel.postMessage({type:'request'});}
+  if(channel){channel.onmessage=({data})=>{if(data.type==='request'){share();return}if(data.type!=='state'||!Array.isArray(data.extra)||!providers.includes(data.runtime))return;let contextChanged=false;if(Array.isArray(data.grants)&&data.grants.length===4){document.querySelectorAll('.grant-toggle[data-agent="luca"]').forEach((btn,i)=>{if(typeof data.grants[i]==='boolean'&&(btn.getAttribute('aria-checked')==='true')!==data.grants[i]){btn.click();contextChanged=true}})}const changed=contextChanged||JSON.stringify(state.extra)!==JSON.stringify(data.extra)||state.runtime!==data.runtime;state.extra=data.extra;state.runtime=data.runtime;state.progress=data.progress;if(changed)render();else root.querySelectorAll('.d-work-card:not(.d-saved-work)').forEach(card=>{const pct=card.dataset.view==='Codex'?Math.min(100,state.progress+16):state.progress;card.querySelector('.d-meter').setAttribute('aria-valuenow',pct);card.querySelector('.d-meter i').style.width=pct+'%';card.querySelector('.d-work-status').textContent=pct===100?'Ready to review':pct+'%'});};channel.postMessage({type:'request'});}
   const integrations=document.createElement('div');integrations.className='hero-integrations';integrations.innerHTML='<p>Bring the agents you already know.</p><div>'+providers.map(n=>action('nav','Explore '+n,providerMark(n)+'<span>'+n+'</span>',`data-view="${n}"`)).join('')+'</div>';document.querySelector('.hero').append(integrations);integrations.addEventListener('click',e=>{const b=e.target.closest('button');if(b){stopTour();nav(b.dataset.view);root.scrollIntoView({behavior:state.paused?'instant':'smooth',block:'start'});root.tabIndex=-1;root.focus({preventScroll:true});}});
   const replay=document.getElementById('replay-demo');replay.textContent='Play guided tour';replay.disabled=state.paused;replay.addEventListener('click',()=>{if(state.paused){nav('Brain');announce('Animation is paused. Explore the sections at your own pace.');return}tour()});
   document.querySelector('.hero-actions .text-button').href='#preview';document.querySelector('.hero-actions .text-button').addEventListener('click',()=>{root.tabIndex=-1;root.focus({preventScroll:true})});
   if(new URLSearchParams(location.search).get('demo')==='chat'){
     document.documentElement.classList.add('d-chat-window');const agent=new URLSearchParams(location.search).get('agent');state.view=isDm(agent)?agent:'Luca';render();document.title=state.view+' — Polyphonic demo';
   }
-  /* WP-11 — the app is alive. Luca's opening reply performs itself each time the frame
-     comes into view: a typing indicator, then the paragraphs at 20ms a character, then
-     the between-agents card and Mira's unread mark together. The resting frame IS the
-     finished scene, so the performance only ever takes things away and puts them back
-     exactly. The first touch inside the frame ends it for the session; a paused page and
-     reduced motion never start it. */
+  /* WP-11 · WP-12 — the app is alive, and the scene has its cards. Luca's opening reply
+     performs itself while the frame is in view: a typing indicator, the first paragraph
+     at 20ms a character, the two saved runtime receipts landing one after the other, the
+     second paragraph, then the memory receipt, the between-agents card and Mira's rail
+     row turning from `reading…` back to its unread mark on the same beat. The whole
+     scene is a pure function of elapsed time modulo one period, diffed to a short key so
+     the DOM is touched only when something actually changes; it loops until the frame
+     leaves the viewport. The resting frame IS the finished scene, so the performance
+     only ever takes things away and puts them back exactly. The first touch inside the
+     frame ends it for the session; a paused page and reduced motion never start it. */
   const alive=(()=>{
     if(new URLSearchParams(location.search).get('demo')==='chat')return null;
     const preview=document.getElementById('preview');
     if(!preview||!('IntersectionObserver' in window))return null;
-    const TYPE=20,LEAD=900,GAP=500,TAIL=800,RISE=360,SETTLE=140;
-    let armed=true,scene=null,key='',raf=0,renders=0,frames=0;
+    /* The prototype's own constants. */
+    const TYPE=20,LEAD=900,CARD1=4300,CARD2=4700,SECOND=5200,REVEAL=7700,PERIOD=12600;
+    let armed=true,visible=false,scene=null,key='',raf=0,renders=0,frames=0,cycles=0;
     function pieces(){
       if(state.view!=='Luca'||state.drawer||state.split||state.expanded||state.extra.length)return null;
-      const message=$('.d-transcript>.d-message'),scroller=$('.d-chat-scroll'),mira=$('.d-sidebar [data-view="Mira"] .d-unread');
-      if(!message||!scroller||!mira)return null;
-      const lines=[...message.querySelectorAll(':scope>p')],card=message.querySelector(':scope>.d-exchange');
-      if(lines.length<2||!card)return null;
+      const message=$('.d-transcript>.d-message'),scroller=$('.d-chat-scroll'),row=$('.d-sidebar .d-nav [data-view="Mira"]');
+      if(!message||!scroller||!row)return null;
+      const mira=row.querySelector('.d-unread');
+      const lines=[...message.querySelectorAll(':scope>p')],
+            work=[...message.querySelectorAll(':scope>.d-work-list>.d-work-card')],
+            receipt=message.querySelector(':scope>.d-context-link'),
+            card=message.querySelector(':scope>.d-exchange');
+      if(!mira||lines.length<2||work.length<2||!receipt||!card)return null;
       const text=lines.map(line=>line.firstChild);
       if(text.some(node=>!node||node.nodeType!==3||!node.nodeValue.trim()))return null;
-      return {message,scroller,mira,lines,card,text};
+      return {message,scroller,row,mira,lines,text,late:[work[0],work[1],receipt,card]};
     }
     function begin(){
       const p=pieces();if(!p)return null;
+      /* Heights are measured, not assumed, so blanking a paragraph cannot move the page. */
       const full=p.text.map(node=>node.nodeValue),held=p.lines.map(line=>line.getBoundingClientRect().height);
       p.lines.forEach((line,i)=>{line.style.minHeight=held[i]+'px'});
-      p.text.forEach(node=>{node.nodeValue=''});
       const dots=document.createElement('span');dots.className='d-alive-typing';dots.setAttribute('aria-hidden','true');dots.innerHTML='<i></i><i></i><i></i>';
-      p.lines[0].append(dots);
-      p.card.classList.add('d-alive-veil','d-alive-rise');p.mira.classList.add('d-alive-veil');
+      const status=document.createElement('small');status.className='d-alive-status';status.textContent='reading…';
       p.message.setAttribute('aria-busy','true');
-      const marks=[];let cue=LEAD;
-      full.forEach(s=>{marks.push(cue);cue+=s.length*TYPE+GAP});
-      const reveal=cue-GAP+TAIL;
-      return {...p,full,dots,marks,reveal,last:reveal+RISE+SETTLE,rest:p.scroller.scrollTop};
+      return {...p,full,dots,status,marks:[LEAD,SECOND],gates:[CARD1,CARD2,REVEAL,REVEAL],rest:p.scroller.scrollTop};
     }
+    const hide=el=>{el.classList.remove('d-alive-shown');el.classList.add('d-alive-veil','d-alive-rise')};
+    const lift=el=>{el.classList.add('d-alive-shown')};
     function paint(elapsed){
-      const typing=elapsed<LEAD,shown=elapsed>=scene.reveal;
-      const counts=scene.full.map((s,i)=>elapsed<=scene.marks[i]?0:Math.min(s.length,Math.floor((elapsed-scene.marks[i])/TYPE)));
-      const mark=(typing?'t':'-')+counts.join('.')+(shown?'+':'-');
+      const s=scene,typing=elapsed<LEAD,answered=elapsed>=REVEAL;
+      const counts=s.full.map((t,i)=>elapsed<=s.marks[i]?0:Math.min(t.length,Math.floor((elapsed-s.marks[i])/TYPE)));
+      const shown=s.gates.map(at=>elapsed>=at);
+      const mark=(typing?'t':'-')+counts.join('.')+shown.map(on=>on?'1':'0').join('');
       if(mark===key)return;
       key=mark;renders++;
-      if(!typing&&scene.dots.isConnected)scene.dots.remove();
-      counts.forEach((n,i)=>{const want=n>=scene.full[i].length?scene.full[i]:scene.full[i].slice(0,n);if(scene.text[i].nodeValue!==want)scene.text[i].nodeValue=want});
-      if(shown&&!scene.card.classList.contains('d-alive-shown')){scene.card.classList.add('d-alive-shown');scene.mira.classList.add('d-alive-shown')}
+      if(typing){if(!s.dots.isConnected)s.lines[0].append(s.dots)}else if(s.dots.isConnected)s.dots.remove();
+      counts.forEach((n,i)=>{const want=n>=s.full[i].length?s.full[i]:s.full[i].slice(0,n);if(s.text[i].nodeValue!==want)s.text[i].nodeValue=want});
+      s.late.forEach((el,i)=>{shown[i]?lift(el):hide(el)});
+      if(answered){if(s.status.isConnected)s.status.remove();s.mira.classList.remove('d-alive-veil');lift(s.mira)}
+      else{if(!s.status.isConnected)s.row.append(s.status);s.mira.classList.remove('d-alive-shown');s.mira.classList.add('d-alive-veil')}
     }
     function finish(disarm){
       if(disarm){armed=false;io.disconnect()}
@@ -332,9 +350,10 @@
       const done=scene;scene=null;key='';
       if(!done)return;
       if(done.dots.isConnected)done.dots.remove();
+      if(done.status.isConnected)done.status.remove();
       done.text.forEach((node,i)=>{node.nodeValue=done.full[i]});
       done.lines.forEach(line=>line.removeAttribute('style'));
-      done.card.classList.remove('d-alive-veil','d-alive-rise','d-alive-shown');
+      done.late.forEach(el=>el.classList.remove('d-alive-veil','d-alive-rise','d-alive-shown'));
       done.mira.classList.remove('d-alive-veil','d-alive-shown');
       done.message.removeAttribute('aria-busy');
       if(done.scroller.scrollTop!==done.rest)done.scroller.scrollTo({top:done.rest,behavior:'instant'});
@@ -342,30 +361,30 @@
     function start(){
       if(!armed||scene||state.paused||reduced.matches||document.hidden)return;
       const next=begin();if(!next)return;
-      scene=next;key='';renders=0;frames=0;
+      scene=next;key='';renders=0;frames=0;cycles=0;
       const t0=performance.now();
       const step=now=>{
         if(scene!==next)return;
         if(!next.message.isConnected){finish(true);return}
         frames++;
-        const elapsed=now-t0;
-        paint(Math.min(elapsed,next.last));
+        const total=now-t0;cycles=Math.floor(total/PERIOD);
+        paint(total%PERIOD);
         if(next.scroller.scrollTop!==next.rest)next.scroller.scrollTo({top:next.rest,behavior:'instant'});
-        if(elapsed>=next.last){finish(false);return}
         raf=requestAnimationFrame(step);
       };
       raf=requestAnimationFrame(step);
     }
-    const io=new IntersectionObserver(entries=>{entries[entries.length-1].isIntersecting?start():finish(false)},{threshold:.35});
+    const io=new IntersectionObserver(entries=>{visible=entries[entries.length-1].isIntersecting;visible?start():finish(false)},{threshold:.35});
     ['pointerdown','keydown','click','input','change','submit'].forEach(type=>root.addEventListener(type,()=>{if(armed||scene)finish(true)},true));
-    addEventListener('polyphonic:motion',()=>{if(state.paused)finish(false)});
-    reduced.addEventListener('change',()=>{if(reduced.matches)finish(false)});
-    addEventListener('resize',()=>finish(false),{passive:true});
-    document.addEventListener('visibilitychange',()=>{if(document.hidden)finish(false)});
+    addEventListener('polyphonic:motion',()=>{if(state.paused)finish(false);else if(visible)start()});
+    reduced.addEventListener('change',()=>{if(reduced.matches)finish(false);else if(visible)start()});
+    /* A resize invalidates the measured heights: end the scene, re-measure, play on. */
+    addEventListener('resize',()=>{finish(false);if(visible)start()},{passive:true});
+    document.addEventListener('visibilitychange',()=>{document.hidden?finish(false):visible&&start()});
     /* Wait for the frame's own webfonts: the reserved paragraph heights are measured, so
        they have to be measured against the type the reader will actually see. */
     if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>io.observe(preview));else io.observe(preview);
-    return {get armed(){return armed},get running(){return !!scene},get cost(){return {renders,frames}},stop:()=>finish(false),cancel:()=>finish(true)};
+    return {get armed(){return armed},get running(){return !!scene},get cost(){return {renders,frames,cycles}},period:PERIOD,stop:()=>finish(false),cancel:()=>finish(true)};
   })();
   window.PolyphonicDemo={navigate:nav,state,alive};
 })();
