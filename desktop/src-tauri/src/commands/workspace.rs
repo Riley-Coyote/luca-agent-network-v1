@@ -181,6 +181,7 @@ pub async fn apply_workspace(
             let mut override_guard = state.relay_url_override.lock().map_err(|e| e.to_string())?;
             *override_guard = Some(effective_relay_url);
         }
+        relay::log_effective_relay(&state, "apply_workspace");
         // Reset the Rust-side admission gate when switching workspace/community,
         // matching `resetRateLimitGate()` on the TS side (useCommunityInit.ts:38).
         crate::relay_admission::reset_gate_for_workspace_change();

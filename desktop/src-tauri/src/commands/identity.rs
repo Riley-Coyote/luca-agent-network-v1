@@ -112,6 +112,7 @@ fn is_env_supplied_identity_value(value: Option<String>) -> bool {
 
 #[tauri::command]
 pub fn get_relay_ws_url(state: State<'_, AppState>) -> String {
+    relay::log_effective_relay(&state, "get_relay_ws_url");
     relay_ws_url_with_override(&state)
 }
 

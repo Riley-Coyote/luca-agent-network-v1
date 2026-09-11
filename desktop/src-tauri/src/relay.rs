@@ -79,6 +79,31 @@ pub fn relay_ws_url_with_override(state: &AppState) -> String {
     workspace_relay_override(state).unwrap_or_else(relay_ws_url)
 }
 
+/// One-line, once-per-process record of which relay this install will dial and
+/// why. WP-LOCAL3 asked for it; WP-FIX3 needs it to tell "started its own relay"
+/// apart from "found the dev relay on :3000".
+pub fn describe_relay_source(state: &AppState) -> (String, &'static str) {
+    if let Some(url) = workspace_relay_override(state) {
+        return (url, "workspace-override");
+    }
+    if std::env::var("BUZZ_RELAY_URL")
+        .ok()
+        .is_some_and(|v| !v.trim().is_empty())
+    {
+        return (relay_ws_url(), "env:BUZZ_RELAY_URL");
+    }
+    if option_env!("BUZZ_DESKTOP_BUILD_RELAY_URL").is_some() {
+        return (relay_ws_url(), "baked:BUZZ_DESKTOP_BUILD_RELAY_URL");
+    }
+    (relay_ws_url(), "bootstrap-default")
+}
+
+/// Log the effective relay URL and the mode that chose it.
+pub fn log_effective_relay(state: &AppState, phase: &str) {
+    let (url, mode) = describe_relay_source(state);
+    println!("[relay] phase={phase} effective_relay_url={url} mode={mode} setup_default={}", default_setup_relay_url());
+}
+
 /// Returns the relay HTTP API base URL, checking the workspace override first.
 /// Precedence: workspace override > env vars > build-time vars > default.
 pub fn relay_api_base_url_with_override(state: &AppState) -> String {

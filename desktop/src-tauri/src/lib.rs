@@ -769,6 +769,10 @@ pub fn run() {
                     .store(true, Ordering::Release);
             }
 
+            // WP-FIX3 / WP-LOCAL3: say out loud which relay this process will
+            // dial before any workspace is applied, and how that was chosen.
+            relay::log_effective_relay(&state, "boot");
+
             // Periodic sweep: reap orphaned agents from dead instances every 60s.
             // Catches agents that escaped both the Justfile trap and boot-time
             // reaping (e.g. a `just staging` Ctrl+C leak that only gets collected
