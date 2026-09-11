@@ -14,7 +14,9 @@ use std::{
 };
 
 use nostr::Keys;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+use crate::data_dir::BuzzPathExt;
 
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
@@ -212,7 +214,11 @@ pub(crate) fn relay_url(runtime: &RuntimeState) -> Option<String> {
 fn local_data_dir(app: &AppHandle, owner_pubkey: &str) -> Result<PathBuf, String> {
     // Relay state is both durable and identity-scoped. A different desktop
     // identity must never inherit this identity's SQLite membership or media.
-    app.path()
+    // WP-LOCAL1: `buzz_path()`, not `path()`, so the relay's SQLite file and
+    // media directory follow `BUZZ_DESKTOP_DATA_DIR` like every other app-data
+    // lookup. Without this an isolated smoke run would still write the relay's
+    // state into the real Application Support directory.
+    app.buzz_path()
         .app_data_dir()
         .map(|path| path.join("local-relay").join(owner_pubkey))
         .map_err(|e| format!("resolve app data directory for local relay: {e}"))
