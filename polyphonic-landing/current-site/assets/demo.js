@@ -280,5 +280,92 @@
   if(new URLSearchParams(location.search).get('demo')==='chat'){
     document.documentElement.classList.add('d-chat-window');const agent=new URLSearchParams(location.search).get('agent');state.view=isDm(agent)?agent:'Luca';render();document.title=state.view+' — Polyphonic demo';
   }
-  window.PolyphonicDemo={navigate:nav,state};
+  /* WP-11 — the app is alive. Luca's opening reply performs itself each time the frame
+     comes into view: a typing indicator, then the paragraphs at 20ms a character, then
+     the between-agents card and Mira's unread mark together. The resting frame IS the
+     finished scene, so the performance only ever takes things away and puts them back
+     exactly. The first touch inside the frame ends it for the session; a paused page and
+     reduced motion never start it. */
+  const alive=(()=>{
+    if(new URLSearchParams(location.search).get('demo')==='chat')return null;
+    const preview=document.getElementById('preview');
+    if(!preview||!('IntersectionObserver' in window))return null;
+    const TYPE=20,LEAD=900,GAP=500,TAIL=800,RISE=360,SETTLE=140;
+    let armed=true,scene=null,key='',raf=0,renders=0,frames=0;
+    function pieces(){
+      if(state.view!=='Luca'||state.drawer||state.split||state.expanded||state.extra.length)return null;
+      const message=$('.d-transcript>.d-message'),scroller=$('.d-chat-scroll'),mira=$('.d-sidebar [data-view="Mira"] .d-unread');
+      if(!message||!scroller||!mira)return null;
+      const lines=[...message.querySelectorAll(':scope>p')],card=message.querySelector(':scope>.d-exchange');
+      if(lines.length<2||!card)return null;
+      const text=lines.map(line=>line.firstChild);
+      if(text.some(node=>!node||node.nodeType!==3||!node.nodeValue.trim()))return null;
+      return {message,scroller,mira,lines,card,text};
+    }
+    function begin(){
+      const p=pieces();if(!p)return null;
+      const full=p.text.map(node=>node.nodeValue),held=p.lines.map(line=>line.getBoundingClientRect().height);
+      p.lines.forEach((line,i)=>{line.style.minHeight=held[i]+'px'});
+      p.text.forEach(node=>{node.nodeValue=''});
+      const dots=document.createElement('span');dots.className='d-alive-typing';dots.setAttribute('aria-hidden','true');dots.innerHTML='<i></i><i></i><i></i>';
+      p.lines[0].append(dots);
+      p.card.classList.add('d-alive-veil','d-alive-rise');p.mira.classList.add('d-alive-veil');
+      p.message.setAttribute('aria-busy','true');
+      const marks=[];let cue=LEAD;
+      full.forEach(s=>{marks.push(cue);cue+=s.length*TYPE+GAP});
+      const reveal=cue-GAP+TAIL;
+      return {...p,full,dots,marks,reveal,last:reveal+RISE+SETTLE,rest:p.scroller.scrollTop};
+    }
+    function paint(elapsed){
+      const typing=elapsed<LEAD,shown=elapsed>=scene.reveal;
+      const counts=scene.full.map((s,i)=>elapsed<=scene.marks[i]?0:Math.min(s.length,Math.floor((elapsed-scene.marks[i])/TYPE)));
+      const mark=(typing?'t':'-')+counts.join('.')+(shown?'+':'-');
+      if(mark===key)return;
+      key=mark;renders++;
+      if(!typing&&scene.dots.isConnected)scene.dots.remove();
+      counts.forEach((n,i)=>{const want=n>=scene.full[i].length?scene.full[i]:scene.full[i].slice(0,n);if(scene.text[i].nodeValue!==want)scene.text[i].nodeValue=want});
+      if(shown&&!scene.card.classList.contains('d-alive-shown')){scene.card.classList.add('d-alive-shown');scene.mira.classList.add('d-alive-shown')}
+    }
+    function finish(disarm){
+      if(disarm){armed=false;io.disconnect()}
+      if(raf)cancelAnimationFrame(raf);raf=0;
+      const done=scene;scene=null;key='';
+      if(!done)return;
+      if(done.dots.isConnected)done.dots.remove();
+      done.text.forEach((node,i)=>{node.nodeValue=done.full[i]});
+      done.lines.forEach(line=>line.removeAttribute('style'));
+      done.card.classList.remove('d-alive-veil','d-alive-rise','d-alive-shown');
+      done.mira.classList.remove('d-alive-veil','d-alive-shown');
+      done.message.removeAttribute('aria-busy');
+      if(done.scroller.scrollTop!==done.rest)done.scroller.scrollTo({top:done.rest,behavior:'instant'});
+    }
+    function start(){
+      if(!armed||scene||state.paused||reduced.matches||document.hidden)return;
+      const next=begin();if(!next)return;
+      scene=next;key='';renders=0;frames=0;
+      const t0=performance.now();
+      const step=now=>{
+        if(scene!==next)return;
+        if(!next.message.isConnected){finish(true);return}
+        frames++;
+        const elapsed=now-t0;
+        paint(Math.min(elapsed,next.last));
+        if(next.scroller.scrollTop!==next.rest)next.scroller.scrollTo({top:next.rest,behavior:'instant'});
+        if(elapsed>=next.last){finish(false);return}
+        raf=requestAnimationFrame(step);
+      };
+      raf=requestAnimationFrame(step);
+    }
+    const io=new IntersectionObserver(entries=>{entries[entries.length-1].isIntersecting?start():finish(false)},{threshold:.35});
+    ['pointerdown','keydown','click','input','change','submit'].forEach(type=>root.addEventListener(type,()=>{if(armed||scene)finish(true)},true));
+    addEventListener('polyphonic:motion',()=>{if(state.paused)finish(false)});
+    reduced.addEventListener('change',()=>{if(reduced.matches)finish(false)});
+    addEventListener('resize',()=>finish(false),{passive:true});
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)finish(false)});
+    /* Wait for the frame's own webfonts: the reserved paragraph heights are measured, so
+       they have to be measured against the type the reader will actually see. */
+    if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>io.observe(preview));else io.observe(preview);
+    return {get armed(){return armed},get running(){return !!scene},get cost(){return {renders,frames}},stop:()=>finish(false),cancel:()=>finish(true)};
+  })();
+  window.PolyphonicDemo={navigate:nav,state,alive};
 })();

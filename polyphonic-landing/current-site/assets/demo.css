@@ -323,3 +323,16 @@ img[src$="/hermes.png"]{border-radius:4px}
 @media(max-width:860px){.is-agents .d-agent-column{width:210px}}
 @media(max-width:700px){.is-agents{flex-direction:column}.is-agents>.d-agent-column{width:100%;flex:0 0 auto;max-height:58%;border-radius:10px 10px 0 0}.is-agents>.d-primary{border-radius:0 0 10px 10px}.d-agent-column>header{padding:12px 13px 6px}.d-agent-column h2{font-size:17px;margin-bottom:2px}.d-agent-column .d-room-search{margin:0 12px 8px;padding:7px}.d-chips{padding:0 12px 8px}.d-runtime-strip{margin:0 12px 8px;padding:7px 9px}.d-agent-column>footer{padding:8px 13px}}
 @media(max-width:600px){.demo-app .d-doc-row{grid-template-columns:minmax(0,1fr);gap:5px}.d-doc-meta{grid-column:1}.d-agent-head{gap:11px}.demo-app .d-agent-head h2{font-size:20px}.d-glance{grid-template-columns:1fr}.d-resident-row{flex-wrap:wrap;gap:9px}.d-resident-row>span:nth-child(2){flex-basis:60%}.d-runtime-strip{flex-wrap:wrap;gap:7px}.d-runtime-strip span{margin-left:0}.d-chips{flex-wrap:wrap}}
+/* WP-11 — the app is alive. Additive only: every rule below belongs to a class that
+   exists solely while Luca's opening reply is performing itself. The resting frame is
+   the finished scene, so nothing here survives the last beat. The .demo-app prefix is
+   there to out-weigh the frame's own `.demo-app button{transition:...}`, which would
+   otherwise swallow the fade; the button's own transitions are carried through. */
+.demo-app .d-alive-typing{display:inline-flex;align-items:center;gap:5px;height:1em;vertical-align:middle}
+.demo-app .d-alive-typing i{width:5px;height:5px;border-radius:50%;background:var(--app-sec);animation:d-alive-blink 1.2s linear infinite}
+.demo-app .d-alive-typing i:nth-child(2){animation-delay:.2s}
+.demo-app .d-alive-typing i:nth-child(3){animation-delay:.4s}
+@keyframes d-alive-blink{0%,70%,100%{opacity:.28}35%{opacity:.95}}
+.demo-app .d-alive-veil{opacity:0}
+.demo-app .d-alive-rise{transform:translateY(7px)}
+.demo-app .d-alive-shown{opacity:1;transform:none;transition:opacity .36s cubic-bezier(.16,1,.3,1),transform .36s cubic-bezier(.16,1,.3,1),background .16s,color .16s}
