@@ -171,7 +171,12 @@ export function BrainConnectionDialog({
           <fieldset
             aria-label={`Available ${sourceLabel}`}
             className={cn(
-              "space-y-2 pr-1",
+              // WebKit gives a fieldset an intrinsic min-inline-size of
+              // min-content and sizes it to max-content, so the rows inside it
+              // ignore the dialog card and run past its right edge. Neither
+              // `w-full` nor `min-w-0` alone is enough: the first sets the
+              // preferred size, the second releases the intrinsic floor.
+              "w-full min-w-0 space-y-2 pr-1",
               !singleSelection && "max-h-72 overflow-y-auto",
             )}
           >
