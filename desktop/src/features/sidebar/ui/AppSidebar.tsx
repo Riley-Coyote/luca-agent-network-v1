@@ -4,6 +4,7 @@ import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
+import { shouldShowProjectsSection } from "@/features/communities/communityStorage";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import { useStableCallback } from "@/shared/hooks/useStableReference";
@@ -866,6 +867,9 @@ export function AppSidebar({
                         agents={railAgents}
                         selectedAgentPubkey={selectedAgentPubkey}
                         onSelectAgent={selectAgentFromRail}
+                        showProjects={shouldShowProjectsSection(
+                          activeCommunity?.relayUrl,
+                        )}
                       />
                       <RuntimeRailSection
                         onSelect={handleSelectRuntime}

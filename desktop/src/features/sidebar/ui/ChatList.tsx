@@ -358,6 +358,7 @@ export function ChatList({
   agents,
   selectedAgentPubkey,
   onSelectAgent,
+  showProjects = true,
 }: {
   /** The residents the rail lists, in display order. */
   agents: readonly AgentRailAgent[];
@@ -381,6 +382,9 @@ export function ChatList({
   onSelectProject: (projectId: string, preferredRoomId: string | null) => void;
   onCreateProject: () => void;
   onCreateAgent: () => void;
+  /** Local mode has no git backend, so the whole PROJECTS section — header,
+   *  rows and the "New project" entry — is withheld. Loose rooms still show. */
+  showProjects?: boolean;
 }) {
   const { channels, directMessages } = React.useMemo(
     () => partitionConversationItems(items),
@@ -461,50 +465,54 @@ export function ChatList({
     >
       <div className="flex flex-col px-2" data-testid="chat-list">
         <div className="mt-2 flex flex-col" data-testid="chat-channels">
-          <RailSectionHeader
-            action={
-              <button
-                aria-label="New project"
-                className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
-                data-testid="create-channel"
-                onClick={onCreateProject}
-                title="New project"
-                type="button"
-              >
-                <Plus className="size-3.5" />
-              </button>
-            }
-            title="Projects"
-          />
-          {orderedProjects.map((project) => {
-            const group =
-              groupsByProjectId.get(project.id) ??
-              ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
-            return (
-              <ProjectRow
-                group={group}
-                isActive={effectiveProjectId === project.id}
-                key={project.id}
-                onSelectProject={onSelectProject}
-                unreadChannelIds={unreadChannelIds}
-                workingByChannelId={workingByChannelId}
+          {showProjects ? (
+            <>
+              <RailSectionHeader
+                action={
+                  <button
+                    aria-label="New project"
+                    className={cn(RAIL_CONTROL_CLASS, "-mr-1 size-6")}
+                    data-testid="create-channel"
+                    onClick={onCreateProject}
+                    title="New project"
+                    type="button"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                }
+                title="Projects"
               />
-            );
-          })}
-          {orderedProjects.length === 0 ? (
-            <button
-              className={cn(
-                RAIL_CONTROL_CLASS,
-                "min-h-8 justify-start gap-2.5 px-2 text-left text-sm",
-              )}
-              onClick={onCreateProject}
-              type="button"
-            >
-              <span className="flex size-5 items-center justify-center">
-                <Plus className="size-3.5" />
-              </span>
-              New project
-            </button>
+              {orderedProjects.map((project) => {
+                const group =
+                  groupsByProjectId.get(project.id) ??
+                  ({ project, items: [], mostRecent: 0 } satisfies ChatGroup);
+                return (
+                  <ProjectRow
+                    group={group}
+                    isActive={effectiveProjectId === project.id}
+                    key={project.id}
+                    onSelectProject={onSelectProject}
+                    unreadChannelIds={unreadChannelIds}
+                    workingByChannelId={workingByChannelId}
+                  />
+                );
+              })}
+              {orderedProjects.length === 0 ? (
+                <button
+                  className={cn(
+                    RAIL_CONTROL_CLASS,
+                    "min-h-8 justify-start gap-2.5 px-2 text-left text-sm",
+                  )}
+                  onClick={onCreateProject}
+                  type="button"
+                >
+                  <span className="flex size-5 items-center justify-center">
+                    <Plus className="size-3.5" />
+                  </span>
+                  New project
+                </button>
+              ) : null}
+            </>
           ) : null}
           {looseRooms?.items.map((item) => (
             <ChatRow item={item} key={item.channel.id} {...rowProps} />

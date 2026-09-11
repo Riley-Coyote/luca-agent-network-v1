@@ -14,6 +14,21 @@ export function isLocalCommunityRelayUrl(relayUrl: string): boolean {
   return relayUrl === LOCAL_COMMUNITY_RELAY_URL;
 }
 
+/**
+ * Whether the sidebar's PROJECTS section should render for this community.
+ *
+ * Projects are backed by git repositories the relay serves; the bundled
+ * on-this-device relay has no git backend, so in local mode the section, its
+ * rows and the "New project" entry are withheld entirely (WP-LOCAL3, S).
+ * An absent/empty relay URL is treated as local — nothing is configured yet.
+ */
+export function shouldShowProjectsSection(
+  relayUrl: string | null | undefined,
+): boolean {
+  const trimmed = (relayUrl ?? "").trim();
+  return trimmed !== "" && !isLocalCommunityRelayUrl(trimmed);
+}
+
 /** Stored local sentinel is never a network endpoint. */
 export function hasCommunityNetworkEndpoint(relayUrl: string): boolean {
   return !isLocalCommunityRelayUrl(relayUrl);

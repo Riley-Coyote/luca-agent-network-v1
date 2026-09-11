@@ -9,6 +9,7 @@ import {
   LOCAL_COMMUNITY_NAME,
   LOCAL_COMMUNITY_RELAY_URL,
   migrateLegacyCommunityStorage,
+  shouldShowProjectsSection,
 } from "./communityStorage.ts";
 
 function createMemoryStorage(initial = {}) {
@@ -89,4 +90,23 @@ test("clearCommunityStorage removes new and legacy state", () => {
   migrateLegacyCommunityStorage(storage);
 
   assert.equal(storage.length, 0);
+});
+
+test("the PROJECTS section is withheld on the bundled on-this-device relay", () => {
+  assert.equal(shouldShowProjectsSection(LOCAL_COMMUNITY_RELAY_URL), false);
+  assert.equal(
+    shouldShowProjectsSection(` ${LOCAL_COMMUNITY_RELAY_URL} `),
+    false,
+  );
+});
+
+test("the PROJECTS section renders for a hosted relay", () => {
+  assert.equal(shouldShowProjectsSection("wss://relay.example"), true);
+  assert.equal(shouldShowProjectsSection("ws://127.0.0.1:3000"), true);
+});
+
+test("an unconfigured community is treated as local", () => {
+  assert.equal(shouldShowProjectsSection(null), false);
+  assert.equal(shouldShowProjectsSection(undefined), false);
+  assert.equal(shouldShowProjectsSection("   "), false);
 });
