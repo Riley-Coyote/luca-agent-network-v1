@@ -162,7 +162,7 @@ fn event_query_parity_vectors_cover_all_fields(
         e_tags: _,
         channel_ids: _,
         max_limit: _,
-        shared_gated_reader: _,
+        exchange_ids: _,
     }: EventQuery,
 ) {
 }
@@ -202,8 +202,9 @@ pub(crate) fn event_query_parity_vectors(
     let mut e_tag = EventQuery::for_community(community_id);
     e_tag.e_tags = Some(vec![fixture.e_tag_hex.clone(), "missing".to_string()]);
 
-    let mut gated = EventQuery::for_community(community_id);
-    gated.shared_gated_reader = Some(fixture.gated_reader.clone());
+    // WP-LOCAL1: upstream's `shared_gated_reader` vector has no counterpart in
+    // this fork's EventQuery. The parity vectors keep the field-coverage
+    // pattern above honest; the gated-reader case is simply not applicable.
 
     let mut limited = EventQuery::for_community(community_id);
     limited.limit = Some(2);
@@ -243,16 +244,6 @@ pub(crate) fn event_query_parity_vectors(
             2,
         ),
         ("e-tag", e_tag, vec![fixture.first_id.clone()], 1),
-        (
-            "gated-reader",
-            gated,
-            vec![
-                fixture.third_id.clone(),
-                fixture.second_id.clone(),
-                fixture.first_id.clone(),
-            ],
-            3,
-        ),
         (
             "limit",
             limited,

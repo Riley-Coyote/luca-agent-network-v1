@@ -7795,7 +7795,7 @@ mod tests {
         let db = Db::from_pool(pool);
         assert!(!db.has_read_pool());
         assert!(
-            std::ptr::eq(db.read().expect("Postgres test DB"), &db.pool),
+            std::ptr::eq(db.read(), &db.pool),
             "read() must be the writer pool when no replica is configured"
         );
         assert!(db.read_pool_stats().is_none());

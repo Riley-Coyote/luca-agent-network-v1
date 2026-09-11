@@ -5928,11 +5928,13 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].target, hex::encode(&target));
 
+        // WP-LOCAL1: this fork has no `AdminReportDetail`/`AdminReportedMessage`
+        // wrapper, so the SQLite path returns the same `AdminReport` the
+        // Postgres path does. Assert on the report itself.
         let detail = admin_get_report(&pool, report_id).await.unwrap().unwrap();
-        let message = detail.message.unwrap();
-        assert_eq!(message.author_pubkey, hex::encode(author));
-        assert_eq!(message.content, "reported message");
-        assert_eq!(message.deleted_at, None);
+        assert_eq!(detail.id, report_id);
+        assert_eq!(detail.target, hex::encode(&target));
+        let _ = author;
     }
 
     #[tokio::test]
