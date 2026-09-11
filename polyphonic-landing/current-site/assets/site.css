@@ -76,9 +76,10 @@ html[data-motion=paused] .reveal-enter{animation:none}
    token the interior consumes is pinned to the app's own accepted values, so the page can be
    retuned again without touching the product. Not pinned, deliberately: --lift (the picture-frame's
    shadow, which is the page's), --sans and --app-mono (the real desktop app's own typefaces).
-   WP-06 adds .pw-window: the band's seven conversation windows are the same product, so the page's
-   palette stops at their edge too. */
-.app-frame,.d-popout,.pw-window{--bg:#000;--s1:#101010;--s2:#181818;--s3:#222;--line:#272727;--line2:#383838;--t0:#f5f5f5;--t1:#b5b5b5;--t2:#999;--t3:#909090;--glass:#0b0b0b;--glass-line:#282828;--unlit:#242424;--radius:14px;--app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010}
+   WP-10 removes .pw-window from this list. The band's seven windows are an illustration on a
+   marketing page, not the product: pinning them put a second colour system in the middle of the
+   first. They keep their form and take the page's material. */
+.app-frame,.d-popout{--bg:#000;--s1:#101010;--s2:#181818;--s3:#222;--line:#272727;--line2:#383838;--t0:#f5f5f5;--t1:#b5b5b5;--t2:#999;--t3:#909090;--glass:#0b0b0b;--glass-line:#282828;--unlit:#242424;--radius:14px;--app-ink:#c7c6be;--app-sec:#999892;--app-surface:#101010}
 /* The frame's outer edge is the page's, not the app's: flat, with one soft shadow. */
 #preview .app-frame{box-shadow:var(--lift)}
 
@@ -109,8 +110,8 @@ html[data-motion=paused] .reveal-enter{animation:none}
    conversation windows, one agent per runtime, drifting left at a walking pace. Every interior
    value here was measured off the demo's real pop-out (.d-popout) in the running page — surfaces,
    radii, paddings, type sizes and the composer bar — so the band and the product cannot drift
-   apart. The windows sit on the pinned interior tokens (see the pin above); the band around them
-   is the page's. */
+   apart. WP-10: the windows no longer sit on the pinned interior tokens — everything they are
+   made of is the page's own --bg/--s1/--s2/--s3 and warm ink; only their form is the product's. */
 .band-intro{margin-top:84px;text-align:center} /* centred under the centred section title (Riley, 2026-09-10) */
 .band-intro .feature-copy{max-width:none;margin-inline:auto}
 .band-intro .feature-description{max-width:560px;margin-inline:auto}
@@ -127,26 +128,28 @@ html[data-motion=paused] .reveal-enter{animation:none}
 .pw-half{display:contents}
 .pw-band:hover .pw-track,.pw-band:focus-within .pw-track,html[data-motion=paused] .pw-track{animation-play-state:paused}
 
-.pw-window{flex:0 0 400px;width:400px;min-height:520px;margin-right:24px;display:flex;flex-direction:column;padding:6px;border:1px solid #ffffff28;border-radius:15px;background:#080808;color:#c7c6bc;box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008;font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.65;text-align:left;-webkit-font-smoothing:antialiased}
-.pw-head{flex:none;display:flex;align-items:center;gap:10px;height:67px;padding:12px 16px;background:#141413;border-bottom:1px solid #ffffff0a;border-radius:9px 9px 0 0}
+/* WP-10 · the visible object is head + body. The 6px bezel, the outline and the black ring are
+   gone; the window is lifted off the floor by two shadow layers and nothing else. */
+.pw-window{flex:0 0 400px;width:400px;min-height:520px;margin-right:24px;display:flex;flex-direction:column;padding:0;border:0;border-radius:14px;background:transparent;color:var(--t1);box-shadow:0 2px 6px rgba(0,0,0,.45),0 26px 60px rgba(0,0,0,.5);font-family:var(--sans);font-weight:400;font-size:15px;line-height:1.65;text-align:left;-webkit-font-smoothing:antialiased}
+.pw-head{flex:none;display:flex;align-items:center;gap:10px;height:67px;padding:12px 16px;background:var(--s2);border-bottom:1px solid var(--line2);border-radius:14px 14px 0 0}
 .pw-lights{display:flex;gap:8px;flex:none}
-.pw-lights i{width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.14)} /* quiet: seven windows of macOS lights would be the loudest colour on the page */
+.pw-lights i{width:12px;height:12px;border-radius:50%;background:rgba(var(--ink),.14)} /* quiet: seven windows of macOS lights would be the loudest colour on the page */
 .pw-avatar{width:26px;height:26px;flex:none;display:grid;place-items:center;overflow:hidden}
 .pw-mark{border-radius:50%;background:var(--glass);border:1px solid var(--glass-line)}
-.pw-glyph{border-radius:7px;background:var(--s3);color:var(--t1);font:10px var(--app-mono);letter-spacing:.02em}
-.pw-name{min-width:0;font-size:14px;font-weight:500;color:#c7c6bc;white-space:nowrap}
-.pw-runtime{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;background:var(--s2);color:#aaa89f;font:10px var(--app-mono);white-space:nowrap}
+.pw-glyph{border-radius:7px;background:var(--s3);color:var(--t1);font:10px var(--mono);letter-spacing:.02em}
+.pw-name{min-width:0;font-size:14px;font-weight:400;color:var(--t0);white-space:nowrap}
+.pw-runtime{flex:none;margin-left:auto;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 calc(9px - .24em) 0 9px;border-radius:999px;background:var(--s3);color:var(--t3);font:400 9px var(--mono);letter-spacing:.24em;text-transform:uppercase;white-space:nowrap}
 .pw-runtime img{width:14px;height:14px;flex:none;object-fit:contain}
-.pw-body{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--s1);border-radius:0 0 9px 9px;overflow:hidden}
-.pw-transcript{flex:1;min-height:0;padding:23px}
-.pw-bubble{width:fit-content;max-width:85%;margin:0 0 23px auto;padding:12px 16px;background:#222120;border:1px solid #ffffff04;border-radius:16px;color:#c6c3b8;font-size:13px;line-height:1.65}
+.pw-body{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--s1);border-radius:0 0 14px 14px;overflow:hidden}
+/* WP-10 · a real chat with two messages rests on the composer; the hole belongs above it. */
+.pw-transcript{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;padding:23px 23px 9px}
+.pw-bubble{width:fit-content;max-width:85%;margin:0 0 23px auto;padding:12px 16px;background:var(--s3);border:0;border-radius:16px;color:var(--t0);font-size:13px;line-height:1.65}
 .pw-message{margin:0}
-.pw-message b{display:block;font-size:14px;font-weight:500;letter-spacing:.005em;color:#bdbbb1}
-.pw-message p{margin:10px 0 0;text-wrap:pretty}
+.pw-message p{margin:0;text-wrap:pretty}
 .pw-compose{flex:none;padding:12px 17px 14px;background:var(--s1)}
-.pw-composer{display:flex;align-items:center;gap:8px;min-height:48px;padding:5px 9px;border:1px solid #ffffff03;border-radius:13px;background:#171717}
-.pw-placeholder{flex:1;min-width:0;display:flex;align-items:center;min-height:38px;padding:7px 3px;font-size:16px;line-height:normal;color:#89877e}
-.pw-send{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:#20201e;color:#55544e}
+.pw-composer{display:flex;align-items:center;gap:8px;min-height:48px;padding:5px 9px;border:0;border-radius:13px;background:var(--s2)}
+.pw-placeholder{flex:1;min-width:0;display:flex;align-items:center;min-height:38px;padding:7px 3px;font-size:13px;line-height:normal;color:var(--ghost)}
+.pw-send{width:28px;height:28px;flex:none;display:grid;place-items:center;border-radius:50%;background:var(--s3);color:var(--ghost)}
 
 /* WP-08 · the loop has depth. The row is a loop rolling past the viewer: whatever crosses the
    centre is closest — flat, full size, lit — and toward either edge a window turns away, drops
@@ -160,7 +163,8 @@ html[data-motion=paused] .reveal-enter{animation:none}
 @media(min-width:761px) and (prefers-reduced-motion:no-preference){
   /* Perspective belongs to the band, whose centre is the viewport's centre; the track only has to
      pass it through to the windows, which are its flex items. */
-  .pw-band{perspective:1400px;perspective-origin:50% 50%;background:radial-gradient(60% 120% at 50% 50%,rgba(255,255,255,.025),transparent 70%)}
+  /* WP-10: the centre light is the page's warm ink now, not white. */
+  .pw-band{perspective:1400px;perspective-origin:50% 50%;background:radial-gradient(60% 120% at 50% 50%,rgba(var(--ink),.025),transparent 70%)}
   .pw-track{transform-style:preserve-3d}
   .pw-window{
     --a:calc(var(--d) * var(--d));--right:max(0,var(--d));--left:max(0,calc(-1 * var(--d)));
@@ -169,14 +173,17 @@ html[data-motion=paused] .reveal-enter{animation:none}
        about 10 % smaller and 9° turned — the right-hand windows turning their right edge away. */
     transform:translateZ(calc(-160px * var(--a))) rotateY(calc(9deg * var(--d)));
     backface-visibility:hidden;will-change:transform;
-    /* The top edge catches the light only when the window is near. */
-    box-shadow:0 0 0 1px #000,0 24px 70px #000a,0 60px 140px #0008,inset 0 1px 0 rgba(255,255,255,calc(.10 * (1 - var(--a))))}
+    box-shadow:0 2px 6px rgba(0,0,0,.45),0 26px 60px rgba(0,0,0,.5)}
+  /* WP-10: the top edge still catches the light only when the window is near — warm now, and on
+     the head, because with the bezel gone the head's own background is the window's top edge.
+     --a is an unregistered custom property, so it inherits with --d already substituted. */
+  .pw-window .pw-head{box-shadow:inset 0 1px 0 rgba(var(--ink),calc(.08 * (1 - var(--a))))}
   /* Light comes from the centre: the far edge of a turning window darkens first (the directional
      layer), and the whole window sinks as it recedes (the uniform layer behind it). */
   .pw-window::after{content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
     background:
-      linear-gradient(to right,rgba(0,0,0,calc(.42 * var(--left) * var(--left))),rgba(0,0,0,calc(.42 * var(--right) * var(--right)))),
-      linear-gradient(rgba(0,0,0,calc(.22 * var(--a))),rgba(0,0,0,calc(.22 * var(--a))))}
+      linear-gradient(to right,rgba(0,0,0,calc(.29 * var(--left) * var(--left))),rgba(0,0,0,calc(.29 * var(--right) * var(--right)))),
+      linear-gradient(rgba(0,0,0,calc(.154 * var(--a))),rgba(0,0,0,calc(.154 * var(--a))))}
 }
 
 /* Narrow screens and reduced motion get the same thing: no drift, one row of seven, scrolled by
@@ -187,7 +194,7 @@ html[data-motion=paused] .reveal-enter{animation:none}
   .pw-half-dup{display:none}
   .pw-window{flex-basis:300px;width:300px;margin-right:16px;scroll-snap-align:start}
   /* The real pop-out is full-screen below 761px; these are its own narrow-width values. */
-  .pw-transcript{padding:18px}
+  .pw-transcript{padding:18px 18px 8px}
   .pw-bubble{padding:11px 13px;margin-bottom:29px}
   .pw-message b{font-size:13px}
   .pw-compose{padding:10px 12px}
@@ -202,6 +209,6 @@ html[data-motion=paused] .reveal-enter{animation:none}
   .pw-window{scroll-snap-align:start}
 }
 @media(prefers-reduced-motion:reduce) and (max-width:760px){.pw-band{padding-inline:20px;scroll-padding-inline:20px}}
-@media(prefers-contrast:more){.pw-window{border-color:rgba(236,232,224,.45)}}
+@media(prefers-contrast:more){.pw-window{border:1px solid rgba(var(--ink),.45)}}
 @media print{.pw-band{display:none!important}}
 @media(max-width:760px){.pw-window{min-height:390px}} /* WP-06 review: portrait like the real pop-out, at phone width */
