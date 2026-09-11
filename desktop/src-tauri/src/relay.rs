@@ -10,6 +10,33 @@ use sha2::{Digest, Sha256};
 use crate::app_state::AppState;
 
 const DEFAULT_RELAY_WS_URL: &str = "ws://localhost:3000";
+
+/// The workspace sentinel that means "the relay bundled with this app, running
+/// on this device". It is never dialled: `apply_workspace` sees it, starts the
+/// `buzz-relay` sidecar on a private loopback port, and installs that port as
+/// the workspace relay override. Kept in sync with
+/// `desktop/src/features/communities/communityStorage.ts`.
+pub const LOCAL_RELAY_SENTINEL: &str = "buzz-local://on-this-device";
+
+/// A relay URL explicitly configured for this build or this process, if any:
+/// the `BUZZ_RELAY_URL` env var first, then the value baked at compile time.
+/// `None` means nothing was configured — which, since WP-LOCAL1, selects local
+/// mode rather than a hardcoded host.
+pub fn configured_relay_ws_url() -> Option<String> {
+    configured_env_var("BUZZ_RELAY_URL")
+        .or_else(|| option_env!("BUZZ_DESKTOP_BUILD_RELAY_URL").map(str::to_string))
+}
+
+/// The relay a fresh install should set up against.
+///
+/// **Local mode is the default.** With no `BUZZ_RELAY_URL` in the environment
+/// and none baked at build time, this returns [`LOCAL_RELAY_SENTINEL`], so a
+/// first run creates the on-this-device workspace and starts the bundled relay.
+/// Both escape hatches still win, in that order, so a hosted build keeps
+/// pointing at its hosted relay.
+pub fn default_setup_relay_url() -> String {
+    configured_relay_ws_url().unwrap_or_else(|| LOCAL_RELAY_SENTINEL.to_string())
+}
 const MANAGED_PROFILE_SYNC_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 // A reached-but-malformed 2xx body is NOT a connectivity failure, so this
@@ -24,15 +51,21 @@ fn configured_env_var(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// The relay URL to dial when no workspace override is installed yet.
+///
+/// This is a *bootstrap* value, not the setup default: it must always be a
+/// dialable ws URL, so it keeps falling back to the dev relay rather than to
+/// [`LOCAL_RELAY_SENTINEL`]. Once `apply_workspace` runs for a local workspace,
+/// `relay_url_override` holds the sidecar's real `ws://127.0.0.1:<port>` and
+/// [`relay_ws_url_with_override`] returns that instead. New installs go through
+/// [`default_setup_relay_url`], which selects local mode.
 pub fn relay_ws_url() -> String {
-    configured_env_var("BUZZ_RELAY_URL")
-        .or_else(|| option_env!("BUZZ_DESKTOP_BUILD_RELAY_URL").map(str::to_string))
-        .unwrap_or_else(|| DEFAULT_RELAY_WS_URL.to_string())
+    configured_relay_ws_url().unwrap_or_else(|| DEFAULT_RELAY_WS_URL.to_string())
 }
 
 /// Read the workspace relay URL override, if set. Returns `None` when no
 /// override is active or when the mutex is poisoned (best-effort).
-fn workspace_relay_override(state: &AppState) -> Option<String> {
+pub fn workspace_relay_override(state: &AppState) -> Option<String> {
     state
         .relay_url_override
         .lock()

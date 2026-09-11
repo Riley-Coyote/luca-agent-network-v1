@@ -75,16 +75,17 @@ pub fn get_default_relay_url() -> Result<String, String> {
         return Err(LUCA_TEST_PERSONAL_HOME_FAILURE_ERROR.to_string());
     }
 
-    Ok(relay::relay_ws_url())
+    Ok(relay::default_setup_relay_url())
 }
 
 #[cfg(not(debug_assertions))]
 #[tauri::command]
 pub fn get_default_relay_url(state: State<'_, AppState>) -> Result<String, String> {
     // A hosted default remains just that: resolving it never spawns an unused
-    // local sidecar. The explicit local workspace sentinel starts its sidecar
-    // during `apply_workspace`.
-    Ok(relay::relay_ws_url_with_override(&state))
+    // local sidecar. The local workspace sentinel starts its sidecar during
+    // `apply_workspace`. With nothing configured, the default IS local mode.
+    Ok(relay::workspace_relay_override(&state)
+        .unwrap_or_else(relay::default_setup_relay_url))
 }
 
 #[tauri::command]

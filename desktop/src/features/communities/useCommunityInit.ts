@@ -30,7 +30,10 @@ import { resetManagedPresentationStore } from "@/features/messages/managedPresen
 import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
 import { resetRuntimeSessionContextHandoff } from "@/features/runtime-sessions/runtimeSessionHandoff";
 
-import { initFirstCommunity } from "./communityStorage";
+import {
+  initFirstCommunity,
+  LOCAL_COMMUNITY_RELAY_URL,
+} from "./communityStorage";
 import type { Community } from "./types";
 
 /**

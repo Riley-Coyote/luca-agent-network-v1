@@ -114,6 +114,11 @@ export function saveActiveCommunityId(id: string): void {
 }
 
 export function normalizeRelayUrl(url: string): string {
+  // The on-this-device sentinel is not a network URL and must survive
+  // normalization untouched.
+  if (isLocalCommunityRelayUrl(url)) {
+    return url;
+  }
   if (!url.startsWith("ws://") && !url.startsWith("wss://")) {
     return `wss://${url}`;
   }
