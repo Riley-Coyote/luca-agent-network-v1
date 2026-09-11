@@ -50,8 +50,16 @@ impl LocalRelayConfig {
     fn environment(&self) -> Vec<(&'static str, String)> {
         let db_path = self.data_dir.join("relay.sqlite3");
         let media_dir = self.data_dir.join("media");
+        // The relay defaults this to the relative path `./repos`, which it
+        // creates on startup. A double-clicked .app inherits `/` as its working
+        // directory, so the default fails with EROFS and the relay never comes
+        // up ("Luca couldn't open your personal home"). Git-over-relay is off in
+        // local mode, but the directory is still created eagerly, so give it an
+        // absolute home inside the app data dir.
+        let git_repo_dir = self.data_dir.join("repos");
         vec![
             ("BUZZ_PROFILE", "single-node".to_string()),
+            ("BUZZ_GIT_REPO_PATH", git_repo_dir.display().to_string()),
             ("BUZZ_BIND_ADDR", self.relay_addr.to_string()),
             ("BUZZ_HEALTH_PORT", self.health_port.to_string()),
             ("BUZZ_METRICS_PORT", self.metrics_port.to_string()),
@@ -483,6 +491,16 @@ mod tests {
         let env: HashMap<_, _> = config.environment().into_iter().collect();
 
         assert_eq!(env.get("BUZZ_PROFILE"), Some(&"single-node".to_string()));
+        // Absolute, inside the data dir — never the relay's relative `./repos`
+        // default, which a bundled launch cannot create (cwd is `/`).
+        let git_repo_path = env
+            .get("BUZZ_GIT_REPO_PATH")
+            .expect("BUZZ_GIT_REPO_PATH must be set for the bundled relay");
+        assert!(
+            std::path::Path::new(git_repo_path).is_absolute(),
+            "BUZZ_GIT_REPO_PATH must be absolute, got {git_repo_path}"
+        );
+        assert!(git_repo_path.ends_with("/repos"));
         assert_eq!(
             env.get("BUZZ_BIND_ADDR"),
             Some(&"127.0.0.1:4317".to_string())
