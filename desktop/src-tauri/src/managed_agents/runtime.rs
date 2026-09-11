@@ -549,7 +549,45 @@ pub(crate) fn process_belongs_to_us(_pid: u32) -> bool {
 /// build's agents, and vice versa). This is what lets two Buzzs coexist on
 /// one machine without one's cleanup nuking the other's agents.
 pub(crate) fn current_instance_id(app: &AppHandle) -> String {
-    app.config().identifier.clone()
+    bundle_identifier_from_running_bundle()
+        .unwrap_or_else(|| app.config().identifier.clone())
+}
+
+/// The `CFBundleIdentifier` of the `.app` we are actually running from.
+///
+/// `app.config().identifier` is baked in at compile time, so every build from
+/// this source tree reports the same value even when the shipped bundles carry
+/// different identifiers (the beta overlay rewrites it). Two such installs then
+/// each see the other's harnesses as their own strays and SIGTERM them. Reading
+/// the identifier back off the running bundle makes the id per-install, and it
+/// is also the value LaunchServices puts in `__CFBundleIdentifier`, which is
+/// what `desktop_is_alive_for_instance` looks for.
+///
+/// Returns `None` outside a bundle (a `cargo run` / `just dev` checkout), where
+/// the compiled identifier is the right answer.
+#[cfg(target_os = "macos")]
+fn bundle_identifier_from_running_bundle() -> Option<String> {
+    use std::sync::OnceLock;
+    static CACHED: OnceLock<Option<String>> = OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            let exe = std::env::current_exe().ok()?;
+            // .../Foo.app/Contents/MacOS/buzz-desktop → .../Foo.app/Contents/Info.plist
+            let info = exe.parent()?.parent()?.join("Info.plist");
+            let value = plist::Value::from_file(info).ok()?;
+            let id = value
+                .as_dictionary()?
+                .get("CFBundleIdentifier")?
+                .as_string()?
+                .to_owned();
+            (!id.is_empty()).then_some(id)
+        })
+        .clone()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn bundle_identifier_from_running_bundle() -> Option<String> {
+    None
 }
 
 /// Build the full `BUZZ_MANAGED_AGENT=<instance-id>` env entry we match
@@ -930,6 +968,10 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
         if sweep::is_live_descendant_macos(upid, info.pbi_ppid, skip_pids) {
             continue;
         }
+        // Owned by another *live* desktop — not our orphan.
+        if agent_has_live_foreign_owner(upid) {
+            continue;
+        }
         orphans.push(pid);
     }
 
@@ -987,6 +1029,10 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
         }
         // Live descendants of a tracked harness are exempt — see sweep::is_live_descendant_*.
         if sweep::is_live_descendant_linux(upid, skip_pids) {
+            continue;
+        }
+        // Owned by another *live* desktop — not our orphan.
+        if agent_has_live_foreign_owner(upid) {
             continue;
         }
         orphans.push(pid);
@@ -1093,6 +1139,10 @@ pub(crate) fn collect_same_instance_orphans(
         if sweep::is_live_descendant_macos(upid, info.pbi_ppid, skip_pids) {
             continue;
         }
+        // Owned by another *live* desktop — not our orphan.
+        if agent_has_live_foreign_owner(upid) {
+            continue;
+        }
         orphans.insert(upid);
     }
     orphans
@@ -1137,6 +1187,10 @@ pub(crate) fn collect_same_instance_orphans(
         }
         // Live descendants of a tracked harness are exempt — see sweep::is_live_descendant_*.
         if sweep::is_live_descendant_linux(upid, skip_pids) {
+            continue;
+        }
+        // Owned by another *live* desktop — not our orphan.
+        if agent_has_live_foreign_owner(upid) {
             continue;
         }
         orphans.insert(upid);
@@ -1190,7 +1244,14 @@ fn buffer_contains_identifier(buf: &[u8], id: &[u8]) -> bool {
 /// Returns `None` if the process doesn't have the marker or can't be read.
 #[cfg(target_os = "macos")]
 fn extract_buzz_marker_value(pid: u32) -> Option<String> {
-    let prefix = b"BUZZ_MANAGED_AGENT=";
+    extract_agent_env_value(pid, "BUZZ_MANAGED_AGENT")
+}
+
+/// Read one environment entry out of a process's `KERN_PROCARGS2` buffer.
+#[cfg(target_os = "macos")]
+fn extract_agent_env_value(pid: u32, key: &str) -> Option<String> {
+    let prefix = format!("{key}=").into_bytes();
+    let prefix = prefix.as_slice();
     let buf = sweep::procargs2_buffer(pid)?;
 
     if buf.len() < std::mem::size_of::<libc::c_int>() {
@@ -1235,7 +1296,13 @@ fn extract_buzz_marker_value(pid: u32) -> Option<String> {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 fn extract_buzz_marker_value(pid: u32) -> Option<String> {
-    let prefix = b"BUZZ_MANAGED_AGENT=";
+    extract_agent_env_value(pid, "BUZZ_MANAGED_AGENT")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn extract_agent_env_value(pid: u32, key: &str) -> Option<String> {
+    let prefix = format!("{key}=").into_bytes();
+    let prefix = prefix.as_slice();
     let data = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
     for entry in data.split(|&b| b == 0) {
         if entry.starts_with(prefix) {
@@ -1248,6 +1315,83 @@ fn extract_buzz_marker_value(pid: u32) -> Option<String> {
 #[cfg(not(unix))]
 fn extract_buzz_marker_value(_pid: u32) -> Option<String> {
     None
+}
+
+/// Env var stamped on every managed agent naming the PID of the desktop
+/// process that spawned it.
+///
+/// `BUZZ_MANAGED_AGENT` alone cannot distinguish two *live* desktops: it
+/// carries the compile-time Tauri identifier, so two installs built from the
+/// same source share one value, and a desktop whose bundle id was rewritten
+/// after the build carries a value that appears in no running process's
+/// argv/environ at all. Both cases made `desktop_is_alive_for_instance`
+/// answer "no live owner" and let one app's sweep SIGTERM another app's
+/// harness. The owner PID is exact and needs no string matching.
+pub(crate) const DESKTOP_OWNER_PID_ENV: &str = "BUZZ_MANAGED_DESKTOP_PID";
+
+/// Decide, from already-gathered facts, whether an agent's recorded owner is a
+/// *different* desktop process that is still running. Pure so it can be tested
+/// without spawning processes.
+pub(crate) fn owner_is_live_foreign_desktop(
+    owner_pid: Option<u32>,
+    my_pid: u32,
+    owner_is_running: bool,
+    owner_is_desktop_binary: bool,
+) -> bool {
+    match owner_pid {
+        // No stamp: a legacy agent from before this marker existed. Fall back
+        // to the instance-id heuristics — never claim a live foreign owner.
+        None => false,
+        Some(pid) => pid != my_pid && owner_is_running && owner_is_desktop_binary,
+    }
+}
+
+/// True when the agent at `pid` records another live Buzz desktop as its
+/// owner. Such an agent is never this instance's orphan.
+#[cfg(unix)]
+pub(crate) fn agent_has_live_foreign_owner(pid: u32) -> bool {
+    let owner = extract_agent_env_value(pid, DESKTOP_OWNER_PID_ENV)
+        .and_then(|value| value.trim().parse::<u32>().ok());
+    let Some(owner_pid) = owner else {
+        return false;
+    };
+    let running = process_is_running(owner_pid);
+    let is_desktop = running && pid_is_desktop_binary(owner_pid);
+    owner_is_live_foreign_desktop(Some(owner_pid), std::process::id(), running, is_desktop)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn agent_has_live_foreign_owner(_pid: u32) -> bool {
+    false
+}
+
+/// True when `pid` is a running Buzz desktop binary.
+#[cfg(target_os = "macos")]
+fn pid_is_desktop_binary(pid: u32) -> bool {
+    extern "C" {
+        fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32)
+            -> libc::c_int;
+    }
+    let mut name_buf = [0u8; 1024];
+    let len = unsafe {
+        proc_name(
+            pid as libc::c_int,
+            name_buf.as_mut_ptr() as *mut libc::c_void,
+            name_buf.len() as u32,
+        )
+    };
+    if len <= 0 {
+        return false;
+    }
+    is_desktop_binary(&String::from_utf8_lossy(&name_buf[..len as usize]))
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn pid_is_desktop_binary(pid: u32) -> bool {
+    let Ok(comm) = std::fs::read_to_string(format!("/proc/{pid}/comm")) else {
+        return false;
+    };
+    is_desktop_binary(comm.trim())
 }
 
 /// Check if a Buzz desktop process is still alive for the given instance ID.
@@ -1415,6 +1559,10 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         if info.pbi_uid != my_uid {
             continue;
         }
+        // Owned by another *live* desktop — not an orphan of a dead instance.
+        if agent_has_live_foreign_owner(upid) {
+            continue;
+        }
         // Extract the instance ID from this agent's env.
         let Some(agent_instance_id) = extract_buzz_marker_value(upid) else {
             continue;
@@ -1474,6 +1622,9 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
             continue;
         }
         if !process_belongs_to_us(upid) {
+            continue;
+        }
+        if agent_has_live_foreign_owner(upid) {
             continue;
         }
         let Some(agent_instance_id) = extract_buzz_marker_value(upid) else {
@@ -2847,6 +2998,10 @@ fn spawn_agent_child_unix(
     // goose → MCP servers) because neither buzz-acp nor goose calls
     // env_clear().
     command.env("BUZZ_MANAGED_AGENT", current_instance_id(app));
+    // …and *which running desktop process* owns us. The instance id alone is
+    // ambiguous between two live installs built from the same source; the PID
+    // is not. See DESKTOP_OWNER_PID_ENV.
+    command.env(DESKTOP_OWNER_PID_ENV, std::process::id().to_string());
 
     // Spawn the harness in its own process group so we can kill the entire
     // tree (harness + MCP servers + agent subprocesses) on shutdown.

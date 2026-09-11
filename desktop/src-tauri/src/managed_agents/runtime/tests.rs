@@ -1427,3 +1427,57 @@ fn own_group_grandchild_detected_by_ancestor_walk() {
     unsafe { libc::kill(-(intermediate_pid as i32), libc::SIGKILL) };
     let _ = intermediate.wait();
 }
+
+// ── owner_is_live_foreign_desktop ────────────────────────────────────────
+//
+// WP-LOCAL2 decision 1. `BUZZ_MANAGED_AGENT` carries the compile-time Tauri
+// identifier, so it cannot tell two live installs apart. The owner-PID stamp
+// can, and these cases pin the decision table.
+
+#[test]
+fn agent_without_owner_stamp_is_not_claimed_by_a_foreign_desktop() {
+    // Legacy agent: no stamp. Must fall through to the instance-id heuristics.
+    assert!(!super::owner_is_live_foreign_desktop(None, 100, true, true));
+}
+
+#[test]
+fn agent_owned_by_this_desktop_is_not_foreign() {
+    assert!(!super::owner_is_live_foreign_desktop(
+        Some(100),
+        100,
+        true,
+        true
+    ));
+}
+
+#[test]
+fn agent_owned_by_another_live_desktop_is_foreign() {
+    assert!(super::owner_is_live_foreign_desktop(
+        Some(200),
+        100,
+        true,
+        true
+    ));
+}
+
+#[test]
+fn agent_whose_owner_exited_is_reapable() {
+    assert!(!super::owner_is_live_foreign_desktop(
+        Some(200),
+        100,
+        false,
+        false
+    ));
+}
+
+#[test]
+fn agent_whose_owner_pid_was_recycled_by_a_non_desktop_is_reapable() {
+    // The owner PID is alive but now belongs to something that is not a Buzz
+    // desktop — treat the agent as an orphan, not as someone else's.
+    assert!(!super::owner_is_live_foreign_desktop(
+        Some(200),
+        100,
+        true,
+        false
+    ));
+}
