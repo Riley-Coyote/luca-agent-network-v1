@@ -51,16 +51,40 @@ fn configured_env_var(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+/// The bootstrap relay: what to use when nothing is configured for this build
+/// or process *and* no workspace override is installed yet.
+///
+/// `:3000` is the most common dev port on a developer's Mac, and our testers
+/// are developers. A shipped build must never speak to whatever happens to be
+/// listening there, so a **release** build resolves the bootstrap to
+/// [`LOCAL_RELAY_SENTINEL`] — the same answer [`default_setup_relay_url`]
+/// gives, i.e. "the relay bundled with this app". A **debug** build keeps
+/// `ws://localhost:3000` so the Dev app and `just dev` are unaffected.
+///
+/// Split from [`bootstrap_relay_ws_url`] so one test can pin both cfgs.
+fn bootstrap_relay_ws_url_for(debug_build: bool) -> &'static str {
+    if debug_build {
+        DEFAULT_RELAY_WS_URL
+    } else {
+        LOCAL_RELAY_SENTINEL
+    }
+}
+
+/// The bootstrap relay for *this* build. See [`bootstrap_relay_ws_url_for`].
+pub fn bootstrap_relay_ws_url() -> &'static str {
+    bootstrap_relay_ws_url_for(cfg!(debug_assertions))
+}
+
 /// The relay URL to dial when no workspace override is installed yet.
 ///
-/// This is a *bootstrap* value, not the setup default: it must always be a
-/// dialable ws URL, so it keeps falling back to the dev relay rather than to
-/// [`LOCAL_RELAY_SENTINEL`]. Once `apply_workspace` runs for a local workspace,
-/// `relay_url_override` holds the sidecar's real `ws://127.0.0.1:<port>` and
-/// [`relay_ws_url_with_override`] returns that instead. New installs go through
-/// [`default_setup_relay_url`], which selects local mode.
+/// This is a *bootstrap* value, not the setup default, but since WP-FIX3b the
+/// two agree in a release build: both select local mode. Once `apply_workspace`
+/// runs for a local workspace, `relay_url_override` holds the sidecar's real
+/// `ws://127.0.0.1:<port>` and [`relay_ws_url_with_override`] returns that
+/// instead, so the sentinel is only ever the answer during the short window
+/// before the frontend applies a workspace.
 pub fn relay_ws_url() -> String {
-    configured_relay_ws_url().unwrap_or_else(|| DEFAULT_RELAY_WS_URL.to_string())
+    configured_relay_ws_url().unwrap_or_else(|| bootstrap_relay_ws_url().to_string())
 }
 
 /// Read the workspace relay URL override, if set. Returns `None` when no
@@ -719,6 +743,67 @@ pub async fn submit_signed_event_with_keys(
 
 #[cfg(test)]
 mod tests {
+    // ── WP-FIX3b: a release build never dials :3000 by accident ─────────────
+
+    #[test]
+    fn release_bootstrap_is_local_and_debug_keeps_the_dev_relay() {
+        // Release: nothing configured must resolve to local mode, exactly as
+        // `default_setup_relay_url()` does — never the dev port.
+        assert_eq!(
+            super::bootstrap_relay_ws_url_for(false),
+            super::LOCAL_RELAY_SENTINEL,
+            "a release build with nothing configured must bootstrap to local mode"
+        );
+        // Debug: the Dev app and `just dev` keep the dev relay.
+        assert_eq!(
+            super::bootstrap_relay_ws_url_for(true),
+            "ws://localhost:3000",
+            "a debug build must keep dialling the dev relay"
+        );
+        // The live predicate agrees with the cfg this test is compiled under.
+        assert_eq!(
+            super::bootstrap_relay_ws_url(),
+            super::bootstrap_relay_ws_url_for(cfg!(debug_assertions))
+        );
+    }
+
+    #[test]
+    fn the_escape_hatches_still_win_over_the_bootstrap() {
+        // `relay_ws_url()` only falls back when nothing is configured; when
+        // `BUZZ_RELAY_URL` is set it wins in both cfgs. Asserted through
+        // `configured_relay_ws_url` to avoid mutating process env in a test.
+        std::env::set_var("BUZZ_RELAY_URL", "wss://relay.example.test");
+        assert_eq!(
+            super::relay_ws_url(),
+            "wss://relay.example.test",
+            "BUZZ_RELAY_URL must still win over the bootstrap default"
+        );
+        std::env::remove_var("BUZZ_RELAY_URL");
+    }
+
+    #[tokio::test]
+    async fn the_local_sentinel_is_never_dialled_as_http() {
+        // If a caller reaches the HTTP funnel before `apply_workspace` has
+        // installed the sidecar override, it must get the clean
+        // "relay unreachable:" state the frontend already knows how to show —
+        // not a raw scheme error, and above all not a request to :3000.
+        let base = super::relay_http_base_url(super::LOCAL_RELAY_SENTINEL);
+        assert!(
+            !base.contains(":3000"),
+            "the local sentinel must never resolve to the dev port, got {base}"
+        );
+        let error = reqwest::Client::new()
+            .get(format!("{base}/events"))
+            .send()
+            .await
+            .expect_err("the local sentinel must not be a reachable endpoint");
+        let message = super::classify_request_error(&error);
+        assert!(
+            message.starts_with("relay unreachable:"),
+            "the frontend classifier keys on this prefix, got {message}"
+        );
+    }
+
     use super::{
         build_profile_event, classify_intercepted_response, effective_agent_relay_url,
         extract_retry_in_hint, parse_command_response, relay_http_base_url,

@@ -49,6 +49,7 @@ import {
 import { RelayStallWatchdog } from "@/shared/api/relayStallWatchdog";
 import { closeWebSocket } from "@/shared/api/relayWebSocketClose";
 import { buildThreadReferenceTags } from "@/features/messages/lib/threading";
+import { isLocalCommunityRelayUrl } from "@/features/communities/communityStorage";
 const RECONNECT_BASE_DELAY_MS = 1_000,
   RECONNECT_MAX_DELAY_MS = 30_000,
   EVENT_BATCH_MS = 16,
@@ -545,9 +546,7 @@ export class RelayClient {
       this.hasConnectedOnce ? "reconnecting" : "connecting",
     );
 
-    if (!this.relayUrl) {
-      this.relayUrl = await getRelayWsUrl();
-    }
+    await this.resolveRelayUrl();
 
     const generation = ++this.connectionGeneration;
     this.onMessageChannel = new Channel<unknown>((message) => {
@@ -842,14 +841,51 @@ export class RelayClient {
     }
   }
 
+  /**
+   * Resolve — and only then cache — the relay address for this session.
+   *
+   * WP-FIX3b: since a release build's bootstrap resolves to local mode rather
+   * than to `ws://localhost:3000`, `getRelayWsUrl()` can answer with the local
+   * sentinel `buzz-local://on-this-device` during the short window before
+   * `apply_workspace` has started the bundled relay and installed its real
+   * `ws://127.0.0.1:<port>` override. The sentinel is a marker, not an
+   * address. It must never be dialled and — the part that would actually
+   * hurt — never cached in `this.relayUrl`, or a session constructed inside
+   * that window would hold a dead string for the rest of its life. So: drop
+   * it, surface the honest "still starting" state, and let the existing
+   * reconnect backoff re-resolve on the next attempt.
+   */
+  private async resolveRelayUrl(): Promise<string> {
+    if (this.relayUrl) return this.relayUrl;
+
+    const resolved = await getRelayWsUrl();
+    if (isLocalCommunityRelayUrl(resolved)) {
+      const error = new Error(
+        "Your relay is still starting on this device. Retrying…",
+      );
+      // Leaves `relayUrl` null (nothing cached), emits "reconnecting", and
+      // schedules the retry with the usual jittered backoff.
+      this.resetConnection(error);
+      throw error;
+    }
+    this.relayUrl = resolved;
+    return resolved;
+  }
+
   private async handleAuthChallenge(challenge: string, generation: number) {
-    if (!this.relayUrl) {
-      this.relayUrl = await getRelayWsUrl();
+    // Reached only after `connect()` opened a socket, so `relayUrl` is already
+    // a real address. Re-resolve defensively, but never throw: this runs from
+    // the fire-and-forget message channel. See `resolveRelayUrl`.
+    let relayUrl: string;
+    try {
+      relayUrl = await this.resolveRelayUrl();
+    } catch {
+      return;
     }
 
     const event = await createAuthEvent({
       challenge,
-      relayUrl: this.relayUrl,
+      relayUrl,
     });
 
     if (generation !== this.connectionGeneration || !this.authRequest) {
