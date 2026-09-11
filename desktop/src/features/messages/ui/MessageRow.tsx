@@ -64,6 +64,7 @@ import { QuotedParent } from "./QuotedParent";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
@@ -539,8 +540,33 @@ export const MessageRow = React.memo(
     // Agent replies read directly on the conversation plane. Inside a visit
     // they reserve the connector's column so its hairline cannot cross their
     // words; human contacts keep their avatar there.
+    // Hoisted above the mark gutter on purpose: the gutter has to know whether
+    // this row is a live resident turn BEFORE it decides to open, because that
+    // is the row that paints the activity mark.
+    const managedPhase = message.managedPresentation?.phase;
+    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
+      ?.streaming
+      ? null
+      : managedPhase === "waking" ||
+          managedPhase === "thinking" ||
+          managedPhase === "working"
+        ? "thinking"
+        : managedPhase === "writing" || managedPhase === "finalizing"
+          ? "writing"
+          : null;
+    // THE LIVE MARK IN A DIRECT CONVERSATION.
+    //
+    // `ChannelPane` empties the multi-resident activity shelf in a DM — "the
+    // reply row itself is the indicator — the resident's mark carries the
+    // state". That mark was never drawn: this gutter opened for human contacts
+    // and for visiting residents only, so an agent row got a bare word and the
+    // sandpile (the whole thinking animation) had nowhere to mount in the one
+    // place an owner actually talks to their resident. Verified on screen in a
+    // release build before and after.
     const showResidentMarkGutter = Boolean(
-      !ownBubble && message.pubkey && (!message.isAgent || visitActive),
+      !ownBubble &&
+        message.pubkey &&
+        (!message.isAgent || visitActive || residentMarkLive !== null),
     );
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
@@ -551,7 +577,7 @@ export const MessageRow = React.memo(
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
       showResidentMarkGutter &&
-      !message.isAgent &&
+      (!message.isAgent || residentMarkLive !== null) &&
       !isContinuation &&
       !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
@@ -666,17 +692,6 @@ export const MessageRow = React.memo(
     // live signal and one quiet word beside the name says what — "thinking",
     // "reading files", "writing". This row owns that state in a direct
     // conversation, where the multi-resident activity shelf stands down.
-    const managedPhase = message.managedPresentation?.phase;
-    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
-      ?.streaming
-      ? null
-      : managedPhase === "waking" ||
-          managedPhase === "thinking" ||
-          managedPhase === "working"
-        ? "thinking"
-        : managedPhase === "writing" || managedPhase === "finalizing"
-          ? "writing"
-          : null;
     // "waking" is the honest word for a resident the desktop is starting on
     // the owner's behalf: nothing is thinking yet, and saying so is what
     // keeps a longer wait from reading as a broken one.
@@ -1153,7 +1168,15 @@ export const MessageRow = React.memo(
               className="mt-0.5 flex w-[21px] shrink-0 justify-center"
               data-message-mark
             >
-              {isContinuation || ownBubble || message.isAgent ? (
+              {residentMarkLive ? (
+                // The resident is working: the identity slot becomes the
+                // activity mark, and goes back to being empty (or the
+                // contact's disc) the moment the turn settles.
+                <SandpileActivityIndicator
+                  seed={`${message.pubkey}:activity`}
+                  size={21}
+                />
+              ) : isContinuation || ownBubble || message.isAgent ? (
                 // Anchored right, the owner's turn says who it is by where it
                 // sits; a disc on the far left of the same row would be an
                 // orphan pointing back at a column the words no longer use.
