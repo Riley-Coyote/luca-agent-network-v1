@@ -78,10 +78,12 @@ export type TurnNarration = {
 export type ReplayedTurn = {
   steps: TurnStep[];
   narration: TurnNarration[];
-  /** Every layer-1/2 event in one ordered list — layer 3's expanded record. */
+  /** Every layer-1/2 event in one ordered list — layer 3's expanded record.
+   *  `seq` is assigned after the sort so the record has a stable identity per
+   *  entry; several frames share a millisecond. */
   timeline: (
-    | ({ type: "step" } & TurnStep)
-    | ({ type: "narration" } & TurnNarration)
+    | ({ type: "step"; seq: number } & TurnStep)
+    | ({ type: "narration"; seq: number } & TurnNarration)
   )[];
   startedAt: number;
   endedAt: number;
@@ -229,9 +231,15 @@ export function replayTurn(turn: CapturedTurn = CAPTURED_TURN): ReplayedTurn {
   }
 
   const timeline = [
-    ...steps.map((step) => ({ type: "step" as const, ...step })),
-    ...narration.map((line) => ({ type: "narration" as const, ...line })),
-  ].sort((a, b) => a.at - b.at);
+    ...steps.map((step) => ({ type: "step" as const, seq: 0, ...step })),
+    ...narration.map((line) => ({
+      type: "narration" as const,
+      seq: 0,
+      ...line,
+    })),
+  ]
+    .sort((a, b) => a.at - b.at)
+    .map((entry, index) => ({ ...entry, seq: index }));
 
   const endedAt = Date.parse(turn.endedAt);
   return {
