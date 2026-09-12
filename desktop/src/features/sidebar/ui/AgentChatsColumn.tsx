@@ -104,9 +104,9 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
     <aside
       aria-label={`Chats with ${agent.name}`}
       className={cn(
-        "flex flex-col bg-sidebar",
+        "flex flex-col",
         mobile
-          ? "min-h-0 w-full flex-1"
+          ? "min-h-0 w-full flex-1 bg-sidebar"
           : cn(
               "pointer-events-auto h-full w-full",
               // Arrival: opacity and an 8px drift at fast · arrival. Leaving:
@@ -114,12 +114,10 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
               "transition-[opacity,translate] motion-reduce:transition-none",
               "data-[panel-open=true]:[transition-duration:var(--motion-duration-fast)] data-[panel-open=true]:[transition-timing-function:var(--motion-ease-arrival)]",
               "data-[panel-open=false]:-translate-x-2 data-[panel-open=false]:opacity-0 data-[panel-open=false]:[transition-duration:var(--motion-duration-instant)] data-[panel-open=false]:[transition-timing-function:var(--motion-ease-standard)]",
-              railHidden
-                ? "group-data-[peek=companion]:border-l group-data-[peek=companion]:border-border/50"
-                : "border-l border-border/50",
             ),
       )}
       data-panel-open={open}
+      data-luca-card={mobile ? undefined : ""}
       data-testid="agent-chats-column"
       inert={open ? undefined : true}
     >

@@ -344,6 +344,12 @@
   background-image: none;
 }
 
+/* The shell is a fixed frame. Its decorative bottom edge must not let focus
+   restoration scroll the entire window by a pixel when a column closes. */
+:root[data-luca-shell] .buzz-huddle-app-surface {
+  overflow: clip;
+}
+
 /* The conversation card. The lip is equal on top, right and bottom; the left
    edge keeps a 1px seam against the rail (paired with the sidebar's `pr-px`),
    so the card reads as a panel resting on the floor rather than a boxed-in
@@ -365,7 +371,7 @@
 :root[data-luca-shell]
   [data-luca-conversation-surface]:has([data-luca-workspace-floor]) {
   background: transparent;
-  border-color: transparent;
+  border: 0;
   border-radius: 0;
   box-shadow: none;
   margin: 0;
@@ -381,11 +387,28 @@
   background: hsl(var(--mn-floor));
 }
 
-:root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card] {
+:root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card],
+:root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
   background: hsl(var(--mn-surface));
   border: 1px solid transparent;
   border-radius: var(--radius);
   box-shadow: var(--mn-card-edge);
+}
+
+/* One floor lip around every conversation card, including the leading edge
+   when both navigation columns are closed. */
+:root[data-luca-shell] [data-testid="conversation-workspace-grid"] {
+  padding: var(--mn-card-lip);
+  gap: var(--mn-card-lip);
+}
+
+/* The workspace supplies its own lip; the outer route must not add another
+   left margin when the rail collapses. */
+:root[data-luca-shell]
+  [data-collapsible="offcanvas"]
+  ~ *
+  [data-luca-conversation-surface]:has([data-luca-workspace-floor]) {
+  margin: 0;
 }
 
 /* Right-hand cards. An inspector is its own card on the floor, beside the
@@ -633,7 +656,7 @@
    and yields the same row for the same reason — the window controls and the
    floating chrome sit over it. Same two values, so it tracks the rail. */
 :root[data-luca-shell] [data-testid="agent-column-chrome-band"] {
-  height: calc(var(--mn-card-lip) + var(--mn-header-height));
+  height: var(--mn-header-height);
 }
 
 :root[data-luca-shell] [data-sidebar="group"] {
@@ -695,11 +718,14 @@
   background: hsl(var(--mn-signal));
 }
 
-/* The agent column is a pane that came out from the rail: a breath lighter
-   than the floor, so it reads as a surface of its own and not as the rail's
-   leftover width. */
-:root[data-luca-shell] [data-testid="agent-chats-column"] {
-  background: hsl(var(--mn-ink) / 0.035);
+/* The selector is a sibling card, matching the right-hand drawers. Its slot
+   supplies the outer lip; the conversation supplies the gap on its right. */
+:root[data-luca-shell] [data-testid="agent-column-mover"] {
+  padding: var(--mn-card-lip) 0 var(--mn-card-lip) var(--mn-card-lip);
+}
+
+:root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
+  overflow: hidden;
 }
 
 :root[data-luca-shell]

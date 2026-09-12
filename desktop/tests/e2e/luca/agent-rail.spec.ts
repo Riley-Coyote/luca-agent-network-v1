@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
 /**
  * The rail after the restructure: PROJECTS, then AGENTS (one row per
@@ -241,9 +242,30 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
   await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
   await expect(column).toBeVisible();
-  await expect
-    .poll(async () => (await column.boundingBox())?.x ?? -1)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(async () => (await column.boundingBox())?.x ?? -1).toBe(8);
+  await waitForAnimations(page);
+  const geometry = await column.evaluate((el) => {
+    const card = document.querySelector(
+      '[data-testid="conversation-workspace-grid"] [data-luca-card]',
+    );
+    if (!card) throw new Error("Conversation card missing");
+    const a = el.getBoundingClientRect();
+    const b = card.getBoundingClientRect();
+    return {
+      top: a.top - b.top,
+      bottom: a.bottom - b.bottom,
+      gap: b.left - a.right,
+      radius: getComputedStyle(el).borderRadius,
+      otherRadius: getComputedStyle(card).borderRadius,
+      surface: getComputedStyle(el).backgroundColor,
+      otherSurface: getComputedStyle(card).backgroundColor,
+    };
+  });
+  expect(geometry.top).toBe(0);
+  expect(geometry.bottom).toBe(0);
+  expect(geometry.gap).toBe(8);
+  expect(geometry.radius).toBe(geometry.otherRadius);
+  expect(geometry.surface).toBe(geometry.otherSurface);
   // The column's header sits below the window-controls strip, as the rail's
   // first row does — nothing of it hides under the traffic lights or the nav.
   const chrome = await page.getByTestId("app-top-chrome").boundingBox();
@@ -264,6 +286,19 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
   await expect
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeGreaterThan(100);
+  await waitForAnimations(page);
+  await column.getByRole("button", { name: "Close chats with Atlas" }).click();
+  await expect(column).toHaveCount(0);
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await waitForAnimations(page);
+  const lips = await page
+    .locator('[data-testid="conversation-workspace-grid"] [data-luca-card]')
+    .first()
+    .evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return [b.left, b.top, innerWidth - b.right, innerHeight - b.bottom];
+    });
+  expect(lips).toEqual([8, 8, 8, 8]);
 });
 
 test("with the rail collapsed, hovering the column's edge peeks the rail beside it", async ({
@@ -286,9 +321,7 @@ test("with the rail collapsed, hovering the column's edge peeks the rail beside 
   // returns to the edge and the collapse was never undone.
   await page.mouse.move(1000, 400);
   await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
-  await expect
-    .poll(async () => (await column.boundingBox())?.x ?? -1)
-    .toBeLessThanOrEqual(1);
+  await expect.poll(async () => (await column.boundingBox())?.x ?? -1).toBe(8);
 });
 
 test("the rail still scrolls while a resident's column is open", async ({
