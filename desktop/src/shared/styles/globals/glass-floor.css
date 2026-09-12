@@ -192,14 +192,42 @@
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
     [data-luca-glass-fallback]
   ) {
-    --mn-plate-strong: rgb(0 0 0 / 0.3);
-    --mn-plate-strong-hover: rgb(0 0 0 / 0.38);
+    --mn-plate-strong: rgb(255 255 255 / 0.075);
+    --mn-plate-strong-hover: rgb(255 255 255 / 0.11);
   }
   :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
     [data-luca-glass-fallback]
   ) {
     --mn-plate-strong: rgb(255 255 255 / 0.55);
     --mn-plate-strong-hover: rgb(255 255 255 / 0.68);
+  }
+}
+
+/* The conversation card already carries the dark weather. Blur the content
+   passing under its header and footer without painting another band. Held
+   things use one light tint over the card instead of stacking black. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    .luca-conversation-veil-top {
+    background: transparent;
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    .luca-conversation-veil-bottom {
+    background: transparent;
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    [data-testid="message-composer"] {
+    background: rgb(255 255 255 / 0.075);
   }
 }
 /* Native palettes keep the real composer border transparent; the shared
