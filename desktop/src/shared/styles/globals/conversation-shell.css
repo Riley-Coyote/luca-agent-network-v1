@@ -49,7 +49,7 @@
    *   derive from the channel rule and convert.
    *
    * The old near-black ladder lives on as the Void theme, untouched. */
-  --mn-floor: 210 7.143% 5.490%;
+  --mn-floor: 240 14.286% 2.745%;
   --mn-surface: 210 3.571% 10.980%;
   --mn-raised: 210 2.128% 18.431%;
   --mn-hover: 210 1.786% 21.961%;
@@ -82,16 +82,12 @@
    * Do not express a fifth level by putting an alpha on one of these. That
    * habit is what collapsed the light palettes: alphas tuned against
    * near-white ink land far below AA once the ink is near-black. */
-  /* Cream, not cool: the one warmth in the system lives in the ink — every
-   * surface stays perfectly neutral, and the text carries tungsten light
-   * (hue 45 at whisper saturation, from the Terminal design docs). At this
-   * dose the warmth is imperceptible as tint; it reads as gentleness. Ratios
-   * re-audited against the new raised surface (#202020): 14.5 / 8.6 / 5.2 /
-   * 3.1 — the same roles the old ladder held, on the lighter ground. */
-  --mn-ink: 45 15% 95%;
-  --mn-ink-muted: 45 4% 76%;
-  --mn-ink-faint: 45 3% 58%;
-  --mn-ink-ghost: 45 2% 44%;
+  /* Default ink stays neutral. Named and user-selected palettes replace these
+   * roles through ThemeProvider; their preferences must retain that authority. */
+  --mn-ink: 0 0% 94.902%;
+  --mn-ink-muted: 0 0% 76.078%;
+  --mn-ink-faint: 0 0% 63.922%;
+  --mn-ink-ghost: 0 0% 43.922%;
   /* FOCUS IS NOT A COLOUR OF ITS OWN. It is the focused element's border
    * moving toward the ink it is written in — brightening here, darkening on
    * Paper. This was `213 94% 68%`, a saturated blue: an accent hue in a system
@@ -273,58 +269,15 @@
   );
 }
 
-/* ------------------------------------------------------------------
- * THE FOCUS CONTRACT — shell-wide, and the whole of it.
- *
- * WHAT WAS ACTUALLY ON SCREEN. Not the Tailwind rings — one rule, formerly
- * in `theme.css` (deleted in the mapping consolidation), painting
- * `outline: 2px solid` of the focus color, offset 2px, on every
- * focusable element in the app. Two pixels of saturated blue, held two pixels
- * off the element, with the page showing through the gap. That is the ring in
- * the capture. And because the rule is unlayered while Tailwind's utilities
- * live in `@layer utilities`, it silently outranked the
- * `focus-visible:outline-hidden` that a hundred components had already asked
- * for — no specificity fight, layer order alone. Components could not opt out
- * of it, which is why nobody noticed it was the source.
- *
- * WHAT REPLACES IT. The same idea the canon states: the element's own edge
- * changes colour, in place. A 1px outline pulled INSIDE by its own width sits
- * exactly where a border sits and follows the same corner radius, so it reads
- * as the element gaining a hairline rather than as anything drawn around it.
- * Keeping it universal is deliberate: focus stays guaranteed-visible on every
- * focusable thing in the app, including the surfaces nobody has styled.
- *
- * `--mn-focus-edge` is the opt-out for objects whose ground is inverted — a
- * near-white primary pill, where the faint ink role lands at 2.0:1 and fails
- * the 3:1 floor for focus indicators. Such an element declares the ink its
- * edge should move toward; everything else inherits the default.
- *
- * ------------------------------------------------------------------ */
-:root[data-luca-shell] :focus-visible {
-  outline: 1px solid var(--mn-focus-edge, hsl(var(--mn-focus)));
-  outline-offset: -1px;
-}
-
-/* No gap, anywhere. `ring-offset-*` pushes a ring away from the element and
- * fills the space with the page colour — border, hole, ring: the exact shape
- * this system does not have, spread across ~100 components that are not safe
- * to edit one by one. Collapsing the offset while any focus state is live puts
- * the ring back on the edge it belongs to. A ring drawn for something other
- * than focus (a selected-state marker, say) never matches and is untouched. */
-:root[data-luca-shell] :is(:focus, :focus-visible, :focus-within) {
-  --tw-ring-offset-width: 0px;
-}
-
-/* And no second edge on the focused element itself, where the contract above
- * has already drawn one — a `ring-1` there is the same line twice.
- *
- * Scoped to the element that HOLDS focus, deliberately. A container drawing a
- * ring because a descendant is focused (`focus-within:ring-*`, `has-[…]:ring`)
- * is making a different statement — this box is the one you are working in —
- * and that statement is the canon's, so it stays. `--tw-ring-color` is
- * registered `inherits: false`, so this cannot leak down into children. */
-:root[data-luca-shell] :is(:focus, :focus-visible) {
-  --tw-ring-color: transparent;
+/* The shell supplies a fallback only. It sits in the base layer and uses
+ * `:where()` so a component's focus treatment, including Tailwind utilities,
+ * can replace it. A bordered control therefore brightens its own edge; a
+ * borderless control receives the same 1px outline inset into its box. */
+@layer base {
+  :root[data-luca-shell] :where(:focus-visible) {
+    outline: 1px solid var(--mn-focus-edge, hsl(var(--mn-focus)));
+    outline-offset: -1px;
+  }
 }
 
 /* The two writing surfaces are the standing exception, and they asked for it

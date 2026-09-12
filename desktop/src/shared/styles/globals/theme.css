@@ -549,7 +549,7 @@
     "Avenir Next", "Segoe UI", sans-serif;
 }
 
-:root[data-luca-shell] :is(time, code, kbd, [data-font="mono"], .font-mono) {
+:root[data-luca-shell] :is(code, kbd, [data-font="mono"], .font-mono) {
   font-family: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
 }
 

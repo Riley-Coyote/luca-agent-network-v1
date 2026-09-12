@@ -77,13 +77,13 @@ const RAIL_FOCUS_CLASS =
   "focus-visible:outline focus-visible:outline-1 focus-visible:-outline-offset-1 focus-visible:outline-foreground/50";
 
 export const RAIL_ROW_CLASS = cn(
-  "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left outline-none transition-colors",
+  "group flex min-h-8 w-full items-center gap-2.5 rounded-md px-2 text-left transition-colors",
   RAIL_FOCUS_CLASS,
 );
 
 /** The rail's small controls — the "+" buttons and the column's close. */
 export const RAIL_CONTROL_CLASS = cn(
-  "flex items-center justify-center rounded-md text-ink-faint outline-none transition-colors",
+  "flex items-center justify-center rounded-md text-ink-faint transition-colors",
   "hover:bg-sidebar-accent hover:text-sidebar-foreground",
   RAIL_FOCUS_CLASS,
 );

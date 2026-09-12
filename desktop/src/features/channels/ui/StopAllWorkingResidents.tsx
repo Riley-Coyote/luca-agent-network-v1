@@ -23,7 +23,7 @@ export function StopAllWorkingResidents({
           "border-transparent bg-transparent text-white/[0.45]",
           "hover:text-white/[0.78]",
           "active:text-white/50",
-          "focus-visible:border-white/50",
+          "focus-visible:border-white/50 focus-visible:outline-none",
           "disabled:cursor-default disabled:text-white/[0.45]",
           "disabled:hover:border-transparent disabled:hover:bg-transparent",
         )}

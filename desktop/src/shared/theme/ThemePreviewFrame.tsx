@@ -44,13 +44,13 @@ export const DARK_PREVIEW_VARS: ThemePreviewVars = {
 export const SLATE_PREVIEW_VARS: ThemePreviewVars = {
   "--background": "210 3.6% 11%",
   "--border": "216 5.6% 17.5%",
-  "--foreground": "45 15% 95%",
+  "--foreground": "0 0% 94.902%",
   "--muted": "210 2.1% 18.4%",
-  "--muted-foreground": "45 4% 76%",
-  "--primary": "45 8% 90%",
-  "--primary-foreground": "210 3.6% 11%",
-  "--sidebar-background": "210 7.1% 5.5%",
-  "--sidebar-foreground": "45 15% 95%",
+  "--muted-foreground": "0 0% 76.078%",
+  "--primary": "220 6.6% 87.9%",
+  "--primary-foreground": "240 14.286% 2.745%",
+  "--sidebar-background": "240 14.286% 2.745%",
+  "--sidebar-foreground": "0 0% 94.902%",
 };
 
 /**

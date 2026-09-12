@@ -754,7 +754,7 @@ export function ThemeProvider({
   const [followSystem, setFollowSystemState] = useState<boolean>(() => {
     const stored = window.localStorage.getItem(FOLLOW_SYSTEM_KEY);
     if (stored !== null) return stored === "true";
-    // First launch uses Vitesse Black. Following the OS is an explicit choice.
+    // First launch uses the default Luca shell palette. Following the OS is an explicit choice.
     return false;
   });
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {

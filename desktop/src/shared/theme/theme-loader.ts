@@ -8,7 +8,7 @@
 import type { ThemeRegistrationRaw } from "shiki";
 
 /** The appearance used on first launch, before an owner chooses a theme. */
-export const DEFAULT_THEME_NAME = "vitesse-black";
+export const DEFAULT_THEME_NAME = "buzz-dark";
 
 /**
  * Legacy internal key for Luca's first-party shell theme. It intentionally
