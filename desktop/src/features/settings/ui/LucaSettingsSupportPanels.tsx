@@ -250,7 +250,7 @@ export function AboutLucaSettings() {
         <SettingsOptionRow>
           <div>
             <p className="text-sm font-medium">Luca Agent Network</p>
-            <p className="mt-1 font-mono text-xs text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               Version {version ?? "unavailable"}
             </p>
           </div>

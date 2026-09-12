@@ -82,7 +82,7 @@
 
 :root[data-luca-shell] .luca-work-tray__heading {
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   letter-spacing: 0.04em;
   padding: 2px 4px 9px;
@@ -168,7 +168,7 @@
   border: 1px solid hsl(var(--mn-border-strong) / 0.62);
   border-radius: 999px;
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.625rem;
   line-height: 1;
   padding: 3px 6px;
@@ -178,7 +178,7 @@
 :root[data-luca-shell] .luca-runtime-task-run__meta {
   color: hsl(var(--mn-ink-faint));
   display: flex;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   gap: 10px;
   margin: -3px 0 9px;
@@ -364,7 +364,7 @@
   color: hsl(var(--mn-ink-faint));
   display: inline-flex;
   flex: 0 0 auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   gap: 5px;
   line-height: 1;
@@ -379,7 +379,7 @@
   align-items: center;
   color: hsl(var(--mn-ink-faint));
   display: inline-flex;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   gap: 3px;
   pointer-events: auto;
@@ -444,7 +444,7 @@
   border-radius: 6px;
   color: hsl(var(--mn-ink-faint));
   display: inline-flex;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   gap: 6px;
   height: 28px;
@@ -475,7 +475,7 @@
   align-items: center;
   color: hsl(var(--mn-ink-faint));
   display: flex;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-size: 0.6875rem;
   justify-content: space-between;
   letter-spacing: 0.04em;

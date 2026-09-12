@@ -239,7 +239,7 @@ export function ResidentAccessControl({
                   <p className="truncate text-sm">
                     {grant.resource.displayName}
                   </p>
-                  <p className="mt-1 font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
+                  <p className="mt-1 text-2xs uppercase tracking-caps-wide text-ink-faint">
                     {grant.capability.replaceAll("_", " ")}
                   </p>
                 </div>

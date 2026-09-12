@@ -205,7 +205,7 @@ function SessionHeader({
             : "Restart this local agent to attach the observer feed."}
         </p>
       </div>
-      <Badge className="w-fit font-mono" variant="outline">
+      <Badge className="w-fit" variant="outline">
         {eventCount} event{eventCount === 1 ? "" : "s"}
       </Badge>
     </div>

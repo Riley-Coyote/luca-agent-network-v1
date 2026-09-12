@@ -101,13 +101,13 @@
   font-family: var(--font-ui);
 }
 
-/* Fixed-width and anchored right: the label beside it changes as the work
+/* Anchored right: the label beside it changes as the work
  * changes, and a clock that slides with every new sentence is unreadable.
  * The right padding keeps it from reading as a label on the Stop control. */
 :root[data-luca-shell] .luca-activity-item__elapsed {
   color: hsl(var(--mn-ink-faint) / 0.7);
   flex: 0 0 auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
   margin-left: auto;
   font-size: var(--type-label-size);
@@ -304,7 +304,7 @@
   color: hsl(var(--mn-ink-faint));
   display: inline-flex;
   flex: 0 0 auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   font-variant-numeric: tabular-nums;
   justify-content: center;
   line-height: 1;

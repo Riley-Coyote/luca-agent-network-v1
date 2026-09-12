@@ -460,10 +460,10 @@ function NotebookSection({
           <details className="group border-y border-border/55 py-1">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring">
               <span>Current handoff</span>
-              <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:hidden">
+              <span className="text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:hidden">
                 Show
               </span>
-              <span className="hidden font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:inline">
+              <span className="hidden text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:inline">
                 Hide
               </span>
             </summary>
@@ -635,7 +635,7 @@ function SettingsSection({
                 type="button"
               >
                 <span>{channel.name}</span>
-                <span className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
+                <span className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
                   Open
                 </span>
               </button>
@@ -709,7 +709,7 @@ function LedgerSection({
   return (
     <section className="grid gap-5 py-6 sm:grid-cols-[160px_minmax(0,1fr)]">
       <div>
-        <p className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
+        <p className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
           {eyebrow}
         </p>
         <h3 className="mt-1 text-sm font-medium">{title}</h3>
