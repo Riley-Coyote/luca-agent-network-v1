@@ -58,6 +58,12 @@ fn test_runtime() -> &'static KnownAcpRuntime {
         required_normalized_fields: &["model", "provider"],
         login_hint: None,
         auth_probe_args: None,
+        cli_override_env: None,
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     }
 }
 
@@ -636,6 +642,12 @@ fn buzz_agent_runtime() -> &'static KnownAcpRuntime {
         required_normalized_fields: &["model", "provider"],
         login_hint: None,
         auth_probe_args: None,
+        cli_override_env: None,
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     }
 }
 

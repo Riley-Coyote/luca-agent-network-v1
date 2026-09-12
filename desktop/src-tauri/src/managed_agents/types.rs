@@ -621,6 +621,12 @@ pub struct AcpRuntimeCatalogEntry {
     /// Hint for completing authentication, shown when `auth_status` is not `logged_in`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_hint: Option<String>,
+    /// How an already-signed-in owner is signed in (e.g. `ChatGPT`), when the
+    /// runtime's own credential file says so. Lets the UI read
+    /// "Codex — signed in with ChatGPT" instead of offering a sign-in step to
+    /// someone who is already signed in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_in_as: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]

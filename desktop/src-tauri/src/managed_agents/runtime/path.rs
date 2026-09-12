@@ -26,6 +26,14 @@ pub(in crate::managed_agents) fn build_augmented_path(
 ) -> Option<String> {
     let mut parts: Vec<PathBuf> = Vec::new();
     let home_added = home.is_some();
+    // The runtimes this app actually chose come first, so a fossil sitting
+    // earlier on the owner's shell PATH cannot answer in their place and a CLI
+    // that lives inside an application bundle is reachable at all.
+    if let Some(shim_dir) =
+        crate::managed_agents::discovery::runtime_shim_dir().filter(|dir| dir.is_dir())
+    {
+        parts.push(shim_dir);
+    }
     if let Some(home) = home {
         parts.push(home.join(".local").join("bin"));
     }

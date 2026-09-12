@@ -699,6 +699,11 @@ export type AcpRuntimeCatalogEntry = {
   authStatus: AuthStatus;
   /** Hint for completing authentication; null when not applicable or already logged in. */
   loginHint: string | null;
+  /**
+   * How an already-signed-in owner is signed in (e.g. `ChatGPT`), read from the
+   * runtime's own credential file. Present means: do not show a sign-in step.
+   */
+  signedInAs: string | null;
 };
 
 /** An AcpRuntimeCatalogEntry that is confirmed available — command and binaryPath are non-null. */

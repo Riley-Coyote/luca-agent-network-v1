@@ -887,6 +887,12 @@ mod tests {
             required_normalized_fields: &[],
             login_hint: None,
             auth_probe_args: None,
+            cli_override_env: None,
+            bundle_cli_paths: &[],
+            cli_version_args: &["--version"],
+            min_cli_version: None,
+            min_cli_version_source: None,
+            auth_files: &[],
         }
     }
 
@@ -1081,6 +1087,12 @@ mod tests {
             required_normalized_fields: &[],
             login_hint: None,
             auth_probe_args: None,
+            cli_override_env: None,
+            bundle_cli_paths: &[],
+            cli_version_args: &["--version"],
+            min_cli_version: None,
+            min_cli_version_source: None,
+            auth_files: &[],
         }
     }
 

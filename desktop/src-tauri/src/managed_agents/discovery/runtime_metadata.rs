@@ -60,6 +60,26 @@ pub(crate) struct KnownAcpRuntime {
     /// CLI args for probing authentication status. `args[0]` is the binary name;
     /// the remainder are the subcommand. `None` for runtimes with no login step.
     pub auth_probe_args: Option<&'static [&'static str]>,
+    /// Environment variable holding an explicit path to this runtime's CLI.
+    /// Always searched first; an owner who sets it gets exactly what they set.
+    pub cli_override_env: Option<&'static str>,
+    /// Absolute paths where this CLI ships *inside an application bundle*.
+    /// A leading `~/` is expanded. These are searched before any PATH
+    /// directory, because a CLI inside an app is never on a shell PATH — which
+    /// is precisely how a clean Mac ends up with only a fossil to find.
+    pub bundle_cli_paths: &'static [&'static str],
+    /// Args used to ask the CLI its version. Defaults to `["--version"]`.
+    pub cli_version_args: &'static [&'static str],
+    /// The oldest CLI version the shipped ACP adapter can drive. A candidate
+    /// below this is not a find: it is rejected with a reason, never offered.
+    pub min_cli_version: Option<(u64, u64, u64)>,
+    /// Where `min_cli_version` comes from, quoted in the log and the report so
+    /// the number is never a guess.
+    pub min_cli_version_source: Option<&'static str>,
+    /// Credential files that prove an existing sign-in without running
+    /// anything. Read before any sign-in step is shown. A leading `~/` is
+    /// expanded.
+    pub auth_files: &'static [&'static str],
 }
 
 impl KnownAcpRuntime {

@@ -114,6 +114,47 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
     runtime.availability === "available" &&
     runtime.authStatus.status === "logged_out";
 
+  // The bridge between Luca and a runtime the owner already has is our
+  // business, not theirs. When the only thing missing is the adapter, install
+  // it without asking — one honest progress line, no button, no npm
+  // vocabulary. (WP-SETUP1 decision 3.)
+  const adapterOnly =
+    !needsSignIn &&
+    runtime.canAutoInstall &&
+    !runtime.nodeRequired &&
+    (runtime.availability === "adapter_missing" ||
+      runtime.availability === "adapter_outdated");
+  const [autoSetupFailed, setAutoSetupFailed] = React.useState(false);
+  const startAutoSetup = React.useCallback(async () => {
+    setActionError(null);
+    setAutoSetupFailed(false);
+    try {
+      const result = await install.mutateAsync(runtime.id);
+      if (!result.success) {
+        throw new Error(
+          `Luca couldn’t finish setting up ${runtime.label}. You can try again.`,
+        );
+      }
+      await refresh();
+    } catch (cause) {
+      setAutoSetupFailed(true);
+      setActionError(
+        cause instanceof Error
+          ? cause.message
+          : `Luca couldn’t finish setting up ${runtime.label}. You can try again.`,
+      );
+    }
+    // `install` and `refresh` are stable mutation/callback handles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [install, refresh, runtime.id, runtime.label]);
+
+  const autoSetupStarted = React.useRef(false);
+  React.useEffect(() => {
+    if (!adapterOnly || autoSetupStarted.current || autoSetupFailed) return;
+    autoSetupStarted.current = true;
+    void startAutoSetup();
+  }, [adapterOnly, autoSetupFailed, startAutoSetup]);
+
   async function recover() {
     setActionError(null);
     try {
@@ -160,8 +201,31 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-3">
+      {adapterOnly && !autoSetupFailed ? (
+        <p
+          className="flex items-center gap-2"
+          data-testid="runtime-silent-setup"
+          role="status"
+        >
+          <Spinner className="h-3.5 w-3.5" />
+          Setting up {runtime.label}…
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
-        {!runtimeIsReadyForOnboarding(runtime) &&
+        {adapterOnly && autoSetupFailed ? (
+          <Button
+            className="h-8"
+            disabled={pending}
+            onClick={() => void startAutoSetup()}
+            type="button"
+            variant="outline"
+          >
+            {install.isPending ? <Spinner className="h-3.5 w-3.5" /> : null}
+            Try again
+          </Button>
+        ) : null}
+        {!adapterOnly &&
+        !runtimeIsReadyForOnboarding(runtime) &&
         (needsSignIn ||
           runtime.canAutoInstall ||
           runtime.installInstructionsUrl) ? (
@@ -376,9 +440,14 @@ export const PolyphonicRuntimeStep = React.forwardRef<
                   </span>
                   <span className="mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
                     {option.readiness === "ready"
-                      ? option.recommended
-                        ? "Ready on this Mac · Recommended"
-                        : "Ready on this Mac"
+                      ? [
+                          runtime?.signedInAs
+                            ? `Signed in with ${runtime.signedInAs}`
+                            : "Ready on this Mac",
+                          option.recommended ? "Recommended" : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")
                       : (option.reason ??
                         (option.readiness === "setup_required"
                           ? "Set up"
@@ -427,29 +496,37 @@ export const PolyphonicRuntimeStep = React.forwardRef<
               : "Direct conversations with Luca and the agents already on your Mac. Some collaboration tools aren’t available on this runtime yet."}
           </p>
         ) : null}
-        {selectedOption && selectedOption.readiness !== "ready" ? (
-          <div className="mt-4 flex flex-col items-start gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]">
-            <span>
-              {selectedOption.reason ?? "This runtime needs attention."}
-            </span>
-            {selectedRuntime ? (
-              <ManagedRecovery
-                key={selectedRuntime.id}
-                runtime={selectedRuntime}
-              />
-            ) : (
-              <Button
-                className="h-8"
-                onClick={() => void settings.refetch()}
-                type="button"
-                variant="outline"
-              >
-                Check again
-              </Button>
-            )}
-          </div>
-        ) : null}
       </div>
+      {/*
+        A required step must never sit below the fold. This block is a sibling
+        of the scroll container, not a child of it, so whatever the window
+        height the action to unblock setup is on screen. (WP-SETUP1 decision 6.)
+      */}
+      {selectedOption && selectedOption.readiness !== "ready" ? (
+        <div
+          className="mt-4 flex shrink-0 flex-col items-start gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]"
+          data-testid="polyphonic-runtime-action"
+        >
+          <span>
+            {selectedOption.reason ?? "This runtime needs attention."}
+          </span>
+          {selectedRuntime ? (
+            <ManagedRecovery
+              key={selectedRuntime.id}
+              runtime={selectedRuntime}
+            />
+          ) : (
+            <Button
+              className="h-8"
+              onClick={() => void settings.refetch()}
+              type="button"
+              variant="outline"
+            >
+              Check again
+            </Button>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 });

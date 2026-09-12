@@ -10,8 +10,10 @@ use crate::managed_agents::{
     CommandAvailabilityInfo,
 };
 
+mod runtime_cli;
 mod runtime_metadata;
 
+pub(crate) use runtime_cli::runtime_shim_dir;
 pub(crate) use runtime_metadata::KnownAcpRuntime;
 
 const GOOSE_AVATAR_URL: &str = "https://goose-docs.ai/img/logo_dark.png";
@@ -98,6 +100,13 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         required_normalized_fields: &["model", "provider"],
         login_hint: None,
         auth_probe_args: None,
+        cli_override_env: Some("BUZZ_GOOSE_PATH"),
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        // Goose ships its own ACP support; no adapter pins a CLI floor.
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     },
     KnownAcpRuntime {
         id: "claude",
@@ -129,6 +138,19 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         required_normalized_fields: &[],
         login_hint: Some("Run the Claude CLI to complete authentication."),
         auth_probe_args: Some(&["claude", "auth", "status"]),
+        cli_override_env: Some("BUZZ_CLAUDE_PATH"),
+        bundle_cli_paths: &[
+            "/Applications/Claude.app/Contents/Resources/claude",
+            "~/Applications/Claude.app/Contents/Resources/claude",
+        ],
+        cli_version_args: &["--version"],
+        // `@agentclientprotocol/claude-agent-acp` depends on
+        // `@anthropic-ai/claude-agent-sdk`, not on the `claude` CLI, so there
+        // is no adapter-pinned floor to enforce. Left `None` rather than
+        // invented.
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &["~/.claude/.credentials.json"],
     },
     KnownAcpRuntime {
         id: "codex",
@@ -161,6 +183,21 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         login_hint: Some("Run `codex login` to authenticate."),
         // Verified: `codex login status` exits 0 when logged in, non-zero otherwise.
         auth_probe_args: Some(&["codex", "login", "status"]),
+        cli_override_env: Some("BUZZ_CODEX_PATH"),
+        // The ChatGPT desktop app ships a current, already-signed-in Codex.
+        // It is on no shell PATH, which is why a clean Mac only ever found the
+        // April-2025 npm relic.
+        bundle_cli_paths: &[
+            "/Applications/ChatGPT.app/Contents/Resources/codex",
+            "~/Applications/ChatGPT.app/Contents/Resources/codex",
+        ],
+        cli_version_args: &["--version"],
+        // Source: `@agentclientprotocol/codex-acp@1.11.0` (the adapter this
+        // app installs) declares `"@openai/codex": "^0.153.4"` in its
+        // package.json dependencies.
+        min_cli_version: Some((0, 153, 4)),
+        min_cli_version_source: Some("@agentclientprotocol/codex-acp@1.11.0's @openai/codex ^0.153.4 pin"),
+        auth_files: &["~/.codex/auth.json"],
     },
     KnownAcpRuntime {
         id: "kimi",
@@ -192,6 +229,12 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         required_normalized_fields: &[],
         login_hint: Some("Run `kimi` to complete authentication."),
         auth_probe_args: None,
+        cli_override_env: None,
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     },
     KnownAcpRuntime {
         id: "grok",
@@ -223,6 +266,12 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         required_normalized_fields: &[],
         login_hint: Some("Run `grok` to complete authentication."),
         auth_probe_args: None,
+        cli_override_env: None,
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     },
     KnownAcpRuntime {
         id: "buzz-agent",
@@ -254,6 +303,12 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         required_normalized_fields: &["model", "provider"],
         login_hint: None,
         auth_probe_args: None,
+        cli_override_env: None,
+        bundle_cli_paths: &[],
+        cli_version_args: &["--version"],
+        min_cli_version: None,
+        min_cli_version_source: None,
+        auth_files: &[],
     },
 ];
 
@@ -1291,6 +1346,10 @@ pub(crate) fn artifact_mcp_support(runtime: &KnownAcpRuntime) -> ArtifactMcpSupp
 }
 
 pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
+    // Say once, at startup, exactly where we are going to look. When a setup
+    // fails, this line is the difference between a diagnosis and a guess.
+    runtime_cli::log_search_order_once(KNOWN_ACP_RUNTIMES);
+
     // Phase 1: build all entries (fast — no probes yet).
     let mut partials: Vec<PartialEntry> = KNOWN_ACP_RUNTIMES
         .iter()
@@ -1300,10 +1359,30 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 .iter()
                 .find_map(|command| find_command(command).map(|path| (*command, path)));
 
-            let underlying_cli_found = runtime
-                .underlying_cli
-                .map(|cli| find_command(cli).is_some())
-                .unwrap_or(false);
+            // Look where the runtime actually lives — application bundles
+            // included — and refuse anything below the adapter's minimum.
+            let cli = runtime_cli::resolve_runtime_cli(runtime);
+            for rejected in &cli.rejected {
+                eprintln!(
+                    "[runtime-discovery] {}: rejected {} (version {}) — {}",
+                    runtime.id,
+                    rejected.path.display(),
+                    rejected.version.as_deref().unwrap_or("unknown"),
+                    rejected.reason,
+                );
+            }
+            if let Some(found) = &cli.path {
+                if let Some(cli_name) = runtime.underlying_cli {
+                    runtime_cli::link_runtime_cli(cli_name, found);
+                }
+                eprintln!(
+                    "[runtime-discovery] {}: using {} (version {})",
+                    runtime.id,
+                    found.display(),
+                    cli.version.as_deref().unwrap_or("unknown"),
+                );
+            }
+            let underlying_cli_found = cli.path.is_some();
             let (mut availability, command, binary_path) =
                 classify_runtime(adapter_result, runtime.underlying_cli, underlying_cli_found);
 
@@ -1326,10 +1405,7 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 cache_adapter_availability(availability.clone());
             }
 
-            let underlying_cli_path = runtime
-                .underlying_cli
-                .and_then(find_command)
-                .map(|p| p.display().to_string());
+            let underlying_cli_path = cli.path.as_ref().map(|p| p.display().to_string());
 
             let default_args = command
                 .as_deref()
@@ -1391,10 +1467,33 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                     // Filled in by the probe phase below.
                     auth_status: AuthStatus::Unknown,
                     login_hint: None,
+                    signed_in_as: None,
                 },
             }
         })
         .collect();
+
+    // Phase 1b: recognise an existing sign-in from the runtime's own
+    // credential file. This is a small offline JSON read, so it settles the
+    // question before any subprocess starts — nobody who is already signed in
+    // should ever be shown a sign-in step while a probe warms up.
+    let mut auth_from_file: Vec<bool> = vec![false; partials.len()];
+    for (idx, partial) in partials.iter_mut().enumerate() {
+        let Some(existing) = runtime_cli::existing_auth_from_file(partial.runtime) else {
+            continue;
+        };
+        if partial.entry.availability != AcpAvailabilityStatus::Available {
+            continue;
+        }
+        eprintln!(
+            "[runtime-discovery] {}: already signed in per {} — no sign-in step shown",
+            existing.runtime_id, existing.how,
+        );
+        partial.entry.auth_status = AuthStatus::LoggedIn;
+        partial.entry.login_hint = None;
+        partial.entry.signed_in_as = existing.mode;
+        auth_from_file[idx] = true;
+    }
 
     // Phase 2: run auth probes in parallel for entries that need them.
     // Spawn one thread per probeable entry; total cost = max(probe latency).
@@ -1405,9 +1504,16 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
             if partial.entry.availability != AcpAvailabilityStatus::Available {
                 return None;
             }
+            if auth_from_file[idx] {
+                return None;
+            }
             let probe_args = partial.runtime.auth_probe_args?;
-            // Need the resolved binary path for the CLI (e.g. the actual `claude` binary).
-            let binary_path = resolve_command(probe_args[0])?;
+            // Ask the runtime we actually chose, not whatever a shell PATH
+            // happens to surface — otherwise the fossil answers for the
+            // binary we are really going to run.
+            let binary_path = runtime_cli::resolve_runtime_cli(partial.runtime)
+                .path
+                .or_else(|| resolve_command(probe_args[0]))?;
             let probe_args_owned: Vec<String> = probe_args.iter().map(|s| s.to_string()).collect();
 
             let handle = std::thread::spawn(move || {
@@ -1431,7 +1537,8 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
         partial.entry.auth_status = status;
     }
 
-    // Fill NotApplicable / Unknown for non-probed entries.
+    // Fill NotApplicable / Unknown for non-probed entries. Entries already
+    // settled by their credential file are left alone.
     for partial in &mut partials {
         if partial.entry.auth_status == AuthStatus::Unknown {
             partial.entry.auth_status = if partial.entry.availability

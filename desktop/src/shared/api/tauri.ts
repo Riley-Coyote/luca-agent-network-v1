@@ -267,6 +267,7 @@ export type RawAcpRuntimeCatalogEntry = {
   /** Tagged union with snake_case status values — same shape as `AuthStatus`. */
   auth_status: AuthStatus;
   login_hint?: string;
+  signed_in_as?: string;
 };
 
 export type RawInstallStepResult = {
@@ -881,6 +882,7 @@ function fromRawAcpRuntimeCatalogEntry(
     nodeRequired: entry.node_required,
     authStatus: entry.auth_status,
     loginHint: entry.login_hint ?? null,
+    signedInAs: entry.signed_in_as ?? null,
   };
 }
 
