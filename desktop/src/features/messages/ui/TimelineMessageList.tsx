@@ -326,7 +326,6 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               onToggleReaction={onToggleReaction}
               profiles={profiles}
               agentNamesEnabled={agentNamesEnabled}
-              visitActive={Boolean(item.visitSpan)}
               collapseLongBody={!isDirectConversation}
               quickReactions={!isDirectConversation}
               searchActiveMessageId={searchActiveMessageId}
@@ -885,7 +884,6 @@ type MessageRowItemProps = Pick<
   entry: MainTimelineEntry;
   footer: React.ReactNode;
   authorVisiting?: boolean;
-  visitActive?: boolean;
   collapseLongBody?: boolean;
   quickReactions?: boolean;
   isContinuation?: boolean;
@@ -923,7 +921,6 @@ function MessageRowItem({
   onToggleReaction,
   profiles,
   agentNamesEnabled = true,
-  visitActive = false,
   collapseLongBody = true,
   quickReactions = true,
   searchActiveMessageId,
@@ -990,7 +987,6 @@ function MessageRowItem({
           }
           profiles={profiles}
           agentNamesEnabled={agentNamesEnabled}
-          visitActive={visitActive}
           collapseLongBody={collapseLongBody}
           quickReactions={quickReactions}
           showDepthGuides={isFocusedThreadLayout}
@@ -1048,7 +1044,6 @@ function MessageRowItem({
         }
         profiles={profiles}
         agentNamesEnabled={agentNamesEnabled}
-        visitActive={visitActive}
         collapseLongBody={collapseLongBody}
         quickReactions={quickReactions}
         quotedParent={quotedParent}

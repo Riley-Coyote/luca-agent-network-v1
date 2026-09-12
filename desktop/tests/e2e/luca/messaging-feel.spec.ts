@@ -228,9 +228,9 @@ test("a queued own send remains visible while the current resident row is writin
       },
     },
   );
-  await expect(page.getByTestId("channel-composer-overlay")).toContainText(
-    "Thinking",
-  );
+  // WP-STRIP1 · the wait is a row in the thread now, not a word above the
+  // composer, so the signal to look for is the working row itself.
+  await expect(page.getByTestId("resident-activity-word").first()).toBeVisible();
 
   const timeline = page.getByTestId("message-timeline");
   await timeline.evaluate((element) => {
@@ -411,10 +411,12 @@ test("the shelf's first word arrives fast after a managed send", async ({
   const before = Date.now();
   await page.getByTestId("send-message").click();
 
-  // The wait tier used to hold the shelf label empty for 3s; the phase
-  // word now answers "did it hear me?" almost immediately.
-  const label = page.locator(".luca-activity-item__label");
+  // The wait tier used to hold the shelf label empty for 3s; the phase word
+  // answers "did it hear me?" almost immediately. WP-STRIP1 moved that word
+  // out of the shelf and onto the row where the reply will land — the timing
+  // guarantee is the same one, measured where the owner is actually looking.
+  const label = page.getByTestId("resident-activity-word");
   await expect(label.first()).toBeVisible({ timeout: 3_000 });
   expect(Date.now() - before).toBeLessThan(2_500);
-  await expect(label.first()).toHaveText(/Waking|Thinking/);
+  await expect(label.first()).toHaveText(/waking|thinking/);
 });

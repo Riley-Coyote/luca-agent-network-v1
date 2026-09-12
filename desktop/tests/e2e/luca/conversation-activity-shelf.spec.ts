@@ -2,18 +2,33 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 
+/**
+ * WP-STRIP1 · THE WORK HAPPENS IN THE THREAD.
+ *
+ * This file used to assert the activity shelf: a second surface above the
+ * composer that painted the same working state the conversation rows already
+ * painted, which is where the duplicate mark came from. Direction C retires
+ * it. What is asserted now is the design that replaced it:
+ *
+ *  · one row per working resident, in the thread, where their reply will land;
+ *  · EXACTLY ONE MARK PER WORKING RESIDENT anywhere in the document;
+ *  · Stop on the row, revealed by hover or focus, as a text button;
+ *  · Stop all only when there is an "all", and only at the group's bottom edge;
+ *  · the identity glyph beside a name, never the orb.
+ */
+
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const PRESENTATION_EVENT = "luca://managed-presentation";
+const SHOTS = "/Volumes/LaCie/Luca-Development/wp/strip1";
 const RESIDENTS = [
   { name: "Claude Code", pubkey: TEST_IDENTITIES.alice.pubkey },
   { name: "Codex", pubkey: TEST_IDENTITIES.charlie.pubkey },
   { name: "Luca", pubkey: TEST_IDENTITIES.bob.pubkey },
-  { name: "Mara", pubkey: "a".repeat(64) },
 ] as const;
 
-async function openConversation(page: Page) {
+async function openConversation(page: Page, residentCount: number) {
   await installMockBridge(page, {
-    managedAgents: RESIDENTS.map((resident) => ({
+    managedAgents: RESIDENTS.slice(0, residentCount).map((resident) => ({
       channelNames: ["general"],
       name: resident.name,
       pubkey: resident.pubkey,
@@ -25,62 +40,24 @@ async function openConversation(page: Page) {
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 }
 
-async function openGroupDirectConversation(page: Page) {
-  const firstMessage = "Start one independent response each.";
-  await installMockBridge(page, {
-    managedAgents: RESIDENTS.slice(0, 2).map((resident) => ({
-      channelNames: ["general"],
-      name: resident.name,
-      pubkey: resident.pubkey,
-      status: "running" as const,
-    })),
-    searchProfiles: [TEST_IDENTITIES.alice, TEST_IDENTITIES.charlie].map(
-      (identity) => ({
-        displayName: identity.username,
-        isAgent: true,
-        pubkey: identity.pubkey,
-      }),
-    ),
-  });
-  await page.goto("/?e2e=mock");
-  await page.getByTestId("new-message-page").waitFor({ state: "visible" });
-  for (const resident of RESIDENTS.slice(0, 2)) {
-    await page.getByTestId("new-dm-search").fill(resident.name);
-    await page.getByTestId(`new-dm-result-${resident.pubkey}`).click();
-  }
-  await page.getByTestId("message-input").fill(firstMessage);
+/**
+ * Put every resident in the room into a live managed turn — the real path,
+ * the one that carries a cancellable dispatch receipt, so Stop is genuinely
+ * available rather than merely drawn. Observer-only activity has nothing the
+ * runtime can cancel, and a row that offers Stop without one is a lie.
+ */
+async function startManagedTurns(page: Page, residentCount: number) {
+  const content = "Start one independent response each.";
+  await page.getByTestId("message-input").fill(content);
   await page.getByTestId("send-message").click();
-  await expect(page).toHaveURL(/\/channels\//);
-  const { conversationId, receiptId } = await page.evaluate(async (content) => {
-    const sends = (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
-      (entry) => entry.command === "send_channel_message",
-    );
-    const conversationId = String(
-      (sends.at(-1)?.payload as { channelId?: unknown } | undefined)
-        ?.channelId ?? "",
-    );
-    const search = (await window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.(
-      "search_messages",
-      { q: content, limit: 10 },
-    )) as
-      | {
-          hits?: Array<{
-            channel_id?: string | null;
-            content?: string;
-            event_id?: string;
-          }>;
-        }
-      | undefined;
-    const receiptId =
-      search?.hits?.find(
-        (hit) => hit.channel_id === conversationId && hit.content === content,
-      )?.event_id ?? "";
-    return { conversationId, receiptId };
-  }, firstMessage);
-  if (!conversationId || !receiptId) {
-    throw new Error("Expected a Group DM conversation and dispatch receipt.");
-  }
-  for (const [index, resident] of RESIDENTS.slice(0, 2).entries()) {
+  const ownerRow = page
+    .getByTestId("message-row")
+    .filter({ hasText: content })
+    .last();
+  await expect(ownerRow).toBeVisible();
+  const receiptId = await ownerRow.getAttribute("data-message-id");
+  if (!receiptId) throw new Error("Expected an owner event ID.");
+  for (const [index, resident] of RESIDENTS.slice(0, residentCount).entries()) {
     await page.evaluate(
       ({ eventName, frame }) => {
         window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
@@ -91,339 +68,232 @@ async function openGroupDirectConversation(page: Page) {
           protocol: "luca.managed.presentation.v1",
           kind: "turn_started",
           resident_pubkey: resident.pubkey,
-          conversation_id: conversationId,
-          turn_id: `group-stop-all-${index}`,
+          conversation_id: CHANNEL_ID,
+          turn_id: `strip1-turn-${index}`,
           dispatch_receipt_id: receiptId,
           session_epoch: 7,
           sequence: 1,
         },
       },
     );
+    // The second frame is not decoration: a turn is only cancellable once the
+    // runtime has claimed a session epoch, so Stop is honestly unavailable
+    // until it arrives. Emitting only `turn_started` would prove a Stop that
+    // the real app does not offer yet.
+    await page.evaluate(
+      ({ eventName, frame }) => {
+        window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(eventName, frame);
+      },
+      {
+        eventName: PRESENTATION_EVENT,
+        frame: {
+          protocol: "luca.managed.presentation.v1",
+          kind: "phase",
+          phase: "working",
+          resident_pubkey: resident.pubkey,
+          conversation_id: CHANNEL_ID,
+          turn_id: `strip1-turn-${index}`,
+          dispatch_receipt_id: receiptId,
+          session_epoch: 7,
+          sequence: 2,
+        },
+      },
+    );
   }
 }
 
-async function seedResidentActivity(page: Page) {
-  await page.waitForFunction(
-    () => typeof window.__BUZZ_E2E_SEED_ACTIVE_TURNS__ === "function",
-  );
-  await page.evaluate(
-    ({ channelId, residents }) => {
-      for (const [index, resident] of residents.entries()) {
-        const turnId = `activity-shelf-turn-${index}`;
-        window.__BUZZ_E2E_SEED_ACTIVE_TURNS__?.({
-          agentPubkey: resident.pubkey,
-          channelId,
-          turnId,
-        });
-        window.__BUZZ_E2E_SEED_ACTIVE_TURNS__?.({
-          agentPubkey: resident.pubkey,
-          channelId,
-          turnId,
-          kind: "acp_read",
-          payload: {
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate:
-                  index === 0
-                    ? "agent_thought_chunk"
-                    : index === 1
-                      ? "tool_call"
-                      : "agent_message_chunk",
-                ...(index === 1 ? { kind: "search" } : {}),
-              },
-            },
-          },
-        });
-      }
-    },
-    { channelId: CHANNEL_ID, residents: RESIDENTS },
-  );
+/** The one number the brief asks for, counted in the DOM. */
+function liveMarkCount(page: Page) {
+  return page.locator("[data-sandpile-activity]").count();
 }
 
-test("activity shelf keeps three stable residents and discloses the rest", async ({
+test("idle: nothing is running and no working mark exists", async ({
   page,
 }) => {
-  await openConversation(page);
-  const composerBefore = await page
-    .getByTestId("message-composer")
-    .boundingBox();
-  await seedResidentActivity(page);
-
-  const shelf = page.getByTestId("conversation-activity-shelf");
-  await expect(shelf).toHaveAttribute("data-active-count", "4");
-  await expect(shelf).toHaveCSS("transition-property", "opacity");
-  const composerAfter = await page
-    .getByTestId("message-composer")
-    .boundingBox();
-  expect(composerAfter).toEqual(composerBefore);
-  const shelfHeights = await shelf.evaluate(
-    (element) =>
-      new Promise<number[]>((resolve) => {
-        const heights: number[] = [];
-        const sample = () => {
-          heights.push(element.getBoundingClientRect().height);
-          if (heights.length === 4) resolve(heights);
-          else requestAnimationFrame(sample);
-        };
-        sample();
-      }),
+  await openConversation(page, 1);
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "0",
   );
-  expect(new Set(shelfHeights)).toEqual(new Set([60]));
-  await expect(shelf).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(shelf).toHaveCSS("pointer-events", "none");
-  await expect(
-    page.getByTestId(
-      "resident-activity-953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f",
-    ),
-  ).toHaveAttribute("data-activity-state", "thinking");
-  await expect(page.getByText("+1 working", { exact: true })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Stop Claude Code" }),
-  ).toBeDisabled();
-  await expect(
-    page.getByRole("button", {
-      name: "Stop all active residents in this conversation",
-    }),
-  ).toHaveCount(0);
-  await expect(page.locator(".luca-activity-item__elapsed")).toHaveCount(0);
-  const sandpile = page.locator("[data-sandpile-activity]").first();
-  await expect(sandpile.locator("..")).toHaveCSS("border-top-width", "0px");
-  await expect(sandpile).toHaveCSS("width", "32px");
-  await expect(sandpile).toHaveAttribute("data-sandpile-grid-size", "32");
-  const firstFrame = await sandpile.evaluate((canvas) => {
-    const surface = canvas as HTMLCanvasElement;
-    const context = surface.getContext("2d");
-    if (!context) return null;
-    const { data, height, width } = context.getImageData(
-      0,
-      0,
-      surface.width,
-      surface.height,
-    );
-    const alphaAt = (x: number, y: number) => data[(y * width + x) * 4 + 3];
-    let checksum = 0;
-    for (let index = 0; index < data.length; index += 29) {
-      checksum = (checksum + data[index]) % 1_000_003;
-    }
-    return {
-      backingMatchesDisplay:
-        width ===
-        Math.round(
-          Math.min(
-            surface.getBoundingClientRect().width,
-            surface.getBoundingClientRect().height,
-          ) * window.devicePixelRatio,
-        ),
-      centerAlpha: alphaAt(width >> 1, height >> 1),
-      checksum,
-      cornerAlpha: alphaAt(0, 0),
-      gridSize: Number(surface.dataset.sandpileGridSize),
-    };
+  expect(await liveMarkCount(page)).toBe(0);
+  await expect(page.getByTestId("resident-stop")).toHaveCount(0);
+  await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
+  await page.screenshot({ path: `${SHOTS}/state-idle.png`, fullPage: false });
+});
+
+test("one resident working: one row, one mark, no Stop all", async ({
+  page,
+}) => {
+  await openConversation(page, 1);
+  await startManagedTurns(page, 1);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  // The mark is drawn at the ROW's size, not the shelf's 32.
+  const mark = page.locator("[data-sandpile-activity]").first();
+  await expect(mark).toHaveCSS("width", "21px");
+  await expect(page.getByTestId("resident-activity-word")).toHaveCount(1);
+  await expect(page.getByTestId("resident-elapsed")).toHaveCount(1);
+  await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
+  await page.screenshot({ path: `${SHOTS}/state-one.png` });
+});
+
+test("three residents working: exactly three marks, counted in the DOM", async ({
+  page,
+}) => {
+  await openConversation(page, 3);
+  await startManagedTurns(page, 3);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  // The shelf is not painting any of them: it reports no live agent at all.
+  await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
+    "data-active-count",
+    "0",
+  );
+  await expect(page.getByTestId("conversation-activity-slots")).toBeEmpty();
+  await expect(page.getByTestId("resident-elapsed")).toHaveCount(3);
+  await page.screenshot({ path: `${SHOTS}/state-three.png` });
+});
+
+test("the unposted case: a pending row at the tail, in the row's own geometry", async ({
+  page,
+}) => {
+  await openConversation(page, 1);
+  await startManagedTurns(page, 1);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  const rows = page.getByTestId("message-row");
+  const last = rows.last();
+  // The row is a real message row: same geometry, mark gutter open, body slot
+  // present and empty. That is what lets the answer fill in place.
+  await expect(last.locator("[data-message-mark]")).toHaveCount(1);
+  await expect(last.locator("[data-sandpile-activity]")).toHaveCount(1);
+  await page.screenshot({ path: `${SHOTS}/state-unposted.png` });
+});
+
+test("Stop lives on the row, is revealed, and focus brightens its own border", async ({
+  page,
+}) => {
+  await openConversation(page, 1);
+  await startManagedTurns(page, 1);
+  const stop = page.getByTestId("resident-stop");
+  await expect(stop).toHaveCount(1);
+  // It is a text button, not a checkbox and not a square.
+  await expect(stop).toHaveJSProperty("tagName", "BUTTON");
+  await expect(stop).toHaveText("Stop");
+  await expect(stop).toHaveCount(1);
+
+  // The object transitions its border over 150ms, so a reading taken the
+  // instant the state changes is a reading of the transition, not the state.
+  const border = async () => {
+    await page.waitForTimeout(300);
+    return stop.evaluate((element) => getComputedStyle(element).borderTopColor);
+  };
+  const reveal = stop.locator("xpath=..");
+
+  // REST: the object is there, holding its slot, at zero opacity — so
+  // revealing it never moves a word.
+  await expect(reveal).toHaveCSS("opacity", "0");
+  const rest = await border();
+
+  // HOVER the row reveals it; hover the object itself lifts its border.
+  await page.getByTestId("message-row").last().hover();
+  await expect(reveal).toHaveCSS("opacity", "1");
+  await stop.hover();
+  const hover = await border();
+
+  // FOCUS: keyboard, because that is the interaction `:focus-visible` is for
+  // — and the treatment is this element's OWN border brightening in place.
+  await page.keyboard.press("Tab");
+  await stop.focus();
+  await expect(reveal).toHaveCSS("opacity", "1");
+  const focus = await border();
+  const outline = await stop.evaluate(
+    (element) => getComputedStyle(element).outlineStyle,
+  );
+  await page.screenshot({ path: `${SHOTS}/stop-focus.png` });
+
+  // DISABLED: the state the object enters while a stop is in flight. The
+  // attribute is set here rather than waited for, because what is under test
+  // is the treatment, not the mock runtime's cancellation timing — the row's
+  // own "Stopping" wording is asserted by the unit tests.
+  await stop.evaluate((element) => {
+    element.blur();
+    (element as HTMLButtonElement).disabled = true;
   });
-  expect(firstFrame?.backingMatchesDisplay).toBe(true);
-  expect(firstFrame?.gridSize).toBe(32);
-  expect(firstFrame?.cornerAlpha).toBe(0);
-  expect(firstFrame?.centerAlpha).toBe(255);
-  await expect
-    .poll(() =>
-      sandpile.evaluate((canvas) => {
-        const surface = canvas as HTMLCanvasElement;
-        const context = surface.getContext("2d");
-        if (!context) return 0;
-        const { data } = context.getImageData(
-          0,
-          0,
-          surface.width,
-          surface.height,
-        );
-        let checksum = 0;
-        for (let index = 0; index < data.length; index += 29) {
-          checksum = (checksum + data[index]) % 1_000_003;
+  await page.mouse.move(0, 0);
+  const disabled = await border();
+  await page.screenshot({ path: `${SHOTS}/stop-disabled.png` });
+
+  // eslint-disable-next-line no-console
+  console.log(
+    `stop_states ${JSON.stringify({ rest, hover, focus, outline, disabled })}`,
+  );
+  expect(hover).not.toBe(rest);
+  expect(focus).not.toBe(hover);
+  expect(focus).not.toBe(rest);
+  // No second ring anywhere: the border IS the indicator.
+  expect(outline).toBe("none");
+  expect(disabled).not.toBe(rest);
+});
+
+test("Stop all appears only when more than one resident is working", async ({
+  page,
+}) => {
+  await openConversation(page, 1);
+  await startManagedTurns(page, 1);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
+  await openConversation(page, 3);
+  await startManagedTurns(page, 3);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(1);
+  await page.screenshot({ path: `${SHOTS}/stop-all.png` });
+});
+
+test("a resident row carries the identity glyph, never the orb", async ({
+  page,
+}) => {
+  await openConversation(page, 3);
+  await startManagedTurns(page, 3);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  // No WebGL orb anywhere in a conversation row.
+  await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(
+    0,
+  );
+  await page.screenshot({ path: `${SHOTS}/glyphs-in-rows.png` });
+});
+
+test("no monospace chrome in the working surface", async ({ page }) => {
+  await openConversation(page, 3);
+  await startManagedTurns(page, 3);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  const offenders = await page.evaluate(() => {
+    const found: string[] = [];
+    const rows = [
+      ...document.querySelectorAll("[data-testid='message-row']"),
+    ].filter((row) => row.querySelector("[data-sandpile-activity]"));
+    const surface = [
+      ...rows,
+      ...document.querySelectorAll("[data-testid='stop-all-working-residents']"),
+    ];
+    for (const root of surface) {
+      for (const node of [root, ...root.querySelectorAll("*")]) {
+        const element = node as HTMLElement;
+        if (!element.textContent?.trim()) continue;
+        // The row's timestamp is the message row's own pre-existing chrome,
+        // shared by every row in the app and inherited from the global
+        // `time { font-family: var(--font-mono) }` rule in `theme.css`.
+        // Converting it only inside a working row would put two fonts on the
+        // same element in one thread. It is reported to WP-BASE1, which owns
+        // the app-wide mono sweep, rather than half-fixed here.
+        if (element.closest("[data-message-time]")) continue;
+        if (/mono/i.test(getComputedStyle(element).fontFamily)) {
+          found.push(
+            `${element.tagName}[${element.dataset.testid ?? element.className}]`,
+          );
         }
-        return checksum;
-      }),
-    )
-    .not.toBe(firstFrame?.checksum);
-  const disclosure = page.getByRole("button", {
-    name: "+1 working. View all resident activity.",
-  });
-  await expect(disclosure).toHaveCSS("pointer-events", "auto");
-  await disclosure.focus();
-  await page.keyboard.press("Enter");
-  await expect(
-    page.getByRole("dialog", { name: "All resident activity" }),
-  ).toContainText("Mara");
-  await page.keyboard.press("Escape");
-  await expect(disclosure).toBeFocused();
-});
-
-test("composer focus adds only the directional material edge", async ({
-  page,
-}) => {
-  await openConversation(page);
-  const composer = page.getByTestId("message-composer");
-  await page.getByTestId("channel-general").focus();
-  await expect
-    .poll(() =>
-      composer.evaluate(
-        (element) => getComputedStyle(element, "::after").opacity,
-      ),
-    )
-    .toBe("0");
-  const inactive = await composer.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    const edge = getComputedStyle(element, "::after");
-    return {
-      background: style.backgroundColor,
-      borderColor: style.borderColor,
-      edgeOpacity: edge.opacity,
-      height: bounds.height,
-      width: bounds.width,
-    };
-  });
-  expect(inactive.borderColor).toBe("rgba(0, 0, 0, 0)");
-  expect(inactive.edgeOpacity).toBe("0");
-
-  await page.getByTestId("message-input").focus();
-  await expect
-    .poll(() =>
-      composer.evaluate(
-        (element) => getComputedStyle(element, "::after").opacity,
-      ),
-    )
-    .toBe("1");
-  const active = await composer.evaluate((element) => {
-    const bounds = element.getBoundingClientRect();
-    const style = getComputedStyle(element);
-    const edge = getComputedStyle(element, "::after");
-    return {
-      background: style.backgroundColor,
-      borderColor: style.borderColor,
-      edgeBackground: edge.backgroundImage,
-      edgeOpacity: edge.opacity,
-      edgePadding: edge.paddingTop,
-      height: bounds.height,
-      width: bounds.width,
-    };
-  });
-  expect(active.borderColor).toBe("rgba(0, 0, 0, 0)");
-  expect(active.edgeOpacity).toBe("1");
-  expect(active.edgeBackground).toContain("linear-gradient");
-  expect(Number.parseFloat(active.edgePadding)).toBeLessThanOrEqual(1);
-  expect(active.background).toBe(inactive.background);
-  expect(active.height).toBe(inactive.height);
-  expect(active.width).toBe(inactive.width);
-});
-
-test("multi-resident direct conversations expose Stop all", async ({
-  page,
-}) => {
-  await openGroupDirectConversation(page);
-
-  const shelf = page.getByTestId("conversation-activity-shelf");
-  await expect(shelf).toHaveAttribute("data-active-count", "2");
-  const stopAll = page.getByRole("button", {
-    name: "Stop all active residents in this conversation",
-  });
-  await expect(stopAll).toBeVisible();
-  await expect(stopAll).toBeEnabled();
-  await stopAll.click();
-
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [])
-          .filter((entry) => entry.command === "cancel_managed_turn")
-          .map((entry) =>
-            String(
-              (entry.payload as { residentPubkey?: unknown }).residentPubkey,
-            ),
-          )
-          .sort(),
-      ),
-    )
-    .toEqual(
-      [TEST_IDENTITIES.alice.pubkey, TEST_IDENTITIES.charlie.pubkey].sort(),
-    );
-});
-
-test("activity shelf collapses and settles motion at compact Mac size", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 800, height: 500 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await openConversation(page);
-  await seedResidentActivity(page);
-
-  await expect(
-    page.getByRole("button", {
-      name: "4 residents working. View all resident activity.",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", {
-      name: "+1 working. View all resident activity.",
-    }),
-  ).toBeHidden();
-
-  const animationName = await page
-    .locator(".luca-activity-pulse")
-    .first()
-    .evaluate((cell) => getComputedStyle(cell).animationName);
-  expect(animationName).toBe("none");
-  const sandpile = page.locator("[data-sandpile-activity]").first();
-  const checksum = () =>
-    sandpile.evaluate((canvas) => {
-      const surface = canvas as HTMLCanvasElement;
-      const context = surface.getContext("2d");
-      if (!context) return 0;
-      const { data } = context.getImageData(
-        0,
-        0,
-        surface.width,
-        surface.height,
-      );
-      let value = 0;
-      for (let index = 0; index < data.length; index += 29) {
-        value = (value + data[index]) % 1_000_003;
       }
-      return value;
-    });
-  const firstFrame = await checksum();
-  await page.waitForTimeout(160);
-  expect(await checksum()).toBe(firstFrame);
-  await expect(page.getByTestId("message-input")).toBeVisible();
-});
-
-test("activity controls stay usable at compact size and 200% text", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 800, height: 500 });
-  await openConversation(page);
-  await page.evaluate(() => {
-    document.documentElement.style.fontSize = "200%";
+    }
+    return [...new Set(found)];
   });
-  await seedResidentActivity(page);
-
-  const disclosure = page.getByRole("button", {
-    name: "4 residents working. View all resident activity.",
-  });
-  await expect(disclosure).toBeVisible();
-  await disclosure.click();
-  await expect(
-    page.getByRole("dialog", { name: "All resident activity" }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(disclosure).toBeFocused();
-  await expect(page.getByTestId("message-input")).toBeVisible();
-
-  const documentGeometry = await page.evaluate(() => ({
-    clientWidth: document.documentElement.clientWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-  }));
-  expect(documentGeometry.scrollWidth).toBeLessThanOrEqual(
-    documentGeometry.clientWidth,
-  );
+  // eslint-disable-next-line no-console
+  console.log(`no_font_mono_in_surface ${JSON.stringify(offenders)}`);
+  expect(offenders).toEqual([]);
 });

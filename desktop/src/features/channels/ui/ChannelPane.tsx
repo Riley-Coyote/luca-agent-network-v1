@@ -37,6 +37,7 @@ import { resolveManagedPresentationRetry } from "@/features/messages/lib/managed
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import { projectFocusedThreadTimeline } from "@/features/messages/lib/focusedThreadProjection";
 import { ConversationAgentActivityStrip } from "@/features/channels/ui/ConversationAgentActivityStrip";
+import { StopAllWorkingResidents } from "@/features/channels/ui/StopAllWorkingResidents";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import {
@@ -437,13 +438,11 @@ export const ChannelPane = React.memo(function ChannelPane({
   // bot typing fallback (both folded together by agentWorkingSignal). This is
   // what makes the bar show for an agent whose observer stream is live but
   // whose typing signal never arrives — and vice versa.
-  const {
-    agentActivityRows,
-    composerWorkingBotPubkeys,
-    managedActivity,
-    pendingActivityByPubkey,
-    presentationStateByPubkey,
-  } = useConversationPresentation(activeChannelId);
+  // WP-STRIP1 · `composerWorkingBotPubkeys` and `pendingActivityByPubkey` are
+  // no longer read here: they existed to feed the activity shelf, and the
+  // thread's own rows have taken the whole of that job.
+  const { agentActivityRows, managedActivity, presentationStateByPubkey } =
+    useConversationPresentation(activeChannelId);
   const stoppablePresentationActivity = React.useMemo(
     () =>
       new Map(
@@ -661,19 +660,19 @@ export const ChannelPane = React.memo(function ChannelPane({
         isLucaGreeting(message, lucaArrival.lucaPubkey as string),
       )
     : undefined;
-  // In a direct conversation the reply row itself is the indicator — the
-  // resident's mark carries the state and Stop sits on the row — so the
-  // activity strip carries no live agent activity there. It still surfaces
-  // the terminal states that need the owner (interrupted, needs attention),
-  // because a resident who failed before saying anything has no row. Rooms
-  // with several residents keep the full shelf.
-  const isDirectConversation =
-    activeChannel?.channelType === "dm" && agentSessionAgents.length <= 1;
-  const stripActivity = isDirectConversation
-    ? undefined
-    : pendingActivityByPubkey;
+  // WP-STRIP1 · THE WORK HAPPENS IN THE THREAD, IN EVERY ROOM.
+  //
+  // The reply row itself is the indicator: the resident's mark carries the
+  // state, the verb says what they are doing, and Stop sits on the row whose
+  // work it stops. That used to be true only in a 1:1, and a room drew the
+  // shelf as well — which is where Riley's duplicate mark came from, the same
+  // state painted by two surfaces at once. The stand-down is now
+  // unconditional, so there is exactly one place a working mark can render.
+  //
+  // The shelf keeps what has no row: terminal states that need the owner
+  // (interrupted, needs attention — a resident who failed before saying
+  // anything), permission cards, runtime tasks, and someone typing.
   const attentionResidentKeys = React.useMemo(() => {
-    if (!isDirectConversation) return null;
     const keys = new Set<string>();
     for (const [pubkey, state] of presentationStateByPubkey ?? []) {
       if (isTerminalConversationActivity(state)) {
@@ -681,7 +680,7 @@ export const ChannelPane = React.memo(function ChannelPane({
       }
     }
     return keys;
-  }, [isDirectConversation, presentationStateByPubkey]);
+  }, [presentationStateByPubkey]);
   const stripPresentationState = React.useMemo(() => {
     if (!attentionResidentKeys) return presentationStateByPubkey;
     return new Map(
@@ -705,7 +704,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   });
   const residentStopContext = React.useMemo<ResidentStopContextValue | null>(
     () =>
-      isDirectConversation && activeChannelId
+      activeChannelId
         ? {
             canStop: (pubkey) => {
               const key = normalizePubkey(pubkey);
@@ -740,7 +739,6 @@ export const ChannelPane = React.memo(function ChannelPane({
         : null,
     [
       activeChannelId,
-      isDirectConversation,
       presentationStateByPubkey,
       residentStop.localStates,
       residentStop.stopResidents,
@@ -755,10 +753,8 @@ export const ChannelPane = React.memo(function ChannelPane({
     }),
     [activeChannelId, onSendMessage, showFirstConversation, showLucaChoices],
   );
-  const stripWorkingPubkeys = React.useMemo(
-    () => (isDirectConversation ? [] : composerWorkingBotPubkeys),
-    [composerWorkingBotPubkeys, isDirectConversation],
-  );
+  // Nothing working goes to the shelf any more; the thread owns all of it.
+  const stripWorkingPubkeys = React.useMemo<string[]>(() => [], []);
   // Advances only at the moments the awaiting row's own sentence changes, and
   // not at all while nobody is waiting — see `usePendingReplyClock`.
   const pendingReplyNow = usePendingReplyClock(
@@ -768,32 +764,25 @@ export const ChannelPane = React.memo(function ChannelPane({
   // A reply is coming, here: one row per resident who is thinking or working
   // but has no text yet, at the tail of the conversation.
   //
-  // EXACTLY ONE SURFACE OWNS THE WAIT, and which one depends on the room.
-  // In a 1:1 it is this row, because it sits where the answer will appear —
-  // when text arrives it fills in place and nothing jumps. So the row carries
-  // the whole disclosure there: what is being done, then for how long, then
-  // that it is taking a while. In a room the shelf owns it instead: a room can
-  // have several residents working at once, and the shelf is built for N while
-  // this row is built for the one answer you are watching for.
-  //
-  // The shelf already stands down in a DM (`stripWorkingPubkeys` above empties
-  // itself there). This is the other half of the same switch — without it a
-  // room drew both indicators for the same wait.
+  // EXACTLY ONE SURFACE OWNS THE WAIT, and it is this row, in every room.
+  // It sits where the answer will appear — when text arrives it fills in
+  // place and nothing jumps — so it carries the whole disclosure: what is
+  // being done, then for how long, then that it is taking a while. A room
+  // with three residents working simply has three of these rows, each at the
+  // spot its own answer will land, which is what the shelf could never do:
+  // the shelf was built for N somewhere ELSE.
   const pendingRows = React.useMemo(
     () =>
-      isDirectConversation
-        ? pendingReplyRows({
-            managedActivity,
-            observerActivity: agentActivityRows,
-            slots: managedResponseSlots,
-            profiles,
-            residentPersonaIdLookup,
-            now: pendingReplyNow,
-          })
-        : [],
+      pendingReplyRows({
+        managedActivity,
+        observerActivity: agentActivityRows,
+        slots: managedResponseSlots,
+        profiles,
+        residentPersonaIdLookup,
+        now: pendingReplyNow,
+      }),
     [
       agentActivityRows,
-      isDirectConversation,
       managedActivity,
       managedResponseSlots,
       pendingReplyNow,
@@ -873,6 +862,64 @@ export const ChannelPane = React.memo(function ChannelPane({
     profiles,
     residentPersonaIdLookup,
     visibleMessages,
+  ]);
+
+  // WP-STRIP1 · decision 3. Every working row carries its own Stop. "Stop all"
+  // exists only when there is an "all", and it sits at the BOTTOM EDGE of the
+  // group — under the last row of the last resident who is working — as the
+  // quietest object in the view. The most destructive control should take the
+  // most deliberate aim.
+  const workingResidentKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    for (const [pubkey, activity] of managedActivity ?? []) {
+      if (activity.settled) continue;
+      if (
+        activity.phase === "waking" ||
+        activity.phase === "thinking" ||
+        activity.phase === "working" ||
+        activity.phase === "writing"
+      ) {
+        keys.add(normalizePubkey(pubkey));
+      }
+    }
+    return keys;
+  }, [managedActivity]);
+  const stopAllAnchorId = React.useMemo(() => {
+    if (workingResidentKeys.size < 2) return null;
+    for (let index = projectedRoomMessages.length - 1; index >= 0; index -= 1) {
+      const message = projectedRoomMessages[index];
+      const key = message?.pubkey ? normalizePubkey(message.pubkey) : "";
+      if (key && workingResidentKeys.has(key)) return message.id;
+    }
+    return null;
+  }, [projectedRoomMessages, workingResidentKeys]);
+  const timelineFooters = React.useMemo(() => {
+    if (!stopAllAnchorId) return messageFooters;
+    const stopAll = (
+      <StopAllWorkingResidents
+        onStop={() =>
+          void residentStop.stopResidents([...workingResidentKeys])
+        }
+        stopping={[...workingResidentKeys].every(
+          (key) => residentStop.localStates.get(key) === "stopping",
+        )}
+      />
+    );
+    return {
+      ...messageFooters,
+      [stopAllAnchorId]: (
+        <div className="flex flex-col gap-1.5">
+          {messageFooters[stopAllAnchorId]}
+          {stopAll}
+        </div>
+      ),
+    };
+  }, [
+    messageFooters,
+    residentStop.localStates,
+    residentStop.stopResidents,
+    stopAllAnchorId,
+    workingResidentKeys,
   ]);
   const focusedThread = React.useMemo(
     () =>
@@ -1042,7 +1089,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   isFetchingOlder={isFetchingOlder}
                   isFollowingThreadById={isFollowingThreadById}
                   isMessageUnreadById={isMessageUnreadById}
-                  messageFooters={messageFooters}
+                  messageFooters={timelineFooters}
                   personaLookup={personaLookup}
                   profiles={profiles}
                   ownerProfiles={ownerProfiles}
@@ -1236,7 +1283,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                       }
                       runtimeTasks={runtimeTasksQuery.data ?? []}
                       sessionAgents={agentSessionAgents}
-                      activityByPubkey={stripActivity}
                       presentationActivityByPubkey={stripPresentationActivity}
                       presentationStateByPubkey={stripPresentationState}
                       workingPubkeys={stripWorkingPubkeys}

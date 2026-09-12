@@ -440,7 +440,13 @@ function ActivitySteps({
       onClick={onToggle}
       type="button"
     >
-      <span>{item.steps.length}</span>
+      {/* WP-STRIP1 · decision 4: a number gets its noun or it goes. This read
+          "18 ^", which says nothing and looks like a stepper. The count is
+          only drawn here, where the expansion it opens actually lives — the
+          thread row carries the narration instead. */}
+      <span>
+        {item.steps.length} {item.steps.length === 1 ? "step" : "steps"}
+      </span>
       {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
     </button>
   );
