@@ -153,32 +153,85 @@ function RowShell({
 }
 
 /**
- * The row's Stop.
+ * The row's Stop. RESOLVED 2026-09-11 — Riley could not find it at all, which
+ * settles the question the last pass raised: an interrupt must never hide.
  *
- * WP-STRIP1 built this as a bordered, filled text button and that version
- * landed (`321056d4f`). Riley's standing rule for THIS surface — no bordered,
- * filled boxes anywhere — is applied literally here, so the lab's Stop is
- * plain text that brightens on hover and on focus. That is a change to a
- * detail Riley already approved elsewhere; it is made in the lab only and is
- * raised as an open question rather than treated as decided.
+ * So it is always visible on a working row, not revealed under the pointer.
+ * It is plain text at the quietest opacity that is still legible — white/0.45,
+ * which is the 4.5:1 AA floor for text over this floor and not a pixel
+ * brighter. No border and no fill at rest, and none on hover either: hover
+ * moves the ink only.
+ *
+ * A border appears on keyboard focus and nowhere else. That is the one
+ * exception to the no-boxes rule, and it is not a decorative one — a keyboard
+ * user has to be able to see where they are. The border is TRANSPARENT at
+ * rest rather than absent, so focus brightens it in place without moving a
+ * pixel, and there is no second ring.
+ *
+ * `!outline-none` is deliberate, and the reason is production's:
+ * `conversation-shell.css` sets an unlayered global `:focus-visible` outline
+ * that beats a component's own treatment, so without the override this would
+ * show the house ring on top of its own brightened border — two edges.
+ * WP-BASE1 removes that rule; until it lands this is the only way to express
+ * the baseline.
  */
-function StopButton() {
+const STOP_INK = cn(
+  "border border-transparent bg-transparent text-white/[0.45]",
+  "transition-[color,border-color] duration-150",
+  // Hover moves the ink and nothing else. No border, no fill.
+  "hover:border-transparent hover:bg-transparent hover:text-white/[0.78]",
+  "active:text-white/[0.6]",
+  // The single exception: the element's own border, brightening in place.
+  "focus-visible:border-white/50 focus-visible:text-white/[0.9]",
+  "focus-visible:!outline-none",
+  "disabled:cursor-default disabled:text-white/[0.18]",
+  "disabled:hover:border-transparent disabled:hover:text-white/[0.18]",
+);
+
+function StopButton({ disabled }: { disabled?: boolean }) {
   return (
-    <span className="flex h-4 items-center opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+    <span className="flex h-4 items-center">
       <button
         className={cn(
-          "inline-flex h-4 select-none items-center",
-          "text-xs leading-none text-white/[0.42]",
-          "transition-colors duration-150",
-          "hover:text-white/[0.86]",
-          "focus-visible:text-white/[0.92] focus-visible:!outline-none",
-          "focus-visible:underline focus-visible:decoration-white/40 focus-visible:underline-offset-4",
+          "inline-flex h-4 select-none items-center rounded-[4px] px-1",
+          "text-xs leading-none",
+          STOP_INK,
         )}
+        data-lab-stop
+        disabled={disabled}
         type="button"
       >
         Stop
       </button>
     </span>
+  );
+}
+
+/**
+ * "Stop all" — the same logic, one step quieter, because the most destructive
+ * control should take the most deliberate aim. It exists only when there is an
+ * "all"; here it is a specimen so the two can be judged together.
+ *
+ * Production's own copy is `features/channels/ui/StopAllWorkingResidents.tsx`
+ * and this package does not touch it: today it still gains a border and a fill
+ * on hover. If Riley keeps this, that file is the one-line follow-up.
+ */
+function StopAllButton({ disabled }: { disabled?: boolean }) {
+  return (
+    <div className="flex justify-end border-t border-white/[0.055] pt-1.5">
+      <button
+        className={cn(
+          "inline-flex select-none items-center rounded-[5px] px-2 py-[3px]",
+          "text-xs leading-[1.45]",
+          STOP_INK,
+        )}
+        data-lab-stop-all
+        disabled={disabled}
+        type="button"
+      >
+        {disabled ? "Stopping all" : "Stop all"}
+      </button>
+    </div>
   );
 }
 
@@ -197,7 +250,8 @@ function Elapsed({ ms }: { ms: number }) {
  * (`shared/styles/globals/animations.css:132`) is the app's own implementation
  * and already the one on a live status label in
  * `features/channels/ui/BotActivityBar.tsx:208`. It is a 400%-wide linear
- * gradient clipped to the text, travelling right-to-left on a 2s linear loop;
+ * gradient clipped to the text, travelling right-to-left; slowed here to a 3.4s loop with a wider,
+ * dimmer band at Riley's note —
  * it is cool greyscale (`--foreground` over `--muted-foreground`), carries no
  * accent colour, and the stylesheet already turns the animation off under
  * `prefers-reduced-motion: reduce`. `block truncate` is the same className
@@ -227,7 +281,14 @@ function StatusText({
         // baseline is a cool white/grey cascade. Same component, same
         // keyframes, same mechanism; the sweep is put back on the surface's
         // own ink so it matches the line it replaces.
-        "[--buzz-shimmer-highlight:rgba(255,255,255,0.9)]!",
+        // Slowed and softened at Riley's note (2026-09-11): the 2s loop read
+        // as a scan passing over the words. 3.4s with a wider band and a
+        // dimmer crest reads as a slow breath travelling through them. The
+        // crest comes down from 0.9 to 0.72 so the working line is livelier
+        // than the settled one without outshouting the narration beneath it.
+        "[--buzz-shimmer-duration:3400ms]!",
+        "[--buzz-shimmer-band:560%]!",
+        "[--buzz-shimmer-highlight:rgba(255,255,255,0.72)]!",
         "!text-white/[0.5]",
       )}
     >
@@ -638,6 +699,18 @@ function Playback({ replay, room }: { replay: ReplayedTurn; room: boolean }) {
             {prose ? <Narration text={narrationText(prose)} /> : null}
           </RowShell>
         )}
+      </div>
+
+      {/* "Stop all" — the treatment, shown once. It only exists when more
+          than one resident is working, and this captured turn has one, so it
+          is a specimen rather than a live control: no second agent was
+          invented to justify it. Same ink as Stop; only the placement differs
+          (right-aligned under a hairline, at the foot of the group). */}
+      <div className="mt-4 max-w-[34rem]" data-lab-stop-all-specimen>
+        <p className="mb-1 text-2xs uppercase tracking-[0.12em] text-white/[0.28]">
+          Stop all · appears only when more than one resident is working
+        </p>
+        <StopAllButton />
       </div>
 
       {/* Transport. Flat controls, a hairline scrubber, no boxes. */}
