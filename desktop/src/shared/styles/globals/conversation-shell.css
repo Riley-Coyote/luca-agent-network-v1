@@ -178,6 +178,7 @@
      same register the best long-form readers sit in. */
   --mn-reading-measure: 45rem;
   --mn-card-lip: 8px;
+  --mn-card-gap: 4px;
   /* The header is TWO lines now — name, then the live-state line. */
   --mn-header-height: 56px;
   /* ...but the window controls align to the FIRST line, not the header's
@@ -399,7 +400,20 @@
    when both navigation columns are closed. */
 :root[data-luca-shell] [data-testid="conversation-workspace-grid"] {
   padding: var(--mn-card-lip);
-  gap: var(--mn-card-lip);
+  gap: var(--mn-card-gap);
+}
+
+/* Internal seams are finer than the outer window lip. */
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has([data-testid="agent-column-stage"])
+  [data-testid="conversation-workspace-grid"] {
+  padding-left: var(--mn-card-gap);
+}
+
+:root[data-luca-shell]
+  [data-luca-floor-host]:has(> [data-luca-right-cards]:not(:empty))
+  [data-testid="conversation-workspace-grid"] {
+  padding-right: var(--mn-card-gap);
 }
 
 /* The workspace supplies its own lip; the outer route must not add another

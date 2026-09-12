@@ -690,7 +690,7 @@ export const MessageRow = React.memo(
             onReply={onReply}
             onReplyInThread={onReplyInThread}
             onUnfollowThread={onUnfollowThread}
-            quickReactions={quickReactions}
+            quickReactions={quickReactions && !privateTraceConversation}
             reactionErrorMessage={reactionErrorMessage}
             reactions={reactions}
           />

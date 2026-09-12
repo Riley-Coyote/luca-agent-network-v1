@@ -263,7 +263,7 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
   });
   expect(geometry.top).toBe(0);
   expect(geometry.bottom).toBe(0);
-  expect(geometry.gap).toBe(8);
+  expect(geometry.gap).toBe(4);
   expect(geometry.radius).toBe(geometry.otherRadius);
   expect(geometry.surface).toBe(geometry.otherSurface);
   // The column's header sits below the window-controls strip, as the rail's

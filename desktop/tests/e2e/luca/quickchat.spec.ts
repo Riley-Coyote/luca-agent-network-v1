@@ -110,6 +110,25 @@ test("new chat keeps the previous room and full conversation opens the current r
   await expect(
     page.getByText("Second private quick chat", { exact: true }).first(),
   ).toBeVisible();
+  await page
+    .getByText("Second private quick chat", { exact: true })
+    .first()
+    .hover();
+  const actions = page.locator('[data-testid^="message-action-bar-"]').last();
+  await expect(
+    actions.getByRole("button", { name: /^React with/ }),
+  ).toHaveCount(0);
+  await expect(
+    actions.getByRole("button", { name: "Open reactions", exact: true }),
+  ).toBeVisible();
+  await expect(
+    actions.getByRole("button", { name: "Reply", exact: true }),
+  ).toBeVisible();
+  await expect(
+    actions.getByRole("button", { name: "More actions", exact: true }),
+  ).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/quickchat-quiet-hover.png" });
 });
 
 test("context is inspectable and excludes the utility draft and hidden credentials", async ({
