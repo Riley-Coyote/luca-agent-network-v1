@@ -203,16 +203,38 @@
   }
 }
 
-/* The conversation card already carries the dark weather. Blur the content
-   passing under its header and footer without painting another band. Held
-   things use one light tint over the card instead of stacking black. */
+/* The conversation card already carries the dark weather. Its scroll-edge
+   veils yield completely: WebKit backdrop-filter samples a dark WebView
+   backing there instead of the native material. Fade the timeline content
+   itself beneath the floating chrome, including the virtualized timeline.
+   Held things use one light tint over the card instead of stacking black. */
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
     [data-luca-glass-fallback]
   )
   :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
   background: transparent;
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+    [data-luca-glass-fallback]
+  )
+  [data-scroll-restoration-id]:is(
+    [data-buzz-conversation-scroll],
+    :has([data-render-pending])
+  ) {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--buzz-channel-content-top-padding, 5.75rem) - 1rem),
+    black var(--buzz-channel-content-top-padding, 5.75rem),
+    black calc(100% - var(--composer-overlay-height, 6rem)),
+    transparent calc(100% - var(--composer-overlay-height, 6rem) + 3rem)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent calc(var(--buzz-channel-content-top-padding, 5.75rem) - 1rem),
+    black var(--buzz-channel-content-top-padding, 5.75rem),
+    black calc(100% - var(--composer-overlay-height, 6rem)),
+    transparent calc(100% - var(--composer-overlay-height, 6rem) + 3rem)
+  );
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
     [data-luca-glass-fallback]
@@ -221,6 +243,16 @@
   background: rgb(255 255 255 / 0.075);
 }
 @media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    [data-scroll-restoration-id]:is(
+      [data-buzz-conversation-scroll],
+      :has([data-render-pending])
+    ) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
       [data-luca-glass-fallback]
     )
