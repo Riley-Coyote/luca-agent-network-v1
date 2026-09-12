@@ -125,17 +125,19 @@ function RowShell({
           className="flex min-w-0 items-center"
           style={{ height: HEADER_LINE }}
         >
-          {/* FAULT 2 FIXED. The name occupies a column of its own fixed
-              width, so the verb beside it starts at the same x on every row
-              however long the resident's name is. Production lets the verb
-              flow after the name (`MessageRow.tsx` inlineMetadataNode), which
-              is why three working residents read as three ragged sentences
-              instead of a column. A name longer than the column truncates
-              rather than pushing the verb. */}
+          {/* FAULT 2, second pass. It was a fixed-width column, which lined
+              three rows up but left a hole after a short name — Riley saw it
+              immediately on a lone "Luca". A column only earns its keep when
+              there is something to line up with, so the name now takes its
+              natural width and the verb follows one consistent gap later.
+              When more than one resident works at once the group sizes the
+              column to the widest name present (`--lab-name-col`, set by the
+              group), so rows align with each other and never against a name
+              that is not on screen. `max-w` only guards an absurd name. */}
           <span
             className="shrink-0 truncate pr-3 text-sm leading-none text-white/[0.86]"
             data-lab-name
-            style={{ width: VERB_COLUMN }}
+            style={{ width: "var(--lab-name-col, auto)", maxWidth: VERB_COLUMN }}
           >
             {name}
           </span>
