@@ -76,7 +76,7 @@ export const ARTIFACT_LAB_FIXTURES: readonly ArtifactRecord[] = [
     kind: "html",
     author: "Luca",
     authorSeed:
-      "7b4d1a90c3e85f2681ad46b7f0c92e35d81f6a4b2c7e093d5a8f1b6c4e2d7093",
+      "4fb94373fb5cfb7fe322d95a48d8cc4c4bb04a990cf43d4f38b895a52635d5bb",
     conversation: "polyphonic",
     project: "Polyphonic",
     updatedAt: "6 min",
@@ -210,7 +210,7 @@ export const ARTIFACT_LAB_FIXTURES: readonly ArtifactRecord[] = [
     language: "Rust",
     author: "Luca",
     authorSeed:
-      "7b4d1a90c3e85f2681ad46b7f0c92e35d81f6a4b2c7e093d5a8f1b6c4e2d7093",
+      "4fb94373fb5cfb7fe322d95a48d8cc4c4bb04a990cf43d4f38b895a52635d5bb",
     conversation: "engineering",
     project: "Polyphonic",
     updatedAt: "Yesterday",
