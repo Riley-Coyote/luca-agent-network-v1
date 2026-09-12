@@ -11,7 +11,9 @@ import {
   profilePanelTabFromSearch,
   profilePanelViewFromSearch,
 } from "@/features/profile/ui/UserProfilePanelUtils";
+import type { ActivitySection } from "@/features/pulse/ui/ActivityPageHeader";
 import { LucaActivityView } from "@/features/pulse/ui/LucaActivityView";
+import { ProvenanceView } from "@/features/provenance/ui/ProvenanceView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
@@ -24,6 +26,7 @@ const PULSE_PANEL_SEARCH_KEYS = [
 ] as const;
 
 export function PulseScreen() {
+  const [section, setSection] = React.useState<ActivitySection>("now");
   const identityQuery = useIdentityQuery();
   const { applyPatch, values } = useHistorySearchState(PULSE_PANEL_SEARCH_KEYS);
   const profilePanelPubkey = values.profile;
@@ -64,7 +67,11 @@ export function PulseScreen() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <LucaActivityView />
+            {section === "now" ? (
+              <LucaActivityView onSectionChange={setSection} />
+            ) : (
+              <ProvenanceView onSectionChange={setSection} />
+            )}
           </div>
           {profilePanelPubkey ? (
             <UserProfilePanel

@@ -6066,16 +6066,45 @@ function mockEventId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Secrets for the design-lab residents, keyed by the pubkey they derive.
+ *
+ * Most mock events carry `"mocksig"` padding, which is fine for surfaces that
+ * never look at a signature. The provenance surface does look — it verifies
+ * every record against its own key — so the lab residents sign for real and
+ * their rows can reach the verified state instead of only the unverifiable
+ * one. Test-only key material for a scene that never leaves the machine.
+ */
+const LAB_RESIDENT_SECRETS: Record<string, string> = {
+  "4fb94373fb5cfb7fe322d95a48d8cc4c4bb04a990cf43d4f38b895a52635d5bb":
+    "1c9e5f30a84b27d6e05f3c91ab74d2086f1e5a3c9b28d740e6c51f83a29b0d74",
+  ad43e47d062c00612509b09043167cc56d9cdadd51caabb65a870ff2263a33b6:
+    "2d7a418c05e93b6741af28d095c3e61bf802a95d34e17c68b0d259a34f1e8c62",
+  "9d4eb92dbcddf38c48821ae1e79e4bdb7e4f5bce3bde189835b0e78b593195cc":
+    "3f1b6d92c47e80a531d9f2c68b04e7a15c39d840e26b7f19a5c08d3b62e49f10",
+};
+
 function createMockEvent(
   kind: number,
   content: string,
   tags: string[][],
   pubkey = DEFAULT_MOCK_IDENTITY.pubkey,
   createdAt = Math.floor(Date.now() / 1000),
-  id = crypto.randomUUID().replace(/-/g, ""),
+  id?: string,
 ): RelayEvent {
+  const secret = LAB_RESIDENT_SECRETS[pubkey.toLowerCase()];
+
+  // An explicit id is a pin some other scene depends on; signing would compute
+  // a different one, so pinned events keep the placeholder signature.
+  if (secret && id === undefined) {
+    return finalizeEvent(
+      { content, created_at: createdAt, kind, tags },
+      hexToBytes(secret),
+    ) as RelayEvent;
+  }
+
   return {
-    id,
+    id: id ?? crypto.randomUUID().replace(/-/g, ""),
     pubkey,
     created_at: createdAt,
     kind,
@@ -10032,6 +10061,49 @@ function sendToMockSocket(args: {
       return;
     }
 
+    // Author-scoped history with no channel/repo/reference tag — the
+    // provenance read. The real relay answers this across every channel the
+    // reader can already see, so the mock walks all channel stores rather
+    // than requiring an `#h`. It runs ahead of the project branch because a
+    // provenance filter names the NIP-34 kinds too, and that branch would
+    // otherwise claim the REQ.
+    if (
+      filter.authors &&
+      filter.authors.length > 0 &&
+      !filter["#h"] &&
+      !filter["#a"] &&
+      !filter["#e"] &&
+      !filter.ids
+    ) {
+      const authors = new Set(
+        filter.authors.map((author) => author.toLowerCase()),
+      );
+      const matched: RelayEvent[] = [];
+      for (const events of mockMessages.values()) {
+        for (const event of events) {
+          if (!authors.has(event.pubkey.toLowerCase())) continue;
+          if (filter.kinds && !filter.kinds.includes(event.kind)) continue;
+          if (filter.until !== undefined && event.created_at > filter.until) {
+            continue;
+          }
+          if (filter.since !== undefined && event.created_at < filter.since) {
+            continue;
+          }
+          matched.push(event);
+        }
+      }
+      matched.sort((left, right) =>
+        right.created_at !== left.created_at
+          ? right.created_at - left.created_at
+          : right.id.localeCompare(left.id),
+      );
+      for (const event of matched.slice(0, filter.limit ?? matched.length)) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     // Project queries: NIP-34 kinds, or kind:1 comments scoped by repo `a`
     // tag (PR/issue discussions, approvals, review requests).
     if (
@@ -10058,6 +10130,8 @@ function sendToMockSocket(args: {
     }
 
     const channelId = filter["#h"]?.[0];
+
+
     if (!channelId) {
       // Aux-backfill filters (reactions/deletions) are `#e`-keyed with no
       // channel tag — serve them across all channel stores like the relay.

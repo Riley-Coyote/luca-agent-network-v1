@@ -21,21 +21,29 @@ export const LAB_OWNER = {
 } as const;
 
 /** `harness` is the runtime command the resident runs on — it picks the logo. */
+/**
+ * Lab residents carry real keys, not placeholder hex.
+ *
+ * The provenance surface verifies each event against its own signature, so
+ * a scene signed with `"mocksig"` padding could only ever demonstrate the
+ * unverifiable state. These pubkeys are derived from the fixed secrets in
+ * `LAB_RESIDENT_SECRETS` (e2eBridge), which signs their messages for real.
+ */
 export const LAB_RESIDENTS = {
   luca: {
     harness: "claude",
     name: "Luca",
-    pubkey: "7b4d1a90c3e85f2681ad46b7f0c92e35d81f6a4b2c7e093d5a8f1b6c4e2d7093",
+    pubkey: "4fb94373fb5cfb7fe322d95a48d8cc4c4bb04a990cf43d4f38b895a52635d5bb",
   },
   vektor: {
     harness: "goose",
     name: "Vektor",
-    pubkey: "a5c802e73f14b96d8e05c2a71b34df6982e0c5b7a41d3f8062c9e17b5d4a3062",
+    pubkey: "ad43e47d062c00612509b09043167cc56d9cdadd51caabb65a870ff2263a33b6",
   },
   ziggy: {
     harness: "codex",
     name: "ziggy",
-    pubkey: "3e9f27c1b8a45d60f2317e9ac5d84b06f19c2d7e5a3b8c604f1e2d9a7b5c3084",
+    pubkey: "9d4eb92dbcddf38c48821ae1e79e4bdb7e4f5bce3bde189835b0e78b593195cc",
   },
 } as const;
 

@@ -9,6 +9,10 @@ import * as React from "react";
 
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
 import {
+  ActivityPageHeader,
+  type ActivitySection,
+} from "@/features/pulse/ui/ActivityPageHeader";
+import {
   useManagedAgentsQuery,
   useRelayAgentsQuery,
 } from "@/features/agents/hooks";
@@ -387,7 +391,11 @@ function mergeResidents(
   });
 }
 
-export function LucaActivityView() {
+export function LucaActivityView({
+  onSectionChange,
+}: {
+  onSectionChange: (section: ActivitySection) => void;
+}) {
   const managedQuery = useManagedAgentsQuery();
   const relayQuery = useRelayAgentsQuery();
   const residents = React.useMemo(
@@ -412,19 +420,11 @@ export function LucaActivityView() {
           data-testid="owner-activity-scroll"
         >
           <div className="mx-auto w-full max-w-5xl px-5 py-6 sm:px-8 sm:py-8">
-            <header className="border-b border-border/60 pb-5">
-              <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
-                <Bot aria-hidden className="h-3.5 w-3.5" />
-                Your agents at work
-              </div>
-              <h1 className="mt-2 text-2xl font-light tracking-tight text-foreground">
-                Activity
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                See what your residents are doing and catch up on recent work.
-                Open activity to follow along in the conversation.
-              </p>
-            </header>
+            <ActivityPageHeader
+              description="See what your residents are doing and catch up on recent work. Open activity to follow along in the conversation."
+              onSectionChange={onSectionChange}
+              section="now"
+            />
 
             {loading ? (
               <div
