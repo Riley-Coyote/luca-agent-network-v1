@@ -217,10 +217,7 @@
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
     [data-luca-glass-fallback]
   )
-  [data-scroll-restoration-id]:is(
-    [data-buzz-conversation-scroll],
-    :has([data-render-pending])
-  ) {
+  [data-luca-timeline-viewport] {
   -webkit-mask-image: linear-gradient(
     to bottom,
     transparent calc(var(--buzz-channel-content-top-padding, 5.75rem) - 1rem),
@@ -246,10 +243,7 @@
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
       [data-luca-glass-fallback]
     )
-    [data-scroll-restoration-id]:is(
-      [data-buzz-conversation-scroll],
-      :has([data-render-pending])
-    ) {
+    [data-luca-timeline-viewport] {
     -webkit-mask-image: none;
     mask-image: none;
   }

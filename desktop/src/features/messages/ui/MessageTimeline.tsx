@@ -855,6 +855,7 @@ const MessageTimelineBase = React.forwardRef<
                   : "pb-4",
               ),
           )}
+          data-luca-timeline-viewport
           data-buzz-conversation-scroll={
             useTimelineVirtualizer && showMessageList ? undefined : "true"
           }
