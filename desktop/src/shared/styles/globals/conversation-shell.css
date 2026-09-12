@@ -722,6 +722,20 @@
    supplies the outer lip; the conversation supplies the gap on its right. */
 :root[data-luca-shell] [data-testid="agent-column-mover"] {
   padding: var(--mn-card-lip) 0 var(--mn-card-lip) var(--mn-card-lip);
+  transform: translateX(0);
+}
+
+/* Use the transform being transitioned directly; WebKit must not depend on
+   Tailwind's registered individual-translate variables for this placement. */
+:root[data-luca-shell]
+  [data-testid="agent-column-mover"][data-rail-hidden="true"] {
+  transform: translateX(calc(0px - var(--sidebar-rail-width)));
+}
+
+:root[data-luca-shell]
+  [data-peek="companion"]
+  [data-testid="agent-column-mover"][data-rail-hidden="true"] {
+  transform: translateX(0);
 }
 
 :root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {

@@ -226,10 +226,8 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
         className={cn(
           "pointer-events-none absolute inset-y-0 left-(--sidebar-rail-width) w-(--agent-column-width)",
           "transition-transform [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] motion-reduce:transition-none",
-          railHidden
-            ? "-translate-x-(--sidebar-rail-width) group-data-[peek=companion]:translate-x-0"
-            : "translate-x-0",
         )}
+        data-rail-hidden={railHidden}
         data-testid="agent-column-mover"
       >
         {column}
