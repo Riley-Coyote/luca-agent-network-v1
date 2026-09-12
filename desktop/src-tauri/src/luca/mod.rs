@@ -5,6 +5,7 @@ pub(crate) mod artifacts;
 // These accepted G2 kernel modules intentionally retain dormant export,
 // rotation, and relay APIs for the deferred long-range roadmap. Keep their
 // dead-code allowance local instead of weakening the desktop crate lint gate.
+pub(crate) mod activity_trace;
 #[cfg(unix)]
 pub(crate) mod artifact_backend;
 #[cfg(unix)]
@@ -33,7 +34,6 @@ pub(crate) mod continuity_runtime;
 #[allow(dead_code)]
 pub(crate) mod continuity_store;
 pub(crate) mod conversation_context;
-pub(crate) mod session_attachment;
 pub(crate) mod exchange;
 pub(crate) mod exchange_plan;
 pub(crate) mod exchange_relay;
@@ -72,6 +72,7 @@ pub(crate) mod resident_session_capabilities;
 pub(crate) mod runtime_capabilities;
 pub(crate) mod runtime_session_purpose;
 pub(crate) mod runtime_tasks;
+pub(crate) mod session_attachment;
 pub(crate) mod signing_broker;
 pub(crate) mod signing_transport;
 pub(crate) mod visits;

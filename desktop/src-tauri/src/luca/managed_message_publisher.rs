@@ -247,6 +247,7 @@ pub(crate) struct ManagedMessagePublisher {
     transport: Box<dyn ManagedRelayTransport>,
     handoff_scheduler: Option<HandoffScheduler>,
     artifact_app_data_dir: Option<PathBuf>,
+    presentation_scope: Option<super::activity_trace::Scope>,
     exchange: Option<ExchangeAuthority>,
 }
 
@@ -330,12 +331,14 @@ impl ManagedMessagePublisher {
             store: global_exchange_store(&app)?,
         };
         let artifact_app_data_dir = app.buzz_path().app_data_dir().ok();
+        let presentation_scope = super::activity_trace::host_scope(&app).ok();
         Ok(Self {
             resident_pubkey,
             dispatch_store,
             transport: Box::new(transport),
             handoff_scheduler: Some(HandoffScheduler { app, binding_ref }),
             artifact_app_data_dir,
+            presentation_scope,
             exchange: Some(exchange),
         })
     }
@@ -352,6 +355,7 @@ impl ManagedMessagePublisher {
             transport,
             handoff_scheduler: None,
             artifact_app_data_dir: None,
+            presentation_scope: None,
             exchange: None,
         }
     }
@@ -415,7 +419,7 @@ impl ManagedMessagePublisher {
         entry: &ManagedOutboxReconcileEntry,
         outbox: &mut ManagedMessageOutbox,
     ) -> Result<(), ManagedPublicationAuthorityError> {
-        {
+        let presentation_epoch = {
             let mut store = self
                 .dispatch_store
                 .lock()
@@ -427,6 +431,29 @@ impl ManagedMessagePublisher {
                     entry.event_id.as_str(),
                 )
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            store
+                .presentation_outcome(
+                    entry.request.owner_pubkey.as_str(),
+                    entry.request.resident_pubkey.as_str(),
+                    entry.request.conversation_id.as_str(),
+                    entry.request.dispatch_receipt_id.as_str(),
+                )
+                .and_then(|(_, _, epoch)| epoch)
+        };
+        // Both ordinary acceptance and restart reconciliation converge here.
+        // The authority lock is gone before local presentation bookkeeping.
+        if let (Some(scope), Some(scheduler), Some(epoch)) = (
+            self.presentation_scope.as_ref(),
+            self.handoff_scheduler.as_ref(),
+            presentation_epoch,
+        ) {
+            super::activity_trace::publication_accepted(
+                &scheduler.app,
+                scope,
+                &entry.request,
+                epoch,
+                entry.event_id.as_str(),
+            );
         }
         outbox
             .mark_accepted(

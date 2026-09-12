@@ -334,6 +334,43 @@ impl ManagedDispatchStore {
         })
     }
 
+    /// Read public lifecycle facts for an exact owner-local presentation trace.
+    /// This is observation only and grants no dispatch or publication authority.
+    pub(crate) fn presentation_outcome(
+        &self,
+        owner_pubkey: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        dispatch_receipt_id: &str,
+    ) -> Option<(ManagedDispatchState, Option<String>, Option<u64>)> {
+        let row = self
+            .dispatches
+            .get(&(dispatch_receipt_id.to_owned(), resident_pubkey.to_owned()))?;
+        (row.owner_pubkey == owner_pubkey && row.conversation_id == conversation_id)
+            .then(|| (row.state, row.published_event_id.clone(), row.session_epoch))
+    }
+
+    /// Read immutable causal placement from an owner-authorized dispatch.
+    pub(crate) fn presentation_placement(
+        &self,
+        owner_pubkey: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        dispatch_receipt_id: &str,
+    ) -> Option<(String, ManagedResponseSurfaceV1, Option<String>)> {
+        let row = self
+            .dispatches
+            .get(&(dispatch_receipt_id.to_owned(), resident_pubkey.to_owned()))?;
+        (row.owner_pubkey == owner_pubkey && row.conversation_id == conversation_id).then(|| {
+            (
+                row.trigger_event_id.clone(),
+                row.response_surface
+                    .unwrap_or(ManagedResponseSurfaceV1::Timeline),
+                row.root_event_id.clone().or_else(|| row.thread_id.clone()),
+            )
+        })
+    }
+
     /// Mark the only currently valid broker session for a resident.
     #[cfg(test)]
     pub(crate) fn activate_session(

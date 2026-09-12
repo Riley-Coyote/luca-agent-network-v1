@@ -133,9 +133,19 @@ pub(crate) fn create_endpoint(
     let (desktop, child) = std::os::unix::net::UnixStream::pair()
         .map_err(|error| format!("create managed presentation socketpair: {error}"))?;
     let dispatch_store = super::managed_dispatch_store::global_dispatch_store(&app)?;
+    let trace_scope = super::activity_trace::host_scope(&app).ok();
     std::thread::Builder::new()
         .name("luca-managed-presentation".into())
-        .spawn(move || serve(app, desktop, resident_pubkey, session_epoch, dispatch_store))
+        .spawn(move || {
+            serve(
+                app,
+                desktop,
+                resident_pubkey,
+                session_epoch,
+                dispatch_store,
+                trace_scope,
+            )
+        })
         .map_err(|error| format!("start managed presentation reader: {error}"))?;
     Ok(ManagedPresentationChildFd(child.into()))
 }
@@ -149,6 +159,7 @@ fn serve(
     dispatch_store: std::sync::Arc<
         std::sync::Mutex<super::managed_dispatch_store::ManagedDispatchStore>,
     >,
+    trace_scope: Option<super::activity_trace::Scope>,
 ) {
     struct SessionAuthorityGuard {
         resident_pubkey: Hex64,
@@ -352,7 +363,20 @@ fn serve(
             }
         }
         gate = candidate_gate;
+        if let Some(trace_scope) = trace_scope.as_ref() {
+            if let Ok(dispatches) = dispatch_store.lock() {
+                super::activity_trace::observe(&app, trace_scope, &frame, &dispatches);
+            }
+        }
         let _ = app.emit(PRESENTATION_EVENT, frame);
+    }
+    if let Some(trace_scope) = trace_scope.as_ref() {
+        super::activity_trace::interrupt_host(
+            &app,
+            trace_scope,
+            resident_pubkey.as_str(),
+            session_epoch.get(),
+        );
     }
 }
 
