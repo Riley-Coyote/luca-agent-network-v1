@@ -61,6 +61,7 @@ function hydrateManagedMessage(
     turn.finalMessageId === null || turn.bufferedText.length > 0;
   return {
     ...message,
+    activityTraceReceiptId: turn.durableReceiptId ?? turn.dispatchReceiptId,
     id: turn.finalMessageId ?? message.id,
     body: handoffTargetName
       ? `Couldn’t reach ${handoffTargetName}.`

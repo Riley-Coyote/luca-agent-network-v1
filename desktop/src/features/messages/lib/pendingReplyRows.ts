@@ -1,3 +1,4 @@
+import { activityReceiptFromUiKey } from "../activity/activityTraceProjection";
 import { activityLabel } from "@/features/agents/lib/activityPhase";
 import type { ChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
 import {
@@ -165,6 +166,13 @@ export function pendingReplyRows({
     if (phase === "thinking" || phase === "working") {
       add(row.agentPubkey, phase, activityLabel(row.activity), row.anchorAt);
     }
+  }
+  for (const [pubkey, activity] of managedActivity ?? []) {
+    const row = rows.get(normalizePubkey(pubkey));
+    const receipt =
+      activity.dispatchReceiptId ??
+      activityReceiptFromUiKey(activity.uiKey, pubkey);
+    if (row && receipt) row.activityTraceReceiptId = receipt;
   }
   return [...rows.values()];
 }

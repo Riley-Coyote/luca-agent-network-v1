@@ -94,6 +94,7 @@ function sameActivity(
     return (
       pubkey === rightPubkey &&
       activity.uiKey === rightActivity.uiKey &&
+      activity.dispatchReceiptId === rightActivity.dispatchReceiptId &&
       activity.phase === rightActivity.phase &&
       activity.failure === rightActivity.failure &&
       activity.handoffTargetName === rightActivity.handoffTargetName &&
@@ -125,6 +126,7 @@ function rebuildConversation(conversationId: string): void {
   const next = new Map<string, ManagedResidentActivity>();
   for (const candidate of selected) {
     next.set(candidate.residentPubkey, {
+      dispatchReceiptId: candidate.dispatchReceiptId,
       failure: candidate.failure,
       handoffTargetName: candidate.handoffTargetName,
       phase: candidate.phase,
@@ -197,6 +199,7 @@ export function upsertManagedPresentationActivity(
   }
   const previous = candidates.get(turn.uiKey);
   const next: ActivityCandidate = {
+    dispatchReceiptId: turn.durableReceiptId ?? turn.dispatchReceiptId,
     conversationId: turn.conversationId,
     creationOrdinal,
     failure: turn.failure,
@@ -213,6 +216,7 @@ export function upsertManagedPresentationActivity(
   };
   if (
     previous?.conversationId === next.conversationId &&
+    previous.dispatchReceiptId === next.dispatchReceiptId &&
     previous.creationOrdinal === next.creationOrdinal &&
     previous.failure === next.failure &&
     previous.handoffTargetName === next.handoffTargetName &&

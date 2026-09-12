@@ -50,6 +50,7 @@ import { UnreadDivider } from "./UnreadDivider";
 import { useTimelineRetention } from "./useTimelineRetention";
 import { useUpwardPaginationWheel } from "./useUpwardPaginationWheel";
 import { useVirtualizedBottomSettle } from "./useVirtualizedBottomSettle";
+import { useWorkingResidentNameAlignment } from "./useWorkingResidentNameAlignment";
 
 export type TimelineVirtualizerApi = {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
@@ -184,6 +185,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onVirtualizerRangeChanged,
   onVirtualizerScrollerChange,
 }: TimelineMessageListProps) {
+  const activityAlignmentRef = useWorkingResidentNameAlignment();
   const entries = React.useMemo(
     () =>
       mainEntries ??
@@ -326,7 +328,6 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               onToggleReaction={onToggleReaction}
               profiles={profiles}
               agentNamesEnabled={agentNamesEnabled}
-              visitActive={Boolean(item.visitSpan)}
               collapseLongBody={!isDirectConversation}
               quickReactions={!isDirectConversation}
               searchActiveMessageId={searchActiveMessageId}
@@ -393,7 +394,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col" ref={activityAlignmentRef}>
       {dayGroups.map((group) => (
         <section
           className={cn(
@@ -456,6 +457,18 @@ function VirtualizedTimelineRows({
 }: VirtualizedTimelineRowsProps) {
   const listRef = React.useRef<VListHandle>(null);
   const hostRef = React.useRef<HTMLDivElement>(null);
+  const activityAlignmentRef = useWorkingResidentNameAlignment();
+  const setHostRef = React.useCallback(
+    (element: HTMLDivElement | null) => {
+      hostRef.current = element;
+      const cleanup = activityAlignmentRef(element);
+      return () => {
+        if (typeof cleanup === "function") cleanup();
+        hostRef.current = null;
+      };
+    },
+    [activityAlignmentRef],
+  );
   const itemsLengthRef = React.useRef(0);
   const messageItemIndexByIdRef = React.useRef<ReadonlyMap<string, number>>(
     new Map(),
@@ -729,7 +742,7 @@ function VirtualizedTimelineRows({
   );
 
   return (
-    <div className="h-full min-h-0 w-full" ref={hostRef}>
+    <div className="h-full min-h-0 w-full" ref={setHostRef}>
       <PreserveVirtualizedItemVisibilityContext value={isPrepend}>
         <VList
           ref={listRef}
@@ -885,7 +898,6 @@ type MessageRowItemProps = Pick<
   entry: MainTimelineEntry;
   footer: React.ReactNode;
   authorVisiting?: boolean;
-  visitActive?: boolean;
   collapseLongBody?: boolean;
   quickReactions?: boolean;
   isContinuation?: boolean;
@@ -923,7 +935,6 @@ function MessageRowItem({
   onToggleReaction,
   profiles,
   agentNamesEnabled = true,
-  visitActive = false,
   collapseLongBody = true,
   quickReactions = true,
   searchActiveMessageId,
@@ -990,7 +1001,6 @@ function MessageRowItem({
           }
           profiles={profiles}
           agentNamesEnabled={agentNamesEnabled}
-          visitActive={visitActive}
           collapseLongBody={collapseLongBody}
           quickReactions={quickReactions}
           showDepthGuides={isFocusedThreadLayout}
@@ -1048,7 +1058,6 @@ function MessageRowItem({
         }
         profiles={profiles}
         agentNamesEnabled={agentNamesEnabled}
-        visitActive={visitActive}
         collapseLongBody={collapseLongBody}
         quickReactions={quickReactions}
         quotedParent={quotedParent}

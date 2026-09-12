@@ -27,6 +27,7 @@ import { resetSidebarRelayConnectionCardState } from "@/features/sidebar/ui/useS
 import { clearMarkdownNodeCache } from "@/shared/ui/markdown/nodeCache";
 import { resetVideoPlayerState } from "@/shared/ui/videoPlayerState";
 import { resetManagedPresentationStore } from "@/features/messages/managedPresentationStore";
+import { resetActivityTraceStore } from "@/features/messages/activity/activityTraceStore";
 import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
 import { resetRuntimeSessionContextHandoff } from "@/features/runtime-sessions/runtimeSessionHandoff";
 
@@ -51,6 +52,7 @@ function resetCommunityState(): void {
   resetActiveAgentTurnsStore();
   resetAgentWorkingSignal();
   resetManagedPresentationStore();
+  resetActivityTraceStore();
   resetFailedSendRetryState();
   resetRuntimeSessionContextHandoff();
   resetSidebarRelayConnectionCardState();

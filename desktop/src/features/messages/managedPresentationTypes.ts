@@ -104,6 +104,8 @@ export type ManagedPresentationTurn = {
 
 /** Stable virtualized timeline identity from first public text to signed final. */
 export type ManagedResponseSlot = {
+  /** Authenticated receipt can differ from the stable optimistic UI key. */
+  dispatchReceiptId?: string;
   anchorAt: number;
   anchorKey: string | null;
   conversationId: string;
@@ -116,6 +118,8 @@ export type ManagedResponseSlot = {
 
 /** Stable activity-shelf projection; public response bodies are excluded. */
 export type ManagedResidentActivity = {
+  /** Authenticated receipt can differ from the stable optimistic UI key. */
+  dispatchReceiptId?: string;
   failure: ManagedPresentationFailure | null;
   handoffTargetName: string | null;
   phase: ManagedPresentationDisplayPhase;

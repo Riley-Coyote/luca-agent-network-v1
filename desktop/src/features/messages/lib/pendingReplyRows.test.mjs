@@ -171,3 +171,17 @@ test("a path is read from its tail and a command is left verbatim", () => {
     /^reading · …\/.*MessageRow\.tsx$/,
   );
 });
+
+test("pending trace linkage uses the acknowledged receipt while its render key stays optimistic", () => {
+  const rows = pendingReplyRows({
+    managedActivity: searching({
+      uiKey: `managed:${LUCA}:optimistic:local`,
+      dispatchReceiptId: "accepted-receipt",
+    }),
+    observerActivity: [],
+    slots: [],
+    now: STARTED_AT + 10_000,
+  });
+  assert.equal(rows[0].activityTraceReceiptId, "accepted-receipt");
+  assert.equal(rows[0].renderKey, `pending-reply:${LUCA}`);
+});

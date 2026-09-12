@@ -1,3 +1,5 @@
+import { projectActivityTraceMessages } from "../activity/activityTraceProjection";
+import type { ActivityTrace } from "../activity/activityTraceTypes";
 import { projectManagedTimelineMessages } from "@/features/messages/lib/managedTimelineProjection";
 import {
   buildFocusedThreadEntries,
@@ -16,6 +18,8 @@ export type FocusedThreadProjection = {
 
 type FocusedThreadProjectionInput = {
   focusedHeadId: string | null;
+  conversationId?: string | null;
+  activityTraces?: readonly ActivityTrace[];
   managedResponseSlots: readonly ManagedResponseSlot[];
   profiles?: UserProfileLookup;
   residentPersonaIdLookup?: ReadonlyMap<string, string | null>;
@@ -60,13 +64,23 @@ export function projectFocusedThreadTimeline(
     head,
     ...input.threadMessages.map((entry) => entry.message),
   ]);
-  const projectedMessages = projectManagedTimelineMessages(
+  const managedMessages = projectManagedTimelineMessages(
     authoritativeMessages,
     input.managedResponseSlots,
     input.profiles,
     input.residentPersonaIdLookup,
     "thread",
   ).messages;
+  const projectedMessages = input.conversationId
+    ? projectActivityTraceMessages(
+        input.conversationId,
+        managedMessages,
+        input.activityTraces ?? [],
+        input.profiles,
+        input.residentPersonaIdLookup,
+        "thread",
+      )
+    : managedMessages;
   const entries = buildFocusedThreadEntries(
     buildMainTimelineEntries(
       projectedMessages,

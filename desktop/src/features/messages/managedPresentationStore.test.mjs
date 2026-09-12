@@ -656,6 +656,15 @@ describe("managedPresentationStore", () => {
       receiptId,
     );
     assert.equal(getManagedPresentationTurn(originalUiKey).sessionEpoch, 7);
+    assert.equal(
+      getManagedPresentationActivitySnapshot(conversationId).get(residentPubkey)
+        .dispatchReceiptId,
+      receiptId,
+    );
+    assert.equal(
+      getManagedResponseSlotsSnapshot(conversationId)[0].dispatchReceiptId,
+      receiptId,
+    );
   });
 
   it("a stopped turn keeps every grapheme it received, not only the painted ones", () => {

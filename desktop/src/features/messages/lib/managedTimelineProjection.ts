@@ -119,6 +119,7 @@ function projectSlot(
     ...(finalMessage ?? {}),
     id: messageId,
     renderKey: slot.uiKey,
+    activityTraceReceiptId: slot.dispatchReceiptId,
     createdAt,
     pubkey: finalMessage?.pubkey ?? slot.residentPubkey,
     signerPubkey: finalMessage?.signerPubkey ?? slot.residentPubkey,

@@ -195,17 +195,19 @@ test("group activation streams independently and settles into linear signed turn
   const receiptId = await ownerRow.getAttribute("data-message-id");
   if (!receiptId) throw new Error("Expected an owner event ID.");
 
-  // Before public text exists, the room's single Work Tray owns the wait.
-  // Empty response rows would duplicate the same state in the transcript.
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // WP-STRIP1 · the wait moved into the thread. Before public text exists each
+  // working resident has a pending row where their reply will land, and the
+  // Work Tray carries none of it — that second surface painting the same
+  // state is exactly the duplicate this design removes.
+  await expect(managedResponseRows(page)).toHaveCount(2);
   await expect(
     page
       .getByTestId("conversation-activity-shelf")
       .locator(".luca-activity-item"),
-  ).toHaveCount(2);
+  ).toHaveCount(0);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
-    "2",
+    "0",
   );
   const payload = await lastSendPayload(page);
   expect(payload?.managedAudience).toEqual({
@@ -295,9 +297,10 @@ test("a streamed response settles in place when its signed final arrives", async
     hasText: "One continuous response.",
   });
   await expect(response).toBeVisible();
+  // WP-STRIP1 · the shelf is not a second indicator any more.
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
-    "1",
+    "0",
   );
   await response.evaluate((element) => {
     element.setAttribute("data-stable-node-probe", "settled-turn");
@@ -577,12 +580,12 @@ test("ordinary Reply is directed while Reply in thread remains explicit", async 
     resident_pubkeys: [CLAUDE],
   });
   expect(payload?.responseSurface).toBe("timeline");
-  // The room's Work Tray owns the pre-text wait; a response row appears only
-  // once Claude contributes public text.
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // WP-STRIP1 · the pre-text wait is a row in the thread, not a tray above the
+  // composer, so the row exists before Claude contributes any public text.
+  await expect(managedResponseRows(page)).toHaveCount(1);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
-    "1",
+    "0",
   );
 
   const directedFinal = await emitSignedFinal(
@@ -853,12 +856,12 @@ test("agent mentions activate exactly the named resident subset", async ({
     mode: "directed",
     resident_pubkeys: [CLAUDE, CODEX].sort(),
   });
-  // Both named residents are represented once in the Work Tray until either
-  // one contributes public text.
-  await expect(managedResponseRows(page)).toHaveCount(0);
+  // WP-STRIP1 · both named residents are represented once each, as a row in
+  // the thread, and nowhere else.
+  await expect(managedResponseRows(page)).toHaveCount(2);
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
-    "2",
+    "0",
   );
 });
 

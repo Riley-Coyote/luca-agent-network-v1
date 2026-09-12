@@ -77,6 +77,7 @@ import type {
   ResidentExtraFileEntry,
 } from "@/shared/api/tauriResidentDocuments";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import type { ActivityTrace } from "@/features/messages/activity/activityTraceTypes";
 
 type TestIdentity = {
   privateKey: string;
@@ -254,6 +255,8 @@ type E2eConfig = {
       mcp?: MockCommandAvailability;
     };
     managedAgents?: MockManagedAgentSeed[];
+    /** Native public activity snapshots, retained across mock page reloads. */
+    activityTraces?: ActivityTrace[];
     /** Seeded exchange heads — see tests/helpers/bridge.ts:MockExchangeSeed. */
     exchanges?: MockExchangeSeed[];
     /** Body-free UX-203A restart outcomes returned for operational presentation. */
@@ -13513,6 +13516,8 @@ export function maybeInstallE2eTauriMocks() {
           controlEventId: null,
         };
       }
+      case "luca_list_activity_traces":
+        return structuredClone(activeConfig?.mock?.activityTraces ?? []);
       case "list_managed_conversation_operational_status":
         return activeConfig?.mock?.managedOperationalStatuses ?? [];
       case "list_pending_managed_permissions":

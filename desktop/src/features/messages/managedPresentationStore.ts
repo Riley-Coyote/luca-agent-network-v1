@@ -249,6 +249,7 @@ function responseSlot(
 ): ManagedResponseSlot | null {
   if (turn.slotOrdinal === null) return null;
   return {
+    dispatchReceiptId: turn.durableReceiptId ?? turn.dispatchReceiptId,
     anchorAt: turn.anchorAt,
     anchorKey: turn.anchorKey,
     conversationId: turn.conversationId,

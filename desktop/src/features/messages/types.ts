@@ -15,6 +15,8 @@ export type TimelineMessage = {
   id: string;
   /** Stable local key used to avoid remounting optimistic rows on send ack. */
   renderKey?: string;
+  /** Exact native activity record for a local row, including interrupted turns. */
+  activityTraceReceiptId?: string;
   createdAt: number;
   pubkey?: string;
   /**

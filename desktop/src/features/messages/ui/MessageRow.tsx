@@ -1,3 +1,10 @@
+import { canShowPrivateActivityDetails } from "../activity/activityTracePrivacy";
+import { useActivityTrace } from "@/features/messages/activity/useActivityTrace";
+import {
+  activityTraceLookupForMessage,
+  provisionalReplyAfterNarration,
+} from "@/features/messages/activity/activityTraceProjection";
+import { ResidentActivityTrace } from "./ResidentActivityTrace";
 import * as React from "react";
 
 import {
@@ -15,7 +22,10 @@ import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoic
 import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
-import type { ResidentMarkLiveState } from "@/features/channels/ui/ResidentIdentityMark";
+import {
+  ResidentIdentityMark,
+  type ResidentMarkLiveState,
+} from "@/features/channels/ui/ResidentIdentityMark";
 import { AgentMessageRuntime } from "./AgentMessageRuntime";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
@@ -119,6 +129,42 @@ export type ThreadDepthGuideAction = {
   message: TimelineMessage;
 };
 
+/**
+ * WP-STRIP1 · how long this resident has been working, at the right of the
+ * row. Seconds while seconds are the news, then minutes, then hours — the
+ * lab's reading, unchanged.
+ */
+function elapsedLabel(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+}
+
+/**
+ * A clock that only exists while a resident is working. It is mounted by the
+ * live row and unmounted the moment the turn settles, so a quiet thread runs
+ * no timers at all.
+ */
+function LiveElapsed({ startedAtMs }: { startedAtMs: number }) {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const seconds = Math.max(0, Math.floor((now - startedAtMs) / 1_000));
+  return (
+    <span
+      className="shrink-0 text-xs leading-[1.35] tabular-nums text-white/[0.3]"
+      data-testid="resident-elapsed"
+    >
+      {elapsedLabel(seconds)}
+    </span>
+  );
+}
+
 export const MessageRow = React.memo(
   function MessageRow({
     channelId = null,
@@ -161,7 +207,6 @@ export const MessageRow = React.memo(
     collapseLongBody = true,
     quickReactions = true,
     agentNamesEnabled = true,
-    visitActive = false,
     showDepthGuides = true,
     videoReviewContext,
   }: {
@@ -224,8 +269,6 @@ export const MessageRow = React.memo(
     /** One-tap emoji row in the hover bar; off in direct conversations. */
     quickReactions?: boolean;
     agentNamesEnabled?: boolean;
-    /** This row sits between a resident's visit entrance and exit. */
-    visitActive?: boolean;
     showDepthGuides?: boolean;
     videoReviewContext?: VideoReviewContext;
   }) {
@@ -341,7 +384,19 @@ export const MessageRow = React.memo(
     );
     const bodyOffsetClass = emojiOnly ? "mt-1" : "-mt-0.5";
 
-    const { nonDmChannelNames: channelNames } = useChannelNavigation();
+    const { nonDmChannelNames: channelNames, channels } =
+      useChannelNavigation();
+    const traceLookup = React.useMemo(
+      () => activityTraceLookupForMessage(channelId, message),
+      [channelId, message],
+    );
+    const activityTrace = useActivityTrace(traceLookup);
+    const traceChannel = channels.find((channel) => channel.id === channelId);
+    const privateTraceConversation = canShowPrivateActivityDetails(
+      traceChannel,
+      ownerPubkey,
+      isKnownAgentPubkey,
+    );
     const interruptedReceipts = React.useSyncExternalStore(
       React.useCallback(
         (listener) =>
@@ -438,6 +493,14 @@ export const MessageRow = React.memo(
         ),
       );
 
+    const replyBody = provisionalReplyAfterNarration(
+      message.body,
+      activityTrace,
+      Boolean(
+        message.managedPresentation &&
+          !message.managedPresentation.finalMessageId,
+      ),
+    );
     const renderBody = () => {
       switch (message.kind) {
         case KIND_STREAM_MESSAGE_DIFF:
@@ -509,7 +572,7 @@ export const MessageRow = React.memo(
                 message,
                 isKnownAgentPubkey,
               )}
-              content={message.body}
+              content={replyBody}
               customEmoji={customEmoji}
               imetaByUrl={imetaByUrl}
               agentMentionPubkeysByName={agentMentionPubkeysByName}
@@ -544,16 +607,19 @@ export const MessageRow = React.memo(
     // this row is a live resident turn BEFORE it decides to open, because that
     // is the row that paints the activity mark.
     const managedPhase = message.managedPresentation?.phase;
-    const residentMarkLive: ResidentMarkLiveState = !message.managedPresentation
-      ?.streaming
-      ? null
-      : managedPhase === "waking" ||
-          managedPhase === "thinking" ||
-          managedPhase === "working"
+    const residentMarkLive: ResidentMarkLiveState = activityTrace
+      ? activityTrace.status === "working"
         ? "thinking"
-        : managedPhase === "writing" || managedPhase === "finalizing"
-          ? "writing"
-          : null;
+        : null
+      : !message.managedPresentation?.streaming
+        ? null
+        : managedPhase === "waking" ||
+            managedPhase === "thinking" ||
+            managedPhase === "working"
+          ? "thinking"
+          : managedPhase === "writing" || managedPhase === "finalizing"
+            ? "writing"
+            : null;
     // THE LIVE MARK IN A DIRECT CONVERSATION.
     //
     // `ChannelPane` empties the multi-resident activity shelf in a DM — "the
@@ -563,11 +629,17 @@ export const MessageRow = React.memo(
     // sandpile (the whole thinking animation) had nowhere to mount in the one
     // place an owner actually talks to their resident. Verified on screen in a
     // release build before and after.
-    const showResidentMarkGutter = Boolean(
-      !ownBubble &&
-        message.pubkey &&
-        (!message.isAgent || visitActive || residentMarkLive !== null),
-    );
+    // WP-STRIP1 · THE WORK HAPPENS IN THE THREAD.
+    //
+    // The gutter now opens for every resident head row, not only the live
+    // one. The pending row and the reply that replaces it must sit at the
+    // same x, or the answer arrives with a sideways jolt — the whole reason
+    // Direction C puts the wait in the thread is that text FILLS IN PLACE.
+    // A continuation holds the slot open and draws nothing in it — the same
+    // bargain human rows already made — so every row of a resident's turn
+    // starts at the same x. The owner's own turn still has no slot: position
+    // says whose it is.
+    const showResidentMarkGutter = Boolean(!ownBubble && message.pubkey);
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
     // through that column and reserves the mark's height as a gap, so a row
@@ -576,10 +648,7 @@ export const MessageRow = React.memo(
     // line breaks across it. Read from the reading plane by
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
-      showResidentMarkGutter &&
-      (!message.isAgent || residentMarkLive !== null) &&
-      !isContinuation &&
-      !ownBubble;
+      showResidentMarkGutter && !isContinuation && !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
@@ -695,28 +764,39 @@ export const MessageRow = React.memo(
     // "waking" is the honest word for a resident the desktop is starting on
     // the owner's behalf: nothing is thinking yet, and saying so is what
     // keeps a longer wait from reading as a broken one.
+    //
+    // WP-STRIP1 · decision 1 splits this in two. The HEADER carries a plain
+    // verb phrase — the one word that says what kind of thing is happening —
+    // and the NARRATION, everything the runtime actually says as it works,
+    // moves to the line below in body type, where there is room to read it.
+    // Cramming both into the header is what made the old line a status strip.
     const activityWord =
       residentMarkLive === "thinking"
-        ? (message.managedPresentation?.activityLabel ??
-          (managedPhase === "waking"
-            ? "waking"
-            : managedPhase === "working"
-              ? "working"
-              : "thinking"))
+        ? managedPhase === "waking"
+          ? "waking"
+          : managedPhase === "working"
+            ? "working"
+            : "thinking"
         : // The "writing" phase can arrive a beat before the first chunk;
           // until words exist the row keeps a word rather than going bare.
-          // The runtime's own narration wins here for the same reason it wins
-          // above: it says what is being written, and the phase word only says
-          // that something is. Falls back when nothing was narrated.
           residentMarkLive === "writing" && message.body === ""
-          ? (message.managedPresentation?.activityLabel ?? "writing")
+          ? "writing"
           : null;
+    // What the runtime narrated, when it said anything the verb did not.
+    const narration =
+      privateTraceConversation &&
+      activityWord &&
+      message.managedPresentation?.activityLabel &&
+      message.managedPresentation.activityLabel !== activityWord
+        ? message.managedPresentation.activityLabel
+        : null;
 
-    // In a direct conversation the row is where a reply is stopped: one quiet
-    // word at the row's edge while the resident is live, gone once the reply
-    // has landed. Rooms carry Stop on the activity shelf instead.
+    // Every working row retains its own scoped Stop control.
     const stopPubkey =
-      residentStop && message.managedPresentation?.streaming && message.pubkey
+      residentStop &&
+      (message.managedPresentation?.streaming ||
+        activityTrace?.status === "working") &&
+      message.pubkey
         ? message.pubkey
         : null;
     const stopping =
@@ -778,19 +858,58 @@ export const MessageRow = React.memo(
         ) : null}
       </div>
     );
+    // WP-STRIP1 · decision 3. Stop belongs to the row whose work it stops, and
+    // it is a text button — never a checkbox, never a square. It occupies its
+    // slot at all times and only opacity changes, so revealing it never moves
+    // a word. Five states: rest, hover, active, focus, disabled — and focus is
+    // this element's own border brightening in place, no second ring.
+    //
+    // `!outline-none` is deliberate: `conversation-shell.css` sets an
+    // UNLAYERED global `:focus-visible` outline that beats any component's own
+    // treatment. WP-BASE1 removes that rule; until it lands the `!` is the only
+    // way this object can express the baseline.
     const stopNode =
       showStop && stopPubkey ? (
-        <button
-          aria-label={`Stop ${message.author}`}
-          className="ml-auto shrink-0 rounded text-xs leading-4 text-ink-faint transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:text-ink-muted disabled:cursor-default disabled:text-ink-faint disabled:hover:text-ink-faint"
-          data-testid="resident-stop"
-          disabled={stopping}
-          onClick={() => residentStop?.onStop(stopPubkey)}
-          type="button"
-        >
-          {stopping ? "Stopping" : "Stop"}
-        </button>
+        <span className={cn("ml-auto flex h-4 shrink-0 items-center")}>
+          <button
+            aria-label={`Stop ${message.author}`}
+            className={cn(
+              // Exactly the header's own 16px line box (`leading-4` on
+              // `MessageHeaderRow`, which aligns on the baseline): an object
+              // one pixel taller would grow the row while a resident works and
+              // fold it back when the signed final lands. The row must not
+              // move when the answer arrives — that is the whole argument for
+              // putting the wait here.
+              "inline-flex h-4 select-none items-center rounded-[4px] border px-1.5",
+              "text-xs leading-none",
+              "transition-[color,background-color,border-color] duration-150",
+              "border-transparent bg-transparent text-white/[0.45]",
+              "hover:text-white/[0.78] active:text-white/50",
+              "focus-visible:border-white/50 focus-visible:!outline-none",
+              "disabled:cursor-default disabled:text-white/[0.45]",
+            )}
+            data-testid="resident-stop"
+            disabled={stopping}
+            onClick={() => residentStop?.onStop(stopPubkey)}
+            type="button"
+          >
+            {stopping ? "Stopping" : "Stop"}
+          </button>
+        </span>
       ) : null;
+
+    // WP-STRIP1 · decision 1: elapsed at the right of a working row, beside
+    // the row's own Stop. It ticks on its own so the reading is true — the
+    // pending-reply clock only advances when the row's sentence changes, and
+    // an elapsed derived from it would sit still while the seconds ran.
+    const liveTailNode = residentMarkLive ? (
+      <span className="ml-auto flex shrink-0 items-center gap-3">
+        <LiveElapsed startedAtMs={message.createdAt * 1_000} />
+        {stopNode}
+      </span>
+    ) : (
+      stopNode
+    );
 
     // Human messages can collapse into a compact continuation. Agent turns
     // keep attribution on every row because adjacent residents may share a
@@ -808,9 +927,34 @@ export const MessageRow = React.memo(
         authorVisiting ||
         statusMetadataNode ||
         activityWord ||
-        stopNode,
+        stopNode ||
+        residentMarkLive,
     );
-    const headerNode = hideContinuationHeader ? null : (
+    const headerNode = activityTrace ? (
+      <ResidentActivityTrace
+        trace={activityTrace}
+        residentName={message.author}
+        privateConversation={privateTraceConversation}
+        showIdentity={!quietAgent}
+        identityNode={
+          message.pubkey && !quietAgent ? (
+            <UserProfilePopover
+              pubkey={message.pubkey}
+              role={profilePopoverRole}
+              botIdenticonValue={message.author}
+            >
+              {authorNode}
+            </UserProfilePopover>
+          ) : undefined
+        }
+        stopping={stopping}
+        onStop={
+          showStop && stopPubkey
+            ? () => residentStop?.onStop(stopPubkey)
+            : undefined
+        }
+      />
+    ) : hideContinuationHeader ? null : (
       <MessageHeaderRow
         className={cn(
           "luca-msg-header",
@@ -845,7 +989,7 @@ export const MessageRow = React.memo(
             {message.personaDisplayName}
           </span>
         ) : null}
-        {stopNode}
+        {liveTailNode}
       </MessageHeaderRow>
     );
     const bodyContainerClass =
@@ -873,6 +1017,20 @@ export const MessageRow = React.memo(
         ) : null}
         {showLucaChoices && lucaChoices ? (
           <LucaGreetingChoices onChoose={lucaChoices.onChoose} />
+        ) : null}
+        {!activityTrace && activityWord && message.body === "" ? (
+          // THE BODY SLOT THE FIRST WORD WILL LAND IN. Held open at one line
+          // so the arrival of text does not push the thread, and carrying the
+          // narration in the meantime — the row is already at the exact x and
+          // y the answer will occupy, which is the whole point of putting the
+          // wait here instead of above the composer.
+          <div
+            className="min-h-[22px] text-chat leading-[1.5] text-ink-muted"
+            data-testid="resident-narration"
+            role="status"
+          >
+            {narration}
+          </div>
         ) : null}
         {managedStatusNode}
         {continuationMetadataNode}
@@ -918,7 +1076,7 @@ export const MessageRow = React.memo(
 
     return (
       <div
-        className="relative"
+        className="group/row relative"
         // On the row's outermost box, which the visit connector is matched
         // against from the reading plane two levels up
         // (`[data-visit-span] > div > this`). `message-anatomy.css` spells
@@ -1165,7 +1323,10 @@ export const MessageRow = React.memo(
             // fine but removing it would move a hairline that is checked to
             // half a pixel.
             <span
-              className="mt-0.5 flex w-[21px] shrink-0 justify-center"
+              className={cn(
+                "flex w-[21px] shrink-0 justify-center",
+                activityTrace ? "h-4 items-center" : "mt-0.5",
+              )}
               data-message-mark
             >
               {residentMarkLive ? (
@@ -1176,7 +1337,27 @@ export const MessageRow = React.memo(
                   seed={`${message.pubkey}:activity`}
                   size={21}
                 />
-              ) : isContinuation || ownBubble || message.isAgent ? (
+              ) : message.isAgent && isContinuation ? (
+                <span aria-hidden className="size-[21px]" />
+              ) : message.isAgent ? (
+                // WP-STRIP1 · decision 5: the identity glyph, never the orb.
+                // Measured in the lab: every resident's orb renders the same
+                // tint and at 21px is a few specks — it identifies nobody, and
+                // the element pools only four WebGL stages document-wide, so
+                // rows five and six are not the same object. The glyph is
+                // seeded from the pubkey, drawn once, and is the same mark the
+                // resident carries everywhere else. When a turn settles the
+                // slot goes back to it, in place.
+                <ResidentIdentityMark
+                  accessibleName={message.author}
+                  data-testid="row-identity-glyph"
+                  decorative
+                  personaId={message.residentPersonaId}
+                  presentation="glyph"
+                  publicKey={message.pubkey}
+                  size={21}
+                />
+              ) : isContinuation || ownBubble ? (
                 // Anchored right, the owner's turn says who it is by where it
                 // sits; a disc on the far left of the same row would be an
                 // orphan pointing back at a column the words no longer use.
@@ -1242,6 +1423,8 @@ export const MessageRow = React.memo(
       next.message.managedPresentation?.failure &&
     prev.message.managedPresentation?.streaming ===
       next.message.managedPresentation?.streaming &&
+    prev.message.activityTraceReceiptId ===
+      next.message.activityTraceReceiptId &&
     prev.message.managedPresentation?.activityLabel ===
       next.message.managedPresentation?.activityLabel &&
     prev.message.managedPresentation?.workDurationMs ===
@@ -1289,7 +1472,6 @@ export const MessageRow = React.memo(
     prev.playEntrance === next.playEntrance &&
     prev.profiles === next.profiles &&
     prev.agentNamesEnabled === next.agentNamesEnabled &&
-    prev.visitActive === next.visitActive &&
     prev.searchQuery === next.searchQuery &&
     prev.videoReviewContext === next.videoReviewContext,
 );
