@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import * as React from "react";
 
 import { LUCA_IDENTITY_SEED } from "@/features/luca/canonicalLucaResident";
+import { WorkingTurnLayers } from "@/features/messages/lab/WorkingTurnLayers";
 import { cn } from "@/shared/lib/cn";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
@@ -547,7 +548,13 @@ export function ThinkingIndicatorLab() {
 
   return (
     <div className="h-dvh overflow-y-auto overscroll-contain bg-background text-foreground">
-      <div className="mx-auto max-w-[52rem] px-8 py-12">
+      {/* WP-LAB2 sits in its own, wider column: its specimens are real
+          conversation rows and a 52rem page would judge them at half the
+          width a thread actually has. */}
+      <div className="mx-auto max-w-[84rem] px-8 pt-12">
+        <WorkingTurnLayers />
+      </div>
+      <div className="mx-auto max-w-[52rem] px-8 pb-12">
         <header className="mb-8 flex items-end justify-between gap-6">
           <div>
             <p className="font-mono text-2xs uppercase tracking-caps-wide text-ink-faint">
