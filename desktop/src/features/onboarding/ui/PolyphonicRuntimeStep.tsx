@@ -334,22 +334,28 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
   const options = settings.data?.runtimeOptions ?? [];
-  const readyOptions = options
-    .filter((option) => option.readiness === "ready")
-    .sort(
-      (left, right) =>
-        Number(Boolean(right.recommended)) - Number(Boolean(left.recommended)),
-    );
-  const unreadyOptions = options.filter(
-    (option) => option.readiness !== "ready",
+  // Everything the owner actually has on this Mac shows by default — ready
+  // first, then the ones Luca is still finishing setting up. Only runtimes
+  // that are genuinely not installed go behind the toggle. Burying a runtime
+  // they already have is the failure WP-SETUP1 exists to end.
+  const presentOptions = options
+    .filter((option) => option.readiness !== "unavailable")
+    .sort((left, right) => {
+      const byReadiness =
+        Number(right.readiness === "ready") -
+        Number(left.readiness === "ready");
+      if (byReadiness !== 0) return byReadiness;
+      return (
+        Number(Boolean(right.recommended)) - Number(Boolean(left.recommended))
+      );
+    });
+  const absentOptions = options.filter(
+    (option) => option.readiness === "unavailable",
   );
-  const revealAllRuntimes =
-    showOtherRuntimes ||
-    readyOptions.length === 0 ||
-    selectedOption?.readiness !== "ready";
+  const revealAllRuntimes = showOtherRuntimes || presentOptions.length === 0;
   const visibleOptions = revealAllRuntimes
-    ? [...readyOptions, ...unreadyOptions]
-    : readyOptions;
+    ? [...presentOptions, ...absentOptions]
+    : presentOptions;
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PolyphonicStepHeading
@@ -444,6 +450,10 @@ export const PolyphonicRuntimeStep = React.forwardRef<
                           runtime?.signedInAs
                             ? `Signed in with ${runtime.signedInAs}`
                             : "Ready on this Mac",
+                          // Never imply a check that cannot happen.
+                          runtime && runtime.authCheckable === false
+                            ? "Luca can’t tell if you’re signed in"
+                            : null,
                           option.recommended ? "Recommended" : null,
                         ]
                           .filter(Boolean)
@@ -478,7 +488,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
             );
           })}
         </div>
-        {unreadyOptions.length > 0 && !revealAllRuntimes ? (
+        {absentOptions.length > 0 && !revealAllRuntimes ? (
           <button
             aria-expanded="false"
             className="mt-2.5 flex w-fit items-center gap-1 rounded-[6px] py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"

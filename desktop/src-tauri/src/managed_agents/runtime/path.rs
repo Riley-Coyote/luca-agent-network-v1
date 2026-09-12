@@ -23,15 +23,16 @@ pub(in crate::managed_agents) fn build_augmented_path(
     exe_parent: Option<PathBuf>,
     shell_path: Option<String>,
     nvm_bin: Option<PathBuf>,
+    // `runtime_shim_bin`: the app-owned directory of symlinks to the runtimes
+    // discovery actually chose. It leads the PATH so a fossil earlier on the
+    // owner's shell PATH cannot answer in place of the binary we picked. Passed
+    // in rather than read from disk here, so this stays a pure mapping from its
+    // arguments.
+    runtime_shim_bin: Option<PathBuf>,
 ) -> Option<String> {
     let mut parts: Vec<PathBuf> = Vec::new();
     let home_added = home.is_some();
-    // The runtimes this app actually chose come first, so a fossil sitting
-    // earlier on the owner's shell PATH cannot answer in their place and a CLI
-    // that lives inside an application bundle is reachable at all.
-    if let Some(shim_dir) =
-        crate::managed_agents::discovery::runtime_shim_dir().filter(|dir| dir.is_dir())
-    {
+    if let Some(shim_dir) = runtime_shim_bin {
         parts.push(shim_dir);
     }
     if let Some(home) = home {
@@ -83,6 +84,7 @@ mod tests {
             Some(PathBuf::from("/Applications/Buzz.app/Contents/MacOS")),
             Some("/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin".to_string()),
             None,
+            None,
         );
         let result = result.expect("path");
         assert!(result.starts_with("/home/agent/.local/bin:"), "{result}");
@@ -98,13 +100,14 @@ mod tests {
 
     #[test]
     fn none_when_no_inputs() {
-        assert_eq!(build_augmented_path(None, None, None, None), None);
+        assert_eq!(build_augmented_path(None, None, None, None, None), None);
     }
 
     #[cfg(unix)]
     #[test]
     fn shell_path_only() {
-        let result = build_augmented_path(None, None, Some("/usr/bin:/bin".to_string()), None);
+        let result =
+            build_augmented_path(None, None, Some("/usr/bin:/bin".to_string()), None, None);
         assert_eq!(result.as_deref(), Some("/usr/bin:/bin"));
     }
 
@@ -116,6 +119,7 @@ mod tests {
             Some(PathBuf::from("/Applications/Buzz.app/Contents/MacOS")),
             Some("/usr/bin:/bin".to_string()),
             Some(PathBuf::from("/home/user/.nvm/versions/node/v20.0.0/bin")),
+            None,
         );
         let result = result.expect("path");
         let local = result.find("/home/user/.local/bin").unwrap();
@@ -135,6 +139,7 @@ mod tests {
         let result = build_augmented_path(
             Some(PathBuf::from("/home/user")),
             Some(PathBuf::from("/usr/local/bin")),
+            None,
             None,
             None,
         );

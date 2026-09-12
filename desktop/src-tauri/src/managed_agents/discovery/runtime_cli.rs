@@ -395,35 +395,101 @@ pub(crate) fn existing_auth_from_file(runtime: &KnownAcpRuntime) -> Option<Exist
         let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        let mode = json
-            .get("auth_mode")
-            .and_then(|v| v.as_str())
-            .map(str::to_string);
-        let has_tokens = json.get("tokens").map(|v| !v.is_null()).unwrap_or(false)
-            || json
-                .get("OPENAI_API_KEY")
-                .and_then(|v| v.as_str())
-                .is_some_and(|k| !k.is_empty())
-            || json
-                .get("apiKey")
-                .and_then(|v| v.as_str())
-                .is_some_and(|k| !k.is_empty());
-        if mode.is_some() || has_tokens {
-            let how = match &mode {
-                Some(mode) => format!("{raw} (auth_mode: {mode})"),
-                None => format!("{raw} (credentials present)"),
-            };
+        if let Some((detail, mode)) = read_credentials(&json) {
             return Some(ExistingAuth {
                 runtime_id: runtime.id,
-                how,
-                mode: mode.map(|m| match m.as_str() {
-                    "chatgpt" => "ChatGPT".to_string(),
-                    other => other.to_string(),
-                }),
+                how: format!("{raw} ({detail})"),
+                mode,
             });
         }
     }
     None
+}
+
+/// Recognise a live credential document, whatever shape the runtime uses.
+///
+/// Three real shapes, each read off a real machine rather than guessed:
+///
+/// * Codex — `~/.codex/auth.json`: `{"auth_mode": "chatgpt", "tokens": {…}}`.
+/// * Kimi Code — `~/.kimi-code/credentials/kimi-code.json`:
+///   `{"access_token": "…", "expires_at": 1755…}`. The expiry is honoured: an
+///   expired token is not a sign-in.
+/// * Grok — `~/.grok/auth.json`: one entry per issuer,
+///   `{"https://auth.x.ai::<id>": {…}}`.
+///
+/// Returns `(how, mode)` — a phrase for the log and, when the file says it,
+/// the name of the account kind to show the owner.
+fn read_credentials(json: &serde_json::Value) -> Option<(String, Option<String>)> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
+    // Shape 1: an explicit auth mode.
+    if let Some(mode) = json.get("auth_mode").and_then(|v| v.as_str()) {
+        let label = match mode {
+            "chatgpt" => "ChatGPT".to_string(),
+            other => other.to_string(),
+        };
+        return Some((format!("auth_mode: {mode}"), Some(label)));
+    }
+
+    // Shape 2: an OAuth token, possibly with an expiry.
+    let has_access_token = json
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .is_some_and(|token| !token.is_empty());
+    if has_access_token {
+        if let Some(expires_at) = json.get("expires_at").and_then(|v| v.as_i64()) {
+            // Seconds or milliseconds — both appear in the wild.
+            let seconds = if expires_at > 100_000_000_000 {
+                expires_at / 1000
+            } else {
+                expires_at
+            };
+            if seconds <= now {
+                return None;
+            }
+        }
+        return Some(("access token present".to_string(), None));
+    }
+
+    // Shape 3: tokens under a named key, or one entry per issuer.
+    if json.get("tokens").is_some_and(|v| !v.is_null()) {
+        return Some(("credentials present".to_string(), None));
+    }
+    if let Some(map) = json.as_object() {
+        for (key, value) in map {
+            let issuer_shaped = key.contains("://");
+            let non_empty_object = value.as_object().is_some_and(|inner| !inner.is_empty());
+            if issuer_shaped && non_empty_object {
+                let issuer = key.split("::").next().unwrap_or(key);
+                return Some((format!("credentials for {issuer}"), None));
+            }
+        }
+    }
+    if json
+        .get("OPENAI_API_KEY")
+        .and_then(|v| v.as_str())
+        .is_some_and(|key| !key.is_empty())
+        || json
+            .get("apiKey")
+            .and_then(|v| v.as_str())
+            .is_some_and(|key| !key.is_empty())
+    {
+        return Some(("API key present".to_string(), None));
+    }
+    None
+}
+
+/// Can Luca check this runtime's sign-in at all?
+///
+/// False when the runtime offers neither a login-status command nor a readable
+/// credential file — Goose keeps its keys in the system keychain, so there is
+/// nothing honest to read. The step says so rather than implying the sign-in
+/// was verified.
+pub(crate) fn auth_is_checkable(runtime: &KnownAcpRuntime) -> bool {
+    runtime.auth_probe_args.is_some() || !runtime.auth_files.is_empty()
 }
 
 /// Write the whole search plan to the app log once per process.
@@ -552,6 +618,75 @@ mod tests {
             resolution.path, resolution.version
         );
         println!("existing auth: {:?}", existing_auth_from_file(codex()));
+    }
+
+    /// The same diagnostic across every runtime in the catalog, plus what the
+    /// owner would actually be offered. Run it on a real machine:
+    /// `cargo test --lib -- --ignored --nocapture every_runtime_on_this_machine`.
+    #[test]
+    #[ignore]
+    fn every_runtime_on_this_machine() {
+        for entry in crate::managed_agents::discover_acp_runtimes() {
+            println!(
+                "{:<12} availability={:<16} cli={:<62} adapter={:<52} auth={:?} signed_in_as={:?} checkable={}",
+                entry.id,
+                format!("{:?}", entry.availability),
+                entry.underlying_cli_path.as_deref().unwrap_or("-"),
+                entry.binary_path.as_deref().unwrap_or("-"),
+                entry.auth_status,
+                entry.signed_in_as,
+                entry.auth_checkable,
+            );
+        }
+    }
+
+    #[test]
+    fn reads_the_three_credential_shapes_seen_on_real_machines() {
+        // Codex: ~/.codex/auth.json
+        let codex_file = serde_json::json!({"auth_mode":"chatgpt","tokens":{"id_token":"x"}});
+        assert_eq!(
+            read_credentials(&codex_file),
+            Some((
+                "auth_mode: chatgpt".to_string(),
+                Some("ChatGPT".to_string())
+            ))
+        );
+        // Grok: ~/.grok/auth.json, one entry per issuer.
+        let grok_file = serde_json::json!({
+            "https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828": {"access_token":"x"}
+        });
+        assert_eq!(
+            read_credentials(&grok_file),
+            Some(("credentials for https://auth.x.ai".to_string(), None))
+        );
+        // Kimi Code: an OAuth doc with an expiry that is honoured.
+        let far_future = serde_json::json!({"access_token":"x","expires_at": 4_102_444_800i64});
+        assert_eq!(
+            read_credentials(&far_future),
+            Some(("access token present".to_string(), None))
+        );
+        let expired = serde_json::json!({"access_token":"x","expires_at": 1_786_784_748i64});
+        assert_eq!(
+            read_credentials(&expired),
+            None,
+            "an expired token is not a sign-in",
+        );
+    }
+
+    #[test]
+    fn goose_is_honest_that_it_cannot_check_a_sign_in() {
+        let goose = known_acp_runtime_exact("goose").expect("goose is in the catalog");
+        assert!(
+            !auth_is_checkable(goose),
+            "goose keeps its keys in the keychain: say so, do not imply a check",
+        );
+        for id in ["codex", "claude", "kimi", "grok"] {
+            let runtime = known_acp_runtime_exact(id).expect("runtime is in the catalog");
+            assert!(
+                auth_is_checkable(runtime),
+                "{id} has either a login-status command or a credential file",
+            );
+        }
     }
 
     #[test]

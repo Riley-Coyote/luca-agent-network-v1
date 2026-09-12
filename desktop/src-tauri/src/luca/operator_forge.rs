@@ -387,6 +387,23 @@ fn managed_option(
                 .clone()
                 .or(Some("Sign in to continue.".into())),
         ),
+        // The owner has this runtime; only Luca's bridge to it is missing, and
+        // the app installs that itself. Calling it "unavailable" would bury a
+        // runtime they already have behind the "show other options" toggle —
+        // the same disappearing act WP-SETUP1 exists to end.
+        Some(entry)
+            if matches!(
+                entry.availability,
+                AcpAvailabilityStatus::AdapterMissing | AcpAvailabilityStatus::AdapterOutdated
+            ) && entry.underlying_cli_path.is_some()
+                && entry.can_auto_install
+                && !entry.node_required =>
+        {
+            (
+                RuntimeReadinessV1::SetupRequired,
+                Some("Luca needs a moment to finish setting this up.".into()),
+            )
+        }
         Some(entry) => (
             RuntimeReadinessV1::Unavailable,
             Some(entry.install_hint.clone()),
@@ -577,6 +594,63 @@ pub async fn list_native_provisioning_transactions(
 
 #[cfg(test)]
 mod tests {
+
+    /// Not a unit test — what this machine would actually offer the owner.
+    /// `cargo test --lib -- --ignored --nocapture runtime_options_on_this_machine`
+    /// Measured on a real machine: with `claude` present at
+    /// `~/.local/bin/claude` and no adapter beside it, this used to return
+    /// `Unavailable` + "Install the Claude Code ACP adapter via npm.", which
+    /// hides a runtime the owner already has behind the "show other options"
+    /// toggle. It must be a runtime that is setting itself up instead.
+    #[test]
+    fn a_runtime_you_have_with_no_bridge_is_setting_itself_up_not_unavailable() {
+        let entry = crate::managed_agents::AcpRuntimeCatalogEntry {
+            id: "claude".into(),
+            label: "Claude Code".into(),
+            avatar_url: String::new(),
+            availability: AcpAvailabilityStatus::AdapterMissing,
+            command: None,
+            binary_path: None,
+            default_args: Vec::new(),
+            mcp_command: None,
+            artifact_mcp_support: crate::managed_agents::ArtifactMcpSupport::Supported,
+            model_env_var: None,
+            provider_env_var: None,
+            thinking_env_var: None,
+            install_hint: "Install the Claude Code ACP adapter via npm.".into(),
+            install_instructions_url: String::new(),
+            can_auto_install: true,
+            underlying_cli_path: Some("/Users/rileycoyote/.local/bin/claude".into()),
+            node_required: false,
+            auth_status: AuthStatus::Unknown,
+            login_hint: None,
+            signed_in_as: None,
+            auth_checkable: true,
+        };
+        let option = managed_option("claude", "Claude Code", std::slice::from_ref(&entry));
+        assert_eq!(option.readiness, RuntimeReadinessV1::SetupRequired);
+        assert_eq!(
+            option.reason.as_deref(),
+            Some("Luca needs a moment to finish setting this up.")
+        );
+        assert!(
+            !option.reason.as_deref().unwrap_or_default().contains("npm"),
+            "the owner never sees npm vocabulary",
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn runtime_options_on_this_machine() {
+        for option in super::runtime_options() {
+            println!(
+                "{:<14} readiness={:<15} reason={:?}",
+                option.label,
+                format!("{:?}", option.readiness),
+                option.reason
+            );
+        }
+    }
     use super::*;
 
     #[test]

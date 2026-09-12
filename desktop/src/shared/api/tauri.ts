@@ -268,6 +268,7 @@ export type RawAcpRuntimeCatalogEntry = {
   auth_status: AuthStatus;
   login_hint?: string;
   signed_in_as?: string;
+  auth_checkable?: boolean;
 };
 
 export type RawInstallStepResult = {
@@ -883,6 +884,7 @@ function fromRawAcpRuntimeCatalogEntry(
     authStatus: entry.auth_status,
     loginHint: entry.login_hint ?? null,
     signedInAs: entry.signed_in_as ?? null,
+    authCheckable: entry.auth_checkable ?? true,
   };
 }
 

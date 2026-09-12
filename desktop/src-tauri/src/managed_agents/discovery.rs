@@ -234,7 +234,9 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         cli_version_args: &["--version"],
         min_cli_version: None,
         min_cli_version_source: None,
-        auth_files: &[],
+        // Real shape, read off a machine that has it: an OAuth document with
+        // `access_token` and `expires_at`.
+        auth_files: &["~/.kimi-code/credentials/kimi-code.json"],
     },
     KnownAcpRuntime {
         id: "grok",
@@ -271,7 +273,8 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         cli_version_args: &["--version"],
         min_cli_version: None,
         min_cli_version_source: None,
-        auth_files: &[],
+        // Real shape: one entry per issuer, keyed `https://auth.x.ai::<id>`.
+        auth_files: &["~/.grok/auth.json"],
     },
     KnownAcpRuntime {
         id: "buzz-agent",
@@ -1468,6 +1471,10 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                     auth_status: AuthStatus::Unknown,
                     login_hint: None,
                     signed_in_as: None,
+                    // Provisional: a runtime with a credential file is only
+                    // truly checkable if that file turns out to say something.
+                    // Corrected below once the file has actually been read.
+                    auth_checkable: runtime_cli::auth_is_checkable(runtime),
                 },
             }
         })
@@ -1535,6 +1542,15 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 partial.runtime.login_hint.map(str::to_string)
             };
         partial.entry.auth_status = status;
+    }
+
+    // A runtime is only "checkable" if something real answered: a login-status
+    // command exists, or its credential file actually showed a live sign-in.
+    // Kimi Code on a real machine has a credential file holding an *expired*
+    // token — we must not claim we verified anything there.
+    for (idx, partial) in partials.iter_mut().enumerate() {
+        partial.entry.auth_checkable =
+            partial.runtime.auth_probe_args.is_some() || auth_from_file[idx];
     }
 
     // Fill NotApplicable / Unknown for non-probed entries. Entries already

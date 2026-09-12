@@ -549,8 +549,7 @@ pub(crate) fn process_belongs_to_us(_pid: u32) -> bool {
 /// build's agents, and vice versa). This is what lets two Buzzs coexist on
 /// one machine without one's cleanup nuking the other's agents.
 pub(crate) fn current_instance_id(app: &AppHandle) -> String {
-    bundle_identifier_from_running_bundle()
-        .unwrap_or_else(|| app.config().identifier.clone())
+    bundle_identifier_from_running_bundle().unwrap_or_else(|| app.config().identifier.clone())
 }
 
 /// The `CFBundleIdentifier` of the `.app` we are actually running from.
@@ -1369,8 +1368,7 @@ pub(crate) fn agent_has_live_foreign_owner(_pid: u32) -> bool {
 #[cfg(target_os = "macos")]
 fn pid_is_desktop_binary(pid: u32) -> bool {
     extern "C" {
-        fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32)
-            -> libc::c_int;
+        fn proc_name(pid: libc::c_int, buffer: *mut libc::c_void, buffersize: u32) -> libc::c_int;
     }
     let mut name_buf = [0u8; 1024];
     let len = unsafe {
@@ -2457,6 +2455,7 @@ fn spawn_agent_child_unix(
             .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)),
         login_shell_path(),
         nvm_bin,
+        crate::managed_agents::discovery::runtime_shim_dir().filter(|dir| dir.is_dir()),
     );
 
     let owner_pubkey = luca_protocol::Hex64::parse(

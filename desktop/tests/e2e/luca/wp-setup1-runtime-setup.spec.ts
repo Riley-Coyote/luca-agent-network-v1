@@ -188,3 +188,192 @@ test("nothing required lives below the fold at the smallest window", async ({
     path: `${SHOT_DIR}/03-above-the-fold-800x500.png`,
   });
 });
+
+/**
+ * The rows below are transcribed verbatim from the live discovery diagnostic
+ * on Riley's main Mac
+ * (`cargo test --lib -- --ignored --nocapture every_runtime_on_this_machine`
+ * and `runtime_options_on_this_machine`) — same paths, same versions, same
+ * availability, same auth. The mock bridge is only the rendering path: real
+ * discovery needs the installed Dev app, which this package must not touch.
+ */
+const THIS_MAC_RUNTIMES = [
+  {
+    ...baseRuntime,
+    availability: "available",
+    can_auto_install: false,
+    underlying_cli_path: "/Applications/ChatGPT.app/Contents/Resources/codex",
+    binary_path: "~/Library/Application Support/Buzz/node-tools/bin/codex-acp",
+    auth_status: { status: "logged_in" },
+    signed_in_as: "ChatGPT",
+    auth_checkable: true,
+  },
+  {
+    ...baseRuntime,
+    id: "claude",
+    label: "Claude Code",
+    command: "claude-agent-acp",
+    availability: "available",
+    can_auto_install: false,
+    underlying_cli_path: "/Users/rileycoyote/.local/bin/claude",
+    binary_path:
+      "~/Library/Application Support/Buzz/node-tools/bin/claude-agent-acp",
+    auth_status: { status: "logged_in" },
+    auth_checkable: true,
+  },
+  {
+    ...baseRuntime,
+    id: "kimi",
+    label: "Kimi Code",
+    command: "kimi",
+    availability: "available",
+    can_auto_install: false,
+    underlying_cli_path: "/Users/rileycoyote/.local/bin/kimi",
+    binary_path: "/Users/rileycoyote/.kimi-code/bin/kimi",
+    auth_status: { status: "not_applicable" },
+    // Its credential file holds an expired token: Luca must not claim it checked.
+    auth_checkable: false,
+  },
+  {
+    ...baseRuntime,
+    id: "grok",
+    label: "Grok",
+    command: "grok",
+    availability: "available",
+    can_auto_install: false,
+    underlying_cli_path: "/Users/rileycoyote/.local/bin/grok",
+    binary_path: "/Users/rileycoyote/.grok/bin/grok",
+    auth_status: { status: "logged_in" },
+    auth_checkable: true,
+  },
+];
+
+const THIS_MAC_OPTIONS: RuntimeTargetOptionV1[] = [
+  {
+    target: { kind: "managed", runtimeId: "codex" },
+    label: "Codex",
+    readiness: "ready",
+    reason: null,
+    recommended: true,
+  },
+  {
+    target: { kind: "managed", runtimeId: "claude" },
+    label: "Claude Code",
+    readiness: "ready",
+    reason: null,
+    recommended: false,
+  },
+  {
+    target: { kind: "managed", runtimeId: "kimi" },
+    label: "Kimi Code",
+    readiness: "ready",
+    reason: null,
+    recommended: false,
+  },
+  {
+    target: { kind: "managed", runtimeId: "grok" },
+    label: "Grok",
+    readiness: "ready",
+    reason: null,
+    recommended: false,
+  },
+  {
+    target: { kind: "native", runtime: "hermes" },
+    label: "Hermes",
+    readiness: "ready",
+    reason: null,
+    recommended: false,
+  },
+  {
+    target: { kind: "native", runtime: "openclaw" },
+    label: "OpenClaw",
+    readiness: "unavailable",
+    reason: "OpenClaw returned an unreadable agent list.",
+    recommended: false,
+  },
+];
+
+test("every runtime on this Mac is on screen without touching the toggle", async ({
+  page,
+}) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: THIS_MAC_RUNTIMES,
+      operatorForgeRuntimeOptionsSequence: [THIS_MAC_OPTIONS],
+      nativeResidentDiscovery: { runtimes: [] },
+    },
+    clean,
+  );
+  await reachRuntimeStep(page);
+
+  for (const name of ["Codex", "Claude Code", "Kimi Code", "Grok", "Hermes"]) {
+    await expect(
+      page.getByRole("radio", { name: new RegExp(name) }),
+    ).toBeVisible();
+  }
+  // The one runtime that is genuinely not usable stays behind the toggle.
+  await expect(page.getByRole("radio", { name: /OpenClaw/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Show other options" }),
+  ).toBeVisible();
+  // Honest about what it could not check.
+  await expect(page.getByText("Signed in with ChatGPT")).toBeVisible();
+  await expect(
+    page.getByText("Luca can’t tell if you’re signed in"),
+  ).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: `${SHOT_DIR}/04-this-mac-real-discovery.png` });
+});
+
+test("a runtime you have with no bridge is never buried behind the toggle", async ({
+  page,
+}) => {
+  // The real state measured with a throwaway HOME: claude and codex present,
+  // no adapter for either.
+  const noAdapter = THIS_MAC_RUNTIMES.slice(0, 2).map((runtime) => ({
+    ...runtime,
+    availability: "adapter_missing",
+    can_auto_install: true,
+    binary_path: null,
+    auth_status: { status: "unknown" },
+  }));
+  const settingUp: RuntimeTargetOptionV1[] = [
+    {
+      ...THIS_MAC_OPTIONS[0],
+      readiness: "setup_required",
+      reason: "Luca needs a moment to finish setting this up.",
+    },
+    {
+      ...THIS_MAC_OPTIONS[1],
+      readiness: "setup_required",
+      reason: "Luca needs a moment to finish setting this up.",
+    },
+    THIS_MAC_OPTIONS[5],
+  ];
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: noAdapter,
+      acpRuntimesCatalogAfterInstall: THIS_MAC_RUNTIMES.slice(0, 2),
+      installAcpRuntimeDelayMs: 1500,
+      operatorForgeRuntimeOptionsSequence: [settingUp],
+      nativeResidentDiscovery: { runtimes: [] },
+    },
+    clean,
+  );
+  await reachRuntimeStep(page);
+
+  // Both are on screen straight away — no toggle, no npm sentence.
+  await expect(page.getByRole("radio", { name: /Codex/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Claude Code/ })).toBeVisible();
+  await expect(page.getByText(/via npm/)).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Install", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("runtime-silent-setup")).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: `${SHOT_DIR}/05-installed-runtime-no-bridge.png`,
+  });
+});

@@ -704,6 +704,12 @@ export type AcpRuntimeCatalogEntry = {
    * runtime's own credential file. Present means: do not show a sign-in step.
    */
   signedInAs: string | null;
+  /**
+   * False when Luca cannot check this runtime's sign-in at all — no
+   * login-status command, no readable credential file. Say so; do not imply a
+   * check that never happened.
+   */
+  authCheckable: boolean;
 };
 
 /** An AcpRuntimeCatalogEntry that is confirmed available — command and binaryPath are non-null. */

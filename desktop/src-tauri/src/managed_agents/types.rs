@@ -627,6 +627,11 @@ pub struct AcpRuntimeCatalogEntry {
     /// someone who is already signed in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signed_in_as: Option<String>,
+    /// False when Luca has no way to check this runtime's sign-in — no
+    /// login-status command and no readable credential file (Goose keeps its
+    /// keys in the system keychain). The step says so rather than implying a
+    /// check happened.
+    pub auth_checkable: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
