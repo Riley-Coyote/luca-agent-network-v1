@@ -188,13 +188,13 @@
    reminder and the highlight fade) — so glass retunes the tokens instead of
    overriding the element. The bubble turns to held glass AND keeps every
    interaction state; an element-level override here would freeze them. */
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+  [data-luca-glass-fallback]
+) {
+  --mn-plate-strong: rgb(255 255 255 / 0.075);
+  --mn-plate-strong-hover: rgb(255 255 255 / 0.11);
+}
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-    [data-luca-glass-fallback]
-  ) {
-    --mn-plate-strong: rgb(255 255 255 / 0.075);
-    --mn-plate-strong-hover: rgb(255 255 255 / 0.11);
-  }
   :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
     [data-luca-glass-fallback]
   ) {
@@ -206,28 +206,50 @@
 /* The conversation card already carries the dark weather. Blur the content
    passing under its header and footer without painting another band. Held
    things use one light tint over the card instead of stacking black. */
-@media not (prefers-reduced-transparency: reduce) {
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+    [data-luca-glass-fallback]
+  )
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  background: transparent;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+    [data-luca-glass-fallback]
+  )
+  [data-testid="message-composer"] {
+  background: rgb(255 255 255 / 0.075);
+}
+@media (prefers-reduced-transparency: reduce) {
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
       [data-luca-glass-fallback]
     )
     .luca-conversation-veil-top {
-    background: transparent;
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
+    background: linear-gradient(
+      to bottom,
+      hsl(var(--background)) calc(100% - 1rem),
+      hsl(var(--background) / 0)
+    );
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
       [data-luca-glass-fallback]
     )
     .luca-conversation-veil-bottom {
-    background: transparent;
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
+    background: linear-gradient(
+      to top,
+      hsl(var(--background)) calc(100% - 3rem),
+      hsl(var(--background) / 0)
+    );
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
-    [data-testid="message-composer"] {
-    background: rgb(255 255 255 / 0.075);
+    [data-luca-glass-fallback]
+  ) {
+    --mn-plate-strong: hsl(var(--mn-raised));
+    --mn-plate-strong-hover: hsl(var(--mn-raised));
   }
 }
 /* Native palettes keep the real composer border transparent; the shared
