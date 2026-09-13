@@ -898,7 +898,7 @@ async fn create_session_and_apply_model(
             )
         })
         .unwrap_or_default();
-    let combined_system_prompt = if matches!(source, PromptSource::Continuity(_)) {
+    let mut combined_system_prompt = if matches!(source, PromptSource::Continuity(_)) {
         Some(CONTINUITY_COGNITION_SYSTEM_PROMPT.to_owned())
     } else {
         with_communications(
@@ -919,6 +919,27 @@ async fn create_session_and_apply_model(
             session_context.communications_turn.is_some(),
         )
     };
+
+    if !matches!(source, PromptSource::Continuity(_))
+        && crate::browser_isolation::enabled()
+        && crate::browser_isolation::supported_runtime(&agent.agent_name)
+    {
+        let guidance = if ctx
+            .mcp_servers
+            .iter()
+            .any(crate::browser_isolation::is_designated_server)
+        {
+            crate::browser_isolation::PROMPT
+        } else {
+            crate::browser_isolation::UNAVAILABLE_PROMPT
+        };
+        if let Some(prompt) = &mut combined_system_prompt {
+            prompt.push_str("\n\n");
+            prompt.push_str(guidance);
+        } else {
+            combined_system_prompt = Some(guidance.to_owned());
+        }
+    }
 
     let session_meta = openclaw_session_meta(ctx, source)?;
     let session_meta = if matches!(source, PromptSource::Continuity(_)) {

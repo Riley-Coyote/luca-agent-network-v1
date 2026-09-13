@@ -2976,6 +2976,13 @@ fn spawn_agent_child_unix(
             }
         }
     }
+    // Scope the beta browser policy to app-managed ACP launches. Imported native
+    // profiles keep their own browser configuration and lifecycle.
+    if native_runtime.is_none() {
+        command.env("LUCA_PLAYWRIGHT_ISOLATED", "1");
+    } else {
+        command.env_remove("LUCA_PLAYWRIGHT_ISOLATED");
+    }
     configure_runtime_cli(&mut command, runtime_meta);
 
     // Buzz shared compute is stored as a native provider; derive the OpenAI-compatible

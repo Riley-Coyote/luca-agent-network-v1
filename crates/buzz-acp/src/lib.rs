@@ -3,6 +3,7 @@
 mod acp;
 mod artifact_mcp;
 mod assay_runner;
+mod browser_isolation;
 mod communications_mcp;
 mod config;
 pub mod continuity_provider;
@@ -4853,10 +4854,16 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
 
 fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
     if config.identity.is_managed() {
-        return managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
+        let mut servers = managed_mcp_provider::read_inherited_servers().unwrap_or_else(|error| {
             tracing::warn!(target: "luca::mcp", code = error.code(), "managed MCP connections unavailable; continuing without tools");
             vec![]
         });
+        if let Some(browser) = browser_isolation::designated_server(&config.agent_command) {
+            if !servers.iter().any(|server| server.name == browser.name) {
+                servers.push(browser);
+            }
+        }
+        return servers;
     }
     if config.mcp_command.is_empty() {
         return vec![];
