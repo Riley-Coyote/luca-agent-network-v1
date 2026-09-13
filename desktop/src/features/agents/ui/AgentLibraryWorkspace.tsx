@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
+import { ResidentPlaceSection } from "@/features/agents/place/ResidentPlaceSection";
 import {
   useManagedAgentLogQuery,
   useSetManagedAgentAutoRestartMutation,
@@ -45,11 +46,15 @@ import { ResidentModelMenu } from "./ResidentModelMenu";
 
 /**
  * A resident's own page: a status strip (who, how they are, what runs them,
- * the controls), then Documents · Notebook · Settings. Documents is the
- * agent folder and the default; Notebook is their memory as it reads;
+ * the controls), then Place · Documents · Notebook · Settings. Place is the
+ * authored introduction; Documents is the agent folder; Notebook is saved context;
  * Settings is the machinery.
  */
-export type AgentLibrarySection = "documents" | "notebook" | "settings";
+export type AgentLibrarySection =
+  | "place"
+  | "documents"
+  | "notebook"
+  | "settings";
 
 export function AgentLibraryWorkspace({
   actionErrorMessage,
@@ -244,7 +249,16 @@ export function AgentLibraryWorkspace({
           </div>
         </div>
 
-        <nav aria-label="Agent workspace" className="mt-5 flex gap-6">
+        <nav
+          aria-label="Agent workspace"
+          className="mt-5 flex flex-wrap gap-x-6 gap-y-2"
+        >
+          <WorkspaceTab
+            active={section === "place"}
+            label="Place"
+            onClick={() => onSectionChange("place")}
+            testId="agent-tab-place"
+          />
           <WorkspaceTab
             active={section === "documents"}
             label="Documents"
@@ -291,7 +305,13 @@ export function AgentLibraryWorkspace({
               {actionNoticeMessage}
             </div>
           ) : null}
-          {section === "documents" ? (
+          {section === "place" && managedAgent ? (
+            <ResidentPlaceSection
+              residentPubkey={managedAgent.pubkey}
+              residentName={resident.displayName}
+            />
+          ) : null}
+          {section === "documents" || (section === "place" && !managedAgent) ? (
             managedAgent ? (
               <ResidentDocumentsSection
                 agent={managedAgent}

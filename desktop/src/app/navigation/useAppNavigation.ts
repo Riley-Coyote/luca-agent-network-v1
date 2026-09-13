@@ -112,8 +112,8 @@ export function useAppNavigation() {
     (
       pubkey: string,
       options?: NavigationBehavior & {
-        /** `documents` is the page's default; `overview` is the legacy alias for it. */
-        section?: "documents" | "overview" | "notebook" | "settings";
+        /** `place` is the default; `overview` remains the legacy documents alias. */
+        section?: "place" | "documents" | "overview" | "notebook" | "settings";
       },
     ) =>
       commitNavigation(
@@ -121,10 +121,13 @@ export function useAppNavigation() {
           to: "/agents",
           search: {
             profile: pubkey,
-            ...(options?.section &&
-            options.section !== "overview" &&
-            options.section !== "documents"
-              ? { section: options.section }
+            ...(options?.section && options.section !== "place"
+              ? {
+                  section:
+                    options.section === "overview"
+                      ? "documents"
+                      : options.section,
+                }
               : {}),
           },
         },

@@ -24,13 +24,19 @@ function sectionFromSearch(
   value: string | null,
   legacyTab: string | null,
 ): AgentLibrarySection {
-  if (value === "notebook" || value === "settings") return value;
+  if (
+    value === "place" ||
+    value === "documents" ||
+    value === "notebook" ||
+    value === "settings"
+  )
+    return value;
+  if (value === "overview") return "documents";
   if (legacyTab === "continuity" || legacyTab === "memories") {
     return "notebook";
   }
   if (legacyTab === "runtime") return "settings";
-  // `documents` is the default and stays out of the URL; `overview` was its old name.
-  return "documents";
+  return "place";
 }
 
 function sectionFromBrowserLocation(): string | null {
@@ -62,7 +68,7 @@ export function AgentsScreen() {
         // A reload can leave the owner on a resident's deep-linked Notebook.
         // Re-selecting that same roster row must not discard the URL section.
         section: reselectingCurrentResident
-          ? section === "documents"
+          ? section === "place"
             ? null
             : section
           : null,
@@ -96,7 +102,7 @@ export function AgentsScreen() {
       applyPatch({
         profileTab: null,
         profileView: null,
-        section: next === "documents" ? null : next,
+        section: next === "place" ? null : next,
       });
     },
     [applyPatch],
