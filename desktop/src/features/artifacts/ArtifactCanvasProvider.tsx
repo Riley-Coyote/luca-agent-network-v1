@@ -75,6 +75,9 @@ export function ArtifactCanvasProvider({
   const closeTimer = React.useRef<number | null>(null);
   const nativeWindowOpen = React.useRef(false);
   const openRequest = React.useRef(0);
+  const pendingPresentation = React.useRef<ArtifactCanvasPresentation | null>(
+    null,
+  );
   const restoreFocus = React.useRef<HTMLElement | null>(null);
   const dismissedTurns = React.useRef(new Set<string>());
   const autoPresentedTurns = React.useRef(new Set<string>());
@@ -85,26 +88,44 @@ export function ArtifactCanvasProvider({
   const openArtifact = React.useCallback((next: ArtifactCanvasPresentation) => {
     if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
     const request = ++openRequest.current;
-    restoreFocus.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    if (
+      document.activeElement instanceof HTMLElement &&
+      !document.activeElement.closest('[data-testid="artifact-canvas"]')
+    ) {
+      restoreFocus.current = document.activeElement;
+    }
+    pendingPresentation.current = next;
     setPhase("opening");
     nativeWindowOpen.current = true;
     void seatCanvasWindow(true, 704)
-      .then((result) => setMode(result?.mode ?? browserMode()))
-      .catch(() => setMode(browserMode()))
+      .then((result) => {
+        if (request === openRequest.current) {
+          setMode(result?.mode ?? browserMode());
+        } else if (!nativeWindowOpen.current) {
+          // The native opening may finish after Escape closed its request.
+          void seatCanvasWindow(false).catch(() => undefined);
+        }
+      })
+      .catch(() => {
+        if (request === openRequest.current) setMode(browserMode());
+      })
       .finally(() => {
         if (request !== openRequest.current) return;
+        pendingPresentation.current = null;
         setPresentation(next);
-        requestAnimationFrame(() => setPhase("open"));
+        requestAnimationFrame(() => {
+          if (request === openRequest.current) setPhase("open");
+        });
       });
   }, []);
 
   const closeCanvas = React.useCallback(() => {
-    if (!presentation) return;
+    const current = pendingPresentation.current ?? presentation;
+    if (!current) return;
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
     ++openRequest.current;
-    if (presentation.turnId) dismissedTurns.current.add(presentation.turnId);
+    pendingPresentation.current = null;
+    if (current.turnId) dismissedTurns.current.add(current.turnId);
     setPhase("closing");
     const reduced = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -117,7 +138,7 @@ export function ArtifactCanvasProvider({
         void seatCanvasWindow(false).catch(() => undefined);
         if (restoreFocus.current?.isConnected) restoreFocus.current.focus();
       },
-      reduced ? 0 : TRANSITION_MS,
+      reduced || !presentation ? 0 : TRANSITION_MS,
     );
   }, [presentation]);
 
@@ -153,7 +174,11 @@ export function ArtifactCanvasProvider({
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented && presentation) {
+      if (
+        event.key === "Escape" &&
+        !event.defaultPrevented &&
+        (presentation || pendingPresentation.current)
+      ) {
         event.preventDefault();
         closeCanvas();
       }
