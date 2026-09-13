@@ -3316,7 +3316,9 @@ async fn run_prompt_task_inner(
         None => prompt_sections.iter().map(String::as_str).collect(),
     };
 
-    if matches!(
+    if matches!(source, PromptSource::Continuity(_)) && is_codex_acp_worker(&agent) {
+        agent.acp.begin_private_codex_final_message_capture();
+    } else if matches!(
         source,
         PromptSource::Channel(_) | PromptSource::Continuity(_)
     ) {

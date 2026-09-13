@@ -617,6 +617,8 @@ pub struct AcpClient {
     /// Managed final-message chunks for the one currently active prompt.
     /// This is populated only from public ACP `agent_message_chunk` updates.
     final_message_capture: Option<FinalChunkAccumulator>,
+    /// Private Codex continuity captures only explicitly typed final-answer chunks.
+    private_codex_final_only: bool,
     /// Exact provider commands advertised by the current ACP session.
     /// Values include their canonical `/` or `$` prefix.
     available_commands: std::collections::BTreeSet<String>,
@@ -1077,6 +1079,7 @@ impl AcpClient {
             steer_rx: None,
             goose_usage: UsageTracker::default(),
             final_message_capture: None,
+            private_codex_final_only: false,
             available_commands: std::collections::BTreeSet::new(),
             requested_protocol_version: requested_protocol_version(command),
             session_close_supported: false,
@@ -1524,6 +1527,13 @@ impl AcpClient {
     /// Start collecting public final-answer chunks for one managed turn.
     pub fn begin_final_message_capture(&mut self) {
         self.final_message_capture = Some(FinalChunkAccumulator::default());
+        self.private_codex_final_only = false;
+    }
+
+    /// Capture only Codex chunks explicitly marked as final answers for a private turn.
+    pub fn begin_private_codex_final_message_capture(&mut self) {
+        self.begin_final_message_capture();
+        self.private_codex_final_only = true;
     }
 
     /// Reject every permission request on a non-managed diagnostic client.
@@ -1563,6 +1573,7 @@ impl AcpClient {
         &mut self,
         completed_normally: bool,
     ) -> Option<Result<String, FinalPublicationError>> {
+        self.private_codex_final_only = false;
         self.final_message_capture
             .take()
             .map(|capture| capture.finish(!completed_normally))
@@ -1571,6 +1582,7 @@ impl AcpClient {
     /// Drop partial managed output on every non-EndTurn exit path.
     pub fn discard_final_message_capture(&mut self) {
         self.final_message_capture = None;
+        self.private_codex_final_only = false;
     }
 
     /// Returns `true` if no steer receiver is currently installed.
@@ -2293,6 +2305,11 @@ impl AcpClient {
             "agent_message_chunk" => {
                 if let Some(text) = update["content"]["text"].as_str() {
                     tracing::debug!(target: "acp::stream", bytes = text.len(), "public response chunk received");
+                    if self.private_codex_final_only
+                        && update["_meta"]["codex"]["phase"].as_str() != Some("final_answer")
+                    {
+                        return false;
+                    }
                     if let Some(capture) = self.final_message_capture.as_mut() {
                         if capture.push_agent_message_chunk(text).is_err() {
                             // Bounded accumulation fails closed: an oversized
@@ -5354,6 +5371,41 @@ esac"#,
                 .take_final_message_draft(false)
                 .expect("managed capture"),
             Err(FinalPublicationError::Cancelled)
+        );
+    }
+
+    #[tokio::test]
+    async fn private_codex_capture_accepts_only_typed_final_answer_chunks() {
+        let mut client = spawn_inert_client().await;
+        let chunk = |text: &str, phase: Option<&str>| {
+            let mut update = serde_json::json!({
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"text": text}
+            });
+            if let Some(phase) = phase {
+                update["_meta"] = serde_json::json!({"codex": {"phase": phase}});
+            }
+            serde_json::json!({"params": {"update": update}})
+        };
+        client.begin_private_codex_final_message_capture();
+        for update in [
+            chunk("runtime warning", None),
+            chunk("thinking", Some("commentary")),
+            chunk("{\"ok\":", Some("final_answer")),
+            chunk("true}", Some("final_answer")),
+        ] {
+            let _ = client.handle_session_update(&update);
+        }
+        assert_eq!(
+            client.take_final_message_draft(true).unwrap().unwrap(),
+            "{\"ok\":true}"
+        );
+
+        client.begin_final_message_capture();
+        let _ = client.handle_session_update(&chunk("untyped normal", None));
+        assert_eq!(
+            client.take_final_message_draft(true).unwrap().unwrap(),
+            "untyped normal"
         );
     }
 
