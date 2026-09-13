@@ -1613,6 +1613,13 @@ fn send_prompt_result(
         agent.acp.discard_final_message_capture();
         None
     };
+    if matches!(source, PromptSource::Continuity(_)) {
+        tracing::info!(
+            completed = matches!(outcome, PromptOutcome::Ok(StopReason::EndTurn)),
+            output_bytes = private_output.as_ref().map(String::len),
+            "private continuity capture completed"
+        );
+    }
     let _ = result_tx.send(PromptResult {
         agent,
         source,
