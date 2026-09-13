@@ -13,16 +13,21 @@ import {
   usePersonasQuery,
 } from "@/features/agents/hooks";
 import { useResidentHarnessLookup } from "@/features/agents/ResidentHarnessContext";
+import { useChannelAgentActivity } from "@/features/agents/activeAgentTurnsStore";
+import { useChannelWorkingAgentPubkeys } from "@/features/agents/agentWorkingSignal";
+import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import {
   useChannelMembersQuery,
   useEndResidentVisitMutation,
 } from "@/features/channels/hooks";
 import { ResidentDrawer } from "@/features/channels/ui/ResidentDrawer";
+import { residentDrawerPresentation } from "@/features/channels/ui/residentDrawerPresentation";
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { useRoomExchangeHistory } from "@/features/exchange/exchangeStore";
 import { ExchangeHistory } from "@/features/exchange/ui/ExchangeHistory";
 import { openVisitors } from "@/features/messages/lib/visitSpans";
 import { useManagedPresentationActivity } from "@/features/messages/managedPresentationHooks";
+import { useConversationActivityTraces } from "@/features/messages/activity/useActivityTrace";
 import type { ChannelAgentSessionAgent } from "@/features/channels/ui/useChannelAgentSessions";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import {
@@ -118,6 +123,10 @@ export function ConversationContextPanel({
   const personasQuery = usePersonasQuery();
   const { goAgent } = useAppNavigation();
   const managedActivity = useManagedPresentationActivity(channel.id);
+  const observerActivity = useChannelAgentActivity(channel.id);
+  const workingPubkeys = useChannelWorkingAgentPubkeys(channel.id);
+  const pendingPermissions = useManagedPermissions();
+  const activityTraces = useConversationActivityTraces(channel.id);
   const drawerResident = React.useMemo(() => {
     if (channel.channelType !== "dm") return null;
     const me = currentPubkey ? normalizePubkey(currentPubkey) : null;
@@ -185,14 +194,18 @@ export function ConversationContextPanel({
       : drawerView
         ? residentFor(drawerView)
         : drawerResident;
-  const activeResidentReplying =
-    activeResident !== null &&
-    [...managedActivity.values()].some(
-      (activity) =>
-        normalizePubkey(activity.residentPubkey) ===
-          normalizePubkey(activeResident.agent.pubkey) &&
-        !["stopped", "failed", "needs_attention"].includes(activity.phase),
-    );
+  const activeResidentPresentation = activeResident
+    ? residentDrawerPresentation({
+        conversationId: channel.id,
+        residentPubkey: activeResident.agent.pubkey,
+        runtimeStatus: activeResident.agent.status,
+        managed: { conversationId: channel.id, activity: managedActivity },
+        observer: { conversationId: channel.id, activity: observerActivity },
+        working: { conversationId: channel.id, pubkeys: workingPubkeys },
+        permissions: pendingPermissions,
+        traces: activityTraces,
+      })
+    : null;
   const drawerAgents = React.useMemo<ConversationDrawerAgent[]>(() => {
     const candidates =
       agentMembers.length > 0
@@ -285,7 +298,7 @@ export function ConversationContextPanel({
           onOpenConversation={() => setDrawerView(CONVERSATION_VIEW)}
         />
       </div>
-      {activeResident ? (
+      {activeResident && activeResidentPresentation ? (
         <AuxiliaryPanelBody className="overflow-y-auto px-4 pb-6">
           <ResidentDrawer
             agent={activeResident.agent}
@@ -293,7 +306,7 @@ export function ConversationContextPanel({
               goAgent(activeResident.agent.pubkey, { section })
             }
             persona={activeResident.persona}
-            replying={activeResidentReplying}
+            presentation={activeResidentPresentation}
           />
         </AuxiliaryPanelBody>
       ) : (

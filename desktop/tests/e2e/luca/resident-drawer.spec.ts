@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
 /**
  * The right drawer of a direct conversation with a resident is the resident:
@@ -25,21 +26,22 @@ test("a resident DM's drawer is the resident, and opens their page", async ({
     ],
     searchProfiles: [{ displayName: "alice", isAgent: true, pubkey: RESIDENT }],
   });
-  await page.goto("/?e2e=mock");
-  await page.getByTestId("channel-alice-tyler").click();
+  await page.goto("/?e2e=mock#/channels/f48efb06-0c93-5025-aac9-2e646bb6bfa8");
   await expect(page.getByTestId("chat-title")).toHaveText("alice-tyler");
   await page.getByRole("button", { name: "Open conversation details" }).click();
 
   const drawer = page.getByTestId("resident-drawer");
   await expect(drawer).toBeVisible();
   await expect(page.getByTestId("resident-drawer-state")).toContainText(
-    "Ready",
+    "Started",
   );
   await expect(page.getByTestId("resident-drawer-model-trigger")).toBeVisible();
   await expect(
     page.getByTestId("resident-drawer-runtime-metadata"),
   ).toHaveCount(0);
   await expect(page.getByTestId("resident-drawer-handoff")).toBeVisible();
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/shared-presence-drawer.png" });
 
   await page.getByTestId("resident-drawer-open-agent").click();
   await expect

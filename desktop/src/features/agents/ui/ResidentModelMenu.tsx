@@ -66,7 +66,7 @@ export function ResidentModelMenu({
   );
 
   const helper = replying
-    ? `Waiting for ${agent.name} to finish replying.`
+    ? `Waiting for ${agent.name} to finish this turn.`
     : model.status
       ? model.status
       : model.busy

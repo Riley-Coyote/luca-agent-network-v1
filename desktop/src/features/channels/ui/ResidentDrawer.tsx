@@ -12,8 +12,8 @@ import {
   getResidentContinuity,
   type ResidentContinuityInspector,
 } from "@/shared/api/tauriContinuity";
-import { cn } from "@/shared/lib/cn";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import type { ResidentDrawerPresentation } from "@/features/channels/ui/residentDrawerPresentation";
 
 /**
  * The right drawer of a direct conversation with a resident: the resident,
@@ -33,30 +33,18 @@ function firstLines(text: string, count: number): string {
   return lines.slice(0, count).join("\n");
 }
 
-function residentState(status: ManagedAgent["status"]) {
-  switch (status) {
-    case "running":
-    case "deployed":
-      return { label: "Ready", tone: "present" as const };
-    default:
-      return { label: "Idle", tone: "idle" as const };
-  }
-}
-
 export function ResidentDrawer({
   agent,
   persona,
   onOpenAgent,
-  replying = false,
+  presentation,
 }: {
   agent: ManagedAgent;
   persona: AgentPersona | null;
   onOpenAgent: (section: "documents" | "notebook" | "settings") => void;
-  /** Retained for callers that also coordinate turn-aware resident controls. */
-  replying?: boolean;
+  presentation: ResidentDrawerPresentation;
 }) {
   const model = useResidentModelChoice(agent);
-  const state = residentState(agent.status);
   const role =
     agent.personaId === CANONICAL_LUCA_PERSONA_ID
       ? LUCA_INTRO_ROLE
@@ -93,7 +81,7 @@ export function ResidentDrawer({
           accessibleName={agent.name}
           publicKey={agent.pubkey}
           size={48}
-          state={state.tone === "present" ? "present" : "idle"}
+          state={presentation.mark}
         />
         {/* The panel header already carries the name; the card leads with the
             mark, then who they are and how they are. */}
@@ -105,16 +93,7 @@ export function ResidentDrawer({
             className="mt-1 flex items-center gap-2 text-2xs text-muted-foreground"
             data-testid="resident-drawer-state"
           >
-            <span
-              aria-hidden
-              className={cn(
-                "inline-block size-1.5 rounded-full",
-                state.tone === "present"
-                  ? "bg-primary"
-                  : "bg-muted-foreground/40",
-              )}
-            />
-            <span className="text-ink-muted">{state.label}</span>
+            <span className="text-ink-muted">{presentation.label}</span>
             {model.runtimeLabel ? (
               <>
                 <span aria-hidden className="text-ink-ghost">
@@ -136,7 +115,7 @@ export function ResidentDrawer({
             existing resident commands already carry management authority. */}
         <ResidentModelMenu
           agent={agent}
-          replying={replying}
+          replying={presentation.replying}
           testId="resident-drawer-model-trigger"
         />
       </section>

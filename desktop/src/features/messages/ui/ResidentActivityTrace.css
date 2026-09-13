@@ -109,6 +109,23 @@
   margin-top: 0.25rem;
 }
 
+/* One quiet arrival of the retained record, only after this mounted dispatch
+   changes from live to terminal. Restored history receives no animation. */
+.resident-activity-trace[data-activity-settling="true"]
+.resident-activity-disclosure {
+  animation: resident-activity-settle 320ms ease-out both;
+}
+
+@keyframes resident-activity-settle {
+  from {
+    opacity: 0.48;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
 .resident-activity-summary {
   width: fit-content;
   max-width: 100%;
@@ -222,6 +239,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .resident-activity-trace[data-activity-settling="true"]
+    .resident-activity-disclosure {
+    animation: none;
+  }
+
   .resident-activity-stop,
   .resident-activity-summary {
     transition: none;

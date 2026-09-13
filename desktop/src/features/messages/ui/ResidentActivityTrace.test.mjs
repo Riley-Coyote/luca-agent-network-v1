@@ -4,7 +4,10 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { ResidentActivityTrace } from "./ResidentActivityTrace.tsx";
+import {
+  ResidentActivityTrace,
+  shouldSettleActivityTrace,
+} from "./ResidentActivityTrace.tsx";
 
 const startedAt = 1_800_000_000_000;
 const entry = (id, sequence, kind, text, roomText) => ({
@@ -197,4 +200,32 @@ test("a turn with no activity keeps a useful status and a stable narration slot"
     /data-activity-narration="true" aria-live="polite" aria-atomic="true"><\/div>/,
   );
   assert.match(html, /data-activity-stop="true"/);
+});
+
+test("only a mounted live dispatch gets the terminal settle", () => {
+  const live = trace({ status: "working", endedAt: null });
+  assert.equal(shouldSettleActivityTrace(null, trace()), false);
+  for (const status of ["completed", "cancelled", "failed", "interrupted"]) {
+    assert.equal(shouldSettleActivityTrace(live, trace({ status })), true);
+  }
+  assert.equal(shouldSettleActivityTrace(live, live), false);
+  assert.equal(
+    shouldSettleActivityTrace(
+      live,
+      trace({ dispatchReceiptId: "another-dispatch" }),
+    ),
+    false,
+  );
+  assert.equal(
+    shouldSettleActivityTrace(
+      live,
+      trace({ residentPubkey: "another-resident" }),
+    ),
+    false,
+  );
+  assert.equal(
+    shouldSettleActivityTrace(live, trace({ conversationId: "another-room" })),
+    false,
+  );
+  assert.doesNotMatch(render(), /data-activity-settling="true"/);
 });

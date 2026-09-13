@@ -58,6 +58,26 @@ function entryText(
   return privateConversation ? entry.text : entry.roomText;
 }
 
+type TraceTransition = Pick<
+  ActivityTrace,
+  "conversationId" | "residentPubkey" | "dispatchReceiptId" | "status"
+>;
+
+/** A restored terminal record has no transition to animate. */
+export function shouldSettleActivityTrace(
+  previous: TraceTransition | null,
+  next: TraceTransition,
+): boolean {
+  return (
+    previous !== null &&
+    previous.conversationId === next.conversationId &&
+    previous.residentPubkey === next.residentPubkey &&
+    previous.dispatchReceiptId === next.dispatchReceiptId &&
+    previous.status === "working" &&
+    next.status !== "working"
+  );
+}
+
 function useVisibleActivityClock(live: boolean) {
   const elementRef = React.useRef<HTMLDivElement>(null);
   const [inView, setInView] = React.useState(false);
@@ -122,6 +142,37 @@ export function ResidentActivityTrace({
 }: ResidentActivityTraceProps) {
   const live = trace.status === "working";
   const { animate, elementRef, now } = useVisibleActivityClock(live);
+  const {
+    conversationId,
+    residentPubkey,
+    dispatchReceiptId,
+    status: traceStatus,
+  } = trace;
+  const previousTrace = React.useRef<TraceTransition | null>(null);
+  const [settlingReceipt, setSettlingReceipt] = React.useState<string | null>(
+    null,
+  );
+  React.useLayoutEffect(() => {
+    const next: TraceTransition = {
+      conversationId,
+      residentPubkey,
+      dispatchReceiptId,
+      status: traceStatus,
+    };
+    const previous = previousTrace.current;
+    previousTrace.current = next;
+    if (!shouldSettleActivityTrace(previous, next)) {
+      setSettlingReceipt(null);
+      return;
+    }
+    setSettlingReceipt(dispatchReceiptId);
+    const timeout = window.setTimeout(() => {
+      setSettlingReceipt((current) =>
+        current === dispatchReceiptId ? null : current,
+      );
+    }, 320);
+    return () => window.clearTimeout(timeout);
+  }, [conversationId, residentPubkey, dispatchReceiptId, traceStatus]);
   const entries = React.useMemo(
     () =>
       trace.entries
@@ -158,6 +209,11 @@ export function ResidentActivityTrace({
       data-activity-trace={trace.dispatchReceiptId}
       data-activity-state={trace.status}
       data-activity-animating={animate ? "true" : "false"}
+      data-activity-settling={
+        !live && settlingReceipt === trace.dispatchReceiptId
+          ? "true"
+          : undefined
+      }
       ref={elementRef}
     >
       {live ? (
