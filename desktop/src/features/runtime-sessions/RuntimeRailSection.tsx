@@ -82,6 +82,7 @@ export function RuntimeRailSection({
             >
               <span className="flex size-5 shrink-0 items-center justify-center text-ink-muted group-data-[open=true]:text-foreground">
                 <HarnessLogo
+                  appearance="brand"
                   decorative
                   harness={harnessIdFromRuntimeId(runtime.runtimeId)}
                   size={14}
