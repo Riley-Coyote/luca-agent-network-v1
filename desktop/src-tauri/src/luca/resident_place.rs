@@ -77,7 +77,14 @@ struct AgentResidentPlaceUpdateInput {
     expected_revision: u64,
     introduction: String,
     exploration: String,
-    selected_work: Option<ResidentPlaceWork>,
+    selected_work: Option<AgentResidentPlaceWork>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AgentResidentPlaceWork {
+    artifact_id: String,
+    version: u64,
 }
 
 impl From<AgentResidentPlaceUpdateInput> for ResidentPlaceUpdateInput {
@@ -87,7 +94,10 @@ impl From<AgentResidentPlaceUpdateInput> for ResidentPlaceUpdateInput {
             content: ResidentPlaceContent {
                 introduction: value.introduction,
                 exploration: value.exploration,
-                selected_work: value.selected_work,
+                selected_work: value.selected_work.map(|work| ResidentPlaceWork {
+                    artifact_id: work.artifact_id,
+                    version: work.version,
+                }),
             },
         }
     }

@@ -148,12 +148,19 @@ fn agent_wire_payload_is_flat_snake_case_and_disabled_reads_fail_closed() {
         "expected_revision": 7,
         "introduction": "hello",
         "exploration": "testing",
-        "selected_work": null
+        "selected_work": { "artifact_id": "selected-work-1", "version": 3 }
     }))
     .unwrap();
     let owner_input: ResidentPlaceUpdateInput = parsed.into();
     assert_eq!(owner_input.expected_revision, 7);
     assert_eq!(owner_input.content.introduction, "hello");
+    assert_eq!(
+        owner_input.content.selected_work,
+        Some(ResidentPlaceWork {
+            artifact_id: "selected-work-1".into(),
+            version: 3,
+        })
+    );
     assert!(
         serde_json::from_value::<AgentResidentPlaceUpdateInput>(serde_json::json!({
             "expected_revision": 7,
