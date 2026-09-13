@@ -2429,29 +2429,55 @@ async fn retire_finished_sessions(result: &mut PromptResult) {
         )
         .await
         {
-            Ok(Ok(true)) => {}
+            Ok(Ok(true)) => {
+                if is_codex_acp_worker(&result.agent) {
+                    // This adapter's session/close unsubscribes the thread but
+                    // leaves Codex's process-scoped MCP hosts alive. EOF lets
+                    // the adapter stop its app-server before the bounded kill
+                    // fallback; the pool refills the vacated worker slot.
+                    shutdown_retired_worker(&mut result.agent).await;
+                    result.agent.state.invalidate_all();
+                    result.agent.state.retire_worker = true;
+                    break;
+                }
+            }
             Ok(Ok(false)) => {
                 tracing::warn!(target: "pool::session", "adapter lacks session/close; retiring worker");
-                result.agent.acp.shutdown().await;
+                shutdown_retired_worker(&mut result.agent).await;
                 result.agent.state.invalidate_all();
                 result.agent.state.retire_worker = true;
                 break;
             }
             Ok(Err(error)) => {
                 tracing::warn!(target: "pool::session", "session/close failed: {error}; retiring worker");
-                result.agent.acp.shutdown().await;
+                shutdown_retired_worker(&mut result.agent).await;
                 result.agent.state.invalidate_all();
                 result.agent.state.retire_worker = true;
                 break;
             }
             Err(_) => {
                 tracing::warn!(target: "pool::session", "session/close timed out; retiring worker");
-                result.agent.acp.shutdown().await;
+                shutdown_retired_worker(&mut result.agent).await;
                 result.agent.state.invalidate_all();
                 result.agent.state.retire_worker = true;
                 break;
             }
         }
+    }
+}
+
+fn is_codex_acp_worker(agent: &OwnedAgent) -> bool {
+    matches!(
+        agent.agent_name.as_str(),
+        "@agentclientprotocol/codex-acp" | "codex-acp"
+    )
+}
+
+async fn shutdown_retired_worker(agent: &mut OwnedAgent) {
+    if is_codex_acp_worker(agent) {
+        agent.acp.shutdown_after_session_close().await;
+    } else {
+        agent.acp.shutdown().await;
     }
 }
 
@@ -5890,6 +5916,78 @@ echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"close failed"}}'
             batch: None,
         };
         retire_finished_sessions(&mut result).await;
+        assert!(result.agent.state.retire_worker);
+        assert!(matches!(
+            result.outcome,
+            PromptOutcome::Ok(StopReason::EndTurn)
+        ));
+    }
+
+    #[tokio::test]
+    async fn successful_codex_scoped_close_retires_worker_after_completed_outcome() {
+        let script = r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -r CLOSE
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'
+read -r EOF_MARKER"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.agent_name = "@agentclientprotocol/codex-acp".into();
+        agent.acp.initialize().await.unwrap();
+        agent.state.retiring_sessions.push("private".into());
+        let mut result = PromptResult {
+            agent,
+            source: PromptSource::Continuity(Box::new(
+                luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism {
+                    request: cognition_request('3', 'b'),
+                },
+            )),
+            turn_id: "private-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            retire_finished_sessions(&mut result),
+        )
+        .await
+        .unwrap();
+        assert!(result.agent.state.retire_worker);
+        assert!(matches!(
+            result.outcome,
+            PromptOutcome::Ok(StopReason::EndTurn)
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_codex_scoped_close_still_retires_worker_after_completed_outcome() {
+        let script = r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -r CLOSE
+echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"close failed"}}'
+read -r EOF_MARKER"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.agent_name = "@agentclientprotocol/codex-acp".into();
+        agent.acp.initialize().await.unwrap();
+        agent.state.retiring_sessions.push("private".into());
+        let mut result = PromptResult {
+            agent,
+            source: PromptSource::Continuity(Box::new(
+                luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism {
+                    request: cognition_request('3', 'b'),
+                },
+            )),
+            turn_id: "private-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            retire_finished_sessions(&mut result),
+        )
+        .await
+        .unwrap();
         assert!(result.agent.state.retire_worker);
         assert!(matches!(
             result.outcome,

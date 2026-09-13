@@ -540,7 +540,7 @@ pub struct AcpClient {
     /// The agent child process (kept alive to prevent zombie).
     child: Child,
     /// Write end of the agent's stdin pipe.
-    stdin: ChildStdin,
+    stdin: Option<ChildStdin>,
     /// Framed reader over the agent's stdout pipe (line-oriented, bounded).
     /// Uses `LinesCodec::new_with_max_length` to enforce MAX_LINE_SIZE at the
     /// read level — prevents OOM from rogue agents writing infinite non-newline bytes.
@@ -861,6 +861,22 @@ impl AcpClient {
         }
     }
 
+    /// Let a Codex ACP adapter observe stdin EOF and stop its app-server and
+    /// MCP children before the process-group kill fallback. The installed
+    /// adapter performs that cleanup on EOF with its own two-second limit.
+    pub async fn shutdown_after_session_close(&mut self) {
+        // Tokio's pipe shutdown does not close the underlying write handle.
+        // Drop it so the adapter actually receives EOF.
+        if self.stdin.take().is_some() {
+            match tokio::time::timeout(std::time::Duration::from_secs(4), self.child.wait()).await {
+                Ok(Ok(_)) => return,
+                Ok(Err(error)) => tracing::warn!("graceful ACP worker wait failed: {error}"),
+                Err(_) => tracing::warn!("graceful ACP worker shutdown timed out"),
+            }
+        }
+        self.shutdown().await;
+    }
+
     /// Spawn the agent binary as a subprocess and connect to its stdio pipes.
     ///
     /// `has_generated_codex_config` must be true when `codex_network_env()` successfully
@@ -1030,7 +1046,7 @@ impl AcpClient {
 
         Ok(Self {
             child,
-            stdin,
+            stdin: Some(stdin),
             reader: FramedRead::new(stdout, LinesCodec::new_with_max_length(MAX_LINE_SIZE)),
             next_id: 0,
             pending_permission_id: None,
@@ -1683,10 +1699,16 @@ impl AcpClient {
     async fn write_ndjson(&mut self, value: &serde_json::Value) -> Result<(), AcpError> {
         const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
         let line = Zeroizing::new(serde_json::to_string(value)?);
+        let stdin = self.stdin.as_mut().ok_or_else(|| {
+            AcpError::Io(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "ACP worker stdin is closed",
+            ))
+        })?;
         tokio::time::timeout(WRITE_TIMEOUT, async {
-            self.stdin.write_all(line.as_bytes()).await?;
-            self.stdin.write_all(b"\n").await?;
-            self.stdin.flush().await?;
+            stdin.write_all(line.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await?;
             Ok::<(), std::io::Error>(())
         })
         .await
@@ -4275,6 +4297,14 @@ esac"#,
         supported.initialize().await.unwrap();
         assert!(supported.session_close("finished").await.unwrap());
         supported.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn graceful_worker_shutdown_delivers_stdin_eof() {
+        let mut client = spawn_script("cat >/dev/null").await;
+        client.shutdown_after_session_close().await;
+        let status = client.child.try_wait().unwrap().expect("worker was reaped");
+        assert!(status.success(), "worker should exit on EOF before SIGKILL");
     }
 
     #[tokio::test]

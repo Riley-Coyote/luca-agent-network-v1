@@ -155,12 +155,34 @@ fn with_strict_claude_mcp_config(
 /// required: Codex documents `-c mcp_servers.<name>.enabled=false`, while an
 /// empty `mcp_servers` map has no documented replacement meaning.
 pub fn codex_disabled_mcp_overlay(native_mcp_server_names: &[String]) -> Option<Value> {
+    codex_disabled_tool_overlay(native_mcp_server_names, &[])
+}
+
+/// Make a process-local disable overlay from the effective native config.
+/// Plugin-provided MCP names must remain under `plugins`: treating them as
+/// `mcp_servers` would create invalid transport stubs in Codex app-server.
+pub fn codex_disabled_tool_overlay(
+    native_mcp_server_names: &[String],
+    native_plugin_names: &[String],
+) -> Option<Value> {
     let servers = native_mcp_server_names
         .iter()
         .filter(|name| !name.is_empty())
         .map(|name| (name.clone(), serde_json::json!({ "enabled": false })))
         .collect::<Map<_, _>>();
-    (!servers.is_empty()).then(|| serde_json::json!({ "mcp_servers": servers }))
+    let plugins = native_plugin_names
+        .iter()
+        .filter(|name| !name.is_empty())
+        .map(|name| (name.clone(), serde_json::json!({ "enabled": false })))
+        .collect::<Map<_, _>>();
+    let mut overlay = Map::new();
+    if !servers.is_empty() {
+        overlay.insert("mcp_servers".to_owned(), Value::Object(servers));
+    }
+    if !plugins.is_empty() {
+        overlay.insert("plugins".to_owned(), Value::Object(plugins));
+    }
+    (!overlay.is_empty()).then(|| Value::Object(overlay))
 }
 
 #[cfg(test)]
@@ -264,5 +286,22 @@ mod tests {
     fn codex_never_emits_an_undocumented_empty_mcp_servers_map() {
         assert_eq!(codex_disabled_mcp_overlay(&[]), None);
         assert_eq!(codex_disabled_mcp_overlay(&[String::new()]), None);
+    }
+
+    #[test]
+    fn plugin_derived_mcp_names_are_disabled_as_plugins_not_transport_stubs() {
+        let overlay = codex_disabled_tool_overlay(
+            &["playwright".to_owned()],
+            &["circleback@claude-plugins-official".to_owned()],
+        );
+        assert_eq!(
+            overlay,
+            Some(json!({
+                "mcp_servers": { "playwright": { "enabled": false } },
+                "plugins": {
+                    "circleback@claude-plugins-official": { "enabled": false }
+                }
+            }))
+        );
     }
 }

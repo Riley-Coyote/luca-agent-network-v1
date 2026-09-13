@@ -54,6 +54,7 @@ use pool::{
 };
 use queue::{CancelReason, EventQueue, FlushBatch, QueuedEvent, ThreadTags};
 use relay::{HarnessRelay, RelayEventPublisher};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -4030,8 +4031,8 @@ async fn run_isolated_codex_continuity_task(
     turn_id: String,
     spawn: CodexContinuitySpawnSpec,
 ) {
-    let names = match discover_codex_mcp_server_names(&spawn).await {
-        Ok(names) => names,
+    let native_tools = match discover_codex_native_tools(&spawn).await {
+        Ok(tools) => tools,
         Err(error) => {
             send_original_continuity_agent(
                 result_tx,
@@ -4044,7 +4045,8 @@ async fn run_isolated_codex_continuity_task(
         }
     };
     tracing::info!(
-        mcp_server_count = names.len(),
+        mcp_server_count = native_tools.mcp_servers.len(),
+        plugin_count = native_tools.plugins.len(),
         "starting isolated Codex continuity"
     );
     let policy = match continuity_runtime_policy::private_continuity_runtime_policy(
@@ -4053,7 +4055,7 @@ async fn run_isolated_codex_continuity_task(
             version: "installed",
         },
         None,
-        &names,
+        &native_tools.mcp_servers,
     ) {
         Ok(policy) => policy,
         Err(error) => {
@@ -4067,9 +4069,12 @@ async fn run_isolated_codex_continuity_task(
             return;
         }
     };
-    let overlay = policy
-        .codex_config_overlay
-        .unwrap_or_else(|| serde_json::json!({}));
+    let overlay = continuity_runtime_policy::codex_disabled_tool_overlay(
+        &native_tools.mcp_servers,
+        &native_tools.plugins,
+    )
+    .or(policy.codex_config_overlay)
+    .unwrap_or_else(|| serde_json::json!({}));
     let temporary_agent =
         match spawn_isolated_codex_continuity_agent(&spawn, &original_agent, &overlay).await {
             Ok(agent) => agent,
@@ -4111,7 +4116,8 @@ async fn run_isolated_codex_continuity_task(
     };
     temporary_result.agent.acp.shutdown().await;
     tracing::info!(
-        mcp_server_count = names.len(),
+        mcp_server_count = native_tools.mcp_servers.len(),
+        plugin_count = native_tools.plugins.len(),
         "completed isolated Codex continuity"
     );
     let _ = result_tx.send(PromptResult {
@@ -4179,9 +4185,14 @@ async fn spawn_isolated_codex_continuity_agent(
     })
 }
 
-async fn discover_codex_mcp_server_names(
+struct CodexNativeTools {
+    mcp_servers: Vec<String>,
+    plugins: Vec<String>,
+}
+
+async fn discover_codex_native_tools(
     spawn: &CodexContinuitySpawnSpec,
-) -> Result<Vec<String>, String> {
+) -> Result<CodexNativeTools, String> {
     if !spawn.has_generated_codex_config {
         return Err(
             "isolated Codex continuity requires the generated CODEX_CONFIG merge path".into(),
@@ -4195,21 +4206,25 @@ async fn discover_codex_mcp_server_names(
     )
     .map_err(|error| format!("Codex continuity configuration is invalid: {error}"))?
     .ok_or_else(|| "Codex continuity has no effective generated configuration".to_owned())?;
-    let configured_names = serde_json::from_str::<serde_json::Value>(&config)
-        .map_err(|_| "Codex continuity configuration cannot be parsed".to_owned())?
-        .pointer("/mcp_servers")
-        .and_then(serde_json::Value::as_object)
-        .map(|servers| servers.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-
+    let generated = serde_json::from_str::<serde_json::Value>(&config)
+        .map_err(|_| "Codex continuity configuration cannot be parsed".to_owned())?;
+    let names_for = |value: &serde_json::Value, key: &str| {
+        value
+            .get(key)
+            .and_then(serde_json::Value::as_object)
+            .map(|entries| entries.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    let generated_mcp_servers = names_for(&generated, "mcp_servers");
+    let generated_plugins = names_for(&generated, "plugins");
     use std::process::Stdio;
-    use tokio::io::AsyncReadExt;
+    use tokio::io::BufReader;
     let mut command = tokio::process::Command::new(&spawn.command);
     command
         .args(&spawn.args)
-        .args(["cli", "mcp", "list", "--json"])
+        .args(["cli", "app-server"])
         .current_dir(&spawn.cwd)
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .kill_on_drop(true)
@@ -4228,28 +4243,43 @@ async fn discover_codex_mcp_server_names(
         .spawn()
         .map_err(|error| format!("Codex MCP discovery failed: {error}"))?;
     let pid = child.id();
-    const MAX_DISCOVERY_OUTPUT_BYTES: u64 = 1024 * 1024;
+    const MAX_DISCOVERY_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
     let result = tokio::time::timeout(Duration::from_secs(10), async {
-        let mut output = Vec::new();
-        let bytes = {
-            let stdout = child
-                .stdout
-                .take()
-                .ok_or_else(|| "Codex MCP discovery has no stdout".to_owned())?;
-            let mut limited = stdout.take(MAX_DISCOVERY_OUTPUT_BYTES + 1);
-            limited
-                .read_to_end(&mut output)
-                .await
-                .map_err(|error| format!("Codex MCP discovery read failed: {error}"))?
-        };
-        if bytes > MAX_DISCOVERY_OUTPUT_BYTES as usize {
-            return Err("Codex MCP discovery output exceeded limit".to_owned());
-        }
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "Codex config discovery has no stdin".to_owned())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Codex config discovery has no stdout".to_owned())?;
+        let mut reader = BufReader::new(stdout);
+        write_app_server_request(
+            &mut stdin,
+            1,
+            "initialize",
+            serde_json::json!({
+                "clientInfo": { "name": "luca-continuity", "title": "Luca", "version": "1" },
+                "capabilities": null,
+            }),
+        )
+        .await?;
+        let mut remaining = MAX_DISCOVERY_OUTPUT_BYTES;
+        read_app_server_response(&mut reader, 1, &mut remaining).await?;
+        write_app_server_request(
+            &mut stdin,
+            2,
+            "config/read",
+            serde_json::json!({ "includeLayers": false, "cwd": spawn.cwd }),
+        )
+        .await?;
+        let config_read = read_app_server_response(&mut reader, 2, &mut remaining).await?;
+        drop(stdin);
         let status = child
             .wait()
             .await
-            .map_err(|error| format!("Codex MCP discovery wait failed: {error}"))?;
-        Ok((status, output))
+            .map_err(|error| format!("Codex config discovery wait failed: {error}"))?;
+        Ok((status, config_read))
     })
     .await;
     let (status, output) = match result {
@@ -4276,21 +4306,75 @@ async fn discover_codex_mcp_server_names(
         }
     };
     if !status.success() {
-        return Err("Codex MCP discovery exited unsuccessfully".into());
+        return Err("Codex config discovery exited unsuccessfully".into());
     }
-    let entries: Vec<serde_json::Value> = serde_json::from_slice(&output)
-        .map_err(|_| "Codex MCP discovery returned invalid JSON".to_owned())?;
-    let mut names = configured_names;
-    names.extend(
-        entries
-            .iter()
-            .filter_map(|entry| entry.get("name").and_then(serde_json::Value::as_str))
-            .filter(|name| !name.is_empty())
-            .map(str::to_owned),
-    );
-    names.sort();
-    names.dedup();
-    Ok(names)
+    let config = output
+        .pointer("/config")
+        .ok_or_else(|| "Codex config discovery returned no config".to_owned())?;
+    let merged_names = |key: &str, generated: Vec<String>| {
+        let mut names = names_for(config, key);
+        names.extend(generated);
+        names.sort();
+        names.dedup();
+        names
+    };
+    Ok(CodexNativeTools {
+        mcp_servers: merged_names("mcp_servers", generated_mcp_servers),
+        plugins: merged_names("plugins", generated_plugins),
+    })
+}
+
+async fn write_app_server_request(
+    stdin: &mut tokio::process::ChildStdin,
+    id: u32,
+    method: &str,
+    params: serde_json::Value,
+) -> Result<(), String> {
+    let request = serde_json::json!({ "id": id, "method": method, "params": params });
+    let mut line = serde_json::to_vec(&request)
+        .map_err(|error| format!("Codex config discovery request failed: {error}"))?;
+    line.push(b'\n');
+    stdin
+        .write_all(&line)
+        .await
+        .map_err(|error| format!("Codex config discovery write failed: {error}"))?;
+    stdin
+        .flush()
+        .await
+        .map_err(|error| format!("Codex config discovery flush failed: {error}"))
+}
+
+async fn read_app_server_response(
+    reader: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
+    id: u32,
+    remaining: &mut usize,
+) -> Result<serde_json::Value, String> {
+    loop {
+        let mut line = Vec::new();
+        let bytes = reader
+            .take((*remaining as u64).saturating_add(1))
+            .read_until(b'\n', &mut line)
+            .await
+            .map_err(|error| format!("Codex config discovery read failed: {error}"))?;
+        if bytes == 0 {
+            return Err("Codex config discovery ended before response".into());
+        }
+        if bytes > *remaining {
+            return Err("Codex config discovery response exceeded limit".into());
+        }
+        *remaining -= bytes;
+        let response: serde_json::Value = serde_json::from_slice(&line)
+            .map_err(|_| "Codex config discovery returned invalid JSON".to_owned())?;
+        if response.get("id").and_then(serde_json::Value::as_u64) == Some(id as u64) {
+            if response.get("error").is_some() {
+                return Err("Codex config discovery request failed".into());
+            }
+            return response
+                .get("result")
+                .cloned()
+                .ok_or_else(|| "Codex config discovery response has no result".to_owned());
+        }
+    }
 }
 
 fn resolve_private_cognition_result(
