@@ -1,8 +1,8 @@
 # Polyphonic — shared presence experience
 
 Experience roadmap, September 13, 2026. Riley authorized autonomous Stage 1
-implementation and integrator visual review after approving this map. Stages
-2–4 remain later work with their own decisions and delivery gates.
+implementation and integrator visual review, then approved beginning Stage 2.
+Stages 3–4 remain later work with their own decisions and delivery gates.
 
 > A place whose beauty deepens as the relationship accumulates, and whose
 > behavior earns the sense of presence its visuals convey.
@@ -74,7 +74,65 @@ back, while direct selected-item lookup is not page limited. The live Anima
 Notebook was empty, so selected-item restoration was verified with fixtures;
 native tab restoration was verified with real data. The drawer reports only
 available signals: no fabricated runtime readiness or separate user-input-wait
-claim. Stages 2–4 remain future work.
+claim. The Stage 2 delivery below supersedes its earlier future-work status.
+
+## Stage 2 delivery — September 13
+
+Desktop source: **`d263662319ffb940faa1b7d05794538006b53eb6`**, on
+`codex/shared-presence-stage2`, based on the Stage 1 documentation checkpoint
+`2a708d7d4`. Two reviewable commits:
+
+- `d7f1f9559`: body-free exact-turn context receipts in the existing managed
+  dispatch store and a scoped native read operation.
+- `d26366231`: distinguish available sources, saved conversation attachment,
+  bridge delivery evidence, and saved Notebook/handoff state.
+
+The conversation context sheet separates its saved selection from unsaved
+choices. Finished private activity records expose an on-demand “Context for
+this turn” disclosure. Closed records mount no receipt reader; shared rooms
+do not expose the private disclosure. Scope changes discard pending results.
+Notebook guidance describes stored material without implying future retrieval.
+
+Receipts are written only after a successful authorized write to the local
+runtime bridge, are best effort, and cannot block already-delivered chat. They
+retain owner, relay, conversation, resident, turn, session epoch, and selection
+revision checks. The displayed revision describes the source selection, not a
+file version. Current source listings never backfill old receipts. No source
+bodies, credentials, hidden reasoning, or absolute paths are added to them.
+
+Focused checks: 17 JS tests, two native receipt tests, TypeScript, scoped Biome,
+and four browser cases pass. One browser test needed to await sheet closure
+before reopening its menu; the corrected case passes. Browser inspection
+covered wide and narrow/zoom presentation, lazy exact-turn fetch, stale results
+after navigation, unavailable legacy evidence, and shared-room exclusion.
+One cached native Dev build passed with existing warnings.
+
+Native acceptance: attached one existing connected source in Sol's private
+conversation, sent one bounded no-tools prompt, and received
+`CONTEXT_RECEIPT_OK`. The receipt showed selection revision 26 and working
+context delivered. Restoring the original empty attachment selection did not
+change that earlier receipt, including after quitting and reopening Dev.
+The real saved handoff was inspected separately. Foreground screenshots and
+keyboard disclosure navigation were reviewed. Pre-install and restart helpers
+exited with Dev; replacement ACP helpers remained children of Dev. This is a
+short lifecycle check, not a performance benchmark.
+
+Installed Dev remains
+`/Users/rileycoyote/Applications/Luca Agent Network Dev.app`, with bundle ID
+`com.luca.agent-network.dev`, keyring `buzz-desktop-dev.luca-v1`, and preserved
+ACP helper from `4689a7a5571c0fb2d1f2b3e1ce92c196e7ba8af7`.
+The mixed component receipt is `Contents/Resources/luca-source.json`.
+Full rollback bundle:
+`/Users/rileycoyote/Applications/Luca Dev Rollbacks/shared-presence-stage2-2026-09-13/Luca Agent Network Dev.app`.
+Beta is untouched; no version bump or release build was made.
+
+Limits: delivery proves a write to the runtime bridge, not model consumption or
+file reads. Legacy or missing evidence remains unavailable. Receipt retention
+follows the existing dispatch row; this adds no permanent archive. The native
+acceptance turn confirmed working-context delivery, while continuity delivery
+was not recorded for that turn and is labeled accordingly. Sol's existing
+saved handoff was inspected with its own revision/date; his Notebook note and
+journal lists were empty, and no extra model jobs were generated to populate them.
 
 ## Design contract
 
