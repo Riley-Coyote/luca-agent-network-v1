@@ -71,7 +71,33 @@ currently best-effort: a file error is logged while creation continues, and
 there is no automatic later retry call. Setup must inspect the resulting
 folder and report any missing file rather than assume the full pack landed.
 
-Trinity's live delegated method remains unverified until an exact resident,
-runtime, and conversation produce both native child deliverables, one final
-resident reply, and settled child activity. Direct mode is the accurate
-fallback when delegation is unavailable or fails.
+The installed Dev acceptance run verified Trinity's main three-part method on
+Claude with model `opus[1m]`: the exact transcript shows a Perception Agent
+call and returned result, then a Processing Agent call and returned result,
+followed by one resident-voiced final reply. This proves distinct native task
+contexts in that run; it does not prove separate operating-system processes
+or make delegation universally available. Direct mode remains the accurate
+fallback in sessions where delegation is absent or fails.
+
+## Remaining beta blocker — private continuity model binding
+
+The same installed run produced successful ordinary replies from Fifty and
+Trinity, but both subsequent private continuity captures failed with
+`private continuity requested model is unavailable`; one worker respawn
+followed. The failure occurs after private `session/new` succeeds, at
+`crates/buzz-acp/src/pool.rs`'s strict model check. That path requires the
+desired ID in the **fresh private session's** `configOptions` or
+`models.availableModels`. The separate `get_agent_models` probe advertised
+`opus[1m]`, but its catalog does not prove what this private session returned.
+
+The resolver in `crates/buzz-acp/src/acp.rs` does not inspect the fresh
+session's `models.currentModelId`. A narrow, fail-closed correction would
+accept an exact `currentModelId == desired_model` as already bound, while
+continuing to require a successful exact switch when another model is
+current. This is a conditional correction, **not a confirmed fix**: the
+private response's redacted model IDs and option counts are still needed to
+establish whether this was the actual mismatch. The request also differs
+from an ordinary conversation by Claude's strict private tool-isolation
+metadata; code inspection alone cannot show whether that affected the model
+catalog. Do not claim post-turn continuity capture passed until a new
+installed acceptance run proves it without substitution or respawn.
