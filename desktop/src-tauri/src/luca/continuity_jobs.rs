@@ -23,6 +23,9 @@ const JOB_KIND: &str = "resident_handoff";
 const MAX_ATTEMPTS: u64 = 2;
 const IDLE_DELAY: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(3);
+// A managed runtime can be temporarily absent while its prior private worker
+// is reaped and its replacement completes native initialization.
+const RUNTIME_UNAVAILABLE_RETRY_DELAY: Duration = Duration::from_secs(30);
 const INVALID_HANDOFF_RESULT: &str = "invalid_handoff_result";
 const UNSUPPORTED_SPINE_OUTCOME: &str = "unsupported_spine_outcome";
 // Native runtimes such as OpenClaw may need to initialize a provider process
@@ -494,7 +497,12 @@ fn job_is_running(app: &AppHandle, job: &FinalizedHandoffJob) -> bool {
 fn retry_or_fail(app: &AppHandle, job: &FinalizedHandoffJob, code: &'static str) {
     let retry = job.attempt_count < MAX_ATTEMPTS;
     if fail_job(app, job, code, retry).is_ok() && retry {
-        spawn_job(app.clone(), job.job.job_id.clone(), RETRY_DELAY);
+        let delay = if code == "runtime_unavailable" {
+            RUNTIME_UNAVAILABLE_RETRY_DELAY
+        } else {
+            RETRY_DELAY
+        };
+        spawn_job(app.clone(), job.job.job_id.clone(), delay);
     }
 }
 
