@@ -2081,6 +2081,8 @@ async fn tokio_main() -> Result<()> {
             let (result_rx, join_set) = pool.rx_and_join_set();
             tokio::select! {
                 biased;
+                // Refill retired workers even when the relay is quiet.
+                _ = tokio::time::sleep_until((last_maintenance + maintenance_interval).into()) => None,
                 completion = next_pool_completion(result_rx, join_set, &mut respawn_rx) => match completion {
                     Some(event) => Some(event),
                     None => {
@@ -2696,6 +2698,11 @@ async fn tokio_main() -> Result<()> {
                 }
                 for (channel_id, thread_tags) in dispatch_pending(&mut pool, &mut queue, &ctx) {
                     typing_channels.insert(channel_id, thread_tags);
+                }
+                // A deliberately retired worker should be replaced immediately,
+                // before private continuity or the next user turn needs it.
+                if (0..config.agents as usize).any(|index| !pool.slot_alive(index)) {
+                    last_maintenance = std::time::Instant::now() - maintenance_interval;
                 }
             }
             Some(PoolEvent::Panic(join_error)) => {

@@ -865,11 +865,20 @@ impl AcpClient {
     /// MCP children before the process-group kill fallback. The installed
     /// adapter performs that cleanup on EOF with its own two-second limit.
     pub async fn shutdown_after_session_close(&mut self) {
+        // The worker owns this process group even if its direct child exits
+        // first. Some same-group helpers can outlive adapter EOF and reparent
+        // to init, so retain the PGID before wait() clears child.id().
+        let worker_group = self.child.id();
         // Tokio's pipe shutdown does not close the underlying write handle.
         // Drop it so the adapter actually receives EOF.
         if self.stdin.take().is_some() {
             match tokio::time::timeout(std::time::Duration::from_secs(4), self.child.wait()).await {
-                Ok(Ok(_)) => return,
+                Ok(Ok(_)) => {
+                    if let Some(group) = worker_group {
+                        let _ = kill_process_group(group);
+                    }
+                    return;
+                }
                 Ok(Err(error)) => tracing::warn!("graceful ACP worker wait failed: {error}"),
                 Err(_) => tracing::warn!("graceful ACP worker shutdown timed out"),
             }
