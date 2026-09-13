@@ -92,6 +92,13 @@ pub struct AgentModelCapabilities {
 pub struct SessionState {
     /// channel_id → session_id
     pub sessions: HashMap<Uuid, String>,
+    /// The private or authority-scoped session owned by the current prompt task.
+    /// It is retired after that task's final capture and publication have settled.
+    retiring_sessions: Vec<String>,
+    /// Closing a scoped session must not replay a channel's initial message.
+    recently_closed_scoped_channels: HashSet<Uuid>,
+    /// The ACP worker was deliberately stopped after a failed session close.
+    retire_worker: bool,
     pub heartbeat_session: Option<String>,
     /// Per-channel turn counters for proactive session rotation.
     /// Incremented on each successful prompt; reset when the session is rotated.
@@ -141,6 +148,7 @@ impl SessionState {
 
     /// Invalidate all sessions and turn counters (e.g. after agent exit).
     pub fn invalidate_all(&mut self) {
+        self.recently_closed_scoped_channels.clear();
         self.sessions.clear();
         self.turn_counts.clear();
         self.heartbeat_session = None;
@@ -610,6 +618,15 @@ impl AgentPool {
     /// Return an agent to its slot after a task completes.
     pub fn return_agent(&mut self, agent: OwnedAgent) {
         let idx = agent.index;
+        if agent.state.retire_worker {
+            // Maintenance refills empty slots through the existing bounded
+            // respawn path; never return a knowingly stopped worker to use.
+            tracing::warn!(
+                agent = idx,
+                "retired ACP worker left pool slot empty for refill"
+            );
+            return;
+        }
         if self.agents[idx].is_some() {
             // This is a bug: two tasks returned the same agent index. Log it
             // loudly so it shows up in production logs, then overwrite — the
@@ -904,6 +921,20 @@ async fn create_session_and_apply_model(
     };
 
     let session_meta = openclaw_session_meta(ctx, source)?;
+    let session_meta = if matches!(source, PromptSource::Continuity(_)) {
+        crate::continuity_runtime_policy::private_continuity_runtime_policy(
+            crate::continuity_runtime_policy::ContinuityRuntimeAdapter {
+                package: &agent.agent_name,
+                version: "",
+            },
+            session_meta.as_ref(),
+            &[],
+        )
+        .map_err(|error| AcpError::Protocol(error.to_string()))?
+        .session_metadata
+    } else {
+        session_meta
+    };
     let mut mcp_servers = if matches!(source, PromptSource::Continuity(_)) {
         Vec::new()
     } else {
@@ -996,6 +1027,11 @@ async fn create_session_and_apply_model(
         }
         Err(error) => return Err(error),
     };
+
+    // Track as soon as session/new succeeds: model or permission setup can
+    // still fail before the caller receives the ID. Reusable sessions are
+    // unmarked only after all setup steps succeed below.
+    agent.state.retiring_sessions.push(resp.session_id.clone());
 
     if let Some(store) = &ctx.runtime_session_purpose_store {
         let purpose = match source {
@@ -1128,6 +1164,16 @@ async fn create_session_and_apply_model(
         && agent_supports_mode(&resp.raw, ctx.permission_mode.as_wire_str())
     {
         apply_permission_mode(&mut agent.acp, &resp.session_id, &ctx.permission_mode).await?;
+    }
+
+    if !matches!(source, PromptSource::Continuity(_))
+        && session_context.communications_turn.is_none()
+        && session_context.artifact_turn.is_none()
+    {
+        agent
+            .state
+            .retiring_sessions
+            .retain(|session_id| session_id != &resp.session_id);
     }
 
     Ok(resp.session_id)
@@ -2326,6 +2372,91 @@ async fn build_private_cognition_prompt(
 // lifecycle or authority state and grouping them would obscure ownership.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_prompt_task(
+    agent: OwnedAgent,
+    source: PromptSource,
+    batch: Option<FlushBatch>,
+    prompt_text: Option<String>,
+    ctx: Arc<PromptContext>,
+    result_tx: mpsc::UnboundedSender<PromptResult>,
+    control_rx: Option<tokio::sync::oneshot::Receiver<ControlSignal>>,
+    turn_id: String,
+) {
+    // The inner task has one terminal result across all success, cancellation,
+    // and early-error paths. Hold it until retired sessions are closed, so the
+    // same worker cannot be checked out for another turn during cleanup.
+    let (inner_tx, mut inner_rx) = mpsc::unbounded_channel();
+    run_prompt_task_inner(
+        agent,
+        source,
+        batch,
+        prompt_text,
+        ctx,
+        inner_tx,
+        control_rx,
+        turn_id,
+    )
+    .await;
+    let Some(mut result) = inner_rx.recv().await else {
+        return;
+    };
+    retire_finished_sessions(&mut result).await;
+    let _ = result_tx.send(result);
+}
+
+async fn retire_finished_sessions(result: &mut PromptResult) {
+    let mut seen = HashSet::new();
+    for session_id in std::mem::take(&mut result.agent.state.retiring_sessions) {
+        if !seen.insert(session_id.clone()) {
+            continue;
+        }
+        if let PromptSource::Channel(channel_id) = &result.source {
+            if result.agent.state.sessions.get(channel_id) == Some(&session_id) {
+                result.agent.state.invalidate_channel(channel_id);
+                result
+                    .agent
+                    .state
+                    .recently_closed_scoped_channels
+                    .insert(*channel_id);
+            }
+        }
+        // A failed or hung close can leave an unread response on the ACP wire.
+        // Retire the worker in that case; keeping it would accumulate sessions
+        // or corrupt the next request. The already captured turn result remains
+        // authoritative and is never published again by this cleanup.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            result.agent.acp.session_close(&session_id),
+        )
+        .await
+        {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => {
+                tracing::warn!(target: "pool::session", "adapter lacks session/close; retiring worker");
+                result.agent.acp.shutdown().await;
+                result.agent.state.invalidate_all();
+                result.agent.state.retire_worker = true;
+                break;
+            }
+            Ok(Err(error)) => {
+                tracing::warn!(target: "pool::session", "session/close failed: {error}; retiring worker");
+                result.agent.acp.shutdown().await;
+                result.agent.state.invalidate_all();
+                result.agent.state.retire_worker = true;
+                break;
+            }
+            Err(_) => {
+                tracing::warn!(target: "pool::session", "session/close timed out; retiring worker");
+                result.agent.acp.shutdown().await;
+                result.agent.state.invalidate_all();
+                result.agent.state.retire_worker = true;
+                break;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_prompt_task_inner(
     mut agent: OwnedAgent,
     source: PromptSource,
     batch: Option<FlushBatch>,
@@ -2640,6 +2771,16 @@ pub async fn run_prompt_task(
                             target: "pool::session",
                             "created session {sid} for channel {cid}"
                         );
+                        if policy.create_session
+                            && (communications_turn.is_some() || artifact_turn.is_some())
+                        {
+                            if let Some(previous) = agent.state.sessions.get(cid) {
+                                agent.state.retiring_sessions.push(previous.clone());
+                            }
+                        }
+                        let first_channel_session = policy.first_channel_session
+                            && !agent.state.recently_closed_scoped_channels.remove(cid)
+                            && !context_rotated_session;
                         agent.state.sessions.insert(*cid, sid.clone());
                         let native_ref = resolved_managed_context
                             .as_ref()
@@ -2652,11 +2793,7 @@ pub async fn run_prompt_task(
                         if let Some((pending_cid, section)) = pending_canvas.take() {
                             agent.state.canvas_sections.insert(pending_cid, section);
                         }
-                        (
-                            sid,
-                            true,
-                            policy.first_channel_session && !context_rotated_session,
-                        )
+                        (sid, true, first_channel_session)
                     }
                     Err(AcpError::AgentExited) => {
                         agent.state.invalidate_all();
@@ -5669,6 +5806,95 @@ mod tests {
             protocol_version: 2,
             additional_directories_supported: false,
         }
+    }
+
+    #[tokio::test]
+    async fn retired_private_session_closes_but_reusable_channel_session_stays_open() {
+        let script = r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -r CLOSE
+case "$CLOSE" in *'"method":"session/close"'*'"sessionId":"private"'*)
+  echo '{"jsonrpc":"2.0","id":1,"result":{}}' ;;
+esac
+read -r NEXT"#;
+        let mut private = artifact_test_agent(script).await;
+        private.acp.initialize().await.unwrap();
+        private.state.retiring_sessions.push("private".into());
+        let mut result = PromptResult {
+            agent: private,
+            source: PromptSource::Continuity(Box::new(
+                luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism {
+                    request: cognition_request('3', 'b'),
+                },
+            )),
+            turn_id: "private-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        retire_finished_sessions(&mut result).await;
+        assert!(!result.agent.state.retire_worker);
+        assert!(result.agent.state.retiring_sessions.is_empty());
+        result.agent.acp.shutdown().await;
+
+        let mut ordinary = artifact_test_agent(script).await;
+        ordinary.acp.initialize().await.unwrap();
+        let channel = Uuid::new_v4();
+        ordinary.state.sessions.insert(channel, "reusable".into());
+        let mut result = PromptResult {
+            agent: ordinary,
+            source: PromptSource::Channel(channel),
+            turn_id: "ordinary-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            retire_finished_sessions(&mut result),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result
+                .agent
+                .state
+                .sessions
+                .get(&channel)
+                .map(String::as_str),
+            Some("reusable")
+        );
+        assert!(!result.agent.state.retire_worker);
+        result.agent.acp.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn failed_session_close_retires_worker_without_changing_completed_outcome() {
+        let script = r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -r CLOSE
+echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"close failed"}}'"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        agent.state.retiring_sessions.push("private".into());
+        let mut result = PromptResult {
+            agent,
+            source: PromptSource::Continuity(Box::new(
+                luca_protocol::ResidentPrivateCognitionRequestV1::Metabolism {
+                    request: cognition_request('3', 'b'),
+                },
+            )),
+            turn_id: "private-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        retire_finished_sessions(&mut result).await;
+        assert!(result.agent.state.retire_worker);
+        assert!(matches!(
+            result.outcome,
+            PromptOutcome::Ok(StopReason::EndTurn)
+        ));
     }
 
     fn artifact_turn() -> crate::artifact_mcp::ArtifactTurnBindingV1 {

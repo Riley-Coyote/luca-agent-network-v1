@@ -377,7 +377,9 @@ fn is_luca_descendant_forbidden_env(key: &str) -> bool {
         .any(|forbidden| key.eq_ignore_ascii_case(forbidden))
 }
 
-fn scrub_luca_descendant_environment(
+/// Remove managed signing and broker bootstrap coordinates from a child command.
+/// Shared with disposable discovery children so they keep the same isolation.
+pub(crate) fn scrub_luca_descendant_environment(
     command: &mut tokio::process::Command,
     managed_identity: bool,
 ) {
@@ -621,6 +623,8 @@ pub struct AcpClient {
     /// Protocol requested for this runtime process. Existing Buzz runtimes
     /// remain on v2; native Hermes/OpenClaw bindings use the common v1 path.
     requested_protocol_version: u32,
+    /// `session/close` is optional in ACP; only use it when advertised at initialize.
+    session_close_supported: bool,
 }
 
 fn requested_protocol_version(command: &str) -> u32 {
@@ -772,6 +776,38 @@ pub(crate) fn build_codex_config_env(
     Ok(Some(serde_json::Value::Object(base).to_string()))
 }
 
+/// Apply an internal Codex worker's final override after the ordinary
+/// persona/generated/parent merge. The normal spawn path never calls this.
+fn merge_final_codex_overlay(
+    merged: Option<String>,
+    overlay: &serde_json::Value,
+) -> Result<String, AcpError> {
+    let Some(merged) = merged else {
+        return Err(AcpError::Protocol(
+            "internal Codex overlay requires generated Codex configuration".into(),
+        ));
+    };
+    let mut base = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&merged)?;
+    let Some(overlay) = overlay.as_object() else {
+        return Err(AcpError::Protocol(
+            "internal Codex overlay must be an object".into(),
+        ));
+    };
+    deep_merge(&mut base, overlay.clone());
+    // This override is only for a disposable private worker's tools. It must
+    // not undo the original relay-connectivity guarantee.
+    let Some(sandbox) = base
+        .get_mut("sandbox_workspace_write")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return Err(AcpError::Protocol(
+            "internal Codex overlay replaced sandbox configuration".into(),
+        ));
+    };
+    sandbox.insert("network_access".into(), serde_json::Value::Bool(true));
+    Ok(serde_json::Value::Object(base).to_string())
+}
+
 fn build_client_capabilities() -> serde_json::Value {
     serde_json::json!({
         // Signal to ACP adapters that Buzz can hand users to terminal-native
@@ -845,6 +881,7 @@ impl AcpClient {
             extra_env,
             has_generated_codex_config,
             false,
+            None,
         )
         .await
     }
@@ -867,6 +904,27 @@ impl AcpClient {
             extra_env,
             has_generated_codex_config,
             true,
+            None,
+        )
+        .await
+    }
+
+    /// Spawn a disposable managed Codex worker with one final process-local
+    /// `CODEX_CONFIG` overlay. Ordinary resident workers never call this path.
+    pub async fn spawn_managed_with_final_codex_overlay(
+        command: &str,
+        args: &[String],
+        extra_env: &[(String, String)],
+        has_generated_codex_config: bool,
+        overlay: &serde_json::Value,
+    ) -> Result<Self, AcpError> {
+        Self::spawn_with_descendant_isolation(
+            command,
+            args,
+            extra_env,
+            has_generated_codex_config,
+            true,
+            Some(overlay),
         )
         .await
     }
@@ -877,6 +935,7 @@ impl AcpClient {
         extra_env: &[(String, String)],
         has_generated_codex_config: bool,
         managed_identity: bool,
+        final_codex_overlay: Option<&serde_json::Value>,
     ) -> Result<Self, AcpError> {
         use std::process::Stdio;
 
@@ -928,6 +987,10 @@ impl AcpClient {
             parent_codex_config.as_deref(),
             has_generated_codex_config,
         )?;
+        let codex_config_value = match final_codex_overlay {
+            Some(overlay) => Some(merge_final_codex_overlay(codex_config_value, overlay)?),
+            None => codex_config_value,
+        };
         // When the merge path was not taken (None returned), any persona CODEX_CONFIG
         // entry falls through to the standard operator-wins treatment below.
         let codex_merge_active = codex_config_value.is_some();
@@ -991,6 +1054,7 @@ impl AcpClient {
             final_message_capture: None,
             available_commands: std::collections::BTreeSet::new(),
             requested_protocol_version: requested_protocol_version(command),
+            session_close_supported: false,
         })
     }
 
@@ -1088,8 +1152,25 @@ impl AcpClient {
     pub async fn initialize(&mut self) -> Result<serde_json::Value, AcpError> {
         let params = build_initialize_params(self.requested_protocol_version);
         let result = self.send_request("initialize", params).await?;
+        self.session_close_supported = result
+            .pointer("/agentCapabilities/sessionCapabilities/close")
+            .is_some_and(serde_json::Value::is_object);
         tracing::debug!(target: "acp::init", "initialize response: {result}");
         Ok(result)
+    }
+
+    /// Close a finished ACP session when the adapter advertises resource cleanup.
+    /// Returns `false` for adapters without the optional capability.
+    pub async fn session_close(&mut self, session_id: &str) -> Result<bool, AcpError> {
+        if !self.session_close_supported {
+            return Ok(false);
+        }
+        self.send_request(
+            "session/close",
+            serde_json::json!({ "sessionId": session_id }),
+        )
+        .await?;
+        Ok(true)
     }
 
     /// Send the ACP `authenticate` request for an adapter-advertised method.
@@ -3156,7 +3237,7 @@ impl Drop for AcpClient {
 /// Uses `nix::sys::signal::killpg` — a safe wrapper around the POSIX `killpg`
 /// syscall — so the crate's `#![deny(unsafe_code)]` policy is preserved.
 #[cfg(unix)]
-fn kill_process_group(pid: u32) -> bool {
+pub(crate) fn kill_process_group(pid: u32) -> bool {
     use nix::sys::signal::{killpg, Signal};
     use nix::unistd::Pid;
 
@@ -3167,7 +3248,7 @@ fn kill_process_group(pid: u32) -> bool {
 /// Fallback for non-Unix: process-group kill not available.
 /// Returns `false` so the caller falls back to `child.start_kill()`.
 #[cfg(not(unix))]
-fn kill_process_group(_pid: u32) -> bool {
+pub(crate) fn kill_process_group(_pid: u32) -> bool {
     false
 }
 
@@ -4168,6 +4249,32 @@ mod tests {
         AcpClient::spawn_managed("bash", &["-c".into(), script.into()], &[], false)
             .await
             .expect("failed to spawn managed test script")
+    }
+
+    #[tokio::test]
+    async fn session_close_requires_advertised_capability() {
+        let mut unsupported = spawn_script(
+            r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{}}}}'
+read -r NEXT"#,
+        )
+        .await;
+        unsupported.initialize().await.unwrap();
+        assert!(!unsupported.session_close("unused").await.unwrap());
+        unsupported.shutdown().await;
+
+        let mut supported = spawn_script(
+            r#"read -r INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -r CLOSE
+case "$CLOSE" in *'"method":"session/close"'*'"sessionId":"finished"'*)
+  echo '{"jsonrpc":"2.0","id":1,"result":{}}' ;;
+esac"#,
+        )
+        .await;
+        supported.initialize().await.unwrap();
+        assert!(supported.session_close("finished").await.unwrap());
+        supported.shutdown().await;
     }
 
     #[tokio::test]
@@ -5632,6 +5739,40 @@ mod tests {
     }
 
     // ── build_codex_config_env ────────────────────────────────────────────────
+
+    #[test]
+    fn internal_codex_overlay_wins_after_parent_without_erasing_other_settings() {
+        let extra = vec![(
+            "CODEX_CONFIG".to_string(),
+            r#"{"model":"persona","mcp_servers":{"playwright":{"enabled":true}},"sandbox_workspace_write":{"network_access":false}}"#.to_string(),
+        )];
+        let parent = r#"{"model":"parent","model_reasoning_effort":"high","mcp_servers":{"playwright":{"enabled":true},"other":{"enabled":true}}}"#;
+        let ordinary = build_codex_config_env(&extra, Some(parent), true)
+            .unwrap()
+            .unwrap();
+        let ordinary_json: serde_json::Value = serde_json::from_str(&ordinary).unwrap();
+        assert_eq!(ordinary_json["mcp_servers"]["playwright"]["enabled"], true);
+        let internal = merge_final_codex_overlay(
+            Some(ordinary),
+            &serde_json::json!({"mcp_servers":{"playwright":{"enabled":false}}}),
+        )
+        .unwrap();
+        let internal_json: serde_json::Value = serde_json::from_str(&internal).unwrap();
+        assert_eq!(internal_json["mcp_servers"]["playwright"]["enabled"], false);
+        assert_eq!(internal_json["mcp_servers"]["other"]["enabled"], true);
+        assert_eq!(internal_json["model"], "parent");
+        assert_eq!(internal_json["model_reasoning_effort"], "high");
+        assert_eq!(
+            internal_json["sandbox_workspace_write"]["network_access"],
+            true
+        );
+    }
+
+    #[test]
+    fn internal_codex_overlay_requires_object_and_generated_base() {
+        assert!(merge_final_codex_overlay(None, &serde_json::json!({})).is_err());
+        assert!(merge_final_codex_overlay(Some("{}".into()), &serde_json::json!([])).is_err());
+    }
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs

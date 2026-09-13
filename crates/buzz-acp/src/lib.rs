@@ -6,6 +6,7 @@ mod assay_runner;
 mod communications_mcp;
 mod config;
 pub mod continuity_provider;
+pub(crate) mod continuity_runtime_policy;
 mod engram_fetch;
 pub mod exchange_cache;
 mod filter;
@@ -29,7 +30,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Duration;
 
-use acp::{AcpClient, EnvVar, McpServer};
+use acp::{AcpClient, AcpError, EnvVar, McpServer};
 use anyhow::Result;
 use buzz_core::kind::{
     KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION, KIND_STREAM_MESSAGE,
@@ -2858,6 +2859,8 @@ async fn tokio_main() -> Result<()> {
                     &mut pool,
                     &queue,
                     &ctx,
+                    &config,
+                    observer.clone(),
                     &mut pending_cognition,
                 );
             }
@@ -3912,6 +3915,8 @@ fn dispatch_private_cognition(
     pool: &mut AgentPool,
     queue: &EventQueue,
     ctx: &Arc<PromptContext>,
+    config: &Config,
+    observer: Option<observer::ObserverHandle>,
     pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
 ) {
     let request = envelope.request;
@@ -3952,19 +3957,43 @@ fn dispatch_private_cognition(
     let result_tx = pool.result_tx();
     let ctx = Arc::clone(ctx);
     let agent_index = agent.index;
-    let abort_handle = pool.join_set.spawn(async move {
-        pool::run_prompt_task(
-            agent,
-            source,
-            None,
-            None,
-            ctx,
-            result_tx,
-            Some(control_rx),
-            task_turn_id,
-        )
-        .await;
-    });
+    let is_codex = config::normalize_agent_command_identity(&config.agent_command) == "codex-acp";
+    let abort_handle = if is_codex && config.identity.is_managed() {
+        let spawn = CodexContinuitySpawnSpec {
+            command: config.agent_command.clone(),
+            args: config.agent_args.clone(),
+            extra_env: config.persona_env_vars.clone(),
+            has_generated_codex_config: config.has_generated_codex_config,
+            observer,
+            cwd: ctx.cwd.clone(),
+        };
+        pool.join_set.spawn(async move {
+            run_isolated_codex_continuity_task(
+                agent,
+                source,
+                ctx,
+                result_tx,
+                control_rx,
+                task_turn_id,
+                spawn,
+            )
+            .await;
+        })
+    } else {
+        pool.join_set.spawn(async move {
+            pool::run_prompt_task(
+                agent,
+                source,
+                None,
+                None,
+                ctx,
+                result_tx,
+                Some(control_rx),
+                task_turn_id,
+            )
+            .await;
+        })
+    };
     pool.task_map_mut().insert(
         abort_handle.id(),
         pool::TaskMeta {
@@ -3977,6 +4006,291 @@ fn dispatch_private_cognition(
         },
     );
     pending.insert(job_id, envelope.reply_tx);
+}
+
+/// The disposable Codex ACP process used for a managed resident's private
+/// continuity turn. The claimed resident worker is never given the turn, so
+/// its public-session state, model binding, and native tools remain untouched.
+#[derive(Clone)]
+struct CodexContinuitySpawnSpec {
+    command: String,
+    args: Vec<String>,
+    extra_env: Vec<(String, String)>,
+    has_generated_codex_config: bool,
+    observer: Option<observer::ObserverHandle>,
+    cwd: String,
+}
+
+async fn run_isolated_codex_continuity_task(
+    original_agent: OwnedAgent,
+    source: PromptSource,
+    ctx: Arc<PromptContext>,
+    result_tx: mpsc::UnboundedSender<PromptResult>,
+    control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
+    turn_id: String,
+    spawn: CodexContinuitySpawnSpec,
+) {
+    let names = match discover_codex_mcp_server_names(&spawn).await {
+        Ok(names) => names,
+        Err(error) => {
+            send_original_continuity_agent(
+                result_tx,
+                original_agent,
+                source,
+                turn_id,
+                PromptOutcome::Error(AcpError::Protocol(error)),
+            );
+            return;
+        }
+    };
+    tracing::info!(
+        mcp_server_count = names.len(),
+        "starting isolated Codex continuity"
+    );
+    let policy = match continuity_runtime_policy::private_continuity_runtime_policy(
+        continuity_runtime_policy::ContinuityRuntimeAdapter {
+            package: "@agentclientprotocol/codex-acp",
+            version: "installed",
+        },
+        None,
+        &names,
+    ) {
+        Ok(policy) => policy,
+        Err(error) => {
+            send_original_continuity_agent(
+                result_tx,
+                original_agent,
+                source,
+                turn_id,
+                PromptOutcome::Error(AcpError::Protocol(error.to_string())),
+            );
+            return;
+        }
+    };
+    let overlay = policy
+        .codex_config_overlay
+        .unwrap_or_else(|| serde_json::json!({}));
+    let temporary_agent =
+        match spawn_isolated_codex_continuity_agent(&spawn, &original_agent, &overlay).await {
+            Ok(agent) => agent,
+            Err(error) => {
+                send_original_continuity_agent(
+                    result_tx,
+                    original_agent,
+                    source,
+                    turn_id,
+                    PromptOutcome::Error(AcpError::Protocol(error)),
+                );
+                return;
+            }
+        };
+
+    let (temporary_result_tx, mut temporary_result_rx) = mpsc::unbounded_channel();
+    pool::run_prompt_task(
+        temporary_agent,
+        source.clone(),
+        None,
+        None,
+        ctx,
+        temporary_result_tx,
+        Some(control_rx),
+        turn_id.clone(),
+    )
+    .await;
+    let Some(mut temporary_result) = temporary_result_rx.recv().await else {
+        send_original_continuity_agent(
+            result_tx,
+            original_agent,
+            source,
+            turn_id,
+            PromptOutcome::Error(AcpError::Protocol(
+                "isolated Codex continuity task returned no terminal result".into(),
+            )),
+        );
+        return;
+    };
+    temporary_result.agent.acp.shutdown().await;
+    tracing::info!(
+        mcp_server_count = names.len(),
+        "completed isolated Codex continuity"
+    );
+    let _ = result_tx.send(PromptResult {
+        agent: original_agent,
+        source,
+        turn_id,
+        outcome: temporary_result.outcome,
+        private_output: temporary_result.private_output,
+        batch: temporary_result.batch,
+    });
+}
+
+fn send_original_continuity_agent(
+    result_tx: mpsc::UnboundedSender<PromptResult>,
+    agent: OwnedAgent,
+    source: PromptSource,
+    turn_id: String,
+    outcome: PromptOutcome,
+) {
+    let _ = result_tx.send(PromptResult {
+        agent,
+        source,
+        turn_id,
+        outcome,
+        private_output: None,
+        batch: None,
+    });
+}
+
+async fn spawn_isolated_codex_continuity_agent(
+    spawn: &CodexContinuitySpawnSpec,
+    original_agent: &OwnedAgent,
+    overlay: &serde_json::Value,
+) -> Result<OwnedAgent, String> {
+    let mut acp = AcpClient::spawn_managed_with_final_codex_overlay(
+        &spawn.command,
+        &spawn.args,
+        &spawn.extra_env,
+        spawn.has_generated_codex_config,
+        overlay,
+    )
+    .await
+    .map_err(|error| format!("isolated Codex continuity spawn failed: {error}"))?;
+    acp.set_observer(spawn.observer.clone(), original_agent.index);
+    let init = match acp.initialize().await {
+        Ok(init) => init,
+        Err(error) => {
+            acp.shutdown().await;
+            return Err(format!(
+                "isolated Codex continuity initialize failed: {error}"
+            ));
+        }
+    };
+    Ok(OwnedAgent {
+        index: original_agent.index,
+        acp,
+        state: SessionState::default(),
+        model_capabilities: None,
+        desired_model: original_agent.desired_model.clone(),
+        model_overridden: original_agent.model_overridden,
+        agent_name: normalized_agent_name(&init),
+        goose_system_prompt_supported: None,
+        protocol_version: init["protocolVersion"].as_u64().unwrap_or(1) as u32,
+        additional_directories_supported: supports_additional_directories(&init),
+    })
+}
+
+async fn discover_codex_mcp_server_names(
+    spawn: &CodexContinuitySpawnSpec,
+) -> Result<Vec<String>, String> {
+    if !spawn.has_generated_codex_config {
+        return Err(
+            "isolated Codex continuity requires the generated CODEX_CONFIG merge path".into(),
+        );
+    }
+    let parent_config = std::env::var("CODEX_CONFIG").ok();
+    let config = acp::build_codex_config_env(
+        &spawn.extra_env,
+        parent_config.as_deref(),
+        spawn.has_generated_codex_config,
+    )
+    .map_err(|error| format!("Codex continuity configuration is invalid: {error}"))?
+    .ok_or_else(|| "Codex continuity has no effective generated configuration".to_owned())?;
+    let configured_names = serde_json::from_str::<serde_json::Value>(&config)
+        .map_err(|_| "Codex continuity configuration cannot be parsed".to_owned())?
+        .pointer("/mcp_servers")
+        .and_then(serde_json::Value::as_object)
+        .map(|servers| servers.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    use std::process::Stdio;
+    use tokio::io::AsyncReadExt;
+    let mut command = tokio::process::Command::new(&spawn.command);
+    command
+        .args(&spawn.args)
+        .args(["cli", "mcp", "list", "--json"])
+        .current_dir(&spawn.cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .env("CODEX_CONFIG", config);
+    #[cfg(unix)]
+    command.process_group(0);
+    // Match the adapter's native executable/provider environment for discovery.
+    // Scrub after injection so persona values cannot restore broker credentials.
+    for (key, value) in &spawn.extra_env {
+        if key != "CODEX_CONFIG" && std::env::var_os(key).is_none() {
+            command.env(key, value);
+        }
+    }
+    acp::scrub_luca_descendant_environment(&mut command, true);
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Codex MCP discovery failed: {error}"))?;
+    let pid = child.id();
+    const MAX_DISCOVERY_OUTPUT_BYTES: u64 = 1024 * 1024;
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        let mut output = Vec::new();
+        let bytes = {
+            let stdout = child
+                .stdout
+                .take()
+                .ok_or_else(|| "Codex MCP discovery has no stdout".to_owned())?;
+            let mut limited = stdout.take(MAX_DISCOVERY_OUTPUT_BYTES + 1);
+            limited
+                .read_to_end(&mut output)
+                .await
+                .map_err(|error| format!("Codex MCP discovery read failed: {error}"))?
+        };
+        if bytes > MAX_DISCOVERY_OUTPUT_BYTES as usize {
+            return Err("Codex MCP discovery output exceeded limit".to_owned());
+        }
+        let status = child
+            .wait()
+            .await
+            .map_err(|error| format!("Codex MCP discovery wait failed: {error}"))?;
+        Ok((status, output))
+    })
+    .await;
+    let (status, output) = match result {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => {
+            #[cfg(unix)]
+            if let Some(pid) = pid {
+                let _ = acp::kill_process_group(pid);
+            }
+            #[cfg(not(unix))]
+            let _ = child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+            return Err(error);
+        }
+        Err(_) => {
+            #[cfg(unix)]
+            if let Some(pid) = pid {
+                let _ = acp::kill_process_group(pid);
+            }
+            #[cfg(not(unix))]
+            let _ = child.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
+            return Err("Codex MCP discovery timed out".into());
+        }
+    };
+    if !status.success() {
+        return Err("Codex MCP discovery exited unsuccessfully".into());
+    }
+    let entries: Vec<serde_json::Value> = serde_json::from_slice(&output)
+        .map_err(|_| "Codex MCP discovery returned invalid JSON".to_owned())?;
+    let mut names = configured_names;
+    names.extend(
+        entries
+            .iter()
+            .filter_map(|entry| entry.get("name").and_then(serde_json::Value::as_str))
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned),
+    );
+    names.sort();
+    names.dedup();
+    Ok(names)
 }
 
 fn resolve_private_cognition_result(
