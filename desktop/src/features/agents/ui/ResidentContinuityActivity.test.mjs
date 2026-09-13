@@ -25,21 +25,34 @@ test("continuity activity exposes only compact body-free states", () => {
     continuityActivityPresentation(
       activity({ job: { ...activity().job, state: "running" } }),
     ),
-    { label: "Saving continuity", tone: "active" },
+    { label: "Saving handoff", tone: "active" },
   );
   assert.deepEqual(
     continuityActivityPresentation(
       activity({ job: { ...activity().job, state: "failed" } }),
     ),
-    { label: "Continuity needs attention", tone: "fault" },
+    { label: "Handoff save failed", tone: "fault" },
   );
 });
 
-test("Activity keeps a quiet status for completed continuity", () => {
+test("Activity names a completed save without claiming current turn context", () => {
   assert.deepEqual(continuityActivityPresentation(activity()), {
-    label: "Continuity current",
+    label: "Latest handoff save finished",
     tone: "quiet",
   });
+});
+
+test("enabled setting alone does not claim a handoff is saved or loaded", () => {
+  assert.deepEqual(continuityActivityPresentation(activity({ job: null })), {
+    label: "Continuity on",
+    tone: "quiet",
+  });
+  assert.deepEqual(
+    continuityActivityPresentation(
+      activity({ job: { ...activity().job, state: "cancelled" } }),
+    ),
+    { label: "Continuity on", tone: "quiet" },
+  );
 });
 
 test("disabled continuity produces no activity indicator", () => {

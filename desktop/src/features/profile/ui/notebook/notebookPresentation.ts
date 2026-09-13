@@ -43,19 +43,19 @@ export function notebookAvailabilityCopy(
   if (availability === "locked") {
     return {
       title: "Notebook locked",
-      body: "Private notebook contents are unavailable until Luca can unlock local continuity. Messaging still works normally.",
+      body: "Private saved notes and pages cannot be read until Luca unlocks local continuity. Messaging still works normally.",
     };
   }
   if (availability === "unavailable") {
     return {
       title: "Notebook unavailable",
-      body: "Luca could not open this resident’s private notebook. Messaging is unaffected.",
+      body: "Luca could not open this resident’s private saved notes and pages. Messaging is unaffected.",
     };
   }
   return kind === "notes"
     ? {
         title: "No continuity notes yet",
-        body: "After a meaningful exchange, this resident may keep a compact, source-backed note for future conversations.",
+        body: "After a meaningful exchange, this resident may keep a compact, source-backed note. A saved note is not proof of context loaded for a later turn.",
       }
     : {
         title: "No journal pages yet",

@@ -429,8 +429,8 @@ export function ConversationContextComposerSurface({
             Conversation context
           </SheetTitle>
           <SheetDescription>
-            Choose what this room is working on. The resident keeps the same
-            identity and settings.
+            Choose sources for upcoming turns. Attached sources and context
+            delivered for an earlier turn are recorded separately.
           </SheetDescription>
         </SheetHeader>
 
@@ -451,6 +451,40 @@ export function ConversationContextComposerSurface({
             </p>
           ) : view ? (
             <>
+              <section
+                aria-labelledby="context-attached-heading"
+                className="border-b border-border/60 pb-4"
+                data-testid="conversation-context-attached"
+              >
+                <h3
+                  className="text-xs font-medium text-ink"
+                  id="context-attached-heading"
+                >
+                  Attached to this conversation
+                </h3>
+                {view.primary || view.additionalSources.length > 0 ? (
+                  <ul className="mt-2 space-y-2">
+                    {[
+                      ...(view.primary ? [view.primary] : []),
+                      ...view.additionalSources,
+                    ].map((source) => (
+                      <li className="min-w-0 text-xs" key={source.sourceId}>
+                        <p className="break-words text-ink">{source.label}</p>
+                        <SourceMeta source={source} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    No working folder or additional sources attached.
+                  </p>
+                )}
+                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                  This is the saved selection. Changes below apply after you
+                  save. Attaching a source does not confirm its files were read
+                  or grant additional access.
+                </p>
+              </section>
               {view.status === "missing_primary" ? (
                 <div
                   className="rounded-xl border border-destructive/30 bg-destructive/5 p-3"
@@ -550,8 +584,9 @@ export function ConversationContextComposerSurface({
                   Additional sources
                 </h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Extra folders are passed to supported runtimes. Histories and
-                  unavailable folders remain Brain context.
+                  Available in your connected Brain sources. Select sources to
+                  attach; retrieval still follows each resident’s access. Extra
+                  folders are passed to supported runtimes.
                 </p>
                 <div className="mt-3 space-y-1.5">
                   {allSources.length === 0 ? (

@@ -1,5 +1,10 @@
 import * as React from "react";
-import { AlertCircle, CheckCircle2, LoaderCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  FileClock,
+  LoaderCircle,
+} from "lucide-react";
 
 import {
   getResidentContinuityActivity,
@@ -18,20 +23,20 @@ export function continuityActivityPresentation(
 ): ActivityPresentation | null {
   if (!activity?.enabled) return null;
   const job = activity.job;
-  if (!job) return { label: "Continuity ready", tone: "quiet" };
+  if (!job) return { label: "Continuity on", tone: "quiet" };
   if (job.state === "pending") {
-    return { label: "Saving continuity", tone: "active" };
+    return { label: "Saving handoff", tone: "active" };
   }
   if (job.state === "running") {
-    return { label: "Saving continuity", tone: "active" };
+    return { label: "Saving handoff", tone: "active" };
   }
   if (job.state === "failed") {
-    return { label: "Continuity needs attention", tone: "fault" };
+    return { label: "Handoff save failed", tone: "fault" };
   }
   if (job.state === "completed") {
-    return { label: "Continuity current", tone: "quiet" };
+    return { label: "Latest handoff save finished", tone: "quiet" };
   }
-  return { label: "Continuity ready", tone: "quiet" };
+  return { label: "Continuity on", tone: "quiet" };
 }
 
 export function shouldPollContinuityActivity(
@@ -91,7 +96,9 @@ export function ResidentContinuityActivity({
       ? LoaderCircle
       : presentation.tone === "fault"
         ? AlertCircle
-        : CheckCircle2;
+        : activity?.job?.state === "completed"
+          ? CheckCircle2
+          : FileClock;
   const content = (
     <>
       <Icon

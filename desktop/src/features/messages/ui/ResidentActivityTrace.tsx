@@ -5,6 +5,7 @@ import type {
   ActivityTraceEntry,
 } from "@/features/messages/activity/activityTraceTypes";
 import { Shimmer } from "@/shared/ui/Shimmer";
+import { TurnContextReceipt } from "./TurnContextReceipt";
 
 import "./ResidentActivityTrace.css";
 
@@ -149,6 +150,7 @@ export function ResidentActivityTrace({
     status: traceStatus,
   } = trace;
   const previousTrace = React.useRef<TraceTransition | null>(null);
+  const [recordOpen, setRecordOpen] = React.useState(false);
   const [settlingReceipt, setSettlingReceipt] = React.useState<string | null>(
     null,
   );
@@ -273,6 +275,11 @@ export function ResidentActivityTrace({
           <details
             className="resident-activity-disclosure"
             key={trace.dispatchReceiptId}
+            onToggle={(event) => {
+              if (event.target === event.currentTarget) {
+                setRecordOpen(event.currentTarget.open);
+              }
+            }}
           >
             <summary
               className="resident-activity-summary text-xs"
@@ -304,6 +311,12 @@ export function ResidentActivityTrace({
               <p className="resident-activity-record-note text-xs">
                 Earlier activity is no longer retained in this record.
               </p>
+            ) : null}
+            {recordOpen && privateConversation ? (
+              <TurnContextReceipt
+                input={{ conversationId, residentPubkey, dispatchReceiptId }}
+                privateConversation={privateConversation}
+              />
             ) : null}
           </details>
         </>

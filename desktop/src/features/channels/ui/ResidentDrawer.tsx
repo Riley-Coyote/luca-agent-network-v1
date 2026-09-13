@@ -14,12 +14,13 @@ import {
 } from "@/shared/api/tauriContinuity";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import type { ResidentDrawerPresentation } from "@/features/channels/ui/residentDrawerPresentation";
+import { savedHandoffPresentation } from "@/features/profile/ui/continuityPresentation";
 
 /**
  * The right drawer of a direct conversation with a resident: the resident,
  * not the room. One screen, no scrolling to speak of — who they are, what
  * powers them, the first lines of
- * their instructions, and their last handoff. Everything deeper lives on the
+ * their instructions, and their saved handoff. Everything deeper lives on the
  * agent's own page: Documents · Notebook · Settings.
  */
 
@@ -151,7 +152,7 @@ export function ResidentDrawer({
 
       <section aria-labelledby="resident-drawer-handoff">
         <div className="flex items-baseline justify-between gap-3">
-          <Eyebrow id="resident-drawer-handoff">Last handoff</Eyebrow>
+          <Eyebrow id="resident-drawer-handoff">Saved handoff</Eyebrow>
           <OpenLink onClick={() => onOpenAgent("notebook")}>Notebook</OpenLink>
         </div>
         <div className="rounded-2xl bg-plate px-3 py-2.5">
@@ -161,10 +162,14 @@ export function ResidentDrawer({
           >
             {continuity?.handoff
               ? continuity.handoff.summary || "No summary recorded."
-              : continuity?.enabled === false
-                ? "Continuity is off for this resident."
-                : "No handoff has been recorded yet."}
+              : savedHandoffPresentation(continuity).empty}
           </p>
+          {continuity?.handoff ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              Saved here; check a turn&apos;s context receipt for what
+              Polyphonic delivered.
+            </p>
+          ) : null}
         </div>
       </section>
 

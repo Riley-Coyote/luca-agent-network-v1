@@ -459,7 +459,7 @@ function NotebookSection({
         handoffSlot={
           <details className="group border-y border-border/55 py-1">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring">
-              <span>Current handoff</span>
+              <span>Saved handoff</span>
               <span className="text-2xs uppercase tracking-caps-wide text-muted-foreground group-open:hidden">
                 Show
               </span>

@@ -43,6 +43,10 @@ import { Switch } from "@/shared/ui/switch";
 import { Textarea } from "@/shared/ui/textarea";
 import { cn } from "@/shared/lib/cn";
 import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
+import {
+  handoffJobLabel,
+  savedHandoffPresentation,
+} from "./continuityPresentation";
 
 type HandoffDraft = {
   summary: string;
@@ -225,7 +229,7 @@ export function ResidentHandoffPanel({
     };
     const saved = await apply(
       () => correctResidentHandoff(residentPubkey, correction),
-      "Continuity corrected.",
+      "Saved handoff corrected.",
     );
     if (saved) setEditing(false);
   }
@@ -273,20 +277,26 @@ export function ResidentHandoffPanel({
       <section className="overflow-hidden rounded-2xl bg-muted/20">
         <div className="flex items-start justify-between gap-4 px-4 py-4">
           <div className="min-w-0">
-            <h4 className="text-sm font-medium text-foreground">Continuity</h4>
+            <h4 className="text-sm font-medium text-foreground">
+              Saved handoff
+            </h4>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">
-              Luca keeps one small encrypted handoff for this resident. It is
-              separate from the agent&apos;s native memory and configuration.
+              Luca stores a small encrypted handoff separately from the
+              resident&apos;s native memory. Saving it does not confirm it was
+              loaded for a later turn. Check that turn&apos;s context receipt
+              for what Polyphonic delivered.
             </p>
           </div>
           <Switch
-            aria-label="Enable resident continuity"
-            checked={data?.enabled ?? true}
-            disabled={busy}
+            aria-label="Enable handoff continuity"
+            checked={data?.enabled ?? false}
+            disabled={busy || !data}
             onCheckedChange={(enabled) => {
               void apply(
                 () => setResidentContinuityEnabled(residentPubkey, enabled),
-                enabled ? "Continuity enabled." : "Continuity disabled.",
+                enabled
+                  ? "Handoff saving enabled."
+                  : "Handoff saving disabled.",
               );
             }}
           />
@@ -310,7 +320,7 @@ export function ResidentHandoffPanel({
           onClick={() =>
             void apply(
               () => retryResidentHandoff(residentPubkey),
-              "Continuity retry scheduled.",
+              "Handoff save retry scheduled.",
             )
           }
           variant="outline"
@@ -341,9 +351,7 @@ export function ResidentHandoffPanel({
           />
         )
       ) : (
-        <ContinuityEmptyState
-          availability={data?.availability ?? "unavailable"}
-        />
+        <ContinuityEmptyState data={data} />
       )}
 
       <AlertDialog onOpenChange={setConfirmForget} open={confirmForget}>
@@ -385,13 +393,26 @@ function ContinuityStatus({
 }) {
   const job = data?.job;
   const active = job?.state === "pending" || job?.state === "running";
+  const presentation = savedHandoffPresentation(data);
   return (
-    <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
-      <span>{data?.enabled ? data.availability : "disabled"}</span>
-      <span className="flex items-center gap-1.5">
-        {active ? <LoaderCircle className="size-3 animate-spin" /> : null}
-        {job ? job.state : "no jobs"}
-      </span>
+    <div>
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <span>{presentation.label}</span>
+        <span className="flex items-center gap-1.5">
+          {active ? (
+            <LoaderCircle className="size-3 animate-spin motion-reduce:animate-none" />
+          ) : null}
+          {handoffJobLabel(data)}
+        </span>
+      </div>
+      <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+        {presentation.detail}
+      </p>
+      {job?.state === "failed" ? (
+        <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+          The latest handoff save failed. Messaging still works.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -416,8 +437,8 @@ function HandoffView({
     <section className="overflow-hidden rounded-2xl border border-border/60 bg-background/30">
       <div className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3">
         <div>
-          <p className="text-sm font-medium">Current handoff</p>
-          <p className="mt-0.5 font-mono text-badge uppercase tracking-caps text-muted-foreground">
+          <p className="text-sm font-medium">Saved handoff</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {relativeDate(handoff.updatedAt)} · revision {handoff.revision}
             {handoff.pinnedOwnerCorrection ? " · owner corrected" : ""}
           </p>
@@ -614,15 +635,12 @@ function HandoffEditor({
   );
 }
 
-function ContinuityEmptyState({ availability }: { availability: string }) {
-  const copy =
-    availability === "locked"
-      ? "Continuity is locked. Messaging still works normally."
-      : availability === "invalid"
-        ? "This handoff could not be authenticated. Messaging is unaffected."
-        : availability === "unavailable"
-          ? "Continuity is temporarily unavailable. Messaging is unaffected."
-          : "No handoff yet. After a meaningful exchange, this resident may preserve a compact working-state summary.";
+function ContinuityEmptyState({
+  data,
+}: {
+  data: ResidentContinuityInspector | null;
+}) {
+  const copy = savedHandoffPresentation(data).empty;
   return (
     <div className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 px-6 py-8 text-center">
       <FileClock className="size-5 text-muted-foreground" />

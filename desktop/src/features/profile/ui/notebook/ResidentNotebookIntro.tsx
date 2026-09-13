@@ -23,8 +23,10 @@ export function ResidentNotebookIntro({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">Notebook</p>
         <p className="mt-1 max-w-xl text-xs leading-5 text-muted-foreground">
-          Notes may support future conversations. Journal pages stay out of
-          ordinary chat unless you explicitly select them later.
+          Notes are saved here for possible future context. Saving a note does
+          not guarantee a later turn retrieves it; check that turn&apos;s
+          receipt for what Polyphonic delivered. Journal pages stay out of
+          ordinary chat unless you explicitly select them.
         </p>
         {actions ? <div className="mt-3">{actions}</div> : null}
       </div>
