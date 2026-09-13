@@ -7,7 +7,7 @@
 use crate::acp::{EnvVar, McpServer};
 
 pub(crate) const SERVER_NAME: &str = "polyphonic-browser";
-pub(crate) const PROMPT: &str = "For browser tasks, use the polyphonic-browser tools. This runtime session has a fresh isolated browser context; sign-ins and cookies do not persist after it closes. Do not use a different browser tool for these tasks.";
+pub(crate) const PROMPT: &str = "For browser tasks, use the polyphonic-browser tools. If they are not initially visible, use the runtime tool search/discovery to find them before reporting them unavailable (the exposed tool prefix may be polyphonic_browser). This runtime session has a fresh isolated browser context; sign-ins and cookies do not persist after it closes. Do not use a different browser tool for these tasks.";
 pub(crate) const UNAVAILABLE_PROMPT: &str = "Isolated browser tools are unavailable in this runtime session. For browser tasks, report that limitation; do not fall back to a shared or personal browser. Other tools remain available.";
 
 pub(crate) fn supported_runtime(name: &str) -> bool {
