@@ -14,6 +14,7 @@ import {
 } from "@/features/pulse/ui/ActivityPageHeader";
 import { ProvenanceRow } from "@/features/provenance/ui/ProvenanceRow";
 import { useAgentProvenanceQuery } from "@/features/provenance/useAgentProvenance";
+import { ProvenanceTimestampBoundaryLimitError } from "@/features/provenance/lib/provenancePagination";
 import type { SearchHit } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -57,16 +58,15 @@ function groupByDay(records: ProvenanceRecord[]) {
 /**
  * The end of the kept trail.
  *
- * Process events (kind 24200) are ephemeral by design — the relay never stores
- * them. Saying so here is the honest version of "never go dark": the silence
- * below this line is a storage decision, not an idle agent.
+ * Process events (kind 24200) are absent from this signed relay record. The
+ * in-thread activity archive keeps a separate local account of live work.
  */
 function TrailEndMarker({ exhausted }: { exhausted: boolean }) {
   return (
     <div className="border-border/50 border-t pt-3 pb-8">
       <p className="mx-auto max-w-md text-center text-2xs text-muted-foreground leading-relaxed">
         {exhausted
-          ? "End of the signed record. Tool calls, file edits and shell commands are broadcast live and never stored — that work happened, but nothing kept it."
+          ? "End of the signed relay record. Live tool activity is kept separately in the conversation's local activity archive."
           : "Older entries are still on the relay."}
       </p>
     </div>
@@ -123,12 +123,14 @@ export function ProvenanceView({
   const [selectedPubkey, setSelectedPubkey] = React.useState<string | null>(
     null,
   );
-  const activePubkey = selectedPubkey ?? agents[0]?.pubkey ?? null;
   const activeAgent =
     agents.find(
       (agent) =>
-        normalizePubkey(agent.pubkey) === normalizePubkey(activePubkey ?? ""),
-    ) ?? null;
+        normalizePubkey(agent.pubkey) === normalizePubkey(selectedPubkey ?? ""),
+    ) ??
+    agents[0] ??
+    null;
+  const activePubkey = activeAgent?.pubkey ?? null;
 
   const provenanceQuery = useAgentProvenanceQuery(activePubkey);
 
@@ -204,7 +206,11 @@ export function ProvenanceView({
             </div>
             <span className="shrink-0 text-2xs text-muted-foreground">
               <span className="font-mono tabular-nums">{records.length}</span>
-              {provenanceQuery.hasNextPage ? " loaded" : " records"}
+              {provenanceQuery.hasNextPage
+                ? " loaded"
+                : records.length === 1
+                  ? " record"
+                  : " records"}
             </span>
           </div>
 
@@ -247,7 +253,10 @@ export function ProvenanceView({
 
           {provenanceQuery.isError ? (
             <p className="pt-8 text-center text-muted-foreground text-sm">
-              Couldn't reach the relay to read this resident's record.
+              {provenanceQuery.error instanceof
+              ProvenanceTimestampBoundaryLimitError
+                ? "Too many records share one timestamp to safely load the next page. The records already loaded are preserved."
+                : "Couldn't reach the relay to read this resident's record."}
             </p>
           ) : null}
 
@@ -277,9 +286,7 @@ export function ProvenanceView({
                     }
                     key={record.event.id}
                     onOpenInConversation={
-                      record.channelId
-                        ? () => openInConversation(record)
-                        : null
+                      record.channelId ? () => openInConversation(record) : null
                     }
                     record={record}
                   />

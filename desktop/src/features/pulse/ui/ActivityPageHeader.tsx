@@ -66,7 +66,7 @@ export function ActivityPageHeader({
 }) {
   return (
     <header className="border-b border-border/60">
-      <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-widest text-muted-foreground">
+      <div className="flex items-center gap-2 text-2xs uppercase tracking-widest text-muted-foreground">
         <Bot aria-hidden className="h-3.5 w-3.5" />
         Your agents at work
       </div>

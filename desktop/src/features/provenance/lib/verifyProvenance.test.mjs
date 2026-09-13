@@ -5,7 +5,6 @@ import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 import { hexToBytes } from "@noble/hashes/utils.js";
 
 import {
-  resetProvenanceVerificationCache,
   tallyVerifications,
   verifyProvenanceEvent,
 } from "./verifyProvenance.ts";
@@ -28,20 +27,30 @@ function signed(content = "the runtime atlas finished rebuilding") {
 }
 
 test("a genuinely signed event verifies", () => {
-  resetProvenanceVerificationCache();
   assert.equal(verifyProvenanceEvent(signed()), "verified");
 });
 
 test("editing the content after signing fails verification", () => {
-  resetProvenanceVerificationCache();
   const event = signed();
   // Same id and signature, different body — the tamper the id is meant to catch.
   const tampered = { ...event, content: "nothing was rebuilt" };
   assert.equal(verifyProvenanceEvent(tampered), "failed");
 });
 
+test("a prior verified id cannot hide changed content or signature", () => {
+  const event = signed();
+  assert.equal(verifyProvenanceEvent(event), "verified");
+  assert.equal(
+    verifyProvenanceEvent({ ...event, content: "nothing was rebuilt" }),
+    "failed",
+  );
+  assert.equal(
+    verifyProvenanceEvent({ ...event, sig: "0".repeat(128) }),
+    "failed",
+  );
+});
+
 test("a signature from another key fails verification", () => {
-  resetProvenanceVerificationCache();
   const event = signed();
   const impostor = finalizeEvent(
     {
@@ -58,14 +67,12 @@ test("a signature from another key fails verification", () => {
 });
 
 test("placeholder signatures are unverifiable, not failures", () => {
-  resetProvenanceVerificationCache();
   const event = signed();
   const unsigned = { ...event, sig: "mocksig".repeat(20).slice(0, 128) };
   assert.equal(verifyProvenanceEvent(unsigned), "unverifiable");
 });
 
 test("an id that is not a hash is unverifiable", () => {
-  resetProvenanceVerificationCache();
   const event = signed();
   assert.equal(
     verifyProvenanceEvent({ ...event, id: "not-a-hash" }),
@@ -74,7 +81,6 @@ test("an id that is not a hash is unverifiable", () => {
 });
 
 test("a tally counts each outcome separately", () => {
-  resetProvenanceVerificationCache();
   const good = signed("one");
   const tampered = { ...signed("two"), content: "edited" };
   const placeholder = {

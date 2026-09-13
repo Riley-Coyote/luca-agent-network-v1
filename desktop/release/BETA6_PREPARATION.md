@@ -20,6 +20,16 @@ Instrument Sans chrome and Inter reading text remain. Technical content stays mo
 
 ## Preparation checks
 
+Activity page integration continues on `codex/activity-page-beta6` from
+`90d262ad0`, porting the single `wp/provenance1` feature commit `f3dd9c76c`.
+It preserves Now / Signed record and adds current-field signature checks,
+timestamp-boundary pagination, and reader/community-scoped query cancellation.
+The signed record reads authorized relay history; local in-thread activity is
+stored separately. A timestamp bucket reaching the relay's 2,000-event cap
+stops with an explicit error instead of silently skipping history.
+Focused source/browser checks and installed Dev review belong to this candidate's
+delivery receipt; the beta release process below remains separate.
+
 - Review the clean source diff and installed revision before the release cut.
 - Verify focused visual/focus checks and the signed Dev app; see delivery receipts.
 - Recheck free internal-drive space before release builds (97 GiB available at prep).

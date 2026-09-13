@@ -22,9 +22,6 @@ export type VerificationStatus = "verified" | "failed" | "unverifiable";
 const HEX_64 = /^[0-9a-f]{64}$/;
 const HEX_128 = /^[0-9a-f]{128}$/;
 
-/** Results are immutable per event id, so one check per record is enough. */
-const cache = new Map<string, VerificationStatus>();
-
 function shapeIsCheckable(event: RelayEvent): boolean {
   return (
     HEX_64.test(event.id.toLowerCase()) &&
@@ -34,7 +31,7 @@ function shapeIsCheckable(event: RelayEvent): boolean {
 }
 
 /**
- * Verify one record, memoised by event id.
+ * Verify one record from its current fields.
  *
  * Two independent checks, in this order:
  *
@@ -50,9 +47,6 @@ function shapeIsCheckable(event: RelayEvent): boolean {
  * cache is not a verifier. Proven by the tamper cases in the sibling test.
  */
 export function verifyProvenanceEvent(event: RelayEvent): VerificationStatus {
-  const cached = cache.get(event.id);
-  if (cached) return cached;
-
   let status: VerificationStatus;
   if (!shapeIsCheckable(event)) {
     status = "unverifiable";
@@ -79,12 +73,7 @@ export function verifyProvenanceEvent(event: RelayEvent): VerificationStatus {
     }
   }
 
-  cache.set(event.id, status);
   return status;
-}
-
-export function resetProvenanceVerificationCache(): void {
-  cache.clear();
 }
 
 export type VerificationTally = {
@@ -93,9 +82,7 @@ export type VerificationTally = {
   unverifiable: number;
 };
 
-export function tallyVerifications(
-  events: RelayEvent[],
-): VerificationTally {
+export function tallyVerifications(events: RelayEvent[]): VerificationTally {
   const tally: VerificationTally = {
     verified: 0,
     failed: 0,

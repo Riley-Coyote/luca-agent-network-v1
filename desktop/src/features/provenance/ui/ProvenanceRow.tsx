@@ -178,7 +178,7 @@ export function ProvenanceRow({
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span className="w-12 shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+        <span className="w-12 shrink-0 text-2xs text-muted-foreground tabular-nums">
           {clockLabel(record.createdAt)}
         </span>
 
@@ -253,11 +253,7 @@ export function ProvenanceRow({
 
           <div className="mt-1 divide-y divide-border/40">
             <ReceiptField label="event id" value={record.event.id} />
-            <ReceiptField
-              label="signature"
-              truncate
-              value={record.event.sig}
-            />
+            <ReceiptField label="signature" truncate value={record.event.sig} />
             <ReceiptField label="kind" value={String(record.event.kind)} />
             <ReceiptField
               label="signed at"
