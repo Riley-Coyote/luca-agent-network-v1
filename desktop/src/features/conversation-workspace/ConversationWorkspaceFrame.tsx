@@ -206,6 +206,13 @@ export function ConversationWorkspaceFrame({
     >
       <div
         className="relative grid min-h-0 min-w-0 flex-1 gap-[5px] p-[5px] pl-px"
+        data-luca-joinable={
+          !projection.hidden &&
+          projection.preset !== "rows-2" &&
+          projection.preset !== "grid-4"
+            ? ""
+            : undefined
+        }
         data-testid="conversation-workspace-grid"
         style={gridStyle(projection.preset, columnRatio, rowRatio)}
       >

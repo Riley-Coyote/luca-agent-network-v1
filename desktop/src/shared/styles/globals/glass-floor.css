@@ -165,6 +165,46 @@
   background: rgb(252 251 249 / 0.66);
 }
 
+/* Native glass cards share the same desktop backdrop at the selector seam.
+   Suppress each card's contact shadow there; its translucent scrim runs to
+   the divider without a second dark band or overlapping weather. */
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-testid="conversation-workspace-grid"][data-luca-joinable]
+  > [data-luca-card]:first-child,
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-testid="conversation-workspace-grid"][data-luca-joinable]
+  > [data-luca-card]:first-child,
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
+:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+  .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
+    :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
+  )
+  [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"],
+:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+  .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
+    :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
+  )
+  [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"] {
+  box-shadow: none;
+}
+
 /* ── held things ──────────────────────────────────────────────────
    The composer well and the sent bubble are one role — what you are
    typing and what you have sent — a recessed glass darkened by stacking

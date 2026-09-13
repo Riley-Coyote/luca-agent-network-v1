@@ -363,6 +363,46 @@
   padding-left: var(--mn-card-gap);
 }
 
+/* The open selector and the first conversation pane form one card. The
+   selector belongs to Sidebar for navigation and motion, so join their paint
+   at the shared edge without changing either one's layout ownership. Other
+   workspace panes retain their own card gaps and rounded edges. */
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-testid="conversation-workspace-grid"][data-luca-joinable] {
+  padding-left: 0;
+}
+
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-testid="conversation-workspace-grid"][data-luca-joinable]
+  > [data-luca-card]:first-child {
+  border-left: 0;
+  border-bottom-left-radius: 0;
+  border-top-left-radius: 0;
+  box-shadow: none;
+}
+
+/* Compose has a single routed conversation card instead of the tiled grid.
+   Its own 1px inset (or the collapsed rail's 8px inset) must also yield at
+   the selector seam; the right edge keeps its ordinary drawer separation. */
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has(
+    [data-testid="agent-chats-column"][data-panel-open="true"]
+  )
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])) {
+  border-left: 0;
+  border-bottom-left-radius: 0;
+  border-top-left-radius: 0;
+  box-shadow: none;
+  margin-left: 0;
+}
+
 :root[data-luca-shell]
   [data-luca-floor-host]:has(> [data-luca-right-cards]:not(:empty))
   [data-testid="conversation-workspace-grid"] {
@@ -685,8 +725,8 @@
   background: hsl(var(--mn-signal));
 }
 
-/* The selector is a sibling card, matching the right-hand drawers. Its slot
-   supplies the outer lip; the conversation supplies the gap on its right. */
+/* The selector's slot supplies the outer lip. Its right edge joins the
+   conversation; right-hand drawers remain separate cards on the floor. */
 :root[data-luca-shell] [data-testid="agent-column-mover"] {
   padding: var(--mn-card-lip) 0 var(--mn-card-lip) var(--mn-card-lip);
   transform: translateX(0);
@@ -707,6 +747,33 @@
 
 :root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
   overflow: hidden;
+}
+
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
+    :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
+  )
+  [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"] {
+  border-right: 0;
+  border-bottom-right-radius: 0;
+  border-top-right-radius: 0;
+  box-shadow: none;
+  position: relative;
+}
+
+:root[data-luca-shell]
+  .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
+    :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
+  )
+  [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"]::after {
+  background: hsl(var(--mn-ink) / 0.09);
+  bottom: 0;
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 1px;
 }
 
 :root[data-luca-shell]

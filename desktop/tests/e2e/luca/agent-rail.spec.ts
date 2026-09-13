@@ -304,28 +304,50 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
   await expect(column).toBeVisible();
   await expect.poll(async () => (await column.boundingBox())?.x ?? -1).toBe(8);
   await waitForAnimations(page);
-  const geometry = await column.evaluate((el) => {
-    const card = document.querySelector(
-      '[data-testid="conversation-workspace-grid"] [data-luca-card]',
-    );
-    if (!card) throw new Error("Conversation card missing");
-    const a = el.getBoundingClientRect();
-    const b = card.getBoundingClientRect();
-    return {
-      top: a.top - b.top,
-      bottom: a.bottom - b.bottom,
-      gap: b.left - a.right,
-      radius: getComputedStyle(el).borderRadius,
-      otherRadius: getComputedStyle(card).borderRadius,
-      surface: getComputedStyle(el).backgroundColor,
-      otherSurface: getComputedStyle(card).backgroundColor,
-    };
-  });
-  expect(geometry.top).toBe(0);
-  expect(geometry.bottom).toBe(0);
-  expect(geometry.gap).toBe(4);
-  expect(geometry.radius).toBe(geometry.otherRadius);
-  expect(geometry.surface).toBe(geometry.otherSurface);
+  const joinedSurface = () =>
+    column.evaluate((el) => {
+      const card = document.querySelector(
+        '[data-testid="conversation-workspace-grid"] > [data-luca-card]:first-child',
+      );
+      if (!card) throw new Error("Leading conversation pane missing");
+      const a = el.getBoundingClientRect();
+      const b = card.getBoundingClientRect();
+      const selectorStyle = getComputedStyle(el);
+      const paneStyle = getComputedStyle(card);
+      return {
+        top: a.top - b.top,
+        bottom: a.bottom - b.bottom,
+        gap: b.left - a.right,
+        outerRadius: selectorStyle.borderTopLeftRadius,
+        innerRadii: [
+          selectorStyle.borderTopRightRadius,
+          selectorStyle.borderBottomRightRadius,
+          paneStyle.borderTopLeftRadius,
+          paneStyle.borderBottomLeftRadius,
+        ],
+        seamBorders: [
+          selectorStyle.borderRightWidth,
+          paneStyle.borderLeftWidth,
+        ],
+        shadows: [selectorStyle.boxShadow, paneStyle.boxShadow],
+        divider: getComputedStyle(el, "::after").width,
+        surface: selectorStyle.backgroundColor,
+        otherSurface: paneStyle.backgroundColor,
+      };
+    });
+  const assertJoinedSurface = async () => {
+    const geometry = await joinedSurface();
+    expect(geometry.top).toBe(0);
+    expect(geometry.bottom).toBe(0);
+    expect(geometry.gap).toBe(0);
+    expect(geometry.outerRadius).not.toBe("0px");
+    expect(geometry.innerRadii).toEqual(["0px", "0px", "0px", "0px"]);
+    expect(geometry.seamBorders).toEqual(["0px", "0px"]);
+    expect(geometry.shadows).toEqual(["none", "none"]);
+    expect(geometry.divider).toBe("1px");
+    expect(geometry.surface).toBe(geometry.otherSurface);
+  };
+  await assertJoinedSurface();
   // The column's header sits below the window-controls strip, as the rail's
   // first row does — nothing of it hides under the traffic lights or the nav.
   const chrome = await page.getByTestId("app-top-chrome").boundingBox();
@@ -347,6 +369,7 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeGreaterThan(100);
   await waitForAnimations(page);
+  await assertJoinedSurface();
   await column.getByRole("button", { name: "Close chats with Atlas" }).click();
   await expect(column).toHaveCount(0);
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
