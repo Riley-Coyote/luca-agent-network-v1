@@ -52,15 +52,23 @@ export function AgentsScreen() {
 
   const selectResident = React.useCallback(
     (pubkey: string) => {
+      const reselectingCurrentResident =
+        values.profile?.toLowerCase() === pubkey.toLowerCase();
       applyPatch({
         profile: pubkey,
         profilePersona: null,
         profileTab: null,
         profileView: null,
-        section: null,
+        // A reload can leave the owner on a resident's deep-linked Notebook.
+        // Re-selecting that same roster row must not discard the URL section.
+        section: reselectingCurrentResident
+          ? section === "documents"
+            ? null
+            : section
+          : null,
       });
     },
-    [applyPatch],
+    [applyPatch, section, values.profile],
   );
   const selectPersona = React.useCallback(
     (personaId: string) => {

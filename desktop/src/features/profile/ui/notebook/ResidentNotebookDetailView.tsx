@@ -66,19 +66,27 @@ const NOTE_CATEGORIES: ResidentMemoryNoteCategory[] = [
 
 export function ResidentNotebookDetailView({
   detail,
+  initialDetailAnchor,
   onBack,
+  onDetailAnchorChange,
   onChanged,
   residentPubkey,
 }: {
   detail: ResidentNotebookDetail;
+  initialDetailAnchor?: "body" | "sources" | "annotations" | "history" | null;
   onBack: () => void;
+  onDetailAnchorChange?: (
+    anchor: "body" | "sources" | "annotations" | "history",
+  ) => void;
   onChanged: (detail: ResidentNotebookDetail) => Promise<void>;
   residentPubkey: string;
 }) {
   const { goChannel } = useAppNavigation();
   const [mode, setMode] = React.useState<EditorMode>(null);
   const [busy, setBusy] = React.useState(false);
-  const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(
+    initialDetailAnchor === "history",
+  );
   const [confirmAction, setConfirmAction] = React.useState<
     "archive" | "forget" | null
   >(null);
@@ -107,6 +115,7 @@ export function ResidentNotebookDetailView({
   }
 
   async function openSource(eventId: string) {
+    onDetailAnchorChange?.("sources");
     try {
       const event = await getEventById(eventId);
       const channelId = getChannelIdFromTags(event.tags);
@@ -172,7 +181,7 @@ export function ResidentNotebookDetailView({
           <ChevronLeft />
         </Button>
         <div className="min-w-0 flex-1">
-          <p className="font-mono text-2xs uppercase tracking-caps-wide text-muted-foreground">
+          <p className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
             {page
               ? "Resident-authored journal page"
               : notebookCategoryLabel(item.category)}
@@ -180,7 +189,7 @@ export function ResidentNotebookDetailView({
           <h4 className="mt-1 text-base font-medium leading-6 text-foreground">
             {page ? item.title || "Untitled page" : "Continuity note"}
           </h4>
-          <p className="mt-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+          <p className="mt-1 text-2xs uppercase tracking-caps text-muted-foreground">
             {item.authorship === "resident"
               ? "Kept by resident"
               : "Owner correction"}{" "}
@@ -195,24 +204,37 @@ export function ResidentNotebookDetailView({
         </div>
       ) : null}
 
-      {page ? <JournalPageBody item={item} /> : <MemoryNoteBody item={item} />}
+      <div data-notebook-detail-anchor="body">
+        {page ? (
+          <JournalPageBody item={item} />
+        ) : (
+          <MemoryNoteBody item={item} />
+        )}
+      </div>
 
-      <NotebookSources item={item} onOpenSource={(id) => void openSource(id)} />
+      <div data-notebook-detail-anchor="sources">
+        <NotebookSources
+          item={item}
+          onOpenSource={(id) => void openSource(id)}
+        />
+      </div>
 
       {detail.annotations.length > 0 ? (
-        <section className="space-y-2 border-l border-border/70 pl-3">
-          <SectionLabel>Owner annotations</SectionLabel>
-          {detail.annotations.map((annotation) => (
-            <div className="py-1" key={annotation.itemId}>
-              <p className="text-sm leading-6 text-ink-muted">
-                {annotation.body}
-              </p>
-              <p className="mt-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
-                Owner · {notebookTimestamp(annotation.updatedAt)}
-              </p>
-            </div>
-          ))}
-        </section>
+        <div data-notebook-detail-anchor="annotations">
+          <section className="space-y-2 border-l border-border/70 pl-3">
+            <SectionLabel>Owner annotations</SectionLabel>
+            {detail.annotations.map((annotation) => (
+              <div className="py-1" key={annotation.itemId}>
+                <p className="text-sm leading-6 text-ink-muted">
+                  {annotation.body}
+                </p>
+                <p className="mt-1 text-2xs uppercase tracking-caps text-muted-foreground">
+                  Owner · {notebookTimestamp(annotation.updatedAt)}
+                </p>
+              </div>
+            ))}
+          </section>
+        </div>
       ) : null}
 
       {mode === "correct" ? (
@@ -279,7 +301,12 @@ export function ResidentNotebookDetailView({
       ) : null}
 
       {historyOpen ? (
-        <RevisionHistory currentId={item.itemId} revisions={detail.revisions} />
+        <div data-notebook-detail-anchor="history">
+          <RevisionHistory
+            currentId={item.itemId}
+            revisions={detail.revisions}
+          />
+        </div>
       ) : null}
 
       <div className="grid grid-cols-2 gap-1 border-t border-border/60 pt-3">
@@ -319,7 +346,10 @@ export function ResidentNotebookDetailView({
         <QuietAction
           icon={History}
           label={historyOpen ? "Hide history" : "Revision history"}
-          onClick={() => void toggleHistory()}
+          onClick={() => {
+            onDetailAnchorChange?.("history");
+            void toggleHistory();
+          }}
         />
         <QuietAction
           icon={Archive}
@@ -388,12 +418,12 @@ function MemoryNoteBody({ item }: { item: ResidentNotebookItem }) {
   return (
     <section className="space-y-3">
       {item.pinnedOwnerCorrection ? (
-        <div className="flex items-center gap-2 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+        <div className="flex items-center gap-2 text-2xs uppercase tracking-caps text-muted-foreground">
           <Pin className="size-3" /> Pinned owner authority
         </div>
       ) : null}
       <p className="text-sm leading-6 text-ink">{item.body}</p>
-      <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-2xs uppercase tracking-caps text-muted-foreground">
         <span>{item.status}</span>
         <span>created {notebookTimestamp(item.createdAt)}</span>
       </div>
@@ -462,7 +492,7 @@ function RevisionHistory({
             )}
             key={revision.itemId}
           >
-            <div className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps">
+            <div className="flex items-center justify-between gap-3 text-2xs uppercase tracking-caps">
               <span>
                 Revision {revision.revision}
                 {revision.itemId === currentId ? " · current" : ""}

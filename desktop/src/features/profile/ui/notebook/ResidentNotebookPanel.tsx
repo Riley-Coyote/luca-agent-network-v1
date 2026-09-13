@@ -28,7 +28,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { cn } from "@/shared/lib/cn";
 
 import { ResidentNotebookDetailView } from "./ResidentNotebookDetailView";
-import { ResidentNotebookGrowthField } from "./ResidentNotebookGrowthField";
+import { ResidentNotebookIntro } from "./ResidentNotebookIntro";
 import { ResidentNotebookLedgerRow } from "./ResidentNotebookLedgerRow";
 import {
   notebookAvailabilityCopy,
@@ -36,8 +36,10 @@ import {
   notebookItemMatchesView,
   mergeNotebookItemsById,
 } from "./notebookPresentation";
+import { isNotebookRequestCurrent } from "./notebookViewState";
+import { useNotebookViewState } from "./useNotebookViewState";
 
-type NotebookView = "notes" | "pages";
+const MAX_LIST_RESTORE_PAGES = 4;
 
 export function ResidentNotebookPanel({
   handoffSlot,
@@ -48,7 +50,16 @@ export function ResidentNotebookPanel({
   residentName: string;
   residentPubkey: string;
 }) {
-  const [view, setView] = React.useState<NotebookView>("notes");
+  const {
+    clearSelection: clearSavedSelection,
+    scopeKey,
+    selectItem: saveSelectedItem,
+    setDetailAnchor,
+    setListAnchor,
+    setView,
+    state: viewState,
+  } = useNotebookViewState(residentPubkey);
+  const view = viewState.view;
   const [list, setList] = React.useState<ResidentNotebookList | null>(null);
   const [selected, setSelected] = React.useState<ResidentNotebookDetail | null>(
     null,
@@ -62,17 +73,42 @@ export function ResidentNotebookPanel({
   const mountedRef = React.useRef(false);
   const refreshGenerationRef = React.useRef(0);
   const refreshInFlightRef = React.useRef<Promise<void> | null>(null);
+  const restoredSelectionRef = React.useRef<string | null>(null);
+  const restoredAnchorRef = React.useRef<string | null>(null);
+  const listRestoreRef = React.useRef({
+    key: null as string | null,
+    pages: 0,
+    cursor: null as number | null,
+  });
+  const focusOnBackRef = React.useRef<string | null>(null);
+  const panelRef = React.useRef<HTMLDivElement | null>(null);
+
+  const isCurrentRequest = React.useCallback(
+    (request: {
+      residentPubkey: string;
+      scopeKey: string | null;
+      generation: number;
+    }) =>
+      mountedRef.current &&
+      isNotebookRequestCurrent(request, {
+        residentPubkey: activeResidentRef.current,
+        scopeKey,
+        generation: refreshGenerationRef.current,
+      }),
+    [scopeKey],
+  );
 
   const refresh = React.useCallback((): Promise<void> => {
     const inFlight = refreshInFlightRef.current;
     if (inFlight) return inFlight;
 
     const requestedResident = residentPubkey;
-    const generation = refreshGenerationRef.current;
-    const isCurrent = () =>
-      mountedRef.current &&
-      activeResidentRef.current === requestedResident &&
-      refreshGenerationRef.current === generation;
+    const requestContext = {
+      residentPubkey: requestedResident,
+      scopeKey,
+      generation: refreshGenerationRef.current,
+    };
+    const isCurrent = () => isCurrentRequest(requestContext);
     const request = (async () => {
       if (isCurrent()) {
         setLoading(true);
@@ -100,7 +136,7 @@ export function ResidentNotebookPanel({
       }
     });
     return request;
-  }, [residentPubkey]);
+  }, [isCurrentRequest, residentPubkey, scopeKey]);
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -108,6 +144,8 @@ export function ResidentNotebookPanel({
     const generation = refreshGenerationRef.current + 1;
     refreshGenerationRef.current = generation;
     refreshInFlightRef.current = null;
+    restoredSelectionRef.current = null;
+    restoredAnchorRef.current = null;
     setSelected(null);
     setCreating(false);
     void refresh();
@@ -136,17 +174,56 @@ export function ResidentNotebookPanel({
     };
   }, [job?.state, refresh]);
 
-  async function openItem(itemId: string) {
-    setError(null);
-    try {
-      setSelected(await getResidentNotebookItem(residentPubkey, itemId));
-    } catch (cause) {
-      setError(errorMessage(cause));
-    }
-  }
+  const openItem = React.useCallback(
+    async (itemId: string, restored = false) => {
+      const requestContext = {
+        residentPubkey,
+        scopeKey,
+        generation: refreshGenerationRef.current,
+      };
+      setError(null);
+      try {
+        const detail = await getResidentNotebookItem(residentPubkey, itemId);
+        if (!isCurrentRequest(requestContext)) return;
+        if (!detail.item) {
+          clearSavedSelection();
+          setError(
+            restored
+              ? "Your saved notebook item is no longer available."
+              : "That notebook item is no longer available.",
+          );
+          return;
+        }
+        saveSelectedItem(detail.item.itemId, detail.item.revision);
+        if (!restored) setDetailAnchor("body");
+        setSelected(detail);
+      } catch (cause) {
+        if (!isCurrentRequest(requestContext)) return;
+        if (restored) {
+          clearSavedSelection();
+          setError("Your saved notebook item is no longer available.");
+        } else {
+          setError(errorMessage(cause));
+        }
+      }
+    },
+    [
+      clearSavedSelection,
+      isCurrentRequest,
+      residentPubkey,
+      saveSelectedItem,
+      setDetailAnchor,
+      scopeKey,
+    ],
+  );
 
   async function loadMore() {
     if (list?.nextCursor === null || list?.nextCursor === undefined) return;
+    const requestContext = {
+      residentPubkey,
+      scopeKey,
+      generation: refreshGenerationRef.current,
+    };
     setLoadingMore(true);
     try {
       const next = await listResidentNotebookItems(
@@ -154,28 +231,152 @@ export function ResidentNotebookPanel({
         list.nextCursor,
         25,
       );
+      if (!isCurrentRequest(requestContext)) return;
       setList({
         ...next,
         items: mergeNotebookItemsById(list.items, next.items),
       });
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (isCurrentRequest(requestContext)) setError(errorMessage(cause));
     } finally {
-      setLoadingMore(false);
+      if (isCurrentRequest(requestContext)) setLoadingMore(false);
     }
   }
 
+  React.useEffect(() => {
+    const saved = viewState.selected;
+    if (!saved || selected || !list) return;
+    const restoreKey = `${scopeKey}:${saved.itemId}:${saved.revision ?? ""}`;
+    if (restoredSelectionRef.current === restoreKey) return;
+    restoredSelectionRef.current = restoreKey;
+    void openItem(saved.itemId, true);
+  }, [list, openItem, scopeKey, selected, viewState.selected]);
+
+  React.useEffect(() => {
+    const anchor = viewState.listAnchor;
+    if (
+      !anchor ||
+      selected ||
+      !list ||
+      list.items.some((item) => item.itemId === anchor)
+    )
+      return;
+    const key = `${scopeKey}:${anchor}`;
+    if (listRestoreRef.current.key !== key) {
+      listRestoreRef.current = { key, pages: 0, cursor: null };
+    }
+    if (
+      list.nextCursor === null ||
+      listRestoreRef.current.pages >= MAX_LIST_RESTORE_PAGES
+    ) {
+      setListAnchor(null);
+      return;
+    }
+    const cursor = list.nextCursor;
+    if (listRestoreRef.current.cursor === cursor) return;
+    const requestContext = {
+      residentPubkey,
+      scopeKey,
+      generation: refreshGenerationRef.current,
+    };
+    listRestoreRef.current.pages += 1;
+    listRestoreRef.current.cursor = cursor;
+    void listResidentNotebookItems(residentPubkey, cursor, 50)
+      .then((next) => {
+        if (!isCurrentRequest(requestContext)) return;
+        setList((current) => {
+          if (!current || current.nextCursor !== cursor) return current;
+          return {
+            ...next,
+            items: mergeNotebookItemsById(current.items, next.items),
+          };
+        });
+      })
+      .catch(() => {
+        if (isCurrentRequest(requestContext)) setListAnchor(null);
+      })
+      .finally(() => {
+        if (listRestoreRef.current.key === key) {
+          listRestoreRef.current.cursor = null;
+        }
+      });
+  }, [
+    isCurrentRequest,
+    list,
+    residentPubkey,
+    scopeKey,
+    selected,
+    setListAnchor,
+    viewState.listAnchor,
+  ]);
+
+  const listAnchorCount = list?.items.length ?? 0;
+
+  React.useLayoutEffect(() => {
+    const anchor = selected ? viewState.detailAnchor : viewState.listAnchor;
+    if (!anchor || !panelRef.current || (!selected && listAnchorCount === 0))
+      return;
+    const restoreKey = `${scopeKey}:${selected?.item?.itemId ?? view}:${anchor}`;
+    if (restoredAnchorRef.current === restoreKey) return;
+    const attribute = selected
+      ? "data-notebook-detail-anchor"
+      : "data-notebook-list-anchor";
+    const element = panelRef.current.querySelector<HTMLElement>(
+      `[${attribute}="${CSS.escape(anchor)}"]`,
+    );
+    if (!element) return;
+    element.scrollIntoView({ block: "nearest" });
+    restoredAnchorRef.current = restoreKey;
+  }, [
+    listAnchorCount,
+    scopeKey,
+    selected,
+    view,
+    viewState.detailAnchor,
+    viewState.listAnchor,
+  ]);
+
+  React.useLayoutEffect(() => {
+    const itemId = focusOnBackRef.current;
+    if (!itemId || selected || !panelRef.current || listAnchorCount === 0)
+      return;
+    const row = panelRef.current.querySelector<HTMLButtonElement>(
+      `[data-notebook-list-anchor="${CSS.escape(itemId)}"]`,
+    );
+    if (!row) return;
+    focusOnBackRef.current = null;
+    row.focus({ preventScroll: true });
+  }, [listAnchorCount, selected]);
+
   if (selected?.item) {
     return (
-      <ResidentNotebookDetailView
-        detail={selected}
-        onBack={() => setSelected(null)}
-        onChanged={async (next) => {
-          setSelected(next);
-          await refresh();
-        }}
-        residentPubkey={residentPubkey}
-      />
+      <div ref={panelRef}>
+        <ResidentNotebookDetailView
+          detail={selected}
+          initialDetailAnchor={viewState.detailAnchor}
+          onBack={() => {
+            const item = selected.item;
+            if (!item) return;
+            focusOnBackRef.current = item.itemId;
+            setListAnchor(item.itemId);
+            clearSavedSelection();
+            setSelected(null);
+          }}
+          onDetailAnchorChange={setDetailAnchor}
+          onChanged={async (next) => {
+            if (activeResidentRef.current !== residentPubkey) return;
+            if (!next.item) {
+              clearSavedSelection();
+              setSelected(null);
+              return;
+            }
+            saveSelectedItem(next.item.itemId, next.item.revision);
+            setSelected(next);
+            await refresh();
+          }}
+          residentPubkey={residentPubkey}
+        />
+      </div>
     );
   }
 
@@ -186,34 +387,29 @@ export function ResidentNotebookPanel({
   const empty = notebookAvailabilityCopy(availability, view);
 
   return (
-    <div className="space-y-3" data-testid="resident-notebook-panel">
+    <div
+      className="space-y-3"
+      data-testid="resident-notebook-panel"
+      ref={panelRef}
+    >
       <header className="space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-foreground">Notebook</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Notes may support future conversations. Journal pages stay out of
-              ordinary chat unless you explicitly select them later.
-            </p>
-          </div>
-          {view === "pages" ? (
-            <Button
-              className="shrink-0"
-              onClick={() => setCreating(true)}
-              size="sm"
-              variant="outline"
-            >
-              <Plus /> New page
-            </Button>
-          ) : null}
-        </div>
-        {list ? (
-          <ResidentNotebookGrowthField
-            availability={list.availability}
-            residentName={residentName}
-            residentPubkey={residentPubkey}
-          />
-        ) : null}
+        <ResidentNotebookIntro
+          actions={
+            view === "pages" ? (
+              <Button
+                className="shrink-0"
+                onClick={() => setCreating(true)}
+                size="sm"
+                variant="outline"
+              >
+                <Plus /> New page
+              </Button>
+            ) : undefined
+          }
+          availability={list?.availability ?? null}
+          residentName={residentName}
+          residentPubkey={residentPubkey}
+        />
         {handoffSlot}
         <div
           aria-label="Notebook sections"
@@ -304,7 +500,11 @@ export function ResidentNotebookPanel({
             <ResidentNotebookLedgerRow
               item={item}
               key={item.itemId}
-              onClick={() => void openItem(item.itemId)}
+              anchorId={item.itemId}
+              onClick={() => {
+                setListAnchor(item.itemId);
+                void openItem(item.itemId);
+              }}
             />
           ))}
         </div>

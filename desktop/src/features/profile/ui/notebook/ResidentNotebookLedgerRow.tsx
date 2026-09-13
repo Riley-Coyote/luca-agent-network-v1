@@ -9,9 +9,11 @@ import {
 } from "./notebookPresentation";
 
 export function ResidentNotebookLedgerRow({
+  anchorId,
   item,
   onClick,
 }: {
+  anchorId?: string;
   item: ResidentNotebookItem;
   onClick: () => void;
 }) {
@@ -24,6 +26,7 @@ export function ResidentNotebookLedgerRow({
   return (
     <button
       className="group flex w-full items-start gap-3 px-1 py-3 text-left transition-colors duration-150 hover:bg-muted/25 focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      data-notebook-list-anchor={anchorId}
       onClick={onClick}
       type="button"
     >
@@ -39,7 +42,7 @@ export function ResidentNotebookLedgerRow({
       </span>
 
       <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-3 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+        <span className="flex items-center justify-between gap-3 text-2xs uppercase tracking-caps text-muted-foreground">
           <span className="truncate">
             {isJournalPage
               ? "Journal page"
@@ -54,7 +57,7 @@ export function ResidentNotebookLedgerRow({
           {title}
         </span>
 
-        <span className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 font-mono text-2xs uppercase tracking-caps text-muted-foreground">
+        <span className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-2xs uppercase tracking-caps text-muted-foreground">
           <span>
             {item.authorship === "resident"
               ? "resident authored"
