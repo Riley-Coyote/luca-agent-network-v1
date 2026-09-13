@@ -34,13 +34,12 @@ export function ResidentNotebookGrowthField({
     <section
       aria-label={`${residentName} notebook field${status ? `, ${status.toLowerCase()}` : ""}`}
       className={cn(
-        "relative flex h-28 w-full items-center justify-center overflow-hidden border border-border/60 bg-black/80",
+        "relative flex h-28 w-full items-center justify-center overflow-hidden",
         className,
       )}
       data-notebook-availability={availability}
       data-testid="resident-notebook-growth-field"
     >
-      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-foreground/[0.07]" />
       <DotSigil
         accessibleName={`${residentName} notebook field`}
         bloom={0}
