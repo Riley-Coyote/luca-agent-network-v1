@@ -308,6 +308,14 @@ Acceptance: resident authors a real change; correct authorship/version is shown;
 owner correction and conflict handling work; another resident/account cannot
 read or mutate it; unavailable artifacts degrade cleanly.
 
+Delivered in Dev on September 13, 2026, source `5916ac567`: private Place,
+owner-enabled authoring through the existing exact-turn broker, and immutable
+selected work. Real Sol authoring, owner attribution, Canvas opening, and restart
+persistence verified. See
+[Stage 3 delivery](SHARED_PRESENCE_STAGE3_DELIVERY_2026-09-13.md) for the frozen
+contract, focused checks, installation, and remaining limits. Sharing was
+explicitly left out of this first version.
+
 ## Stage 4 — continuity that becomes visible on return
 
 Connect existing saved artifacts, deliberate notes, and conversation links so an
