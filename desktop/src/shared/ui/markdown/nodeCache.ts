@@ -11,6 +11,7 @@ import remarkCustomEmoji, {
   type CustomEmoji,
 } from "@/shared/lib/remarkCustomEmoji";
 import remarkMentions from "@/shared/lib/remarkMentions";
+import remarkExpressionColors from "@/shared/lib/remarkExpressionColors";
 import remarkSpoilers from "@/shared/lib/remarkSpoilers";
 
 import { messageLinkUrlTransform } from "./utils";
@@ -97,6 +98,7 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
     remarkPlugins: [
       remarkGfm,
       remarkBreaks,
+      remarkExpressionColors,
       remarkSpoilers,
       remarkMessageLinks,
       [remarkMentions, { mentionNames: input.mentionNames }],
