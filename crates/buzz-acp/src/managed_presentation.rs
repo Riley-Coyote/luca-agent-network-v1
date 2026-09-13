@@ -759,7 +759,7 @@ fn activity_kind(update: &serde_json::Value) -> ManagedPresentationActivityKindV
 }
 
 /// Reduce a runtime's tool label to the tokens worth classifying: the whole
-/// normalized name first, then its trailing one or two segments, which is how
+/// normalized name first, then its trailing one, two, or three segments, which is how
 /// an MCP name (`mcp__brave__web_search`, `mcp.luca-artifacts-0a.artifact_create`)
 /// gives up the leaf tool it actually is.
 fn tool_tokens(value: &str) -> Vec<String> {
@@ -780,6 +780,9 @@ fn tool_tokens(value: &str) -> Vec<String> {
         .filter(|part| !part.is_empty())
         .collect();
     let mut tokens = vec![parts.join("_")];
+    if parts.len() > 3 {
+        tokens.push(parts[parts.len() - 3..].join("_"));
+    }
     if parts.len() > 2 {
         tokens.push(parts[parts.len() - 2..].join("_"));
     }
@@ -808,7 +811,8 @@ fn activity_kind_for_token(token: &str) -> Option<ManagedPresentationActivityKin
             ManagedPresentationActivityKindV1::Command
         }
         "web_search" | "websearch" | "web_fetch" | "webfetch" | "browse" | "fetch_url"
-        | "url_fetch" | "http_fetch" => ManagedPresentationActivityKindV1::Web,
+        | "url_fetch" | "http_fetch" | "browser_navigate" | "browser_close" | "browser_type"
+        | "browser_snapshot" | "browser_wait_for" => ManagedPresentationActivityKindV1::Web,
         "reason" | "thinking" | "thought" => ManagedPresentationActivityKindV1::Thinking,
         "spawn_agent" | "delegate" | "delegation" | "subagent" | "sub_agent" | "parallel_agent"
         | "create_agent" => ManagedPresentationActivityKindV1::Delegation,
@@ -1087,9 +1091,19 @@ fn activity_label(
             Some(pattern) => format!("Searching for {pattern}"),
             None => "Searching".to_owned(),
         },
-        ManagedPresentationActivityKindV1::Web => match detail {
-            Some(domain) => format!("Reading {domain}"),
-            None => "Searching the web".to_owned(),
+        ManagedPresentationActivityKindV1::Web => match browser_activity_action(update) {
+            Some(BrowserActivityAction::Navigate) => match detail {
+                Some(domain) => format!("Opening {domain}"),
+                None => "Opening a page".to_owned(),
+            },
+            Some(BrowserActivityAction::Close) => "Closing the browser".to_owned(),
+            Some(BrowserActivityAction::Type) => "Typing in the browser".to_owned(),
+            Some(BrowserActivityAction::Snapshot) => "Reading the page".to_owned(),
+            Some(BrowserActivityAction::WaitFor) => "Waiting in the browser".to_owned(),
+            None => match detail {
+                Some(domain) => format!("Reading {domain}"),
+                None => "Searching the web".to_owned(),
+            },
         },
         ManagedPresentationActivityKindV1::Thinking => "Thinking".to_owned(),
         ManagedPresentationActivityKindV1::Delegation => "Delegating work".to_owned(),
@@ -1098,6 +1112,39 @@ fn activity_label(
         ManagedPresentationActivityKindV1::Other => title?,
     };
     bounded_text(&sentence, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BrowserActivityAction {
+    Navigate,
+    Close,
+    Type,
+    Snapshot,
+    WaitFor,
+}
+
+/// The designated browser MCP uses namespaced tool identifiers rather than ACP
+/// tool kinds. Match only their complete leaf pairs: generic `navigate` and
+/// `close` names may belong to an unrelated MCP and must keep their own
+/// projection.
+fn browser_activity_action(update: &serde_json::Value) -> Option<BrowserActivityAction> {
+    for field in ["kind", "toolName", "title"] {
+        let Some(text) = update.get(field).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        for token in tool_tokens(text) {
+            let action = match token.as_str() {
+                "browser_navigate" => BrowserActivityAction::Navigate,
+                "browser_close" => BrowserActivityAction::Close,
+                "browser_type" => BrowserActivityAction::Type,
+                "browser_snapshot" => BrowserActivityAction::Snapshot,
+                "browser_wait_for" => BrowserActivityAction::WaitFor,
+                _ => continue,
+            };
+            return Some(action);
+        }
+    }
+    None
 }
 
 fn is_write_token(update: &serde_json::Value) -> bool {
@@ -1639,6 +1686,84 @@ mod tests {
         assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Web);
         assert_eq!(activity.detail, None);
         assert_eq!(activity.label, "Searching the web");
+    }
+
+    #[test]
+    fn namespaced_browser_tools_get_owner_readable_labels_without_tool_payloads() {
+        let cases = [
+            (
+                "mcp__polyphonic-browser__browser_navigate",
+                serde_json::json!({
+                    "url": "https://user:password@docs.example.test:443/guide?token=secret#top"
+                }),
+                "Opening docs.example.test",
+                Some("docs.example.test"),
+            ),
+            (
+                "mcp__polyphonic_browser__browser_close",
+                serde_json::json!({"page": "PRIVATE_PAGE_ID"}),
+                "Closing the browser",
+                None,
+            ),
+            (
+                "mcp__polyphonic-browser__browser_type",
+                serde_json::json!({
+                    "selector": "#account-password",
+                    "text": "PRIVATE_TYPED_TEXT"
+                }),
+                "Typing in the browser",
+                None,
+            ),
+            (
+                "mcp__polyphonic_browser__browser_snapshot",
+                serde_json::json!({"selector": "main > article"}),
+                "Reading the page",
+                None,
+            ),
+            (
+                "mcp__polyphonic-browser__browser_wait_for",
+                serde_json::json!({"text": "PRIVATE_WAIT_CONDITION"}),
+                "Waiting in the browser",
+                None,
+            ),
+        ];
+
+        for (index, (title, raw_input, label, detail)) in cases.into_iter().enumerate() {
+            let mut ledger = ActivityLedger::default();
+            let activity = ledger
+                .start(&serde_json::json!({
+                    "sessionUpdate": "tool_call",
+                    "toolCallId": format!("browser-{index}"),
+                    "title": title,
+                    "rawInput": raw_input,
+                }))
+                .expect("a named browser step");
+            assert_eq!(activity.kind, ManagedPresentationActivityKindV1::Web);
+            assert_eq!(activity.label, label);
+            assert_eq!(activity.detail.as_deref(), detail);
+            let encoded = format!("{activity:?}");
+            assert!(!encoded.contains("PRIVATE_TYPED_TEXT"));
+            assert!(!encoded.contains("PRIVATE_WAIT_CONDITION"));
+            assert!(!encoded.contains("account-password"));
+            assert!(!encoded.contains("password@"));
+            assert!(!encoded.contains("token=secret"));
+        }
+    }
+
+    #[test]
+    fn runtime_written_browser_prose_survives_the_browser_mapping() {
+        let mut ledger = ActivityLedger::default();
+        let activity = ledger
+            .start(&serde_json::json!({
+                "sessionUpdate": "tool_call",
+                "toolCallId": "browser-prose",
+                "title": "Opening the release notes",
+                "toolName": "mcp__polyphonic-browser__browser_navigate",
+                "rawInput": {"url": "https://example.test/release-notes"},
+            }))
+            .expect("a named browser step");
+        assert_eq!(activity.label, "Opening the release notes");
+        assert_eq!(activity.detail.as_deref(), Some("example.test"));
     }
 
     #[test]
