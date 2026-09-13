@@ -1,3 +1,6 @@
+import { parseExpressionSyntax } from "./expressionSyntax";
+import { buildExpressionTree, type ExpressionNode } from "./expressionTree";
+
 /** Text-fill vocabulary shared by finalized and streaming Markdown. */
 export const EXPRESSION_COLORS = {
   amber: ["#a4540b", "#f2b86b"],
@@ -27,13 +30,6 @@ const MEANINGS: Record<string, keyof typeof EXPRESSION_COLORS> = {
   hope: "emerald",
 };
 
-type ExpressionNode = {
-  type: string;
-  url?: string;
-  children?: ExpressionNode[];
-  data?: { hName?: string; hProperties?: Record<string, string> };
-};
-
 /** Resolve only published vocabulary entries, never arbitrary CSS or URLs. */
 export function expressionColor(value: string): string | undefined {
   const name = value.toLowerCase();
@@ -41,21 +37,38 @@ export function expressionColor(value: string): string | undefined {
   return Object.hasOwn(MEANINGS, name) ? MEANINGS[name] : undefined;
 }
 
-/** [Words](color:warmth) becomes a noninteractive span, preserving emphasis.
- * Unknown color names keep readable children without creating a broken link.
- * Code and escaped Markdown remain literal because this works on parsed links.
- */
+/** Parse expressive Markdown links while keeping code and escaped notation literal. */
 export default function remarkExpressionColors() {
   return (tree: ExpressionNode) => {
+    const budget = { remaining: 512 };
+    let enhancements = 0;
     function transform(node: ExpressionNode) {
       if (node.type === "link" && node.url?.startsWith("color:")) {
-        const color = expressionColor(node.url.slice(6));
-        node.type = "expressionColor";
-        delete node.url;
-        node.data = {
-          hName: "span",
-          hProperties: color ? { "data-expression-color": color } : {},
-        };
+        const value = node.url.slice(6);
+        const color = expressionColor(value);
+        if (color) {
+          node.type = "expressionColor";
+          delete node.url;
+          node.data = {
+            hName: "span",
+            hProperties: { "data-expression-color": color },
+          };
+        } else {
+          const spec = parseExpressionSyntax(value, (name) => {
+            const key = expressionColor(name) as
+              | keyof typeof EXPRESSION_COLORS
+              | undefined;
+            return key ? EXPRESSION_COLORS[key][1] : undefined;
+          });
+          if (spec && enhancements++ < 64)
+            buildExpressionTree(node, spec, budget);
+          else {
+            node.type = "expressionColor";
+            delete node.url;
+            node.data = { hName: "span", hProperties: {} };
+          }
+        }
+        return;
       }
       for (const child of node.children ?? []) transform(child);
     }

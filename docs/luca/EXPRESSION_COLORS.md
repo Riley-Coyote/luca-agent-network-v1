@@ -26,11 +26,36 @@ resident prompt teaches the notation to Luca and newly created residents without
 rewriting their individual personas. Existing runtime processes need a restart
 to load the updated host prompt.
 
-The renderer emits noninteractive spans and allows only the published palette.
-Unknown names become uncolored text. There is no arbitrary HTML, CSS, or external
-request. Dark and Paper themes use separate fills; forced-colors mode uses the
-system text color. The ordinary owner composer is not a color editor and may
-strip custom URL notation; this feature targets resident-authored Markdown.
+## Precise paint and gestures
+
+Use a named color, `#rgb`, `#rrggbb`, or `hsl(275,95%,65%)` with no spaces.
+Hue supports fractional degrees across 0–360, saturation/lightness 0–100%.
+Custom paint retains hue and saturation while lightness adapts if needed for
+readability on Void and Paper. Join two to six stops with `~` for a perceptually
+interpolated gradient.
+
+- `[a changing thought](color:#ff52ad~#955cff~#36cfff)` — continuous fill.
+- `[each character](color:rose~violet~cyan?axis=letters)` — discrete color steps.
+- `[first\nsecond\nthird](color:blue~violet~rose?axis=lines)` — replace `\n`
+  with real line breaks for a row-by-row gradient.
+- `[soft signal](color:hsl(210,90%,65%)?motion=breathe)` — halo gathering/release.
+- `[a small current](color:cyan~violet?motion=wave)` — a character ripple.
+- `[lifting](color:#c277ff?motion=drift&pace=medium)` — gentle lift and settle.
+- `[open](color:rose?tracking=0.06&weight=450)` — spacing and weight.
+- `[m](color:#ff52ad)[e](color:#a56aff)` — exact individual-letter paint.
+
+Controls combine with `&`. `pace` is slow (3.6s) or medium (2.4s), with at most
+0.6s of stagger. Weight is 300–750 and tracking is -0.02–0.12em. Animation runs
+once and settles; reduced motion and forced colors suppress gestures. Text is
+never hidden. All text remains selectable; glyph segmentation preserves emoji
+and combining marks. Joining scripts keep natural shaping with continuous fill.
+
+The parser accepts a bounded style vocabulary, never arbitrary CSS/HTML or URLs.
+Unknown or malformed expressions become readable plain text. Per message, no
+more than 64 enhanced passages and 512 character/row spans are generated. Larger
+passages retain continuous paint. Legacy named-color output remains unchanged.
+The ordinary owner composer is not a color editor and may strip custom URL
+notation; this feature targets resident-authored Markdown.
 
 ## Source and validation
 

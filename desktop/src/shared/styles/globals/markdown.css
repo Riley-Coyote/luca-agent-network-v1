@@ -347,3 +347,103 @@
     color: CanvasText;
   }
 }
+
+/* Precise colors are normalized by the parser; the light/dark pair preserves
+   readability without letting message content supply CSS or network URLs. */
+[data-expression-tone] {
+  --expression-fill: var(--expression-light);
+}
+.dark [data-expression-tone] {
+  --expression-fill: var(--expression-dark);
+}
+[data-expression-tone],
+[data-expression-tone] strong,
+[data-expression-tone] em {
+  color: var(--expression-fill);
+}
+[data-expression-weight] {
+  font-weight: var(--expression-weight);
+}
+[data-expression-tracking] {
+  letter-spacing: var(--expression-tracking);
+}
+
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  [data-expression-gradient] {
+    background-image: var(--expression-gradient-light);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+  .dark [data-expression-gradient] {
+    background-image: var(--expression-gradient-dark);
+  }
+  [data-expression-gradient] strong,
+  [data-expression-gradient] em {
+    color: inherit;
+  }
+}
+
+/* A gesture finishes within 4.2 seconds, then leaves quiet, selectable text.
+   Relative offsets preserve normal word wrapping; nothing disappears or flashes. */
+[data-expression-motion="breathe"] {
+  animation: expression-breathe var(--expression-duration) ease-in-out 1;
+}
+[data-expression-motion="drift"] {
+  position: relative;
+  animation: expression-drift var(--expression-duration) ease-in-out 1;
+}
+[data-expression-motion="wave"] [data-expression-glyph] {
+  position: relative;
+  animation: expression-drift var(--expression-duration) ease-in-out
+    var(--expression-delay) 1;
+}
+@keyframes expression-breathe {
+  0%,
+  100% {
+    text-shadow: none;
+  }
+  50% {
+    text-shadow: 0 0 0.35em
+      color-mix(in srgb, var(--expression-fill) 35%, transparent);
+  }
+}
+@keyframes expression-drift {
+  0%,
+  100% {
+    top: 0;
+  }
+  40% {
+    top: -0.08em;
+  }
+  70% {
+    top: 0.025em;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-expression-motion],
+  [data-expression-motion="wave"] [data-expression-glyph] {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-expression-tone],
+  [data-expression-tone] strong,
+  [data-expression-tone] em {
+    background-image: none;
+    color: CanvasText;
+    text-shadow: none;
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  [data-expression-motion="wave"] [data-expression-glyph] {
+    animation: none;
+  }
+}
+[data-expression-gradient]::selection,
+[data-expression-gradient] ::selection {
+  color: HighlightText;
+  background: Highlight;
+}
