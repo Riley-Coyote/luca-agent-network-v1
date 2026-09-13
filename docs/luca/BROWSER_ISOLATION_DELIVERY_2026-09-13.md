@@ -1,6 +1,6 @@
 # Beta browser isolation candidate — September 13, 2026
 
-Source: `d110179c6cf70b0c6e2ac599d8d78dc520aa19f8` on
+Installed source: `9f4e68e81` on
 `codex/beta-browser-isolation`, based on `23ccf2e7e`.
 
 ## Scope
@@ -46,17 +46,40 @@ is included.
 - Source receipt: `Contents/Resources/luca-source.json`
 - Installed beta and release version unchanged.
 
-## Remaining acceptance — not release-verified yet
+## Installed acceptance completed
 
-The installed three-resident task is pending. App automation could read the
-window and change selected rail controls, but keyboard input and animated chat
-panels did not advance, including an attempt to foreground via the native
-Window menu. Riley was asked to bring Dev fully into the foreground.
+The foreground input issue was cleared with Riley's help. Fable, Sol, and
+Opus then ran the same bounded local-origin browser task concurrently on the
+corrected candidate. All reported an empty prior marker, their own resident
+marker, successful `ready` input, and a closed browser. Fable finished in 23s,
+Opus in 28s, and Sol in 42s including tool discovery and review.
 
-Resume with one bounded task in the existing Fable/Sol/Opus conversation:
-each resident uses only `polyphonic-browser` on the same local fixture origin,
-reports an empty prior marker and their own new marker, types into the test
-field, scrolls, and closes the test browser. Confirm actual tool usage, no
-cross-resident state, normal completion, and helper cleanup. Measure resource
-usage during that task; startup-only samples do not establish browser-task
-performance. Do not claim beta readiness before this check passes.
+The first attempts exposed a concrete Codex integration issue: its installed
+ACP adapter ignores `session/new.systemPrompt`, so browser routing guidance
+was absent. Explicit tool-registry discovery proved the server was usable.
+The final correction carries only browser routing guidance in ordinary Codex
+turn prompts, including reused sessions. A focused test covers its scope;
+continuity, other runtimes, and flag-off turns are excluded. The runtime helper
+was rebuilt and the installed bundle re-signed; no additional full native
+build was needed. Final acceptance used an ordinary browser request, without
+instructing Sol how to discover tools.
+
+Final bounded process sampling observed 24 Chrome processes at peak across
+three browsers, approximately 2,656 MiB summed RSS, and a sampled peak of
+126% aggregate CPU (100% is one core). Summed RSS can double-count shared
+memory; this is a short local-page observation, not a heavy-site benchmark.
+All new Chrome processes exited after closure. No new orphan Node/Chrome
+processes remained in the final sample; Dev ACP harnesses sampled 0% CPU
+when idle. The loopback fixture and process sampler were stopped.
+
+The earlier fixture fit the agents' viewports, so scrolling produced no actual
+movement. This pass verifies concurrent navigation, typing, state isolation,
+and closure; it does not claim a separate scrolling/animation benchmark.
+
+## Limits
+
+This remains session isolation for supported default Codex/Claude Playwright
+configuration, not a universal runtime browser or a security sandbox. Native
+profiles and unsupported browser configurations remain untouched. Fresh
+sessions require fresh website sign-in when applicable. The beta release is
+still deferred; installed beta and its data were not replaced.
