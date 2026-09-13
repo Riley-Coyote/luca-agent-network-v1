@@ -11,8 +11,8 @@ use std::{
 
 use atomic_write_file::AtomicWriteFile;
 use luca_protocol::{
-    canonical_sha256, Hex64, ManagedMessagePublishRequestV1, ManagedResponseSurfaceV1, OpaqueId,
-    SafeU53, Sha256Ref,
+    canonical_sha256, ContinuityLayerStatusV1, Hex64, ManagedMessagePublishRequestV1,
+    ManagedResponseSurfaceV1, OpaqueId, SafeU53, Sha256Ref,
 };
 use nostr::{Event, EventId};
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,53 @@ pub(crate) struct ActiveDispatch {
     /// frozen before this owner event was submitted.
     #[serde(default)]
     pub(crate) context_binding: Option<super::conversation_context::DispatchContextBindingV1>,
+    /// Body-free evidence written only after the local desktop bridge actually
+    /// delivers prepared context to this exact managed ACP turn.
+    #[serde(default)]
+    pub(crate) turn_context_receipt: Option<ManagedTurnContextReceiptV1>,
+}
+
+/// Body-free receipt for the exact context packet delivered to local managed
+/// ACP. It proves delivery to the local bridge, never model consumption, tool
+/// use, or file reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ManagedTurnContextReceiptV1 {
+    pub(crate) relay_scope: Sha256Ref,
+    pub(crate) snapshot_ref: Sha256Ref,
+    pub(crate) revision: SafeU53,
+    pub(crate) selected_source_ids: Vec<OpaqueId>,
+    #[serde(default)]
+    pub(crate) session_context: Option<ManagedTurnSessionContextReceiptV1>,
+    #[serde(default)]
+    pub(crate) continuity: Option<ManagedTurnContinuityReceiptV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedTurnSessionContextStatusV1 {
+    Ready,
+    Degraded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ManagedTurnSessionContextReceiptV1 {
+    pub(crate) status: ManagedTurnSessionContextStatusV1,
+    pub(crate) attached_session_reference_delivered: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct ManagedTurnContinuityReceiptV1 {
+    pub(crate) status: ContinuityLayerStatusV1,
+    pub(crate) layer_statuses: [ContinuityLayerStatusV1; 5],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ManagedTurnContextReceiptLookupV1 {
+    Available(ManagedTurnContextReceiptV1),
+    MissingDispatch,
+    WrongScope,
+    NotAttached,
+    NotDelivered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -369,6 +416,226 @@ impl ManagedDispatchStore {
                 row.root_event_id.clone().or_else(|| row.thread_id.clone()),
             )
         })
+    }
+
+    /// Read body-free context evidence for one exact owner-local turn. This
+    /// does not resolve current sources, so a later room edit cannot rewrite
+    /// the historical attachment receipt.
+    pub(crate) fn turn_context_receipt(
+        &self,
+        owner_pubkey: &str,
+        relay_scope: &Sha256Ref,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        dispatch_receipt_id: &str,
+    ) -> ManagedTurnContextReceiptLookupV1 {
+        let Some(row) = self.dispatches.get(&(
+            dispatch_receipt_id.to_ascii_lowercase(),
+            resident_pubkey.to_ascii_lowercase(),
+        )) else {
+            return ManagedTurnContextReceiptLookupV1::MissingDispatch;
+        };
+        if row.owner_pubkey != owner_pubkey || row.conversation_id != conversation_id {
+            return ManagedTurnContextReceiptLookupV1::WrongScope;
+        }
+        if row.context_binding.is_none() {
+            return ManagedTurnContextReceiptLookupV1::NotAttached;
+        }
+        let Some(receipt) = row.turn_context_receipt.clone() else {
+            return ManagedTurnContextReceiptLookupV1::NotDelivered;
+        };
+        if &receipt.relay_scope != relay_scope {
+            return ManagedTurnContextReceiptLookupV1::WrongScope;
+        }
+        ManagedTurnContextReceiptLookupV1::Available(receipt)
+    }
+
+    /// Persist one actual session-context write after the managed ACP bridge
+    /// accepted the bytes. Paths and attachment contents are intentionally not
+    /// accepted at this boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_turn_context_session_delivery(
+        &mut self,
+        owner_pubkey: &Hex64,
+        relay_scope: Sha256Ref,
+        trigger_event_id: &Hex64,
+        resident_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        session_epoch: SafeU53,
+        snapshot_ref: Sha256Ref,
+        revision: SafeU53,
+        selected_source_ids: Vec<OpaqueId>,
+        status: ManagedTurnSessionContextStatusV1,
+        attached_session_reference_delivered: bool,
+    ) -> Result<(), DispatchAuthorizationError> {
+        let key = (
+            trigger_event_id.as_str().to_ascii_lowercase(),
+            resident_pubkey.as_str().to_ascii_lowercase(),
+        );
+        let previous = self
+            .dispatches
+            .get(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?
+            .turn_context_receipt
+            .clone();
+        let candidate = ManagedTurnSessionContextReceiptV1 {
+            status,
+            attached_session_reference_delivered,
+        };
+        {
+            let receipt = self.turn_context_receipt_mut(
+                owner_pubkey,
+                relay_scope,
+                trigger_event_id,
+                resident_pubkey,
+                conversation_id,
+                session_epoch,
+                snapshot_ref,
+                revision,
+                selected_source_ids,
+            )?;
+            if receipt
+                .session_context
+                .as_ref()
+                .is_some_and(|value| value != &candidate)
+            {
+                return Err(DispatchAuthorizationError::Ambiguous);
+            }
+            receipt.session_context = Some(candidate);
+        }
+        if self.persist().is_err() {
+            if let Some(row) = self.dispatches.get_mut(&key) {
+                row.turn_context_receipt = previous;
+            }
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
+    }
+
+    /// Persist one actual continuity packet write after the managed ACP bridge
+    /// accepted the bytes. Presence proves local delivery only.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn record_turn_context_continuity_delivery(
+        &mut self,
+        owner_pubkey: &Hex64,
+        relay_scope: Sha256Ref,
+        trigger_event_id: &Hex64,
+        resident_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        session_epoch: SafeU53,
+        snapshot_ref: Sha256Ref,
+        revision: SafeU53,
+        selected_source_ids: Vec<OpaqueId>,
+        status: ContinuityLayerStatusV1,
+        layer_statuses: [ContinuityLayerStatusV1; 5],
+    ) -> Result<(), DispatchAuthorizationError> {
+        let key = (
+            trigger_event_id.as_str().to_ascii_lowercase(),
+            resident_pubkey.as_str().to_ascii_lowercase(),
+        );
+        let previous = self
+            .dispatches
+            .get(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?
+            .turn_context_receipt
+            .clone();
+        let candidate = ManagedTurnContinuityReceiptV1 {
+            status,
+            layer_statuses,
+        };
+        {
+            let receipt = self.turn_context_receipt_mut(
+                owner_pubkey,
+                relay_scope,
+                trigger_event_id,
+                resident_pubkey,
+                conversation_id,
+                session_epoch,
+                snapshot_ref,
+                revision,
+                selected_source_ids,
+            )?;
+            if receipt
+                .continuity
+                .as_ref()
+                .is_some_and(|value| value != &candidate)
+            {
+                return Err(DispatchAuthorizationError::Ambiguous);
+            }
+            receipt.continuity = Some(candidate);
+        }
+        if self.persist().is_err() {
+            if let Some(row) = self.dispatches.get_mut(&key) {
+                row.turn_context_receipt = previous;
+            }
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn turn_context_receipt_mut(
+        &mut self,
+        owner_pubkey: &Hex64,
+        relay_scope: Sha256Ref,
+        trigger_event_id: &Hex64,
+        resident_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        session_epoch: SafeU53,
+        snapshot_ref: Sha256Ref,
+        revision: SafeU53,
+        mut selected_source_ids: Vec<OpaqueId>,
+    ) -> Result<&mut ManagedTurnContextReceiptV1, DispatchAuthorizationError> {
+        if session_epoch.get() == 0 || revision.get() == 0 {
+            return Err(DispatchAuthorizationError::WrongSession);
+        }
+        selected_source_ids.sort();
+        selected_source_ids.dedup();
+        if selected_source_ids.len() > 32 {
+            return Err(DispatchAuthorizationError::Persistence);
+        }
+        let row = self
+            .dispatches
+            .get_mut(&(
+                trigger_event_id.as_str().to_ascii_lowercase(),
+                resident_pubkey.as_str().to_ascii_lowercase(),
+            ))
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if row.owner_pubkey != owner_pubkey.as_str()
+            || row.resident_pubkey != resident_pubkey.as_str()
+            || row.conversation_id != conversation_id.as_str()
+            || row.session_epoch != Some(session_epoch.get())
+        {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        }
+        let Some(binding) = row.context_binding.as_ref() else {
+            return Err(DispatchAuthorizationError::WrongConversation);
+        };
+        if binding.snapshot_ref != snapshot_ref || binding.revision != revision.get() {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        let candidate = ManagedTurnContextReceiptV1 {
+            relay_scope,
+            snapshot_ref,
+            revision,
+            selected_source_ids,
+            session_context: None,
+            continuity: None,
+        };
+        if let Some(existing) = &row.turn_context_receipt {
+            if existing.relay_scope != candidate.relay_scope
+                || existing.snapshot_ref != candidate.snapshot_ref
+                || existing.revision != candidate.revision
+                || existing.selected_source_ids != candidate.selected_source_ids
+            {
+                return Err(DispatchAuthorizationError::Ambiguous);
+            }
+        } else {
+            row.turn_context_receipt = Some(candidate);
+        }
+        row.turn_context_receipt
+            .as_mut()
+            .ok_or(DispatchAuthorizationError::Persistence)
     }
 
     /// Mark the only currently valid broker session for a resident.
@@ -962,6 +1229,7 @@ impl ManagedDispatchStore {
                 outbox_finalized: false,
                 artifact_bindings: artifact_bindings.clone(),
                 context_binding: context_binding.clone(),
+                turn_context_receipt: None,
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -1079,6 +1347,7 @@ impl ManagedDispatchStore {
             outbox_finalized: false,
             artifact_bindings: Vec::new(),
             context_binding: None,
+            turn_context_receipt: None,
         };
         let previous = self.dispatches.clone();
         self.dispatches.insert(key.clone(), candidate);
@@ -2212,6 +2481,11 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
     if let Some(binding) = &dispatch.context_binding {
         binding.validate()?;
     }
+    match (&dispatch.context_binding, &dispatch.turn_context_receipt) {
+        (Some(binding), Some(receipt)) => validate_turn_context_receipt(binding, receipt)?,
+        (None, Some(_)) => return Err("managed turn context receipt has no attachment".into()),
+        _ => {}
+    }
     let coherent = match dispatch.state {
         ManagedDispatchState::Pending => {
             dispatch.session_epoch.is_none()
@@ -2260,6 +2534,24 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
             return Err("managed dispatch artifact tuple is invalid".into());
         }
         previous_handle = Some(binding.handle_id.as_str());
+    }
+    Ok(())
+}
+
+fn validate_turn_context_receipt(
+    binding: &super::conversation_context::DispatchContextBindingV1,
+    receipt: &ManagedTurnContextReceiptV1,
+) -> Result<(), String> {
+    if receipt.snapshot_ref != binding.snapshot_ref
+        || receipt.revision.get() != binding.revision
+        || receipt.revision.get() == 0
+        || receipt.selected_source_ids.len() > 32
+        || receipt
+            .selected_source_ids
+            .windows(2)
+            .any(|pair| pair[0] >= pair[1])
+    {
+        return Err("managed turn context receipt is invalid".into());
     }
     Ok(())
 }
@@ -2448,6 +2740,158 @@ mod tests {
         assert!(!wire.contains("primary_source_id"));
         assert!(!wire.contains("additional_source_ids"));
         assert!(!wire.contains("selected_source_ids"));
+    }
+
+    #[test]
+    fn exact_turn_context_receipt_is_scope_bound_and_survives_reload() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("dispatches.json");
+        let owner = Keys::generate();
+        let resident = Keys::generate();
+        let trigger = event(&owner, &resident, CHANNEL_ONE, "use selected context");
+        let owner_pubkey = Hex64::parse(owner.public_key().to_hex()).expect("owner");
+        let resident_pubkey = Hex64::parse(resident.public_key().to_hex()).expect("resident");
+        let trigger_event_id = Hex64::parse(trigger.id.to_hex()).expect("trigger");
+        let conversation_id = OpaqueId::parse(CHANNEL_ONE).expect("conversation");
+        let source_id = OpaqueId::parse("source-a").expect("source");
+        let snapshot_ref =
+            Sha256Ref::parse(format!("sha256:{}", "4".repeat(64))).expect("snapshot ref");
+        let relay_scope =
+            Sha256Ref::parse(format!("sha256:{}", "5".repeat(64))).expect("relay scope");
+        let other_scope =
+            Sha256Ref::parse(format!("sha256:{}", "6".repeat(64))).expect("other relay scope");
+        let binding = super::super::conversation_context::DispatchContextBindingV1 {
+            protocol: "luca.conversation-context-binding.v1".into(),
+            snapshot_ref: snapshot_ref.clone(),
+            revision: 7,
+        };
+
+        let mut store = ManagedDispatchStore::load(path.clone()).expect("load");
+        store
+            .stage_owner_event_with_artifacts_and_context(
+                &trigger,
+                &[resident.public_key().to_hex()],
+                &[],
+                Some(binding),
+                100,
+            )
+            .expect("stage context dispatch");
+        let legacy = ManagedDispatchStore::load(path.clone()).expect("reload legacy row");
+        assert_eq!(
+            legacy.turn_context_receipt(
+                owner_pubkey.as_str(),
+                &relay_scope,
+                resident_pubkey.as_str(),
+                CHANNEL_ONE,
+                trigger_event_id.as_str(),
+            ),
+            ManagedTurnContextReceiptLookupV1::NotDelivered
+        );
+        store
+            .activate_session(resident_pubkey.as_str(), 7)
+            .expect("activate session");
+        store
+            .bind_communication_turn_start(
+                trigger_event_id.as_str(),
+                resident_pubkey.as_str(),
+                CHANNEL_ONE,
+                7,
+                101,
+            )
+            .expect("bind turn");
+        store
+            .record_turn_context_session_delivery(
+                &owner_pubkey,
+                relay_scope.clone(),
+                &trigger_event_id,
+                &resident_pubkey,
+                &conversation_id,
+                SafeU53::new(7).expect("session epoch"),
+                snapshot_ref.clone(),
+                SafeU53::new(7).expect("revision"),
+                vec![source_id.clone()],
+                ManagedTurnSessionContextStatusV1::Ready,
+                true,
+            )
+            .expect("record session delivery");
+        store
+            .record_turn_context_session_delivery(
+                &owner_pubkey,
+                relay_scope.clone(),
+                &trigger_event_id,
+                &resident_pubkey,
+                &conversation_id,
+                SafeU53::new(7).expect("session epoch"),
+                snapshot_ref.clone(),
+                SafeU53::new(7).expect("revision"),
+                vec![source_id.clone()],
+                ManagedTurnSessionContextStatusV1::Ready,
+                true,
+            )
+            .expect("idempotent session delivery");
+        store
+            .record_turn_context_continuity_delivery(
+                &owner_pubkey,
+                relay_scope.clone(),
+                &trigger_event_id,
+                &resident_pubkey,
+                &conversation_id,
+                SafeU53::new(7).expect("session epoch"),
+                snapshot_ref.clone(),
+                SafeU53::new(7).expect("revision"),
+                vec![source_id.clone()],
+                ContinuityLayerStatusV1::Ready,
+                [
+                    ContinuityLayerStatusV1::Ready,
+                    ContinuityLayerStatusV1::Empty,
+                    ContinuityLayerStatusV1::Ready,
+                    ContinuityLayerStatusV1::Empty,
+                    ContinuityLayerStatusV1::Ready,
+                ],
+            )
+            .expect("record continuity delivery");
+        assert!(matches!(
+            store.turn_context_receipt(
+                owner_pubkey.as_str(),
+                &relay_scope,
+                resident_pubkey.as_str(),
+                CHANNEL_ONE,
+                trigger_event_id.as_str(),
+            ),
+            ManagedTurnContextReceiptLookupV1::Available(_)
+        ));
+        assert_eq!(
+            store.turn_context_receipt(
+                owner_pubkey.as_str(),
+                &other_scope,
+                resident_pubkey.as_str(),
+                CHANNEL_ONE,
+                trigger_event_id.as_str(),
+            ),
+            ManagedTurnContextReceiptLookupV1::WrongScope
+        );
+        assert_eq!(
+            store.turn_context_receipt(
+                owner_pubkey.as_str(),
+                &relay_scope,
+                resident_pubkey.as_str(),
+                CHANNEL_TWO,
+                trigger_event_id.as_str(),
+            ),
+            ManagedTurnContextReceiptLookupV1::WrongScope
+        );
+
+        let reloaded = ManagedDispatchStore::load(path).expect("reload receipt");
+        assert!(matches!(
+            reloaded.turn_context_receipt(
+                owner_pubkey.as_str(),
+                &relay_scope,
+                resident_pubkey.as_str(),
+                CHANNEL_ONE,
+                trigger_event_id.as_str(),
+            ),
+            ManagedTurnContextReceiptLookupV1::Available(_)
+        ));
     }
 
     #[test]

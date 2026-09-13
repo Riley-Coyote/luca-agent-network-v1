@@ -32,7 +32,10 @@ use super::{
     continuity_context::{
         resident_notebook_address, resolve_desktop_continuity_context, DesktopWakeSupplementV1,
     },
-    managed_dispatch_store::{global_dispatch_store, ManagedDispatchStore},
+    conversation_context::active_scope,
+    managed_dispatch_store::{
+        global_dispatch_store, ManagedDispatchStore, ManagedTurnSessionContextStatusV1,
+    },
     owner_brain_store::{OwnerBrainRetrievalRequestV1, OwnerBrainStoreError},
 };
 
@@ -337,6 +340,10 @@ fn serve(
         };
 
         let state = app.state::<AppState>();
+        let receipt_relay_scope = active_scope(&state)
+            .ok()
+            .filter(|(owner, _)| owner == &authority.owner_pubkey)
+            .and_then(|(_, relay_scope)| Sha256Ref::parse(relay_scope).ok());
         let Some(key_version) = state.continuity_owner_key_version(&authority.owner_pubkey) else {
             if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Unavailable).is_err() {
                 break;
@@ -367,6 +374,12 @@ fn serve(
                 .ok()
             })
             .unwrap_or_default();
+        let receipt_selected_source_ids = selected_source_ids.iter().cloned().collect::<Vec<_>>();
+        let receipt_owner = authority.owner_pubkey.clone();
+        let receipt_resident = authority.resident_pubkey.clone();
+        let receipt_conversation = authority.conversation_id.clone();
+        let receipt_trigger = authority.trigger_event_id.clone();
+        let receipt_binding = authority.context_binding.clone();
         let request = ContinuityContextRequestV1 {
             protocol: CONTINUITY_PROTOCOL.into(),
             request_id: intent.request_id.clone(),
@@ -441,7 +454,41 @@ fn serve(
             },
         );
         match write_result {
-            Some(Ok(AuthorizedPacketWrite::Written)) => {}
+            Some(Ok(AuthorizedPacketWrite::Written)) => {
+                let Some(binding) = receipt_binding else {
+                    continue;
+                };
+                let (active_owner, active_relay_scope) = match active_scope(&state) {
+                    Ok(value) => value,
+                    Err(_) => continue,
+                };
+                let Some(frozen_relay_scope) = receipt_relay_scope else {
+                    continue;
+                };
+                if active_owner != receipt_owner
+                    || Sha256Ref::parse(active_relay_scope).ok().as_ref()
+                        != Some(&frozen_relay_scope)
+                {
+                    continue;
+                }
+                let _ = dispatch_store.lock().ok().and_then(|mut store| {
+                    store
+                        .record_turn_context_continuity_delivery(
+                            &receipt_owner,
+                            frozen_relay_scope,
+                            &receipt_trigger,
+                            &receipt_resident,
+                            &receipt_conversation,
+                            delivery_session_epoch,
+                            binding.snapshot_ref,
+                            SafeU53::new(binding.revision).ok()?,
+                            receipt_selected_source_ids,
+                            outcome.receipt().status,
+                            outcome.receipt().layer_statuses,
+                        )
+                        .ok()
+                });
+            }
             Some(Ok(AuthorizedPacketWrite::Denied)) => {
                 if write_fallback(&mut writer, &intent, ContinuityLayerStatusV1::Denied).is_err() {
                     break;
@@ -484,6 +531,8 @@ fn write_session_context_result(
     let mut attached_session_context = None;
     let mut quick_chat_effort = None;
     let mut quick_chat_context = None;
+    let mut receipt_authority = None;
+    let mut receipt_scope = None;
     let mut result = if now_unix_ms >= intent.deadline_unix_ms.get() {
         unavailable(ManagedSessionContextStatusV1::Unavailable)
     } else {
@@ -503,6 +552,11 @@ fn write_session_context_result(
         match authority {
             None => unavailable(ManagedSessionContextStatusV1::Denied),
             Some(authority) => {
+                receipt_authority = Some(authority.clone());
+                receipt_scope = active_scope(&app.state::<AppState>())
+                    .ok()
+                    .filter(|(owner, _)| owner == &authority.owner_pubkey)
+                    .and_then(|(_, relay_scope)| Sha256Ref::parse(relay_scope).ok());
                 if let Some(report) = &intent.quickchat_report {
                     super::quickchat::record_runtime_report(
                         app,
@@ -619,6 +673,59 @@ fn write_session_context_result(
         .and_then(|_| writer.write_all(b"\n"))
         .and_then(|_| writer.flush());
     let _ = writer.set_write_timeout(None);
+    if write.is_ok()
+        && matches!(
+            result.status,
+            ManagedSessionContextStatusV1::Ready | ManagedSessionContextStatusV1::Degraded
+        )
+    {
+        if let (Some(authority), Some(frozen_relay_scope), Some(snapshot_ref)) = (
+            receipt_authority,
+            receipt_scope,
+            result.snapshot_ref.clone(),
+        ) {
+            let scope_matches =
+                active_scope(&app.state::<AppState>())
+                    .ok()
+                    .is_some_and(|(owner, relay_scope)| {
+                        owner == authority.owner_pubkey
+                            && Sha256Ref::parse(relay_scope).ok().as_ref()
+                                == Some(&frozen_relay_scope)
+                    });
+            let status = match result.status {
+                ManagedSessionContextStatusV1::Ready => {
+                    Some(ManagedTurnSessionContextStatusV1::Ready)
+                }
+                ManagedSessionContextStatusV1::Degraded => {
+                    Some(ManagedTurnSessionContextStatusV1::Degraded)
+                }
+                _ => None,
+            };
+            if scope_matches {
+                if let Some(status) = status {
+                    let _ = global_dispatch_store(app).ok().and_then(|store| {
+                        store.lock().ok().and_then(|mut store| {
+                            store
+                                .record_turn_context_session_delivery(
+                                    &authority.owner_pubkey,
+                                    frozen_relay_scope,
+                                    &authority.trigger_event_id,
+                                    &authority.resident_pubkey,
+                                    &authority.conversation_id,
+                                    intent.session_epoch,
+                                    snapshot_ref,
+                                    result.revision,
+                                    result.selected_source_ids.clone(),
+                                    status,
+                                    result.attached_session_context.is_some(),
+                                )
+                                .ok()
+                        })
+                    });
+                }
+            }
+        }
+    }
     write
 }
 

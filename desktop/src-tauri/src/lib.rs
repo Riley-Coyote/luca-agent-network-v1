@@ -1020,6 +1020,7 @@ pub fn run() {
             revoke_resident_capability_grant,
             get_resident_continuity,
             get_resident_continuity_activity,
+            get_managed_turn_context_receipt,
             set_resident_continuity_enabled,
             correct_resident_handoff,
             forget_resident_handoff,
