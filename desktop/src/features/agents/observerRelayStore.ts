@@ -436,7 +436,7 @@ async function handleRelayObserverEvent(
         ? (parsed.payload as Record<string, unknown>)
         : {};
     if (parsed.kind === "session_config_captured") {
-      void putAgentSessionConfig(
+      await putAgentSessionConfig(
         agentPubkey,
         parsed.payload,
         parsed.channelId,
@@ -444,6 +444,17 @@ async function handleRelayObserverEvent(
           ? quickChatPayload.sessionId
           : parsed.sessionId,
       );
+      if (activeGeneration !== generation) return;
+      if (parsed.channelId) {
+        window.dispatchEvent(
+          new CustomEvent("quickchat-effort-capabilities", {
+            detail: {
+              residentPubkey: agentPubkey,
+              conversationId: parsed.channelId,
+            },
+          }),
+        );
+      }
       onSessionConfigCaptured?.(agentPubkey);
     } else if (parsed.kind === "quickchat_effort_result") {
       window.dispatchEvent(

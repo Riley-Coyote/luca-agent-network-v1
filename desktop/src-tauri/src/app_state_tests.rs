@@ -8,6 +8,28 @@ fn assert_key_eq(a: &Keys, b: &Keys) {
 /// so they don't race each other under the parallel test runner.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn optional_attachment_lookup_does_not_wait_for_brain_refresh() {
+    let lifecycle = ContinuityLifecycleLock::new_for_test();
+    let held = lifecycle.lock().expect("hold lifecycle for refresh");
+    let runtime = Mutex::new(ContinuityRuntimeState::Uninitialized);
+    let owner = luca_protocol::Hex64::parse("aa".repeat(32)).expect("owner");
+    let source = luca_protocol::OpaqueId::parse("source-1").expect("source");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let result = crate::luca::owner_brain_store::try_read_connected_catalog_and_candidate(
+                &lifecycle, &runtime, &owner, &source,
+            );
+            let _ = tx.send(matches!(result, Ok(None)));
+        });
+        let result = rx.recv_timeout(std::time::Duration::from_secs(1));
+        // Release before asserting so a blocking regression cannot hang the test.
+        drop(held);
+        assert_eq!(result, Ok(true));
+    });
+}
+
 /// Run `body` with `BUZZ_PRIVATE_KEY` set to `value` (or unset when `None`),
 /// restoring the prior value afterward.
 fn with_env_key<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {

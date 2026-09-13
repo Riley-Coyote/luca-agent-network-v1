@@ -57,6 +57,16 @@ impl ContinuityLifecycleLock {
             .map_err(|_| ())
     }
 
+    /// Acquire the lifecycle boundary only when no refresh or mutation owns it.
+    /// Optional per-turn context uses this to avoid blocking the broker thread.
+    pub(crate) fn try_lock(&self) -> Result<Option<ContinuityLifecycleGuard<'_>>, ()> {
+        match self.0.try_lock() {
+            Ok(guard) => Ok(Some(ContinuityLifecycleGuard { _guard: guard })),
+            Err(std::sync::TryLockError::WouldBlock) => Ok(None),
+            Err(std::sync::TryLockError::Poisoned(_)) => Err(()),
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn new_for_test() -> Self {
         Self::new()
@@ -567,6 +577,27 @@ impl AppState {
         OwnerBrainStoreError,
     > {
         crate::luca::owner_brain_store::read_connected_candidate(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+        )
+    }
+
+    /// Read one connected source from a single current generation without
+    /// waiting behind a background refresh. `None` means temporarily busy.
+    pub(crate) fn try_read_connected_brain_catalog_and_candidate(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<
+        Option<(
+            crate::luca::owner_brain_store::ConnectedBrainCatalogV1,
+            crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1,
+        )>,
+        OwnerBrainStoreError,
+    > {
+        crate::luca::owner_brain_store::try_read_connected_catalog_and_candidate(
             &self.continuity_lifecycle,
             &self.continuity_runtime,
             owner_pubkey,

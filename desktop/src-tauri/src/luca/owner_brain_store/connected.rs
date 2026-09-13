@@ -416,6 +416,42 @@ pub(crate) fn read_connected_candidate(
     read_connected_candidate_with_runtime(&root, runtime, source_id)
 }
 
+/// Read the catalog and one candidate from the same generation only when a
+/// background refresh is not mutating that generation. This is for optional
+/// per-turn attachment context; explicit owner actions retain blocking reads.
+pub(crate) fn try_read_connected_catalog_and_candidate(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+) -> Result<
+    Option<(ConnectedBrainCatalogV1, ConnectedBrainDiscoveryCandidateV1)>,
+    OwnerBrainStoreError,
+> {
+    let Some(_guard) = lifecycle
+        .try_lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?
+    else {
+        return Ok(None);
+    };
+    let root = load_root_key()?;
+    let state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime(&state, owner_pubkey)?;
+    let Some((generation, namespace, namespace_key)) = connected_generation(&root, runtime)? else {
+        return Err(OwnerBrainStoreError::Invalid);
+    };
+    let catalog = catalog_from_generation(&generation, &namespace, namespace_key.as_bytes())?;
+    let candidate = connected_candidate_from_generation(
+        &generation,
+        &namespace,
+        namespace_key.as_bytes(),
+        source_id,
+    )?;
+    Ok(Some((catalog, candidate)))
+}
+
 pub(super) fn read_connected_candidate_with_runtime(
     root: &ContinuityMasterKey,
     runtime: &ContinuityRuntime,
