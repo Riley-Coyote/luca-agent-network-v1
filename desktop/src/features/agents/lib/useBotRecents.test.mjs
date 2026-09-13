@@ -34,15 +34,17 @@ test("pickQuickBotPersonas prefers recents before defaults", () => {
 
 test("pickQuickBotPersonas seeds the three starter agents", () => {
   const personas = [
-    createPersona("builtin:bumble", "Anima"),
     createPersona("builtin:honey", "Vektor"),
+    createPersona("builtin:bumble", "Anima"),
+    createPersona("builtin:trinity", "Trinity"),
+    createPersona("builtin:fifty", "Fifty"),
     createPersona("builtin:fizz", "Luca"),
     createPersona("builtin:reviewer", "Reviewer"),
   ];
 
   assert.deepEqual(
     pickQuickBotPersonas(personas, []).map((persona) => persona.id),
-    ["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    ["builtin:fizz", "builtin:fifty", "builtin:trinity"],
   );
 });
 

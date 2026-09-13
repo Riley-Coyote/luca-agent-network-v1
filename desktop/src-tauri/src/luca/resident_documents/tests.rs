@@ -292,6 +292,131 @@ fn initial_document_seed_is_absence_only() {
 }
 
 #[test]
+fn resident_pack_luca_upgrade_keeps_existing_live_soul() {
+    let dir = folder();
+    let old = crate::managed_agents::previous_luca_stock_prompt();
+    put(dir.path(), DocumentKind::Soul, old);
+    repin_soul_in_dir(
+        dir.path(),
+        Some(crate::managed_agents::resident_packs::LUCA.soul),
+        Some(old),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
+        old
+    );
+}
+
+#[test]
+fn resident_pack_seeds_all_files_without_replacing_existing_work() {
+    for (persona_id, pack, has_cognition) in [
+        (
+            "builtin:fizz",
+            &crate::managed_agents::resident_packs::LUCA,
+            false,
+        ),
+        (
+            "builtin:fifty",
+            &crate::managed_agents::resident_packs::FIFTY,
+            false,
+        ),
+        (
+            "builtin:trinity",
+            &crate::managed_agents::resident_packs::TRINITY,
+            true,
+        ),
+    ] {
+        for body in [
+            pack.soul,
+            pack.convictions,
+            pack.self_model,
+            pack.user_model,
+            pack.lessons,
+            pack.instructions,
+            pack.identity,
+            pack.agents,
+            pack.memory,
+            pack.relationship,
+            pack.examples,
+        ] {
+            assert!(!body.trim().is_empty(), "{persona_id}: blank pack document");
+        }
+        assert!(
+            serde_json::from_str::<serde_json::Value>(pack.presentation).is_ok(),
+            "{persona_id}: invalid presentation.json"
+        );
+        assert!(
+            crate::managed_agents::resident_packs::for_unedited_definition(
+                persona_id,
+                Some(pack.soul)
+            )
+            .is_some()
+        );
+        assert!(
+            crate::managed_agents::resident_packs::for_unedited_definition(
+                persona_id,
+                Some("Owner-customized pin")
+            )
+            .is_none()
+        );
+
+        let dir = folder();
+        put(
+            dir.path(),
+            DocumentKind::Lessons,
+            "A resident-authored lesson.",
+        );
+        std::fs::write(dir.path().join("MEMORY.md"), "Owner's existing memory.").unwrap();
+        seed_pack_if_absent(dir.path(), pack).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("lessons.md")).unwrap(),
+            "A resident-authored lesson."
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("MEMORY.md")).unwrap(),
+            "Owner's existing memory."
+        );
+        for kind in DocumentKind::ALL {
+            assert!(dir.path().join(kind.file_name()).is_file());
+        }
+        for name in [
+            "IDENTITY.md",
+            "AGENTS.md",
+            "MEMORY.md",
+            "relationship.md",
+            "examples.md",
+            "presentation.json",
+        ] {
+            assert!(dir.path().join(name).is_file(), "{persona_id}: {name}");
+        }
+        assert_eq!(dir.path().join("cognition.md").is_file(), has_cognition);
+
+        let assembled = assemble_system_prompt(&load(dir.path()).unwrap()).unwrap();
+        assert!(assembled.contains(pack.soul.trim()));
+        for (index, name) in [
+            "IDENTITY.md",
+            "AGENTS.md",
+            "MEMORY.md",
+            "relationship.md",
+            "examples.md",
+            "presentation.json",
+            "cognition.md",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            if dir.path().join(name).is_file() {
+                let marker = format!("extra-only-marker-{index}");
+                std::fs::write(dir.path().join(name), &marker).unwrap();
+                let assembled = assemble_system_prompt(&load(dir.path()).unwrap()).unwrap();
+                assert!(!assembled.contains(&marker), "{name} must not be assembled");
+            }
+        }
+    }
+}
+
+#[test]
 fn write_journal_appends_one_line_per_write() {
     let dir = folder();
     let first = write(

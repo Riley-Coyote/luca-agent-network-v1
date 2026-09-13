@@ -961,9 +961,18 @@ pub(crate) fn seed_initial_documents_if_absent(
     if let Some(prompt) = prompt.filter(|value| !value.trim().is_empty()) {
         seed_document_if_absent(&dir, DocumentKind::Soul, prompt)?;
     }
-    if let Some(self_model) = record.persona_id.as_deref().and_then(|persona_id| {
-        crate::managed_agents::built_in_resident_self_model(persona_id, prompt)
+    if let Some(pack) = record.persona_id.as_deref().and_then(|persona_id| {
+        crate::managed_agents::resident_packs::for_unedited_definition(persona_id, prompt)
     }) {
+        seed_pack_if_absent(&dir, pack)?;
+    } else if let Some(self_model) = record
+        .persona_id
+        .as_deref()
+        .filter(|persona_id| *persona_id != crate::managed_agents::LUCA_PERSONA_ID)
+        .and_then(|persona_id| {
+            crate::managed_agents::built_in_resident_self_model(persona_id, prompt)
+        })
+    {
         seed_document_if_absent(&dir, DocumentKind::SelfModel, self_model)?;
     }
     record.documents_dir = Some(relative_dir(&record.pubkey));
@@ -971,11 +980,47 @@ pub(crate) fn seed_initial_documents_if_absent(
     Ok(())
 }
 
+/// Fill a reviewed built-in pack at creation without revising any existing
+/// file, including resident-authored learning and owner-edited extras.
+fn seed_pack_if_absent(
+    dir: &Path,
+    pack: &crate::managed_agents::resident_packs::ResidentPack,
+) -> Result<(), String> {
+    for (kind, content) in [
+        (DocumentKind::Soul, pack.soul),
+        (DocumentKind::Convictions, pack.convictions),
+        (DocumentKind::SelfModel, pack.self_model),
+        (DocumentKind::UserModel, pack.user_model),
+        (DocumentKind::Lessons, pack.lessons),
+        (DocumentKind::Instructions, pack.instructions),
+    ] {
+        seed_document_if_absent(dir, kind, content)?;
+    }
+    for (name, content) in [
+        ("IDENTITY.md", pack.identity),
+        ("AGENTS.md", pack.agents),
+        ("MEMORY.md", pack.memory),
+        ("relationship.md", pack.relationship),
+        ("examples.md", pack.examples),
+        ("presentation.json", pack.presentation),
+    ] {
+        seed_file_if_absent(dir, name, content)?;
+    }
+    if let Some(cognition) = pack.cognition {
+        seed_file_if_absent(dir, "cognition.md", cognition)?;
+    }
+    Ok(())
+}
+
 /// Seed one document during a resident folder's birth without replacing an
 /// existing file. `create_new` makes absence the filesystem-enforced rule,
 /// rather than a check followed by a potentially clobbering rename.
 fn seed_document_if_absent(dir: &Path, kind: DocumentKind, content: &str) -> Result<bool, String> {
-    let path = dir.join(kind.file_name());
+    seed_file_if_absent(dir, kind.file_name(), content)
+}
+
+fn seed_file_if_absent(dir: &Path, name: &str, content: &str) -> Result<bool, String> {
+    let path = dir.join(name);
     reject_symlink(&path)?;
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -1102,6 +1147,9 @@ pub(crate) fn repin_soul_in_dir(
     let Some(new_pin) = new_pin.filter(|value| !value.trim().is_empty()) else {
         return Ok(());
     };
+    if crate::managed_agents::is_luca_stock_pack_upgrade(new_pin, old_pin) {
+        return Ok(());
+    }
     let path = dir.join(DocumentKind::Soul.file_name());
     let existing = std::fs::read_to_string(&path).ok();
     // Missing soul → the folder has nothing to lose. Soul equal to the old

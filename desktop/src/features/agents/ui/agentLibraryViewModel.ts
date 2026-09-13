@@ -57,6 +57,8 @@ export type AgentConfigurationViewModelV1 = {
 
 const LUCA_BUILTIN_AGENT_NAMES: Readonly<Record<string, string>> = {
   "builtin:fizz": "Luca",
+  "builtin:fifty": "Fifty",
+  "builtin:trinity": "Trinity",
   "builtin:honey": "Vektor",
   "builtin:bumble": "Anima",
 };

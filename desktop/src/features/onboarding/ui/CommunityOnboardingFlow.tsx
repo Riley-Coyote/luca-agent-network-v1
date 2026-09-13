@@ -179,7 +179,7 @@ export function CommunityOnboardingFlow({
     void listPersonas()
       .then((personas) =>
         setStarterPersonas(
-          ["builtin:fizz", "builtin:honey", "builtin:bumble"].flatMap(
+          ["builtin:fizz", "builtin:fifty", "builtin:trinity"].flatMap(
             (personaId) => {
               const persona = personas.find(
                 (candidate) => candidate.id === personaId,

@@ -143,7 +143,7 @@ test("starter persona activation is serialized to protect the shared store", asy
   let activeWrites = 0;
 
   await activateWelcomeTeamPersonasSequentially(
-    ["builtin:fizz", "builtin:honey", "builtin:bumble"],
+    ["builtin:fizz", "builtin:fifty", "builtin:trinity"],
     async (personaId) => {
       assert.equal(activeWrites, 0, "activation writes must never overlap");
       activeWrites += 1;
@@ -153,7 +153,7 @@ test("starter persona activation is serialized to protect the shared store", asy
     },
   );
 
-  assert.deepEqual(calls, ["builtin:fizz", "builtin:honey", "builtin:bumble"]);
+  assert.deepEqual(calls, ["builtin:fizz", "builtin:fifty", "builtin:trinity"]);
 });
 
 test("all Welcome starters use the onboarding runtime preference", async () => {
@@ -293,8 +293,8 @@ test("welcome team starter definitions and role identities are stable", () => {
   assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
   assert.deepEqual(WELCOME_TEAM_STARTERS, [
     { name: "Luca", personaId: "builtin:fizz", role: "lead" },
-    { name: "Vektor", personaId: "builtin:honey", role: "teammate" },
-    { name: "Anima", personaId: "builtin:bumble", role: "teammate" },
+    { name: "Fifty", personaId: "builtin:fifty", role: "teammate" },
+    { name: "Trinity", personaId: "builtin:trinity", role: "teammate" },
   ]);
 });
 

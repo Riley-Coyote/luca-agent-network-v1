@@ -56,7 +56,15 @@ fn merge_personas_adds_missing_built_ins() {
         .collect();
     assert_eq!(
         display_names,
-        vec!["Luca", "Claude Code", "Codex", "Vektor", "Anima"]
+        vec![
+            "Luca",
+            "Fifty",
+            "Trinity",
+            "Claude Code",
+            "Codex",
+            "Vektor",
+            "Anima"
+        ]
     );
     let active_ids: Vec<&str> = records
         .iter()
@@ -65,7 +73,7 @@ fn merge_personas_adds_missing_built_ins() {
         .collect();
     assert_eq!(
         active_ids,
-        vec!["builtin:fizz", "builtin:honey", "builtin:bumble"]
+        vec!["builtin:fizz", "builtin:fifty", "builtin:trinity"]
     );
 }
 

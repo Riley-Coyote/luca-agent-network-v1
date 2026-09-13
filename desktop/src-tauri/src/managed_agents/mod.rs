@@ -27,6 +27,7 @@ pub(crate) mod readiness;
 pub(crate) mod reconcile;
 mod relay_mesh;
 mod repos;
+pub(crate) mod resident_packs;
 mod restore;
 pub mod retention;
 mod runtime;
@@ -62,6 +63,7 @@ pub use native_runtime::*;
 pub use nest::*;
 pub(crate) use owner_brain_authority::current_owner_brain_runtime_authority;
 pub use personas::*;
+pub(crate) use personas::{is_luca_stock_pack_upgrade, previous_luca_stock_prompt};
 #[cfg(windows)]
 pub use process_lifecycle::*;
 pub(crate) use readiness::{

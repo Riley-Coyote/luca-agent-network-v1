@@ -41,8 +41,8 @@ export type WelcomeTeamStarterDefinition = Readonly<{
 /** Stable identities used to provision the Rust-seeded Welcome Team. */
 export const WELCOME_TEAM_STARTERS = [
   { name: "Luca", personaId: "builtin:fizz", role: "lead" },
-  { name: "Vektor", personaId: "builtin:honey", role: "teammate" },
-  { name: "Anima", personaId: "builtin:bumble", role: "teammate" },
+  { name: "Fifty", personaId: "builtin:fifty", role: "teammate" },
+  { name: "Trinity", personaId: "builtin:trinity", role: "teammate" },
 ] as const satisfies readonly WelcomeTeamStarterDefinition[];
 
 export type WelcomeTeamAgents = [ManagedAgent, ManagedAgent, ManagedAgent];

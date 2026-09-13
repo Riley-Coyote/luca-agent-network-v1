@@ -4,6 +4,8 @@ use tauri::AppHandle;
 
 use crate::{managed_agents::AgentDefinition, util::now_iso};
 
+use super::resident_packs;
+
 struct BuiltInPersona {
     id: &'static str,
     display_name: &'static str,
@@ -39,6 +41,16 @@ const CODEX_SYSTEM_PROMPT: &str = "You are Codex, working directly with the owne
 /// with. Mirrors `CANONICAL_LUCA_PERSONA_ID` in the desktop client.
 pub const LUCA_PERSONA_ID: &str = "builtin:fizz";
 
+pub(crate) fn previous_luca_stock_prompt() -> &'static str {
+    LUCA_SYSTEM_PROMPT
+}
+
+/// The built-in definition upgrade must not silently rewrite a live Luca's
+/// old stock soul. The owner applies the reviewed document pack explicitly.
+pub(crate) fn is_luca_stock_pack_upgrade(new_pin: &str, old_pin: Option<&str>) -> bool {
+    old_pin == Some(previous_luca_stock_prompt()) && new_pin == resident_packs::LUCA.soul
+}
+
 /// The small product-approved self-model seed for a bundled resident.
 ///
 /// A built-in definition remains editable, so its standard self-model is only
@@ -63,8 +75,28 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         id: LUCA_PERSONA_ID,
         display_name: "Luca",
         avatar_url: None,
-        system_prompt: LUCA_SYSTEM_PROMPT,
+        system_prompt: resident_packs::LUCA.soul,
         name_pool: &["Luca"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: "builtin:fifty",
+        display_name: "Fifty",
+        avatar_url: None,
+        system_prompt: resident_packs::FIFTY.soul,
+        name_pool: &["Fifty"],
+        model: None,
+        runtime: None,
+        default_active: true,
+    },
+    BuiltInPersona {
+        id: "builtin:trinity",
+        display_name: "Trinity",
+        avatar_url: None,
+        system_prompt: resident_packs::TRINITY.soul,
+        name_pool: &["Trinity"],
         model: None,
         runtime: None,
         default_active: true,
@@ -97,7 +129,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         name_pool: &["Vektor"],
         model: None,
         runtime: None,
-        default_active: true,
+        default_active: false,
     },
     BuiltInPersona {
         id: "builtin:bumble",
@@ -107,7 +139,7 @@ const BUILT_IN_PERSONAS: &[BuiltInPersona] = &[
         name_pool: &["Anima"],
         model: None,
         runtime: None,
-        default_active: true,
+        default_active: false,
     },
 ];
 
@@ -230,6 +262,18 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
                 existing.avatar_url = built_in.avatar_url.clone();
                 existing.system_prompt = built_in.system_prompt.clone();
                 existing.name_pool = built_in.name_pool.clone();
+                existing.updated_at = now.to_string();
+                changed = true;
+            }
+            // Upgrade only Luca's untouched previous stock definition. The
+            // linked resident keeps its key and any edited folder documents;
+            // the folder re-pin rule separately protects an owner-edited soul.
+            if existing.id == LUCA_PERSONA_ID
+                && existing.display_name == "Luca"
+                && existing.system_prompt == LUCA_SYSTEM_PROMPT
+                && existing.system_prompt != resident_packs::LUCA.soul
+            {
+                existing.system_prompt = resident_packs::LUCA.soul.to_owned();
                 existing.updated_at = now.to_string();
                 changed = true;
             }
@@ -437,6 +481,73 @@ pub fn save_personas(app: &AppHandle, records: &[AgentDefinition]) -> Result<(),
         .map(|persona| persona.into_agent_record())
         .collect();
     crate::managed_agents::storage::save_agent_definitions(app, &definitions)
+}
+
+#[cfg(test)]
+mod resident_pack_tests {
+    use super::*;
+
+    #[test]
+    fn starter_defaults_are_luca_fifty_and_trinity_without_forcing_existing_choices() {
+        let (fresh, _) = merge_personas(Vec::new(), "2026-09-13T00:00:00Z");
+        let active: Vec<&str> = fresh
+            .iter()
+            .filter(|record| record.is_active)
+            .map(|record| record.id.as_str())
+            .collect();
+        assert_eq!(active, ["builtin:fizz", "builtin:fifty", "builtin:trinity"]);
+
+        let mut existing_vektor = fresh
+            .iter()
+            .find(|record| record.id == "builtin:honey")
+            .unwrap()
+            .clone();
+        existing_vektor.is_active = true;
+        let (merged, _) = merge_personas(vec![existing_vektor], "2026-09-13T00:00:00Z");
+        assert!(merged
+            .iter()
+            .any(|record| record.id == "builtin:honey" && record.is_active));
+    }
+
+    #[test]
+    fn only_untouched_prior_luca_definition_receives_new_pack_pin() {
+        let mut old = built_in_persona_records("2026-09-13T00:00:00Z")
+            .into_iter()
+            .find(|record| record.id == LUCA_PERSONA_ID)
+            .unwrap();
+        old.system_prompt = LUCA_SYSTEM_PROMPT.to_owned();
+        let (upgraded, _) = merge_personas(vec![old.clone()], "2026-09-13T00:00:00Z");
+        assert_eq!(
+            upgraded
+                .iter()
+                .find(|record| record.id == LUCA_PERSONA_ID)
+                .unwrap()
+                .system_prompt,
+            resident_packs::LUCA.soul
+        );
+
+        old.display_name = "My Luca".to_owned();
+        let (custom, _) = merge_personas(vec![old.clone()], "2026-09-13T00:00:00Z");
+        assert_eq!(
+            custom
+                .iter()
+                .find(|record| record.id == LUCA_PERSONA_ID)
+                .unwrap()
+                .system_prompt,
+            LUCA_SYSTEM_PROMPT
+        );
+        old.display_name = "Luca".to_owned();
+        old.system_prompt = "My instructions".to_owned();
+        let (custom, _) = merge_personas(vec![old], "2026-09-13T00:00:00Z");
+        assert_eq!(
+            custom
+                .iter()
+                .find(|record| record.id == LUCA_PERSONA_ID)
+                .unwrap()
+                .system_prompt,
+            "My instructions"
+        );
+    }
 }
 
 #[cfg(test)]
