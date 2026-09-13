@@ -1,5 +1,6 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+import { readLastConversation } from "@/app/navigation/lastConversation";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
@@ -262,8 +263,8 @@ export function AppSidebar({
     if (!selectedAgent) setSelectedAgentPubkey(null);
   }, [managedAgentsQuery.isPending, selectedAgent, selectedAgentPubkey]);
   // Leaving for another destination closes the column. Arriving in a
-  // conversation keeps it: that is what the column is for, and an owner may
-  // open it from Home, Activity or an empty project and pick a chat.
+  // conversation keeps it: that is what the column is for. A rail resident
+  // click navigates directly to the remembered chat or compose view.
   const previousViewRef = React.useRef(selectedView);
   React.useEffect(() => {
     const previous = previousViewRef.current;
@@ -680,7 +681,22 @@ export function AppSidebar({
     pendingRuntimeSelectionRef.current = null;
     selectedRuntimeRef.current = null;
     setSelectedRuntime(null);
-    toggleSelectedAgentPubkey(pubkey);
+    if (selectedView === "channel" || selectedView === "messages") {
+      toggleSelectedAgentPubkey(pubkey);
+      return;
+    }
+
+    // The rail is a conversation shortcut even when a workspace is open.
+    // Navigate directly so an intermediate Home view cannot close the column.
+    setSelectedAgentPubkey(pubkey);
+    const lastConversationId = readLastConversation(
+      new Set(channels.map((channel) => channel.id)),
+    );
+    if (lastConversationId) {
+      onSelectChannel(lastConversationId);
+    } else {
+      onNewMessage();
+    }
   });
   const createAgentFromRail = useStableCallback(() => onCreateAgent());
   const startAgentChat = useStableCallback(() => {

@@ -5,9 +5,10 @@ import { waitForAnimations } from "../../helpers/animations";
 
 /**
  * The rail after the restructure: PROJECTS, then AGENTS (one row per
- * resident), then runtimes. Choosing a resident opens the agent column —
- * every conversation they are part of — and that column and the project
- * room navigator are both "the second column": only one is ever open.
+ * resident), then runtimes. Choosing a resident returns to the conversation
+ * and opens the agent column — every conversation they are part of. That
+ * column and the project room navigator are both "the second column": only
+ * one is ever open.
  */
 
 const ATLAS_PUBKEY = "a".repeat(64);
@@ -108,10 +109,14 @@ test("the agent column and the project room navigator never open together", asyn
   await expect(navigator).toBeVisible();
 });
 
-test("an empty project keeps its content while a resident's column is open", async ({
+test("an empty project returns to the remembered conversation when a resident is chosen", async ({
   page,
 }) => {
   await page.goto("/?e2e=mock&projectDemo=1");
+
+  await page.getByTestId("channel-watercooler").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
+  const rememberedConversation = new URL(page.url()).hash;
 
   await page.getByTestId("project-row-field-unit").click();
   await expect(page).toHaveURL(/#\/projects\/field-unit$/);
@@ -123,7 +128,57 @@ test("an empty project keeps its content while a resident's column is open", asy
   await page.getByTestId("agent-rail-atlas").click();
   await expect(page.getByTestId("agent-chats-column")).toBeVisible();
   await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
-  await expect(heading).toBeVisible();
+  await expect
+    .poll(() => new URL(page.url()).hash)
+    .toBe(rememberedConversation);
+  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
+  await expect(heading).toHaveCount(0);
+});
+
+for (const [destination, testId, route] of [
+  ["Library", "open-artifacts-view", "artifacts"],
+  ["Agents", "open-agents-view", "agents"],
+  ["Activity", "open-activity-view", "pulse"],
+  ["Brain", "open-brain-setup", "brain"],
+] as const) {
+  test(`${destination} returns to the last conversation when a resident is chosen`, async ({
+    page,
+  }) => {
+    await page.goto("/?e2e=mock");
+    await page.getByTestId("channel-watercooler").click();
+    await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
+    const rememberedConversation = new URL(page.url()).hash;
+
+    await page.getByTestId(testId).click();
+    await expect(page).toHaveURL(new RegExp(`#/${route}(?:\\?|$)`));
+    await page.getByTestId("agent-rail-atlas").click();
+
+    await expect
+      .poll(() => new URL(page.url()).hash)
+      .toBe(rememberedConversation);
+    await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
+    await expect(page.getByTestId("agent-chats-column")).toContainText("Atlas");
+  });
+}
+
+test("without a remembered chat a resident returns to compose without creating a thread", async ({
+  page,
+}) => {
+  await page.goto("/?e2e=mock");
+  await expect(page).toHaveURL(/#\/messages\/new/);
+
+  await page.getByTestId("open-agents-view").click();
+  await expect(page).toHaveURL(/#\/agents$/);
+  await page.getByTestId("agent-rail-atlas").click();
+
+  await expect(page).toHaveURL(/#\/messages\/new$/);
+  await expect(page.getByTestId("agent-chats-column")).toContainText("Atlas");
+  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
+  await expect(
+    page
+      .getByTestId("agent-chats-column")
+      .locator('[data-testid^="agent-column-chat-"]'),
+  ).toHaveCount(0);
 });
 
 test("leaving for another destination closes the column; arriving in a chat keeps it", async ({
@@ -147,6 +202,11 @@ test("leaving for another destination closes the column; arriving in a chat keep
     .click();
   await expect(page.getByRole("heading", { name: "Brain" })).toBeVisible();
   await expect(column).toHaveCount(0);
+
+  // This is a new destination choice, even if Atlas was the last open column.
+  await page.getByTestId("agent-rail-atlas").click();
+  await expect(page).toHaveURL(/#\/channels\//);
+  await expect(column).toContainText("Atlas");
 });
 
 test("on a phone the column takes the rail's place and backs out of it", async ({
