@@ -441,7 +441,9 @@ export function useQuickChat({
         managedAudience: { mode: "directed", resident_pubkeys: [targetPubkey] },
         mediaTags: outgoing.mediaTags,
         quickChatContext: capturedContext,
-        quickChatEffort: capturedEffort,
+        conversationEfforts: capturedEffort
+          ? [{ ...capturedEffort, residentPubkey: targetPubkey }]
+          : undefined,
       });
       const pending = pendingEffort.current;
       if (

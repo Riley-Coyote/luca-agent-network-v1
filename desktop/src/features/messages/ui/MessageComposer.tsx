@@ -189,6 +189,7 @@ type MessageComposerProps = {
   } | null;
   showTopBorder?: boolean;
   toolbarExtraActions?: React.ReactNode;
+  toolbarTrailingActions?: React.ReactNode;
   typingParentEventId?: string | null;
   typingRootEventId?: string | null;
 };
@@ -222,6 +223,7 @@ function MessageComposerImpl({
   mediaController,
   showTopBorder = false,
   toolbarExtraActions,
+  toolbarTrailingActions,
   typingParentEventId = null,
   typingRootEventId = null,
 }: MessageComposerProps) {
@@ -1116,7 +1118,7 @@ function MessageComposerImpl({
 
     const capturedThreadContext = onCaptureSendContext?.() ?? null;
     if (
-      capturedThreadContext !== null &&
+      capturedThreadContext?.threadHeadId &&
       !capturedThreadContext.parentEventId
     ) {
       return;
@@ -1659,6 +1661,7 @@ function MessageComposerImpl({
             composerDisabled={disabled}
             editor={richText.editor}
             extraActions={toolbarExtraActions}
+            trailingActions={toolbarTrailingActions}
             formattingDisabled={disabled}
             isEmojiPickerOpen={isEmojiPickerOpen}
             isFormattingOpen={isFormattingOpen}

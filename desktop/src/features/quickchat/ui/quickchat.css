@@ -200,63 +200,6 @@
 .qc-residents button:hover {
   background: hsl(var(--accent));
 }
-.qc-effort-meta {
-  display: flex;
-  justify-content: space-between;
-  color: hsl(var(--muted-foreground));
-  margin-bottom: 8px;
-}
-.qc-effort-track {
-  height: 28px;
-  position: relative;
-  border-radius: 999px;
-  overflow: hidden;
-  background: hsl(var(--background));
-}
-.qc-effort-track canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-.qc-effort-track input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  width: 100%;
-  height: 28px;
-  appearance: none;
-  background: transparent;
-  cursor: ew-resize;
-  outline: none;
-  touch-action: none;
-}
-.qc-effort-track[data-inert="true"] {
-  opacity: 0.45;
-}
-.qc-effort-track[data-inert="true"] input {
-  cursor: default;
-}
-.qc-effort-track input::-webkit-slider-thumb {
-  appearance: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  background: hsl(var(--foreground));
-  box-shadow: 0 1px 4px #0005;
-}
-.qc-effort-track input::-moz-range-thumb {
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-radius: 50%;
-  background: hsl(var(--foreground));
-}
-.qc-effort-track:has(input:focus-visible) {
-  outline: 1px solid hsl(var(--foreground));
-  outline-offset: 3px;
-}
 .qc-resize {
   position: absolute;
   touch-action: none;
@@ -333,8 +276,7 @@
   }
 }
 /* The composer caret and range track provide focus; suppress the shell's generic rectangular outline. */
-:root[data-luca-shell] .qc-composer textarea:focus-visible,
-:root[data-luca-shell] .qc-effort-track input:focus-visible {
+:root[data-luca-shell] .qc-composer textarea:focus-visible {
   outline: none;
   box-shadow: none;
 }
@@ -378,7 +320,4 @@
 .qc-context-details ul {
   padding-left: 14px;
   list-style: disc;
-}
-.qc-effort-status {
-  margin-top: 8px;
 }

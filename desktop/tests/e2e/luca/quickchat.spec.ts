@@ -206,12 +206,18 @@ for (const refreshBeforeAck of [false, true]) {
           return new Promise((resolve) => refreshResolvers.push(resolve));
         }
         const result = await original(command, args);
-        if (command === "send_channel_message" && args?.quickChatEffort) {
+        if (command === "send_channel_message" && args?.conversationEfforts) {
           lastSend = {
             eventId: (result as { event_id: string }).event_id,
             conversationId: args.channelId,
             residentPubkey: "a".repeat(64),
-            ...(args.quickChatEffort as { configId: string; value: string }),
+            ...(
+              args.conversationEfforts as Array<{
+                residentPubkey: string;
+                configId: string;
+                value: string;
+              }>
+            )[0],
           };
         }
         return result;

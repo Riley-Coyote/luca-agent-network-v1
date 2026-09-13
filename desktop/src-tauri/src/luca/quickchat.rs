@@ -29,13 +29,20 @@ struct QuickChatTarget {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct EffortRequest {
-    config_id: String,
-    value: String,
+    pub(crate) config_id: String,
+    pub(crate) value: String,
+}
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ResidentEffortRequest {
+    pub(crate) resident_pubkey: String,
+    pub(crate) config_id: String,
+    pub(crate) value: String,
 }
 struct Entry {
     captured: Instant,
     context: Option<QuickChatContext>,
-    effort: Option<EffortRequest>,
+    efforts: HashMap<String, EffortRequest>,
 }
 type ContextKey = (String, String, String, String);
 static CONTEXTS: OnceLock<Mutex<HashMap<ContextKey, Entry>>> = OnceLock::new();
@@ -73,17 +80,13 @@ pub(crate) fn stage(
     conversation: &str,
     event: &str,
     context: Option<QuickChatContext>,
-    effort: Option<EffortRequest>,
+    efforts: Vec<ResidentEffortRequest>,
+    allowed_residents: &[String],
 ) -> Result<(), String> {
     if let Some(context) = &context {
         validate(context)?;
     }
-    if effort
-        .as_ref()
-        .is_some_and(|e| e.config_id.len() > 128 || e.value.len() > 128)
-    {
-        return Err("Invalid effort option".into());
-    }
+    let scoped_efforts = scoped_efforts(efforts, allowed_residents)?;
     let (owner, relay) = active_scope(state)?;
     let mut entries = contexts()
         .lock()
@@ -102,10 +105,46 @@ pub(crate) fn stage(
         Entry {
             captured: Instant::now(),
             context,
-            effort,
+            efforts: scoped_efforts,
         },
     );
     Ok(())
+}
+
+fn scoped_efforts(
+    efforts: Vec<ResidentEffortRequest>,
+    allowed_residents: &[String],
+) -> Result<HashMap<String, EffortRequest>, String> {
+    if efforts.len() > 32 {
+        return Err("Too many resident effort selections".into());
+    }
+    let mut scoped_efforts = HashMap::new();
+    for effort in efforts {
+        if effort.config_id.len() > 128 || effort.value.len() > 128 {
+            return Err("Invalid effort option".into());
+        }
+        let resident = Hex64::parse(effort.resident_pubkey)
+            .map_err(|_| "Invalid thinking effort resident".to_string())?;
+        if !allowed_residents
+            .iter()
+            .any(|allowed| allowed == resident.as_str())
+        {
+            return Err("Thinking effort target is not activated for this conversation".into());
+        }
+        if scoped_efforts
+            .insert(
+                resident.as_str().into(),
+                EffortRequest {
+                    config_id: effort.config_id,
+                    value: effort.value,
+                },
+            )
+            .is_some()
+        {
+            return Err("Duplicate resident thinking effort selection".into());
+        }
+    }
+    Ok(scoped_efforts)
 }
 pub(crate) fn for_dispatch(
     state: &AppState,
@@ -243,11 +282,74 @@ mod tests {
         context.text = "x".repeat(10001);
         assert!(validate(&context).is_err());
     }
+
+    #[test]
+    fn resident_scoped_efforts_cannot_cross_event_targets_and_keep_separate_acks() {
+        let first = "a".repeat(64);
+        let second = "b".repeat(64);
+        let allowed = vec![first.clone(), second.clone()];
+        let entry = Entry {
+            captured: Instant::now(),
+            context: None,
+            efforts: scoped_efforts(
+                vec![
+                    ResidentEffortRequest {
+                        resident_pubkey: first.clone(),
+                        config_id: "thought_level".into(),
+                        value: "low".into(),
+                    },
+                    ResidentEffortRequest {
+                        resident_pubkey: second.clone(),
+                        config_id: "thought_level".into(),
+                        value: "high".into(),
+                    },
+                ],
+                &allowed,
+            )
+            .expect("two resident-scoped efforts"),
+        };
+
+        let first_request = effort_for_resident(&entry, &first).expect("first effort");
+        let second_request = effort_for_resident(&entry, &second).expect("second effort");
+        assert_eq!(first_request.value, "low");
+        assert_eq!(second_request.value, "high");
+        assert!(effort_for_resident(&entry, &"c".repeat(64)).is_none());
+        assert!(scoped_efforts(
+            vec![ResidentEffortRequest {
+                resident_pubkey: "c".repeat(64),
+                config_id: "thought_level".into(),
+                value: "high".into(),
+            }],
+            &allowed,
+        )
+        .is_err());
+
+        let first_ack = EffortAcknowledgement {
+            config_id: "thought_level".into(),
+            value: "low".into(),
+            status: "applied".into(),
+        };
+        let second_ack = EffortAcknowledgement {
+            config_id: "thought_level".into(),
+            value: "high".into(),
+            status: "applied".into(),
+        };
+        assert!(matches_effort_ack(&first_request, &first_ack));
+        assert!(matches_effort_ack(&second_request, &second_ack));
+        assert!(!matches_effort_ack(&second_request, &first_ack));
+        assert_eq!(
+            effort_for_resident(&entry, &second)
+                .expect("second remains staged")
+                .value,
+            "high"
+        );
+    }
 }
 
 pub(crate) fn effort_for_dispatch(
     state: &AppState,
     owner: &Hex64,
+    resident: &str,
     conversation: &str,
     event: &str,
 ) -> Option<EffortRequest> {
@@ -263,8 +365,12 @@ pub(crate) fn effort_for_dispatch(
         event.into(),
     ))?;
     (entry.captured.elapsed() < Duration::from_secs(900))
-        .then(|| entry.effort.clone())
+        .then(|| effort_for_resident(entry, resident))
         .flatten()
+}
+
+fn effort_for_resident(entry: &Entry, resident: &str) -> Option<EffortRequest> {
+    entry.efforts.get(&resident.to_ascii_lowercase()).cloned()
 }
 struct SessionEffort {
     captured: Instant,
@@ -455,6 +561,12 @@ struct EffortAcknowledgement {
     value: String,
     status: String,
 }
+
+fn matches_effort_ack(request: &EffortRequest, ack: &EffortAcknowledgement) -> bool {
+    request.config_id == ack.config_id
+        && request.value == ack.value
+        && matches!(ack.status.as_str(), "applied" | "failed")
+}
 pub(crate) fn record_runtime_report(
     app: &tauri::AppHandle,
     owner: &Hex64,
@@ -519,9 +631,8 @@ pub(crate) fn record_runtime_report(
         .collect();
     if let Some(ack) = &report.effort_result {
         if ack.status == "applied"
-            && effort_for_dispatch(&state, owner, conversation, event).is_some_and(|request| {
-                request.config_id == ack.config_id && request.value == ack.value
-            })
+            && effort_for_dispatch(&state, owner, resident, conversation, event)
+                .is_some_and(|request| matches_effort_ack(&request, ack))
         {
             if let Some(option) = options
                 .iter_mut()
@@ -534,13 +645,11 @@ pub(crate) fn record_runtime_report(
     record_session_effort(&state, resident, conversation, &report.session_id, &options);
     let _ = app.emit("quickchat-effort-capabilities", serde_json::json!({"conversationId":conversation,"residentPubkey":resident,"sessionId":report.session_id}));
     if let Some(ack) = &report.effort_result {
-        let Some(request) = effort_for_dispatch(&state, owner, conversation, event) else {
+        let Some(request) = effort_for_dispatch(&state, owner, resident, conversation, event)
+        else {
             return;
         };
-        if request.config_id != ack.config_id
-            || request.value != ack.value
-            || !matches!(ack.status.as_str(), "applied" | "failed")
-        {
+        if !matches_effort_ack(&request, ack) {
             return;
         }
         let _ = app.emit("quickchat-effort-result", serde_json::json!({"eventId":event,"conversationId":conversation,"residentPubkey":resident,"sessionId":report.session_id,"configId":ack.config_id,"value":ack.value,"status":ack.status}));

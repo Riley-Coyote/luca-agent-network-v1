@@ -110,6 +110,13 @@ import {
 
 export type SendMessageVariables = {
   quickChatEffort?: { configId: string; value: string };
+  conversationEfforts?: Array<{
+    residentPubkey: string;
+    configId: string;
+    value: string;
+  }>;
+  /** Local-only acknowledgement tracking for the exact activated residents. */
+  onEffortSent?: (eventId: string, residentPubkeys: string[]) => void;
   quickChatContext?: import("@/features/quickchat/types").QuickChatContext;
   channelId?: string;
   targetChannel?: Channel;
@@ -526,6 +533,8 @@ export function useSendMessageMutation(
   >({
     mutationFn: async ({
       quickChatEffort,
+      conversationEfforts,
+      onEffortSent,
       quickChatContext,
       channelId: capturedChannelId,
       targetChannel,
@@ -587,6 +596,12 @@ export function useSendMessageMutation(
               visitorPubkeys,
             })
           : undefined);
+      const activatedResidents = new Set(
+        audience ? managedAudiencePubkeys(audience).map(normalizePubkey) : [],
+      );
+      const activatedEfforts = conversationEfforts?.filter((selection) =>
+        activatedResidents.has(normalizePubkey(selection.residentPubkey)),
+      );
       const recipientPubkeys = messageMentionPubkeys(
         effectiveChannel,
         identity.pubkey,
@@ -619,6 +634,11 @@ export function useSendMessageMutation(
         explicitMentionPubkeys,
         quickChatContext,
         quickChatEffort,
+        activatedEfforts,
+      );
+      onEffortSent?.(
+        result.eventId,
+        activatedEfforts?.map((selection) => selection.residentPubkey) ?? [],
       );
       const replyTags = parentEventId
         ? buildReplyTags(

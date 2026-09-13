@@ -263,6 +263,7 @@ pub async fn send_channel_message(
     kind: Option<u32>,
     quick_chat_context: Option<crate::luca::quickchat::QuickChatContext>,
     quick_chat_effort: Option<crate::luca::quickchat::EffortRequest>,
+    conversation_efforts: Option<Vec<crate::luca::quickchat::ResidentEffortRequest>>,
     mut managed_audience: Option<ManagedAudienceIntentV1>,
     response_surface: Option<ManagedResponseSurfaceV1>,
     state: State<'_, AppState>,
@@ -392,15 +393,6 @@ pub async fn send_channel_message(
             .sign_with_keys(&keys)
             .map_err(|error| format!("failed to sign event: {error}"))
     })?;
-    if quick_chat_context.is_some() || quick_chat_effort.is_some() {
-        crate::luca::quickchat::stage(
-            &state,
-            &channel_id,
-            &event.id.to_hex(),
-            quick_chat_context,
-            quick_chat_effort,
-        )?;
-    }
     let visit_commit_marker = if visit_plan.is_some() {
         Some((
             Hex64::parse(event.id.to_hex())
@@ -441,6 +433,32 @@ pub async fn send_channel_message(
             &registered,
             conversation_members.as_ref(),
         )?;
+        let mut scoped_efforts = conversation_efforts.unwrap_or_default();
+        if let Some(effort) = quick_chat_effort {
+            if !scoped_efforts.is_empty() {
+                return Err("Cannot combine legacy and resident thinking effort selections".into());
+            }
+            let [resident] = managed_residents.as_slice() else {
+                return Err(
+                    "Quick Chat thinking effort requires exactly one managed resident".into(),
+                );
+            };
+            scoped_efforts.push(crate::luca::quickchat::ResidentEffortRequest {
+                resident_pubkey: resident.clone(),
+                config_id: effort.config_id,
+                value: effort.value,
+            });
+        }
+        if quick_chat_context.is_some() || !scoped_efforts.is_empty() {
+            crate::luca::quickchat::stage(
+                &state,
+                &channel_id,
+                &event.id.to_hex(),
+                quick_chat_context,
+                scoped_efforts,
+                &managed_residents,
+            )?;
+        }
         // Freeze only opaque source coordinates for this exact local dispatch.
         // Canonical paths stay in the native connected-source store and are
         // resolved by the inherited harness channel immediately before session/new.

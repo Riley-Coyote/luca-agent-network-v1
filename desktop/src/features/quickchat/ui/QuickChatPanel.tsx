@@ -11,151 +11,11 @@ import {
   X,
 } from "lucide-react";
 import { Markdown } from "@/shared/ui/markdown";
-import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
+import { ThinkingEffortControl } from "@/features/thinking/ui/ThinkingEffortControl";
 import type { QuickChatViewModel } from "../types";
-import { mountPhosphorEffort } from "./phosphor-effort.js";
 import "./quickchat.css";
-
-function Effort({ model }: { model: QuickChatViewModel }) {
-  const canvas = React.useRef<HTMLCanvasElement>(null);
-  const input = React.useRef<HTMLInputElement>(null);
-  const host = React.useRef<HTMLDivElement>(null);
-  const { isDark } = useTheme();
-  const values = model.effort.values;
-  const position = model.effortPosition;
-  const setPosition = model.setEffortPosition;
-  const fieldRef = React.useRef<ReturnType<typeof mountPhosphorEffort> | null>(
-    null,
-  );
-  React.useEffect(() => {
-    if (
-      !model.effort.supported ||
-      values.length < 2 ||
-      !canvas.current ||
-      !input.current ||
-      !host.current
-    )
-      return;
-    const field = mountPhosphorEffort({
-      canvas: canvas.current,
-      input: input.current,
-      themeRoot: host.current,
-    });
-    fieldRef.current = field;
-    return () => {
-      field.destroy();
-      fieldRef.current = null;
-    };
-  }, [model.effort.supported, values.length]);
-  React.useLayoutEffect(() => {
-    if (input.current) {
-      input.current.value = String(position);
-      fieldRef.current?.update();
-    }
-  }, [position]);
-  if (!model.effort.supported || values.length < 2) {
-    // The runtime has said it owns thinking for this conversation: there is no
-    // ladder to draw, only the sentence.
-    if (!model.effort.awaitingFirstReply)
-      return (
-        <p className="text-xs text-muted-foreground">
-          {model.effort.reason ??
-            "Thinking effort is managed by this resident’s runtime."}
-        </p>
-      );
-    // Nothing reported yet. Show the control where it will be, inert, so the
-    // panel does not change shape after the first reply.
-    return (
-      <div>
-        <div className="qc-effort-meta text-xs">
-          <span>Thinking effort</span>
-          <span>—</span>
-        </div>
-        <div className="qc-effort-track" data-inert="true">
-          <input
-            data-testid="quickchat-effort-unavailable"
-            aria-label="Thinking effort"
-            type="range"
-            min={0}
-            max={3}
-            step={0.001}
-            value={0}
-            readOnly
-            disabled
-          />
-        </div>
-        <p className="qc-effort-status text-2xs text-muted-foreground">
-          {model.effort.reason ?? "Available after the first reply"}
-        </p>
-      </div>
-    );
-  }
-  const selected = values[Math.round((position / 3) * (values.length - 1))];
-  const commit = () => {
-    if (selected && selected.value !== model.effort.value)
-      model.setEffort(selected.value);
-  };
-  return (
-    <div
-      ref={host}
-      data-theme={isDark ? "inverse" : "paper"}
-      style={{ "--ink": isDark ? "#f5f3ef" : "#282624" } as React.CSSProperties}
-    >
-      <div className="qc-effort-meta text-xs">
-        <span>Thinking effort</span>
-        <span>{selected?.label}</span>
-      </div>
-      <div className="qc-effort-track">
-        <canvas ref={canvas} aria-hidden="true" tabIndex={-1} />
-        <input
-          ref={input}
-          data-testid="quickchat-effort"
-          aria-label="Thinking effort"
-          aria-valuetext={selected?.label}
-          type="range"
-          min={0}
-          max={3}
-          step={0.001}
-          value={position}
-          disabled={model.effort.pending}
-          onChange={(event) => setPosition(Number(event.target.value))}
-          onPointerUp={commit}
-          onPointerCancel={commit}
-          onBlur={commit}
-          onKeyUp={commit}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-              event.preventDefault();
-              setPosition(
-                Math.max(
-                  0,
-                  Math.min(
-                    3,
-                    position +
-                      (event.key === "ArrowRight" ? 1 : -1) *
-                        (event.shiftKey ? 0.03 : 3 / (values.length - 1)),
-                  ),
-                ),
-              );
-            }
-          }}
-        />
-      </div>
-      <p
-        className="qc-effort-status text-2xs text-muted-foreground"
-        role="status"
-      >
-        {model.effort.pending
-          ? "Updating effort…"
-          : selected?.value === model.effort.value
-            ? (model.effort.reason ?? "Selected for your next message")
-            : "Release to select effort"}
-      </p>
-    </div>
-  );
-}
 
 export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
   const pendingPermissions = useManagedPermissions();
@@ -647,7 +507,14 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
                   </button>
                 )}
               </div>
-              <Effort model={model} />
+              <ThinkingEffortControl
+                effort={model.effort}
+                position={model.effortPosition}
+                onPositionChange={model.setEffortPosition}
+                onCommit={model.setEffort}
+                active={model.open && picker}
+                testId="quickchat-effort"
+              />
             </div>
           )}
         </div>

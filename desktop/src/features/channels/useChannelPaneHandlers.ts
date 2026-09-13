@@ -308,6 +308,8 @@ export function useChannelPaneHandlers({
         mediaTags,
         channelId: channelId ?? undefined,
         onAccepted: threadContext?.onAccepted,
+        conversationEfforts: threadContext?.conversationEfforts,
+        onEffortSent: threadContext?.onEffortSent,
       });
     },
     [],
@@ -334,6 +336,8 @@ export function useChannelPaneHandlers({
         replyAuthorPubkey: target.pubkey ?? null,
         responseSurface: "timeline",
         onAccepted: threadContext?.onAccepted,
+        conversationEfforts: threadContext?.conversationEfforts,
+        onEffortSent: threadContext?.onEffortSent,
       });
       if (directedReplyTargetRef.current?.id === target.id) {
         setDirectedReplyTargetId(null);
@@ -386,6 +390,8 @@ export function useChannelPaneHandlers({
         mediaTags,
         channelId: channelId ?? undefined,
         onAccepted: threadContext?.onAccepted,
+        conversationEfforts: threadContext?.conversationEfforts,
+        onEffortSent: threadContext?.onEffortSent,
       });
 
       // Only update thread UI state if the user is still viewing the same

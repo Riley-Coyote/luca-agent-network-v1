@@ -570,6 +570,7 @@ fn write_session_context_result(
                 quick_chat_effort = super::quickchat::effort_for_dispatch(
                     &app.state::<AppState>(),
                     &authority.owner_pubkey,
+                    intent.resident_pubkey.as_str(),
                     intent.conversation_id.as_str(),
                     intent.trigger_event_id.as_str(),
                 );

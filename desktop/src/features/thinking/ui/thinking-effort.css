@@ -1,0 +1,167 @@
+.thinking-effort__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 8px;
+}
+
+.thinking-effort__track {
+  height: 28px;
+  position: relative;
+  border-radius: 999px;
+  overflow: hidden;
+  background: hsl(var(--background));
+}
+
+.thinking-effort__track canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.thinking-effort__track input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 28px;
+  appearance: none;
+  background: transparent;
+  cursor: ew-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.thinking-effort__track[data-inert="true"] {
+  opacity: 0.45;
+}
+
+.thinking-effort__track input:disabled {
+  cursor: default;
+}
+
+.thinking-effort__track input::-webkit-slider-thumb {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: hsl(var(--foreground));
+  box-shadow: 0 1px 4px #0005;
+}
+
+.thinking-effort__track input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: hsl(var(--foreground));
+}
+
+.thinking-effort__track:has(input:focus-visible) {
+  outline: 1px solid hsl(var(--foreground));
+  outline-offset: 3px;
+}
+
+.thinking-effort__track input:focus-visible,
+:root[data-luca-shell] .thinking-effort__track input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.thinking-effort__status {
+  margin-top: 8px;
+}
+
+.thinking-effort-picker__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 28px;
+  margin-inline-end: 40px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: hsl(var(--muted-foreground));
+  white-space: nowrap;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.thinking-effort-picker__trigger:hover,
+.thinking-effort-picker__trigger[data-state="open"] {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.thinking-effort-picker__trigger:focus-visible,
+:root[data-luca-shell] .thinking-effort-picker__trigger:focus-visible {
+  outline: 1px solid hsl(var(--foreground));
+  outline-offset: 2px;
+}
+
+.thinking-effort-picker__trigger:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.thinking-effort-picker__content {
+  width: min(260px, calc(100vw - 24px));
+  padding: 12px;
+}
+
+.thinking-effort-picker__header {
+  margin-bottom: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.thinking-effort-picker__residents {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  max-height: min(180px, 30vh);
+  overflow-y: auto;
+  margin-bottom: 12px;
+  padding: 0 0 10px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+
+.thinking-effort-picker__resident {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  text-align: left;
+  color: hsl(var(--muted-foreground));
+}
+
+.thinking-effort-picker__resident:hover,
+.thinking-effort-picker__resident[aria-pressed="true"] {
+  background: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.thinking-effort-picker__resident:focus-visible {
+  outline: 1px solid hsl(var(--foreground));
+  outline-offset: -1px;
+}
+
+.thinking-effort-picker__note {
+  margin-top: 10px;
+  color: hsl(var(--muted-foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-effort-picker__trigger {
+    transition: none;
+  }
+}

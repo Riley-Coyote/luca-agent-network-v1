@@ -105,6 +105,8 @@ import {
 } from "@/features/capabilities/useRuntimeTasks";
 import { RuntimeTaskResultReceipts } from "@/features/capabilities/ui/RuntimeTaskResultReceipts";
 import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import { useConversationEffort } from "@/features/thinking/useConversationEffort";
+import { ConversationEffortPicker } from "@/features/thinking/ui/ConversationEffortPicker";
 import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
 export const ChannelPane = React.memo(function ChannelPane({
   activeChannel,
@@ -408,6 +410,11 @@ export const ChannelPane = React.memo(function ChannelPane({
         name: agent.name,
       }));
   }, [activityAgents, agentSessionAgents]);
+  const thinking = useConversationEffort({
+    ownerPubkey: currentPubkey,
+    conversationId: activeChannelId,
+    residents: capabilityResidents,
+  });
   const completeWelcomeComposerBanner = React.useCallback(() => {
     if (!activeChannelId || !isActiveWelcomeChannel) {
       return;
@@ -1329,26 +1336,49 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onAutoSubmitComplete={handleAutoSubmitComplete}
                       isSending={isSending}
                       mediaController={mainComposerMedia}
+                      toolbarTrailingActions={
+                        capabilityResidents.length && !mainEditTarget ? (
+                          <ConversationEffortPicker
+                            residents={capabilityResidents}
+                            selectedPubkey={thinking.selectedPubkey}
+                            onSelectResident={thinking.selectResident}
+                            effort={thinking.effort}
+                            position={thinking.effortPosition}
+                            onPositionChange={thinking.setEffortPosition}
+                            onCommit={thinking.setEffort}
+                            disabled={isComposerDisabled}
+                          />
+                        ) : undefined
+                      }
                       onCancelEdit={onCancelEdit}
                       onCancelReply={
                         openThreadHeadId
                           ? onCancelThreadReply
                           : onCancelDirectedReply
                       }
-                      onCaptureSendContext={
-                        openThreadHeadId
-                          ? () => ({
-                              parentEventId:
-                                threadReplyTargetMessage?.id ??
-                                openThreadHeadId,
-                              threadHeadId: openThreadHeadId,
-                              replyAuthorPubkey:
-                                threadReplyTargetMessage?.pubkey ??
-                                threadHeadMessage?.pubkey ??
-                                null,
-                            })
-                          : undefined
-                      }
+                      onCaptureSendContext={() => {
+                        const conversationEfforts =
+                          thinking.captureSelections();
+                        return {
+                          parentEventId: openThreadHeadId
+                            ? (threadReplyTargetMessage?.id ?? openThreadHeadId)
+                            : null,
+                          threadHeadId: openThreadHeadId ?? null,
+                          replyAuthorPubkey: openThreadHeadId
+                            ? (threadReplyTargetMessage?.pubkey ??
+                              threadHeadMessage?.pubkey ??
+                              null)
+                            : null,
+                          conversationEfforts,
+                          onEffortSent: (eventId, residentPubkeys) =>
+                            thinking.recordSent(
+                              eventId,
+                              conversationEfforts.filter((choice) =>
+                                residentPubkeys.includes(choice.residentPubkey),
+                              ),
+                            ),
+                        };
+                      }}
                       onEditLastOwnMessage={handleEditLastOwnMainMessage}
                       onEditSave={onEditSave}
                       onPrepareSendChannel={

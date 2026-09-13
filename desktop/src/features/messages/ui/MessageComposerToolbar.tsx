@@ -42,6 +42,7 @@ export const MessageComposerToolbar = React.memo(
     composerDisabled,
     editor,
     extraActions,
+    trailingActions,
     formattingDisabled,
     isEmojiPickerOpen,
     isFormattingOpen,
@@ -75,6 +76,7 @@ export const MessageComposerToolbar = React.memo(
     composerDisabled: boolean;
     editor: Editor | null;
     extraActions?: React.ReactNode;
+    trailingActions?: React.ReactNode;
     formattingDisabled: boolean;
     isEmojiPickerOpen: boolean;
     isFormattingOpen: boolean;
@@ -294,6 +296,9 @@ export const MessageComposerToolbar = React.memo(
           </Button>
         ) : null}
 
+        {trailingActions ? (
+          <div className="ml-auto min-w-0">{trailingActions}</div>
+        ) : null}
         <span aria-live="polite" className="sr-only">
           {audioRecordingStatus === "requesting"
             ? "Requesting microphone access"
