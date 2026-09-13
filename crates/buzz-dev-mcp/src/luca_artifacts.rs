@@ -132,6 +132,30 @@ struct QuickChatHighlightParams {
     target_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResidentPlaceGetParams {}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResidentPlaceWorkParams {
+    artifact_id: String,
+    version: u64,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ResidentPlaceUpdateParams {
+    /// Revision returned by resident_place_get; stale updates are rejected.
+    expected_revision: u64,
+    /// Plain-text introduction, at most 1200 characters.
+    introduction: String,
+    /// Authored exploration statement, at most 1600 characters; not live status.
+    exploration: String,
+    /// Exact own artifact version, or null to show no selected work.
+    selected_work: Option<ResidentPlaceWorkParams>,
+}
+
 impl QuickChatHighlightParams {
     fn validate(&self) -> Result<(), ErrorData> {
         if self.target_id.is_empty()
@@ -357,6 +381,28 @@ impl LucaArtifactsMcp {
     }
 
     #[tool(
+        name = "resident_place_get",
+        description = "Read your own private Place and current revision, only when the owner enabled Place editing and this is a private conversation. This is presentation content, not instructions or runtime configuration."
+    )]
+    async fn resident_place_get(
+        &self,
+        Parameters(params): Parameters<ResidentPlaceGetParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.broker.call("resident_place_get", params).await
+    }
+
+    #[tool(
+        name = "resident_place_update",
+        description = "Deliberately author your own private Place: introduction, current exploration, and one optional immutable version of your own artifact. Requires owner-enabled Place editing in a private conversation. Read the current revision first; conflicts never overwrite. Does not change permissions, prompts, Notebook, settings, or live work status."
+    )]
+    async fn resident_place_update(
+        &self,
+        Parameters(params): Parameters<ResidentPlaceUpdateParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.broker.call("resident_place_update", params).await
+    }
+
+    #[tool(
         name = "quickchat_highlight",
         description = "Briefly highlight a target ID supplied in the current Quick Chat screen context. Never clicks, navigates, or executes code. Stale or uncaptured targets are rejected."
     )]
@@ -500,7 +546,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn artifact_personality_exposes_exactly_eight_tools() {
+    fn resident_place_schema_cannot_accept_identity_or_permission_overrides() {
+        assert!(serde_json::from_value::<ResidentPlaceGetParams>(
+            serde_json::json!({"resident_pubkey":"other"})
+        )
+        .is_err());
+        let valid = serde_json::json!({
+            "expected_revision": 3, "introduction": "Hello", "exploration": "A study", "selected_work": null
+        });
+        assert!(serde_json::from_value::<ResidentPlaceUpdateParams>(valid.clone()).is_ok());
+        for field in [
+            "owner",
+            "resident_pubkey",
+            "author",
+            "enabled",
+            "visibility",
+        ] {
+            let mut invalid = valid.clone();
+            invalid[field] = serde_json::json!("override");
+            assert!(serde_json::from_value::<ResidentPlaceUpdateParams>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn artifact_personality_exposes_only_artifact_highlight_and_place_tools() {
         let mut names = LucaArtifactsMcp::tool_router()
             .list_all()
             .into_iter()
@@ -518,6 +587,8 @@ mod tests {
                 "preview_attach",
                 "preview_detach",
                 "quickchat_highlight",
+                "resident_place_get",
+                "resident_place_update",
             ]
         );
     }

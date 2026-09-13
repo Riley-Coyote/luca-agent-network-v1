@@ -66,6 +66,7 @@ pub(crate) mod repository_connection_proposals;
 pub(crate) mod resident_capability_authority;
 pub(crate) mod resident_documents;
 pub(crate) mod resident_notebook;
+pub(crate) mod resident_place;
 pub(crate) mod resident_proposals;
 pub(crate) mod resident_registry;
 pub(crate) mod resident_session_capabilities;

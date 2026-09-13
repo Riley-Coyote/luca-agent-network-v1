@@ -94,6 +94,7 @@ struct ArtifactBrokerResponseV1 {
 enum BrokerResult {
     Artifact(ArtifactToolResultV1),
     Highlight(Value),
+    Place(Value),
 }
 
 #[derive(Deserialize)]
@@ -252,6 +253,12 @@ pub(crate) fn create_broker_lease(
     let operation_gate = Arc::new(Mutex::new(()));
     let core = Arc::new(ArtifactBridgeCore {
         app: app.clone(),
+        place_relay_scope: super::conversation_context::active_scope(
+            &app.state::<crate::app_state::AppState>(),
+        )
+        .ok()
+        .filter(|(owner, _)| owner == &context.owner_pubkey)
+        .map(|(_, relay)| relay),
         active: Arc::clone(&active),
         context,
         master_capability: Zeroizing::new(master_capability.as_str().to_owned()),
@@ -290,6 +297,8 @@ pub(crate) fn stop_artifact_broker(resident_pubkey: &str) -> Result<(), String> 
 
 struct ArtifactBridgeCore {
     app: AppHandle,
+    // A place capability cannot follow a same-owner workspace switch.
+    place_relay_scope: Option<String>,
     active: Arc<AtomicBool>,
     context: ArtifactBrokerContext,
     master_capability: Zeroizing<String>,
@@ -397,6 +406,56 @@ impl ArtifactBridgeCore {
                 Some("turn_not_active"),
                 rejected("turn_not_active", "The managed turn is no longer active."),
             );
+        }
+        if matches!(
+            frame.operation.as_str(),
+            "resident_place_get" | "resident_place_update"
+        ) {
+            let Some(relay_scope) = self.place_relay_scope.as_deref() else {
+                return response(
+                    false,
+                    Some("authority_unavailable"),
+                    rejected("authority_unavailable", "Place authority is unavailable."),
+                );
+            };
+            let authorize = || {
+                if !self.active.load(Ordering::SeqCst)
+                    || authorize_turn(&self.app, &self.context, &coordinates).is_err()
+                {
+                    return Err("The managed turn is no longer active.".to_owned());
+                }
+                Ok(())
+            };
+            let result = tauri::async_runtime::block_on(super::resident_place::agent_operation(
+                &self.app,
+                self.context.owner_pubkey.as_str(),
+                relay_scope,
+                self.context.resident_pubkey.as_str(),
+                coordinates.conversation_id.as_str(),
+                &frame.operation,
+                frame.arguments.clone(),
+                &authorize,
+            ));
+            return match result {
+                Ok(place) => response(
+                    true,
+                    None,
+                    BrokerResult::Place(serde_json::json!({
+                        "protocol": ARTIFACT_TOOL_PROTOCOL,
+                        "request_id": frame.operation_request_id,
+                        "outcome": { "status": "place", "place": place }
+                    })),
+                ),
+                Err(message) => response(
+                    false,
+                    None,
+                    BrokerResult::Place(serde_json::json!({
+                        "protocol": ARTIFACT_TOOL_PROTOCOL,
+                        "request_id": frame.operation_request_id,
+                        "outcome": { "status": "rejected", "message": message }
+                    })),
+                ),
+            };
         }
         if frame.operation == "quickchat_highlight" {
             let target = match parse_highlight(frame.arguments.clone()) {

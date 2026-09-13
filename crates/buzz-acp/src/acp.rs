@@ -74,6 +74,8 @@ const ARTIFACT_TOOL_NAMES: &[&str] = &[
     "preview_attach",
     "preview_detach",
     "quickchat_highlight",
+    "resident_place_get",
+    "resident_place_update",
 ];
 
 #[cfg(unix)]
@@ -4391,6 +4393,33 @@ esac"#,
         assert!(!log.contains(SENTINEL));
         assert!(log.contains("session/prompt"));
         assert!(log.contains("body_bytes="));
+    }
+
+    #[test]
+    fn resident_place_observer_frames_keep_authored_content_private() {
+        const PRIVATE: &str = "PRIVATE_PLACE_TEXT_SENTINEL";
+        let mut state = ArtifactObserverState::default();
+        for tool in ["resident_place_get", "resident_place_update"] {
+            for (update, status) in [
+                ("tool_call", "in_progress"),
+                ("tool_call_update", "completed"),
+            ] {
+                let frame = serde_json::json!({
+                    "jsonrpc": "2.0", "method": "session/update",
+                    "params": {"sessionId": "session-1", "update": {
+                        "sessionUpdate": update, "toolCallId": tool,
+                        "title": format!("mcp.luca-artifacts-0123abcdef45.{tool}"),
+                        "status": status, "rawInput": {"introduction": PRIVATE},
+                        "rawOutput": {"exploration": PRIVATE},
+                        "content": [{"type": "text", "text": PRIVATE}]
+                    }}
+                });
+                let projected = observer_payload_for_managed_read(&frame, &mut state);
+                assert!(!projected.to_string().contains(PRIVATE));
+                assert_eq!(projected["params"]["update"]["bodyRedacted"], true);
+            }
+        }
+        assert!(state.sensitive_tool_call_ids.is_empty());
     }
 
     #[test]
