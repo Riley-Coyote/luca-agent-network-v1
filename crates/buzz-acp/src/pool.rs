@@ -2499,6 +2499,35 @@ fn is_codex_acp_worker(agent: &OwnedAgent) -> bool {
     )
 }
 
+fn codex_browser_turn_guidance(
+    agent_name: &str,
+    is_ordinary_channel: bool,
+    isolation_enabled: bool,
+    servers: &[McpServer],
+) -> Option<String> {
+    if !is_ordinary_channel
+        || !isolation_enabled
+        || !matches!(agent_name, "@agentclientprotocol/codex-acp" | "codex-acp")
+    {
+        return None;
+    }
+    let guidance = if servers
+        .iter()
+        .any(crate::browser_isolation::is_designated_server)
+    {
+        format!(
+            "[Runtime browser tools]\nFor browser tasks in Polyphonic, check the runtime tool registry with tool search or functions.ALL_TOOLS for polyphonic-browser (or polyphonic_browser). The CUA browser surface inventory does not list MCP tools.\n{}",
+            crate::browser_isolation::PROMPT
+        )
+    } else {
+        format!(
+            "[Runtime browser tools]\n{}",
+            crate::browser_isolation::UNAVAILABLE_PROMPT
+        )
+    };
+    Some(guidance)
+}
+
 async fn shutdown_retired_worker(agent: &mut OwnedAgent) {
     if is_codex_acp_worker(agent) {
         agent.acp.shutdown_after_session_close().await;
@@ -3191,7 +3220,7 @@ async fn run_prompt_task_inner(
     // (`prompt[0].text.startsWith("/")`) fires; the wrapped Buzz context
     // follows as a second block.
     let mut slash_command: Option<String> = None;
-    let prompt_sections: Vec<String> = if let PromptSource::Continuity(request) = &source {
+    let mut prompt_sections: Vec<String> = if let PromptSource::Continuity(request) = &source {
         match build_private_cognition_prompt(request, &ctx).await {
             Ok(prompt) => vec![prompt],
             Err(error) => {
@@ -3313,6 +3342,18 @@ async fn run_prompt_task_inner(
         );
         return;
     };
+
+    // codex-acp ignores ACP session/new.systemPrompt when starting its Codex
+    // thread. Carry this narrow browser routing rule in the actual turn prompt
+    // as well, including turns that reuse an existing channel session.
+    if let Some(guidance) = codex_browser_turn_guidance(
+        &agent.agent_name,
+        matches!(source, PromptSource::Channel(_)),
+        crate::browser_isolation::enabled(),
+        &ctx.mcp_servers,
+    ) {
+        prompt_sections.insert(0, guidance);
+    }
 
     // 💬 — fire-and-forget so the prompt fires immediately.
     // The guard's cleanup (spawned on drop) removes 💬 after the turn completes.
@@ -5522,6 +5563,44 @@ async fn clear_reactions(rest: crate::relay::RestClient, event_ids: Vec<String>)
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_browser_guidance_reaches_only_ordinary_enabled_turns() {
+        let server = crate::acp::McpServer {
+            name: crate::browser_isolation::SERVER_NAME.into(),
+            command: "npx".into(),
+            args: vec!["@playwright/mcp".into(), "--isolated".into()],
+            env: vec![crate::acp::EnvVar {
+                name: "PLAYWRIGHT_MCP_ISOLATED".into(),
+                value: "true".into(),
+            }],
+        };
+        let guidance = super::codex_browser_turn_guidance(
+            "@agentclientprotocol/codex-acp",
+            true,
+            true,
+            &[server.clone()],
+        )
+        .expect("ordinary Codex turn guidance");
+        assert!(guidance.contains("functions.ALL_TOOLS"));
+        assert!(guidance.contains("The CUA browser surface inventory does not list MCP tools"));
+        assert!(guidance.contains(crate::browser_isolation::PROMPT));
+        assert!(
+            super::codex_browser_turn_guidance("codex-acp", false, true, &[server.clone()])
+                .is_none()
+        );
+        assert!(
+            super::codex_browser_turn_guidance("codex-acp", true, false, &[server.clone()])
+                .is_none()
+        );
+        assert!(
+            super::codex_browser_turn_guidance("claude-code-acp", true, true, &[server]).is_none()
+        );
+        let unavailable = super::codex_browser_turn_guidance("codex-acp", true, true, &[])
+            .expect("unavailable guidance");
+        assert!(unavailable.contains(crate::browser_isolation::UNAVAILABLE_PROMPT));
+        assert!(!unavailable.contains("functions.ALL_TOOLS"));
+    }
+
     #[test]
     fn quickchat_effort_accepts_only_advertised_thought_values() {
         let options = vec![
