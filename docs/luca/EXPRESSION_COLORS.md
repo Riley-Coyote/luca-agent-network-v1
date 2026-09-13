@@ -30,8 +30,8 @@ to load the updated host prompt.
 
 Use a named color, `#rgb`, `#rrggbb`, or `hsl(275,95%,65%)` with no spaces.
 Hue supports fractional degrees across 0–360, saturation/lightness 0–100%.
-Custom paint retains hue and saturation while lightness adapts if needed for
-readability on Void and Paper. Join two to six stops with `~` for a perceptually
+Custom paint preserves the authored sRGB color on both Void and Paper without
+contrast adjustment. Join two to six stops with `~` for a perceptually
 interpolated gradient.
 
 - `[a changing thought](color:#ff52ad~#955cff~#36cfff)` — continuous fill.
@@ -53,7 +53,7 @@ and combining marks. Joining scripts keep natural shaping with continuous fill.
 The parser accepts a bounded style vocabulary, never arbitrary CSS/HTML or URLs.
 Unknown or malformed expressions become readable plain text. Per message, no
 more than 64 enhanced passages and 512 character/row spans are generated. Larger
-passages retain continuous paint. Legacy named-color output remains unchanged.
+passages retain continuous paint. Named-color syntax remains compatible, with a vivid, theme-independent palette.
 The ordinary owner composer is not a color editor and may strip custom URL
 notation; this feature targets resident-authored Markdown.
 
@@ -64,6 +64,6 @@ continuation of installed Dev source `5916ac567`. The baseline includes the
 Stage 3 Place, browser, and session-context work. No historical branch was merged.
 
 Focused tests cover real React Markdown rendering, provisional parsing, emphasis,
-unknown values, code, ordinary links, palette/CSS agreement, and normal-text
-contrast. Browser cases cover incoming messages at wide and 800px widths in Void
+unknown values, code, ordinary links, palette/CSS agreement, and exact
+color fidelity. Browser cases cover incoming messages at wide and 800px widths in Void
 and Paper. Native packaging updates the same Dev identity; beta is separate.

@@ -1,6 +1,6 @@
 import {
   mixExpressionColors,
-  readableExpressionColor,
+  formatExpressionColor,
   type RGB,
 } from "./expressionColorMath";
 import type { ExpressionSpec } from "./expressionSyntax";
@@ -17,8 +17,7 @@ const graphemes = (text: string) =>
   Array.from(segmenter.segment(text), (part) => part.segment);
 const skipped = (node: ExpressionNode) =>
   ["code", "inlineCode", "image", "html"].includes(node.type);
-const paint = (rgb: RGB) =>
-  `--expression-light:${readableExpressionColor(rgb, false)};--expression-dark:${readableExpressionColor(rgb, true)}`;
+const paint = (rgb: RGB) => `--expression-fill:${formatExpressionColor(rgb)}`;
 
 function span(
   children: ExpressionNode[],
@@ -84,7 +83,7 @@ export function buildExpressionTree(
       mixExpressionColors(spec.stops, i / 32),
     );
     properties["data-expression-gradient"] = "";
-    properties.style += `;--expression-gradient-light:linear-gradient(90deg,${samples.map((c) => readableExpressionColor(c, false)).join(",")});--expression-gradient-dark:linear-gradient(90deg,${samples.map((c) => readableExpressionColor(c, true)).join(",")})`;
+    properties.style += `;--expression-gradient:linear-gradient(90deg,${samples.map(formatExpressionColor).join(",")})`;
   }
   if (axis !== "flow") {
     let index = 0,

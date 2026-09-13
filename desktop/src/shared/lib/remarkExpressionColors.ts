@@ -3,17 +3,17 @@ import { buildExpressionTree, type ExpressionNode } from "./expressionTree";
 
 /** Text-fill vocabulary shared by finalized and streaming Markdown. */
 export const EXPRESSION_COLORS = {
-  amber: ["#a4540b", "#f2b86b"],
-  gold: ["#806000", "#e7cc72"],
-  rose: ["#b02e65", "#ef9bb9"],
-  violet: ["#7941b4", "#c4a0ed"],
-  magenta: ["#a12e95", "#e6a0db"],
-  cyan: ["#006d80", "#79ccdc"],
-  blue: ["#2864b4", "#8ebcf4"],
-  orange: ["#ac481c", "#f3a080"],
-  slate: ["#526179", "#aebcd4"],
-  red: ["#b32d40", "#f198a3"],
-  emerald: ["#13744e", "#82ceaa"],
+  amber: "#ffad1f",
+  gold: "#ffd21f",
+  rose: "#ff4f91",
+  violet: "#a65cff",
+  magenta: "#ed3cda",
+  cyan: "#16ccef",
+  blue: "#4285ff",
+  orange: "#ff742e",
+  slate: "#899bb8",
+  red: "#f83e50",
+  emerald: "#18bd79",
 } as const;
 
 const MEANINGS: Record<string, keyof typeof EXPRESSION_COLORS> = {
@@ -58,7 +58,7 @@ export default function remarkExpressionColors() {
             const key = expressionColor(name) as
               | keyof typeof EXPRESSION_COLORS
               | undefined;
-            return key ? EXPRESSION_COLORS[key][1] : undefined;
+            return key ? EXPRESSION_COLORS[key] : undefined;
           });
           if (spec && enhancements++ < 64)
             buildExpressionTree(node, spec, budget);

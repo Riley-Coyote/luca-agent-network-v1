@@ -59,42 +59,34 @@ test("named hues, unknown values and code have safe readable behavior", () => {
   );
 });
 
-function luminance(hex) {
-  const rgb = hex
-    .slice(1)
-    .match(/../g)
-    .map((x) => parseInt(x, 16) / 255)
-    .map((x) => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
-  return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
-}
-test("all palette fills meet normal text contrast and match the shipped CSS", () => {
+test("named palette matches shipped CSS without theme remapping", () => {
   const css = readFileSync(
     new URL("../../styles/globals/markdown.css", import.meta.url),
     "utf8",
   );
-  for (const [name, [light, dark]] of Object.entries(EXPRESSION_COLORS)) {
-    for (const [fill, background] of [
-      [light, "#f3f1ee"],
-      [dark, "#333333"],
-    ]) {
-      const values = [luminance(fill), luminance(background)].sort(
-        (a, b) => b - a,
-      );
-      assert.ok(
-        (values[0] + 0.05) / (values[1] + 0.05) >= 4.5,
-        `${name} on ${background}`,
-      );
-      assert.ok(css.includes(fill), `${name} CSS uses ${fill}`);
-    }
+  for (const [name, fill] of Object.entries(EXPRESSION_COLORS)) {
+    assert.ok(
+      css.includes(
+        `[data-expression-color="${name}"] {\n  --expression-fill: ${fill};`,
+      ),
+    );
   }
+  assert.doesNotMatch(css, /\.dark \[data-expression-/);
 });
 
-test("precise hex and HSL colors become normalized theme-aware fills", () => {
-  for (const color of ["#f5a", "#ff55aa", "hsl(280,95%,65%)"]) {
-    const html = render(`[a](color:${color})`);
-    assert.match(html, /data-expression-tone/);
-    assert.match(html, /--expression-dark:#[a-f0-9]{6}/);
-    assert.doesNotMatch(html, /href=/);
+test("precise hex and HSL fills preserve authored color in finalized and streaming text", () => {
+  for (const streaming of [false, true]) {
+    for (const [color, expected] of [
+      ["#f5a", "#ff55aa"],
+      ["#0000ff", "#0000ff"],
+      ["hsl(120,100%,50%)", "#00ff00"],
+      ["#000000", "#000000"],
+      ["#ffffff", "#ffffff"],
+    ]) {
+      const html = render(`[a](color:${color})`, streaming);
+      assert.ok(html.includes(`--expression-fill:${expected}`));
+      assert.doesNotMatch(html, /href=|--expression-dark|--expression-light/);
+    }
   }
 });
 
@@ -108,7 +100,7 @@ test("flow, character and row gradients preserve content and emphasis", () => {
   assert.match(letters, />é<\/span>/);
   const rows = render("[First\n**Second**\nThird](color:blue~rose?axis=lines)");
   assert.equal((rows.match(/<br\/>/g) ?? []).length, 2);
-  const tones = [...rows.matchAll(/--expression-dark:(#[a-f0-9]{6})/g)].map(
+  const tones = [...rows.matchAll(/--expression-fill:(#[a-f0-9]{6})/g)].map(
     (m) => m[1],
   );
   assert.equal(new Set(tones).size, 3);
@@ -155,33 +147,19 @@ test("malformed colors and unbounded style requests never become CSS", () => {
   }
 });
 
-test("custom fills and every gradient sample stay readable across the color wheel", async () => {
-  const {
-    parseExpressionColor,
-    readableExpressionColor,
-    expressionLuminance,
-    mixExpressionColors,
-  } = await import("../../lib/expressionColorMath.ts");
-  for (let hue = 0; hue < 360; hue += 10) {
-    const stops = [
-      parseExpressionColor(`hsl(${hue},100%,50%)`),
-      parseExpressionColor(`hsl(${(hue + 140) % 360},95%,60%)`),
-    ];
-    for (let step = 0; step <= 32; step++) {
-      for (const dark of [true, false]) {
-        const fill = parseExpressionColor(
-          readableExpressionColor(mixExpressionColors(stops, step / 32), dark),
-        );
-        const background = parseExpressionColor(dark ? "#333333" : "#f3f1ee");
-        const pair = [
-          expressionLuminance(fill),
-          expressionLuminance(background),
-        ].sort((a, b) => b - a);
-        assert.ok(
-          (pair[0] + 0.05) / (pair[1] + 0.05) >= 4.5,
-          `${hue}/${step}/${dark}`,
-        );
+test("full-spectrum colors and gradient stops round-trip faithfully", async () => {
+  const { parseExpressionColor, formatExpressionColor, mixExpressionColors } =
+    await import("../../lib/expressionColorMath.ts");
+  for (let r = 0; r < 256; r += 17) {
+    for (let g = 0; g < 256; g += 17) {
+      for (let b = 0; b < 256; b += 17) {
+        const hex = `#${[r, g, b].map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+        assert.equal(formatExpressionColor(parseExpressionColor(hex)), hex);
       }
     }
+  }
+  const stops = ["#0000ff", "#ff0000", "#00ff00"].map(parseExpressionColor);
+  for (const [i, stop] of stops.entries()) {
+    assert.deepEqual(mixExpressionColors(stops, i / 2), stop);
   }
 });

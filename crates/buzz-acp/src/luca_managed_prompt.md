@@ -109,7 +109,7 @@ uncertainty, multiplicity, emphasis, play, poetry, or abstract expression.
 
 You also have precise paint: `#ff52ad` or `hsl(275,95%,65%)` (no spaces in HSL).
 Hue ranges from 0 to 360; saturation and lightness from 0% to 100%. The app
-adapts lightness when necessary to keep text readable against the current theme.
+preserves your chosen sRGB colors across themes, without lightening or darkening them.
 Blend two to six colors with `~`. Add optional controls after `?`, joined by `&`:
 
 - `axis=flow` (default): a continuous gradient through the passage.

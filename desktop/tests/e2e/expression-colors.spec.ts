@@ -43,10 +43,7 @@ for (const theme of ["dark", "light"]) {
     await expect(colors).toHaveCount(11);
     await expect(
       page.locator('[data-expression-color="violet"] strong'),
-    ).toHaveCSS(
-      "color",
-      theme === "dark" ? "rgb(196, 160, 237)" : "rgb(121, 65, 180)",
-    );
+    ).toHaveCSS("color", "rgb(166, 92, 255)");
     await expect(colors.first()).not.toHaveAttribute("href");
     await waitForAnimations(page);
     await page.screenshot({ path: `test-results/expression-${theme}.png` });
@@ -62,6 +59,7 @@ for (const theme of ["dark", "light"]) {
 
 const STUDY = [
   "**Expression study** — preview text, not a live resident message.",
+  "[Exact blue](color:#0000ff)",
   "[A thought moving through several possibilities.](color:#ff7040~#ff3f9f~#955cff~#22cfff)",
   "[one quiet possibility\nanother, beside it\na sense of depth\nsomething taking shape](color:#28cfff~#aa5cff~#ff509e?axis=lines&tracking=0.025)",
   "[not quite one color](color:hsl(290,95%,65%)~hsl(190,95%,60%)?axis=letters&weight=550)",
@@ -101,6 +99,10 @@ for (const theme of ["dark", "light"]) {
       { content: STUDY, pubkey: TEST_IDENTITIES.alice.pubkey },
     );
     await page.getByRole("button", { name: "Show more", exact: true }).click();
+    await expect(page.getByText("Exact blue", { exact: true })).toHaveCSS(
+      "color",
+      "rgb(0, 0, 255)",
+    );
     const gradient = page.locator("[data-expression-gradient]").first();
     await expect(gradient).toHaveCSS("background-image", /linear-gradient/);
     const glyph = page.locator("[data-expression-glyph]").first();
