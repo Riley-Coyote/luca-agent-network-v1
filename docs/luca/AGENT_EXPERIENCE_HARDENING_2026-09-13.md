@@ -95,16 +95,36 @@ replacement of the installed beta remain outside this pass.
   confirmed persisted task outcomes through accessibility. Fixture and sampler
   stopped. Installed beta was not modified.
 
-## Remaining acceptance and next action
+## Follow-up acceptance completed
 
-- Quick Chat open/minimize and conversation navigation responded to accessibility
-  actions. Keyboard input did not reliably reach the window, captured frames
-  were incomplete, and ScreenCaptureKit eventually failed. Foreground visual
-  review and live inspection of the new labels remain unverified. Riley was
-  asked to bring Dev forward and confirm visible updates; do not call UX done.
-- Once foreground control works, perform one short private browser action to
-  inspect new labels and a single composer/drawer check. Do not repeat the
-  full three-resident task just to verify presentation.
+- Native control failure was reproduced after restarting Codex's control helper.
+  Moving Dev through its Window menu to the built-in Retina display restored
+  coordinate clicks, text entry, and current-frame capture. This isolates a
+  display/window-targeting limitation; it is not evidence of a Dev input bug.
+- On the installed helper revision `4689a7a55`, normal composer typing and
+  conversation drawer open/close worked during Sol's active browser task.
+  The unsent conversation draft survived drawer and Quick Chat interaction.
+- Quick Chat opened with composer focus; its separate draft survived minimize
+  and reopen. Both diagnostic drafts were cleared without sending them.
+- Sol completed the local browser check in 54 seconds and closed the browser.
+  His runtime wrapped the calls as generic command steps, so this could not
+  verify the browser-specific presentation mapping.
+- One direct Opus check completed in 35 seconds. The installed app visibly
+  showed Closing the browser while active. Expanded saved history showed:
+  Opening a page; Reading the page; Typing in the browser; Reading the page;
+  Waiting in the browser; Closing the browser. Tool discovery remains ToolSearch.
+  The local URL used the safe fallback label rather than exposing its query.
+- Final process check found no Chrome browser roots. The fixture was stopped.
+  No new native build or broad test rerun was needed for this acceptance.
+
+## Remaining limits
+
+- Codex wrapper calls may still appear as Running a command / Guardian Review;
+  extracting nested tool activity is outside this narrow label fix.
+- This was qualitative interaction acceptance, not a frame-time benchmark.
+  The earlier three-resident workload remains a partial completion pass because
+  Fable was stopped. No blanket claim of performance optimization is made.
 - If perceived lag remains, profile Dev without a concurrent build and with
   timestamps for Brain refresh/outbox writes before assigning any optimization.
   Keep the native runtime and cryptographic/durability boundaries intact.
+- Beta publishing and the parked Computer drawer remain out of scope.
