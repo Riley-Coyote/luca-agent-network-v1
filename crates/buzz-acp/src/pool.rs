@@ -2181,7 +2181,8 @@ async fn managed_session_context(
                 == crate::continuity_provider::ManagedSessionContextStatusV1::Empty
                 && (result.attached_session_context.is_some()
                     || result.quick_chat_effort.is_some()
-                    || result.quick_chat_context.is_some()) =>
+                    || result.quick_chat_context.is_some()
+                    || result.first_meeting_context.is_some()) =>
         {
             Ok(Some(result))
         }
@@ -3362,6 +3363,13 @@ async fn run_prompt_task_inner(
         if let Some(context) = resolved_managed_context
             .as_ref()
             .and_then(|context| context.quick_chat_context.as_ref())
+        {
+            continuity_context.push(context.clone());
+        }
+
+        if let Some(context) = resolved_managed_context
+            .as_ref()
+            .and_then(|context| context.first_meeting_context.as_ref())
         {
             continuity_context.push(context.clone());
         }

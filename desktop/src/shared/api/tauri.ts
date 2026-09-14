@@ -649,6 +649,20 @@ export async function getThreadReplies(
   };
 }
 
+export interface BeginLucaFirstMeetingResult {
+  status: "started" | "already_started" | "existing_conversation";
+  triggerEventId?: string;
+}
+
+/** Start the canonical Luca meeting from the owner's explicit setup action. */
+export async function beginLucaFirstMeeting(
+  channelId: string,
+): Promise<BeginLucaFirstMeetingResult> {
+  return invokeTauri<BeginLucaFirstMeetingResult>("begin_luca_first_meeting", {
+    channelId,
+  });
+}
+
 export async function sendChannelMessage(
   channelId: string,
   content: string,

@@ -586,6 +586,18 @@ impl AppState {
 
     /// Read one connected source from a single current generation without
     /// waiting behind a background refresh. `None` means temporarily busy.
+    pub(crate) fn try_read_connected_brain_catalog(
+        &self,
+        owner: &luca_protocol::Hex64,
+    ) -> Result<Option<crate::luca::owner_brain_store::ConnectedBrainCatalogV1>, OwnerBrainStoreError>
+    {
+        crate::luca::owner_brain_store::try_read_connected_catalog(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner,
+        )
+    }
+
     pub(crate) fn try_read_connected_brain_catalog_and_candidate(
         &self,
         owner_pubkey: &luca_protocol::Hex64,

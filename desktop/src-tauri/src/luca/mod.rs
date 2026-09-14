@@ -38,6 +38,7 @@ pub(crate) mod exchange;
 pub(crate) mod exchange_plan;
 pub(crate) mod exchange_relay;
 pub(crate) mod exchange_store;
+pub(crate) mod first_meeting;
 pub(crate) mod journal_jobs;
 pub(crate) mod local_broker_session;
 pub(crate) mod managed_cognition;

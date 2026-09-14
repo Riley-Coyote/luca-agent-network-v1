@@ -5,6 +5,44 @@ use sha2::{Digest, Sha256};
 
 use super::sessions;
 
+/// Resolve at most three recent references without reading conversation bodies.
+pub(crate) fn recent_native_session_references(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    excluded: &HashSet<String>,
+    deadline: std::time::Instant,
+) -> Result<Vec<serde_json::Value>, String> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::days(14);
+    let files = sessions::session_file_metadata_before(root, kind, excluded, Some(deadline))?;
+    let mut result = Vec::new();
+    for file in files {
+        if std::time::Instant::now() >= deadline {
+            return Err("session discovery timed out".into());
+        }
+        let Some(updated) = file
+            .updated_at
+            .as_ref()
+            .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+        else {
+            continue;
+        };
+        if updated < cutoff {
+            continue;
+        }
+        let id = session_id(source_id, &file.relative_locator)?;
+        if let Ok(reference) =
+            native_session_reference(root, kind, source_id, &id, &file.relative_locator, excluded)
+        {
+            result.push(reference);
+        }
+        if result.len() == 3 {
+            break;
+        }
+    }
+    Ok(result)
+}
+
 const MAX_LISTED_SESSIONS: usize = 200;
 const MAX_TITLE_CHARS: usize = 96;
 const MAX_PREVIEW_CHARS: usize = 180;
@@ -216,6 +254,37 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    #[test]
+    fn first_meeting_discovery_is_bounded_excludes_internal_and_returns_no_bodies() {
+        let root = tempdir().unwrap();
+        let source = OpaqueId::parse("source-first-meeting").unwrap();
+        for n in 1..=5 {
+            let name = format!("00000000-0000-4000-8000-{n:012}.jsonl");
+            fs::write(root.path().join(name), "private body sentinel").unwrap();
+        }
+        let excluded = HashSet::from(["00000000-0000-4000-8000-000000000005".to_owned()]);
+        let items = recent_native_session_references(
+            root.path(),
+            ConnectedBrainSourceKindV1::ClaudeHistory,
+            &source,
+            &excluded,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .unwrap();
+        assert_eq!(items.len(), 3);
+        let output = serde_json::to_string(&items).unwrap();
+        assert!(!output.contains("private body sentinel"));
+        assert!(!output.contains("000000000005"));
+        assert!(recent_native_session_references(
+            root.path(),
+            ConnectedBrainSourceKindV1::ClaudeHistory,
+            &source,
+            &excluded,
+            std::time::Instant::now()
+        )
+        .is_err());
+    }
+
     #[test]
     fn native_reference_is_exact_and_does_not_need_a_readable_transcript_body() {
         for (kind, name) in [

@@ -90,6 +90,65 @@ pub(crate) fn excluded_provider_session_ids(
     excluded
 }
 
+/// First-meeting discovery requires a complete exclusion set within its budget.
+/// Busy, oversized or incomplete ledgers omit discovery rather than exposing
+/// an internal session through a partially read exclusion set.
+pub(crate) fn exclusions_before(
+    app_data_dir: &Path,
+    runtime_family: &str,
+    deadline: std::time::Instant,
+) -> Result<HashSet<String>, String> {
+    use std::io::Read;
+    let directory = app_data_dir.join("luca").join(STORE_DIRECTORY);
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashSet::new()),
+        Err(_) => return Err("Session exclusions unavailable".into()),
+    };
+    let mut excluded = HashSet::new();
+    for (index, entry) in entries.enumerate() {
+        if index >= MAX_STORE_FILES || std::time::Instant::now() >= deadline {
+            return Err("Session exclusion budget exhausted".into());
+        }
+        let entry = entry.map_err(|_| "Session exclusions unavailable")?;
+        if !entry.file_type().is_ok_and(|kind| kind.is_file())
+            || entry.path().extension().and_then(|v| v.to_str()) != Some("jsonl")
+        {
+            continue;
+        }
+        let mut reader = BufReader::new(
+            fs::File::open(entry.path()).map_err(|_| "Session exclusions unavailable")?,
+        );
+        loop {
+            if std::time::Instant::now() >= deadline {
+                return Err("Session exclusion budget exhausted".into());
+            }
+            let mut line = String::new();
+            let length = reader
+                .by_ref()
+                .take((MAX_RECORD_BYTES + 1) as u64)
+                .read_line(&mut line)
+                .map_err(|_| "Session exclusions unavailable")?;
+            if length == 0 {
+                break;
+            }
+            if length > MAX_RECORD_BYTES {
+                return Err("Session exclusion record exceeds bound".into());
+            }
+            let Ok(record) = serde_json::from_str::<RuntimeSessionPurposeRecordV1>(&line) else {
+                continue;
+            };
+            if record.protocol == STORE_PROTOCOL
+                && record.runtime_family == runtime_family
+                && record.purpose != RuntimeSessionPurposeV1::ExplicitRuntimeTask
+            {
+                excluded.insert(record.provider_session_id);
+            }
+        }
+    }
+    Ok(excluded)
+}
+
 fn read_exclusions(path: &Path, runtime_family: &str, excluded: &mut HashSet<String>) {
     let Ok(file) = fs::File::open(path) else {
         return;

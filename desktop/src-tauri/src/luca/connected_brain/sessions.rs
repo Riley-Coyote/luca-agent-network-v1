@@ -156,20 +156,34 @@ pub(super) fn session_file_metadata_excluding(
     kind: ConnectedBrainSourceKindV1,
     excluded_provider_session_ids: &HashSet<String>,
 ) -> Result<Vec<SessionFileMetadata>, String> {
+    session_file_metadata_before(root, kind, excluded_provider_session_ids, None)
+}
+
+pub(super) fn session_file_metadata_before(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+    deadline: Option<std::time::Instant>,
+) -> Result<Vec<SessionFileMetadata>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    let mut files = session_files_excluding(&canonical_root, kind, excluded_provider_session_ids)?
-        .into_iter()
-        .filter_map(|path| {
-            let relative = path.strip_prefix(&canonical_root).ok()?;
-            let relative_locator = relative.to_str()?.replace('\\', "/");
-            Some(SessionFileMetadata {
-                relative_locator,
-                updated_at: modified_timestamp(&path),
-            })
+    let mut files = session_files_before(
+        &canonical_root,
+        kind,
+        excluded_provider_session_ids,
+        deadline,
+    )?
+    .into_iter()
+    .filter_map(|path| {
+        let relative = path.strip_prefix(&canonical_root).ok()?;
+        let relative_locator = relative.to_str()?.replace('\\', "/");
+        Some(SessionFileMetadata {
+            relative_locator,
+            updated_at: modified_timestamp(&path),
         })
-        .collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
     files.sort_by(|left, right| {
         right
             .updated_at
@@ -321,6 +335,15 @@ fn session_files_excluding(
     kind: ConnectedBrainSourceKindV1,
     excluded_provider_session_ids: &HashSet<String>,
 ) -> Result<Vec<PathBuf>, String> {
+    session_files_before(root, kind, excluded_provider_session_ids, None)
+}
+
+fn session_files_before(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+    deadline: Option<std::time::Instant>,
+) -> Result<Vec<PathBuf>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
@@ -334,6 +357,9 @@ fn session_files_excluding(
             continue;
         };
         for entry in entries.flatten() {
+            if deadline.is_some_and(|end| std::time::Instant::now() >= end) {
+                return Err("session discovery timed out".into());
+            }
             if files.len() >= MAX_SESSION_FILES {
                 break;
             }

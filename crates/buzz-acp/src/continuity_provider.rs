@@ -119,6 +119,8 @@ pub(crate) struct ManagedSessionContextResultV1 {
     pub(crate) quick_chat_effort: Option<QuickChatEffort>,
     #[serde(default)]
     pub(crate) quick_chat_context: Option<String>,
+    #[serde(default)]
+    pub(crate) first_meeting_context: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,6 +140,10 @@ impl ManagedSessionContextResultV1 {
                 .quick_chat_effort
                 .as_ref()
                 .is_some_and(|e| e.config_id.len() > 128 || e.value.len() > 128)
+            || self
+                .first_meeting_context
+                .as_ref()
+                .is_some_and(|text| text.len() > 16384)
             || self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
             || self
                 .attached_session_context
@@ -635,6 +641,9 @@ fn zeroize_result_packet(result: &mut ContinuityContextResultV1) {
 }
 
 fn zeroize_session_context_result(result: &mut ManagedSessionContextResultV1) {
+    if let Some(text) = result.first_meeting_context.as_mut() {
+        text.zeroize();
+    }
     if let Some(text) = result.quick_chat_context.as_mut() {
         text.zeroize();
     }
@@ -1143,6 +1152,7 @@ mod tests {
             attached_session_context: None,
             quick_chat_effort: None,
             quick_chat_context: None,
+            first_meeting_context: None,
         }
     }
 
@@ -1153,17 +1163,20 @@ mod tests {
         let mut result = session_context_result(&intent);
         result.attached_session_context = Some("existing session reference".into());
         result.quick_chat_context = Some("private screen sentinel".into());
+        result.first_meeting_context = Some("private first meeting sentinel".into());
         assert!(result.is_valid_for(&intent));
         assert!(!format!("{result:?}").contains("private screen sentinel"));
         let wire = serde_json::to_vec(&result).unwrap();
         let decoded: ManagedSessionContextResultV1 = serde_json::from_slice(&wire).unwrap();
         assert_eq!(decoded.quick_chat_context, result.quick_chat_context);
+        assert_eq!(decoded.first_meeting_context, result.first_meeting_context);
         assert_eq!(
             decoded.attached_session_context,
             result.attached_session_context
         );
         zeroize_session_context_result(&mut result);
         assert_eq!(result.quick_chat_context.as_deref(), Some(""));
+        assert_eq!(result.first_meeting_context.as_deref(), Some(""));
         result.quick_chat_context = Some("x".repeat(13001));
         assert!(!result.is_valid());
     }

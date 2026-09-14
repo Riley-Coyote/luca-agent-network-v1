@@ -132,6 +132,7 @@ struct ManagedSessionContextResultV1 {
     quick_chat_effort: Option<super::quickchat::EffortRequest>,
     #[serde(default)]
     quick_chat_context: Option<String>,
+    first_meeting_context: Option<String>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -277,7 +278,15 @@ fn serve(
             {
                 break;
             }
-            if write_session_context_result(&app, &mut writer, &intent).is_err() {
+            if write_session_context_result(
+                &app,
+                &mut writer,
+                &intent,
+                &binding_ref,
+                provider_egress,
+            )
+            .is_err()
+            {
                 break;
             }
             continue;
@@ -511,6 +520,8 @@ fn write_session_context_result(
     app: &AppHandle,
     writer: &mut std::os::unix::net::UnixStream,
     intent: &ManagedSessionContextIntentV1,
+    binding_ref: &Sha256Ref,
+    provider_egress: ProviderEgressV1,
 ) -> std::io::Result<()> {
     let unavailable = |status| ManagedSessionContextResultV1 {
         protocol: SESSION_CONTEXT_RESULT_PROTOCOL.to_owned(),
@@ -526,11 +537,13 @@ fn write_session_context_result(
         attached_session_context: None,
         quick_chat_effort: None,
         quick_chat_context: None,
+        first_meeting_context: None,
     };
     let now_unix_ms = unix_time_millis();
     let mut attached_session_context = None;
     let mut quick_chat_effort = None;
     let mut quick_chat_context = None;
+    let mut first_meeting_context = None;
     let mut receipt_authority = None;
     let mut receipt_scope = None;
     let mut result = if now_unix_ms >= intent.deadline_unix_ms.get() {
@@ -589,6 +602,16 @@ fn write_session_context_result(
                 ) {
                     quick_chat_context = Some(context);
                 }
+                first_meeting_context = super::first_meeting::for_dispatch(
+                    app,
+                    &authority.owner_pubkey,
+                    intent.resident_pubkey.as_str(),
+                    intent.conversation_id.as_str(),
+                    intent.trigger_event_id.as_str(),
+                    binding_ref,
+                    provider_egress,
+                    intent.deadline_unix_ms.get(),
+                );
                 match authority.context_binding {
                     None => unavailable(ManagedSessionContextStatusV1::Empty),
                     Some(snapshot) => {
@@ -637,6 +660,7 @@ fn write_session_context_result(
                                             attached_session_context: None,
                                             quick_chat_effort: None,
                                             quick_chat_context: None,
+                                            first_meeting_context: None,
                                         }
                                     }
                                     _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
@@ -655,6 +679,7 @@ fn write_session_context_result(
     result.attached_session_context = attached_session_context;
     result.quick_chat_effort = quick_chat_effort;
     result.quick_chat_context = quick_chat_context;
+    result.first_meeting_context = first_meeting_context;
     let bytes = serde_json::to_vec(&result)
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
     if bytes.len() >= MAX_FRAME_BYTES {

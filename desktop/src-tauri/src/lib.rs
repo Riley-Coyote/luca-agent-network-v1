@@ -1008,6 +1008,7 @@ pub fn run() {
             get_luca_owner_inbox,
             search_messages,
             send_channel_message,
+            begin_luca_first_meeting,
             list_cancellable_managed_turns,
             list_managed_conversation_operational_status,
             cancel_managed_turn,

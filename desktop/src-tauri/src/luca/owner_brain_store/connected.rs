@@ -169,6 +169,25 @@ pub(crate) fn rebind_source(
     rebind_source_with_runtime(&root, runtime, owner_pubkey, source_id, candidate, build)
 }
 
+/// Optional first-meeting discovery never waits behind a source refresh.
+pub(crate) fn try_read_connected_catalog(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+) -> Result<Option<ConnectedBrainCatalogV1>, OwnerBrainStoreError> {
+    let Some(_guard) = lifecycle
+        .try_lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?
+    else {
+        return Ok(None);
+    };
+    let Ok(state) = runtime_state.try_lock() else {
+        return Ok(None);
+    };
+    let runtime = ready_runtime(&state, owner_pubkey)?;
+    read_connected_catalog_with_runtime(runtime, load_root_key).map(Some)
+}
+
 pub(crate) fn read_connected_catalog(
     lifecycle: &ContinuityLifecycleLock,
     runtime_state: &Mutex<ContinuityRuntimeState>,
