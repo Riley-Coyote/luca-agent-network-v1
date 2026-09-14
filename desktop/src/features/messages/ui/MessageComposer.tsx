@@ -61,6 +61,7 @@ import { cn } from "@/shared/lib/cn";
 import type { ChannelType } from "@/shared/api/types";
 import { ChannelAutocomplete } from "./ChannelAutocomplete";
 import { ComposerReplyEditBanner } from "./ComposerReplyEditBanner";
+import { ComposerAddMenu } from "./ComposerAddMenu";
 import { ComposerAttachments, DropZoneOverlay } from "./ComposerAttachments";
 import { EmojiAutocomplete } from "./EmojiAutocomplete";
 import {
@@ -1447,6 +1448,18 @@ function MessageComposerImpl({
               open={isContextOpen}
             />
           ) : null}
+          {ledgeAgent ? (
+            <div
+              className="luca-composer-presence"
+              data-testid="composer-agent-ledge"
+            >
+              <ChatAgentMark
+                active={ledgeAgent.active}
+                name={ledgeAgent.name}
+                seed={ledgeAgent.pubkey}
+              />
+            </div>
+          ) : null}
           <ComposerReplyEditBanner
             isEditing={editTarget != null}
             replyTarget={replyTarget}
@@ -1484,8 +1497,7 @@ function MessageComposerImpl({
           ) : null}
           <form
             className={cn(
-              "relative z-10 rounded-[24px] border border-transparent bg-muted px-3 py-2",
-              ledgeAgent && "mt-8",
+              "relative z-10 rounded-full border border-transparent bg-muted py-[5px] pl-3 pr-[5px]",
             )}
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
@@ -1502,18 +1514,6 @@ function MessageComposerImpl({
               handleSubmit(event);
             }}
           >
-            {ledgeAgent ? (
-              <span
-                className="luca-composer-ledge"
-                data-testid="composer-agent-ledge"
-              >
-                <ChatAgentMark
-                  active={ledgeAgent.active}
-                  name={ledgeAgent.name}
-                  seed={ledgeAgent.pubkey}
-                />
-              </span>
-            ) : null}
             <ComposerCapabilityPalette
               onClose={(reason) => {
                 dismissedCapabilitySlashRef.current = true;
@@ -1636,6 +1636,20 @@ function MessageComposerImpl({
             )}
 
             <div className="luca-composer-controls">
+              <ComposerAddMenu
+                buttonRef={contextAddButtonRef}
+                disabled={disabled}
+                isUploading={media.isUploading}
+                onCaptureSelection={handleCaptureSelection}
+                onFormattingToggle={handleFormattingToggle}
+                onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
+                onOpenContext={
+                  conversationContext ? () => setIsContextOpen(true) : undefined
+                }
+                onOpenMentionPicker={openMentionPicker}
+                onPaperclip={handlePaperclipClick}
+                onRunTask={beginRuntimeTask}
+              />
               <div className="flex min-w-0 flex-1 items-end gap-2">
                 {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
                 <div
@@ -1648,45 +1662,50 @@ function MessageComposerImpl({
                 </div>
                 <Button
                   aria-label={isSending ? "Sending" : "Send message"}
-                  className="mb-0.5 size-9 shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
+                  className="size-[34px] shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-foreground/[0.08] disabled:text-ink-ghost disabled:opacity-100"
                   data-testid="send-message"
                   disabled={sendDisabled || isSending}
                   size="icon"
                   type="submit"
                 >
-                  <ArrowUp aria-hidden className="size-4" />
+                  <ArrowUp
+                    aria-hidden
+                    className="luca-send-arrow"
+                    strokeWidth={2.35}
+                  />
                 </Button>
               </div>
-              <MessageComposerToolbar
-                addButtonRef={contextAddButtonRef}
-                composerDisabled={disabled}
-                editor={richText.editor}
-                extraActions={toolbarExtraActions}
-                trailingActions={toolbarTrailingActions}
-                formattingDisabled={disabled}
-                isEmojiPickerOpen={isEmojiPickerOpen}
-                isFormattingOpen={isFormattingOpen}
-                isUploading={media.isUploading}
-                audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
-                audioRecordingStatus={audioRecorder.status}
-                onCaptureSelection={handleCaptureSelection}
-                onAudioRecordCancel={audioRecorder.cancel}
-                onAudioRecordStart={audioRecorder.start}
-                onAudioRecordStop={audioRecorder.stop}
-                onEmojiPickerOpenChange={setIsEmojiPickerOpen}
-                onEmojiSelect={insertEmoji}
-                onFormattingToggle={handleFormattingToggle}
-                onLinkButton={linkEditor.openFromToolbar}
-                onOpenContext={
-                  conversationContext ? () => setIsContextOpen(true) : undefined
-                }
-                onOpenMentionPicker={openMentionPicker}
-                onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
-                onRunTask={beginRuntimeTask}
-                onPaperclip={handlePaperclipClick}
-              />
             </div>
           </form>
+          <MessageComposerToolbar
+            addButtonRef={contextAddButtonRef}
+            showAddButton={false}
+            composerDisabled={disabled}
+            editor={richText.editor}
+            extraActions={toolbarExtraActions}
+            trailingActions={toolbarTrailingActions}
+            formattingDisabled={disabled}
+            isEmojiPickerOpen={isEmojiPickerOpen}
+            isFormattingOpen={isFormattingOpen}
+            isUploading={media.isUploading}
+            audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
+            audioRecordingStatus={audioRecorder.status}
+            onCaptureSelection={handleCaptureSelection}
+            onAudioRecordCancel={audioRecorder.cancel}
+            onAudioRecordStart={audioRecorder.start}
+            onAudioRecordStop={audioRecorder.stop}
+            onEmojiPickerOpenChange={setIsEmojiPickerOpen}
+            onEmojiSelect={insertEmoji}
+            onFormattingToggle={handleFormattingToggle}
+            onLinkButton={linkEditor.openFromToolbar}
+            onOpenContext={
+              conversationContext ? () => setIsContextOpen(true) : undefined
+            }
+            onOpenMentionPicker={openMentionPicker}
+            onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
+            onRunTask={beginRuntimeTask}
+            onPaperclip={handlePaperclipClick}
+          />
         </div>
       </footer>
 

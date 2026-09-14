@@ -1,32 +1,16 @@
 import type { Editor } from "@tiptap/react";
-import {
-  ALargeSmall,
-  ArrowUp,
-  AtSign,
-  FolderPlus,
-  Mic,
-  Paperclip,
-  Plus,
-  Sparkles,
-  SquareArrowOutUpRight,
-  Square,
-  X,
-} from "lucide-react";
+import { ALargeSmall, ArrowUp, Mic, Square, X } from "lucide-react";
 import * as React from "react";
 
 import {
   type AudioAttachmentRecorderStatus,
   formatAudioRecordingElapsed,
 } from "@/features/messages/lib/useAudioAttachmentRecorder";
+import { cn } from "@/shared/lib/cn";
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/shared/ui/dropdown-menu";
 import { Button } from "@/shared/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { ComposerAddMenu } from "./ComposerAddMenu";
 import { ComposerEmojiPicker } from "./ComposerEmojiPicker";
 import { FormattingToolbar } from "./FormattingToolbar";
 import { SelectionFormattingTray } from "./SelectionFormattingTray";
@@ -34,6 +18,7 @@ import { SelectionFormattingTray } from "./SelectionFormattingTray";
 export const MessageComposerToolbar = React.memo(
   function MessageComposerToolbar({
     addButtonRef,
+    showAddButton = true,
     children,
     isSending = false,
     sendDisabled,
@@ -62,6 +47,7 @@ export const MessageComposerToolbar = React.memo(
     onPaperclip,
   }: {
     addButtonRef?: React.Ref<HTMLButtonElement>;
+    showAddButton?: boolean;
     /**
      * Legacy slot: the forum composer still renders its input inside this
      * row. The message composer no longer does — its card holds the input
@@ -117,7 +103,10 @@ export const MessageComposerToolbar = React.memo(
        * card, which is only text) is what keeps the composer thin; chrome
        * that lives inside a box reads as a second object. */
       <div
-        className="flex min-w-0 shrink-0 items-center gap-0.5 px-1 pt-1"
+        className={cn(
+          "flex min-w-0 shrink-0 items-center",
+          showAddButton ? "gap-0.5 px-1 pt-1" : "gap-1 pl-3 pr-[5px] pt-1.5",
+        )}
         data-testid="message-composer-toolbar"
       >
         <SelectionFormattingTray
@@ -149,63 +138,20 @@ export const MessageComposerToolbar = React.memo(
           </div>
         ) : (
           <>
-            <DropdownMenu modal={false}>
-              <Tooltip disableHoverableContent>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      aria-label="Add to message"
-                      className="size-8 rounded-full"
-                      data-testid="message-composer-add"
-                      disabled={composerDisabled}
-                      onMouseDown={onCaptureSelection}
-                      ref={addButtonRef}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Plus />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Add to message</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="start" side="top" sideOffset={10}>
-                <DropdownMenuItem onSelect={onOpenMentionPicker}>
-                  <AtSign />
-                  Mention someone
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={composerDisabled || isUploading}
-                  onSelect={onPaperclip}
-                >
-                  <Paperclip />
-                  Attach files
-                </DropdownMenuItem>
-                {onOpenCapabilities ? (
-                  <DropdownMenuItem onSelect={onOpenCapabilities}>
-                    <Sparkles />
-                    Skills and tools
-                  </DropdownMenuItem>
-                ) : null}
-                {onRunTask ? (
-                  <DropdownMenuItem onSelect={onRunTask}>
-                    <SquareArrowOutUpRight />
-                    Run task
-                  </DropdownMenuItem>
-                ) : null}
-                {onOpenContext ? (
-                  <DropdownMenuItem onSelect={onOpenContext}>
-                    <FolderPlus />
-                    Add context
-                  </DropdownMenuItem>
-                ) : null}
-                <DropdownMenuItem onSelect={() => onFormattingToggle(true)}>
-                  <ALargeSmall />
-                  Formatting
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {showAddButton ? (
+              <ComposerAddMenu
+                buttonRef={addButtonRef}
+                disabled={composerDisabled}
+                isUploading={isUploading}
+                onCaptureSelection={onCaptureSelection}
+                onFormattingToggle={onFormattingToggle}
+                onOpenCapabilities={onOpenCapabilities}
+                onOpenContext={onOpenContext}
+                onOpenMentionPicker={onOpenMentionPicker}
+                onPaperclip={onPaperclip}
+                onRunTask={onRunTask}
+              />
+            ) : null}
             <ComposerEmojiPicker
               disabled={composerDisabled}
               onClose={() => editor?.commands.focus()}

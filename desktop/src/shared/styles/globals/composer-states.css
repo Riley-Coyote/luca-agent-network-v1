@@ -31,11 +31,9 @@
   box-shadow: none;
 }
 
-.luca-composer-ledge {
-  position: absolute;
-  top: -33px;
-  left: 20px;
-  z-index: 2;
+.luca-composer-presence {
+  align-self: flex-start;
+  margin: 0 0 11px 42px;
   pointer-events: none;
 }
 
@@ -43,30 +41,14 @@
   align-items: center;
   display: flex;
   gap: 8px;
-  min-height: 40px;
+  min-height: 34px;
   position: relative;
 }
 
-:root[data-luca-shell]
-  [data-testid="message-composer"]
-  [data-testid="message-composer-toolbar"] {
-  flex: 0 0 auto;
-  order: -1;
-  padding: 0;
-  width: auto;
-}
-
-:root[data-luca-shell]
-  .luca-composer-controls [data-testid="message-input-scroll"] {
-  padding-right: 112px;
-}
-
-:root[data-luca-shell]
-  .luca-composer-controls [data-testid="message-composer-toolbar"] > .ml-auto {
-  bottom: 4px;
-  max-width: 104px;
-  position: absolute;
-  right: 47px;
+:root[data-luca-shell] [data-testid="send-message"] .luca-send-arrow {
+  height: 18px;
+  width: 18px;
+  transform: translateY(0.5px);
 }
 
 /* The send button has two states, armed and disarmed, and never moves between

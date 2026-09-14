@@ -13,7 +13,7 @@ import { Button } from "@/shared/ui/button";
  * timeline.
  */
 const BANNER_CLASS =
-  "luca-reply-sheet relative z-0 -mb-3.5 flex items-center gap-2 px-4 pb-5 pt-1 text-sm leading-5 text-muted-foreground";
+  "luca-reply-sheet relative z-0 mx-5 -mb-3 flex items-center gap-2 px-4 pb-4 pt-2 text-sm leading-5 text-muted-foreground";
 
 /**
  * The "Editing message" / "Replying to …" context row at the top of the
