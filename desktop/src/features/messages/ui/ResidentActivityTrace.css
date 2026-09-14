@@ -10,6 +10,15 @@
   gap: 0.75rem;
 }
 
+.resident-activity-indicator {
+  display: inline-flex;
+  flex: 0 0 49px;
+  align-items: center;
+  justify-content: center;
+  width: 49px;
+  height: 49px;
+}
+
 .resident-activity-name {
   flex-shrink: 0;
   width: var(--resident-activity-name-width, auto);

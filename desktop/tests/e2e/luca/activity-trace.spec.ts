@@ -202,6 +202,24 @@ test("live native activity replaces narration in place and stops the exact resid
     "I found the section to update.",
   );
   await expect(page.locator("[data-sandpile-activity]")).toHaveCount(1);
+  const indicator = trace.locator("[data-sandpile-activity]");
+  await expect(indicator).toBeVisible();
+  const indicatorBox = await indicator.boundingBox();
+  const statusBox = await trace.locator("[data-activity-status]").boundingBox();
+  if (!indicatorBox || !statusBox)
+    throw new Error("Activity row is not laid out");
+  expect(indicatorBox?.width).toBe(49);
+  expect(indicatorBox?.height).toBe(49);
+  expect(indicatorBox.x + indicatorBox.width).toBeLessThan(statusBox.x);
+  expect(
+    Math.abs(
+      indicatorBox.y +
+        indicatorBox.height / 2 -
+        statusBox.y -
+        statusBox.height / 2,
+    ),
+  ).toBeLessThan(1);
+  await page.screenshot({ path: "/private/tmp/luca-activity-aligned.png" });
   await expect(page.getByTestId("resident-activity-word")).toHaveCount(0);
   await expect(page.getByTestId("resident-elapsed")).toHaveCount(0);
   await expect(page.getByTestId("resident-stop")).toHaveCount(0);
@@ -229,7 +247,10 @@ test("live native activity replaces narration in place and stops the exact resid
   await expect(trace.locator("[data-activity-narration]")).toHaveText(
     "I am preparing the update now.",
   );
-  expect((await trace.boundingBox())?.height).toBeCloseTo(before?.height ?? 0, 1);
+  expect((await trace.boundingBox())?.height).toBeCloseTo(
+    before?.height ?? 0,
+    1,
+  );
   await capture(page, "trace-live-private");
   await page.getByRole("button", { name: "Stop Luca", exact: true }).click();
   const cancelPayload = await page.evaluate(
@@ -466,7 +487,9 @@ test("only simultaneous working names align, and light mode retains readable act
       return Math.abs(values[0].statusLeft - values[1].statusLeft);
     })
     .toBeLessThan(1);
-  await expect(page.locator('[data-testid="message-row"] [data-testid="chat-agent-mark"]')).toHaveCount(0);
+  await expect(
+    page.locator('[data-testid="message-row"] [data-testid="chat-agent-mark"]'),
+  ).toHaveCount(0);
   const initial = await columns();
   expect(initial[0].nameWidth).toBeCloseTo(initial[1].nameWidth, 1);
   const settledName = page.locator(

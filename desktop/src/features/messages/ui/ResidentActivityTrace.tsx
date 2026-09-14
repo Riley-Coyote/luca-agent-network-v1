@@ -5,6 +5,7 @@ import type {
   ActivityTraceEntry,
 } from "@/features/messages/activity/activityTraceTypes";
 import { Shimmer } from "@/shared/ui/Shimmer";
+import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import { TurnContextReceipt } from "./TurnContextReceipt";
 
 import "./ResidentActivityTrace.css";
@@ -129,8 +130,8 @@ function useVisibleActivityClock(live: boolean) {
 }
 
 /**
- * The approved line, public voice and settled trace. The existing message row
- * supplies its single identity mark; this component never adds another one.
+ * The live activity indicator, approved line, public voice and settled trace.
+ * The enclosing row suppresses its identity mark while this indicator is live.
  */
 export function ResidentActivityTrace({
   trace,
@@ -192,7 +193,7 @@ export function ResidentActivityTrace({
     .find((entry) => entry.kind === "narration");
   const status =
     (latestActivity && entryText(latestActivity, privateConversation)) ||
-    "Working on your message";
+    "Thinking";
   const narration = latestNarration
     ? entryText(latestNarration, privateConversation)
     : "";
@@ -221,9 +222,15 @@ export function ResidentActivityTrace({
       {live ? (
         <>
           <div className="resident-activity-header">
+            <span className="resident-activity-indicator" aria-hidden="true">
+              <SandpileActivityIndicator
+                seed={`${residentPubkey}:activity`}
+                size={49}
+              />
+            </span>
             {identity}
             <div
-              className="resident-activity-status text-xs leading-none"
+              className="resident-activity-status text-base leading-normal"
               data-activity-status
               role="status"
               aria-live="polite"
@@ -258,14 +265,16 @@ export function ResidentActivityTrace({
               </button>
             </span>
           </div>
-          <div
-            className="resident-activity-narration text-base"
-            data-activity-narration
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {narration}
-          </div>
+          {narration ? (
+            <div
+              className="resident-activity-narration text-base"
+              data-activity-narration
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {narration}
+            </div>
+          ) : null}
         </>
       ) : (
         <>

@@ -627,6 +627,7 @@ export const MessageRow = React.memo(
     const showInChatAgentMark = Boolean(
       showResidentMarkGutter &&
         message.isAgent &&
+        activityTrace?.status !== "working" &&
         chatMarkAppearance.visible &&
         chatMarkAppearance.style !== "sphere",
     );

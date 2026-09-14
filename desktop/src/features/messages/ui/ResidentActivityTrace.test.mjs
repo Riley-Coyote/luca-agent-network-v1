@@ -85,7 +85,8 @@ test("live status and public narration each replace the preceding entry in place
   assert.equal((html.match(/data-activity-narration=/g) ?? []).length, 1);
   assert.match(html, /data-activity-stop="true"/);
   assert.match(html, /aria-label="Stop Luca"/);
-  assert.doesNotMatch(html, /<details|data-activity-name|<canvas/);
+  assert.doesNotMatch(html, /<details|data-activity-name/);
+  assert.equal((html.match(/<canvas/g) ?? []).length, 1);
 });
 
 test("the settled disclosure starts closed, counts tools only and preserves event order", () => {
@@ -165,7 +166,7 @@ test("cancelled, failed and interrupted records report their actual outcomes", (
   assert.match(failedStep, /Reading private-notes\.md · failed/);
 });
 
-test("identity is opt-in and preserves the caller's profile control without adding a mark", () => {
+test("identity is opt-in and preserves the caller's profile control beside the activity indicator", () => {
   const html = render(
     { status: "working" },
     {
@@ -180,7 +181,7 @@ test("identity is opt-in and preserves the caller's profile control without addi
     /data-activity-name="true"><button type="button">Sol<\/button>/,
   );
   assert.match(html, /aria-label="Stop Sol"/);
-  assert.doesNotMatch(html, /<canvas|data-identity|disabled=""/);
+  assert.doesNotMatch(html, /data-identity|disabled=""/);
   const stopping = render({ status: "working" }, { stopping: true });
   assert.match(stopping, /disabled="" aria-label="Stopping Luca">Stopping/);
 });
@@ -192,13 +193,11 @@ test("incomplete records disclose the retained lower bound and do not invent tim
   assert.doesNotMatch(html, /worked for|0s/);
 });
 
-test("a turn with no activity keeps a useful status and a stable narration slot", () => {
+test("a turn with no activity shows Thinking without an empty narration row", () => {
   const html = render({ status: "working", endedAt: null, entries: [] });
-  assert.match(html, /Working on your message/);
-  assert.match(
-    html,
-    /data-activity-narration="true" aria-live="polite" aria-atomic="true"><\/div>/,
-  );
+  assert.match(html, /Thinking/);
+  assert.doesNotMatch(html, /data-activity-narration/);
+  assert.equal((html.match(/<canvas/g) ?? []).length, 1);
   assert.match(html, /data-activity-stop="true"/);
 });
 

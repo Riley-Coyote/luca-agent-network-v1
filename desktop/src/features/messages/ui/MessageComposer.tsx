@@ -1453,20 +1453,22 @@ function MessageComposerImpl({
               open={isContextOpen}
             />
           ) : null}
-          {ledgeAgents.length > 0 ? (
+          {ledgeAgents.some((agent) => !agent.active && agent.showIdentity) ? (
             <div
               className="luca-composer-presence"
               data-testid="composer-agent-ledge"
             >
-              {ledgeAgents.map((agent) => (
-                <ChatAgentMark
-                  active={agent.active}
-                  key={agent.pubkey}
-                  name={agent.name}
-                  seed={agent.pubkey}
-                  showIdentity={agent.showIdentity}
-                />
-              ))}
+              {ledgeAgents
+                .filter((agent) => !agent.active && agent.showIdentity)
+                .map((agent) => (
+                  <ChatAgentMark
+                    active={agent.active}
+                    key={agent.pubkey}
+                    name={agent.name}
+                    seed={agent.pubkey}
+                    showIdentity={agent.showIdentity}
+                  />
+                ))}
             </div>
           ) : null}
           <ComposerReplyEditBanner

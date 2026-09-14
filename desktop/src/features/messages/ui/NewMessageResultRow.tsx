@@ -5,7 +5,8 @@ import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import type { UserSearchResult } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
 
 import { formatRecipientName } from "./useNewMessageRecipients";
 
@@ -52,6 +53,7 @@ export function NewMessageResultRow({
   user: UserSearchResult;
 }) {
   const name = formatRecipientName(user);
+  const markAppearance = useChatMarkAppearance(currentPubkey);
   const ownerLabel = formatOwnerLabel(
     user.ownerPubkey,
     currentPubkey,
@@ -79,7 +81,8 @@ export function NewMessageResultRow({
         type="button"
       >
         {user.isAgent ? (
-          <AgentIdentitySpecimen
+          <ResidentIdentityMark
+            presentation={markAppearance.style === "glyph" ? "glyph" : "auto"}
             accessibleName={name}
             avatarUrl={user.avatarUrl}
             className="shrink-0"
