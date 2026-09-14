@@ -59,7 +59,7 @@ export function ConversationEffortPicker({
         align="end"
         sideOffset={8}
         collisionPadding={12}
-        className="thinking-effort-picker__content"
+        className="thinking-effort-picker__content border-0"
         data-testid="conversation-effort-popover"
       >
         {residents.length === 1 && (

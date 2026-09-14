@@ -60,9 +60,14 @@
   background: hsl(var(--foreground));
 }
 
-.thinking-effort__track:has(input:focus-visible) {
-  outline: 1px solid hsl(var(--foreground));
-  outline-offset: 3px;
+.thinking-effort__track input:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 3px hsl(var(--foreground) / 0.16),
+    0 1px 4px #0005;
+}
+
+.thinking-effort__track input:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px hsl(var(--foreground) / 0.16);
 }
 
 .thinking-effort__track input:focus-visible,
