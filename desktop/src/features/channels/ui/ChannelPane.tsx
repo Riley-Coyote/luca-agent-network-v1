@@ -909,9 +909,8 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [managedActivity]);
   const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
   const composerLedgeAgents = React.useMemo(() => {
-    if (!chatMarkAppearance.visible || chatMarkAppearance.style !== "sphere") {
-      return [];
-    }
+    const showSphereIdentity =
+      chatMarkAppearance.visible && chatMarkAppearance.style === "sphere";
     const isActive = (pubkey: string) => {
       const key = normalizePubkey(pubkey);
       const state = presentationStateByPubkey?.get(key);
@@ -931,11 +930,14 @@ export const ChannelPane = React.memo(function ChannelPane({
         (state !== undefined && !isTerminalConversationActivity(state))
       );
     };
-    return activityAgents.map((agent) => ({
-      pubkey: agent.pubkey,
-      name: agent.name,
-      active: isActive(agent.pubkey),
-    }));
+    return activityAgents
+      .map((agent) => ({
+        pubkey: agent.pubkey,
+        name: agent.name,
+        active: isActive(agent.pubkey),
+        showIdentity: showSphereIdentity,
+      }))
+      .filter((agent) => showSphereIdentity || agent.active);
   }, [
     activityAgents,
     activityTraces,

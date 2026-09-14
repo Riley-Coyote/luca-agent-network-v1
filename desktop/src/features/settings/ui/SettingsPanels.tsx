@@ -683,7 +683,8 @@ function ConversationAppearanceSettings({
               Show agent marks in chats
             </label>
             <p className="text-sm font-normal text-muted-foreground">
-              Show the selected identity style in conversations.
+              Show the selected identity style in conversations. Thinking
+              activity stays visible.
             </p>
           </div>
           <Switch

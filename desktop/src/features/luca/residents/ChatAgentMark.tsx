@@ -95,18 +95,23 @@ export function ChatAgentMark({
   active,
   name,
   seed,
+  showIdentity = true,
 }: {
   active: boolean;
   name: string;
   seed: string;
+  showIdentity?: boolean;
 }) {
   const [showSandpile, setShowSandpile] = React.useState(active);
-  const [visualActive, setVisualActive] = React.useState(false);
+  const [visualActive, setVisualActive] = React.useState(
+    active && !showIdentity,
+  );
   const [liveMote, setLiveMote] = React.useState(false);
   const markRef = React.useRef<HTMLSpanElement>(null);
   const initialActive = React.useRef(active);
 
   React.useEffect(() => {
+    if (!showIdentity) return;
     const element = markRef.current;
     if (!element) return;
     observeMark({
@@ -117,7 +122,7 @@ export function ChatAgentMark({
       live: false,
     });
     return () => unobserveMark(element);
-  }, []);
+  }, [showIdentity]);
 
   React.useEffect(() => {
     const mark = markRef.current && visibleMarks.get(markRef.current);
@@ -130,6 +135,10 @@ export function ChatAgentMark({
   React.useEffect(() => {
     if (active) {
       setShowSandpile(true);
+      if (!showIdentity) {
+        setVisualActive(true);
+        return;
+      }
       // Let the field animate behind the sphere before the crossfade begins.
       // Revealing its first avalanche is the stray pink flash.
       const reveal = window.setTimeout(() => setVisualActive(true), 220);
@@ -141,25 +150,28 @@ export function ChatAgentMark({
       TRANSITION_MS,
     );
     return () => window.clearTimeout(timeout);
-  }, [active]);
+  }, [active, showIdentity]);
 
   return (
     <span
       aria-label={`${name} ${active ? "working" : "identity"} mark`}
       className="luca-chat-agent-mark"
       data-active={visualActive}
+      data-identity-visible={showIdentity}
       data-testid="chat-agent-mark"
       ref={markRef}
       role="img"
       title={name}
     >
-      <img
-        alt=""
-        aria-hidden="true"
-        className="luca-chat-agent-mark__mote"
-        src={motePoster}
-      />
-      {liveMote && !active
+      {showIdentity ? (
+        <img
+          alt=""
+          aria-hidden="true"
+          className="luca-chat-agent-mark__mote"
+          src={motePoster}
+        />
+      ) : null}
+      {showIdentity && liveMote && !active
         ? React.createElement("mote-3d", {
             "aria-hidden": true,
             className: "luca-chat-agent-mark__live-mote",
@@ -175,7 +187,9 @@ export function ChatAgentMark({
           <SandpileActivityIndicator seed={`${seed}:activity`} size={49} />
         </span>
       ) : null}
-      <span aria-hidden="true" className="luca-chat-agent-mark__wake" />
+      {showIdentity ? (
+        <span aria-hidden="true" className="luca-chat-agent-mark__wake" />
+      ) : null}
     </span>
   );
 }

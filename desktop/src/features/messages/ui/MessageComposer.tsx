@@ -104,7 +104,12 @@ type MessageComposerAudienceContext = {
   initialAgentPubkeys?: readonly string[];
 };
 type MessageComposerProps = {
-  ledgeAgents?: readonly { pubkey: string; name: string; active: boolean }[];
+  ledgeAgents?: readonly {
+    pubkey: string;
+    name: string;
+    active: boolean;
+    showIdentity: boolean;
+  }[];
   audienceContext?: MessageComposerAudienceContext | null;
   channelId?: string | null;
   /**
@@ -1459,6 +1464,7 @@ function MessageComposerImpl({
                   key={agent.pubkey}
                   name={agent.name}
                   seed={agent.pubkey}
+                  showIdentity={agent.showIdentity}
                 />
               ))}
             </div>
