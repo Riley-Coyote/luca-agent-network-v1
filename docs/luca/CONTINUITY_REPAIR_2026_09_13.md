@@ -65,11 +65,30 @@ revalidation measured 2.17 seconds; subsequent capture/revalidation were each
 below 1 ms and a warm full-generation read was 7 ms. This is local Dev evidence,
 not a timing guarantee for other machines or arbitrary concurrent workloads.
 
-Real native acceptance and final revision are recorded in the installed Dev
-bundle's `Contents/Resources/luca-source.json` and the local repair receipt.
-Trinity's repaired capture has already committed a real handoff and the
-Notebook displays it as saved. Fresh-session delivery and final read timing
-are still under verification at this source checkpoint.
+Installed Dev code revision: `4a6f22397b09cb95fccc256035680724b8bf7ac9`.
+The final local receipt is in `Contents/Resources/luca-source.json`.
+
+Real native acceptance passed:
+
+- Trinity's private capture committed a handoff; the Notebook displayed Saved.
+- After restarting the rebuilt Dev app, a new private Quick Chat received that
+  handoff. App screen context was off. The native user input contained the app
+  Wake packet with Trinity's key and handoff, no Fifty key, and no inherited
+  startup-hook attachments. There was only one user message in the new session.
+- Trinity reported receiving the saved handoff, and the subsequent automatic
+  private pass committed a new handoff from that separate conversation.
+- Fifty's separate new chat received no saved handoff and no Trinity packet or
+  startup-hook attachments. Its private pass correctly completed with no change
+  for the diagnostic-only exchange. Neither test produced a wake failure warning.
+- Inspected the actual Dev window, restored the app-context preference, and
+  opened the successful Trinity conversation in the main thread.
+- All nine processes from the previous Dev tree exited after the app quit.
+  Dev bundle/keyring identity and the original rollback were preserved; the
+  installed beta executable is unchanged.
+
+The first delivered handoff describes the earlier failure because its source
+conversation predates the repair. This is historical content, not evidence that
+delivery is still broken or that the private capture ran as another resident.
 
 Connected-Brain index retention remains a separate beta blocker: changed
 indexes create new page lineages, and forgetting/purging their ciphertext keeps
