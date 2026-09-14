@@ -38,7 +38,9 @@ export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPrev
 
   const value = new URL(window.location.href).searchParams.get(PREVIEW_PARAM);
   if (!value) return null;
-  if (value === "1" || value === "welcome") return "threshold";
+  // "welcome" is a chapter of its own now, so it opens that chapter; the door
+  // is "1" or "threshold". "you" stays as the old name for the same chapter.
+  if (value === "1") return "threshold";
   if (value === "conversational") return "prototype";
   return stages.has(value as PolyphonicOnboardingPreviewStage)
     ? (value as PolyphonicOnboardingPreviewStage)

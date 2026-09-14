@@ -232,7 +232,9 @@ export function PolyphonicOnboardingFlow({
       {transaction.chapter === "preparing" ? (
         <PolyphonicPreparingStep
           displayName={displayName}
-          onBack={() => persist({ chapter: "brain" })}
+          // The button on the error says "Choose another runtime", so it goes
+          // to the runtime, not to the step before this one.
+          onBack={() => persist({ chapter: "runtime" })}
           onComplete={enterLucaDm}
         />
       ) : null}
