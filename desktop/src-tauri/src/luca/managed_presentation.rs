@@ -337,7 +337,9 @@ fn serve(
                     continue;
                 }
             }
-            ManagedPresentationKindV1::Phase | ManagedPresentationKindV1::PublicChunk => {
+            ManagedPresentationKindV1::Liveness
+            | ManagedPresentationKindV1::Phase
+            | ManagedPresentationKindV1::PublicChunk => {
                 let active = super::communication_turn_registry::authorize(
                     frame.resident_pubkey.as_str(),
                     frame.session_epoch.get(),
@@ -363,9 +365,11 @@ fn serve(
             }
         }
         gate = candidate_gate;
-        if let Some(trace_scope) = trace_scope.as_ref() {
-            if let Ok(dispatches) = dispatch_store.lock() {
-                super::activity_trace::observe(&app, trace_scope, &frame, &dispatches);
+        if frame.kind != ManagedPresentationKindV1::Liveness {
+            if let Some(trace_scope) = trace_scope.as_ref() {
+                if let Ok(dispatches) = dispatch_store.lock() {
+                    super::activity_trace::observe(&app, trace_scope, &frame, &dispatches);
+                }
             }
         }
         let _ = app.emit(PRESENTATION_EVENT, frame);
@@ -411,6 +415,43 @@ mod tests {
             failure: None,
             activity: None,
         }
+    }
+
+    #[test]
+    fn liveness_requires_the_exact_active_turn_and_stops_at_terminal() {
+        let resident = Hex64::parse("11".repeat(32)).expect("resident");
+        let epoch = SafeU53::new(7).expect("epoch");
+        let mut gate = PresentationFrameGate::new(resident.clone(), epoch);
+        assert!(!gate.accept(&frame(
+            resident.clone(),
+            epoch,
+            1,
+            ManagedPresentationKindV1::Liveness,
+        )));
+        assert!(gate.accept(&frame(
+            resident.clone(),
+            epoch,
+            1,
+            ManagedPresentationKindV1::TurnStarted,
+        )));
+        assert!(gate.accept(&frame(
+            resident.clone(),
+            epoch,
+            2,
+            ManagedPresentationKindV1::Liveness,
+        )));
+        assert!(gate.accept(&frame(
+            resident.clone(),
+            epoch,
+            3,
+            ManagedPresentationKindV1::Cancelled,
+        )));
+        assert!(!gate.accept(&frame(
+            resident,
+            epoch,
+            4,
+            ManagedPresentationKindV1::Liveness,
+        )));
     }
 
     fn active_failed_frame(

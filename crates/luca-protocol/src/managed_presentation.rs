@@ -25,6 +25,7 @@ pub const MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES: usize = 512;
 #[serde(rename_all = "snake_case")]
 pub enum ManagedPresentationKindV1 {
     TurnStarted,
+    Liveness,
     Phase,
     PublicChunk,
     Completed,
@@ -210,6 +211,7 @@ impl ManagedPresentationFrameV1 {
         }
         let valid_shape = match self.kind {
             ManagedPresentationKindV1::TurnStarted
+            | ManagedPresentationKindV1::Liveness
             | ManagedPresentationKindV1::Completed
             | ManagedPresentationKindV1::Cancelled => {
                 self.phase.is_none()
@@ -360,6 +362,7 @@ mod tests {
     fn activity_rides_only_on_phase_frames() {
         for kind in [
             ManagedPresentationKindV1::TurnStarted,
+            ManagedPresentationKindV1::Liveness,
             ManagedPresentationKindV1::Completed,
             ManagedPresentationKindV1::Cancelled,
         ] {

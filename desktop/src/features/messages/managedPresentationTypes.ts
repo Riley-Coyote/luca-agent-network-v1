@@ -2,6 +2,7 @@ import type { ManagedResponseSurface } from "@/features/messages/lib/managedAudi
 
 export type ManagedPresentationKind =
   | "turn_started"
+  | "liveness"
   | "phase"
   | "public_chunk"
   | "completed"

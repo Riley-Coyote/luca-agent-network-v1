@@ -612,6 +612,15 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
     return;
   }
 
+  // A quiet tool can run longer than the presentation deadline. The harness
+  // already confirms this exact turn is alive; refresh its deadline without
+  // repainting the chat or changing its activity description every ten seconds.
+  if (frame.kind === "liveness") {
+    turns.set(current.uiKey, frameBase(current, frame));
+    scheduleNearestDeadline();
+    return;
+  }
+
   let next = withFrameActivity(frameBase(current, frame), frame);
   let topologyChanged = false;
   switch (frame.kind) {

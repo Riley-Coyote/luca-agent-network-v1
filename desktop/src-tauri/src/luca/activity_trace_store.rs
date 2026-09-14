@@ -357,6 +357,8 @@ impl TraceStore {
         }
         row.last_sequence = frame.sequence.get();
         match frame.kind {
+            // Heartbeats are transient presentation state, not durable work.
+            ManagedPresentationKindV1::Liveness => return false,
             ManagedPresentationKindV1::PublicChunk => {
                 if let Some(text) = frame.public_chunk.as_ref() {
                     let (text, truncated) =

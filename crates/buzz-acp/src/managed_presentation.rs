@@ -263,6 +263,18 @@ impl ManagedPresentationPublisher {
                     .await;
                 turns.insert(turn_id.to_owned(), state);
             }
+            "turn_liveness" => {
+                let Some(turn_id) = event.turn_id.as_deref() else {
+                    return;
+                };
+                let Some(state) = turns.get_mut(turn_id) else {
+                    return;
+                };
+                if !state.terminal_emitted {
+                    self.emit(state, ManagedPresentationKindV1::Liveness, None, None, None)
+                        .await;
+                }
+            }
             "acp_read" => {
                 let update = &event.payload["params"]["update"];
                 if update.get("sessionUpdate").and_then(|value| value.as_str())
@@ -2028,6 +2040,87 @@ mod tests {
             })),
             None
         );
+    }
+
+    /// A silent tool still proves the turn is alive without exposing content.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_quiet_turn_emits_body_free_liveness_until_terminal() {
+        use tokio::io::AsyncReadExt;
+
+        fn observer_event(kind: &str, payload: serde_json::Value) -> ObserverEvent {
+            ObserverEvent {
+                seq: 1,
+                timestamp: "1970-01-01T00:00:00Z".into(),
+                kind: kind.into(),
+                agent_index: None,
+                channel_id: Some("conversation-1".into()),
+                session_id: None,
+                turn_id: Some("turn-1".into()),
+                started_at: None,
+                payload,
+            }
+        }
+
+        let (desktop, child) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        child.set_nonblocking(true).expect("nonblocking child");
+        desktop.set_nonblocking(true).expect("nonblocking desktop");
+        let publisher = ManagedPresentationPublisher {
+            writer: Arc::new(tokio::sync::Mutex::new(
+                tokio::net::UnixStream::from_std(child).expect("child end"),
+            )),
+            resident_pubkey: Hex64::parse("11".repeat(32)).expect("resident"),
+            session_epoch: SafeU53::new(7).expect("epoch"),
+            runtime_family: "claude".into(),
+        };
+        let mut turns = HashMap::new();
+        publisher
+            .ingest(
+                observer_event(
+                    "turn_started",
+                    serde_json::json!({"managedDispatchReceiptId": "22".repeat(32)}),
+                ),
+                &mut turns,
+            )
+            .await;
+        publisher
+            .ingest(
+                observer_event("turn_liveness", serde_json::json!({})),
+                &mut turns,
+            )
+            .await;
+        publisher
+            .ingest(
+                observer_event("turn_terminal", serde_json::json!({"status": "cancelled"})),
+                &mut turns,
+            )
+            .await;
+        publisher
+            .ingest(
+                observer_event("turn_liveness", serde_json::json!({})),
+                &mut turns,
+            )
+            .await;
+        drop(publisher);
+
+        let mut desktop = tokio::net::UnixStream::from_std(desktop).expect("desktop end");
+        let mut raw = Vec::new();
+        desktop.read_to_end(&mut raw).await.expect("frames");
+        let frames: Vec<ManagedPresentationFrameV1> = String::from_utf8(raw)
+            .expect("utf8")
+            .lines()
+            .map(|line| serde_json::from_str(line).expect("valid frame"))
+            .collect();
+        assert_eq!(frames.len(), 4);
+        assert_eq!(frames[2].kind, ManagedPresentationKindV1::Liveness);
+        assert!(frames[2].phase.is_none());
+        assert!(frames[2].public_chunk.is_none());
+        assert!(frames[2].activity.is_none());
+        assert_eq!(frames[3].kind, ManagedPresentationKindV1::Cancelled);
+        for (index, frame) in frames.iter().enumerate() {
+            assert_eq!(frame.sequence.get(), index as u64 + 1);
+            assert_eq!(frame.validate(), Ok(()));
+        }
     }
 
     /// Drive the real ingest path over a real socket: the ledger is only half

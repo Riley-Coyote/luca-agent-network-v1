@@ -17,6 +17,7 @@ const MAX_PUBLIC_TEXT_BYTES = 65_536;
 const textEncoder = new TextEncoder();
 const PRESENTATION_KINDS = new Set<RawManagedPresentationFrame["kind"]>([
   "turn_started",
+  "liveness",
   "phase",
   "public_chunk",
   "completed",
@@ -91,6 +92,14 @@ export function validManagedPresentationFrame(
     (frame.session_epoch ?? -1) >= 0 &&
     (frame.sequence ?? 0) > 0;
   if (!commonFieldsAreValid) return false;
+  if (frame.kind === "liveness") {
+    return (
+      frame.phase === undefined &&
+      frame.public_chunk === undefined &&
+      frame.failure === undefined &&
+      frame.activity === undefined
+    );
+  }
   if (frame.kind === "phase") {
     return (
       typeof frame.phase === "string" && PRESENTATION_PHASES.has(frame.phase)

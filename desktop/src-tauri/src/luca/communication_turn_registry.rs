@@ -102,7 +102,9 @@ pub(crate) fn observe_accepted_frame(
         | ManagedPresentationKindV1::Failed => {
             turns.remove(&key(frame));
         }
-        ManagedPresentationKindV1::Phase | ManagedPresentationKindV1::PublicChunk => {}
+        ManagedPresentationKindV1::Liveness
+        | ManagedPresentationKindV1::Phase
+        | ManagedPresentationKindV1::PublicChunk => {}
     }
     Ok(())
 }

@@ -69,6 +69,32 @@ function flushAll() {
 afterEach(resetManagedPresentationStore);
 
 describe("managedPresentationStore", () => {
+  it("keeps a quiet multi-minute turn working on authenticated liveness", () => {
+    const realNow = Date.now;
+    let now = 1_000_000;
+    Date.now = () => now;
+    try {
+      seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+      ingestManagedPresentationFrame(frame("turn_started", 1));
+      ingestManagedPresentationFrame(frame("phase", 2, { phase: "working" }));
+      const firstDeadline = turn().deadlineAt;
+
+      for (let sequence = 3; sequence <= 7; sequence += 1) {
+        now += 80_000;
+        ingestManagedPresentationFrame(frame("liveness", sequence));
+        assert.ok(turn().deadlineAt > firstDeadline);
+        expireManagedPresentationDeadlinesForTests(now);
+        assert.equal(turn().phase, "working");
+        assert.equal(turn().failure, null);
+      }
+
+      ingestManagedPresentationFrame(frame("completed", 8));
+      assert.equal(turn().phase, "finalizing");
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("keeps auto-restart inhibited until a managed signed final settles", () => {
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     assert.equal(hasLiveManagedPresentationForResident(residentPubkey), true);
