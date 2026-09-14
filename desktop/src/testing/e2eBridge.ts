@@ -13968,7 +13968,7 @@ export function maybeInstallE2eTauriMocks() {
         emitMockLiveEvent(channelId, trigger);
         const reply = createMockEvent(
           9,
-          'Hello, I’m Luca. What would you like us to make possible together?\n\n```polyphonic-choices\n{"options":["Shape an idea","Help with a project"]}\n```',
+          '[Hello, I’m Luca.](color:amber?motion=breathe) What would you like us to make possible together?\n\n```polyphonic-choices\n{"options":["Shape an idea","Help with a project"]}\n```',
           [
             ["h", channelId],
             ["p", owner],

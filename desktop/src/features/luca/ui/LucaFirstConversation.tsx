@@ -1,3 +1,5 @@
+import { Markdown } from "@/shared/ui/markdown";
+
 /** The quiet introduction above the real conversation composer. */
 export function LucaFirstConversation({ greeting }: { greeting: string }) {
   return (
@@ -5,9 +7,10 @@ export function LucaFirstConversation({ greeting }: { greeting: string }) {
       className="luca-measure pointer-events-auto mb-7 px-0 text-center"
       data-testid="luca-first-conversation"
     >
-      <p className="mx-auto max-w-lg whitespace-pre-wrap text-pretty text-base leading-relaxed text-foreground">
-        {greeting}
-      </p>
+      <Markdown
+        className="mx-auto max-w-lg text-pretty text-base leading-relaxed text-foreground"
+        content={greeting}
+      />
     </div>
   );
 }

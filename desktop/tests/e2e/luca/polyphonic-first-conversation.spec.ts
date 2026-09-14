@@ -47,6 +47,9 @@ async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
   await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
+  await expect(page.getByTestId("message-input")).toBeVisible({
+    timeout: 30_000,
+  });
 }
 
 test("setup opens an immediately usable composer with the rail collapsed", async ({
