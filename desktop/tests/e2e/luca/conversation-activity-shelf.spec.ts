@@ -243,18 +243,17 @@ test("Stop all appears only when more than one resident is working", async ({
   await capture(page, "stop-all");
 });
 
-test("a resident row carries the identity glyph, never the orb", async ({
+test("resting resident rows keep live spheres while working rows show sandpiles", async ({
   page,
 }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
   await expect.poll(() => liveMarkCount(page)).toBe(3);
-  // Resting rows use a faithful frame of the 3D character, keeping WebGL
-  // contexts bounded even when the history contains many residents.
+  // Two prior resident messages are visible beside the three working rows.
   await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(
-    0,
+    2,
   );
-  await capture(page, "glyphs-in-rows");
+  await capture(page, "live-spheres-in-rows");
 });
 
 test("no monospace chrome in the working surface", async ({ page }) => {
