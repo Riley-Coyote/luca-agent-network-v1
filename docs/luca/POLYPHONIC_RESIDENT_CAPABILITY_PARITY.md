@@ -98,8 +98,8 @@ The next capability program is exposure-first:
 6. **Parallel task orchestration.** Preserve native runtime subagents and build
    explicit cross-resident delegation, independent
    parallel execution, progress, cancellation, and result return on top of
-   existing resident/A2A identities rather than inventing a mandatory
-   conductor.
+   existing resident/A2A identities. One primary resident conducts the work;
+   the user need not manually relay messages between agents.
 7. **Automations and scheduled tasks.** Add durable user-authorized triggers
    only after ordinary tool execution and parallel task ownership are reliable.
 8. **Computer use.** Expose a verified runtime/MCP controller if present;

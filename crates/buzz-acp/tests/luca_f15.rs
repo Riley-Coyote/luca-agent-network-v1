@@ -20,7 +20,7 @@ struct FixtureIdentity {
 
 #[derive(Debug, Deserialize)]
 struct FixturePersona {
-    conductor: bool,
+    privileges: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,7 +47,7 @@ fn luca_f15_three_resident_setup_contract_is_public_and_peer_based() {
     for fixture in fixtures {
         assert!(identities.insert(fixture.identity.public_key));
         assert!(!fixture.identity.display_name.trim().is_empty());
-        assert!(!fixture.persona.conductor, "F15 has no conductor role");
+        assert!(fixture.persona.privileges.is_empty());
         assert_eq!(fixture.runtime.kind, "fixture-noop");
         assert_eq!(fixture.provider_stub.kind, "fixture-provider");
         assert_eq!(fixture.provider_stub.credential_source, "none");
@@ -60,7 +60,6 @@ fn luca_f15_renderer_adapter_has_no_private_key_response_field() {
     let native = include_str!("../../../desktop/src-tauri/src/luca/resident_registry.rs");
     let client = include_str!("../../../desktop/src/features/luca/residents/api.ts");
     let compatibility = include_str!("../../../desktop/src/shared/api/tauri.ts");
-    let setup = include_str!("../../../desktop/src/features/luca/residents/ResidentSetup.tsx");
 
     assert!(native.contains("create_luca_resident"));
     assert!(native.contains("created.private_key_nsec.zeroize();"));
@@ -82,7 +81,6 @@ fn luca_f15_renderer_adapter_has_no_private_key_response_field() {
     assert!(adapter.contains("create_luca_resident"));
     assert!(adapter.contains("listManagedAgents()"));
     assert!(!adapter.contains("create_managed_agent"));
-    assert!(!setup.to_ascii_lowercase().contains("conductor"));
 }
 
 #[test]

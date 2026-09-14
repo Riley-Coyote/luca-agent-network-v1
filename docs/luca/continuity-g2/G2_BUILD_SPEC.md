@@ -8,7 +8,7 @@ cryptographic identity across runtime sessions, receives authorized continuity
 before responding, maintains an inspectable private notebook after durable
 turns, and may perform tightly limited reflection while Luca is open.
 
-This is still a direct conversation product. It does not add a conductor,
+This is a conductor-first conversation product. This slice does not add
 background agent society, emotional simulation, or autonomous tool use.
 
 ## Authority model
@@ -264,4 +264,4 @@ open it through an explicit disclosure control.
 - tool-enabled autonomous research;
 - background cross-agent conversations;
 - automatic transcript flooding;
-- conductor behavior.
+- authority escalation through coordination.

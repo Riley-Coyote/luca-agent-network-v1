@@ -6,8 +6,9 @@ changing code, read [HANDOFF.md](HANDOFF.md) and
 Buzz product assumptions in the upstream guide below. In particular:
 
 - Luca is a personal agent network, not an organization/community product.
-- There is no conductor. The owner talks directly with persistent residents in
-  DMs and multi-agent conversations.
+- The conductor-first experience is central: the owner can work with one
+  primary resident who coordinates other agents on their behalf. Direct DMs
+  and multi-agent conversations remain available, never required.
 - Buzz remains the messaging/event/UI foundation; do not rebuild its transport.
 - Resident cryptographic identity is stable across runtime/model changes.
 - Native Hermes/OpenClaw/Codex/Claude Code agents may be configured from Luca
@@ -602,7 +603,7 @@ contributor rules.
 - Start a task only after its graph dependencies have validated. Use its compact
   capsule as the source of owned paths, forbidden paths, tests, outputs and
   review requirements.
-- Preserve Buzz's conversation plane. Do not add a conductor, pass resident
+- Preserve Buzz's conversation plane. Do not pass resident
   secrets to ACP/model descendants, make conversation depend on continuity, or
   allow context to alter authority, tools, provider, model or budgets.
 - Keep every implementation task to its owned paths and one bounded commit.

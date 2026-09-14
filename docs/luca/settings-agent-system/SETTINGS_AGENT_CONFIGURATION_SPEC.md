@@ -70,7 +70,7 @@ Overview or Notebook. Neither surface owns a private copy of agent state.
     parity that a runtime does not expose.
 13. Brain sources, Notebook content, room membership, and project bindings do not
     become generic Settings fields.
-14. This system does not add a conductor.
+14. Settings supports the conductor-first product without granting extra authority.
 
 ## 4. Settings information architecture
 
@@ -814,7 +814,7 @@ credentials, memory, and schedules.
 - multi-owner or organization administration;
 - mobile parity beyond implemented companion features;
 - autonomous agent creation or self-modification;
-- a conductor.
+- implicit authority escalation through coordination.
 
 ## 19. Open design work before implementation
 

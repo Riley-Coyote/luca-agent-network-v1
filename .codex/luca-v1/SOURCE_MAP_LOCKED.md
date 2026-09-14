@@ -23,7 +23,7 @@ read-only evidence sources.
 | Turn IDs/liveness/completion | `crates/buzz-acp/src/pool.rs`; `crates/buzz-acp/src/observer.rs` | Preserve turn identity and visible lifecycle; add durable Luca receipts |
 | Queue/replay/cancel | `crates/buzz-acp/src/queue.rs`; `relay.rs`; `pool.rs` | Conversation foundation and regression surface |
 | Same-owner agent messages | `crates/buzz-acp/src/lib.rs::author_allowed`; `is_owner_or_sibling`; desktop `managed_agents/types.rs::RespondTo`; runtime `build_respond_to_env` | Existing author gate accepts cryptographically verified same-owner siblings even in owner-only mode; adapt mention/dispatch with root causal limits |
-| Personas/residents | `crates/buzz-persona/`; `docs/nips/NIP-AP.md`; `desktop/src-tauri/src/managed_agents/`; `commands/personas/`; `desktop/src/features/agents/` | Three directly addressable residents; no conductor |
+| Personas/residents | `crates/buzz-persona/`; `docs/nips/NIP-AP.md`; `desktop/src-tauri/src/managed_agents/`; `commands/personas/`; `desktop/src/features/agents/` | Directly addressable residents with primary-resident coordination |
 | Rooms/threads/messages/search/media | relay crates plus desktop feature modules | Preserve as conversation plane |
 | Activity/archive UI | `desktop/src-tauri/src/archive/`; `commands/observer_archive.rs`; `desktop/src/features/local-archive/` | Adapt safe activity states; do not treat process-local observer data as durable checkpoint receipt |
 | Key custody | `desktop/src-tauri/src/secret_store.rs`; `managed_agents/storage.rs`; ACP environment construction | Retain OS keyring/fail-closed patterns, but replace raw ACP environment injection with a structured desktop signing broker before any identity claim ships |

@@ -64,7 +64,7 @@ archive; it is not the active task graph for V1.1-V1.3.
 - **V1.3 — Resident Reflection:** let a resident intentionally review and
   consolidate its own notebook through its exact configured runtime and model.
 
-These releases do not add a conductor, scheduled inner life, proactive outreach,
+These releases do not add scheduled inner life, proactive outreach,
 automatic personality evolution, broad imports, or background agent society.
 
 ## Backend-first sequence (completed)

@@ -24,7 +24,7 @@ and the feature is removed; this does not block the simplified product.
 - P1 persistent-resident behavior;
 - continuity-absent conversation harness;
 - clean-profile native shell and public-brand audit;
-- no conductor path or organization-first blocker;
+- one-primary-resident collaboration without organization-first setup;
 - a real native clean profile automatically provisions/selects its internal
   personal-home tenancy and never exposes Buzz community/workspace setup;
 - upstream messaging regression suite;
@@ -59,7 +59,7 @@ and the feature is removed; this does not block the simplified product.
 - P7 three-resident direct room proof;
 - recursive cap, deadline, spend, replay and cancellation tests;
 - per-responder memory reauthorization and cross-agent capture;
-- no hidden conductor or child background work;
+- no unapproved routing authority or child background work;
 - independent multi-agent safety review.
 
 ## G5 - Post-turn continuity

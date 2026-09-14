@@ -51,7 +51,7 @@ global_rules:
   - reference_repositories_and_native_configuration_are_read_only
   - no_private_bodies_or_keys_in_logs_evidence_wal_or_crash_reports
   - scheduled_cognition_is_opt_in_bounded_and_tool_denied
-  - no_conductor
+  - coordination_preserves_resident_authority
 gates:
   - id: G2.0
     title: Durable control plane

@@ -88,7 +88,7 @@ A task is complete only when:
 
 The lead stops and records a decision delta if implementation would:
 
-- reintroduce a conductor;
+- bypass authorization when coordinating residents;
 - make talk depend on continuity;
 - widen memory or provider egress;
 - require custom cryptography;

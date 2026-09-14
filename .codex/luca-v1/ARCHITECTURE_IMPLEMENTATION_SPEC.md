@@ -5,7 +5,7 @@ Baseline: Buzz `7e34bee62cacaa9d8a96c14d5892a471b59a1983`
 
 ## Product boundary
 
-V1 is a Buzz-derived personal agent home. It does not contain a conductor. The
+V1 is a Buzz-derived personal agent home. A primary resident can coordinate other agents. The
 owner can speak directly to any resident agent or place several agents in a
 persistent room. Each resident keeps one cryptographic identity, one governed
 Continuity Capsule, and a separately authorized lens into the owner's Mnemos
@@ -190,7 +190,7 @@ to an empty-success result.
 
 ## Explicitly deferred
 
-- conductor or mandatory Luca routing;
+- mandatory routing through Luca when the owner chooses another resident;
 - ambient cognition, recurrence, proactive initiation and autonomous chains;
 - the full Polyphonic inner-life engine;
 - an embedded desktop relay;

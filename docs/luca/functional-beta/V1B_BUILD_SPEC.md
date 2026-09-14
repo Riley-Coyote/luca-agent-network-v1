@@ -68,5 +68,4 @@ Activity exposes job state without private bodies.
 Universal-brain import and grants, imported-history archive, embeddings,
 associative expansion, separate hypomnema/journal/reflection stores, personality
 or conviction evolution, scheduled inner life, proactive DMs, background agent
-society, concurrent multi-device writes, mobile, voice, and conductor behavior.
-
+society, concurrent multi-device writes, mobile, voice.

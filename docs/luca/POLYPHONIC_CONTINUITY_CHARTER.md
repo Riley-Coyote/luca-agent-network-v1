@@ -41,8 +41,8 @@ memory and the owner's knowledge systems. It does not replace them.
 ## 2. Product identities
 
 - **Polyphonic** is the application and continuous home.
-- **Luca** is the included resident concierge, not a conductor or hidden
-  authority over other residents.
+- **Luca** is the included resident concierge and primary conductor, coordinating other
+  residents through explicit grants rather than hidden authority.
 - **A resident** is a stable identity-bearing participant bound to a resident
   public key. Runtime, provider, model, and workspace bindings may change
   without silently creating a different resident.
@@ -701,7 +701,7 @@ This contract does not authorize:
 - automatic transcript indexing;
 - a universal personal knowledge graph inside resident continuity;
 - cross-resident private-memory access;
-- a hidden conductor;
+- hidden authority bypasses during coordination;
 - autonomous identity, conviction, relationship, or personality rewrites;
 - system framing that declares contested questions of emotion, experience,
   consciousness, or sentience either proven or disproven on a resident's

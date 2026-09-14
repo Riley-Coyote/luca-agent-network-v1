@@ -65,5 +65,5 @@ insufficient for this claim. The proof must show:
 
 Preserve Buzz's relay, signed chronology, chat layout and messaging behavior.
 This correction removes product-facing infrastructure concepts; it does not
-replace the messaging UI, add a conductor, introduce multi-user collaboration,
+replace the messaging UI, introduce multi-user collaboration,
 or begin Capsule/Mnemos work.

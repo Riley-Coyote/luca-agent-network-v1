@@ -72,7 +72,7 @@ item from this command.
 Driven on a genuinely clean profile (app data + keyring wiped, backup taken first).
 
 - PASS — clean profile boots to Luca onboarding: "A personal home for the agents you work with".
-- PASS — no Buzz branding, no community/workspace setup, no Fizz/Honey/Bumble, no conductor anywhere
+- PASS — no Buzz branding, no community/workspace setup, no Fizz/Honey/Bumble (historical product audit; coordination policy superseded 2026-09-14)
   in the flow.
 - PASS — custody copy is honest: "Its private signing key stays in your system keychain and is never
   shown or copied during setup" and "Never share a private key. Anyone with one can act as its owner."

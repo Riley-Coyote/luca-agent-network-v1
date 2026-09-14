@@ -7,7 +7,7 @@ proposals until accepted.
 | Date | Decision | Status | Source |
 |---|---|---|---|
 | 2026-08-04 | Treat functional G1 as complete and begin continuity alignment. | Settled | Riley decision |
-| 2026-08-04 | Preserve Luca as a direct human-to-resident and multi-agent product; no conductor. | Settled | Riley decision and `HANDOFF.md` |
+| 2026-08-04 | Historical direct-conversation-only decision, superseded by Riley on 2026-09-14: conductor-first collaboration. | Superseded | Riley decision and `HANDOFF.md` |
 | 2026-08-04 | Continuity must go beyond stable identity and bounded transcript replay toward hypomnema, associative memory, reflection, and a constrained inner life. | Settled direction | Riley decision |
 | 2026-08-04 | Do not let the full cognitive-engine ambition delay the effortless import, DM, and group-chat product. | Settled guardrail | Riley decision |
 | 2026-08-04 | Claude's concurrent design work is separate and does not gate this source audit. | Settled | Riley decision |

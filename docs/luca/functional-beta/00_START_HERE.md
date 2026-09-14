@@ -29,7 +29,7 @@ remain authoritative for their own profiles, workspaces, tools, credentials,
 projects, and native memory. Luca adds stable cryptographic identity, signed
 conversation history, and one small encrypted resident-authored handoff.
 
-There is no conductor. Messaging must keep working when continuity is disabled,
+Conductor-first collaboration must keep working when continuity is disabled,
 locked, absent, corrupt, slow, or unavailable.
 
 ## Execution discipline

@@ -9,7 +9,6 @@
   "persona": {
     "role": "resident",
     "summary": "A direct, owner-configured resident fixture for deterministic ACP tests.",
-    "conductor": false,
     "privileges": []
   },
   "runtime": {

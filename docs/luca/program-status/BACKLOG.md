@@ -64,11 +64,11 @@ Separate activation is required for each:
   adversarial/multi-tenant hardening;
 - full native mobile companion, Artifact Library/static Canvas, Skills Library;
 - expanded Unified Brain imports, Obsidian/Google connectors;
-- bounded internal multi-model delegation and optional ordinary conductor;
+- bounded internal multi-model delegation;
 - multi-user, voice, live artifacts, database adapters, and remote sync.
 
 ## Closed unless Riley reopens
 
 Goose, mesh compute, hosted communities as the Luca product model, experiments,
 broad forum/huddle/moderation/template administration, unrestricted raw
-signing/CLI authority, and any hidden privileged mandatory conductor.
+signing/CLI authority, and any hidden privilege or mandatory routing bypass.

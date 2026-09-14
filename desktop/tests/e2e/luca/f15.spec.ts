@@ -216,7 +216,6 @@ test("F15: three residents are created through the key-safe Luca boundary", asyn
     0,
   );
   await expect(page.getByText("Private key (nsec)")).toHaveCount(0);
-  await expect(setup).not.toContainText(/conductor/i);
   expect(consoleErrors).toEqual([]);
 });
 

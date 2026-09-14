@@ -87,7 +87,7 @@ scheduler.
 - cross-resident access to private notebooks;
 - multi-device concurrent continuity writes;
 - automatic changes to identity, convictions, relationships, or personality;
-- a conductor or hidden orchestrator.
+- hidden orchestration that bypasses permissions or attribution.
 
 ## Success standard
 

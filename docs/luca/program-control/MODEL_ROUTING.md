@@ -27,8 +27,9 @@
 
 ## P5 delegation
 
-Multi-model delegation or an optional conductor requires separate activation.
+New multi-model machinery requires separate activation; primary-resident
+coordination is already the product direction.
 Any worker is bounded by explicit budget/capability, cannot inherit durable
 credentials/signing authority, and returns attributed proposals/results to the
-resident/host boundary. A conductor, if ever built, is an ordinary replaceable
+resident/host boundary. The primary conductor is an ordinary replaceable
 resident role, not a hidden router.

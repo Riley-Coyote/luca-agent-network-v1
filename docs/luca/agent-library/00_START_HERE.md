@@ -47,7 +47,7 @@ This package does not replace:
 
 - No messaging, relay, encryption, storage, protocol, or Tauri redesign.
 - No new memory capability.
-- No conductor.
+- Coordination preserves ordinary resident permissions.
 - No full-page analytics dashboard.
 - No deletion of an internal runtime adapter without a separate dependency
   audit. This slice removes unsupported runtimes from the visible Luca product.

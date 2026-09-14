@@ -16,7 +16,7 @@ Authority:
   current chat system or redesign Buzz from scratch.
 
 Product lock:
-- No conductor. Luca is a resident, not a privileged router.
+- Conductor-first collaboration uses ordinary resident permissions, not privileged routing.
 - Buzz owns conversations and signed chronology; Mnemos owns the universal
   brain; each resident has a six-segment encrypted Continuity Capsule.
 - Conversation works when every Luca continuity component is absent.

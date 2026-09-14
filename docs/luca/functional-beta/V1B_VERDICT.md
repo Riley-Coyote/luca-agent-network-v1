@@ -52,5 +52,5 @@ This is a functional beta, not the complete Mnemos/Polyphonic vision. Native
 memory remains owned by each native runtime. Luca adds a compact continuity
 overlay and never claims native transcript restoration or unsupported ACP
 capabilities. Universal-brain imports, associative retrieval, hypomnema,
-journaling, scheduled inner life, proactive outreach, mobile, voice, conductor
-behavior, and concurrent multi-device writes remain deferred.
+journaling, scheduled inner life, proactive outreach, mobile, voice,
+and concurrent multi-device writes remain deferred.

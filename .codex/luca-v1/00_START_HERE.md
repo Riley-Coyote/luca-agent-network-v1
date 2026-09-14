@@ -12,7 +12,7 @@ retains cryptographically signed identity continuity across fresh runtime
 sessions, and every resident can receive policy-governed context from the
 owner's universal Mnemos brain.
 
-There is no conductor. Luca is one resident, not a privileged router. Buzz owns
+Luca can conduct work across residents without privileged routing. Buzz owns
 conversation chronology and realtime rooms; the Continuity Capsule owns each
 resident's compact identity/current continuity; Mnemos owns the universal
 brain. The only autonomous cognition in V1 is one bounded post-turn checkpoint
@@ -59,7 +59,7 @@ ownership, machine-checked evidence receipts and bounded model routing.
 
 Stop the build and repair the contract if any implementation would:
 
-- add a conductor or hidden privileged Luca route;
+- add a hidden privileged Luca route;
 - expose an owner/resident secret or installation-attestation key to ACP,
   model, shell or tool descendants;
 - make conversation success depend on Capsule, Mnemos or checkpoint success;

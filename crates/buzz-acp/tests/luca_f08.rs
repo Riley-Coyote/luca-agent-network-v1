@@ -31,7 +31,6 @@ struct Identity {
 struct Persona {
     role: String,
     summary: String,
-    conductor: bool,
     privileges: Vec<String>,
 }
 
@@ -108,7 +107,6 @@ fn luca_f08_resident_fixtures_are_public_only_deterministic_and_isolated() {
         assert_eq!(fixture.identity.display_name, display_name);
         assert_eq!(fixture.persona.role, role);
         assert!(!fixture.persona.summary.is_empty());
-        assert!(!fixture.persona.conductor, "F08 has no conductor");
         assert!(
             fixture.persona.privileges.is_empty(),
             "fixture must not grant privileges"

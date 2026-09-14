@@ -71,7 +71,7 @@ committed.
 ## Reject
 
 - Rebuilding or transplanting Buzz messaging into legacy Luca.
-- Reintroducing a conductor or treating one resident as hidden authority over all
+- Treating one resident as hidden authority over all
   others.
 - Giving the ACP harness, model, tools, or descendants a resident private key or
   general signing capability.

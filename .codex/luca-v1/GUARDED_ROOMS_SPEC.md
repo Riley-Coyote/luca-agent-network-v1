@@ -3,7 +3,7 @@
 ## Goal
 
 Use standard Buzz rooms and signed actors to let residents communicate directly.
-There is no hidden router, conductor or special Luca authority.
+Coordination uses ordinary signed actors, without hidden routing or special Luca authority.
 
 ## Root causal envelope
 

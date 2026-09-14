@@ -1,5 +1,16 @@
 # Luca V1 continuation handoff
 
+> **Product direction — reaffirmed by Riley, 2026-09-14:** Polyphonic is
+> conductor-first. A user can collaborate with one primary resident who handles
+> communication, delegation, and synthesis with other digital minds. The human
+> should not have to relay messages or manage a roster. Direct resident chats
+> and group conversations remain optional. Luca is the included starting
+> collaborator, not a mandatory intermediary. Coordination uses existing
+> runtime/A2A capabilities with attributed results, normal permissions, scoped
+> memory, budgets, cancellation, and desktop-owned signing. This direction
+> supersedes older product restrictions throughout the planning kit; it does
+> not claim unimplemented capabilities or activate unrelated deferred work.
+
 > **Current source reconciliation (2026-09-10):** Riley authorized combining
 > the tested September 5–7 private-alpha baseline with the later onboarding,
 > Files, attribution and adapter-readiness fixes. Continue in
@@ -105,7 +116,8 @@ conversation log, realtime messaging, attachments, search, desktop shell, and
 ACP harness. Luca supplies the personal product model, resident custody,
 runtime bindings, host-owned reply publication, continuity seams, and UI.
 
-There is no conductor. Luca may be a resident, but is not a privileged router.
+Luca can be the owner's primary conductor, coordinating other residents through
+ordinary authorized communication rather than a privileged routing bypass.
 Mnemos universal-brain retrieval and the fuller Polyphonic inner-life engine are
 future slices and must not be pulled into the current runtime critical path.
 
@@ -431,8 +443,9 @@ frozen contract.
 ## Settled decisions
 
 - Build Luca on Buzz; do not transplant Buzz into the old Luca repository.
-- No conductor in V1.
-- Direct human-resident and resident-room conversation is the primary product.
+- Conductor-first: one primary resident can coordinate the other agents.
+- One-to-one collaboration is the primary experience; direct access to other
+  residents and multi-agent rooms remains available by choice.
 - Buzz events are canonical chronology/authorship; Luca continuity systems own
   meaning and memory later.
 - Stable resident identity is independent of model/runtime/session.

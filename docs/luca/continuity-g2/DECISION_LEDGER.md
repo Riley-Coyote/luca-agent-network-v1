@@ -27,7 +27,7 @@ must record date, author, reason, affected tasks, migration impact, and approval
 | D20 | Inner life is opt-in, off by default, bounded, and app-lifecycle scoped. | Add useful autonomy without a hidden daemon. |
 | D21 | Default proactive outreach is one resident DM per rolling 24 hours. | Conservative usefulness without notification pressure. |
 | D22 | Tools and permissions are denied during scheduled cognition. | G2 reflection does not expand autonomous authority. |
-| D23 | No conductor is introduced. | Preserve direct resident relationships and product simplicity. |
+| D23 | Superseded 2026-09-14: primary-resident coordination is central. | Riley reaffirmed one-agent collaboration with optional direct resident access. |
 | D24 | Claude's design lane is integrated later through stable functional seams. | Avoid merge contention and tying correctness to unfinished visual work. |
 | D25 | Protected backup wraps the continuity master key inside the age envelope and installs it into a destination keychain only after confirmed restore. | A backup must remain decryptable after loss of the original keychain without a plaintext fallback. |
 | D26 | Automatic identity/relationship/conviction updates require explicit owner evidence or two signed sources across conversations/24 hours, are limited to one per category per seven days, and suppress equivalent topics for 30 days. | Make anti-rumination and bounded-frequency behavior deterministic and testable. |

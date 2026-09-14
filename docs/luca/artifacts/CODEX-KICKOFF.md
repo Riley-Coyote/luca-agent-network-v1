@@ -48,7 +48,7 @@ For `A00`, this report is the work. Do not implement production code.
 
 Stop and report if implementation would:
 
-- require a conductor or new message-routing authority;
+- require unauthorized new message-routing authority;
 - pass keys/signing/permission capability into model or tool descendants;
 - put a path or artifact body on the relay;
 - execute generated content in the app origin or with Tauri IPC;

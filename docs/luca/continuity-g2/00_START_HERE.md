@@ -33,8 +33,8 @@ git status --short --branch
 
 - Buzz/Luca signed events remain canonical conversation chronology and
   authorship. Resident public keys remain canonical identity.
-- There is no conductor. The owner talks directly to residents in DMs and
-  multi-agent rooms.
+- The owner can work through one primary resident who coordinates other
+  agents; direct DMs and multi-agent rooms remain optional.
 - Chat, final publication, cancellation, and permission handling must work when
   continuity is locked, absent, corrupt, slow, or disabled.
 - Resident-private continuity never crosses residents. Room membership never

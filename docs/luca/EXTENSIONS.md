@@ -25,7 +25,7 @@ places, and never joined up:
 identities, rooms/DMs/projects, delivery and activation, permissions and
 budgets, files and artifacts and brain sources, durable event history, agent
 creation and runtime access, cancellation and recovery. Luca does *not* provide:
-a team hierarchy, required workstreams, a task graph, a conductor, or a
+a required team hierarchy, prescribed workstreams, a fixed task graph, or a
 definition of done. Agents build those out of the primitives if they want them.
 
 **2. Artifacts are real, built, and agent-neutral.** Shipped on `luca/v1.1`,

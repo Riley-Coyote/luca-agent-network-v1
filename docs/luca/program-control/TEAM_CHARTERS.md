@@ -57,8 +57,8 @@ ownership and stable identity.
 
 Owns AGT-201–205, Agent Library/Settings/runtime health/MCP, and MNEM-401/407.
 It does not copy native configuration or credentials, sign as residents outside
-the host path, grant project-derived authority, or activate optional conductor
-or multi-model work early.
+the host path, grant project-derived authority, or activate unapproved
+multi-model work early. Primary-resident coordination is the product baseline.
 
 ## Clients & Creative Surfaces
 

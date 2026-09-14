@@ -785,7 +785,6 @@ mod tests {
             "protected persona body",
             "LUCATEST_PROVIDER_SECRET",
             "never-serialize",
-            "conductor",
         ] {
             assert!(!serialized.contains(forbidden), "leaked {forbidden}");
         }

@@ -80,7 +80,7 @@ work. Passing focused unit tests alone is not a G1 verdict.
 - [ ] Internal personal-home tenancy provisions/selects automatically.
 - [ ] No Buzz community/workspace setup, Fizz/Honey/Bumble defaults, Buzz color
       treatment, or Buzz product branding is visible in the Luca path.
-- [ ] No conductor or organization-first blocker exists.
+- [ ] One-primary-resident collaboration does not require organization-first setup.
 - [ ] Owner recovery is usable and accurately explains custody.
 - [ ] Persistent resident setup works with one real ACP provider.
 - [ ] Conversation works when every continuity/Mnemos service is absent.

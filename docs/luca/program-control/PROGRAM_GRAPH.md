@@ -143,7 +143,7 @@ acceptance, and future hardening now have separate status and ownership.
 | EXT-504 | Projects, Brain & Connections | deferred enhancement | Expand Unified Brain discovery import formats archives and migration |
 | EXT-505 | Projects, Brain & Connections | deferred enhancement | Add Obsidian and Google connectors through staged read-first contracts |
 | EXT-506 | Agent Platform | deferred enhancement | Add one stable resident identity with bounded internal multi-model delegation |
-| EXT-507 | Agent Platform | deferred enhancement | Evaluate an optional ordinary project conductor role with no hidden authority |
+| EXT-507 | Agent Platform | deferred enhancement | Refine project-specific coordination beyond the primary-resident baseline |
 | EXT-508 | Clients & Creative Surfaces | deferred enhancement | Evaluate multi-user voice live artifacts database adapters and remote sync separately |
 
 ## Activation rules

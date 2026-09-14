@@ -1240,7 +1240,7 @@ tasks:
   outputs:
   - signed_mention_dispatch
   - operational_prerequisite_tests
-  - no_conductor_trace
+  - authorized_coordination_trace
   capsule: R05
   executor_role: bounded_worker
   reasoning_effort: high

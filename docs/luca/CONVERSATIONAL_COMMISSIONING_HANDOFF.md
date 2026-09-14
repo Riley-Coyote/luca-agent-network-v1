@@ -54,7 +54,7 @@ work.
 ## Settled product decisions
 
 - Polyphonic is the application and personal agent home. Luca is its canonical
-  resident concierge, not a temporary onboarding bot or privileged conductor.
+  resident concierge, not a temporary onboarding bot or a privileged authority.
 - Luca's identity and owner-Luca DM persist beyond onboarding.
 - The first conversation is a real conversation, not another wizard, intake
   form, or mandatory personality questionnaire.

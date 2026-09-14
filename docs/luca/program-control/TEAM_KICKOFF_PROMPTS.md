@@ -188,7 +188,7 @@ tools, MCP, budget, permissions, or signing authority. Prove protected-state
 hashes, create/reconcile/rollback/cancel/duplicate, start/stop/restart/relaunch,
 and honest degraded readiness with disposable fixtures.
 
-Do not activate Skills Library, multi-model delegation, optional conductor,
+Do not activate Skills Library, multi-model delegation,
 production key rotation/recovery, or Guarded/Restricted communication during
 P1–P3. Request exact leases for shared resident registry, Settings routes,
 native command registration, or app state. One task/commit/evidence/report

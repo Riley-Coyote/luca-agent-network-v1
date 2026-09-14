@@ -51,5 +51,5 @@ new lease.
 - Merge an archaeology/reference branch wholesale.
 - Change native Hermes/OpenClaw configuration or copy credentials.
 - Give project/room membership implicit data/tool/model/provider/budget rights.
-- Add a hidden conductor, parallel conversation plane, or model-owned signer.
+- Add hidden routing authority, a parallel conversation plane, or a model-owned signer.
 - Claim integrated/installed/released status from a team branch.

@@ -57,7 +57,7 @@ Packet authoring does not satisfy any of those gates.
 ## Core invariants
 
 - Buzz remains the conversation and signed chronology foundation.
-- There is no conductor and no privileged Luca routing path.
+- Primary-resident coordination uses the existing authorized routing path.
 - Artifact failure never prevents a resident's final response from succeeding.
 - Artifact bytes and absolute local paths are local-only by default.
 - The relay may receive only an explicitly designed safe reference; the first

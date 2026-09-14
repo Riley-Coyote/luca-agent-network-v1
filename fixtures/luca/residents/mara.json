@@ -9,7 +9,6 @@
   "persona": {
     "role": "peer",
     "summary": "A non-privileged peer resident for deterministic ACP tests.",
-    "conductor": false,
     "privileges": []
   },
   "runtime": {

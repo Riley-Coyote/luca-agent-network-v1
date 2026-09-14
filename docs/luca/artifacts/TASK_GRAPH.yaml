@@ -170,7 +170,7 @@ tasks:
       - GA0 verdict is explicit and A01 has not begun.
     stop_conditions:
       - Current G1 is not PASS and no Riley override is recorded.
-      - Reconciled source requires a conductor or new message-routing authority.
+      - Reconciled source requires unauthorized new message-routing authority.
       - Sandbox cannot deny network, Tauri IPC, parent access, and same-origin.
       - Required work overlaps unrelated user changes without a safe boundary.
     estimated_engineer_days: 2-4

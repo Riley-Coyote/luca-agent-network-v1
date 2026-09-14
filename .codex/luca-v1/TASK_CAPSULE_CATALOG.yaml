@@ -5516,13 +5516,13 @@ task_capsules:
     path: evidence/M4/R05/outputs/operational_prerequisite_tests.json
     implementation_paths:
     - crates/buzz-acp/src/lib.rs
-  - name: no_conductor_trace
-    path: evidence/M4/R05/outputs/no_conductor_trace.json
+  - name: authorized_coordination_trace
+    path: evidence/M4/R05/outputs/authorized_coordination_trace.json
     implementation_paths:
     - crates/buzz-acp/src/lib.rs
   ownership_mutex: acp_runtime
   implementation_contract:
-  - 'Deliver exactly these outputs: signed_mention_dispatch, operational_prerequisite_tests, no_conductor_trace.'
+  - 'Deliver exactly these outputs: signed_mention_dispatch, operational_prerequisite_tests, authorized_coordination_trace.'
   - 'Prove the task-specific objective exactly: Adapt and prove Buzz existing signed resident-to-resident mention dispatch;
     stubs or narrative are not substitutes for the named evidence.'
   - Preserve every global invariant in TASK_GRAPH.yaml and stop on a contract contradiction.

@@ -96,5 +96,5 @@ match observed behavior.
 | P5-A10 | Unified Brain import is staged, cancellable, atomic, idempotent, provenance-preserving, and never silently promotes imported history to identity. |
 | P5-A11 | Connectors begin read/search only; writes and sends require separate exact acceptance and appropriate confirmation. |
 | P5-A12 | Multi-model delegation preserves one resident identity, explicit budgets, attribution, cancellation, and no worker-facing durable secrets. |
-| P5-A13 | An optional conductor is an ordinary replaceable resident role with explicit grants and no hidden routing or authority. |
+| P5-A13 | The primary conductor is an ordinary replaceable resident role with explicit grants and no hidden routing or authority. |
 | P5-A14 | Multi-user, voice, live artifacts, database adapters, and remote sync receive separate contracts and activations rather than one broad epic. |

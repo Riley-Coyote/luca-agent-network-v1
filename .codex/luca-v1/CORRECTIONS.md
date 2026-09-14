@@ -5,6 +5,22 @@ can be checked from the target repository. It is not an authority to broaden
 product scope. Each entry below is a narrow, auditable correction to a copied
 artifact; the authoritative kit remains unchanged.
 
+## 2026-09-14 — Primary-resident coordination is the product baseline
+
+- Authority: Riley explicitly reaffirmed conductor-first collaboration and
+  requested removal of the obsolete prohibition throughout this repository.
+- Corrected contributor guidance, handoffs, product contracts, planning gates,
+  task outputs, fixture flags, and tests that prohibited the coordinating role.
+- A user may work solely with their chosen primary resident, who coordinates
+  other agents and returns useful results. Direct access remains optional.
+- Renamed the obsolete negative coordination trace to
+  `authorized_coordination_trace` in both task graph and capsule catalog.
+- Preserved signing custody, scoped access, explicit grants, attribution,
+  cancellation, and runtime-first implementation. This policy correction is
+  not evidence that all orchestration features are already implemented.
+- Historical release receipts retain their dates and outcomes; the superseded
+  product criterion is not a current acceptance gate.
+
 ## 2026-07-22 — G0 architecture status
 
 - Copied file: `ARCHITECTURE_IMPLEMENTATION_SPEC.md`
@@ -123,7 +139,7 @@ artifact; the authoritative kit remains unchanged.
   authority/security stop. It preserves the original no-key-in-ACP invariant
   and avoids inventing unplanned relay/database authority during M1.
 - Scope: execution ownership, dependency proof and claim timing only. No
-  conductor, new product feature or wider signing authority is added.
+  new product feature or wider signing authority is added.
 - Independent review repair: distinguish the managed ACP host's one typed
   broker stream from the complete absence of broker capability in provider,
   model and tool descendants. Add `broker_transport_isolation` as a bound F14
