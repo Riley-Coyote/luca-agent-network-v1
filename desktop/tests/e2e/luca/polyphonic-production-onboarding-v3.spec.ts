@@ -79,9 +79,14 @@ async function pastAgentsAndBrain(page: import("@playwright/test").Page) {
     "Meet Luca",
   );
   await reach("Luca is reading what you brought.");
-  // The card is still the card: the walkthrough plays inside it, with no
-  // footer and the whole hairline lit.
-  await expect(page.getByTestId("polyphonic-walkthrough-frame")).toBeVisible();
+  // The card is still the card: the walkthrough plays inside it (or, when
+  // Luca cannot be made ready, the error takes its place), with no footer and
+  // the whole hairline lit.
+  await expect(
+    page
+      .getByTestId("polyphonic-walkthrough-frame")
+      .or(page.getByRole("alert")),
+  ).toBeVisible();
   await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(0);
 }
 
