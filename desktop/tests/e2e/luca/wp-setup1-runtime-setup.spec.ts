@@ -75,7 +75,7 @@ async function reachRuntimeStep(page: Page) {
   await page.getByTestId("polyphonic-owner-name").fill("Jamie");
   await page.getByTestId("polyphonic-owner-name").press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Choose what powers Luca" }),
+    page.getByRole("heading", { name: "Who speaks for Luca?" }),
   ).toBeFocused();
 }
 

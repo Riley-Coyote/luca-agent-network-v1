@@ -46,6 +46,27 @@ async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await page.getByTestId("polyphonic-setup-continue").click();
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  // Who else lives here, then what Luca should read, then the reading itself.
+  for (const heading of [
+    "Who else lives here?",
+    "What should Luca read?",
+    "Luca is reading what you brought.",
+  ]) {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await page.getByRole("heading", { name: heading }).waitFor({
+          timeout: attempt === 0 ? 10_000 : 4_000,
+        });
+        break;
+      } catch {
+        // Still on the step before: press again.
+        await page
+          .getByTestId("polyphonic-setup-continue")
+          .click({ timeout: 5_000 })
+          .catch(() => undefined);
+      }
+    }
+  }
   await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
   await expect(page.getByTestId("message-input")).toBeVisible({
     timeout: 30_000,

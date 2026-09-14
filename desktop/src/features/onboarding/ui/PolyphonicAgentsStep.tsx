@@ -3,30 +3,17 @@ import { Check, Plus } from "lucide-react";
 
 import {
   managedAgentsQueryKey,
-  useAcpRuntimesQuery,
   useCreateManagedAgentMutation,
   useManagedAgentsQuery,
-  usePersonasQuery,
 } from "@/features/agents/hooks";
-import {
-  availableRuntimesForStart,
-  buildInstanceInputForDefinition,
-} from "@/features/agents/lib/instanceInputForDefinition";
 import {
   useOperatorForgeSettingsQuery,
   useSaveOperatorForgePreferencesMutation,
 } from "@/features/agents/operatorForgeQueries";
 import { AgentDialog } from "@/features/agents/ui/AgentDialog";
 import { usePersonaActions } from "@/features/agents/ui/usePersonaActions";
-import { createLucaResident } from "@/features/luca/residents/api";
 import { discoverNativeResidents } from "@/shared/api/tauri";
-import {
-  executeNativeAgentProvisioning,
-  previewNativeAgentProvisioning,
-  type AgentRuntimeTargetV1,
-  type NativeProvisioningPreviewV1,
-  type NativeProvisioningRequestV1,
-} from "@/shared/api/tauriOperatorForge";
+import type { AgentRuntimeTargetV1 } from "@/shared/api/tauriOperatorForge";
 import { setResidentContinuityEnabled } from "@/shared/api/tauriContinuity";
 import type {
   DiscoveredResidentCandidate,
@@ -86,8 +73,6 @@ export const PolyphonicAgentsStep = React.forwardRef<
   const managedQuery = useManagedAgentsQuery();
   const createMutation = useCreateManagedAgentMutation();
   const personas = usePersonaActions();
-  const personasQuery = usePersonasQuery();
-  const runtimesQuery = useAcpRuntimesQuery({ enabled: true });
   const operatorSettings = useOperatorForgeSettingsQuery();
   const saveOperatorSettings = useSaveOperatorForgePreferencesMutation();
   const [candidates, setCandidates] = React.useState<
@@ -115,10 +100,6 @@ export const PolyphonicAgentsStep = React.forwardRef<
   const [runtimeTarget, setRuntimeTarget] =
     React.useState<AgentRuntimeTargetV1 | null>(null);
   const [lucaSelected, setLucaSelected] = React.useState(true);
-  const [lucaPreview, setLucaPreview] =
-    React.useState<NativeProvisioningPreviewV1 | null>(null);
-  const [lucaRequest, setLucaRequest] =
-    React.useState<NativeProvisioningRequestV1 | null>(null);
 
   // importCandidate is a stable callback the import queue iterates; the answer
   // is read at the moment of the import, not captured when the row last moved.
@@ -343,70 +324,11 @@ export const PolyphonicAgentsStep = React.forwardRef<
         runtimeConfirmed: runtimeTarget !== null,
         lucaEnabled: lucaSelected || existingLuca !== undefined,
       });
-      if (lucaSelected && !existingLuca && runtimeTarget) {
-        const lucaPersona = (personasQuery.data ?? []).find(
-          (persona) => persona.id === LUCA_PERSONA_ID,
-        );
-        if (!lucaPersona) {
-          issueCount += 1;
-          replaceErrors((current) => ({
-            ...current,
-            luca: "Luca's built-in definition is unavailable.",
-          }));
-        } else if (runtimeTarget.kind === "managed") {
-          try {
-            const runtimes = await availableRuntimesForStart(runtimesQuery);
-            const runtime = runtimes.find(
-              (candidate) => candidate.id === runtimeTarget.runtimeId,
-            );
-            if (!runtime)
-              throw new Error("The selected runtime is no longer ready.");
-            const input = await buildInstanceInputForDefinition(
-              lucaPersona,
-              runtime,
-            );
-            await createLucaResident(input);
-          } catch (cause) {
-            issueCount += 1;
-            replaceErrors((current) => ({
-              ...current,
-              luca: cause instanceof Error ? cause.message : String(cause),
-            }));
-          }
-        } else {
-          const request: NativeProvisioningRequestV1 = {
-            displayName: "Luca",
-            systemPrompt: lucaPersona.systemPrompt,
-            runtime: runtimeTarget.runtime,
-            mode: "fresh",
-            selectedSkills: [],
-            includeMemory: false,
-            workspaceDocuments: [],
-          };
-          if (
-            !lucaPreview ||
-            JSON.stringify(lucaRequest) !== JSON.stringify(request)
-          ) {
-            setLucaRequest(request);
-            setLucaPreview(await previewNativeAgentProvisioning(request));
-            return undefined;
-          }
-          try {
-            await executeNativeAgentProvisioning(
-              lucaPreview.transactionId,
-              LUCA_PERSONA_ID,
-              request,
-            );
-            setLucaPreview(null);
-          } catch (cause) {
-            issueCount += 1;
-            replaceErrors((current) => ({
-              ...current,
-              luca: cause instanceof Error ? cause.message : String(cause),
-            }));
-          }
-        }
-      }
+      // Luca is not created here. The reading step owns making Luca ready —
+      // activating the persona, creating the resident on the chosen runtime,
+      // opening the DM and publishing the one greeting — so that this step
+      // creating a second Luca cannot race it. This step records the runtime
+      // and brings in the agents that are already on the Mac.
 
       const importQueue = [...selectedImportCandidates];
       for (const [index, candidate] of importQueue.entries()) {
@@ -435,16 +357,11 @@ export const PolyphonicAgentsStep = React.forwardRef<
     continueAnyway,
     existingLuca,
     importCandidate,
-    lucaPreview,
-    lucaRequest,
     lucaSelected,
     managedQuery,
     onBusyChange,
-    personasQuery.data,
     refreshResidents,
-    replaceErrors,
     runtimeTarget,
-    runtimesQuery,
     scanError,
     saveOperatorSettings,
     selectedImportCandidates,
@@ -462,26 +379,6 @@ export const PolyphonicAgentsStep = React.forwardRef<
       {/* The runtime was chosen on the screen before this one, and Luca is the
           premise of the place — neither is asked again here. Both are still
           committed with the rest of the answers below. */}
-      {lucaPreview ? (
-        <section
-          aria-label="Review Luca native creation"
-          className="mt-4 shrink-0 rounded-md bg-[var(--prototype-selection)] px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--prototype-hairline)]"
-        >
-          <p className="text-sm font-medium text-[var(--prototype-ink)]">
-            Review Luca's native setup
-          </p>
-          <ul className="mt-2 space-y-1.5 text-xs text-[var(--prototype-muted)]">
-            {lucaPreview.changes.map((change) => (
-              <li key={`${change.subject}-${change.action}`}>
-                {change.subject} · {change.detail}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-xs text-[var(--prototype-muted)]">
-            Press Continue again to approve these exact changes.
-          </p>
-        </section>
-      ) : null}
       <div className="mt-5 min-h-0 flex-1">
         <PolyphonicAgentImportPane
           candidates={visibleCandidates}
@@ -569,11 +466,6 @@ export const PolyphonicAgentsStep = React.forwardRef<
           </span>
         </span>
       </button>
-      {errors.luca ? (
-        <p className="mt-3 shrink-0 text-sm text-destructive" role="alert">
-          {errors.luca}
-        </p>
-      ) : null}
       <Button
         className="mt-1 h-8 shrink-0 gap-2 self-start rounded-md px-1.5 text-xs font-normal text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)]"
         onClick={() => {

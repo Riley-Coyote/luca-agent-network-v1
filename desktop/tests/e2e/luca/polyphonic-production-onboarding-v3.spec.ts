@@ -36,18 +36,59 @@ async function begin(page: import("@playwright/test").Page) {
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await page.getByRole("button", { name: "Begin setup" }).click();
   await expect(
-    page.getByRole("heading", { name: "Bring your agents together." }),
+    page.getByRole("heading", { name: "What should Luca call you?" }),
   ).toBeFocused();
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
   await page.getByTestId("polyphonic-setup-continue").click();
   await expect(
-    page.getByRole("heading", { name: "Choose what powers Luca" }),
+    page.getByRole("heading", { name: "Who speaks for Luca?" }),
   ).toBeFocused();
 }
 
-test("the setup card follows the chosen application appearance", async ({
-  page,
-}) => {
+/**
+ * Past the runtime: who else lives here, then what Luca should read. Both
+ * steps do real work on Continue, so each press is given as long as it needs
+ * and repeated only if the step was still busy when it landed.
+ */
+async function pastAgentsAndBrain(page: import("@playwright/test").Page) {
+  const reach = async (name: string | RegExp) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        await page
+          .getByRole("heading", { name })
+          .waitFor({ timeout: attempt === 0 ? 10_000 : 4_000 });
+        return;
+      } catch {
+        // Still on the step before: the press either has not been made yet or
+        // landed while the step was committing. Press again.
+        await page
+          .getByTestId("polyphonic-setup-continue")
+          .click({ timeout: 5_000 })
+          .catch(() => undefined);
+      }
+    }
+    throw new Error(`setup never reached ${String(name)}`);
+  };
+  await reach("Who else lives here?");
+  await expect(page.getByTestId("polyphonic-resident-memory")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await reach("What should Luca read?");
+  await expect(page.getByTestId("polyphonic-setup-continue")).toContainText(
+    "Meet Luca",
+  );
+  await reach("Luca is reading what you brought.");
+  // The card is still the card: the walkthrough plays inside it, with no
+  // footer and the whole hairline lit.
+  await expect(page.getByTestId("polyphonic-walkthrough-frame")).toBeVisible();
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(0);
+}
+
+test("the setup card follows the application appearance", async ({ page }) => {
+  // Setup no longer asks for an appearance — it is a preference the owner can
+  // find later, and the first question should be one question. The card still
+  // adopts whatever appearance the application is following.
   await page.emulateMedia({ colorScheme: "dark" });
   await installMockBridge(
     page,
@@ -61,25 +102,22 @@ test("the setup card follows the chosen application appearance", async ({
   await page.getByRole("button", { name: "Begin setup" }).click();
 
   const onboarding = page.getByTestId("polyphonic-onboarding");
-  const surface = page.getByTestId("polyphonic-setup-assistant");
-  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
-
-  await page.getByRole("button", { name: "Light" }).click();
-  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
-  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
-  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
-
-  await page.getByRole("button", { name: "Dark" }).click();
+  // The card's own surface is drawn by the layer that carried it here from the
+  // door; the frame in the tree holds only the column content, so the colour
+  // that must follow the application is the shell's.
+  const surface = page.getByTestId("polyphonic-onboarding-shell");
+  const frame = page.getByTestId("polyphonic-setup-assistant");
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
   await expect(onboarding).toHaveCSS("background-color", "rgb(6, 6, 8)");
   await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
+  await expect(frame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
-  await page.getByRole("button", { name: "System" }).click();
-  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
-  await page.emulateMedia({ colorScheme: "light" });
-  await expect(onboarding).toHaveAttribute("data-system-color-scheme", "light");
-  await expect(onboarding).toHaveCSS("background-color", "rgb(233, 232, 227)");
-  await expect(surface).toHaveCSS("background-color", "rgb(246, 245, 241)");
+  // Setup does not ask for an appearance any more: the application's own
+  // setting decides, and the owner changes it there.
+  await expect(page.getByRole("button", { name: "Light" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Dark" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "System" })).toHaveCount(0);
+  await expect(page.getByText("Appearance", { exact: true })).toHaveCount(0);
 });
 
 test("a ready runtime enters the real Luca DM with one inert canonical greeting", async ({
@@ -96,6 +134,7 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgentsAndBrain(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
   await expect(
@@ -198,6 +237,7 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   });
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgentsAndBrain(page);
   await expect(page.getByRole("alert")).toContainText(
     "Luca's saved setup could not be refreshed",
     { timeout: 15000 },
@@ -294,6 +334,7 @@ test("the canonical Luca notice is trusted and published only once", async ({
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgentsAndBrain(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
   const channelId = decodeURIComponent(
@@ -379,6 +420,7 @@ for (const runtime of ["Hermes", "OpenClaw"]) {
     await begin(page);
     await page.getByRole("radio", { name: new RegExp(runtime) }).check();
     await page.getByTestId("polyphonic-setup-continue").click();
+    await pastAgentsAndBrain(page);
     await expect(page).toHaveURL(/#\/channels\//);
     await expect(
       page.getByRole("heading", { name: "Bring in agents you already use" }),
@@ -401,6 +443,7 @@ test("large native inventories never delay first chat or import extra agents", a
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgentsAndBrain(page);
   await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
   await expect(page.getByTestId("message-input")).toBeVisible();
   await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);

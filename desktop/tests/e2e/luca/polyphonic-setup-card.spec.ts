@@ -101,14 +101,55 @@ test("the setup card is dark whatever the system scheme, and reads in the app's 
   await page.emulateMedia({ colorScheme: "light" });
   await openDoor(page);
   await page.getByTestId("polyphonic-door-begin").click();
-  const card = page.getByTestId("polyphonic-setup-assistant");
+  // The card's surface is the shell the door already had; the frame in the
+  // tree is transparent and holds only the column.
+  const card = page.getByTestId("polyphonic-onboarding-shell");
   await expect(card).toHaveCSS("background-color", "rgb(20, 20, 22)");
   await expect(page.getByTestId("polyphonic-onboarding")).toHaveCSS(
     "background-color",
     "rgb(6, 6, 8)",
   );
   const family = await page
-    .getByRole("heading", { name: "Bring your agents together." })
+    .getByRole("heading", { name: "What should Luca call you?" })
     .evaluate((el) => getComputedStyle(el).fontFamily);
   expect(family).toMatch(/Instrument Sans/);
+});
+
+test("the shell is the same object on the door and in the card", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openDoor(page);
+  const shell = page.getByTestId("polyphonic-onboarding-shell");
+  // The card is there from the first frame — there is no door without it.
+  await expect(shell).toBeVisible();
+  const before = await shell.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) };
+  });
+
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  await expect(shell).toHaveCount(1);
+  // Nothing materialised: same object, same place.
+  await expect
+    .poll(async () =>
+      shell.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        return {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          w: Math.round(r.width),
+        };
+      }),
+    )
+    .toEqual(before);
+  // And the transparent frame the column sits on is exactly the shell.
+  const frame = await page
+    .getByTestId("polyphonic-setup-assistant")
+    .evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) };
+    });
+  expect(frame).toEqual(before);
 });
