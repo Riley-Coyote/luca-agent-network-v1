@@ -30,18 +30,27 @@
   };
   // Each chip also carries .grant-toggle[data-agent="luca"]: assets/demo.js reads that selector
   // to mirror the grants into the app frame. Renaming it silently breaks the demo.
+  // WP-13: the Doto count beside "Luca can see" follows the chips. It is decoration (aria-hidden): the
+  // chips carry the state as switches, and Luca's reply is the words.
+  const brainCount=$('#brain-count');
+  const countGrants=()=>{if(brainCount)brainCount.textContent=String(grants.filter(Boolean).length)};
   document.querySelectorAll('.grant-chip').forEach(btn=>btn.addEventListener('click',()=>{
     const row=Number(btn.dataset.row);
     grants[row]=!grants[row];btn.setAttribute('aria-checked',String(grants[row]));
-    knowledge();
+    knowledge();countGrants();
   }));
+  // WP-13: the readout in the card's header states the request: PENDING, then ALLOWED or DENIED, and
+  // PENDING again on reset. aria-hidden and never live; the result sentence is what gets announced.
+  const permissionState=$('#permission-state');
+  const setPermissionState=word=>{if(permissionState)permissionState.textContent=word};
   const resolvePermission = allowed => {
     $('#permission-request').hidden = true;$('#permission-result').hidden=false;
     $('#permission-result p').textContent=allowed?'Allowed once. In this example, Codex adds the next step to the welcome screen.':'Request declined. Nothing changes. Codex can suggest another approach.';
+    setPermissionState(allowed?'ALLOWED':'DENIED');
     $('#reset-permission').focus({preventScroll:true});
   };
   $('#allow').addEventListener('click',()=>resolvePermission(true));$('#deny').addEventListener('click',()=>resolvePermission(false));
-  $('#reset-permission').addEventListener('click',()=>{$('#permission-result').hidden=true;$('#permission-request').hidden=false;$('#allow').focus({preventScroll:true})});
+  $('#reset-permission').addEventListener('click',()=>{$('#permission-result').hidden=true;$('#permission-request').hidden=false;setPermissionState('PENDING');$('#allow').focus({preventScroll:true})});
 
   const form=$('#beta-form'), email=$('#email'), submit=$('#signup-submit'), note=$('#signup-note');
   const config=window.POLYPHONIC_CONFIG||{};let busy=false;

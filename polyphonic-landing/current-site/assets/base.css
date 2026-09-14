@@ -10,7 +10,14 @@
     --frost:rgba(236,232,224,.055);--frost-line:rgba(236,232,224,.12);
     --lift:0 28px 60px -28px rgba(0,0,0,.92),0 64px 120px -48px rgba(0,0,0,.78);
     --glass:#121211;--phos:#ece8e0;--glass-line:rgba(236,232,224,.11);--unlit:#17161a;
-    --sans:'Inter',-apple-system,system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace;--doto:'Doto',monospace;
+    /* WP-13 · four faces, one job each. --sans stays Inter: it is the reading face, and the frame and the
+       windows consume it. --chrome is Instrument Sans (headings, nav, buttons). --mono is Fragment Mono,
+       the machine stating a fact. --doto is the display, legal only where WP-13 puts it. The "Fallback"
+       families are metric-matched local faces declared in site.css, so the swap does not move the page. */
+    --sans:'Inter','Inter Fallback',-apple-system,system-ui,sans-serif;--chrome:'Instrument Sans','Instrument Sans Fallback',-apple-system,system-ui,sans-serif;--mono:'Fragment Mono','Fragment Mono Fallback',ui-monospace,monospace;--doto:'Doto',Menlo,monospace;
+    /* WP-13 · reading and label inks between the ramp's steps: paragraphs .86, functional labels at least
+       .72, incidental labels at least .56. No text sits on .48 or .28. */
+    --t-prose:rgba(236,232,224,.86);--t-label:rgba(236,232,224,.72);--t-meta:rgba(236,232,224,.56);
     --pad:clamp(20px,5vw,80px);
     --ease-ctl:cubic-bezier(.2,0,0,1);--ease-page:cubic-bezier(.16,1,.3,1);
     --app-ink:rgba(236,232,224,.94);--app-sec:rgba(236,232,224,.68);--app-surface:#121211;
@@ -20,7 +27,7 @@
     --app-mono:'Fragment Mono','SF Mono',ui-monospace,monospace;
   }
   html{scroll-behavior:smooth;}
-  body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--sans);font-weight:300;font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
+  body{margin:0;background:var(--bg);color:var(--t1);font-family:var(--sans);font-weight:400;font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;}
   ::selection{background:rgba(var(--ink),.85);color:var(--bg);}
   a{color:var(--t0);text-decoration:none;}
   a:hover{color:var(--t1);}
