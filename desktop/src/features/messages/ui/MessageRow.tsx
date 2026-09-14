@@ -16,7 +16,11 @@ import {
 import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCard";
-import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
+import {
+  FIRST_MEETING_MARKER,
+  hasClientMarker,
+} from "@/features/luca/canonicalLucaResident";
+import { visibleFirstMeetingProse } from "@/features/luca/firstMeetingChoices";
 import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import { ResidentStopContext } from "./residentStopContext";
@@ -479,21 +483,19 @@ export const MessageRow = React.memo(
     const hasNativeAgentNoticeMarker = message.tags?.some(
       (tag) => tag[0] === "client" && tag[1] === NATIVE_AGENT_NOTICE_MARKER,
     );
-    // Luca's opening offer is part of Luca's greeting: an option list under
-    // the words, once they have all arrived, until the owner has said anything.
     const lucaChoices = React.useContext(LucaGreetingChoicesContext);
     const residentStop = React.useContext(ResidentStopContext);
     const showLucaChoices =
-      lucaChoices?.active === true &&
-      !message.managedPresentation?.streaming &&
-      Boolean(
-        message.tags?.some(
-          (tag) => tag[0] === "client" && tag[1] === LUCA_GREETING_MARKER,
-        ),
-      );
+      lucaChoices?.activeMessageId === message.id &&
+      !message.managedPresentation?.streaming;
 
     const replyBody = provisionalReplyAfterNarration(
-      message.body,
+      lucaChoices?.responseIds.has(message.id)
+        ? visibleFirstMeetingProse(
+            message.body,
+            Boolean(message.managedPresentation?.streaming),
+          )
+        : message.body,
       activityTrace,
       Boolean(
         message.managedPresentation &&
@@ -1006,7 +1008,10 @@ export const MessageRow = React.memo(
           <NativeAgentNoticeCard signerPubkey={message.signerPubkey} />
         ) : null}
         {showLucaChoices && lucaChoices ? (
-          <LucaGreetingChoices onChoose={lucaChoices.onChoose} />
+          <LucaGreetingChoices
+            options={lucaChoices.options}
+            onChoose={lucaChoices.onChoose}
+          />
         ) : null}
         {!activityTrace && activityWord && message.body === "" ? (
           // THE BODY SLOT THE FIRST WORD WILL LAND IN. Held open at one line
@@ -1064,6 +1069,20 @@ export const MessageRow = React.memo(
       </>
     );
 
+    if (
+      lucaChoices?.triggerId === message.id &&
+      hasClientMarker(message, FIRST_MEETING_MARKER) &&
+      isOwnMessage
+    ) {
+      return (
+        <div
+          className="py-2 text-center text-xs text-ink-muted"
+          data-testid="luca-first-meeting-action"
+        >
+          Meet Luca
+        </div>
+      );
+    }
     return (
       <div
         className="group/row relative"

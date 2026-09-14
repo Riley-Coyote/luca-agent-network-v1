@@ -13,7 +13,6 @@ import {
   buildInstanceInputForDefinition,
 } from "@/features/agents/lib/instanceInputForDefinition";
 import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
-import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
 import { markLucaArrival } from "@/features/luca/lucaArrival";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
@@ -21,14 +20,13 @@ import {
   getManagedAgentLog,
   listManagedAgents,
   updateManagedAgent,
+  beginLucaFirstMeeting,
 } from "@/shared/api/tauri";
 import {
   startManagedAgent,
   stopManagedAgent,
 } from "@/shared/api/tauriManagedAgents";
 import { openDm } from "@/shared/api/tauriChannels";
-import { hasManagedAgentChannelMessageMarker } from "@/shared/api/tauriManagedAgentMessageMarkers";
-import { sendManagedAgentChannelMessage } from "@/shared/api/tauriManagedAgentMessages";
 import {
   executeNativeAgentProvisioning,
   previewNativeAgentProvisioning,
@@ -39,7 +37,6 @@ import { Button } from "@/shared/ui/button";
 import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
-const GREETING_MARKER = LUCA_GREETING_MARKER;
 const LUCA_READY_TIMEOUT_MS = 30_000;
 
 async function waitForLucaChannelSubscription(
@@ -58,13 +55,7 @@ async function waitForLucaChannelSubscription(
   );
 }
 
-/** A brief introduction that leaves room for the conversation to begin. */
-export function lucaGreeting(displayName: string): string {
-  return `Hi ${displayName.trim() || "there"}. I’m Luca. We can start with something you’re working on, or bring in your existing work so I have some context.`;
-}
-
 export function PolyphonicPreparingStep({
-  displayName,
   onComplete,
   onBack,
   showMark = true,
@@ -199,23 +190,10 @@ export function PolyphonicPreparingStep({
       if (!lucaPubkey)
         throw new Error("Luca could not be created on this Mac.");
       const channel = await openDm({ pubkeys: [lucaPubkey] });
-      const alreadySent = await hasManagedAgentChannelMessageMarker({
-        channelId: channel.id,
-        marker: GREETING_MARKER,
-        markerScope: "channel",
-      });
-      if (!alreadySent) {
-        await sendManagedAgentChannelMessage({
-          agentPubkey: lucaPubkey,
-          channelId: channel.id,
-          content: lucaGreeting(displayName),
-          marker: GREETING_MARKER,
-          markerScope: "channel",
-        });
-      }
       if (target.kind === "managed") {
         await waitForLucaChannelSubscription(lucaPubkey, channel.id);
       }
+      await beginLucaFirstMeeting(channel.id);
       return channel.id;
     }
     // Query refreshes can arrive while native startup is in flight. Reuse the
@@ -252,7 +230,6 @@ export function PolyphonicPreparingStep({
     };
   }, [
     attempt,
-    displayName,
     managed.data,
     managed.isPending,
     onComplete,

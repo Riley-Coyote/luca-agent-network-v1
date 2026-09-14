@@ -1,28 +1,50 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isUntouchedLucaGreeting } from "./firstConversation.ts";
-import { LUCA_GREETING_MARKER } from "./canonicalLucaResident.ts";
+import { FIRST_MEETING_MARKER } from "./canonicalLucaResident.ts";
 
 const luca = "a".repeat(64);
+const owner = "b".repeat(64);
+const trigger = {
+  id: "trigger",
+  depth: 0,
+  signerPubkey: owner,
+  pubkey: owner,
+  kind: 9,
+  tags: [["client", FIRST_MEETING_MARKER]],
+  body: "Meet Luca",
+};
 const greeting = {
-  id: "greeting",
+  id: "reply",
   depth: 0,
   signerPubkey: luca,
   pubkey: luca,
   kind: 9,
-  tags: [["client", LUCA_GREETING_MARKER]],
   body: "Hello",
 };
 
 test("the centered composer requires a trusted greeting and complete history", () => {
-  assert.equal(isUntouchedLucaGreeting([greeting], luca, true, false), true);
-  assert.equal(isUntouchedLucaGreeting([greeting], luca, false, false), false);
-  assert.equal(isUntouchedLucaGreeting([greeting], luca, true, true), false);
-  assert.equal(isUntouchedLucaGreeting([greeting], null, true, false), false);
+  assert.equal(
+    isUntouchedLucaGreeting([trigger, greeting], luca, owner, true, false),
+    true,
+  );
+  assert.equal(
+    isUntouchedLucaGreeting([trigger, greeting], luca, owner, false, false),
+    false,
+  );
+  assert.equal(
+    isUntouchedLucaGreeting([trigger, greeting], luca, owner, true, true),
+    false,
+  );
+  assert.equal(
+    isUntouchedLucaGreeting([trigger, greeting], null, owner, true, false),
+    false,
+  );
   assert.equal(
     isUntouchedLucaGreeting(
-      [{ ...greeting, signerPubkey: "b".repeat(64) }],
+      [trigger, { ...greeting, signerPubkey: "c".repeat(64) }],
       luca,
+      owner,
       true,
       false,
     ),
@@ -36,12 +58,12 @@ test("pending, failed, historical, and resident replies keep the timeline visibl
     { pubkey: "system", kind: 10004 },
     { pubkey: "owner", sendFailed: true },
     { pubkey: "owner" },
-    { pubkey: luca, signerPubkey: luca },
   ]) {
     assert.equal(
       isUntouchedLucaGreeting(
-        [greeting, { id: "reply", depth: 0, kind: 9, ...extra }],
+        [trigger, greeting, { id: "another", depth: 0, kind: 9, ...extra }],
         luca,
+        owner,
         true,
         false,
       ),
@@ -58,7 +80,13 @@ test("the relay's invisible DM creation notice preserves the first composer", ()
     body: '{"type":"dm_created"}',
   };
   assert.equal(
-    isUntouchedLucaGreeting([notice, greeting], luca, true, false),
+    isUntouchedLucaGreeting(
+      [notice, trigger, greeting],
+      luca,
+      owner,
+      true,
+      false,
+    ),
     true,
   );
   for (const body of [
@@ -68,8 +96,29 @@ test("the relay's invisible DM creation notice preserves the first composer", ()
   ]) {
     assert.equal(
       isUntouchedLucaGreeting(
-        [{ ...notice, body }, greeting],
+        [{ ...notice, body }, trigger, greeting],
         luca,
+        owner,
+        true,
+        false,
+      ),
+      false,
+    );
+  }
+});
+
+// Live and unpublished replies retain their ordinary activity row and Stop.
+test("a live first reply never hides its working controls", () => {
+  for (const state of [
+    { managedPresentation: { streaming: true } },
+    { pending: true },
+    { sendFailed: true },
+  ]) {
+    assert.equal(
+      isUntouchedLucaGreeting(
+        [trigger, { ...greeting, ...state }],
+        luca,
+        owner,
         true,
         false,
       ),

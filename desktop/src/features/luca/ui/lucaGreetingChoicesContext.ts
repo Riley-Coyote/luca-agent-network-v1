@@ -7,7 +7,10 @@ import * as React from "react";
  * has said anything, and the offer retires.
  */
 export type LucaGreetingChoicesContextValue = {
-  active: boolean;
+  activeMessageId: string | null;
+  triggerId: string | null;
+  responseIds: ReadonlySet<string>;
+  options: readonly string[];
   onChoose: (choice: string) => void | Promise<void>;
 };
 

@@ -20,6 +20,7 @@ export const LUCA_IDENTITY_SEED =
 
 /** The once-only greeting Luca publishes when the owner arrives. */
 export const LUCA_GREETING_MARKER = "polyphonic-onboarding.luca-greeting.v1";
+export const FIRST_MEETING_MARKER = "polyphonic-onboarding.first-meeting.v1";
 /** The line under Luca's name at the threshold of the owner's DM with Luca. */
 export const LUCA_INTRO_ROLE = "Resident concierge";
 
@@ -129,6 +130,7 @@ export function ownerHasSpoken(
     (message) =>
       message.depth === 0 &&
       !message.pending &&
+      !hasClientMarker(message, FIRST_MEETING_MARKER) &&
       normalizePubkey(message.pubkey ?? "") === owner,
   );
 }

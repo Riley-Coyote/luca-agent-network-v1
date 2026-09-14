@@ -29,7 +29,7 @@ const READY_CODEX_RUNTIME = {
   auth_status: { status: "logged_in" },
   login_hint: "Sign in to Codex",
 };
-const GREETING = /Hi Riley. I’m Luca/;
+const GREETING = /Hello, I’m Luca/;
 
 async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await installMockBridge(
@@ -61,7 +61,9 @@ test("setup opens an immediately usable composer with the rail collapsed", async
   await expect(
     page.locator('[data-state="collapsed"][data-side="left"]'),
   ).toHaveCount(1);
-  await expect(page.getByText(/thinking/i)).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Stop", exact: true }),
+  ).toHaveCount(0);
   // The owner can expand the rail without the first-run effect fighting them.
   await page
     .getByRole("button", { name: "Toggle Sidebar", exact: true })
@@ -78,10 +80,9 @@ test("Luca's opening offer is sent as the owner's words and then retires", async
   const choices = page.getByTestId("luca-greeting-choices");
   await expect(choices).toBeVisible({ timeout: 5000 });
   await expect(choices.getByRole("button")).toHaveCount(2);
-  await page.getByTestId("luca-greeting-choice-1").click();
-  await expect(page.getByText("Start something", { exact: true })).toHaveCount(
-    1,
-  );
+  await page.getByTestId("luca-greeting-choice-1").focus();
+  await page.getByTestId("luca-greeting-choice-1").press("Enter");
+  await expect(page.getByText("Shape an idea", { exact: true })).toHaveCount(1);
   await expect(choices).toHaveCount(0);
 });
 
@@ -154,7 +155,7 @@ test("first-use layout preserves the canonical resident and one durable greeting
       ownerPubkey: owner.pubkey,
       channel: channels.find((channel) => channel.id === channelId),
       greetings: commands.filter(
-        (entry) => entry.command === "send_managed_agent_channel_message",
+        (entry) => entry.command === "begin_luca_first_meeting",
       ),
     };
   });
@@ -167,8 +168,6 @@ test("first-use layout preserves the canonical resident and one durable greeting
   );
   expect(identity.greetings).toHaveLength(1);
   expect(identity.greetings[0].payload).toMatchObject({
-    agentPubkey: residentPubkey,
     channelId: identity.channel?.id,
-    markerScope: "channel",
   });
 });

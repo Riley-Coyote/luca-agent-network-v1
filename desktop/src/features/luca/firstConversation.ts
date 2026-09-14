@@ -1,6 +1,7 @@
 import type { TimelineMessage } from "@/features/messages/types";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
-import { isLucaGreeting } from "./canonicalLucaResident";
+import { FIRST_MEETING_MARKER, hasClientMarker } from "./canonicalLucaResident";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 
 function isDmCreationNotice(message: TimelineMessage): boolean {
   if (
@@ -16,20 +17,42 @@ function isDmCreationNotice(message: TimelineMessage): boolean {
   }
 }
 
-/** Only a fully loaded, untouched greeting may use the composer-first view.
+/** Only a fully loaded, untouched first reply may use the composer-first view.
  * Pending and failed sends count as conversation so recovery stays visible. */
 export function isUntouchedLucaGreeting(
   messages: readonly TimelineMessage[],
   lucaPubkey: string | null,
+  ownerPubkey: string | undefined,
   historyExhausted: boolean,
   isLoading: boolean,
 ): boolean {
-  if (!lucaPubkey || !historyExhausted || isLoading) return false;
+  if (!lucaPubkey || !ownerPubkey || !historyExhausted || isLoading)
+    return false;
+  const trigger = messages.some(
+    (message) =>
+      message.depth === 0 &&
+      normalizePubkey(message.signerPubkey ?? "") ===
+        normalizePubkey(ownerPubkey) &&
+      hasClientMarker(message, FIRST_MEETING_MARKER),
+  );
   return (
-    messages.some((message) => isLucaGreeting(message, lucaPubkey)) &&
+    trigger &&
+    messages.some(
+      (message) =>
+        message.depth === 0 &&
+        !message.pending &&
+        !message.sendFailed &&
+        !message.managedPresentation?.streaming &&
+        normalizePubkey(message.signerPubkey ?? "") ===
+          normalizePubkey(lucaPubkey),
+    ) &&
     messages.every(
       (message) =>
-        isLucaGreeting(message, lucaPubkey) || isDmCreationNotice(message),
+        hasClientMarker(message, FIRST_MEETING_MARKER) ||
+        (message.depth === 0 &&
+          normalizePubkey(message.signerPubkey ?? message.pubkey ?? "") ===
+            normalizePubkey(lucaPubkey)) ||
+        isDmCreationNotice(message),
     )
   );
 }

@@ -43,12 +43,13 @@ import { ConversationAgentActivityStrip } from "@/features/channels/ui/Conversat
 import { StopAllWorkingResidents } from "@/features/channels/ui/StopAllWorkingResidents";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
-import {
-  isLucaGreeting,
-  LUCA_INTRO_ROLE,
-  ownerHasSpoken,
-} from "@/features/luca/canonicalLucaResident";
+import { LUCA_INTRO_ROLE } from "@/features/luca/canonicalLucaResident";
 import { isUntouchedLucaGreeting } from "@/features/luca/firstConversation";
+import {
+  firstMeetingPresentation,
+  latestFirstMeetingOffer,
+  visibleFirstMeetingProse,
+} from "@/features/luca/firstMeetingChoices";
 import { LucaFirstConversation } from "@/features/luca/ui/LucaFirstConversation";
 import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { useLucaArrival } from "@/features/luca/lucaArrival";
@@ -650,28 +651,36 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [activeChannel, lucaArrival.visibleMessages]);
   // Luca's opening offer stays until the owner has said anything at all. It
   // renders inside Luca's greeting row; the pane supplies the send.
-  const showLucaChoices =
-    lucaArrival.isLucaDm &&
-    lucaArrival.lucaPubkey !== null &&
-    currentPubkey !== undefined &&
-    messages.some((message) =>
-      isLucaGreeting(message, lucaArrival.lucaPubkey as string),
-    ) &&
-    !ownerHasSpoken(messages, currentPubkey);
+  const lucaOffer =
+    lucaArrival.isLucaDm && lucaArrival.lucaPubkey && currentPubkey
+      ? latestFirstMeetingOffer(messages, currentPubkey, lucaArrival.lucaPubkey)
+      : null;
+  const lucaPresentation =
+    lucaArrival.isLucaDm && lucaArrival.lucaPubkey && currentPubkey
+      ? firstMeetingPresentation(
+          messages,
+          currentPubkey,
+          lucaArrival.lucaPubkey,
+        )
+      : { triggerId: null, responseIds: new Set<string>() };
   const showFirstConversation =
-    showLucaChoices &&
+    lucaArrival.isLucaDm &&
     !openThreadHeadId &&
     !targetMessageId &&
     !channelFind.isOpen &&
     isUntouchedLucaGreeting(
       messages,
       lucaArrival.lucaPubkey,
+      currentPubkey,
       historyExhausted === true,
       isTimelineLoading,
     );
   const firstGreeting = showFirstConversation
-    ? messages.find((message) =>
-        isLucaGreeting(message, lucaArrival.lucaPubkey as string),
+    ? messages.find(
+        (message) =>
+          message.depth === 0 &&
+          normalizePubkey(message.signerPubkey ?? message.pubkey ?? "") ===
+            lucaArrival.lucaPubkey,
       )
     : undefined;
   // WP-STRIP1 · THE WORK HAPPENS IN THE THREAD, IN EVERY ROOM.
@@ -761,11 +770,22 @@ export const ChannelPane = React.memo(function ChannelPane({
   );
   const lucaChoicesContext = React.useMemo(
     () => ({
-      active: showLucaChoices && !showFirstConversation,
+      activeMessageId: !showFirstConversation
+        ? (lucaOffer?.messageId ?? null)
+        : null,
+      triggerId: lucaPresentation.triggerId,
+      responseIds: lucaPresentation.responseIds,
+      options: lucaOffer?.options ?? [],
       onChoose: (choice: string) =>
         onSendMessage(choice, [], undefined, activeChannelId),
     }),
-    [activeChannelId, onSendMessage, showFirstConversation, showLucaChoices],
+    [
+      activeChannelId,
+      onSendMessage,
+      showFirstConversation,
+      lucaOffer,
+      lucaPresentation,
+    ],
   );
   // Nothing working goes to the shelf any more; the thread owns all of it.
   const stripWorkingPubkeys = React.useMemo<string[]>(() => [], []);
@@ -1269,7 +1289,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                   />
                   <div className="pointer-events-none">
                     {firstGreeting ? (
-                      <LucaFirstConversation greeting={firstGreeting.body} />
+                      <LucaFirstConversation
+                        greeting={visibleFirstMeetingProse(
+                          firstGreeting.body,
+                          Boolean(firstGreeting.managedPresentation?.streaming),
+                        )}
+                      />
                     ) : null}
                     {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">
@@ -1474,10 +1499,11 @@ export const ChannelPane = React.memo(function ChannelPane({
                       }
                       typingRootEventId={openThreadHeadId ?? null}
                     />
-                    {showFirstConversation ? (
+                    {showFirstConversation && lucaOffer ? (
                       <div className="luca-measure pointer-events-auto px-0">
                         <LucaGreetingChoices
                           disabled={isComposerDisabled || isSending}
+                          options={lucaOffer?.options ?? []}
                           onChoose={lucaChoicesContext.onChoose}
                         />
                       </div>
