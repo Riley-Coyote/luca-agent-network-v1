@@ -222,6 +222,22 @@ mod tests {
     }
 
     #[test]
+    fn recognition_guidance_requires_evidence_and_owner_correction() {
+        assert!(
+            FIRST_MEETING_PROMPT.contains("corrections, rejected approaches, repeated requests")
+        );
+        assert!(FIRST_MEETING_PROMPT.contains("duplicated or forked transcript content"));
+        assert!(
+            FIRST_MEETING_PROMPT.contains("With one example, describe that example, not a habit")
+        );
+        assert!(FIRST_MEETING_PROMPT.contains("distinguish what you saw from what you suspect"));
+        assert!(
+            FIRST_MEETING_PROMPT.contains("If they correct your reading, revise it immediately")
+        );
+        assert!(FIRST_MEETING_PROMPT.contains("Do not surface unrelated intimate details"));
+    }
+
+    #[test]
     fn recent_discovery_runs_on_opening_not_after_the_owner_answers() {
         assert!(includes_recent_references(MeetingPhase::Opening));
         for index in 1..=MAX_OWNER_REPLIES {
