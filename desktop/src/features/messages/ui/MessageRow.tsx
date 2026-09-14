@@ -17,15 +17,13 @@ import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCard";
 import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
+import { ChatAgentMark } from "@/features/luca/residents/ChatAgentMark";
 import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import { ResidentStopContext } from "./residentStopContext";
 import { NATIVE_AGENT_NOTICE_MARKER } from "@/features/luca/useNativeAgentNotice";
 import { HuddleAttachment } from "@/features/huddle/components/HuddleAttachment";
-import {
-  ResidentIdentityMark,
-  type ResidentMarkLiveState,
-} from "@/features/channels/ui/ResidentIdentityMark";
+import type { ResidentMarkLiveState } from "@/features/channels/ui/ResidentIdentityMark";
 import { AgentMessageRuntime } from "./AgentMessageRuntime";
 import { MessageReactions } from "@/features/messages/ui/MessageReactions";
 import { useReactionHandler } from "@/features/messages/ui/useReactionHandler";
@@ -74,9 +72,7 @@ import { QuotedParent } from "./QuotedParent";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
-import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
@@ -621,25 +617,8 @@ export const MessageRow = React.memo(
           : managedPhase === "writing" || managedPhase === "finalizing"
             ? "writing"
             : null;
-    // THE LIVE MARK IN A DIRECT CONVERSATION.
-    //
-    // `ChannelPane` empties the multi-resident activity shelf in a DM — "the
-    // reply row itself is the indicator — the resident's mark carries the
-    // state". That mark was never drawn: this gutter opened for human contacts
-    // and for visiting residents only, so an agent row got a bare word and the
-    // sandpile (the whole thinking animation) had nowhere to mount in the one
-    // place an owner actually talks to their resident. Verified on screen in a
-    // release build before and after.
-    // WP-STRIP1 · THE WORK HAPPENS IN THE THREAD.
-    //
-    // The gutter now opens for every resident head row, not only the live
-    // one. The pending row and the reply that replaces it must sit at the
-    // same x, or the answer arrives with a sideways jolt — the whole reason
-    // Direction C puts the wait in the thread is that text FILLS IN PLACE.
-    // A continuation holds the slot open and draws nothing in it — the same
-    // bargain human rows already made — so every row of a resident's turn
-    // starts at the same x. The owner's own turn still has no slot: position
-    // says whose it is.
+    // The pending reply and its final message keep the same mark column, so
+    // the character changes state without moving the text.
     const showResidentMarkGutter = Boolean(!ownBubble && message.pubkey);
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
@@ -649,7 +628,9 @@ export const MessageRow = React.memo(
     // line breaks across it. Read from the reading plane by
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
-      showResidentMarkGutter && !isContinuation && !ownBubble;
+      showResidentMarkGutter &&
+      (!isContinuation || message.isAgent) &&
+      !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
@@ -962,17 +943,6 @@ export const MessageRow = React.memo(
           quietAgent && !hasVisibleMetadata && "sr-only",
         )}
       >
-        {message.isAgent &&
-        message.pubkey &&
-        !quietAgent &&
-        !showResidentMarkGutter ? (
-          <AgentIdentitySpecimen
-            accessibleName={message.author}
-            avatarUrl={message.avatarUrl}
-            publicKey={message.pubkey}
-            size={20}
-          />
-        ) : null}
         {/* Anchored right, the owner's turn needs no name: position says whose
             it is. The words stay in the markup — a screen reader still hears
             who spoke — but the popover trigger goes, because an invisible
@@ -1325,47 +1295,26 @@ export const MessageRow = React.memo(
             <span aria-hidden className="w-4 shrink-0" />
           ) : null}
           {showResidentMarkGutter && message.pubkey ? (
-            // The fixed 21 px slot keeps the mark, activity indicator, and
-            // person's disc aligned without moving the visit connector.
-            // The slot stays occupied even when nothing is drawn in it. The
-            // visit passage measures its connector from this column — the line
-            // is centred on +22.5 px from the passage inset, derived from the
-            // article's own padding and this 21 px — so emptying the slot is
-            // fine but removing it would move a hairline that is checked to
-            // half a pixel.
             <span
               className={cn(
-                "flex w-[21px] shrink-0 justify-center",
-                activityTrace ? "h-4 items-center" : "mt-0.5",
+                "relative mt-0.5 flex shrink-0 justify-center",
+                message.isAgent && !authorVisiting ? "w-[42px]" : "w-[21px]",
               )}
               data-message-mark
             >
-              {residentMarkLive ? (
-                // The resident is working: the identity slot becomes the
-                // activity mark, and goes back to being empty (or the
-                // contact's disc) the moment the turn settles.
-                <SandpileActivityIndicator
-                  seed={`${message.pubkey}:activity`}
-                  size={21}
-                />
-              ) : message.isAgent && isContinuation ? (
-                <span aria-hidden className="size-[21px]" />
-              ) : message.isAgent ? (
-                // A static resident identity returns when live activity ends.
-                <ResidentIdentityMark
-                  accessibleName={message.author}
-                  avatarUrl={message.avatarUrl}
-                  data-testid="row-identity-glyph"
-                  decorative
-                  personaId={message.residentPersonaId}
-                  presentation="glyph"
-                  publicKey={message.pubkey}
-                  size={20}
-                />
+              {message.isAgent ? (
+                <span
+                  className={cn(
+                    authorVisiting && "absolute left-1/2 -translate-x-1/2",
+                  )}
+                >
+                  <ChatAgentMark
+                    active={residentMarkLive !== null}
+                    name={message.author}
+                    seed={message.pubkey}
+                  />
+                </span>
               ) : isContinuation || ownBubble ? (
-                // Anchored right, the owner's turn says who it is by where it
-                // sits; a disc on the far left of the same row would be an
-                // orphan pointing back at a column the words no longer use.
                 <span aria-hidden className="size-[21px]" />
               ) : (
                 <UserAvatar

@@ -401,32 +401,6 @@
   opacity: 0.48;
 }
 
-:root[data-luca-shell] .luca-activity-pulse {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 999px;
-  box-shadow: none;
-  display: inline-flex;
-  flex: 0 0 32px;
-  height: 32px;
-  justify-content: center;
-  opacity: 1;
-  overflow: hidden;
-  width: 32px;
-}
-
-:root[data-luca-shell]
-  .luca-activity-pulse:not([data-state="stopped"]):not(
-    [data-state="interrupted"]
-  ):not([data-state="needs-attention"]) {
-  animation: none;
-}
-
-:root[data-luca-shell] .luca-activity-pulse[data-state="needs-attention"] {
-  color: hsl(var(--destructive) / 0.84);
-}
-
 :root[data-luca-shell] .luca-activity-shelf__overflow,
 :root[data-luca-shell] .luca-activity-shelf__compact {
   flex: 0 0 auto;
@@ -527,16 +501,6 @@
   }
 }
 
-@keyframes luca-activity-pulse {
-  0%,
-  100% {
-    opacity: 0.42;
-  }
-  50% {
-    opacity: 0.86;
-  }
-}
-
 @container luca-activity-shelf (max-width: 34rem) {
   :root[data-luca-shell]
     .luca-activity-shelf[data-active-count]:not([data-active-count="0"]):not(
@@ -578,12 +542,7 @@
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell] .luca-activity-item,
   :root[data-luca-shell] .luca-activity-shelf,
-  :root[data-luca-shell] .luca-work-tray__expanded,
-  :root[data-luca-shell]
-    .luca-activity-pulse:not([data-state="stopped"]):not(
-      [data-state="interrupted"]
-    ):not([data-state="needs-attention"]),
-  :root[data-luca-shell] .luca-activity-pulse {
+  :root[data-luca-shell] .luca-work-tray__expanded {
     animation: none;
     transform: none;
     transition: none;
@@ -595,8 +554,7 @@
   :root[data-luca-shell] .luca-activity-item__state,
   :root[data-luca-shell] .luca-activity-item__action,
   :root[data-luca-shell] .luca-activity-disclosure,
-  :root[data-luca-shell] .luca-activity-shelf__stop-all,
-  :root[data-luca-shell] .luca-activity-pulse {
+  :root[data-luca-shell] .luca-activity-shelf__stop-all {
     color: hsl(var(--mn-ink));
   }
 }

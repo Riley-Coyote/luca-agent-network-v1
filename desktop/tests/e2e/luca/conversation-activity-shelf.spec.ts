@@ -15,7 +15,8 @@ import { waitForAnimations } from "../../helpers/animations";
  *  · EXACTLY ONE MARK PER WORKING RESIDENT anywhere in the document;
  *  · Stop on the row, always visible, as a plain text button;
  *  · Stop all only when there is an "all", and only at the group's bottom edge;
- *  · the identity glyph beside a name, never the orb.
+ *  · the same sphere character beside every resident turn, becoming the
+ *    existing sandpile while that resident works.
  */
 
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
@@ -147,9 +148,14 @@ test("one resident working: one row, one mark, no Stop all", async ({
   await openConversation(page, 1);
   await startManagedTurns(page, 1);
   await expect.poll(() => liveMarkCount(page)).toBe(1);
-  // The mark is drawn at the ROW's size, not the shelf's 32.
+  // The sandpile now has enough presence to match the sphere beside text.
   const mark = page.locator("[data-sandpile-activity]").first();
-  await expect(mark).toHaveCSS("width", "21px");
+  await expect(mark).toHaveCSS("width", "40px");
+  await expect(page.getByTestId("chat-agent-mark").last()).toHaveAttribute(
+    "data-active",
+    "true",
+  );
+  await expect(page.getByTestId("resident-header-mote")).toHaveCount(0);
   await expect(page.getByTestId("resident-activity-word")).toHaveCount(1);
   await expect(page.getByTestId("resident-elapsed")).toHaveCount(1);
   await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
@@ -243,7 +249,8 @@ test("a resident row carries the identity glyph, never the orb", async ({
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
   await expect.poll(() => liveMarkCount(page)).toBe(3);
-  // No WebGL orb anywhere in a conversation row.
+  // Resting rows use a faithful frame of the 3D character, keeping WebGL
+  // contexts bounded even when the history contains many residents.
   await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(
     0,
   );

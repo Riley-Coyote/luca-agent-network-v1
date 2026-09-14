@@ -30,7 +30,6 @@ import {
   runtimeTaskVisible,
 } from "@/features/capabilities/lib/runtimeTaskPresentation";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
-import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import {
   EMPTY_ACTIVITY_SHELF_SLOTS,
   type ActivityAnnouncementItem,
@@ -164,24 +163,6 @@ function hasCancellableManagedTurn(uiKey: string | undefined): boolean {
   );
 }
 
-function ActivityPulse({
-  seed,
-  state,
-}: {
-  seed: string;
-  state: ConversationActivityState;
-}) {
-  return (
-    <span aria-hidden="true" className="luca-activity-pulse" data-state={state}>
-      <SandpileActivityIndicator
-        active={isLiveState(state)}
-        seed={`${seed}:activity`}
-        size={32}
-      />
-    </span>
-  );
-}
-
 function runtimeTaskLabel(task: RuntimeTaskProjection): string {
   switch (task.state) {
     case "queued":
@@ -216,26 +197,12 @@ function RuntimeTaskCompactItem({
   onToggle: () => void;
   task: RuntimeTaskProjection;
 }) {
-  const active =
-    task.state === "queued" ||
-    task.state === "active" ||
-    task.state === "stopping";
   const action = runtimeTaskAction(task);
   return (
     <div
       className="luca-activity-item luca-runtime-task-item"
       data-activity-state={task.state}
     >
-      <ActivityPulse
-        seed={task.taskId}
-        state={
-          active
-            ? "working"
-            : task.state === "failed"
-              ? "needs-attention"
-              : "settled"
-        }
-      />
       <button
         className="luca-activity-item__resident"
         onClick={onToggle}
@@ -501,7 +468,6 @@ function ActivityItem({
       data-resident-pubkey={item.key}
       data-testid={`resident-activity-${item.key}`}
     >
-      <ActivityPulse seed={item.pubkey} state={item.state} />
       <button
         aria-label={`Open details for ${item.name}`}
         className={cn(
@@ -605,10 +571,6 @@ function ActivityDisclosure({
           className="luca-activity-disclosure"
           type="button"
         >
-          <ActivityPulse
-            seed={items[0]?.pubkey ?? "resident"}
-            state="working"
-          />
           <span>{label}</span>
         </button>
       </PopoverTrigger>
