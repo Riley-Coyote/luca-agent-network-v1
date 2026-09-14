@@ -28,6 +28,11 @@ import {
   setAgentNamesInMessages,
   useAgentNamesInMessages,
 } from "@/features/messages/lib/conversationAppearancePreference";
+import {
+  setChatMarkAppearance,
+  useChatMarkAppearance,
+  type ChatMarkStyle,
+} from "@/features/messages/lib/chatMarkAppearancePreference";
 import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
 import { cn } from "@/shared/lib/cn";
 import { Switch } from "@/shared/ui/switch";
@@ -641,6 +646,7 @@ function ConversationAppearanceSettings({
   currentPubkey?: string;
 }) {
   const agentNamesInMessages = useAgentNamesInMessages(currentPubkey);
+  const chatMarks = useChatMarkAppearance(currentPubkey);
 
   return (
     <div className="mt-8">
@@ -667,6 +673,63 @@ function ConversationAppearanceSettings({
               setAgentNamesInMessages(currentPubkey, enabled)
             }
           />
+        </SettingsOptionRow>
+        <SettingsOptionRow className="border-t border-border/30">
+          <div className="min-w-0">
+            <label
+              className="text-sm font-medium"
+              htmlFor="chat-marks-visible-switch"
+            >
+              Show agent marks in chats
+            </label>
+            <p className="text-sm font-normal text-muted-foreground">
+              Place each resident above the composer while you talk.
+            </p>
+          </div>
+          <Switch
+            checked={chatMarks.visible}
+            data-testid="chat-marks-visible-toggle"
+            disabled={!currentPubkey}
+            id="chat-marks-visible-switch"
+            onCheckedChange={(visible) =>
+              setChatMarkAppearance(currentPubkey, { visible })
+            }
+          />
+        </SettingsOptionRow>
+        <SettingsOptionRow className="flex-wrap border-t border-border/30">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Chat mark</p>
+            <p className="text-sm font-normal text-muted-foreground">
+              Pixel art uses the character chosen on each agent’s page.
+            </p>
+          </div>
+          <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
+            <legend className="sr-only">Chat mark style</legend>
+            {(
+              [
+                ["sphere", "Sphere"],
+                ["pixel", "Pixel art"],
+                ["glyph", "Glyph"],
+              ] as const satisfies readonly (readonly [ChatMarkStyle, string])[]
+            ).map(([style, label]) => (
+              <button
+                aria-pressed={chatMarks.style === style}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  chatMarks.style === style
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                data-testid={`chat-mark-style-${style}`}
+                disabled={!currentPubkey || !chatMarks.visible}
+                key={style}
+                onClick={() => setChatMarkAppearance(currentPubkey, { style })}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
         </SettingsOptionRow>
       </SettingsOptionGroup>
     </div>

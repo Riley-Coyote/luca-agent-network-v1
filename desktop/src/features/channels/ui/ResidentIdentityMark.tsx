@@ -4,6 +4,11 @@ import { useResidentHarness } from "@/features/agents/ResidentHarnessContext";
 import { cn } from "@/shared/lib/cn";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import { HarnessLogo, harnessHasLogo } from "@/shared/ui/HarnessLogo";
+import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
+import {
+  residentGlyphSeed,
+  useCanonicalLucaPubkey,
+} from "@/features/luca/canonicalLucaResident";
 
 /** What the resident is doing right now, if the mark should show it. */
 export type ResidentMarkLiveState = "thinking" | "writing" | null;
@@ -39,6 +44,7 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
   "data-testid": dataTestId,
 }: ResidentIdentityMarkProps) {
   const harness = useResidentHarness(publicKey);
+  const lucaPubkey = useCanonicalLucaPubkey();
   const showHarness =
     presentation === "harness" &&
     harness !== null &&
@@ -57,7 +63,13 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
         "inline-flex shrink-0 items-center justify-center",
         className,
       )}
-      data-resident-mark-kind={showHarness ? "harness" : "character"}
+      data-resident-mark-kind={
+        showHarness
+          ? "harness"
+          : presentation === "glyph"
+            ? "glyph"
+            : "character"
+      }
       data-resident-mark-live={live ?? undefined}
       data-testid={dataTestId}
       style={{ height: size, width: size }}
@@ -69,6 +81,13 @@ export const ResidentIdentityMark = React.memo(function ResidentIdentityMark({
             <span className="sr-only">{accessibleName} runtime</span>
           ) : null}
         </>
+      ) : presentation === "glyph" ? (
+        <IdentityMark
+          accessibleName={decorative ? undefined : `${accessibleName} identity`}
+          breath={motion === "ambient"}
+          seed={residentGlyphSeed(publicKey, lucaPubkey)}
+          size={size}
+        />
       ) : (
         <AgentIdentitySpecimen
           accessibleName={accessibleName}

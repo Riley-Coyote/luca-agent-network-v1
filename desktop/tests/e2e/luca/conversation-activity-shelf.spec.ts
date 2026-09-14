@@ -12,7 +12,7 @@ import { waitForAnimations } from "../../helpers/animations";
  * it. What is asserted now is the design that replaced it:
  *
  *  · one row per working resident, in the thread, where their reply will land;
- *  · one shared character above the composer, regardless of row count;
+ *  · one character per resident above the composer, regardless of row count;
  *  · Stop on the row, always visible, as a plain text button;
  *  · Stop all only when there is an "all", and only at the group's bottom edge;
  *  · the sphere becoming the existing sandpile while a resident works.
@@ -149,11 +149,12 @@ test("one resident working: one row, composer mark, no Stop all", async ({
   await expect.poll(() => liveMarkCount(page)).toBe(1);
   // The sandpile now has enough presence to match the sphere beside text.
   const mark = page.locator("[data-sandpile-activity]").first();
-  await expect(mark).toHaveCSS("width", "40px");
-  await expect(page.getByTestId("composer-agent-ledge").getByTestId("chat-agent-mark")).toHaveAttribute(
-    "data-active",
-    "true",
-  );
+  await expect(mark).toHaveCSS("width", "49px");
+  await expect(
+    page.getByTestId("composer-agent-ledge").getByRole("img", {
+      name: "Claude Code working mark",
+    }),
+  ).toHaveAttribute("data-active", "true");
   await expect(page.getByTestId("resident-header-mote")).toHaveCount(0);
   await expect(page.getByTestId("resident-activity-word")).toHaveCount(1);
   await expect(page.getByTestId("resident-elapsed")).toHaveCount(1);
@@ -161,12 +162,15 @@ test("one resident working: one row, composer mark, no Stop all", async ({
   await capture(page, "state-one");
 });
 
-test("three residents working: one shared composer mark", async ({
+test("three residents working: three independent composer marks", async ({
   page,
 }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect(
+    page.getByTestId("composer-agent-ledge").getByTestId("chat-agent-mark"),
+  ).toHaveCount(3);
   // The shelf is not painting any of them: it reports no live agent at all.
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
@@ -236,26 +240,28 @@ test("Stop all appears only when more than one resident is working", async ({
   await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
   await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(1);
   await capture(page, "stop-all");
 });
 
-test("working rows leave the character on the composer", async ({
-  page,
-}) => {
+test("working rows leave the character on the composer", async ({ page }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(1);
-  await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(0);
-  await expect(page.getByTestId("composer-agent-ledge")).toHaveCount(1);
-  await capture(page, "shared-composer-character");
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByTestId("composer-agent-ledge").getByTestId("chat-agent-mark"),
+  ).toHaveCount(3);
+  await capture(page, "composer-resident-characters");
 });
 
 test("no monospace chrome in the working surface", async ({ page }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  await expect.poll(() => liveMarkCount(page)).toBe(3);
   const offenders = await page.evaluate(() => {
     const found: string[] = [];
     const rows = [

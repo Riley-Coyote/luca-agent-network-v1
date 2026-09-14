@@ -33,6 +33,9 @@
 
 .luca-composer-presence {
   align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
   margin: 0 0 11px 42px;
   pointer-events: none;
 }

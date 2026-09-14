@@ -9,6 +9,7 @@ import { ArtifactReceiptChip } from "@/features/artifacts/ui/ArtifactReceiptChip
 import { managedPresentationUiKey } from "@/features/messages/managedPresentationTypes";
 import { useMediaUpload } from "@/features/messages/lib/useMediaUpload";
 import { MessageComposer } from "@/features/messages/ui/MessageComposer";
+import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
 import type { MessageComposerSendContext } from "@/features/messages/ui/messageComposerTypes";
 import { ComposerTimeoutBanner } from "@/features/moderation/ui/ComposerTimeoutBanner";
 import { useTimeoutState } from "@/features/moderation/lib/timeoutStore";
@@ -906,7 +907,9 @@ export const ChannelPane = React.memo(function ChannelPane({
     }
     return keys;
   }, [managedActivity]);
-  const composerLedgeAgent = React.useMemo(() => {
+  const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
+  const composerLedgeAgents = React.useMemo(() => {
+    if (!chatMarkAppearance.visible) return [];
     const isActive = (pubkey: string) => {
       const key = normalizePubkey(pubkey);
       const state = presentationStateByPubkey?.get(key);
@@ -926,28 +929,18 @@ export const ChannelPane = React.memo(function ChannelPane({
         (state !== undefined && !isTerminalConversationActivity(state))
       );
     };
-    const agent =
-      activityAgents.find((candidate) => isActive(candidate.pubkey)) ??
-      activityAgents.find(
-        (candidate) =>
-          normalizePubkey(candidate.pubkey) ===
-          normalizePubkey(thinking.selectedPubkey ?? ""),
-      ) ??
-      activityAgents[0];
-    return agent
-      ? {
-          pubkey: agent.pubkey,
-          name: agent.name,
-          active: isActive(agent.pubkey),
-        }
-      : null;
+    return activityAgents.map((agent) => ({
+      pubkey: agent.pubkey,
+      name: agent.name,
+      active: isActive(agent.pubkey),
+    }));
   }, [
     activityAgents,
     activityTraces,
     agentActivityRows,
+    chatMarkAppearance.visible,
     composerWorkingBotPubkeys,
     presentationStateByPubkey,
-    thinking.selectedPubkey,
     workingResidentKeys,
   ]);
   const stopAllAnchorId = React.useMemo(() => {
@@ -1372,7 +1365,8 @@ export const ChannelPane = React.memo(function ChannelPane({
                       tasks={runtimeTasksQuery.data ?? []}
                     />
                     <MessageComposer
-                      ledgeAgent={composerLedgeAgent}
+                      ledgeAgents={composerLedgeAgents}
+                      markStyle={chatMarkAppearance.style}
                       capabilityResidents={capabilityResidents}
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}
