@@ -27,9 +27,10 @@ test("agent DMs keep the title and remove the header companion", async ({
 test("a visible chat sphere follows the pointer and blinks without hover", async ({
   page,
 }) => {
-  await page.goto("/?e2e=mock");
-  await page.getByTestId("channel-general").click();
-  const mark = page.getByTestId("chat-agent-mark").first();
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  const mark = page.getByTestId("composer-agent-ledge").getByTestId("chat-agent-mark");
+  await expect(page.locator('[data-testid="message-row"] [data-testid="chat-agent-mark"]')).toHaveCount(0);
   await expect(mark.locator("img")).toBeVisible();
   await expect(mark.locator("mote-3d")).toHaveAttribute("data-ready", "");
   await page.mouse.move(0, 0);
@@ -66,4 +67,16 @@ test("a visible chat sphere follows the pointer and blinks without hover", async
   });
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(mark.locator("mote-3d")).toHaveCount(0);
+});
+
+test("composer focus leaves the flat surface unchanged", async ({ page }) => {
+  await page.getByTestId("agent-rail-atlas").click();
+  await page.getByTestId("agent-column-new-chat").click();
+  const composer = page.getByTestId("message-composer");
+  await expect(composer).toHaveCSS("box-shadow", "none");
+  await expect(composer).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  await page.getByTestId("message-input").click();
+  await expect(composer).toHaveCSS("box-shadow", "none");
+  await expect(composer).toHaveCSS("border-top-color", "rgba(0, 0, 0, 0)");
+  await expect(page.getByTestId("message-input")).toBeFocused();
 });

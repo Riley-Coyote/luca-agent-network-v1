@@ -1,5 +1,6 @@
 import { ArrowUp, X } from "lucide-react";
 import * as React from "react";
+import { ChatAgentMark } from "@/features/luca/residents/ChatAgentMark";
 
 import { Button } from "@/shared/ui/button";
 
@@ -102,6 +103,7 @@ type MessageComposerAudienceContext = {
   initialAgentPubkeys?: readonly string[];
 };
 type MessageComposerProps = {
+  ledgeAgent?: { pubkey: string; name: string; active: boolean } | null;
   audienceContext?: MessageComposerAudienceContext | null;
   channelId?: string | null;
   /**
@@ -195,6 +197,7 @@ type MessageComposerProps = {
 };
 
 function MessageComposerImpl({
+  ledgeAgent = null,
   audienceContext = null,
   channelId = null,
   channelType = null,
@@ -1479,13 +1482,11 @@ function MessageComposerImpl({
               }}
             />
           ) : null}
-          {/* The card carries no `transition-colors`: that moves ten
-           * properties at once, and on this card only the focus border is
-           * allowed to move — the background must hold still and the height
-           * must never ease. The one border-color transition it does want
-           * lives in composer-states.css. */}
           <form
-            className="relative z-10 isolate rounded-xl border bg-muted px-3 py-2"
+            className={cn(
+              "relative z-10 rounded-[24px] border border-transparent bg-muted px-3 py-2",
+              ledgeAgent && "mt-8",
+            )}
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
             onDragLeave={ownsDropZone ? media.handleDragLeave : undefined}
@@ -1501,6 +1502,18 @@ function MessageComposerImpl({
               handleSubmit(event);
             }}
           >
+            {ledgeAgent ? (
+              <span
+                className="luca-composer-ledge"
+                data-testid="composer-agent-ledge"
+              >
+                <ChatAgentMark
+                  active={ledgeAgent.active}
+                  name={ledgeAgent.name}
+                  seed={ledgeAgent.pubkey}
+                />
+              </span>
+            ) : null}
             <ComposerCapabilityPalette
               onClose={(reason) => {
                 dismissedCapabilitySlashRef.current = true;
@@ -1622,68 +1635,58 @@ function MessageComposerImpl({
               </div>
             )}
 
-            {/* The card holds only what the message IS: the text, and the one
-             * control that commits it. Everything else lives on the baseline
-             * row below, on the ground. */}
-            <div className="flex items-end gap-2">
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
-              <div
-                className="rich-text-composer relative max-h-40 min-w-0 flex-1 self-center overflow-y-auto"
-                data-testid="message-input-scroll"
-                ref={composerScrollRef}
-                onKeyDown={handleEditorKeyDown}
-              >
-                <EditorContent editor={richText.editor} />
+            <div className="luca-composer-controls">
+              <div className="flex min-w-0 flex-1 items-end gap-2">
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: keydown handler bridges Tiptap editor to autocomplete and submit */}
+                <div
+                  className="rich-text-composer relative max-h-40 min-w-0 flex-1 self-center overflow-y-auto"
+                  data-testid="message-input-scroll"
+                  ref={composerScrollRef}
+                  onKeyDown={handleEditorKeyDown}
+                >
+                  <EditorContent editor={richText.editor} />
+                </div>
+                <Button
+                  aria-label={isSending ? "Sending" : "Send message"}
+                  className="mb-0.5 size-9 shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
+                  data-testid="send-message"
+                  disabled={sendDisabled || isSending}
+                  size="icon"
+                  type="submit"
+                >
+                  <ArrowUp aria-hidden className="size-4" />
+                </Button>
               </div>
-              {/* Armed or disarmed — that is the button's whole vocabulary.
-               * A send is not information: the user caused it, and the
-               * message appearing in the timeline is the confirmation. A
-               * spinner here would announce, in peripheral vision, something
-               * they already know they did. The arrow stays, always, and the
-               * button never moves or changes size. Armed, the glyph is cut
-               * to the card's own shade, so it reads as a hole punched
-               * through the ink rather than a second colour. Arm/disarm
-               * timing is in composer-states.css. */}
-              <Button
-                aria-label={isSending ? "Sending" : "Send message"}
-                className="mb-0.5 size-7 shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-plate disabled:text-ink-ghost disabled:opacity-100"
-                data-testid="send-message"
-                disabled={sendDisabled || isSending}
-                size="icon"
-                type="submit"
-              >
-                <ArrowUp aria-hidden className="size-3.5" />
-              </Button>
+              <MessageComposerToolbar
+                addButtonRef={contextAddButtonRef}
+                composerDisabled={disabled}
+                editor={richText.editor}
+                extraActions={toolbarExtraActions}
+                trailingActions={toolbarTrailingActions}
+                formattingDisabled={disabled}
+                isEmojiPickerOpen={isEmojiPickerOpen}
+                isFormattingOpen={isFormattingOpen}
+                isUploading={media.isUploading}
+                audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
+                audioRecordingStatus={audioRecorder.status}
+                onCaptureSelection={handleCaptureSelection}
+                onAudioRecordCancel={audioRecorder.cancel}
+                onAudioRecordStart={audioRecorder.start}
+                onAudioRecordStop={audioRecorder.stop}
+                onEmojiPickerOpenChange={setIsEmojiPickerOpen}
+                onEmojiSelect={insertEmoji}
+                onFormattingToggle={handleFormattingToggle}
+                onLinkButton={linkEditor.openFromToolbar}
+                onOpenContext={
+                  conversationContext ? () => setIsContextOpen(true) : undefined
+                }
+                onOpenMentionPicker={openMentionPicker}
+                onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
+                onRunTask={beginRuntimeTask}
+                onPaperclip={handlePaperclipClick}
+              />
             </div>
           </form>
-          <MessageComposerToolbar
-            addButtonRef={contextAddButtonRef}
-            composerDisabled={disabled}
-            editor={richText.editor}
-            extraActions={toolbarExtraActions}
-            trailingActions={toolbarTrailingActions}
-            formattingDisabled={disabled}
-            isEmojiPickerOpen={isEmojiPickerOpen}
-            isFormattingOpen={isFormattingOpen}
-            isUploading={media.isUploading}
-            audioRecordingElapsedSeconds={audioRecorder.elapsedSeconds}
-            audioRecordingStatus={audioRecorder.status}
-            onCaptureSelection={handleCaptureSelection}
-            onAudioRecordCancel={audioRecorder.cancel}
-            onAudioRecordStart={audioRecorder.start}
-            onAudioRecordStop={audioRecorder.stop}
-            onEmojiPickerOpenChange={setIsEmojiPickerOpen}
-            onEmojiSelect={insertEmoji}
-            onFormattingToggle={handleFormattingToggle}
-            onLinkButton={linkEditor.openFromToolbar}
-            onOpenContext={
-              conversationContext ? () => setIsContextOpen(true) : undefined
-            }
-            onOpenMentionPicker={openMentionPicker}
-            onOpenCapabilities={() => setIsCapabilityPaletteOpen(true)}
-            onRunTask={beginRuntimeTask}
-            onPaperclip={handlePaperclipClick}
-          />
         </div>
       </footer>
 

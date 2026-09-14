@@ -90,7 +90,7 @@ function unobserveMark(element: HTMLElement) {
   reconcileFrame = 0;
 }
 
-/** The same small stage stays beside an agent's words for the whole turn. */
+/** A live resident presence perched above the main composer. */
 export function ChatAgentMark({
   active,
   name,

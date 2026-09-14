@@ -60,8 +60,8 @@
 .luca-chat-agent-mark__wake {
   background: radial-gradient(
     circle,
-    rgb(255 238 205 / 0.9) 0 2%,
-    rgb(190 55 150 / 0.36) 15%,
+    rgb(255 255 255 / 0.72) 0 2%,
+    rgb(255 255 255 / 0.16) 15%,
     transparent 62%
   );
   border-radius: 50%;

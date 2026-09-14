@@ -199,7 +199,7 @@
      palette, light ones included, with no per-theme value. */
   background: var(--mn-plate-strong);
   border-radius: 14px;
-  box-shadow: var(--mn-lit-edge);
+  box-shadow: none;
   flex: 0 1 auto;
   /* The row's own `-mt-0.5` optically hangs a first line off an author name;
      with the name gone the plate's padding does that work instead. */

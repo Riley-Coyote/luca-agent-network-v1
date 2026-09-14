@@ -20,78 +20,53 @@
   --composer-duration-disarm: 90ms;
 }
 
-/* Focus is the card's own border brightening in place. border-color and the
- * lit edge are the ONLY properties licensed to move here. The background must
- * hold still, and a height transition would turn every text wrap into a slide,
- * which is the single largest cause of a composer feeling soggy. */
 [data-testid="message-composer"] {
-  transition:
-    border-color var(--motion-duration-instant) var(--motion-ease-standard),
-    box-shadow var(--motion-duration-instant) var(--motion-ease-standard);
+  transition: none;
 }
 
-/* The resting card is entirely strokeless. Focus adds no conventional border:
- * a masked half-pixel catches light at the top and loses it down the sides,
- * matching the shell's grazing-light material language without boxing the
- * composer in. */
-:root[data-luca-shell] [data-testid="message-composer"] {
+:root[data-luca-shell] [data-testid="message-composer"],
+:root[data-luca-shell] [data-testid="message-composer"]:focus-within,
+:root[data-luca-shell] .luca-sheet-deck + [data-testid="message-composer"] {
   border-color: transparent;
-  box-shadow: var(--mn-lit-edge-off);
+  box-shadow: none;
 }
 
-:root[data-luca-shell] [data-testid="message-composer"]:focus-within {
-  border-color: transparent;
-}
-
-:root[data-luca-shell] [data-testid="message-composer"]::after {
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  background: linear-gradient(
-    180deg,
-    hsl(var(--mn-ink) / 0.11) 0%,
-    hsl(var(--mn-ink) / 0.04) 42%,
-    transparent 78%
-  );
-  border-radius: inherit;
-  content: "";
-  inset: 0;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0;
-  padding: 1px;
-  pointer-events: none;
+.luca-composer-ledge {
   position: absolute;
-  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
+  top: -33px;
+  left: 20px;
+  z-index: 2;
+  pointer-events: none;
 }
 
-@media (min-resolution: 2dppx) {
-  :root[data-luca-shell] [data-testid="message-composer"]::after {
-    padding: 0.5px;
-  }
-}
-
-:root[data-luca-shell] [data-testid="message-composer"]:focus-within::after {
-  opacity: 1;
-}
-
-/* At the tuck the card should read as sinking into the recess, and two light
- * lines stacked a pixel apart — focus hairline over lit edge — read as a
- * raised lip instead. The highlight wins that pixel; the border yields it for
- * as long as the well is open. */
-:root[data-luca-shell]
-  .luca-sheet-deck
-  + [data-testid="message-composer"]:focus-within {
-  border-top-color: transparent;
+:root[data-luca-shell] .luca-composer-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  min-height: 40px;
+  position: relative;
 }
 
 :root[data-luca-shell]
-  .luca-sheet-deck
-  + [data-testid="message-composer"]:focus-within::after {
-  opacity: 0;
+  [data-testid="message-composer"]
+  [data-testid="message-composer-toolbar"] {
+  flex: 0 0 auto;
+  order: -1;
+  padding: 0;
+  width: auto;
+}
+
+:root[data-luca-shell]
+  .luca-composer-controls [data-testid="message-input-scroll"] {
+  padding-right: 112px;
+}
+
+:root[data-luca-shell]
+  .luca-composer-controls [data-testid="message-composer-toolbar"] > .ml-auto {
+  bottom: 4px;
+  max-width: 104px;
+  position: absolute;
+  right: 47px;
 }
 
 /* The send button has two states, armed and disarmed, and never moves between

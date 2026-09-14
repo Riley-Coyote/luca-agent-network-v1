@@ -450,8 +450,12 @@ export const ChannelPane = React.memo(function ChannelPane({
   // WP-STRIP1 · `composerWorkingBotPubkeys` and `pendingActivityByPubkey` are
   // no longer read here: they existed to feed the activity shelf, and the
   // thread's own rows have taken the whole of that job.
-  const { agentActivityRows, managedActivity, presentationStateByPubkey } =
-    useConversationPresentation(activeChannelId);
+  const {
+    agentActivityRows,
+    composerWorkingBotPubkeys,
+    managedActivity,
+    presentationStateByPubkey,
+  } = useConversationPresentation(activeChannelId);
   const stoppablePresentationActivity = React.useMemo(
     () =>
       new Map(
@@ -902,6 +906,50 @@ export const ChannelPane = React.memo(function ChannelPane({
     }
     return keys;
   }, [managedActivity]);
+  const composerLedgeAgent = React.useMemo(() => {
+    const isActive = (pubkey: string) => {
+      const key = normalizePubkey(pubkey);
+      const state = presentationStateByPubkey?.get(key);
+      return (
+        workingResidentKeys.has(key) ||
+        composerWorkingBotPubkeys.some(
+          (candidate) => normalizePubkey(candidate) === key,
+        ) ||
+        agentActivityRows.some(
+          (row) => normalizePubkey(row.agentPubkey) === key,
+        ) ||
+        activityTraces.some(
+          (trace) =>
+            normalizePubkey(trace.residentPubkey) === key &&
+            trace.status === "working",
+        ) ||
+        (state !== undefined && !isTerminalConversationActivity(state))
+      );
+    };
+    const agent =
+      activityAgents.find((candidate) => isActive(candidate.pubkey)) ??
+      activityAgents.find(
+        (candidate) =>
+          normalizePubkey(candidate.pubkey) ===
+          normalizePubkey(thinking.selectedPubkey ?? ""),
+      ) ??
+      activityAgents[0];
+    return agent
+      ? {
+          pubkey: agent.pubkey,
+          name: agent.name,
+          active: isActive(agent.pubkey),
+        }
+      : null;
+  }, [
+    activityAgents,
+    activityTraces,
+    agentActivityRows,
+    composerWorkingBotPubkeys,
+    presentationStateByPubkey,
+    thinking.selectedPubkey,
+    workingResidentKeys,
+  ]);
   const stopAllAnchorId = React.useMemo(() => {
     if (workingResidentKeys.size < 2) return null;
     for (let index = projectedRoomMessages.length - 1; index >= 0; index -= 1) {
@@ -1324,6 +1372,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                       tasks={runtimeTasksQuery.data ?? []}
                     />
                     <MessageComposer
+                      ledgeAgent={composerLedgeAgent}
                       capabilityResidents={capabilityResidents}
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}

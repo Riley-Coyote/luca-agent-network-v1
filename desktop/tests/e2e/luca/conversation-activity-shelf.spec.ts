@@ -12,11 +12,10 @@ import { waitForAnimations } from "../../helpers/animations";
  * it. What is asserted now is the design that replaced it:
  *
  *  · one row per working resident, in the thread, where their reply will land;
- *  · EXACTLY ONE MARK PER WORKING RESIDENT anywhere in the document;
+ *  · one shared character above the composer, regardless of row count;
  *  · Stop on the row, always visible, as a plain text button;
  *  · Stop all only when there is an "all", and only at the group's bottom edge;
- *  · the same sphere character beside every resident turn, becoming the
- *    existing sandpile while that resident works.
+ *  · the sphere becoming the existing sandpile while a resident works.
  */
 
 const CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
@@ -142,7 +141,7 @@ test("idle: nothing is running and no working mark exists", async ({
   await capture(page, "state-idle");
 });
 
-test("one resident working: one row, one mark, no Stop all", async ({
+test("one resident working: one row, composer mark, no Stop all", async ({
   page,
 }) => {
   await openConversation(page, 1);
@@ -151,7 +150,7 @@ test("one resident working: one row, one mark, no Stop all", async ({
   // The sandpile now has enough presence to match the sphere beside text.
   const mark = page.locator("[data-sandpile-activity]").first();
   await expect(mark).toHaveCSS("width", "40px");
-  await expect(page.getByTestId("chat-agent-mark").last()).toHaveAttribute(
+  await expect(page.getByTestId("composer-agent-ledge").getByTestId("chat-agent-mark")).toHaveAttribute(
     "data-active",
     "true",
   );
@@ -162,12 +161,12 @@ test("one resident working: one row, one mark, no Stop all", async ({
   await capture(page, "state-one");
 });
 
-test("three residents working: exactly three marks, counted in the DOM", async ({
+test("three residents working: one shared composer mark", async ({
   page,
 }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
   // The shelf is not painting any of them: it reports no live agent at all.
   await expect(page.getByTestId("conversation-activity-shelf")).toHaveAttribute(
     "data-active-count",
@@ -186,10 +185,9 @@ test("the unposted case: a pending row at the tail, in the row's own geometry", 
   await expect.poll(() => liveMarkCount(page)).toBe(1);
   const rows = page.getByTestId("message-row");
   const last = rows.last();
-  // The row is a real message row: same geometry, mark gutter open, body slot
-  // present and empty. That is what lets the answer fill in place.
+  // The pending row holds the answer's place without repeating the character.
   await expect(last.locator("[data-message-mark]")).toHaveCount(1);
-  await expect(last.locator("[data-sandpile-activity]")).toHaveCount(1);
+  await expect(last.locator("[data-sandpile-activity]")).toHaveCount(0);
   await capture(page, "state-unposted");
 });
 
@@ -238,28 +236,26 @@ test("Stop all appears only when more than one resident is working", async ({
   await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(0);
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
   await expect(page.getByTestId("stop-all-working-residents")).toHaveCount(1);
   await capture(page, "stop-all");
 });
 
-test("resting resident rows keep live spheres while working rows show sandpiles", async ({
+test("working rows leave the character on the composer", async ({
   page,
 }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(3);
-  // Two prior resident messages are visible beside the three working rows.
-  await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(
-    2,
-  );
-  await capture(page, "live-spheres-in-rows");
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
+  await expect(page.locator("[data-testid='message-row'] mote-3d")).toHaveCount(0);
+  await expect(page.getByTestId("composer-agent-ledge")).toHaveCount(1);
+  await capture(page, "shared-composer-character");
 });
 
 test("no monospace chrome in the working surface", async ({ page }) => {
   await openConversation(page, 3);
   await startManagedTurns(page, 3);
-  await expect.poll(() => liveMarkCount(page)).toBe(3);
+  await expect.poll(() => liveMarkCount(page)).toBe(1);
   const offenders = await page.evaluate(() => {
     const found: string[] = [];
     const rows = [

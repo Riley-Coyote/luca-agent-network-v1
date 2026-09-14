@@ -17,7 +17,6 @@ import type { TimelineMessage } from "@/features/messages/types";
 import { useKnownAgentPubkeys } from "@/features/agents/useKnownAgentPubkeys";
 import { NativeAgentNoticeCard } from "@/features/agents/ui/NativeAgentNoticeCard";
 import { LUCA_GREETING_MARKER } from "@/features/luca/canonicalLucaResident";
-import { ChatAgentMark } from "@/features/luca/residents/ChatAgentMark";
 import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
 import { ResidentStopContext } from "./residentStopContext";
@@ -629,7 +628,8 @@ export const MessageRow = React.memo(
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
       showResidentMarkGutter &&
-      (!isContinuation || message.isAgent) &&
+      !message.isAgent &&
+      !isContinuation &&
       !ownBubble;
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
@@ -1298,23 +1298,11 @@ export const MessageRow = React.memo(
             <span
               className={cn(
                 "relative mt-0.5 flex shrink-0 justify-center",
-                message.isAgent && !authorVisiting ? "w-[42px]" : "w-[21px]",
+                "w-[21px]",
               )}
               data-message-mark
             >
-              {message.isAgent ? (
-                <span
-                  className={cn(
-                    authorVisiting && "absolute left-1/2 -translate-x-1/2",
-                  )}
-                >
-                  <ChatAgentMark
-                    active={residentMarkLive !== null}
-                    name={message.author}
-                    seed={message.pubkey}
-                  />
-                </span>
-              ) : isContinuation || ownBubble ? (
+              {message.isAgent || isContinuation || ownBubble ? (
                 <span aria-hidden className="size-[21px]" />
               ) : (
                 <UserAvatar

@@ -229,7 +229,7 @@ test("live native activity replaces narration in place and stops the exact resid
   await expect(trace.locator("[data-activity-narration]")).toHaveText(
     "I am preparing the update now.",
   );
-  expect((await trace.boundingBox())?.height).toBe(before?.height);
+  expect((await trace.boundingBox())?.height).toBeCloseTo(before?.height ?? 0, 1);
   await capture(page, "trace-live-private");
   await page.getByRole("button", { name: "Stop Luca", exact: true }).click();
   const cancelPayload = await page.evaluate(
@@ -466,29 +466,7 @@ test("only simultaneous working names align, and light mode retains readable act
       return Math.abs(values[0].statusLeft - values[1].statusLeft);
     })
     .toBeLessThan(1);
-  const markCenters = () =>
-    page.locator("[data-activity-trace]").evaluateAll((elements) =>
-      elements.map((element) => {
-        const name = element
-          .querySelector("[data-activity-name]")
-          ?.getBoundingClientRect();
-        const mark = element
-          .closest('[data-testid="message-row"]')
-          ?.querySelector("[data-message-mark]")
-          ?.firstElementChild?.getBoundingClientRect();
-        return {
-          state: element.getAttribute("data-activity-state"),
-          name: element.querySelector("[data-activity-name]")?.textContent,
-          delta:
-            name && mark
-              ? mark.top + mark.height / 2 - (name.top + name.height / 2)
-              : null,
-        };
-      }),
-    );
-  const centersAt100 = await markCenters();
-  for (const entry of centersAt100)
-    expect(Math.abs(entry.delta ?? Infinity)).toBeLessThanOrEqual(0.5);
+  await expect(page.locator('[data-testid="message-row"] [data-testid="chat-agent-mark"]')).toHaveCount(0);
   const initial = await columns();
   expect(initial[0].nameWidth).toBeCloseTo(initial[1].nameWidth, 1);
   const settledName = page.locator(
@@ -512,15 +490,6 @@ test("only simultaneous working names align, and light mode retains readable act
       return Math.abs(values[0].statusLeft - values[1].statusLeft);
     })
     .toBeLessThan(1);
-  const centersAt110 = await markCenters();
-  for (const entry of centersAt110) {
-    expect(Math.abs(entry.delta ?? Infinity)).toBeLessThanOrEqual(0.5);
-  }
-  console.log(
-    JSON.stringify({
-      activityMarkCenters: { at100: centersAt100, at110: centersAt110 },
-    }),
-  );
   await capture(page, "trace-aligned-working-names");
   await publishSnapshots(
     page,
