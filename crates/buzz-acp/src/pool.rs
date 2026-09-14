@@ -1174,31 +1174,72 @@ async fn create_session_and_apply_model(
         false
     };
 
-    // Emit session config for desktop consumption (config bridge tier 1b).
-    // Emitted AFTER desired_model resolution so the desktop caches the
-    // post-switch state. modelOverridden reflects whether the switch actually
-    // applied — false on the unsupported arm so the panel doesn't show a
-    // stale override badge.
-    agent.acp.observe(
-        "session_config_captured",
-        serde_json::json!({
-            "sessionId": resp.session_id,
-            "configOptions": resp.raw.get("configOptions").cloned().unwrap_or(serde_json::Value::Null),
-            "modes": resp.raw.get("modes").cloned().unwrap_or(serde_json::Value::Null),
-            "models": resp.raw.get("models").cloned().unwrap_or(serde_json::Value::Null),
-            "modelOverridden": agent.model_overridden && switch_succeeded,
-        }),
-    );
-
-    // Apply permission mode if not the agent's built-in default AND the agent
-    // advertises the requested mode in session/new. Agents that don't support
-    // the mode (e.g., goose crashes on unrecognized set_config_option values)
-    // are safely skipped and remain governed by their native permission flow.
-    if !ctx.permission_mode.is_default()
+    // The Claude adapter resolves its initial mode from native user settings
+    // even when the SDK query excludes those settings. A managed resident must
+    // explicitly bind the app's default before any prompt; otherwise an
+    // inherited bypassPermissions mode shadows Luca's canUseTool approval path.
+    let mut acknowledged_mode_config_options = None;
+    if ctx.managed_final_publisher.is_some()
+        && matches!(
+            agent.agent_name.as_str(),
+            "claude-agent-acp" | "@agentclientprotocol/claude-agent-acp"
+        )
+        && ctx.permission_mode.is_default()
+    {
+        if !agent_supports_mode(&resp.raw, "default") {
+            return Err(AcpError::Protocol(
+                "managed Claude session did not advertise default permission mode".into(),
+            ));
+        }
+        let mode_response = tokio::time::timeout(
+            PERMISSION_MODE_TIMEOUT,
+            agent
+                .acp
+                .session_set_config_option(&resp.session_id, "mode", "default"),
+        )
+        .await
+        .map_err(|_| {
+            AcpError::Protocol("managed Claude default permission mode timed out".into())
+        })??;
+        acknowledged_mode_config_options = Some(
+            acknowledged_mode_options(&mode_response, "default").ok_or_else(|| {
+                AcpError::Protocol("managed Claude did not confirm default permission mode".into())
+            })?,
+        );
+    } else if !ctx.permission_mode.is_default()
         && agent_supports_mode(&resp.raw, ctx.permission_mode.as_wire_str())
     {
         apply_permission_mode(&mut agent.acp, &resp.session_id, &ctx.permission_mode).await?;
     }
+
+    // Report the acknowledged state, not the adapter's inherited pre-switch
+    // bypass mode. The observer snapshot is consumed by the desktop config UI.
+    let mut captured_config_options = resp
+        .raw
+        .get("configOptions")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let mut captured_modes = resp
+        .raw
+        .get("modes")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(options) = acknowledged_mode_config_options {
+        captured_config_options = options;
+        if let Some(modes) = captured_modes.as_object_mut() {
+            modes.insert("currentModeId".into(), serde_json::json!("default"));
+        }
+    }
+    agent.acp.observe(
+        "session_config_captured",
+        serde_json::json!({
+            "sessionId": resp.session_id,
+            "configOptions": captured_config_options,
+            "modes": captured_modes,
+            "models": resp.raw.get("models").cloned().unwrap_or(serde_json::Value::Null),
+            "modelOverridden": agent.model_overridden && switch_succeeded,
+        }),
+    );
 
     if !matches!(source, PromptSource::Continuity(_))
         && session_context.communications_turn.is_none()
@@ -1400,6 +1441,30 @@ pub(crate) fn agent_supports_mode(session_new_result: &serde_json::Value, mode_w
                 .any(|m| m.get("id").and_then(|v| v.as_str()) == Some(mode_wire))
         })
         .unwrap_or(false)
+}
+
+/// Accept a mode switch only when the adapter reports the requested value in
+/// its returned mode config option. The full acknowledged options replace the
+/// pre-switch observer snapshot.
+fn acknowledged_mode_options(
+    response: &serde_json::Value,
+    requested: &str,
+) -> Option<serde_json::Value> {
+    let options = response.get("configOptions")?.as_array()?;
+    options
+        .iter()
+        .any(|option| {
+            option
+                .get("id")
+                .or_else(|| option.get("configId"))
+                .and_then(serde_json::Value::as_str)
+                == Some("mode")
+                && option
+                    .get("currentValue")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(requested)
+        })
+        .then(|| serde_json::Value::Array(options.clone()))
 }
 
 /// per-tool auto-approval in `handle_permission_request`.
@@ -8620,6 +8685,37 @@ while read -r _; do :; done
             runtime_session_purpose_store: None,
             managed_final_publisher: None,
         }
+    }
+
+    #[test]
+    fn managed_claude_can_bind_advertised_default_from_inherited_bypass() {
+        let response = serde_json::json!({
+            "modes": {
+                "currentModeId": "bypassPermissions",
+                "availableModes": [{"id": "default"}, {"id": "bypassPermissions"}]
+            }
+        });
+        assert!(super::agent_supports_mode(&response, "default"));
+        assert!(!super::agent_supports_mode(
+            &serde_json::json!({"modes": {}}),
+            "default"
+        ));
+    }
+
+    #[test]
+    fn managed_claude_requires_acknowledged_default_mode() {
+        let acknowledged = serde_json::json!({
+            "configOptions": [{"id": "mode", "currentValue": "default"}]
+        });
+        assert_eq!(
+            super::acknowledged_mode_options(&acknowledged, "default"),
+            acknowledged.get("configOptions").cloned()
+        );
+        let wrong_mode = serde_json::json!({
+            "configOptions": [{"id": "mode", "currentValue": "bypassPermissions"}]
+        });
+        assert!(super::acknowledged_mode_options(&wrong_mode, "default").is_none());
+        assert!(super::acknowledged_mode_options(&serde_json::json!({}), "default").is_none());
     }
 
     #[test]
