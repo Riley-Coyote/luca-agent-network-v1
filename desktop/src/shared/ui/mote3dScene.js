@@ -386,7 +386,7 @@ export function knownExpression(value) {
  * light count is part of the shader program, so a warm-up must build exactly
  * this for the unit count it wants compiled.
  */
-export function buildScene(assets, kind, tints) {
+export function buildScene(assets, kind, tints, { showCaustic = true } = {}) {
   const { THREE, glow } = assets;
   const scene = new THREE.Scene();
   const key = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -408,19 +408,21 @@ export function buildScene(assets, kind, tints) {
     wash.position.set(-1.6, -0.5, 1.9);
     holder.add(wash);
 
-    const caustic = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: glow,
-        color: toneOf(THREE, tint, 0.42),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        opacity: 0.34,
-      }),
-    );
-    caustic.scale.set(built.radius * 2.1, built.radius * 0.5, 1);
-    caustic.position.set(0, -built.radius * 1.02, 0);
-    holder.add(caustic);
+    if (showCaustic) {
+      const caustic = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: glow,
+          color: toneOf(THREE, tint, 0.42),
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          opacity: 0.34,
+        }),
+      );
+      caustic.scale.set(built.radius * 2.1, built.radius * 0.5, 1);
+      caustic.position.set(0, -built.radius * 1.02, 0);
+      holder.add(caustic);
+    }
 
     return {
       holder,

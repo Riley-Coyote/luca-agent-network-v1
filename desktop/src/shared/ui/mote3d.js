@@ -309,7 +309,9 @@ class Mote3D extends HTMLElement {
           .map((s) => s.trim())
           .filter(Boolean)
       : [this.getAttribute("tint") || "#e6efff"];
-    const { scene, camera, units } = buildScene(assets, kind, tints);
+    const { scene, camera, units } = buildScene(assets, kind, tints, {
+      showCaustic: !this.hasAttribute("no-caustic"),
+    });
     this._assets = assets;
     this._THREE = assets.THREE;
     this._scene = scene;

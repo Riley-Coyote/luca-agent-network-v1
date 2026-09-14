@@ -63,9 +63,10 @@ export function ChatAgentMark({
             "aria-hidden": true,
             className: "luca-chat-agent-mark__live-mote",
             expression: "ambient",
+            "no-caustic": "",
             species: "mote",
             style: { height: 49, width: 49 },
-            tint: "#c96442",
+            tint: "#b8b8b8",
           })
         : null}
       {showSandpile ? (
