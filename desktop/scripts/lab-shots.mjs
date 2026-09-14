@@ -220,43 +220,12 @@ for (const theme of themes) {
     r.passageInset = spans.length
       ? spans.every((s) => s.padLeft >= 20 && s.padRight >= 20)
       : null;
-    // The connector must be dead-centre on the marks and meet them exactly:
-    // this is the check that catches a line drifting out of its column.
-    const speakerRows = qa("[data-visit-span]").filter(
-      (el) => el.dataset.visitSpan !== "quiet",
+    // Visit rows keep their inset, but the legacy connector is retired.
+    r.visitConnectorAbsent = qa("[data-visit-span]").every(
+      (el) =>
+        getComputedStyle(el, "::before").content === "none" &&
+        getComputedStyle(el, "::after").content === "none",
     );
-    const lineAlign = speakerRows
-      .map((el) => {
-        const rowRect = rect(el);
-        const before = getComputedStyle(el, "::before");
-        const mark = el.querySelector("article > span");
-        if (!mark) return null;
-        const markRect = rect(mark);
-        const lineLeft = Number.parseFloat(before.left);
-        const lineWidth = Number.parseFloat(before.width);
-        return {
-          dx:
-            Math.round(
-              (rowRect.left +
-                lineLeft +
-                lineWidth / 2 -
-                (markRect.left + markRect.width / 2)) *
-                10,
-            ) / 10,
-          dyTop:
-            Math.round(
-              (rowRect.top + Number.parseFloat(before.height) - markRect.top) *
-                10,
-            ) / 10,
-        };
-      })
-      .filter(Boolean);
-    r.lineOffCentreBy = lineAlign.length
-      ? Math.max(...lineAlign.map((a) => Math.abs(a.dx)))
-      : null;
-    r.lineMeetsMarkBy = lineAlign.length
-      ? Math.max(...lineAlign.map((a) => Math.abs(a.dyTop)))
-      : null;
 
     const rail = q('[data-testid="visit-presence-rail"]');
     r.railPresent = rail ? rail.hasAttribute("data-visit-present") : null;
@@ -321,8 +290,7 @@ for (const theme of themes) {
   await clip("composer", checks.clips.composer, 16);
   await clip("plate", checks.clips.plate, 16);
   await clip("header", checks.clips.header, 10);
-  // The detail shot: the visit at 3x, doors included. A 1px connector cannot
-  // be judged in a downscaled full-shell frame — this is the frame to look at.
+  // The detail shot keeps the visit doors and inset readable at 3x.
   const visitBox = await page.evaluate(() => {
     const parts = [
       ...document.querySelectorAll("[data-visit-span], [data-visit-threshold]"),
@@ -626,16 +594,7 @@ for (const theme of themes) {
     checks.doorsFullWidth,
   );
   expect("passage is inset from the plane", checks.passageInset);
-  expect(
-    "connector is centred on the marks",
-    checks.lineOffCentreBy !== null ? checks.lineOffCentreBy <= 0.5 : null,
-    `(off by ${checks.lineOffCentreBy}px)`,
-  );
-  expect(
-    "connector meets the mark exactly",
-    checks.lineMeetsMarkBy !== null ? checks.lineMeetsMarkBy <= 0.5 : null,
-    `(gap ${checks.lineMeetsMarkBy}px)`,
-  );
+  expect("retired visit connector stays absent", checks.visitConnectorAbsent);
   expect("presence rail pins while a visit is on screen", checks.railPresent);
   expect("presence rail stays in the viewport", checks.railInView);
   expect("presence rail clears the message column", checks.railClearOfRows);

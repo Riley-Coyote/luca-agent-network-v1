@@ -8,7 +8,10 @@
  *
  * Owns: MessageRow and its immediate surface.
  *
- * ONE GEOMETRY IS OFF LIMITS HERE. The visit passage draws its connector
+ * Historical note: the visit connector is now suppressed with `content: none`
+ * in conversation-shell.css. Its old geometry rules below are inert. They
+ * remain so the visit spacing can be changed separately from this small fix.
+ * The visit passage once drew its connector
  * from the row's own box: the hairline sits at the passage inset + 22.5px,
  * which is the article's `mx-1` (4px) plus its `px-2` (8px) plus half the
  * 21px mark column, and the line meets the mark 8px down, which is the

@@ -546,6 +546,9 @@
    speaker in it. */
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::before,
 :root[data-luca-shell] [data-luca-reading-plane][data-visit-span]::after {
+  /* The old visit connector outlived its nested-exchange presentation and
+     now leaves an isolated stroke beside ordinary exchange receipts. */
+  content: none;
   /* A hairline, and deliberately a shade under the doors (15%): the doors are
      the structure, the thread between the speakers is a secondary detail. Both
      sit far below the value of any text, which is what keeps the passage
@@ -554,7 +557,6 @@
   /* Rounded ends: where the line meets a mark it should stop like a drawn
      stroke, not like a cut column. */
   border-radius: 1px;
-  content: "";
   /* Dead-centre on the mark, and the arithmetic is written down because it is
      the difference between a connector and a stray line: from the inset edge,
      the row's article adds `mx-1` (4px) and `px-2` (8px), then the mark column
@@ -692,10 +694,8 @@
 
 /* A rail row has four surfaces, all of them ink at an opacity so every
    palette casts its own. Rest is the floor. Hover is a breath (4.5%). Open —
-   a row whose column is showing beside the rail — is a little more (6%) with
-   full ink, and no edge: the selection lives in that column. Active — the
-   place you are — is the house object: 8% fill, a 9% hairline, the lit top
-   edge. Never a weight step: the ink and the surface carry it. */
+   a row whose column is showing beside the rail — is a little more (6%).
+   Active uses only a quiet fill; no selected outline or lit edge. */
 :root[data-luca-shell]
   [data-sidebar="menu-button"]:not([data-active="true"]):hover {
   background: hsl(var(--mn-ink) / 0.045);
@@ -713,12 +713,18 @@
 
 :root[data-luca-shell] [data-sidebar="menu-button"][data-active="true"] {
   background: hsl(var(--mn-ink) / 0.08);
-  border-color: hsl(var(--mn-ink) / 0.09);
-  box-shadow: var(--mn-lit-edge);
+  border-color: transparent;
+  box-shadow: none;
   /* The ink itself, not --sidebar-active-foreground: the classic theme
      re-points that token at the floor for its solid pill, and on a wash it
      would print the label in the dark. */
   color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  [data-sidebar="menu-button"][data-active="true"]:focus-visible {
+  background: hsl(var(--mn-ink) / 0.12);
+  outline: none;
 }
 
 :root[data-luca-shell] .luca-signal-dot {
@@ -1110,8 +1116,14 @@
 
 :root[data-luca-shell] .luca-project-room-row[data-active="true"] {
   background: hsl(var(--mn-raised));
-  border-color: hsl(var(--mn-border));
+  border-color: transparent;
   color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-shell]
+  .luca-project-room-row[data-active="true"]:focus-visible {
+  background: hsl(var(--mn-hover));
+  outline: none;
 }
 
 :root[data-luca-shell] .luca-project-room-list__empty {
