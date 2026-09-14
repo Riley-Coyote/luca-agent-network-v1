@@ -20,6 +20,10 @@ pub(crate) enum MeetingPhase {
     Reply(usize),
 }
 
+fn includes_recent_references(phase: MeetingPhase) -> bool {
+    phase == MeetingPhase::Opening
+}
+
 pub(crate) fn has_tag(event: &Event, name: &str, value: &str) -> bool {
     event.tags.iter().any(|tag| {
         let values = tag.as_slice();
@@ -97,7 +101,7 @@ pub(crate) fn phase_from_history(
 
 pub(crate) fn brief(phase: MeetingPhase) -> String {
     let position = match phase {
-        MeetingPhase::Opening => "This is the opening turn. No recent-session references are supplied.".to_owned(),
+        MeetingPhase::Opening => "This is the opening turn. If permission-checked recent-session references are attached, read the bounded visible content before composing your greeting. Otherwise use the no-source greeting; do not imply a read happened.".to_owned(),
         MeetingPhase::Reply(index) => format!("This is owner reply {index} of the bounded first-meeting window. Follow the conversation, including any request to skip or start work; do not repeat answered questions or declined offers."),
     };
     format!("{FIRST_MEETING_PROMPT}\n{position}")
@@ -209,9 +213,22 @@ mod tests {
     fn prompt_describes_objectives_and_preserves_ordinary_authority() {
         let opening = brief(MeetingPhase::Opening);
         assert!(opening.len() < 8 * 1024);
-        assert!(opening.contains("No recent-session references are supplied"));
+        assert!(opening.contains("before composing your greeting"));
+        assert!(opening.contains("no-source greeting"));
+        assert!(!opening.contains("Do not inspect their history before"));
         assert!(opening.contains("never grants permissions"));
         assert!(opening.contains("existing continuity"));
         assert!(!opening.contains("Hi Riley"));
+    }
+
+    #[test]
+    fn recent_discovery_runs_on_opening_not_after_the_owner_answers() {
+        assert!(includes_recent_references(MeetingPhase::Opening));
+        for index in 1..=MAX_OWNER_REPLIES {
+            assert!(!includes_recent_references(MeetingPhase::Reply(index)));
+        }
+        assert!(FIRST_MEETING_PROMPT.contains("at most 64 KiB"));
+        assert!(FIRST_MEETING_PROMPT.contains("at most three transcript tails"));
+        assert!(FIRST_MEETING_PROMPT.contains("never imply you read"));
     }
 }

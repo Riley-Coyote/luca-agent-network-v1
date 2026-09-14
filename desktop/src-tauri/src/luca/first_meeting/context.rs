@@ -2,7 +2,7 @@
 use super::{
     brief,
     kickoff::{canonical_resident, verify_dm},
-    phase_from_history, MeetingPhase,
+    phase_from_history,
 };
 use crate::luca::{
     connected_brain::recent_native_session_references,
@@ -68,7 +68,7 @@ pub(crate) fn for_dispatch(
     } else {
         context.push_str("\nNo verified setup name is available. Greet without a name; do not infer it from runtime-global memory.\n");
     }
-    if phase == MeetingPhase::Reply(1) && Instant::now() < deadline {
+    if super::includes_recent_references(phase) && Instant::now() < deadline {
         if let Some(references) =
             references(app, &state, owner, resident, binding, egress, deadline)
         {
