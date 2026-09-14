@@ -1,14 +1,6 @@
 import * as React from "react";
 
 import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
-import type { ChatMarkStyle } from "@/features/messages/lib/chatMarkAppearancePreference";
-import { AgentCharacter } from "@/shared/ui/characters/AgentCharacter";
-import { useCharacterId } from "@/shared/ui/characters/characterAppearance";
-import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
-import {
-  residentGlyphSeed,
-  useCanonicalLucaPubkey,
-} from "@/features/luca/canonicalLucaResident";
 import "@/shared/ui/mote3d.js";
 import motePoster from "./mote-chat-poster.png";
 import "./chatAgentMark.css";
@@ -103,20 +95,16 @@ export function ChatAgentMark({
   active,
   name,
   seed,
-  style = "sphere",
 }: {
   active: boolean;
   name: string;
   seed: string;
-  style?: ChatMarkStyle;
 }) {
   const [showSandpile, setShowSandpile] = React.useState(active);
   const [visualActive, setVisualActive] = React.useState(false);
   const [liveMote, setLiveMote] = React.useState(false);
   const markRef = React.useRef<HTMLSpanElement>(null);
   const initialActive = React.useRef(active);
-  const characterId = useCharacterId(seed);
-  const lucaPubkey = useCanonicalLucaPubkey();
 
   React.useEffect(() => {
     const element = markRef.current;
@@ -160,40 +148,18 @@ export function ChatAgentMark({
       aria-label={`${name} ${active ? "working" : "identity"} mark`}
       className="luca-chat-agent-mark"
       data-active={visualActive}
-      data-mark-style={style}
       data-testid="chat-agent-mark"
       ref={markRef}
       role="img"
       title={name}
     >
-      {style === "sphere" ? (
-        <img
-          alt=""
-          aria-hidden="true"
-          className="luca-chat-agent-mark__mote"
-          src={motePoster}
-        />
-      ) : (
-        <span aria-hidden="true" className="luca-chat-agent-mark__identity">
-          {style === "pixel" ? (
-            <AgentCharacter
-              accessibleName={name}
-              id={characterId}
-              motion="ambient"
-              publicKey={seed}
-              size={40}
-              state={active ? "working" : "present"}
-            />
-          ) : (
-            <IdentityMark
-              breath={!active}
-              seed={residentGlyphSeed(seed, lucaPubkey)}
-              size={40}
-            />
-          )}
-        </span>
-      )}
-      {style === "sphere" && liveMote && !active
+      <img
+        alt=""
+        aria-hidden="true"
+        className="luca-chat-agent-mark__mote"
+        src={motePoster}
+      />
+      {liveMote && !active
         ? React.createElement("mote-3d", {
             "aria-hidden": true,
             className: "luca-chat-agent-mark__live-mote",

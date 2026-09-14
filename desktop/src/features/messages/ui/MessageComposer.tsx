@@ -1,7 +1,6 @@
 import { ArrowUp, X } from "lucide-react";
 import * as React from "react";
 import { ChatAgentMark } from "@/features/luca/residents/ChatAgentMark";
-import type { ChatMarkStyle } from "@/features/messages/lib/chatMarkAppearancePreference";
 
 import { Button } from "@/shared/ui/button";
 
@@ -106,7 +105,6 @@ type MessageComposerAudienceContext = {
 };
 type MessageComposerProps = {
   ledgeAgents?: readonly { pubkey: string; name: string; active: boolean }[];
-  markStyle?: ChatMarkStyle;
   audienceContext?: MessageComposerAudienceContext | null;
   channelId?: string | null;
   /**
@@ -201,7 +199,6 @@ type MessageComposerProps = {
 
 function MessageComposerImpl({
   ledgeAgents = [],
-  markStyle = "sphere",
   audienceContext = null,
   channelId = null,
   channelType = null,
@@ -1462,7 +1459,6 @@ function MessageComposerImpl({
                   key={agent.pubkey}
                   name={agent.name}
                   seed={agent.pubkey}
-                  style={markStyle}
                 />
               ))}
             </div>

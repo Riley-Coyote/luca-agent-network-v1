@@ -683,7 +683,7 @@ function ConversationAppearanceSettings({
               Show agent marks in chats
             </label>
             <p className="text-sm font-normal text-muted-foreground">
-              Place each resident above the composer while you talk.
+              Show the selected identity style in conversations.
             </p>
           </div>
           <Switch
@@ -700,7 +700,8 @@ function ConversationAppearanceSettings({
           <div className="min-w-0">
             <p className="text-sm font-medium">Chat mark</p>
             <p className="text-sm font-normal text-muted-foreground">
-              Pixel art uses the character chosen on each agent’s page.
+              Sphere stays above the composer. Glyphs and pixel art sit beside
+              replies; pixel art uses each agent’s chosen character.
             </p>
           </div>
           <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">

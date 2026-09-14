@@ -72,6 +72,8 @@ import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
+import { InChatAgentMark } from "./InChatAgentMark";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
@@ -280,6 +282,7 @@ export const MessageRow = React.memo(
     // components that have no other use for it.
     const identityQuery = useIdentityQuery();
     const ownerPubkey = identityQuery.data?.pubkey;
+    const chatMarkAppearance = useChatMarkAppearance(ownerPubkey);
     const isOwnMessage = Boolean(
       ownerPubkey &&
         message.pubkey &&
@@ -617,8 +620,14 @@ export const MessageRow = React.memo(
             ? "writing"
             : null;
     // The pending reply and its final message keep the same mark column, so
-    // the character changes state without moving the text.
+    // choosing a quiet in-chat identity never moves the text.
     const showResidentMarkGutter = Boolean(!ownBubble && message.pubkey);
+    const showInChatAgentMark = Boolean(
+      showResidentMarkGutter &&
+        message.isAgent &&
+        chatMarkAppearance.visible &&
+        chatMarkAppearance.style !== "sphere",
+    );
     // Whether this row actually DRAWS something in the 21px mark column, as
     // opposed to holding the slot open. A visit passage runs its connector
     // through that column and reserves the mark's height as a gap, so a row
@@ -628,9 +637,8 @@ export const MessageRow = React.memo(
     // `message-anatomy.css`; see THE CONNECTOR THROUGH AN EMPTY SLOT there.
     const paintsResidentMark =
       showResidentMarkGutter &&
-      !message.isAgent &&
-      !isContinuation &&
-      !ownBubble;
+      !ownBubble &&
+      (showInChatAgentMark || (!message.isAgent && !isContinuation));
     const guideBleedRem = isThreadReplyLayout ? 0.25 : 0;
     const authorNode = message.pubkey ? (
       <MessageAuthorText hoverUnderline>{message.author}</MessageAuthorText>
@@ -1302,7 +1310,13 @@ export const MessageRow = React.memo(
               )}
               data-message-mark
             >
-              {message.isAgent || isContinuation || ownBubble ? (
+              {showInChatAgentMark && chatMarkAppearance.style !== "sphere" ? (
+                <InChatAgentMark
+                  name={message.author}
+                  publicKey={message.pubkey}
+                  style={chatMarkAppearance.style}
+                />
+              ) : message.isAgent || isContinuation || ownBubble ? (
                 <span aria-hidden className="size-[21px]" />
               ) : (
                 <UserAvatar

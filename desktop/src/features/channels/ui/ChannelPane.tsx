@@ -909,7 +909,9 @@ export const ChannelPane = React.memo(function ChannelPane({
   }, [managedActivity]);
   const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
   const composerLedgeAgents = React.useMemo(() => {
-    if (!chatMarkAppearance.visible) return [];
+    if (!chatMarkAppearance.visible || chatMarkAppearance.style !== "sphere") {
+      return [];
+    }
     const isActive = (pubkey: string) => {
       const key = normalizePubkey(pubkey);
       const state = presentationStateByPubkey?.get(key);
@@ -939,6 +941,7 @@ export const ChannelPane = React.memo(function ChannelPane({
     activityTraces,
     agentActivityRows,
     chatMarkAppearance.visible,
+    chatMarkAppearance.style,
     composerWorkingBotPubkeys,
     presentationStateByPubkey,
     workingResidentKeys,
@@ -1366,7 +1369,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                     />
                     <MessageComposer
                       ledgeAgents={composerLedgeAgents}
-                      markStyle={chatMarkAppearance.style}
                       capabilityResidents={capabilityResidents}
                       channelId={activeChannel?.id ?? null}
                       channelName={activeChannel?.name ?? "channel"}

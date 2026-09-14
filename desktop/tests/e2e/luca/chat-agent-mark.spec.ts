@@ -1,9 +1,20 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
+import { waitForAnimations } from "../../helpers/animations";
 
-const ATLAS = { name: "Atlas", pubkey: "a".repeat(64), status: "running" };
-const BEX = { name: "Bex", pubkey: "b".repeat(64), status: "running" };
+const ATLAS = {
+  name: "Atlas",
+  pubkey: "a".repeat(64),
+  status: "running",
+  channelNames: ["general"],
+};
+const BEX = {
+  name: "Bex",
+  pubkey: "b".repeat(64),
+  status: "running",
+  channelNames: ["general"],
+};
 
 test.beforeEach(async ({ page }) => {
   await installMockBridge(page, { managedAgents: [ATLAS, BEX] });
@@ -24,7 +35,7 @@ test("agent DMs keep the title and remove the header companion", async ({
   await expect(page.getByTestId("resident-header-mote")).toHaveCount(0);
 });
 
-test("the rail stays glyph-only while Appearance chooses the chat mark", async ({
+test("sphere stays on the composer; glyph and pixel marks accompany replies", async ({
   page,
 }) => {
   const railMark = page
@@ -36,28 +47,84 @@ test("the rail stays glyph-only while Appearance chooses the chat mark", async (
   await page.getByTestId("agent-column-new-chat").click();
   const ledge = page.getByTestId("composer-agent-ledge");
   const mark = ledge.getByTestId("chat-agent-mark");
-  await expect(mark).toHaveAttribute("data-mark-style", "sphere");
+  await expect(mark).toBeVisible();
+
+  await page
+    .getByRole("complementary", { name: "Chats with Atlas" })
+    .getByRole("button", { name: /^general/ })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+            channelName: "general",
+          }),
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(
+    ({ atlas, bex }) => {
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: "Atlas has a quiet reply.",
+        pubkey: atlas,
+      });
+      window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+        channelName: "general",
+        content: "Bex has another quiet reply.",
+        pubkey: bex,
+      });
+    },
+    { atlas: ATLAS.pubkey, bex: BEX.pubkey },
+  );
+  const atlasReply = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Atlas has a quiet reply." });
+  const bexReply = page
+    .getByTestId("message-row")
+    .filter({ hasText: "Bex has another quiet reply." });
+  await expect(atlasReply).toBeVisible();
+  await expect(bexReply).toBeVisible();
+  await expect(atlasReply.locator("[data-in-chat-agent-mark]")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
   await page.getByTestId("chat-mark-style-pixel").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
-  await expect(mark).toHaveAttribute("data-mark-style", "pixel");
-  await expect(mark.locator(".agent-character")).toHaveCount(1);
+  await expect(ledge).toHaveCount(0);
+  await expect(
+    atlasReply.locator('[data-in-chat-agent-mark="pixel"]'),
+  ).toHaveCount(1);
+  await expect(
+    bexReply.locator('[data-in-chat-agent-mark="pixel"]'),
+  ).toHaveCount(1);
+  await expect(atlasReply.locator(".agent-character")).toHaveCount(1);
   await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/chat-mark-placement-pixel.png" });
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
   await page.getByTestId("chat-mark-style-glyph").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
-  await expect(mark).toHaveAttribute("data-mark-style", "glyph");
-  await expect(mark.locator("canvas")).toHaveCount(1);
+  await expect(ledge).toHaveCount(0);
+  await expect(
+    atlasReply.locator('[data-in-chat-agent-mark="glyph"] canvas'),
+  ).toHaveCount(1);
+  await expect(
+    bexReply.locator('[data-in-chat-agent-mark="glyph"] canvas'),
+  ).toHaveCount(1);
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/chat-mark-placement-glyph.png" });
 
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
   await page.getByTestId("chat-marks-visible-toggle").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
   await expect(ledge).toHaveCount(0);
+  await expect(atlasReply.locator("[data-in-chat-agent-mark]")).toHaveCount(0);
   await expect(railMark).toHaveAttribute("data-resident-mark-kind", "glyph");
 });
 

@@ -8,7 +8,6 @@
 }
 
 .luca-chat-agent-mark__mote,
-.luca-chat-agent-mark__identity,
 .luca-chat-agent-mark__live-mote,
 .luca-chat-agent-mark__sandpile,
 .luca-chat-agent-mark__wake {
@@ -28,18 +27,6 @@
     transform 540ms cubic-bezier(0.22, 1, 0.36, 1),
     filter 540ms ease;
   width: 49px;
-}
-
-.luca-chat-agent-mark__identity {
-  display: flex;
-  height: 40px;
-  justify-content: center;
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
-  transition:
-    opacity 330ms cubic-bezier(0.16, 1, 0.3, 1),
-    transform 540ms cubic-bezier(0.22, 1, 0.36, 1);
-  width: 40px;
 }
 
 .luca-chat-agent-mark__live-mote {
@@ -91,11 +78,6 @@
   transform: translate(-50%, -50%) scale(0.56) rotate(-23deg);
 }
 
-.luca-chat-agent-mark[data-active="true"] .luca-chat-agent-mark__identity {
-  opacity: 0;
-  transform: translate(-50%, -50%) scale(0.62);
-}
-
 .luca-chat-agent-mark[data-active="true"] .luca-chat-agent-mark__sandpile {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1) rotate(0);
@@ -121,7 +103,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .luca-chat-agent-mark__mote,
-  .luca-chat-agent-mark__identity,
   .luca-chat-agent-mark__sandpile {
     transition: none;
   }
