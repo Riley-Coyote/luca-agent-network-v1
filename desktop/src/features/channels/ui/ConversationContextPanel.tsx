@@ -383,6 +383,10 @@ export function ConversationContextPanel({
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center">
                           <ResidentIdentityMark
                             accessibleName={label}
+                            avatarUrl={
+                              profiles?.[normalizePubkey(member.pubkey)]
+                                ?.avatarUrl
+                            }
                             className={cn(
                               state === "unavailable" && "opacity-50",
                             )}

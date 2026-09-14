@@ -19,6 +19,7 @@ import { cn } from "@/shared/lib/cn";
  */
 export type AgentRailAgent = {
   name: string;
+  avatarUrl?: string | null;
   personaId?: string | null;
   pubkey: string;
 };
@@ -83,11 +84,12 @@ export const AgentRail = React.memo(function AgentRail({
             <span className="flex size-5 shrink-0 items-center justify-center text-ink-muted group-data-[open=true]:text-foreground">
               <ResidentIdentityMark
                 accessibleName={agent.name}
+                avatarUrl={agent.avatarUrl}
                 decorative
                 personaId={agent.personaId}
                 presentation="glyph"
                 publicKey={agent.pubkey}
-                size={14}
+                size={20}
               />
             </span>
             <span

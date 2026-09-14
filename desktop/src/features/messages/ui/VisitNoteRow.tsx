@@ -14,7 +14,7 @@ import { cn } from "@/shared/lib/cn";
 type VisitNoteRowProps = {
   currentPubkey?: string;
   message: TimelineMessage;
-  /** Arrival rows: the visit is still under way (mark breathing). */
+  /** Arrival rows: the visit is still under way. */
   open?: boolean;
   profiles?: UserProfileLookup;
   visit: VisitEvent;
@@ -32,7 +32,6 @@ type VisitNoteRowProps = {
 export function VisitNoteRow({
   currentPubkey,
   message,
-  open = false,
   profiles,
   visit,
 }: VisitNoteRowProps) {
@@ -69,10 +68,10 @@ export function VisitNoteRow({
         {arrived ? (
           <ResidentIdentityMark
             accessibleName={name}
-            className={cn("text-ink-muted", open && "luca-identity-breath")}
+            className="text-ink-muted"
             decorative
             publicKey={visit.resident}
-            size={12}
+            size={20}
           />
         ) : null}
         <span>

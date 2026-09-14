@@ -12,7 +12,6 @@ import { getChannelDescription } from "@/features/channels/lib/channelDescriptio
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
 import { WorkspaceLayoutMenuButton } from "@/features/conversation-workspace";
-import { ResidentMote } from "@/features/luca/residents/ResidentMote";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
@@ -28,6 +27,7 @@ import type {
   PresenceStatus,
 } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 const DM_HEADER_AVATAR_SIZE = 32;
 const DM_HEADER_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
@@ -74,6 +74,7 @@ export function ChannelScreenHeader({
   activeDmPresenceStatus,
   agentPubkeys,
   channelMembers,
+  profiles,
   projectRoomNavigation,
   chromeWrapperRef,
   currentPubkey,
@@ -111,8 +112,20 @@ export function ChannelScreenHeader({
   if (currentPubkey) {
     presentResidentPubkeys.delete(normalizePubkey(currentPubkey));
   }
-  const showResidentMote =
-    activeChannel?.channelType === "dm" && presentResidentPubkeys.size > 0;
+  const headerResidents =
+    activeChannel?.channelType === "dm"
+      ? [...presentResidentPubkeys].slice(0, 3).map((pubkey) => {
+          const participant = activeDmHeaderParticipants.find(
+            (candidate) => normalizePubkey(candidate.pubkey) === pubkey,
+          );
+          const profile = profiles?.[pubkey];
+          return {
+            pubkey,
+            name: participant?.displayName ?? profile?.displayName ?? "Agent",
+            avatarUrl: participant?.avatarUrl ?? profile?.avatarUrl ?? null,
+          };
+        })
+      : [];
   const showJoinButton =
     activeChannel !== null &&
     !activeChannel.isMember &&
@@ -211,9 +224,23 @@ export function ChannelScreenHeader({
             onSelectRoom={projectRoomNavigation.onSelectRoom}
             viewModel={projectRoomNavigation.viewModel}
           />
-        ) : showResidentMote ? (
+        ) : headerResidents.length > 0 ? (
           <div className="flex min-w-0 items-center gap-2.5">
-            <ResidentMote count={presentResidentPubkeys.size} />
+            <span
+              className="flex shrink-0 items-center gap-1"
+              data-testid="chat-header-resident-characters"
+            >
+              {headerResidents.map((resident) => (
+                <AgentIdentitySpecimen
+                  accessibleName={resident.name}
+                  avatarUrl={resident.avatarUrl}
+                  key={resident.pubkey}
+                  motion={headerResidents.length === 1 ? "ambient" : "still"}
+                  publicKey={resident.pubkey}
+                  size={headerResidents.length === 1 ? 32 : 24}
+                />
+              ))}
+            </span>
             <h1
               className="min-w-0 truncate text-chat font-medium leading-6"
               data-testid="chat-title"

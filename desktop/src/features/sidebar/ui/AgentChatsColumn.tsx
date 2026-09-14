@@ -138,12 +138,14 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
       <header className="flex h-12 shrink-0 items-center gap-2 px-3">
         <ResidentIdentityMark
           accessibleName={agent.name}
-          className="luca-identity-breath text-foreground"
+          avatarUrl={agent.avatarUrl}
+          className="text-foreground"
           decorative
+          motion="ambient"
           personaId={agent.personaId}
           presentation="glyph"
           publicKey={agent.pubkey}
-          size={14}
+          size={20}
         />
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           <span className="truncate text-sm text-foreground">{agent.name}</span>

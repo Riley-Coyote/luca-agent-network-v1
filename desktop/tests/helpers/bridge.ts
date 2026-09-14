@@ -82,6 +82,7 @@ export type MockExchangeSeed = {
 type MockManagedAgentSeed = {
   pubkey: string;
   name: string;
+  avatarUrl?: string | null;
   personaId?: string | null;
   status?: "running" | "stopped" | "deployed" | "not_deployed";
   channelNames?: string[];

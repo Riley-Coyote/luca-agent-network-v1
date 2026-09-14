@@ -76,6 +76,7 @@ export function ConversationPresenceRail({
             >
               <ResidentIdentityMark
                 accessibleName={name}
+                avatarUrl={profiles?.[pubkey.toLowerCase()]?.avatarUrl}
                 decorative
                 personaId={
                   residentPersonaIdLookup?.get(pubkey.toLowerCase()) ?? null

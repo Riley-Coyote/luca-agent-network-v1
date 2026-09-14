@@ -516,6 +516,8 @@ function ProfileHero({
       {isBot && pubkey ? (
         <AgentIdentitySpecimen
           accessibleName={displayName}
+          avatarUrl={profile?.avatarUrl}
+          motion="ambient"
           publicKey={pubkey}
           size={80}
           state={

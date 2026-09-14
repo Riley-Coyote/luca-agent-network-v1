@@ -80,6 +80,8 @@ export function ResidentDrawer({
             that is about who they are rather than what runs them. */}
         <AgentIdentitySpecimen
           accessibleName={agent.name}
+          avatarUrl={agent.avatarUrl}
+          motion="ambient"
           publicKey={agent.pubkey}
           size={48}
           state={presentation.mark}

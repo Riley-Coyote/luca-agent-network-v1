@@ -76,6 +76,7 @@ import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
 const DiffMessageExpanded = React.lazy(() => import("./DiffMessageExpanded"));
@@ -961,6 +962,17 @@ export const MessageRow = React.memo(
           quietAgent && !hasVisibleMetadata && "sr-only",
         )}
       >
+        {message.isAgent &&
+        message.pubkey &&
+        !quietAgent &&
+        !showResidentMarkGutter ? (
+          <AgentIdentitySpecimen
+            accessibleName={message.author}
+            avatarUrl={message.avatarUrl}
+            publicKey={message.pubkey}
+            size={20}
+          />
+        ) : null}
         {/* Anchored right, the owner's turn needs no name: position says whose
             it is. The words stay in the markup — a screen reader still hears
             who spoke — but the popover trigger goes, because an invisible
@@ -1313,9 +1325,8 @@ export const MessageRow = React.memo(
             <span aria-hidden className="w-4 shrink-0" />
           ) : null}
           {showResidentMarkGutter && message.pubkey ? (
-            // 21 px: a multiple of the glyph's 7-cell edge, so the mark's cells
-            // sit on whole pixels at 1x and 2x and the live mark can redraw the
-            // resting glyph seamlessly. The person's disc shares the slot.
+            // The fixed 21 px slot keeps the mark, activity indicator, and
+            // person's disc aligned without moving the visit connector.
             // The slot stays occupied even when nothing is drawn in it. The
             // visit passage measures its connector from this column — the line
             // is centred on +22.5 px from the passage inset, derived from the
@@ -1340,22 +1351,16 @@ export const MessageRow = React.memo(
               ) : message.isAgent && isContinuation ? (
                 <span aria-hidden className="size-[21px]" />
               ) : message.isAgent ? (
-                // WP-STRIP1 · decision 5: the identity glyph, never the orb.
-                // Measured in the lab: every resident's orb renders the same
-                // tint and at 21px is a few specks — it identifies nobody, and
-                // the element pools only four WebGL stages document-wide, so
-                // rows five and six are not the same object. The glyph is
-                // seeded from the pubkey, drawn once, and is the same mark the
-                // resident carries everywhere else. When a turn settles the
-                // slot goes back to it, in place.
+                // A static resident identity returns when live activity ends.
                 <ResidentIdentityMark
                   accessibleName={message.author}
+                  avatarUrl={message.avatarUrl}
                   data-testid="row-identity-glyph"
                   decorative
                   personaId={message.residentPersonaId}
                   presentation="glyph"
                   publicKey={message.pubkey}
-                  size={21}
+                  size={20}
                 />
               ) : isContinuation || ownBubble ? (
                 // Anchored right, the owner's turn says who it is by where it

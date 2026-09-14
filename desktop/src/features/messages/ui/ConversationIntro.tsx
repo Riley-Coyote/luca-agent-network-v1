@@ -1,5 +1,5 @@
 import { cn } from "@/shared/lib/cn";
-import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 
 /**
@@ -77,11 +77,10 @@ export function ConversationIntro({
             key={mark.key}
           >
             {mark.kind === "glyph" ? (
-              <AgentIdentitySpecimen
+              <IdentityMark
                 accessibleName={mark.label}
-                publicKey={mark.seed}
+                seed={mark.seed}
                 size={MARK_SIZE}
-                state="present"
               />
             ) : (
               <UserAvatar

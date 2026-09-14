@@ -43,6 +43,7 @@ import {
 } from "./agentLibraryViewModel";
 import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
 import { ResidentModelMenu } from "./ResidentModelMenu";
+import { CharacterAppearancePicker } from "./CharacterAppearancePicker";
 
 /**
  * A resident's own page: a status strip (who, how they are, what runs them,
@@ -120,6 +121,8 @@ export function AgentLibraryWorkspace({
           {resident.pubkey ? (
             <AgentIdentitySpecimen
               accessibleName={resident.displayName}
+              avatarUrl={resident.avatarUrl}
+              motion="ambient"
               publicKey={resident.pubkey}
               size={52}
               state={identityState(resident)}
@@ -529,6 +532,15 @@ function SettingsSection({
       className="divide-y divide-border/55 border-y border-border/55"
       data-testid="agent-settings"
     >
+      {resident.pubkey ? (
+        <LedgerSection eyebrow="Appearance" title="Your character">
+          <CharacterAppearancePicker
+            avatarUrl={resident.avatarUrl}
+            name={resident.displayName}
+            publicKey={resident.pubkey}
+          />
+        </LedgerSection>
+      ) : null}
       <LedgerSection eyebrow="Runtime" title="What runs them">
         <LedgerRow label="Runtime" value={residentSourceLabel(resident)} />
         {managedAgent ? (

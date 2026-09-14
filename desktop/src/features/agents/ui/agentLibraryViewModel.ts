@@ -28,6 +28,7 @@ export type ResidentSummaryViewModel = {
   pubkey: string | null;
   personaId: string | null;
   displayName: string;
+  avatarUrl?: string | null;
   kind: ResidentKind;
   availability: ResidentAvailability;
   nativeSource: ResidentNativeSource | null;
@@ -147,6 +148,7 @@ export function managedAgentSummary(
     pubkey: agent.pubkey,
     personaId: agent.personaId,
     displayName: agent.name,
+    avatarUrl: agent.avatarUrl,
     kind: nativeSource ? "managed_native" : "managed_luca",
     availability,
     nativeSource: runtime.source,
@@ -170,6 +172,7 @@ export function personaSummary(
     pubkey: null,
     personaId: persona.id,
     displayName,
+    avatarUrl: persona.avatarUrl,
     kind: "persona_only",
     availability: "offline",
     nativeSource: runtime.source,

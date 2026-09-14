@@ -1,15 +1,16 @@
-import * as React from "react";
-
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey, truncatePubkey } from "@/shared/lib/pubkey";
-import { sigilPattern, type DotScene } from "@/shared/ui/dot-display/engine";
-import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import { sigilPattern } from "@/shared/ui/dot-display/engine";
+import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { AgentCharacter } from "@/shared/ui/characters/AgentCharacter";
+import {
+  useAgentPhotoPreferred,
+  useCharacterId,
+} from "@/shared/ui/characters/characterAppearance";
 import {
   residentGlyphSeed,
   useCanonicalLucaPubkey,
 } from "@/features/luca/canonicalLucaResident";
-import { useTheme } from "@/shared/theme/ThemeProvider";
-import { FilamentMark } from "@/shared/ui/dot-display/identity/FilamentMark";
 import { IdentityMark } from "@/shared/ui/dot-display/identity/IdentityMark";
 
 export type AgentVisualState =
@@ -22,31 +23,6 @@ export type AgentVisualState =
   | "fault";
 
 export type AgentIdentityCustody = "managed" | "guest" | "owner";
-
-/**
- * The doctrine: a resident's identity mark is REPLACED by its state, and comes
- * back when the state ends. No corner lamp, no "typing…", no badge sitting
- * beside the avatar — at rest you see who, and while they are busy you see what.
- *
- * `present` is therefore the identity glyph (breathing, but never re-lighting
- * individual cells: a mark that twinkles is a mark you cannot recognise), and
- * every other state is a live dot-matrix scene. `present` is handled by
- * `IdentityMark`, so it is excluded from this table rather than sitting in it
- * as an entry nothing reads.
- *
- * The two are rendered differently on purpose. Identity is a *joined* glyph —
- * continuous strokes with rounded terminals — and activity is a *dotted* field.
- * Joined means who; dotted means what they are doing, readable at a glance
- * across a column where some residents are resting and some are working.
- */
-const SCENE_FOR_STATE: Record<
-  Exclude<AgentVisualState, "present" | "thinking" | "working" | "responding">,
-  DotScene
-> = {
-  idle: "listen",
-  unavailable: "sleep",
-  fault: "fault",
-};
 
 /**
  * Compatibility projection for callers and fixtures that need the canonical
@@ -63,74 +39,60 @@ export function shortAgentFingerprint(publicKey: string): string {
   return truncatePubkey(normalizePubkey(publicKey));
 }
 
-/**
- * A resident's identity mark: a live dot-matrix panel seeded by their public
- * key. The canvas is intentionally frame-free. The mirrored lattice supplies
- * the square silhouette; callers should not crop it into an avatar shape.
- *
- * The panel is driven by the shared engine host — one animation frame for every
- * mark on screen, panels paused while off-screen, and a settled first frame so
- * one never paints as blank glass. Under `prefers-reduced-motion: reduce` the
- * loop never starts and the settled frame is all you get: the mark stays
- * legible, the motion stops.
- */
+/** Stable character identity with the actual activity represented as a state. */
 export function AgentIdentitySpecimen({
   accessibleName,
+  avatarUrl,
   className,
   custody = "managed",
+  motion = "still",
   publicKey,
   size = 32,
   state = "present",
 }: {
   accessibleName: string;
+  avatarUrl?: string | null;
   className?: string;
   custody?: AgentIdentityCustody;
+  motion?: "ambient" | "still";
   publicKey: string;
   size?: number;
   state?: AgentVisualState;
 }) {
-  const { isDark } = useTheme();
+  const characterId = useCharacterId(publicKey);
+  const customAvatar = avatarUrl?.trim() || null;
+  const photoPreferred = useAgentPhotoPreferred(publicKey, customAvatar);
   const lucaPubkey = useCanonicalLucaPubkey();
-  const seed = React.useMemo(
-    () => residentGlyphSeed(publicKey, lucaPubkey),
-    [lucaPubkey, publicKey],
-  );
-  const cell = Math.max(2, Math.floor(size / 8));
 
   return (
     <span
-      aria-label={`${accessibleName} identity, ${state}`}
       className={cn("agent-identity-specimen", className)}
       data-agent-state={state}
       data-custody={custody}
-      role="img"
-      style={{ "--agent-specimen-size": `${size}px` } as React.CSSProperties}
+      style={{ width: size, height: size }}
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
-      {state === "present" ? (
-        // Identity is a joined glyph — continuous strokes with rounded
-        // terminals — and it fills its slot: the mark spans all seven cells by
-        // construction and the app's commonest placement is 20px. Frame-free,
-        // like the live scenes, so the silhouette is the mark's own.
-        <IdentityMark breath seed={seed} size={size} />
-      ) : state === "thinking" || state === "working" ? (
-        // A reply is coming: light travels the stroke. Identity never leaves;
-        // the state lives inside it.
-        <FilamentMark mode="current" seed={seed} size={size} />
-      ) : state === "responding" ? (
-        // The light has arrived; the glyph holds lit while the words come.
-        <FilamentMark mode="lit" seed={seed} size={size} />
-      ) : (
-        <DotSigil
-          // Roughly eight cells across gives the seven-cell field a narrow
-          // quiet zone without making it feel like a small icon inside an
-          // avatar box. Integer pitch keeps every edge crisp at every app
-          // scale.
-          cell={cell}
-          dot={isDark ? "239,239,237" : "22,23,22"}
-          scene={SCENE_FOR_STATE[state]}
-          seed={seed}
+      {customAvatar && (custody === "owner" || photoPreferred) ? (
+        <UserAvatar
+          avatarUrl={customAvatar}
+          className="h-full w-full"
+          displayName={accessibleName}
+        />
+      ) : custody === "owner" ? (
+        <IdentityMark
+          accessibleName={`${accessibleName} identity`}
+          breath
+          seed={residentGlyphSeed(publicKey, lucaPubkey)}
           size={size}
+        />
+      ) : (
+        <AgentCharacter
+          accessibleName={accessibleName}
+          id={characterId}
+          motion={motion}
+          publicKey={publicKey}
+          size={size}
+          state={state}
         />
       )}
     </span>

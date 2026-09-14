@@ -15,7 +15,7 @@ import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
 import { cn } from "@/shared/lib/cn";
 import "./exchangeStrip.css";
 
-const MARK_SIZE = 18;
+const MARK_SIZE = 20;
 
 // Flat object: a hairline, no fill, no accent. The five states live in
 // exchangeStrip.css, which is the only place that can hold the house focus

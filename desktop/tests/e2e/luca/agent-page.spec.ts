@@ -12,6 +12,10 @@ import { installMockBridge, TEST_IDENTITIES } from "../../helpers/bridge";
 const RESIDENT = TEST_IDENTITIES.alice.pubkey;
 const SOUL =
   "# alice\n\nYou are alice, a careful reader who answers plainly.\n";
+const CODEX_FALLBACK =
+  "https://openai.gallerycdn.vsassets.io/extensions/openai/chatgpt/26.5313.41514/1773706730621/Microsoft.VisualStudio.Services.Icons.Default";
+const SAVED_PHOTO =
+  "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='32'%20height='32'%3E%3Crect%20width='32'%20height='32'%20fill='%23a0522d'/%3E%3C/svg%3E";
 
 async function openAlice(page: import("@playwright/test").Page) {
   await installMockBridge(page, {
@@ -35,6 +39,133 @@ async function openAlice(page: import("@playwright/test").Page) {
   await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
   await expect(page.getByRole("heading", { name: "alice" })).toBeVisible();
 }
+
+test("agent character selection and motion preference survive reopening the page", async ({
+  page,
+}) => {
+  await openAlice(page);
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+
+  const picker = page.getByTestId("agent-character-picker");
+  await expect(picker).toBeVisible();
+  await expect(picker.locator(".agent-identity-specimen")).toHaveCSS(
+    "width",
+    "224px",
+  );
+  await picker.getByTestId("choose-character-crab").click();
+  await expect(picker.getByTestId("choose-character-crab")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    picker.locator(".agent-character[data-character-id=crab]"),
+  ).toHaveCount(2);
+  await expect(
+    picker.locator(".agent-character[data-character-id=crab] img").first(),
+  ).toHaveJSProperty("naturalWidth", 32);
+  await picker.getByRole("switch", { name: "Subtle character motion" }).click();
+  await expect(
+    picker.getByRole("switch", { name: "Subtle character motion" }),
+  ).toHaveAttribute("aria-checked", "false");
+
+  await page.reload();
+  await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+  await expect(page.getByTestId("choose-character-crab")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  await expect(
+    page.getByRole("switch", { name: "Subtle character motion" }),
+  ).toHaveAttribute("aria-checked", "false");
+});
+
+test("a persisted runtime logo resolves to a character, not a saved photo", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        avatarUrl: CODEX_FALLBACK,
+        name: "alice",
+        pubkey: RESIDENT,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/?e2e=mock#/agents");
+  const row = page.getByTestId(`agent-library-row-${RESIDENT}`);
+  await expect(row.locator(".agent-character")).toHaveCount(1);
+  await row.click();
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+  const picker = page.getByTestId("agent-character-picker");
+  await expect(
+    picker.getByRole("button", { name: "Use saved photo" }),
+  ).toHaveCount(0);
+  await picker.getByTestId("choose-character-crab").click();
+  await expect(
+    picker.locator(".agent-identity-specimen .agent-character"),
+  ).toHaveAttribute("data-character-id", "crab");
+  await expect(row.locator(".agent-character")).toHaveAttribute(
+    "data-character-id",
+    "crab",
+  );
+});
+
+test("a saved agent photo can yield to a character and be restored", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    managedAgents: [
+      {
+        avatarUrl: SAVED_PHOTO,
+        name: "alice",
+        pubkey: RESIDENT,
+        status: "running",
+      },
+    ],
+  });
+  await page.goto("/?e2e=mock#/agents");
+  await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+  const picker = page.getByTestId("agent-character-picker");
+  const preview = picker.locator(".agent-identity-specimen");
+  await expect(preview.locator(".agent-character")).toHaveCount(0);
+  await picker.getByTestId("choose-character-kite").click();
+  await expect(preview.locator(".agent-character")).toHaveAttribute(
+    "data-character-id",
+    "kite",
+  );
+  await page.reload();
+  await page.getByTestId(`agent-library-row-${RESIDENT}`).click();
+  await page
+    .getByRole("navigation", { name: "Agent workspace" })
+    .getByRole("button", { name: "Settings" })
+    .click();
+  const restoredPicker = page.getByTestId("agent-character-picker");
+  await expect(
+    restoredPicker.locator(".agent-identity-specimen .agent-character"),
+  ).toHaveAttribute("data-character-id", "kite");
+  await restoredPicker.getByRole("button", { name: "Use saved photo" }).click();
+  await expect(
+    restoredPicker.locator(".agent-identity-specimen .agent-character"),
+  ).toHaveCount(0);
+  await expect(
+    restoredPicker.getByRole("button", { name: "Use saved photo" }),
+  ).toHaveAttribute("aria-pressed", "true");
+});
 
 test("the page lands on Documents and shows the folder by kind", async ({
   page,
@@ -154,7 +285,11 @@ test("the conversation drawer's Open lands on Documents", async ({ page }) => {
     searchProfiles: [{ displayName: "alice", isAgent: true, pubkey: RESIDENT }],
   });
   await page.goto("/?e2e=mock");
-  await page.getByTestId("channel-alice-tyler").click();
+  await page.getByTestId("agent-rail-alice").click();
+  await page
+    .getByTestId("agent-chats-column")
+    .getByText("alice-tyler", { exact: true })
+    .click();
   await page.getByRole("button", { name: "Open conversation details" }).click();
   await page.getByTestId("resident-drawer-open-agent").click();
   await expect(page.getByTestId("resident-documents")).toBeVisible();

@@ -14,7 +14,7 @@ import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMar
  * this job for the same reason — the row a sticky mark would live on is
  * unmounted the moment it scrolls away.
  */
-const MARK_SIZE = 17;
+const MARK_SIZE = 20;
 const TOP_INSET = 10;
 
 type Pinned = { guest: string; top: number } | null;

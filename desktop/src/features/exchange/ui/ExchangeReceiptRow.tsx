@@ -52,14 +52,14 @@ export function ExchangeReceiptRow({
         type="button"
       >
         {members.length ? (
-          <span className="flex w-4 shrink-0 flex-col items-center gap-0.5">
+          <span className="flex w-5 shrink-0 flex-col items-center gap-0.5">
             {members.slice(0, 2).map((pubkey, index) => (
               <ResidentIdentityMark
                 accessibleName={names[index] ?? pubkey}
                 decorative
                 key={pubkey}
                 publicKey={pubkey}
-                size={12}
+                size={20}
               />
             ))}
           </span>

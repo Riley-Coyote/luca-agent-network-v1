@@ -11,6 +11,7 @@ import { ProfileAvatar } from "@/features/profile/ui/ProfileAvatar";
 import { cn } from "@/shared/lib/cn";
 import { Spinner } from "@/shared/ui/spinner";
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
+import { useAgentPhotoPreferred } from "@/shared/ui/characters/characterAppearance";
 import { IdentityInitialsAvatar } from "./IdentityInitialsAvatar";
 
 type AgentRuntimeAvatarControlProps = {
@@ -112,6 +113,7 @@ export function AgentRuntimeAvatarControl({
 }: AgentRuntimeAvatarControlProps) {
   const shouldReduceMotion = useReducedMotion();
   const trimmedAvatarUrl = avatarUrl?.trim() || null;
+  const photoPreferred = useAgentPhotoPreferred(pubkey ?? "", trimmedAvatarUrl);
   const actionLabel = isStarting ? `Starting ${label}` : `Start ${label}`;
   const hasError = !isActive && !isStarting && Boolean(errorLabel);
   const errorActionLabel = `${label} has a runtime error. Open runtime details.`;
@@ -165,7 +167,7 @@ export function AgentRuntimeAvatarControl({
     </span>
   );
 
-  if (pubkey) {
+  if (pubkey && !photoPreferred) {
     return (
       <span className="relative block h-24 w-24 shrink-0">
         <AgentIdentitySpecimen

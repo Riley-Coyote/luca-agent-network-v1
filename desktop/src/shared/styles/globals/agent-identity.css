@@ -1,33 +1,36 @@
-/* A resident's identity mark: a frame-free live dot-matrix panel.
- *
- * The panel does all the state work — see `SCENE_FOR_STATE` in
- * AgentIdentitySpecimen.tsx. There is deliberately no lamp, no badge and no
- * per-cell CSS animation here: the mark IS the state, and a mark that twinkles
- * is a mark you cannot recognise. The square lattice owns the silhouette; an
- * avatar chip around it would crop the outer cells and weaken recognition. */
-
 .agent-identity-specimen {
-  --agent-specimen-size: 32px;
   align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
   display: inline-flex;
-  height: var(--agent-specimen-size);
+  flex: none;
   justify-content: center;
-  overflow: visible;
   position: relative;
-  width: var(--agent-specimen-size);
 }
 
-/* An idle resident breathes.
- *
- * The whole mark dims and lifts together — never individual cells, because a
- * mark that twinkles is a mark you cannot recognise. The swing is deliberately
- * shallow: a deep one would read as one resident being MORE PRESENT than
- * another when both are merely idle. The phase comes from an inline
- * `animation-delay` derived from the seed, so a column never pulses in
- * lockstep. */
+.agent-character {
+  display: inline-block;
+  flex: none;
+  overflow: visible;
+  position: relative;
+}
+
+.agent-character-frame {
+  height: 100%;
+  image-rendering: pixelated;
+  inset: 0;
+  object-fit: contain;
+  position: absolute;
+  width: 100%;
+}
+
+.agent-character[data-agent-state="unavailable"] {
+  opacity: 0.55;
+}
+
+.agent-character[data-agent-state="fault"] {
+  filter: grayscale(0.65);
+  opacity: 0.7;
+}
+
 @keyframes luca-identity-breath {
   0%,
   100% {
@@ -42,32 +45,9 @@
   animation: luca-identity-breath 4.2s ease-in-out infinite;
 }
 
-/* The mark stays legible; only the motion stops. */
 @media (prefers-reduced-motion: reduce) {
   .luca-identity-breath {
     animation: none;
     opacity: 1;
   }
-}
-
-.agent-identity-specimen[data-custody="guest"] {
-  border-style: dashed;
-}
-
-.agent-identity-specimen[data-custody="owner"] {
-  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.08);
-}
-
-/* An unreachable resident: the chip recedes to a hairline outline and the
- * panel's own `sleep` scene carries the rest. */
-.agent-identity-specimen[data-agent-state="unavailable"] {
-  background: transparent;
-  border-color: hsl(var(--mn-border));
-}
-
-/* Fault is the one state that earns a signal colour, and it is spent on the
- * CHIP, never on the dots. Inside the panel colour means avalanche magnitude;
- * a second colour meaning in the same 20px would make both unreadable. */
-.agent-identity-specimen[data-agent-state="fault"] {
-  border-color: hsl(var(--destructive) / 0.55);
 }

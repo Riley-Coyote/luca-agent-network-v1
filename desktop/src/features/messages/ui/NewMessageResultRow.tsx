@@ -81,6 +81,7 @@ export function NewMessageResultRow({
         {user.isAgent ? (
           <AgentIdentitySpecimen
             accessibleName={name}
+            avatarUrl={user.avatarUrl}
             className="shrink-0"
             publicKey={user.pubkey}
             size={32}

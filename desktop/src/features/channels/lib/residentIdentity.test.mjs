@@ -50,7 +50,7 @@ test("custom resident marks are deterministic, well-formed identity glyphs, 7 by
   assert.notEqual(path, residentIdentityPath("different-resident"));
 });
 
-test("provider marks reuse transparent source assets without baked tiles", async () => {
+test("resident marks keep their character across live states and reserve harness logos for explicit runtime views", async () => {
   const [markSource, contactSource, thinkingLabSource] = await Promise.all([
     readFile(
       new URL("../ui/ResidentIdentityMark.tsx", import.meta.url),
@@ -66,24 +66,13 @@ test("provider marks reuse transparent source assets without baked tiles", async
     ),
   ]);
 
-  assert.match(markSource, /harness-logos\/chatgpt\.png\?inline/);
-  assert.match(markSource, /harness-logos\/claude\.png\?inline/);
+  assert.match(markSource, /<AgentIdentitySpecimen/);
+  assert.match(markSource, /presentation === "harness"/);
   assert.match(contactSource, /<HarnessLogo/);
-  for (const source of [markSource, contactSource]) {
-    assert.doesNotMatch(source, /runtime-icons\/(?:codex|claude)\.png/);
-    assert.doesNotMatch(source, /object-cover|rounded-\[/);
-  }
-
-  // A direct conversation deliberately has no activity shelf, so its response
-  // row owns the approved live state: the resident's key-derived mark murmurs
-  // until the complete response settles. Runtime contacts remain provider
-  // marks and never receive this custom-resident treatment.
   assert.match(markSource, /data-resident-mark-live/);
-  assert.match(markSource, /kind === "custom" && live/);
-  assert.match(markSource, /<FilamentMark/);
-  assert.match(markSource, /motion="murmur"/);
-  assert.match(markSource, /fit="box"/);
-  assert.match(markSource, /bloom=\{false\}/);
+  assert.match(markSource, /motion=\{live \? "ambient" : motion\}/);
+  assert.doesNotMatch(markSource, /<FilamentMark/);
+  assert.doesNotMatch(contactSource, /runtime-icons\/(?:codex|claude)\.png/);
   assert.match(thinkingLabSource, /archived-runtime-mark-thinking/);
   assert.match(thinkingLabSource, /motion="murmur"/);
   assert.match(thinkingLabSource, /bloom=\{false\}/);

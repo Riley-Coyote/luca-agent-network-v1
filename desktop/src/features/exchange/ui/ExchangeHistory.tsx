@@ -8,7 +8,6 @@ import type { TimelineMessage } from "@/features/messages/types";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
 import { normalizePubkey } from "@/shared/lib/pubkey";
-import { cn } from "@/shared/lib/cn";
 
 type ExchangeHistoryProps = {
   channelId: string;
@@ -155,15 +154,15 @@ export function ExchangeHistory({
                 {/* Stacked, not side by side: the pair is one column the
                     width of a single mark, so the names and the turns keep
                     the measure in a 360px drawer. */}
-                <span className="flex w-4 shrink-0 flex-col items-center gap-1">
+                <span className="flex w-5 shrink-0 flex-col items-center gap-1">
                   {record.members.map((member, index) => (
                     <ResidentIdentityMark
                       accessibleName={names[index] ?? member}
-                      className={cn(live && visiting && "luca-identity-breath")}
                       decorative
                       key={member}
+                      motion={live && visiting ? "ambient" : "still"}
                       publicKey={member}
-                      size={14}
+                      size={20}
                     />
                   ))}
                 </span>
@@ -192,7 +191,7 @@ export function ExchangeHistory({
                         className="mt-0.5"
                         decorative
                         publicKey={turn.pubkey}
-                        size={12}
+                        size={20}
                       />
                     ) : null}
                     <div className="min-w-0">

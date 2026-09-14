@@ -236,6 +236,7 @@ export function AppSidebar({
       [...(managedAgentsQuery.data ?? [])]
         .map((agent) => ({
           name: agent.name,
+          avatarUrl: agent.avatarUrl,
           personaId: agent.personaId,
           pubkey: agent.pubkey,
         }))

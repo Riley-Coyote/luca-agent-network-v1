@@ -287,6 +287,7 @@ function AgentSettingsDetail({
             {resident.pubkey ? (
               <AgentIdentitySpecimen
                 accessibleName={resident.displayName}
+                avatarUrl={resident.avatarUrl}
                 publicKey={resident.pubkey}
                 size={48}
                 state={identityState(resident)}

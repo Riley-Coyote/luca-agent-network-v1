@@ -58,6 +58,8 @@ export function ChatResidentPreview({
       <section className="flex items-center gap-3 border-b border-border/55 pb-5">
         <AgentIdentitySpecimen
           accessibleName={displayName}
+          avatarUrl={managedAgent?.avatarUrl}
+          motion="ambient"
           publicKey={pubkey}
           size={44}
           state={

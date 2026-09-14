@@ -239,6 +239,7 @@ function ResidentRosterRow({
       {resident.pubkey ? (
         <AgentIdentitySpecimen
           accessibleName={resident.displayName}
+          avatarUrl={resident.avatarUrl}
           publicKey={resident.pubkey}
           size={32}
           state={identityState}
