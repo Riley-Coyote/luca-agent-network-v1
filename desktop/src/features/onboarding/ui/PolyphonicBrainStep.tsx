@@ -241,10 +241,9 @@ export const PolyphonicBrainStep = React.forwardRef<
             return (
               <button
                 aria-pressed={isSelected}
-                className={cn(
-                  "group flex min-h-11 w-full items-center gap-3 px-1 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40 disabled:cursor-default disabled:hover:bg-transparent",
-                  isSelected && "bg-white/[0.035]",
-                )}
+                // Only the box says whether a source is chosen; the row
+                // itself never lights up.
+                className="group flex min-h-11 w-full items-center gap-3 px-1 py-1.5 text-left transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-white/30 disabled:cursor-default disabled:hover:bg-transparent"
                 disabled={connected.length > 0 || found.length === 0}
                 key={category.kind}
                 onClick={() =>
