@@ -91,7 +91,7 @@ pub fn private_continuity_runtime_policy(
         "@agentclientprotocol/claude-agent-acp" | "claude-agent-acp"
     ) {
         return Ok(ContinuityRuntimePolicy {
-            session_metadata: Some(with_strict_claude_mcp_config(existing_metadata)?),
+            session_metadata: Some(with_claude_isolated_settings(existing_metadata, true)?),
             codex_config_overlay: None,
             tool_isolation: ContinuityToolIsolation::StrictClaudeMcpConfig,
         });
@@ -126,8 +126,20 @@ fn validate_metadata(
     Ok(())
 }
 
-fn with_strict_claude_mcp_config(
+/// Keep an app-owned Claude resident from loading another Claude identity's
+/// filesystem settings, startup hooks, or on-disk MCP servers. Explicit ACP
+/// servers and the adapter's built-in tools remain available to conversation
+/// sessions. Private capture additionally disables the built-in tools.
+pub fn managed_claude_session_metadata(
     existing_metadata: Option<&Value>,
+    private_capture: bool,
+) -> Result<Value, ContinuityRuntimePolicyError> {
+    with_claude_isolated_settings(existing_metadata, private_capture)
+}
+
+fn with_claude_isolated_settings(
+    existing_metadata: Option<&Value>,
+    private_capture: bool,
 ) -> Result<Value, ContinuityRuntimePolicyError> {
     validate_metadata(existing_metadata)?;
     let mut metadata = existing_metadata
@@ -147,7 +159,10 @@ fn with_strict_claude_mcp_config(
         .as_object_mut()
         .ok_or(ContinuityRuntimePolicyError::ClaudeCodeOptionsMustBeObject)?;
     options.insert("strictMcpConfig".to_owned(), Value::Bool(true));
-    options.insert("tools".to_owned(), Value::Array(Vec::new()));
+    options.insert("settingSources".to_owned(), Value::Array(Vec::new()));
+    if private_capture {
+        options.insert("tools".to_owned(), Value::Array(Vec::new()));
+    }
     Ok(Value::Object(metadata.clone()))
 }
 
@@ -196,7 +211,7 @@ mod tests {
     };
 
     #[test]
-    fn installed_claude_adapter_enables_only_its_documented_strict_mcp_option() {
+    fn installed_claude_adapter_isolates_private_settings_and_tools() {
         let existing = json!({
             "luca": { "sessionEpoch": "public-binding" },
             "claudeCode": { "options": { "tools": ["Bash"] } },
@@ -213,7 +228,7 @@ mod tests {
             Some(json!({
                 "luca": { "sessionEpoch": "public-binding" },
                 "claudeCode": {
-                    "options": { "tools": [], "strictMcpConfig": true },
+                    "options": { "tools": [], "strictMcpConfig": true, "settingSources": [] },
                 },
             }))
         );
@@ -226,9 +241,21 @@ mod tests {
         assert_eq!(
             policy.session_metadata,
             Some(json!({
-                "claudeCode": { "options": { "strictMcpConfig": true, "tools": [] } }
+                "claudeCode": { "options": { "strictMcpConfig": true, "settingSources": [], "tools": [] } }
             }))
         );
+    }
+
+    #[test]
+    fn managed_conversation_excludes_foreign_settings_without_disabling_tools() {
+        let metadata = managed_claude_session_metadata(None, false).unwrap();
+        assert_eq!(
+            metadata,
+            json!({ "claudeCode": { "options": {
+                "settingSources": [], "strictMcpConfig": true
+            } } })
+        );
+        assert!(metadata["claudeCode"]["options"].get("tools").is_none());
     }
 
     #[test]

@@ -3191,7 +3191,14 @@ pub fn resolve_model_switch_method(
     // 1. Search stable configOptions for a "model"-category entry whose
     //    options contain a value matching desired_model.
     for config_opt in extract_model_config_options(session_new_result) {
-        let config_id = match config_opt.get("configId").and_then(|v| v.as_str()) {
+        // ACP config options use `id` on current adapters. Keep `configId`
+        // for older adapters; the set-config-option request still names its
+        // parameter `configId` in both versions.
+        let config_id = match config_opt
+            .get("id")
+            .or_else(|| config_opt.get("configId"))
+            .and_then(|v| v.as_str())
+        {
             Some(id) => id,
             None => continue,
         };
@@ -4142,6 +4149,29 @@ mod tests {
                 option_value: "claude-sonnet-4-20250514".to_string(),
             })
         );
+    }
+
+    #[test]
+    fn resolve_installed_claude_model_option_id() {
+        let result = serde_json::json!({
+            "configOptions": [{
+                "id": "model",
+                "category": "model",
+                "currentValue": "opus[1m]",
+                "options": [
+                    { "value": "default" },
+                    { "value": "opus[1m]" }
+                ]
+            }]
+        });
+        assert_eq!(
+            super::resolve_model_switch_method(&result, "opus[1m]"),
+            Some(super::ModelSwitchMethod::ConfigOption {
+                config_id: "model".to_string(),
+                option_value: "opus[1m]".to_string(),
+            })
+        );
+        assert_eq!(super::resolve_model_switch_method(&result, "sonnet"), None);
     }
 
     #[test]

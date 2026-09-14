@@ -953,6 +953,19 @@ async fn create_session_and_apply_model(
         )
         .map_err(|error| AcpError::Protocol(error.to_string()))?
         .session_metadata
+    } else if ctx.managed_final_publisher.is_some()
+        && matches!(
+            agent.agent_name.as_str(),
+            "claude-agent-acp" | "@agentclientprotocol/claude-agent-acp"
+        )
+    {
+        Some(
+            crate::continuity_runtime_policy::managed_claude_session_metadata(
+                session_meta.as_ref(),
+                false,
+            )
+            .map_err(|error| AcpError::Protocol(error.to_string()))?,
+        )
     } else {
         session_meta
     };
@@ -1014,7 +1027,7 @@ async fn create_session_and_apply_model(
                 agent.protocol_version,
                 combined_system_prompt.as_deref(),
             ),
-            session_meta,
+            session_meta.clone(),
         )
         .await
     {
@@ -1042,7 +1055,7 @@ async fn create_session_and_apply_model(
                         agent.protocol_version,
                         combined_system_prompt.as_deref(),
                     ),
-                    openclaw_session_meta(ctx, source)?,
+                    session_meta,
                 )
                 .await?
         }
