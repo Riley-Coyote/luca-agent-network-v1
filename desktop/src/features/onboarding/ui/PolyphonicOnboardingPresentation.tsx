@@ -409,9 +409,11 @@ export function PolyphonicPresentationAgentSelector({
 }
 
 /**
- * A short list of agents as plain hairline rows. Only the checkbox says
- * whether a row is chosen — the row itself never lights up. Past four rows
- * the list scrolls in place rather than pushing the rest of the step away.
+ * A short list of agents in the same clothes as the runtime list one screen
+ * earlier: a recessed box, rows with an icon, a name, a detail line and a
+ * control at the right — here a checkbox, since more than one may come. Past
+ * four rows the box scrolls in place rather than pushing the rest of the step
+ * away.
  */
 function PolyphonicPresentationAgentRows({
   agents,
@@ -441,11 +443,11 @@ function PolyphonicPresentationAgentRows({
       aria-busy={isScanning}
       aria-label="Discovered agents"
       className={cn(
-        "min-h-0 border-t border-[var(--prototype-hairline)]",
-        // Four rows exactly (44px + hairline each), so the clip lands on a
-        // hairline and the fifth row is plainly "there is more".
-        scrolls &&
-          "max-h-[180px] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
+        "grid min-h-0 grid-cols-1 content-start overflow-y-auto overscroll-contain rounded-[10px] bg-[var(--prototype-recessed)] p-1",
+        // Three rows exactly, so the clip lands between rows and the fourth
+        // is plainly "there is more". The box also shrinks with the card, so
+        // it can never run under the memory question.
+        scrolls && "max-h-[164px] [scrollbar-gutter:stable]",
       )}
       data-prototype-scroll-owner={scrolls ? "true" : undefined}
       data-testid={inventoryTestId}
@@ -471,23 +473,39 @@ function PolyphonicPresentationAgentRows({
               : agent.detail;
         return (
           <div
-            className="flex items-center border-b border-[var(--prototype-hairline)]"
+            className="flex items-center"
             data-testid={`${rowTestIdPrefix}${agent.id}`}
             key={agent.id}
           >
             <button
               aria-describedby={`onboarding-agent-${agent.id}-detail`}
               aria-pressed={selected}
-              className="group flex min-h-11 min-w-0 flex-1 items-center gap-3 px-1 py-2 text-left text-[var(--prototype-ink)] outline-none disabled:cursor-not-allowed disabled:opacity-45"
+              className={cn(
+                "group flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--prototype-focus)] disabled:cursor-not-allowed disabled:opacity-45",
+                selected || imported
+                  ? "bg-[var(--prototype-raised)] shadow-[0_1px_2px_var(--prototype-shadow)]"
+                  : "hover:bg-[var(--prototype-selection)]",
+              )}
               disabled={disabled || importing || imported || agent.disabled}
               onClick={() => onToggle(agent.id)}
               type="button"
             >
+              <span className="grid size-5 shrink-0 place-items-center text-[var(--prototype-muted)]">
+                {importing ? (
+                  <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+                ) : needsAttention ? (
+                  <TriangleAlert className="size-3.5 text-destructive" />
+                ) : (
+                  <TerminalSquare className="h-4 w-4" strokeWidth={1.2} />
+                )}
+              </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">{agent.name}</span>
+                <span className="block text-sm font-medium text-[var(--prototype-ink)]">
+                  {agent.name}
+                </span>
                 <span
                   className={cn(
-                    "block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]",
+                    "mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]",
                     needsAttention && "text-destructive",
                   )}
                   id={`onboarding-agent-${agent.id}-detail`}
@@ -495,27 +513,23 @@ function PolyphonicPresentationAgentRows({
                   {detail}
                 </span>
               </span>
-              {importing ? (
-                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--prototype-muted)] motion-reduce:animate-none" />
-              ) : needsAttention ? (
-                <TriangleAlert className="size-3.5 shrink-0 text-destructive" />
-              ) : (
+              {!needsAttention ? (
                 <span
                   aria-hidden="true"
                   className={cn(
-                    "grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors",
+                    "grid size-4 shrink-0 place-items-center rounded-[5px] border",
                     selected || imported
                       ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
-                      : "border-[var(--prototype-hairline)] group-hover:border-[var(--prototype-muted)] group-focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)]",
+                      : "border-[var(--prototype-hairline)]",
                   )}
                 >
                   {selected || imported ? <Check className="size-3" /> : null}
                 </span>
-              )}
+              ) : null}
             </button>
             {needsAttention && onRetry ? (
               <button
-                className="ml-2 min-h-8 rounded-[7px] px-2 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:text-[var(--prototype-ink)]"
+                className="mr-2 min-h-8 rounded-[7px] px-2 text-xs text-[var(--prototype-muted-strong)] outline-none hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
                 disabled={disabled}
                 onClick={() => onRetry(agent.id)}
                 type="button"
@@ -527,13 +541,13 @@ function PolyphonicPresentationAgentRows({
         );
       })}
       {isScanning && agents.length === 0 ? (
-        <p className="flex min-h-11 items-center gap-2 px-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
+        <p className="flex min-h-[52px] items-center gap-2 px-3 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
           <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
           Looking for agents on this Mac…
         </p>
       ) : null}
       {!isScanning && agents.length === 0 ? (
-        <p className="flex min-h-11 items-center gap-3 border-b border-[var(--prototype-hairline)] px-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
+        <p className="flex min-h-[52px] items-center gap-3 px-3 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
           No agents found yet.
           {onRescan ? (
             <button

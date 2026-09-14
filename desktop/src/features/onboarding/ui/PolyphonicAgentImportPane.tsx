@@ -127,7 +127,7 @@ export function PolyphonicAgentImportPane({
           Already in Polyphonic · {connected}
         </p>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
         <PolyphonicPresentationAgentSelector
           agents={agents}
           compact={compact}
