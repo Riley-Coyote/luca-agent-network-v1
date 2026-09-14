@@ -1,5 +1,39 @@
 # Beta.6 candidate preparation — September 12, 2026
 
+## Release preparation update — September 14
+
+Riley authorized preparation through a second-Mac test installer, without
+publishing to testers. Current integrated source is `codex/first-meeting-finish`:
+`56411afcb` includes the onboarding work, conductor-first contract cleanup
+(`c09db545c`), glyph preference fix and inline activity indicator refinement.
+The signed installed Dev app already contains these UI fixes; runtime helpers
+and the installed Polyphonic beta were preserved.
+
+Current checks: frontend typecheck/build and seven focused browser tests pass;
+the planning-kit validator and `git diff --check` pass. These checks are not
+full release acceptance.
+
+Release gates still open:
+
+- Connected-Brain lifetime index retention remains unresolved. Source review
+  confirms changed index revisions create fresh page lineages; purging obsolete
+  pages preserves required authority/tombstones. Neither a reset nor simply
+  raising limits is an approved bounded-storage repair. A decision is pending
+  between completing that repair before beta.6 and making an explicitly
+  test-only candidate with the limitation documented. Do not silently defer it.
+- Developer ID signing is available. No notarization credential profile has
+  been verified; the attempted `AC_PASSWORD` profile does not exist. Do not
+  report notarization as complete or put credentials in source/chat.
+- Release sidecars, the beta.6 version cut, notarization/stapling and isolated
+  release launch remain pending. No beta.6 installer has been produced yet.
+
+The earlier Docker/Postgres/Redis outage was repaired without resetting data;
+it is not the remaining Brain capacity problem. Handoff-authorship verification
+remains explicitly deferred, as recorded in the continuity wrap-up.
+
+The older preparation notes below are historical context; their branch/base
+and pre-authorization wording are superseded by this update.
+
 This pass prepares a Dev candidate. It does not bump the beta version, publish,
 notarize, or replace the installed Polyphonic beta.
 
