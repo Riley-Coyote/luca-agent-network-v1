@@ -10134,7 +10134,6 @@ function sendToMockSocket(args: {
 
     const channelId = filter["#h"]?.[0];
 
-
     if (!channelId) {
       // Aux-backfill filters (reactions/deletions) are `#e`-keyed with no
       // channel tag — serve them across all channel stores like the relay.
@@ -13940,19 +13939,48 @@ export function maybeInstallE2eTauriMocks() {
       case "begin_luca_first_meeting": {
         // A deterministic runtime reply fixture, never production dialogue.
         const { channelId } = payload as { channelId: string };
-        const luca = mockManagedAgents.find((item) => item.persona_id === "builtin:fizz");
+        const luca = mockManagedAgents.find(
+          (item) => item.persona_id === "builtin:fizz",
+        );
         if (!luca) throw new Error("Luca is not ready yet");
         const history = getMockMessageStore(channelId);
         const marker = "polyphonic-onboarding.first-meeting.v1";
-        const existing = history.find((event) => event.tags.some((tag) => tag[0] === "client" && tag[1] === marker));
-        if (existing) return { status: "already_started", triggerEventId: existing.id };
-        if (history.some((event) => event.kind === 9)) return { status: "existing_conversation", triggerEventId: null };
+        const existing = history.find((event) =>
+          event.tags.some((tag) => tag[0] === "client" && tag[1] === marker),
+        );
+        if (existing)
+          return { status: "already_started", triggerEventId: existing.id };
+        if (history.some((event) => event.kind === 9))
+          return { status: "existing_conversation", triggerEventId: null };
         const owner = getMockMemberPubkey(activeConfig);
-        const trigger = createMockEvent(9, "Meet Luca", [["h",channelId],["p",luca.pubkey],["client",marker]], owner, Math.floor(Date.now()/1000)-1);
+        const trigger = createMockEvent(
+          9,
+          "Meet Luca",
+          [
+            ["h", channelId],
+            ["p", luca.pubkey],
+            ["client", marker],
+          ],
+          owner,
+          Math.floor(Date.now() / 1000) - 1,
+        );
         recordMockMessage(channelId, trigger);
         emitMockLiveEvent(channelId, trigger);
-        await handleSendManagedAgentChannelMessage({ agentPubkey:luca.pubkey,channelId,content:'Hello, I’m Luca. What would you like us to make possible together?\n\n```polyphonic-choices\n{"options":["Shape an idea","Help with a project"]}\n```' }, activeConfig);
-        return { status: "started", triggerEventId:trigger.id };
+        const reply = createMockEvent(
+          9,
+          'Hello, I’m Luca. What would you like us to make possible together?\n\n```polyphonic-choices\n{"options":["Shape an idea","Help with a project"]}\n```',
+          [
+            ["h", channelId],
+            ["p", owner],
+            ["e", trigger.id, "", "reply"],
+            ["broadcast", "1"],
+          ],
+          luca.pubkey,
+          Math.floor(Date.now() / 1000),
+        );
+        recordMockMessage(channelId, reply);
+        emitMockLiveEvent(channelId, reply);
+        return { status: "started", triggerEventId: trigger.id };
       }
       case "send_managed_agent_channel_message":
         return handleSendManagedAgentChannelMessage(

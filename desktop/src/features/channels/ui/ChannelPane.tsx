@@ -45,6 +45,7 @@ import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversati
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import { LUCA_INTRO_ROLE } from "@/features/luca/canonicalLucaResident";
 import { isUntouchedLucaGreeting } from "@/features/luca/firstConversation";
+import { isFirstMeetingTimelineRow } from "@/features/luca/canonicalLucaResident";
 import {
   firstMeetingPresentation,
   latestFirstMeetingOffer,
@@ -678,7 +679,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const firstGreeting = showFirstConversation
     ? messages.find(
         (message) =>
-          message.depth === 0 &&
+          isFirstMeetingTimelineRow(message) &&
           normalizePubkey(message.signerPubkey ?? message.pubkey ?? "") ===
             lucaArrival.lucaPubkey,
       )

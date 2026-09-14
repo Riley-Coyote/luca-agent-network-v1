@@ -91,6 +91,17 @@ export function residentGlyphSeed(
 
 // ---- the owner ⇄ Luca conversation ----------------------------------------
 
+/** Signed main-timeline replies retain causal depth and carry broadcast=1. */
+export function isFirstMeetingTimelineRow(message: TimelineMessage): boolean {
+  return (
+    message.depth === 0 ||
+    (message.kind === 9 &&
+      Boolean(
+        message.tags?.some((tag) => tag[0] === "broadcast" && tag[1] === "1"),
+      ))
+  );
+}
+
 export function hasClientMarker(message: TimelineMessage, marker: string) {
   return message.tags?.some((tag) => tag[0] === "client" && tag[1] === marker);
 }

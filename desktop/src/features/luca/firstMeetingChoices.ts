@@ -4,6 +4,7 @@ import {
   FIRST_MEETING_MARKER,
   LUCA_GREETING_MARKER,
   hasClientMarker,
+  isFirstMeetingTimelineRow,
 } from "./canonicalLucaResident";
 
 const FENCE = /(?:^|\n)```polyphonic-choices\s*\n([\s\S]*?)\n```\s*$/;
@@ -65,7 +66,7 @@ export function latestFirstMeetingOffer(
   const luca = normalizePubkey(lucaPubkey);
   const start = messages.findIndex(
     (message) =>
-      message.depth === 0 &&
+      isFirstMeetingTimelineRow(message) &&
       normalizePubkey(message.signerPubkey ?? "") === owner &&
       hasClientMarker(message, FIRST_MEETING_MARKER),
   );
@@ -78,7 +79,7 @@ export function latestFirstMeetingOffer(
   let offer: { messageId: string; prose: string; options: string[] } | null =
     null;
   for (const message of messages.slice(start + 1)) {
-    if (message.depth !== 0) continue;
+    if (!isFirstMeetingTimelineRow(message)) continue;
     if (
       normalizePubkey(message.signerPubkey ?? message.pubkey ?? "") === owner
     ) {
@@ -108,14 +109,14 @@ export function firstMeetingPresentation(
   const responseIds = new Set<string>();
   const start = messages.findIndex(
     (message) =>
-      message.depth === 0 &&
+      isFirstMeetingTimelineRow(message) &&
       normalizePubkey(message.signerPubkey ?? "") === owner &&
       hasClientMarker(message, FIRST_MEETING_MARKER),
   );
   if (start < 0) return { triggerId: null, responseIds };
   let replies = 0;
   for (const message of messages.slice(start + 1)) {
-    if (message.depth !== 0) continue;
+    if (!isFirstMeetingTimelineRow(message)) continue;
     const author = normalizePubkey(
       message.signerPubkey ?? message.pubkey ?? "",
     );

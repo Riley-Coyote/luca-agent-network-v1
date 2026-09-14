@@ -126,3 +126,26 @@ test("a live first reply never hides its working controls", () => {
     );
   }
 });
+
+test("signed main-timeline replies keep their causal reference without losing the first meeting", () => {
+  assert.equal(
+    isUntouchedLucaGreeting(
+      [
+        trigger,
+        {
+          ...greeting,
+          depth: 1,
+          tags: [
+            ["e", "trigger", "", "reply"],
+            ["broadcast", "1"],
+          ],
+        },
+      ],
+      luca,
+      owner,
+      true,
+      false,
+    ),
+    true,
+  );
+});
