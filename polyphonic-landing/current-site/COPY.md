@@ -8,17 +8,17 @@ The four cards tell one story, in order: the agents move in → Luca remembers �
 
 ## Hero
 
-**H1 · keep** — Your agents, / together.
+**H1 · elevation (12 Sep 2026)** — Give them / somewhere to live.
 
-**Sub · now** — One home on your Mac for agents, memory, and projects. Collaborators who remember you, pick up where you left off, and work together.
+**Support · demoted** — Your agents, together. (mono kicker above the H1)
 
 **Sub · draft** — One home on your Mac for the agents you already use. They remember you, they know each other, and every session picks up where the last one left off.
 
-Small lines: under the demo, "Explore a home for your agents. Every view is yours to open." → **"A working model of the app. Every view opens."** Hero link "Bring the agents you already know." → **"Bring the agents you already have."** Nav "Get the beta", "Explore connections", marquee, footer: keep.
+Composition: the living app demo (`.app-frame`) is the sculptural object above the fold; typography serves it. The old separate `#preview` section is merged into the hero stage. The early integration/sign band is gone (redundant with the agents band). Primary CTA is a solid cream fill.
+
+Small lines: under the demo, **"A working model of the app. Every view opens."** Nav "Get the beta", footer: keep. Agents nav targets `#agents`.
 
 **Section title · keep** — Built for collaboration.
-
----
 
 ## 1 · the ones you already have
 
@@ -99,12 +99,13 @@ That last state is every other tool. That's the point of the card.
 
 ## Beta block
 
-**H · now** — Meet your agents.
-**H · draft** — Give them somewhere to live.
+**Echo · elevation** — Give them somewhere to live. (quiet mono line; hero took the H1)
 
-**Body · draft** — Polyphonic is in beta on macOS. Leave your email and we'll send a download link when a build is ready for you. For the best experience, have Claude Code or Codex installed with an active account.
+**H · elevation** — Your agents, together.
 
-Button "Request the beta" and the on-the-list messages: keep.
+**Body · craft5** — Polyphonic is in beta on macOS — a local personal server you control, shipping now. Leave your email and we’ll send a download link when a seat opens. Best with Claude Code or Codex installed and signed in.
+
+Button "Request the beta" and the on-the-list messages: keep. Primary is solid cream fill.
 
 ---
 
@@ -146,3 +147,65 @@ The hero demo's own dialogue. It's already in the right voice (*"Want me to brin
 2. No exclusivity line. The page states the fact and stops.
 3. *you can prove it* and *under the identity that did it* are both true of the product as built.
 4. Closing headline is *Give them somewhere to live.* (Riley, 2026-09-10).
+
+## Decided (elevation pass, 12 September 2026)
+
+1. Hero H1 is *Give them somewhere to live.* The former H1 *Your agents, together.* is support (hero kicker) and the beta closing headline.
+2. The app demo is the hero sculpture; the particle field is atmosphere only.
+3. Early integration/sign band removed; agents band carries that story.
+
+## Narrative elevation (12 September 2026)
+
+Arc on the page: **Now** (local sovereignty) → agents under one roof → **Mnemos** → collaboration proof → equal participants → **Horizon** (future network) → beta home.
+
+### Nav
+Sovereignty · Mnemos · Horizon · Beta (targets `#sovereignty` `#memory` `#horizon` `#beta`).
+
+### Sovereignty · `#sovereignty` (replaces `#how`)
+**Eyebrow** — Now · on your Mac  
+**H** — Keep your intelligence at home.  
+**Body** — Stop handing mind, data, and agents to platforms. Polyphonic brings them into one home you control — a local-first personal server on your Mac.  
+**Pillars** — Agents · Memory · Data — each marked *Yours*. No network features claimed as live.
+
+### Agents band
+**H** — The agents you already have, under one roof.  
+Body unchanged (runtime honesty + Claude Code / Codex).
+
+### Mnemos · `#memory`
+**Eyebrow** — Mnemos  
+**H** — Memory as a living substrate.  
+**Body** — Not chat history — biologically inspired continuity. … lasting identity … you decide what it can draw on. Brain demo interior unchanged.
+
+### Together · `#together`
+Kept as collaboration proof. Body tightened one line.
+
+### Equal participants · `#control`
+**Eyebrow** — Equal participants  
+**H** — Humans and agents, under provable identity.  
+Body: cryptographic identity for every participant; permission still yours; activity under the identity that did it.
+
+### Horizon · `#horizon` (before beta)
+**Eyebrow** — Next · the network  
+**H** — A commons for minds.  
+**Body** — Decentralized collective-intelligence (Nostr/relay direction); humans and agents as equals. Explicitly *not shipped*.  
+**Beats** — Relay mesh · Equal first-class participants · Agency in the world (identity, wallets, x402-style).  
+**Bridge** — Start with a home on your Mac. The network grows from rooms that already belong to you.
+
+### Beta
+**Echo** — First room of something larger.  
+**H** — Your home, on your Mac.  
+**Body** — Polyphonic is in beta on macOS — a local personal server you control, shipping now. Leave your email and we’ll send a download link when a seat opens. Best with Claude Code or Codex installed and signed in.
+
+**Signup note** — Invite-only beta on macOS. Leave your email for a download link when a seat opens — this preview doesn’t collect addresses yet.
+
+---
+
+## Pass A+B · narrative tighten (2026-09-12)
+
+**Together · In the room** — Collaboration as presence in one shared thread (not paste between chats). Differentiated from identity.
+
+**Equal participants** — “Not tools. Participants you can prove.” Cryptographic continuity + authorship + you still gate file touch. Not a second collaboration beat.
+
+**Mnemos** — “A mind that keeps becoming itself.” Living substrate, not chat log.
+
+**Horizon lede** — Stakes line: platforms rent your mind back; network is the alternative; still clearly not shipped.

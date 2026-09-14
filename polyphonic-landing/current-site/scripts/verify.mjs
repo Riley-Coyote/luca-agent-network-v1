@@ -13,14 +13,48 @@ const band=await page.evaluate(()=>{const b=document.querySelector('.pw-band'),t
 assert.equal(band.all,14);assert.equal(band.dup,7);assert.equal(band.dupHidden,'true');assert.equal(band.anim,'none');assert.equal(band.tabindex,'0');assert.equal(band.scrolls,true);
 assert.deepEqual(band.names,['Luca','Iris','Mira','Otto','Ziggy','Wren','Nia']);assert.deepEqual(band.runtimes,['Hermes','Claude Code','Hermes','Kimi Code','OpenClaw','Codex','Grok']);
 out.checks.push('Seven-window band: 7 windows + aria-hidden duplicate, static and scrollable under reduced motion');
-/* WP-07: the dot-matrix band is a sign now, not a marquee — it changes what it says in
-   place and never scrolls. The canvas is silent to a screen reader; one static sentence
-   next to it carries the whole line and never changes as the sign cycles. */
-const sign=await page.evaluate(()=>{const b=document.getElementById('works'),cv=b.querySelector('canvas'),t=b.querySelector('.sr-only');return{scene:cv.dataset.scene,hidden:cv.getAttribute('aria-hidden'),label:cv.getAttribute('aria-label'),text:cv.dataset.text,phrase:cv.dataset.phrase,names:cv.dataset.names,said:t&&t.textContent,h:Math.round(b.getBoundingClientRect().height)}});
-assert.equal(sign.scene,'sign');assert.equal(sign.hidden,'true');assert.equal(sign.label,null);assert.equal(sign.text,undefined);
-assert.equal(sign.phrase,'ONE HOME FOR');assert.equal(sign.names,'CLAUDE CODE|CODEX|KIMI CODE|GROK|HERMES|OPENCLAW');
-assert.equal(sign.said,'One home for Claude Code, Codex, Kimi Code, Grok, Hermes and OpenClaw.');assert.equal(sign.h,64);
-out.checks.push('Sign band: silent canvas, one static sentence, six runtimes in order, 64px band');
+/* WP-elevation: early integration/sign band removed; agents story lives in the pw-band. */
+const worksGone=await page.evaluate(()=>!document.getElementById('works')&&!document.querySelector('.integration-band'));
+assert.equal(worksGone,true);
+assert.ok(await page.locator('#agents').count());
+out.checks.push('Elevation: early sign/integration band removed; #agents remains');
+/* WP-narrative: sovereignty now, Mnemos, horizon future — #how brochure removed. */
+const narrative=await page.evaluate(()=>{
+  const sov=document.getElementById('sovereignty');
+  const hor=document.getElementById('horizon');
+  const how=document.getElementById('how');
+  const mem=document.getElementById('memory');
+  const nav=[...document.querySelectorAll('.nav-links a')].map(a=>({href:a.getAttribute('href'),t:a.textContent.trim()}));
+  return{
+    howGone:!how,
+    sovTitle:sov?.querySelector('#sovereignty-title')?.textContent.trim(),
+    sovEyebrow:sov?.querySelector('.section-eyebrow')?.textContent.trim(),
+    pillars:[...sov?.querySelectorAll('.sovereignty-card-title')||[]].map(e=>e.textContent.trim()),
+    memEyebrow:mem?.querySelector('.section-eyebrow')?.textContent.trim(),
+    memTitle:mem?.querySelector('#memory-title')?.textContent.trim(),
+    horEyebrow:hor?.querySelector('.section-eyebrow')?.textContent.trim(),
+    horTitle:hor?.querySelector('#horizon-title')?.textContent.trim(),
+    horBeats:[...hor?.querySelectorAll('.horizon-beat-title')||[]].map(e=>e.textContent.trim()),
+    bridge:hor?.querySelector('.horizon-bridge')?.textContent.trim(),
+    nav,
+    betaEcho:document.querySelector('.beta-echo')?.textContent.trim(),
+    controlTitle:document.querySelector('#control-title')?.textContent.trim(),
+  };
+});
+assert.equal(narrative.howGone,true);
+assert.equal(narrative.sovEyebrow,'Now · on your Mac');
+assert.equal(narrative.sovTitle,'Keep your intelligence at home.');
+assert.deepEqual(narrative.pillars,['Agents','Memory','Data']);
+assert.equal(narrative.memEyebrow,'Mnemos');
+assert.equal(narrative.memTitle,'Memory as a living substrate.');
+assert.equal(narrative.horEyebrow,'Next · the network');
+assert.equal(narrative.horTitle,'A commons for minds.');
+assert.equal(narrative.horBeats.length,3);
+assert.match(narrative.bridge,/Start with a home on your Mac/);
+assert.equal(narrative.betaEcho,'First room of something larger.');
+assert.match(narrative.controlTitle,/provable identity/);
+assert.deepEqual(narrative.nav.map(n=>n.t),['Sovereignty','Mnemos','Horizon','Beta']);
+out.checks.push('Narrative: sovereignty + Mnemos + horizon; #how removed; nav arc');
 /* WP-04: the grants are four switch chips for Luca alone; the empty state and the brief-only clause are the deck's. */
 for(const btn of await page.locator('.grant-chip').all())if(await btn.getAttribute('aria-checked')==='true')await btn.click();assert.match(await page.locator('#luca-knows').innerText(),/don’t have anything on Northstar yet/);await page.getByRole('switch',{name:'Northstar brief.md, project folder',exact:true}).focus();await page.keyboard.press('Space');assert.match(await page.locator('#luca-knows').innerText(),/The brief holds us to one route from a note to a plan/);out.checks.push('Brain grant state and response; Space key toggles');
 await page.getByRole('button',{name:'Deny',exact:true}).click();assert.match(await page.locator('#permission-result').innerText(),/Nothing changes/);assert.equal(await page.locator('#reset-permission').evaluate(e=>e===document.activeElement),true);await page.getByRole('button',{name:'Try again',exact:true}).click();await page.getByRole('button',{name:'Allow once',exact:true}).click();assert.match(await page.locator('#permission-result').innerText(),/Allowed once/);out.checks.push('Permission deny / allow / reset and focus return');
@@ -35,6 +69,6 @@ const mock=await b.newPage();await mock.route('**/assets/config.js',r=>r.fulfill
 await mock.route('**/api/beta',async r=>{requests++;await new Promise(res=>setTimeout(res,200));await r.fulfill({status:200,contentType:'application/json',body:'{}'})});
 await mock.goto('http://127.0.0.1:8744/');await mock.locator('#email').fill('test@example.test');await mock.locator('#signup-submit').click();await mock.waitForTimeout(400);assert.match(await mock.locator('#signup-note').innerText(),/on the list/);assert.equal(requests,1);out.checks.push('Configured signup success, single submission (mocked locally, no account contacted)');
 await mock.unroute('**/api/beta');await mock.route('**/api/beta',r=>r.fulfill({status:503,body:'unavailable'}));await mock.reload();await mock.locator('#email').fill('test@example.test');await mock.locator('#signup-submit').click();await mock.waitForTimeout(200);assert.match(await mock.locator('#signup-note').innerText(),/couldn’t be confirmed/);out.checks.push('Signup service failure / retry state (local mock)');
-const nojs=await b.newPage({javaScriptEnabled:false,viewport:{width:390,height:844}});await nojs.goto('http://127.0.0.1:8744/');assert.equal(await nojs.locator('h1').innerText(),'Your agents,\ntogether.');assert.ok((await nojs.locator('.chat-transcript').innerText()).includes('Codex finished'));out.checks.push('Static hero and complete conversation readable without JavaScript');await b.close();
+const nojs=await b.newPage({javaScriptEnabled:false,viewport:{width:390,height:844}});await nojs.goto('http://127.0.0.1:8744/');assert.equal(await nojs.locator('h1').innerText(),'Give them\nsomewhere to live.');assert.ok((await nojs.locator('.chat-transcript').innerText()).includes('Codex finished'));out.checks.push('Static hero and complete conversation readable without JavaScript');await b.close();
 for(const [name,engine] of [['webkit',webkit],['firefox',firefox]]){try{const browser=await engine.launch();const p=await browser.newPage({viewport:{width:390,height:844},reducedMotion:'reduce'});await p.goto('http://127.0.0.1:8744/',{waitUntil:'networkidle'});out.browsers[name]=await p.evaluate(()=>({w:innerWidth,scroll:document.documentElement.scrollWidth,title:document.title}));await p.screenshot({path:`audit/final-${name}-mobile.png`});await browser.close()}catch(e){out.browsers[name]={unavailable:e.message.slice(0,180)}}}
 await fs.writeFile('audit/verification.json',JSON.stringify(out,null,2));console.log(JSON.stringify(out,null,2));

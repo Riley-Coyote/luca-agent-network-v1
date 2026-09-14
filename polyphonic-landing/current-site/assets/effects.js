@@ -1,6 +1,6 @@
 /* Original Mnemos field retained; lifecycle managed centrally for this page. */
 (() => {
-const P={x:-10000,y:-10000};self.__ambient=.18;
+const P={x:-10000,y:-10000};self.__ambient=.06;
 function emblem(seed,n,density){
   let h=2166136261;
   for(let i=0;i<seed.length;i++){h^=seed.charCodeAt(i);h=Math.imul(h,16777619);}

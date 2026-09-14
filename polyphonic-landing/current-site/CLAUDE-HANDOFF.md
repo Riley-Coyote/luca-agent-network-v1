@@ -1,4 +1,10 @@
+**Pass A+B (2026-09-12):** Together = room presence; Equal participants = provable identity; Mnemos mythic line; Horizon stakes vs platform capture.
+
 # Current Polyphonic landing page — start here
+
+**WP-narrative · Now → Mnemos → Horizon (12 September 2026).** Page arc is honest about beta: local personal-server sovereignty *now* on Mac; Mnemos as living memory substrate; cryptographic equal participants; Horizon as future decentralized collective intelligence (Nostr/relay, wallets, x402) — never claimed as shipped. `#how` “Built for collaboration.” removed; `#sovereignty` 3-up (Agents · Memory · Data) sits after the hero sculpture; `#horizon` constellation field before `#beta`. Nav: Sovereignty · Mnemos · Horizon · Beta. Agents band bridges (“under one roof”). Cream primary CTAs and warm dark palette kept; demo interior untouched. Rebuild `dist/` after edits.
+
+**WP-elevation · hero as sculpture (12 September 2026).** Above-the-fold is the living app demo as the sculptural object in the light, with typography serving it. H1 is *Give them somewhere to live.*; *Your agents, together.* is demoted to a mono support kicker and reappears as the beta closing headline (soulful line echoed quietly above it). Primary CTA is a solid cream/ink fill. Particle field opacity and ambient are dialed down so the demo owns motion. Early `#works` integration/sign band and caption removed (nav Agents → `#agents`); `.hero-integrations` logo strip from `demo.js` is hidden in page CSS. Outer `.app-frame` chrome gained a soft specular rim, deeper lift, and warm gold falloff. `demo.css` interior UI rules untouched; only the page-chrome `.hero` / `.hero-title` size overrides at the top of that file were corrected so they no longer fight `site.css` (demo.css loads last). `#together` gets more stage; `#control` keeps a light gold key. Rebuild `dist/` after edits. Prefer fewer sharper moves over new sections.
 
 Snapshot: September 9, 2026, after the rounded Luca logo update. This folder is the current landing page for transfer into the Polyphonic website. Older sibling landing directories are not the source of truth for this work.
 
