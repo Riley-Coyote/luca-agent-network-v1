@@ -379,9 +379,10 @@ export const PolyphonicAgentsStep = React.forwardRef<
       {/* The runtime was chosen on the screen before this one, and Luca is the
           premise of the place — neither is asked again here. Both are still
           committed with the rest of the answers below. */}
-      <div className="mt-5 min-h-0 flex-1">
+      <div className="mt-4 min-h-0 flex-1">
         <PolyphonicAgentImportPane
           candidates={visibleCandidates}
+          compact
           connectedAgents={allResidents.map((resident) => ({
             id: resident.pubkey,
             name: resident.name,

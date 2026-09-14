@@ -167,8 +167,13 @@ export type PolyphonicPresentationAgent = {
   status?: "idle" | "importing" | "imported" | "needs-attention";
 };
 
+/** Up to this many agents, the list is plain rows: no search, no toolbar, no
+ *  box. A handful of names does not need an inventory around it. */
+const COMPACT_AGENT_LIMIT = 8;
+
 export function PolyphonicPresentationAgentSelector({
   agents,
+  compact = false,
   disabled = false,
   isScanning = false,
   onClear,
@@ -183,6 +188,9 @@ export function PolyphonicPresentationAgentSelector({
   selectedIds,
 }: {
   agents: readonly PolyphonicPresentationAgent[];
+  /** Plain hairline rows while the list is short; the full inventory
+   *  (search, select-all, grouped scroll box) only past COMPACT_AGENT_LIMIT. */
+  compact?: boolean;
   disabled?: boolean;
   isScanning?: boolean;
   onClear: () => void;
@@ -196,6 +204,21 @@ export function PolyphonicPresentationAgentSelector({
   rowTestIdPrefix?: string;
   selectedIds: ReadonlySet<string>;
 }) {
+  if (compact && agents.length <= COMPACT_AGENT_LIMIT) {
+    return (
+      <PolyphonicPresentationAgentRows
+        agents={agents}
+        disabled={disabled}
+        inventoryTestId={inventoryTestId}
+        isScanning={isScanning}
+        onRescan={onRescan}
+        onRetry={onRetry}
+        onToggle={onToggle}
+        rowTestIdPrefix={rowTestIdPrefix}
+        selectedIds={selectedIds}
+      />
+    );
+  }
   const normalized = query.trim().toLocaleLowerCase();
   const visibleAgents = agents.filter(
     (agent) =>
@@ -382,5 +405,148 @@ export function PolyphonicPresentationAgentSelector({
         ) : null}
       </section>
     </div>
+  );
+}
+
+/**
+ * A short list of agents as plain hairline rows. Only the checkbox says
+ * whether a row is chosen — the row itself never lights up. Past four rows
+ * the list scrolls in place rather than pushing the rest of the step away.
+ */
+function PolyphonicPresentationAgentRows({
+  agents,
+  disabled,
+  inventoryTestId,
+  isScanning,
+  onRescan,
+  onRetry,
+  onToggle,
+  rowTestIdPrefix,
+  selectedIds,
+}: {
+  agents: readonly PolyphonicPresentationAgent[];
+  disabled: boolean;
+  inventoryTestId: string;
+  isScanning: boolean;
+  onRescan?: () => void;
+  onRetry?: (id: string) => void;
+  onToggle: (id: string) => void;
+  rowTestIdPrefix: string;
+  selectedIds: ReadonlySet<string>;
+}) {
+  const sources = new Set(agents.map((agent) => agent.source));
+  const scrolls = agents.length > 4;
+  return (
+    <section
+      aria-busy={isScanning}
+      aria-label="Discovered agents"
+      className={cn(
+        "min-h-0 border-t border-[var(--prototype-hairline)]",
+        // Four rows exactly (44px + hairline each), so the clip lands on a
+        // hairline and the fifth row is plainly "there is more".
+        scrolls &&
+          "max-h-[180px] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
+      )}
+      data-prototype-scroll-owner={scrolls ? "true" : undefined}
+      data-testid={inventoryTestId}
+      tabIndex={scrolls ? 0 : undefined}
+    >
+      {agents.map((agent) => {
+        const selected = selectedIds.has(agent.id);
+        const status = agent.status ?? "idle";
+        const importing = status === "importing";
+        const imported = status === "imported";
+        const needsAttention = status === "needs-attention";
+        // With one source on the Mac its name is noise; with two it is the
+        // difference between the rows.
+        const detail = importing
+          ? "Importing"
+          : imported
+            ? "Imported"
+            : sources.size > 1 &&
+                !agent.detail
+                  .toLocaleLowerCase()
+                  .startsWith(agent.source.toLocaleLowerCase())
+              ? `${agent.source} · ${agent.detail}`
+              : agent.detail;
+        return (
+          <div
+            className="flex items-center border-b border-[var(--prototype-hairline)]"
+            data-testid={`${rowTestIdPrefix}${agent.id}`}
+            key={agent.id}
+          >
+            <button
+              aria-describedby={`onboarding-agent-${agent.id}-detail`}
+              aria-pressed={selected}
+              className="group flex min-h-11 min-w-0 flex-1 items-center gap-3 px-1 py-2 text-left text-[var(--prototype-ink)] outline-none disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={disabled || importing || imported || agent.disabled}
+              onClick={() => onToggle(agent.id)}
+              type="button"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">{agent.name}</span>
+                <span
+                  className={cn(
+                    "block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]",
+                    needsAttention && "text-destructive",
+                  )}
+                  id={`onboarding-agent-${agent.id}-detail`}
+                >
+                  {detail}
+                </span>
+              </span>
+              {importing ? (
+                <LoaderCircle className="size-3.5 shrink-0 animate-spin text-[var(--prototype-muted)] motion-reduce:animate-none" />
+              ) : needsAttention ? (
+                <TriangleAlert className="size-3.5 shrink-0 text-destructive" />
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors",
+                    selected || imported
+                      ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
+                      : "border-[var(--prototype-hairline)] group-hover:border-[var(--prototype-muted)] group-focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)]",
+                  )}
+                >
+                  {selected || imported ? <Check className="size-3" /> : null}
+                </span>
+              )}
+            </button>
+            {needsAttention && onRetry ? (
+              <button
+                className="ml-2 min-h-8 rounded-[7px] px-2 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:text-[var(--prototype-ink)]"
+                disabled={disabled}
+                onClick={() => onRetry(agent.id)}
+                type="button"
+              >
+                Retry
+              </button>
+            ) : null}
+          </div>
+        );
+      })}
+      {isScanning && agents.length === 0 ? (
+        <p className="flex min-h-11 items-center gap-2 px-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
+          <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+          Looking for agents on this Mac…
+        </p>
+      ) : null}
+      {!isScanning && agents.length === 0 ? (
+        <p className="flex min-h-11 items-center gap-3 border-b border-[var(--prototype-hairline)] px-1 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
+          No agents found yet.
+          {onRescan ? (
+            <button
+              className="rounded-[4px] text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:text-[var(--prototype-ink)]"
+              disabled={disabled}
+              onClick={onRescan}
+              type="button"
+            >
+              Scan again
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </section>
   );
 }

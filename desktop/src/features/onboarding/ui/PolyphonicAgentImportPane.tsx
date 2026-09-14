@@ -26,6 +26,8 @@ export type PolyphonicAgentImportSourceOutcome = {
 
 export type PolyphonicAgentImportPaneProps = {
   candidates: readonly DiscoveredResidentCandidate[];
+  /** Plain rows while the list is short; see the selector. */
+  compact?: boolean;
   connectedAgents: readonly PolyphonicConnectedAgentSummary[];
   disabled?: boolean;
   isScanning: boolean;
@@ -68,6 +70,7 @@ function connectedSummary(
 
 export function PolyphonicAgentImportPane({
   candidates,
+  compact = false,
   connectedAgents,
   disabled = false,
   isScanning,
@@ -127,6 +130,7 @@ export function PolyphonicAgentImportPane({
       <div className="min-h-0 flex-1">
         <PolyphonicPresentationAgentSelector
           agents={agents}
+          compact={compact}
           disabled={disabled}
           isScanning={isScanning}
           onClear={onClear}
