@@ -18,6 +18,7 @@
      data-scan   raster sweep lift        (0 … .06)
      data-ink    base dot radius fraction (default .19)
      data-level  lit-letter brightness    (1 = full phosphor, .55 = the quiet band)
+     data-follow sign: "loop" names what the page's loop says is in the light (WP-14)
    Scene content, where the scene reads it:
      data-text   marquee / hold
      data-phrase sign            the fixed half, "ONE HOME FOR"
@@ -271,11 +272,17 @@
   };
   SIGN.SWAP = SIGN.ONSET + SIGN.JITTER + SIGN.RISE;   /* 700 */
   SIGN.SLOT = SIGN.HOLD + SIGN.SWAP;                  /* 3900 */
+  SIGN.SETTLED = SIGN.SWAP + SIGN.SETTLE;             /* 1000: one change, first frame to rest (WP-14) */
 
   function signState(cv) {
     return cv.__sign || (cv.__sign = {
       /* start past the first settle so the sign is simply ON at load */
-      clock: SIGN.SETTLE + SIGN.JITTER, at: null, pumped: false, steady: false, cols: 0, rows: 0
+      clock: SIGN.SETTLE + SIGN.JITTER, at: null, pumped: false, steady: false, cols: 0, rows: 0,
+      /* WP-14, data-follow="loop": the name leaving and the name up (indices into the names, -1 for none),
+         when on this clock the change began, a jitter seed per change, a change waiting for the one in
+         flight to settle, the name up as text, the glass last drawn on, and frames drawn */
+      follow: !!(cv.dataset && cv.dataset.follow === 'loop'),
+      from: -1, to: -1, t0: 0, gen: 0, queued: -1, name: '', q: null, frames: 0
     });
   }
 
@@ -332,10 +339,14 @@
     return { phrase, names, both, px: x0, nx: x0 + pw + SIGN.GUTTER * 6, y: Math.round((d.rows - 7) / 2) };
   }
 
-  function signWord(d, L, slot, clock) {
-    const n = L.names.length, name = L.names[((slot % n) + n) % n];
+  function signWord(d, L, slot, clock) { signWordAt(d, L, slot, clock - slot * SIGN.SLOT, slot); }
+
+  /* One name, tau ms into its own slot, with `seed` choosing its dot jitter. The cycle passes its slot as
+     both name and seed, so its picture is exactly what it was; WP-14's follow mode passes a name index and
+     a seed per change. */
+  function signWordAt(d, L, idx, tau, seed) {
+    const n = L.names.length, name = L.names[((idx % n) + n) % n];
     const ox = L.both ? L.nx : Math.round((d.cols - (name.length * 6 - 1)) / 2);
-    const tau = clock - slot * SIGN.SLOT;
     for (let k = 0; k < name.length; k++) {
       const g = (FONT[name[k]] || FONT[' ']).split(',');
       for (let r = 0; r < 7; r++) {
@@ -343,7 +354,7 @@
         for (let c = 0; c < 5; c++) {
           if (row[c] !== '1') continue;
           const x = ox + k * 6 + c, y = L.y + r;
-          const v = signLevel(tau, SIGN.JITTER * hash(x + 1, y + 1, slot + 1));
+          const v = signLevel(tau, SIGN.JITTER * hash(x + 1, y + 1, seed + 1));
           if (v > 0) d.set(x, y, v);
         }
       }
@@ -375,6 +386,7 @@
      do: on screen, tab visible, and either the page is playing or a
      change is still in flight. Everything else wakes it. */
   function signPump(it, isLive) {
+    if (signState(it.cv).follow) return followPump(it, isLive);   /* WP-14 */
     const d = it.d, cv = it.cv, st = signState(cv);
     let raf = 0, last = 0, dead = false;
     const inFlight = () => { const p = st.clock % SIGN.SLOT; return p >= SIGN.HOLD || p < SIGN.SETTLE; };
@@ -400,6 +412,88 @@
     return {
       wake,
       stop() { dead = true; st.pumped = false; cancelAnimationFrame(raf); mo.disconnect(); document.removeEventListener('visibilitychange', wake); }
+    };
+  }
+
+  /* ===================== THE SIGN READS THE LOOP (WP-14) =====================
+     With data-follow="loop" the sign stops keeping its own time. It names the
+     runtime the page's loop says is in the light (assets/site.js sends
+     polyphonic:loop-centre {index, runtime} once per change) and holds it until
+     the loop says otherwise: no HOLD, no cycle. A change is the one WP-07 plays
+     between two slots, clocked from the moment it is asked for: the name that
+     was up dims over DECAY, the new one starts ONSET in with each dot up to
+     JITTER late, rises over RISE to the .68 bloom and settles to .55 over
+     SETTLE, so a change takes SETTLED from its first frame to rest. A change
+     asked for while one is in flight waits for it to settle, then plays; only
+     the latest ask is kept. Two kinds of change are drawn at once instead of
+     played: the first name the sign ever shows (it is simply ON at load, as
+     WP-07's was), and any change while the page is paused or under reduced
+     motion, where the sign has no pump.                                       */
+  function followInFlight(st) { return st.to >= 0 && st.clock - st.t0 < SIGN.SETTLED; }
+
+  function followDraw(d, cv, st) {
+    if (!d.ok) return;
+    const fit = signFit(d, cv);
+    if (fit !== d.cell) { d.cell = fit; if (!d.resize()) return; }
+    const L = signLayout(d, cv), e = st.clock - st.t0;
+    d.clear();
+    if (L.both) d.text(L.phrase, L.px, L.y, SIGN.REST);
+    /* the name leaving is e into its dim; the one arriving is e into its change, which starts SWAP ahead
+       of its slot, and it holds at rest once it gets there */
+    if (st.from >= 0 && e < SIGN.DECAY) signWordAt(d, L, st.from, SIGN.HOLD + e, st.gen);
+    if (st.to >= 0) signWordAt(d, L, st.to, Math.min(e, SIGN.SETTLED) - SIGN.SWAP, st.gen + 1);
+    d.draw(st.clock);
+    st.cols = d.cols; st.rows = d.rows; st.q = d.q; st.frames++;
+  }
+
+  function followStart(st, names, idx) {
+    st.gen++; st.from = st.to; st.to = idx; st.t0 = st.clock; st.name = names[idx];
+  }
+
+  /* Ask the sign to name a runtime, spelled as the page spells it ("Claude Code"). A name the sign does
+     not carry is ignored. */
+  function followTo(it, runtime) {
+    const cv = it.cv, st = signState(cv), names = signWords(cv).names;
+    const idx = names.indexOf(String(runtime == null ? '' : runtime).trim().toUpperCase());
+    if (idx < 0) return;
+    if (st.to < 0 || !it.pump || document.documentElement.dataset.motion === 'paused') {
+      if (idx === st.to && st.queued < 0 && !followInFlight(st)) return;
+      st.gen += 2; st.from = -1; st.to = idx; st.queued = -1; st.t0 = st.clock - SIGN.SETTLED; st.name = names[idx];
+      followDraw(it.d, cv, st);
+      return;
+    }
+    if (followInFlight(st)) st.queued = idx;
+    else if (idx === st.to) return;
+    else { followStart(st, names, idx); st.at = performance.now(); }
+    it.pump.wake();
+  }
+
+  /* The follow mode's heartbeat. It is awake only while a change is in flight or waiting, on screen, in a
+     visible tab: a sign holding a name draws nothing and asks for no frames. */
+  function followPump(it, isLive) {
+    const d = it.d, cv = it.cv, st = signState(cv);
+    let raf = 0, last = 0, dead = false;
+    const busy = () => !dead && !document.hidden && isLive() && d.ok && (st.queued >= 0 || followInFlight(st));
+    const step = t => {
+      raf = 0;
+      if (!busy()) { st.at = null; last = 0; return; }
+      raf = requestAnimationFrame(step);
+      if (last && t - last < SIGN.FPS) return;
+      last = t;
+      if (st.at != null) st.clock += Math.max(0, Math.min(80, t - st.at));
+      st.at = t;
+      if (st.queued >= 0 && !followInFlight(st)) {
+        const next = st.queued; st.queued = -1;
+        if (next !== st.to) followStart(st, signWords(cv).names, next);
+      }
+      followDraw(d, cv, st);
+    };
+    const wake = () => { if (!dead && !raf) raf = requestAnimationFrame(step); };
+    st.pumped = true;
+    document.addEventListener('visibilitychange', wake);
+    return {
+      wake,
+      stop() { dead = true; st.pumped = false; cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', wake); }
     };
   }
 
@@ -535,6 +629,9 @@
        it never starts, and the settle frame stands.                     */
     sign(d, t, cv) {
       const st = signState(cv);
+      /* WP-14: a sign that follows the loop paints for a host only when its glass is bare: before its first
+         frame, and after a resize has handed it a new buffer. Its pump, or the event itself, draws every change. */
+      if (st.follow) { if (!(st.pumped && st.q === d.q)) followDraw(d, cv, st); return; }
       /* while the pump is running it owns every frame; a host loop calling in
          as well would only paint the same moment twice. The one thing it is
          still good for is the settle frame after a resize, when the glass is
@@ -779,6 +876,18 @@
        where the settle frame above is the whole of it. */
     if (!reduce) items.forEach(it => { if (it.fn.pump) it.pump = it.fn.pump(it, () => it.live); });
 
+    /* WP-14: a sign that follows the loop listens for it (under reduced motion too, where it has no pump
+       and every change is simply drawn), and asks once for the loop's current centre, in case the loop
+       spoke before this script was listening. The answer comes back on the reply callback, not as a
+       second announcement. */
+    const followers = items.filter(it => it.cv.dataset.scene === 'sign' && signState(it.cv).follow);
+    const follow = centre => followers.forEach(it => { try { followTo(it, centre && centre.runtime); } catch (err) { } });
+    const onCentre = e => follow(e.detail);
+    if (followers.length) {
+      global.addEventListener('polyphonic:loop-centre', onCentre);
+      global.dispatchEvent(new CustomEvent('polyphonic:loop-centre-request', { detail: { reply: follow } }));
+    }
+
     let rz, raf = 0;
     const onResize = () => { clearTimeout(rz); rz = setTimeout(settle, 140); };
     global.addEventListener('resize', onResize);
@@ -796,7 +905,7 @@
     }
     return {
       items, settle,
-      stop() { cancelAnimationFrame(raf); global.removeEventListener('resize', onResize); if (io) io.disconnect(); items.forEach(it => { if (it.pump) it.pump.stop(); }); }
+      stop() { cancelAnimationFrame(raf); global.removeEventListener('resize', onResize); global.removeEventListener('polyphonic:loop-centre', onCentre); if (io) io.disconnect(); items.forEach(it => { if (it.pump) it.pump.stop(); }); }
     };
   }
 

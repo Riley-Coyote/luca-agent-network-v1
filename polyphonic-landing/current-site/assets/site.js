@@ -95,6 +95,20 @@
   if(band&&track){
     const wins=[...track.querySelectorAll('.pw-window')], last=wins.map(()=>NaN);
     const wide=matchMedia('(min-width: 761px)');
+    /* WP-14: the sign reads the loop. The window in the light, the one with the smallest |d|, is announced
+       once per change as polyphonic:loop-centre {index, runtime} for assets/dot-display.js to name. The index
+       is taken mod the seven, because the track's second half is the aria-hidden duplicate. A new window
+       takes over only once it is the nearest and its |d| is under .5: at narrow desktop widths two windows
+       can straddle the centre both beyond .5, and the one already named holds until one of them crosses.
+       Nothing is announced while the loop is paused or off screen, because then it stops. A listener that
+       arrives after the first announcement asks with polyphonic:loop-centre-request {reply} and is answered on
+       that callback, so the announcement itself still happens once per change and never twice for one centre. */
+    const seven=track.querySelectorAll('.pw-half:not(.pw-half-dup) .pw-window').length||wins.length;
+    const runtimes=wins.map(w=>{const r=w.querySelector('.pw-runtime');return r?r.textContent.trim():''});
+    let centre=-1;
+    const current=()=>({index:centre,runtime:runtimes[centre]});
+    const announce=i=>{if(i<0||i===centre)return;centre=i;dispatchEvent(new CustomEvent('polyphonic:loop-centre',{detail:current()}))};
+    addEventListener('polyphonic:loop-centre-request',e=>{const reply=e.detail&&e.detail.reply;if(centre>=0&&typeof reply==='function')reply(current())});
     let anim=null, byRect=false, pitch=424, winW=400, span=2968, base=0;
     let rafId=0, grace=0, visible=true, active=false;
     const clock=()=>{ // the track's own translateX in px, read from the animation, never from layout
@@ -115,11 +129,14 @@
     };
     const update=()=>{
       const half=innerWidth/2, t=clock();
+      let near=-1, nd=.5; // WP-14: the nearest window, if one is under .5
       for(let i=0;i<wins.length;i++){
         const c=byRect?wins[i].getBoundingClientRect().left+winW/2:base+i*pitch+t+winW/2;
         let d=(c-half)/half; d=d<-1?-1:d>1?1:d;
         if(!(Math.abs(d-last[i])<5e-4)){last[i]=d;wins[i].style.setProperty('--d',d.toFixed(4))}
+        const a=d<0?-d:d; if(a<nd){nd=a;near=i}
       }
+      if(near>=0)announce(near%seven);
     };
     const paused=()=>anim?anim.playState==='paused':document.documentElement.dataset.motion==='paused';
     const depthFrame=()=>{
@@ -142,5 +159,27 @@
     ['pointerenter','pointerleave','focusin','focusout'].forEach(e=>band.addEventListener(e,kick));
     addEventListener('polyphonic:motion',kick);
     wide.addEventListener('change',sync);reduced.addEventListener('change',sync);sync();
+    /* WP-14: below 761px and under reduced motion the row is a snap scroller with no loop to read, so the sign
+       follows the window nearest the scroller's centre once scrolling settles: on scrollend where the browser
+       has it, else 120ms after the last scroll event, with one layout read per settle. */
+    let following=false, settleTimer=0;
+    const settle=()=>{
+      clearTimeout(settleTimer);settleTimer=0;
+      const box=band.getBoundingClientRect(), mid=box.left+band.clientLeft+band.clientWidth/2;
+      let near=-1, nd=Infinity;
+      for(let i=0;i<seven;i++){const r=wins[i].getBoundingClientRect();if(!r.width)continue;const a=Math.abs(r.left+r.width/2-mid);if(a<nd){nd=a;near=i}}
+      announce(near);
+    };
+    const later=()=>{clearTimeout(settleTimer);settleTimer=setTimeout(settle,120)};
+    const settleOn='onscrollend' in window?'scrollend':'scroll', onSettle=settleOn==='scrollend'?settle:later;
+    const follow=()=>{
+      const on=!(wide.matches&&!reduced.matches);
+      if(on===following)return;
+      following=on;
+      if(on){band.addEventListener(settleOn,onSettle,{passive:true});settle()}
+      else{band.removeEventListener(settleOn,onSettle);clearTimeout(settleTimer)}
+    };
+    addEventListener('resize',()=>{if(following)later()},{passive:true});
+    wide.addEventListener('change',follow);reduced.addEventListener('change',follow);follow();
   }
 })();

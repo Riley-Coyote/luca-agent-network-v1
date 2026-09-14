@@ -18,6 +18,23 @@ const worksGone=await page.evaluate(()=>!document.getElementById('works')&&!docu
 assert.equal(worksGone,true);
 assert.ok(await page.locator('#agents').count());
 out.checks.push('Elevation: early sign/integration band removed; #agents remains');
+/* WP-14: the sign is back, as the loop's display: straight above the windows, a silent canvas that follows the loop, one
+   static sentence, no live region. (The early #works band checked just above stays gone; this one has its own class.)
+   Under the reduced motion emulated above the row is a snap scroller, so the sign follows that instead: bring each window
+   to the middle in turn and, once scrolling settles, the sign names the runtime of the window nearest the scroller's centre. */
+const sign=await page.evaluate(async()=>{
+  const s=document.querySelector('.loop-sign'),cv=s.querySelector('canvas'),b=document.querySelector('.pw-band'),w=[...document.querySelectorAll('.pw-half:not(.pw-half-dup) .pw-window')],seen=[];
+  const mid=()=>{const r=b.getBoundingClientRect();return r.left+b.clientLeft+b.clientWidth/2};
+  for(const el of w){const r=el.getBoundingClientRect();b.scrollBy({left:r.left+r.width/2-mid(),behavior:'instant'});await new Promise(res=>setTimeout(res,400));
+    let near=null,nd=1e9;for(const x of w){const q=x.getBoundingClientRect(),a=Math.abs(q.left+q.width/2-mid());if(a<nd){nd=a;near=x}}
+    seen.push([near.querySelector('.pw-runtime').textContent.trim().toUpperCase(),cv.__sign?cv.__sign.name:null])}
+  b.scrollTo({left:0,behavior:'instant'});
+  return{next:s.nextElementSibling===b,scene:cv.dataset.scene,follow:cv.dataset.follow,hidden:cv.getAttribute('aria-hidden'),said:s.querySelector('.sr-only').textContent,live:s.querySelectorAll('[aria-live],[role=status],[role=log],[role=alert],[role=marquee],[role=timer]').length+(s.hasAttribute('aria-live')?1:0),h:Math.round(s.getBoundingClientRect().height),seen};
+});
+assert.equal(sign.next,true);assert.equal(sign.scene,'sign');assert.equal(sign.follow,'loop');assert.equal(sign.hidden,'true');assert.equal(sign.live,0);assert.equal(sign.h,64);
+assert.equal(sign.said,'One home for Claude Code, Codex, Kimi Code, Grok, Hermes and OpenClaw.');
+for(const [runtime,named] of sign.seen)assert.equal(named,runtime);
+out.checks.push(`Sign: silent canvas straight above the windows, one static sentence, follows the scroller (${sign.seen.map(x=>x[1]).join(' · ')})`);
 /* WP-narrative: sovereignty now, Mnemos, horizon future — #how brochure removed. */
 const narrative=await page.evaluate(()=>{
   const sov=document.getElementById('sovereignty');

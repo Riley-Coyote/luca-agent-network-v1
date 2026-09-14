@@ -499,3 +499,14 @@ canvas[data-scene=touch]{opacity:.28}
 
 /* The footer's brand word is chrome, like the nav's. */
 .footer>span:first-child>span{font-family:var(--chrome)}
+
+/* ── WP-14 · the sign reads the loop (14 Sep 2026) ───────────────────────────
+   WP-07's dot-matrix sign returns as the loop's display: full-bleed, straight above the seven windows, naming
+   the runtime of the window in the light (assets/site.js announces it, assets/dot-display.js draws it). Box,
+   floor and height are the WP-07 band's: 64px, 56px at phone width. It sits 48px under the intro and 24px over
+   the windows' top edge, so the sign and the row read as one instrument: the band keeps its own top padding
+   (14px, 10px on a phone) and its margin carries the rest. Nothing in the sign moves sideways. */
+.loop-sign{position:relative;height:64px;margin-top:48px;overflow:hidden;background:var(--bg)}
+.loop-sign+.pw-band{margin-top:10px}
+@media(max-width:760px){.loop-sign{height:56px}.loop-sign+.pw-band{margin-top:14px}}
+@media print{.loop-sign{display:none!important}}
