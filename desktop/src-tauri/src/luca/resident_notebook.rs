@@ -48,6 +48,7 @@ pub(crate) enum ResidentMetabolismCommitOutcomeV1 {
     Committed(ResidentMetabolismCommitReceiptV1),
     Locked,
     Unavailable,
+    CapacityExceeded,
     Stale,
     Invalid,
 }
@@ -287,6 +288,10 @@ pub(crate) fn commit_resident_metabolism(
         }
         Err(ContinuityStoreError::CompareAndSwapConflict)
         | Err(ContinuityStoreError::LifecycleConflict) => ResidentMetabolismCommitOutcomeV1::Stale,
+        Err(ContinuityStoreError::SnapshotBoundExceeded) => {
+            ResidentMetabolismCommitOutcomeV1::CapacityExceeded
+        }
+        Err(ContinuityStoreError::Unavailable) => ResidentMetabolismCommitOutcomeV1::Unavailable,
         Err(_) => ResidentMetabolismCommitOutcomeV1::Invalid,
     }
 }

@@ -463,6 +463,9 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
                 ResidentMetabolismCommitOutcomeV1::Invalid => {
                     let _ = fail_job(app, &job, INVALID_HANDOFF_RESULT, false);
                 }
+                ResidentMetabolismCommitOutcomeV1::CapacityExceeded => {
+                    let _ = fail_job(app, &job, "continuity_capacity_exhausted", false);
+                }
             }
         }
         LocalContinuityCognitionOutcomeV1::Changes { .. } => {

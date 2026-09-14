@@ -67,8 +67,20 @@ export function handoffJobLabel(
   if (!data) return "Job status unavailable";
   const state = data?.job?.state;
   if (state === "pending" || state === "running") return "Saving handoff";
-  if (state === "failed") return "Save failed";
+  if (state === "failed") {
+    return data.job?.lastErrorCode === "continuity_capacity_exhausted"
+      ? "Storage limit reached"
+      : "Save failed";
+  }
   if (state === "completed") return "Latest save completed";
   if (state === "cancelled") return "Save cancelled";
   return "No save job";
+}
+
+export function handoffFailureDetail(
+  data: ResidentContinuityInspector | null,
+): string {
+  return data?.job?.lastErrorCode === "continuity_capacity_exhausted"
+    ? "Continuity has reached its storage limit. Saved memories are intact, but this handoff could not be saved. Messaging still works."
+    : "The latest handoff save failed. Messaging still works.";
 }

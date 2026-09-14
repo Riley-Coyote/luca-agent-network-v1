@@ -44,6 +44,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { cn } from "@/shared/lib/cn";
 import { ResidentNotebookPanel } from "@/features/profile/ui/notebook/ResidentNotebookPanel";
 import {
+  handoffFailureDetail,
   handoffJobLabel,
   savedHandoffPresentation,
 } from "./continuityPresentation";
@@ -410,7 +411,7 @@ function ContinuityStatus({
       </p>
       {job?.state === "failed" ? (
         <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
-          The latest handoff save failed. Messaging still works.
+          {handoffFailureDetail(data)}
         </p>
       ) : null}
     </div>

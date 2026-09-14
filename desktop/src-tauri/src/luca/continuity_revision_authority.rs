@@ -1200,6 +1200,7 @@ fn map_continuity_error(error: luca_continuity::ContinuityError) -> ContinuitySt
         E::LifecycleConflict | E::PinnedOwnerCorrection => ContinuityStoreError::LifecycleConflict,
         E::ReplayConflict | E::IdempotencyConflict => ContinuityStoreError::ReplayConflict,
         E::RevisionConflict => ContinuityStoreError::CompareAndSwapConflict,
+        E::RevisionCapacityExceeded => ContinuityStoreError::SnapshotBoundExceeded,
         _ => ContinuityStoreError::InvalidRecord,
     }
 }

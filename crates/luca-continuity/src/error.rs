@@ -35,6 +35,8 @@ pub enum ContinuityError {
     CorruptRecord,
     /// A revision request was incomplete or did not match its operation.
     InvalidRevisionRequest,
+    /// A new lineage or its encrypted record exceeded the bounded ledger capacity.
+    RevisionCapacityExceeded,
     /// A revision successor did not bind to the exact current lineage head.
     RevisionConflict,
     /// The requested operation is not allowed in the lineage lifecycle state.
@@ -84,6 +86,7 @@ impl fmt::Display for ContinuityError {
             Self::ReplayConflict => "continuity record replay conflict",
             Self::CorruptRecord => "corrupt continuity record isolated",
             Self::InvalidRevisionRequest => "invalid continuity revision request",
+            Self::RevisionCapacityExceeded => "continuity revision capacity exceeded",
             Self::RevisionConflict => "continuity revision does not match the current lineage",
             Self::LifecycleConflict => "continuity lifecycle does not allow this operation",
             Self::PinnedOwnerCorrection => {

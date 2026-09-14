@@ -7,8 +7,8 @@
 use crate::{envelope::validate_envelope, ContinuityError};
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use luca_protocol::{
-    canonicalize, ContinuityNamespaceV1, ContinuityRecordV1, ContinuityScopeV1, OpaqueId, SafeU53,
-    Sha256Ref,
+    canonicalize, ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityRecordV1,
+    ContinuityScopeV1, OpaqueId, SafeU53, Sha256Ref,
 };
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -30,8 +30,13 @@ const ENVELOPE_REPLACEMENT_DIGEST_DOMAIN_V1: &str =
 
 /// Schema version of the body-free revision-authority projection.
 pub const REVISION_AUTHORITY_SCHEMA_V1: u16 = 1;
+/// Original owner-wide head capacity before the resident-private reserve.
+const MAX_NON_RESIDENT_REVISION_HEADS: usize = 4_096;
+/// Heads above the original capacity reserved for resident-private notebooks.
+const RESIDENT_PRIVATE_HEAD_RESERVE: usize = 512;
 /// Maximum lineage-authority rows returned by one deterministic projection.
-pub const MAX_REVISION_AUTHORITY_HEADS: usize = 4_096;
+pub const MAX_REVISION_AUTHORITY_HEADS: usize =
+    MAX_NON_RESIDENT_REVISION_HEADS + RESIDENT_PRIVATE_HEAD_RESERVE;
 /// Maximum derived-artifact references retained by one lineage.
 pub const MAX_DERIVED_ARTIFACTS_PER_LINEAGE: usize = 256;
 /// Maximum derived-artifact references retained by one complete ledger.
@@ -1764,14 +1769,19 @@ impl RevisionLedger {
         {
             return Err(ContinuityError::RevisionConflict);
         }
-        if self.lineages.len() >= MAX_REVISION_AUTHORITY_HEADS
+        let head_limit = if successor.namespace.kind == ContinuityNamespaceKindV1::ResidentPrivate {
+            MAX_REVISION_AUTHORITY_HEADS
+        } else {
+            MAX_NON_RESIDENT_REVISION_HEADS
+        };
+        if self.lineages.len() >= head_limit
             || self.records.len() >= MAX_REVISION_SNAPSHOT_RECORDS
             || self
                 .encoded_ciphertext_bytes()
                 .checked_add(successor.ciphertext_b64.len())
                 .is_none_or(|bytes| bytes > MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES)
         {
-            return Err(ContinuityError::InvalidRevisionRequest);
+            return Err(ContinuityError::RevisionCapacityExceeded);
         }
         DurableContinuityRecordKind::parse(&successor.record_type)?;
         self.require_unique_namespace_nonce(successor)?;
@@ -1826,7 +1836,7 @@ impl RevisionLedger {
                 .checked_add(successor.ciphertext_b64.len())
                 .is_none_or(|bytes| bytes > MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES)
         {
-            return Err(ContinuityError::InvalidRevisionRequest);
+            return Err(ContinuityError::RevisionCapacityExceeded);
         }
         if request.expected_head_record_id.as_ref() != Some(&lineage.head_record_id) {
             return Err(ContinuityError::RevisionConflict);
@@ -2979,7 +2989,13 @@ mod tests {
     }
 
     fn initial_record(record_id: &str) -> ContinuityRecordV1 {
-        let namespace = namespace();
+        initial_record_in_namespace(record_id, namespace())
+    }
+
+    fn initial_record_in_namespace(
+        record_id: &str,
+        namespace: ContinuityNamespaceV1,
+    ) -> ContinuityRecordV1 {
         encrypt_record(
             RecordMetadata {
                 protocol: CONTINUITY_PROTOCOL.into(),
@@ -3045,6 +3061,23 @@ mod tests {
             .unwrap();
     }
 
+    fn owner_brain_create_request(root: &str) -> RevisionRequest {
+        let mut owner_namespace = namespace();
+        owner_namespace.kind = ContinuityNamespaceKindV1::OwnerBrain;
+        owner_namespace.resident_pubkey = None;
+        let successor = initial_record_in_namespace(root, owner_namespace.clone());
+        let mut request = lifecycle_request(RevisionOperation::Create, root, Some(successor));
+        request.idempotency_key = derive_revision_idempotency_key(
+            &owner_namespace,
+            &scope(&owner_namespace),
+            &opaque("hypomnema"),
+            SafeU53::new(1).unwrap(),
+            &request,
+        )
+        .unwrap();
+        request
+    }
+
     #[test]
     fn active_heads_are_deterministic_and_preserve_body_free_authority() {
         let mut ledger = RevisionLedger::default();
@@ -3103,32 +3136,91 @@ mod tests {
     }
 
     #[test]
-    fn public_create_rejects_lineage_overflow_without_mutation() {
+    fn resident_private_reserve_admits_only_resident_creates() {
+        let mut below_limit = RevisionLedger::default();
+        assert!(below_limit
+            .apply(owner_brain_create_request("brain-below-limit"))
+            .is_ok());
+
+        let mut ledger = RevisionLedger::default();
+        // Seed only body-free lineage count; admission does not need thousands
+        // of encrypted fixture records to exercise its exact boundaries.
+        for index in 0..MAX_NON_RESIDENT_REVISION_HEADS {
+            let root = format!("root-{index:04}");
+            let head = format!("head-{index:04}");
+            ledger.lineages.insert(
+                root.clone(),
+                lineage(&root, &head, RevisionLifecycle::Active, false, 'a'),
+            );
+        }
+        let record_count = ledger.records.len();
+        let idempotency_count = ledger.idempotency.len();
+        assert_eq!(
+            ledger.apply(owner_brain_create_request("brain-overflow")),
+            Err(ContinuityError::RevisionCapacityExceeded)
+        );
+        assert_eq!(ledger.lineages.len(), MAX_NON_RESIDENT_REVISION_HEADS);
+        assert_eq!(ledger.records.len(), record_count);
+        assert_eq!(ledger.idempotency.len(), idempotency_count);
+
+        let resident_create = lifecycle_request(
+            RevisionOperation::Create,
+            "resident-reserved",
+            Some(initial_record("resident-reserved")),
+        );
+        assert!(ledger.apply(resident_create).is_ok());
+        assert_eq!(ledger.lineages.len(), MAX_NON_RESIDENT_REVISION_HEADS + 1);
+    }
+
+    #[test]
+    fn resident_create_rejects_total_overflow_without_mutation() {
         let mut ledger = RevisionLedger::default();
         for index in 0..MAX_REVISION_AUTHORITY_HEADS {
             let root = format!("root-{index:04}");
-            create_lineage(&mut ledger, &root);
+            let head = format!("head-{index:04}");
+            ledger.lineages.insert(
+                root.clone(),
+                lineage(&root, &head, RevisionLifecycle::Active, false, 'a'),
+            );
         }
         let record_count = ledger.records.len();
         let idempotency_count = ledger.idempotency.len();
         let overflow = lifecycle_request(
             RevisionOperation::Create,
-            "root-overflow",
-            Some(initial_record("root-overflow")),
+            "resident-overflow",
+            Some(initial_record("resident-overflow")),
         );
-
         assert_eq!(
             ledger.apply(overflow),
-            Err(ContinuityError::InvalidRevisionRequest)
+            Err(ContinuityError::RevisionCapacityExceeded)
         );
         assert_eq!(ledger.records.len(), record_count);
         assert_eq!(ledger.idempotency.len(), idempotency_count);
         assert_eq!(ledger.lineages.len(), MAX_REVISION_AUTHORITY_HEADS);
-        assert_eq!(
-            ledger.active_heads().unwrap().len(),
-            MAX_REVISION_AUTHORITY_HEADS
-        );
-        assert_eq!(ledger.lifecycle(&opaque("root-overflow")), None);
+        assert_eq!(ledger.lifecycle(&opaque("resident-overflow")), None);
+    }
+
+    #[test]
+    fn snapshot_lineage_decoder_accepts_the_resident_reserve() {
+        #[derive(Deserialize)]
+        struct LineageProjection {
+            #[serde(deserialize_with = "deserialize_snapshot_lineages")]
+            lineages: Vec<RevisionLineageSnapshotV1>,
+        }
+
+        let mut ledger = RevisionLedger::default();
+        create_lineage(&mut ledger, "fixture-root");
+        let fixture = ledger.export_snapshot().unwrap().lineages[0].clone();
+        let at_limit = serde_json::json!({
+            "lineages": vec![fixture.clone(); MAX_REVISION_AUTHORITY_HEADS]
+        });
+        let decoded: LineageProjection = serde_json::from_value(at_limit).unwrap();
+        assert_eq!(decoded.lineages.len(), MAX_REVISION_AUTHORITY_HEADS);
+
+        let over_limit = serde_json::json!({
+            "lineages": vec![fixture; MAX_REVISION_AUTHORITY_HEADS + 1]
+        });
+        assert!(serde_json::from_value::<LineageProjection>(over_limit).is_err());
     }
 
     #[test]

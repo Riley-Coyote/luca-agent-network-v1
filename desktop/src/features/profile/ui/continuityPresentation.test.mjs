@@ -2,9 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  handoffFailureDetail,
   handoffJobLabel,
   savedHandoffPresentation,
 } from "./continuityPresentation.ts";
+
+test("capacity failures are distinct from invalid handoffs", () => {
+  const data = inspector({
+    job: { state: "failed", lastErrorCode: "continuity_capacity_exhausted" },
+  });
+  assert.equal(handoffJobLabel(data), "Storage limit reached");
+  assert.match(handoffFailureDetail(data), /Saved memories are intact/);
+  assert.doesNotMatch(handoffFailureDetail(data), /invalid|authenticated/);
+});
 
 function inspector(overrides = {}) {
   return {
