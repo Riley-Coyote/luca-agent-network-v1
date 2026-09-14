@@ -917,6 +917,15 @@ fn refresh_skill_md_writes_version_file() {
 }
 
 #[test]
+fn first_meeting_guide_preserves_consent_and_runtime_authorship() {
+    assert!(BUZZ_CLI_SKILL_MD.contains("real runtime-authored conversation"));
+    assert!(BUZZ_CLI_SKILL_MD.contains("Wait for acceptance"));
+    assert!(BUZZ_CLI_SKILL_MD.contains("does not approve permissions"));
+    assert!(BUZZ_CLI_SKILL_MD.contains("not two-way native-chat synchronization"));
+    assert!(!BUZZ_CLI_SKILL_MD.contains("Do not deliver a setup checklist or tour unless asked."));
+}
+
+#[test]
 fn refresh_agents_md_preserves_managed_section() {
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join(".buzz");
