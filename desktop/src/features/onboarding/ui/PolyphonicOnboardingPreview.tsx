@@ -18,7 +18,6 @@ export type PolyphonicOnboardingPreviewStage =
   | "threshold"
   | "prototype"
   | "you"
-  | "brain"
   | "ready"
   | PolyphonicOnboardingChapter;
 
@@ -47,26 +46,30 @@ export function readPolyphonicOnboardingPreviewStage(): PolyphonicOnboardingPrev
 }
 
 function prepareProductionFlow(
-  stage: Exclude<
-    PolyphonicOnboardingPreviewStage,
-    "threshold" | "prototype" | "v2"
-  >,
+  stage: Exclude<PolyphonicOnboardingPreviewStage, "threshold" | "prototype">,
 ) {
   const chapter: PolyphonicOnboardingChapter =
-    stage === "you"
-      ? "welcome"
-      : stage === "brain" || stage === "ready"
-        ? "runtime"
-        : stage;
+    stage === "you" ? "welcome" : stage === "ready" ? "preparing" : stage;
+  const reached = (of: PolyphonicOnboardingChapter) =>
+    ORDER.indexOf(chapter) > ORDER.indexOf(of);
   clearPolyphonicOnboardingTransaction(PREVIEW_PUBKEY);
   savePolyphonicOnboardingTransaction({
     ...createPolyphonicOnboardingTransaction(PREVIEW_PUBKEY),
     chapter,
-    profileSaved: chapter !== "welcome",
-    runtimeConfirmed: chapter !== "welcome" && chapter !== "runtime",
-    agentsReviewed: chapter === "preparing",
+    profileSaved: reached("welcome"),
+    runtimeConfirmed: reached("runtime"),
+    agentsReviewed: reached("agents"),
+    brainReviewed: reached("brain"),
   });
 }
+
+const ORDER: PolyphonicOnboardingChapter[] = [
+  "welcome",
+  "runtime",
+  "agents",
+  "brain",
+  "preparing",
+];
 
 /**
  * Development-only onboarding lab. It supplies deterministic mock lifecycle

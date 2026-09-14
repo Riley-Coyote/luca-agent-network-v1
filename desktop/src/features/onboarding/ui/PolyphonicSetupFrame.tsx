@@ -19,16 +19,15 @@ import {
   PolyphonicPresentationHeading,
 } from "./PolyphonicOnboardingPresentation";
 
-const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
-
 /**
  * The setup card: a living visual on the left, the interaction on the right.
  *
- * The visual is the same field that grew on the door — it is drawn by
- * PolyphonicOnboardingFieldLayer, not here; this frame only publishes where
- * its pane is. The doorway remains dark. Once the card is present, it reflects the
- * appearance the owner chooses so setup and the application open as one
- * continuous surface.
+ * The card itself — the shell, the pane, the field and the mark — is the same
+ * object that was on the door, drawn by PolyphonicOnboardingFieldLayer. This
+ * frame contributes only the column content on a transparent frame of exactly
+ * that geometry, and publishes where the pane is. The doorway remains dark;
+ * once the card is present it reflects the appearance the owner chooses so
+ * setup and the application are one continuous surface.
  */
 export function PolyphonicSetupFrame({
   backDisabled = false,
@@ -84,34 +83,23 @@ export function PolyphonicSetupFrame({
       <p aria-live="polite" className="sr-only" role="status">
         {stage === "preparing" ? "Getting Luca ready" : "Polyphonic setup"}
       </p>
-      <div className="absolute inset-0 flex items-center justify-center p-4">
-        <motion.section
-          animate={{ opacity: 1 }}
+      <div className="absolute inset-0 grid place-items-center">
+        <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          className="relative grid overflow-hidden rounded-[15px] border border-[var(--prototype-hairline)] bg-[var(--prototype-raised)] shadow-[inset_0_1px_0_var(--prototype-hairline-soft),0_1px_2px_rgb(0_0_0/0.08),0_22px_64px_var(--prototype-shadow)]"
+          // Transparent: the shell, the pane's recess and its hairline are
+          // drawn by the layer beneath this content, so the card is never
+          // built twice and never has to materialise.
+          className="relative z-[45] grid border border-transparent"
           data-testid="polyphonic-setup-assistant"
-          initial={reduceMotion ? false : { opacity: 0 }}
           style={polyphonicCardFrameStyle}
-          transition={{ duration: reduceMotion ? 0 : 0.16, ease: EASE }}
         >
-          {/* visual pane: the field lives here, drawn by the layer above. */}
+          {/* visual pane: the field lives here, drawn by the layer. */}
           <div
-            className="relative border-r border-[var(--prototype-hairline)] bg-[var(--prototype-recessed)]"
+            aria-hidden
+            className="relative"
             data-testid="polyphonic-setup-pane"
             ref={paneRef}
-          >
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background:
-                  "radial-gradient(60% 55% at 50% 50%, rgb(255 255 255 / 0.028), transparent 70%)",
-              }}
-            />
-            <span className="absolute bottom-5 left-6 text-sm font-medium tracking-[-0.01em] text-[var(--prototype-ink)]">
-              Polyphonic
-            </span>
-          </div>
+          />
 
           {/* interaction column */}
           <form
@@ -159,8 +147,10 @@ export function PolyphonicSetupFrame({
             <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4 px-9">
               {showFooter ? (
                 <>
+                  {/* Focus is the element's own border coming up, in place:
+                      no second ring floating beside the thing it describes. */}
                   <Button
-                    className="h-9 rounded-[7px] px-1 text-[length:var(--prototype-support-size)] font-normal text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+                    className="h-9 rounded-[7px] border border-transparent px-1 text-[length:var(--prototype-support-size)] font-normal text-[var(--prototype-muted)] outline-none hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)] focus-visible:outline-none"
                     disabled={backDisabled}
                     onClick={onBack}
                     type="button"
@@ -171,7 +161,7 @@ export function PolyphonicSetupFrame({
                   <div className="flex items-center gap-4">
                     {footerSecondary}
                     <Button
-                      className="min-h-9 min-w-24 rounded-[9px] bg-[var(--prototype-accent)] px-4 py-2 text-[length:var(--prototype-support-size)] font-semibold text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] transition-[background-color,box-shadow,opacity] duration-[80ms] hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+                      className="min-h-9 min-w-24 rounded-[9px] border border-[var(--prototype-accent)] bg-[var(--prototype-accent)] px-4 py-2 text-[length:var(--prototype-support-size)] font-medium text-[var(--prototype-accent-ink)] shadow-[0_1px_2px_var(--prototype-shadow)] outline-none transition-[background-color,border-color,opacity] duration-[80ms] hover:opacity-90 focus-visible:border-[var(--prototype-ink)] focus-visible:outline-none"
                       data-testid="polyphonic-setup-continue"
                       disabled={continueDisabled}
                       type="submit"
@@ -183,7 +173,7 @@ export function PolyphonicSetupFrame({
               ) : null}
             </footer>
           </form>
-        </motion.section>
+        </section>
       </div>
     </div>
   );
@@ -194,8 +184,9 @@ export function PolyphonicStepHeading({
   stage,
   title,
 }: {
-  description: string;
-  stage: PolyphonicOnboardingChapter | "you" | "brain" | "ready";
+  /** Omitted where the heading is the whole sentence. */
+  description?: string;
+  stage: PolyphonicOnboardingChapter | "you" | "ready";
   title: string;
 }) {
   const headingRef = useRef<HTMLHeadingElement>(null);

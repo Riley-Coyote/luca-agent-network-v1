@@ -1,11 +1,5 @@
 import * as React from "react";
 import { useUpdateProfileMutation } from "@/features/profile/hooks";
-import { useTheme } from "@/shared/theme/ThemeProvider";
-import {
-  DEFAULT_THEME_NAME,
-  isLightTheme,
-  PAPER_THEME_NAME,
-} from "@/shared/theme/theme-loader";
 import {
   clearPendingPolyphonicProfile,
   savePendingPolyphonicProfile,
@@ -14,42 +8,32 @@ import {
   PolyphonicNotice,
   PolyphonicStepHeading,
 } from "./PolyphonicSetupFrame";
-import { PolyphonicPresentationAppearanceControl } from "./PolyphonicOnboardingPresentation";
 
 export type PolyphonicYouStepHandle = {
   commit: () => Promise<{ displayName: string; needsAttention: boolean }>;
 };
 
-type Appearance = "system" | "light" | "dark";
-
+/**
+ * The first question, and the only one on this screen. Appearance is not asked
+ * for here any more — it is a preference the owner can find later, and the
+ * first thing Polyphonic says should be one thing, not two.
+ * PolyphonicPresentationAppearanceControl still exists for the places that do
+ * offer it.
+ */
 export const PolyphonicYouStep = React.forwardRef<
   PolyphonicYouStepHandle,
   {
-    /** Show surface swatches on the appearance control (see the control). */
-    appearanceSwatches?: boolean;
     displayName: string;
     onBusyChange: (busy: boolean) => void;
     onDisplayNameChange: (value: string) => void;
     pubkey: string;
   }
 >(function PolyphonicYouStep(
-  {
-    appearanceSwatches = false,
-    displayName,
-    onBusyChange,
-    onDisplayNameChange,
-    pubkey,
-  },
+  { displayName, onBusyChange, onDisplayNameChange, pubkey },
   ref,
 ) {
   const updateProfile = useUpdateProfileMutation();
-  const theme = useTheme();
   const [syncNotice, setSyncNotice] = React.useState<string | null>(null);
-  const appearance: Appearance = theme.followSystem
-    ? "system"
-    : isLightTheme(theme.themeName)
-      ? "light"
-      : "dark";
 
   const commit = React.useCallback(async () => {
     const name = displayName.trim();
@@ -73,34 +57,24 @@ export const PolyphonicYouStep = React.forwardRef<
 
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
-  function chooseAppearance(next: Appearance) {
-    if (next === "system") {
-      theme.setTheme(DEFAULT_THEME_NAME);
-      theme.setFollowSystem(true);
-      return;
-    }
-    theme.setFollowSystem(false);
-    theme.setTheme(next === "dark" ? DEFAULT_THEME_NAME : PAPER_THEME_NAME);
-  }
-
   return (
     <div
       className="h-full overflow-y-auto overscroll-contain"
       data-prototype-scroll-owner="true"
     >
       <PolyphonicStepHeading
-        description="Polyphonic is one calm place to talk with the AI agents already on your Mac. Luca lives here, and helps you set up the rest as you go."
+        description="Luca lives here and helps you set up the rest as you go. This is the one thing it needs first."
         stage="welcome"
-        title="Bring your agents together."
+        title="What should Luca call you?"
       />
       <div className="mt-7 grid gap-5">
         <label className="grid gap-2" htmlFor="polyphonic-owner-name">
           <span className="text-xs font-medium text-[var(--prototype-muted-strong)]">
-            What should Luca call you?
+            Your name
           </span>
           <input
             autoComplete="name"
-            className="min-h-10 rounded-[9px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-2 text-sm text-[var(--prototype-ink)] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_35%,transparent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            className="min-h-10 max-w-[24rem] rounded-[9px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3 py-2 text-sm text-[var(--prototype-ink)] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none transition-colors duration-150 placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)] focus-visible:outline-none"
             data-testid="polyphonic-owner-name"
             id="polyphonic-owner-name"
             maxLength={80}
@@ -109,12 +83,10 @@ export const PolyphonicYouStep = React.forwardRef<
             value={displayName}
           />
         </label>
-        <PolyphonicPresentationAppearanceControl
-          appearance={appearance}
-          onChange={chooseAppearance}
-          swatches={appearanceSwatches}
-        />
       </div>
+      <p className="mt-3.5 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+        Saved on this Mac. Nothing leaves it.
+      </p>
       {syncNotice ? <PolyphonicNotice>{syncNotice}</PolyphonicNotice> : null}
     </div>
   );

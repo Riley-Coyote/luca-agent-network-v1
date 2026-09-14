@@ -202,9 +202,9 @@ export const PolyphonicBrainStep = React.forwardRef<
   return (
     <>
       <PolyphonicStepHeading
-        description="Connect the places where your work already lives. Originals stay where they are, and you decide exactly what is included."
+        description="So the first thing Luca says to you is true."
         stage="brain"
-        title="Connect your work"
+        title="What should Luca read?"
       />
       {loading ? (
         <p
@@ -358,12 +358,10 @@ export const PolyphonicBrainStep = React.forwardRef<
           {error.replaceAll("-", " ")}
         </PolyphonicNotice>
       ) : null}
-      <p className="mt-3 flex items-start gap-2.5 text-xs leading-5 text-white/38">
-        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/34" />
+      <p className="mt-3 flex items-start gap-2.5 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+        <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-70" />
         <span>
-          Luca keeps a private local index. Residents may send only relevant
-          excerpts to their configured models. Edits and commands always ask
-          first.
+          Luca keeps a private index here. Your originals stay where they are.
         </span>
       </p>
 

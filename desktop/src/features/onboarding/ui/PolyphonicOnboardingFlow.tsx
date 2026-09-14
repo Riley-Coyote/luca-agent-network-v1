@@ -1,6 +1,5 @@
 import * as React from "react";
 import { rememberLastConversation } from "@/app/navigation/lastConversation";
-import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 
 import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
 import { setPolyphonicOnboardingStatus } from "@/shared/api/residentCapabilities";
@@ -13,6 +12,14 @@ import {
 } from "../polyphonicOnboardingState";
 import { setPolyphonicScene } from "../polyphonicOnboardingScene";
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
+import {
+  PolyphonicAgentsStep,
+  type PolyphonicAgentsStepHandle,
+} from "./PolyphonicAgentsStep";
+import {
+  PolyphonicBrainStep,
+  type PolyphonicBrainStepHandle,
+} from "./PolyphonicBrainStep";
 import { PolyphonicPreparingStep } from "./PolyphonicPreparingStep";
 import {
   PolyphonicRuntimeStep,
@@ -24,6 +31,14 @@ import {
   type PolyphonicYouStepHandle,
 } from "./PolyphonicYouStep";
 
+/** The four questions, in order, then the reading. */
+const CHAPTERS: PolyphonicOnboardingChapter[] = [
+  "welcome",
+  "runtime",
+  "agents",
+  "brain",
+];
+
 const previousChapter: Record<
   PolyphonicOnboardingChapter,
   PolyphonicOnboardingChapter
@@ -31,7 +46,8 @@ const previousChapter: Record<
   welcome: "welcome",
   runtime: "welcome",
   agents: "runtime",
-  preparing: "runtime",
+  brain: "agents",
+  preparing: "brain",
 };
 
 export function PolyphonicOnboardingFlow({
@@ -64,12 +80,22 @@ export function PolyphonicOnboardingFlow({
   const [busy, setBusy] = React.useState(false);
   const continuingRef = React.useRef(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
+  const [agentsContinueLabel, setAgentsContinueLabel] =
+    React.useState("Continue");
   const [error, setError] = React.useState<string | null>(null);
   const youRef = React.useRef<PolyphonicYouStepHandle>(null);
   const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
+  const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
+  const brainRef = React.useRef<PolyphonicBrainStepHandle>(null);
 
   React.useEffect(() => {
-    void setPolyphonicOnboardingStatus(transaction.chapter, false).catch(() => {
+    // The protected local mirror does not know the brain chapter yet — its
+    // allowlist lives in native code this work package does not own — so the
+    // nearest chapter it does know is published. Browser state is canonical
+    // either way. See the report's open questions.
+    const mirrored =
+      transaction.chapter === "brain" ? "agents" : transaction.chapter;
+    void setPolyphonicOnboardingStatus(mirrored, false).catch(() => {
       // Browser state remains canonical if the protected local mirror is
       // temporarily unavailable; the next chapter transition repairs it.
     });
@@ -83,13 +109,12 @@ export function PolyphonicOnboardingFlow({
     setTransaction(next);
   }
 
-  const chapters: PolyphonicOnboardingChapter[] = ["welcome", "runtime"];
   const steps = {
     current:
       transaction.chapter === "preparing"
-        ? chapters.length
-        : chapters.indexOf(transaction.chapter),
-    total: chapters.length,
+        ? CHAPTERS.length
+        : CHAPTERS.indexOf(transaction.chapter),
+    total: CHAPTERS.length,
   };
 
   async function continueForward() {
@@ -109,9 +134,23 @@ export function PolyphonicOnboardingFlow({
         const target = await runtimeRef.current?.commit();
         if (!target) return;
         persist({
-          chapter: "preparing",
+          chapter: "agents",
           runtimeConfirmed: true,
         });
+        return;
+      }
+      if (transaction.chapter === "agents") {
+        // The step returns undefined when it needs another pass (a native
+        // creation waiting for approval, an import that needs attention).
+        const outcome = await agentsRef.current?.commit();
+        if (!outcome) return;
+        persist({ chapter: "brain", agentsReviewed: true });
+        return;
+      }
+      if (transaction.chapter === "brain") {
+        const outcome = await brainRef.current?.commit();
+        if (!outcome || outcome.cancelled) return;
+        persist({ chapter: "preparing", brainReviewed: true });
         return;
       }
     } catch (cause) {
@@ -127,27 +166,16 @@ export function PolyphonicOnboardingFlow({
       void setPolyphonicOnboardingStatus("complete", true).catch(() => {
         // Completion is not blocked by a best-effort local status mirror.
       });
-      setPolyphonicScene({ stage: "off", anchor: null, resolving: false });
+      // Not "off": the card does not disappear, it becomes the application.
+      // The layer grows the shell into the window while the conversation
+      // mounts beneath it and the mark travels to the sidebar.
+      setPolyphonicScene({ stage: "becoming", resolving: false });
       rememberLastConversation(channelId);
       actions.complete();
       window.location.hash = `/channels/${encodeURIComponent(channelId)}`;
     },
     [actions.complete],
   );
-
-  if (transaction.chapter === "preparing") {
-    return (
-      <div className="buzz-startup-shell flex h-dvh items-center justify-center overflow-y-auto bg-background px-6 py-10 text-foreground">
-        <StartupWindowDragRegion />
-        <PolyphonicPreparingStep
-          displayName={displayName}
-          onComplete={enterLucaDm}
-          onBack={() => persist({ chapter: "runtime" })}
-          showMark={false}
-        />
-      </div>
-    );
-  }
 
   return (
     <PolyphonicSetupFrame
@@ -160,18 +188,20 @@ export function PolyphonicOnboardingFlow({
       continueLabel={
         busy
           ? "Working…"
-          : transaction.chapter === "runtime"
+          : transaction.chapter === "brain"
             ? "Meet Luca"
-            : "Continue"
+            : transaction.chapter === "agents"
+              ? agentsContinueLabel
+              : "Continue"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
       onContinue={() => void continueForward()}
+      showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
       steps={steps}
     >
       {transaction.chapter === "welcome" ? (
         <PolyphonicYouStep
-          appearanceSwatches
           displayName={displayName}
           onBusyChange={setBusy}
           onDisplayNameChange={setDisplayName}
@@ -183,6 +213,27 @@ export function PolyphonicOnboardingFlow({
         <PolyphonicRuntimeStep
           onReadyChange={setRuntimeReady}
           ref={runtimeRef}
+        />
+      ) : null}
+      {transaction.chapter === "agents" ? (
+        <PolyphonicAgentsStep
+          onBusyChange={setBusy}
+          onContinueLabelChange={setAgentsContinueLabel}
+          onResidentMemoryChange={(residentMemory) =>
+            persist({ residentMemory })
+          }
+          ref={agentsRef}
+          residentMemory={transaction.residentMemory}
+        />
+      ) : null}
+      {transaction.chapter === "brain" ? (
+        <PolyphonicBrainStep onBusyChange={setBusy} ref={brainRef} />
+      ) : null}
+      {transaction.chapter === "preparing" ? (
+        <PolyphonicPreparingStep
+          displayName={displayName}
+          onBack={() => persist({ chapter: "brain" })}
+          onComplete={enterLucaDm}
         />
       ) : null}
       {error ? (

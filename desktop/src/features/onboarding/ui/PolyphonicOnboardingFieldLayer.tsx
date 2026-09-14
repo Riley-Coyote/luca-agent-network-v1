@@ -1,17 +1,16 @@
-import {
-  AnimatePresence,
-  motion,
-  useAnimate,
-  useReducedMotion,
-} from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { isLightTheme } from "@/shared/theme/theme-loader";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { DotSigil } from "@/shared/ui/dot-display/DotSigil";
+import { SIDEBAR_WIDTH_DEFAULT } from "@/shared/ui/sidebarWidth";
 import {
-  readPolyphonicScene,
+  POLYPHONIC_PANE_TRACK,
+  polyphonicCardFrameStyle,
+} from "../polyphonicOnboardingGeometry";
+import {
   setPolyphonicScene,
   usePolyphonicScene,
 } from "../polyphonicOnboardingScene";
@@ -26,186 +25,396 @@ import {
 
 /** Canvas size of the field. Drawn once; only its placement changes. */
 export const POLYPHONIC_FIELD_SIZE = 576;
+/** The identity mark inside the glyph, unscaled. */
+const GLYPH_SIZE = 56;
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 
+/** Becoming, in order. Pixel values only — WKWebView will not transition a
+ *  grid template, and this has to be one continuous motion. */
+const BECOMING_GROW_MS = 760;
+const BECOMING_FIELD_FADE_MS = 600;
+const BECOMING_SHELL_FADE_MS = 360;
+const BECOMING_GLYPH_FADE_MS = 300;
+/** How long the sidebar gets to publish its own mark before the glyph simply
+ *  lands at the top of the sidebar and the application gets on with it. */
+const LANDING_WAIT_MS = 1500;
+
+/** Where the shell ends up: the window, with the pane as the sidebar. */
+function resolveBecomingTarget() {
+  const rail = document.querySelector<HTMLElement>(
+    '[data-side="left"][data-state]',
+  );
+  const measured = rail?.getBoundingClientRect().width ?? 0;
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight,
+    paneWidth: measured > 0 ? measured : SIDEBAR_WIDTH_DEFAULT,
+  };
+}
+
 /**
- * The one field of onboarding, drawn above every onboarding tree and gate.
+ * The one object of onboarding: the card's shell, the field inside it and the
+ * mark at the field's heart, drawn above every onboarding tree and gate.
+ *
  * See polyphonicOnboardingScene.ts for why it lives here and not in the door
- * or the card. Mount once, at the top of the app.
+ * or the card. The door and the setup frame render only their column content
+ * on a transparent frame of the same geometry and publish where the pane is;
+ * this layer draws the object itself, so nothing materialises on Begin, the
+ * shell survives the machine → personal-home tree switch and every loading
+ * gate, and at the end it grows into the application rather than being thrown
+ * away. Mount once, at the top of the app.
  */
 export function PolyphonicOnboardingFieldLayer() {
   const scene = usePolyphonicScene();
   const reduceMotion = useReducedMotion();
   const theme = useTheme();
   const systemColorScheme = useSystemColorScheme();
-  const [fieldScope, animateField] = useAnimate<HTMLDivElement>();
   const previousStage = React.useRef(scene.stage);
+  const shellRef = React.useRef<HTMLDivElement>(null);
+  const paneRef = React.useRef<HTMLDivElement>(null);
+  const dendriteRef = React.useRef<HTMLDivElement>(null);
+  const [becomingTarget, setBecomingTarget] = React.useState<ReturnType<
+    typeof resolveBecomingTarget
+  > | null>(null);
+  const [shellGone, setShellGone] = React.useState(false);
+  /** Resting geometry, frozen the moment becoming starts: Motion needs two
+   *  numbers, and the card's own size comes from CSS until then. */
+  const [restingShell, setRestingShell] = React.useState<{
+    width: number;
+    height: number;
+    paneWidth: number;
+  } | null>(null);
 
-  // The surface comes *out of* the field: on Begin it swells for a beat and
-  // settles as the card completes.
+  const becoming = scene.stage === "becoming";
+  const atDoor = scene.stage === "door";
+  const anchor = scene.anchor;
+  const visible = scene.stage !== "off" && anchor !== null;
+
+  // The field swells for a beat on Begin. Nothing appears — it was already here.
   React.useEffect(() => {
     const was = previousStage.current;
     previousStage.current = scene.stage;
     if (
       was === "door" &&
       scene.stage === "opening" &&
-      fieldScope.current &&
+      dendriteRef.current &&
       !reduceMotion
     ) {
-      void animateField(
-        fieldScope.current,
-        { filter: ["brightness(1)", "brightness(1.9)", "brightness(1)"] },
-        { duration: 1.1, ease: EASE, times: [0, 0.22, 1] },
+      dendriteRef.current.animate(
+        [
+          { filter: "brightness(1)" },
+          { filter: "brightness(1.9)", offset: 0.22 },
+          { filter: "brightness(1)" },
+        ],
+        { duration: 1100, easing: "cubic-bezier(0.2, 0, 0, 1)" },
       );
     }
-  }, [animateField, fieldScope, reduceMotion, scene.stage]);
+  }, [reduceMotion, scene.stage]);
 
-  // Leaving: hold the veil while the conversation mounts beneath, then let go.
+  // Becoming. Measure what the card is now, decide what the window is, and let
+  // the shell grow between the two. The application is already mounted beneath.
   React.useEffect(() => {
-    if (scene.stage !== "leaving") return;
+    if (!becoming) {
+      setBecomingTarget(null);
+      setShellGone(false);
+      setRestingShell(null);
+      return;
+    }
+    const shell = shellRef.current;
+    const pane = paneRef.current;
+    if (shell && pane) {
+      setRestingShell({
+        width: shell.getBoundingClientRect().width,
+        height: shell.getBoundingClientRect().height,
+        paneWidth: pane.getBoundingClientRect().width,
+      });
+    }
+    setBecomingTarget(resolveBecomingTarget());
+    if (reduceMotion) {
+      // No travel. The application is simply there.
+      setPolyphonicScene({ stage: "off", anchor: null, resolving: false });
+      return;
+    }
+    const timers = [
+      window.setTimeout(() => setShellGone(true), BECOMING_GROW_MS),
+      window.setTimeout(
+        () =>
+          setPolyphonicScene({ stage: "off", anchor: null, resolving: false }),
+        BECOMING_GROW_MS + BECOMING_SHELL_FADE_MS + BECOMING_GLYPH_FADE_MS,
+      ),
+    ];
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, [becoming, reduceMotion]);
+
+  // The sidebar's own mark may not be on screen yet. Give it a moment, then
+  // land at the top of the sidebar and proceed either way.
+  const [landingExpired, setLandingExpired] = React.useState(false);
+  React.useEffect(() => {
+    if (!becoming) {
+      setLandingExpired(false);
+      return;
+    }
     const timer = window.setTimeout(
-      () => setPolyphonicScene({ stage: "fading" }),
-      reduceMotion ? 0 : 420,
+      () => setLandingExpired(true),
+      LANDING_WAIT_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [reduceMotion, scene.stage]);
-  const handleExitComplete = React.useCallback(() => {
-    // An old exit must not clear a door or setup scene opened in the meantime.
-    if (readPolyphonicScene().stage !== "fading") return;
-    setPolyphonicScene({ stage: "off", anchor: null, resolving: false });
-  }, []);
-  const mountedScene = React.useRef(scene).current;
-  React.useEffect(() => {
-    // A remounted fading layer has no exiting children left to acknowledge.
-    if (
-      mountedScene.stage === "fading" &&
-      readPolyphonicScene() === mountedScene
-    ) {
-      handleExitComplete();
-    }
-  }, [handleExitComplete, mountedScene]);
+  }, [becoming]);
 
-  const anchor = scene.anchor;
-  const visible =
-    scene.stage !== "off" && scene.stage !== "fading" && anchor !== null;
-  const leaving = scene.stage === "leaving";
-  const scale = anchor ? anchor.width / POLYPHONIC_FIELD_SIZE : 1;
-  const atDoor = scene.stage === "door";
   const chosenColorScheme = theme.followSystem
     ? systemColorScheme
     : isLightTheme(theme.selectedThemeName)
       ? "light"
       : "dark";
-  // The production threshold is intentionally dark. The same field in the
-  // card and handoff adopts the selected setup/app appearance.
-  const fieldIsLight =
+  // The production threshold is intentionally dark. The same shell in the card
+  // and the handoff adopts the selected setup/app appearance.
+  const isLight =
     !atDoor && scene.stage !== "opening" && chosenColorScheme === "light";
-  const palette = fieldIsLight ? polyphonicLightPalette : polyphonicDarkPalette;
+  const palette = isLight ? polyphonicLightPalette : polyphonicDarkPalette;
+
+  if (!visible || !anchor) return null;
+
+  const fieldScale = anchor.width / POLYPHONIC_FIELD_SIZE;
+  const restingGlyphScale =
+    (anchor.width / POLYPHONIC_FIELD_SIZE) * (scene.resolving ? 1.16 : 1);
+  // Where the glyph is heading: the sidebar's own mark if it has published,
+  // otherwise the top-left of the sidebar it would have sat in.
+  const landing =
+    scene.landing ??
+    (becomingTarget && (landingExpired || reduceMotion)
+      ? {
+          x: Math.min(becomingTarget.paneWidth, 64) / 2 + 12,
+          y: 40,
+          width: 20,
+        }
+      : null);
+  const glyphCenter = becoming && landing ? landing : anchor;
+  const glyphScale =
+    becoming && landing ? landing.width / GLYPH_SIZE : restingGlyphScale;
 
   return (
-    <AnimatePresence onExitComplete={handleExitComplete}>
-      {leaving ? (
+    <>
+      {/* The shell: one object from the first frame to the application. It is
+          below the column content the door and the card render, and above the
+          canvas they paint. */}
+      <motion.div
+        animate={{ opacity: shellGone ? 0 : 1 }}
+        aria-hidden
+        className="pointer-events-none fixed inset-0 grid place-items-center"
+        data-testid="polyphonic-onboarding-shell-layer"
+        initial={false}
+        style={{ ...palette, zIndex: becoming ? 58 : 40 }}
+        transition={{
+          duration: reduceMotion ? 0 : BECOMING_SHELL_FADE_MS / 1000,
+          ease: EASE,
+        }}
+      >
+        {/* A faint halo under the card, so it reads as an object floating and
+            not a panel cut out of the canvas. */}
         <motion.div
-          animate={{ opacity: 1 }}
-          aria-hidden
-          className="pointer-events-none fixed inset-0 z-[59]"
-          data-testid="polyphonic-onboarding-veil"
-          exit={{
-            opacity: 0,
-            transition: { duration: reduceMotion ? 0 : 0.7, ease: EASE },
+          animate={{ opacity: becoming ? 0 : 1 }}
+          className="pointer-events-none fixed h-[900px] w-[1400px]"
+          initial={false}
+          style={{
+            left: "calc(50% - 700px)",
+            top: "calc(50% - 450px)",
+            background: `radial-gradient(48% 46% at 50% 50%, ${
+              isLight ? "rgb(0 0 0 / 0.03)" : "rgb(255 255 255 / 0.035)"
+            }, transparent 70%)`,
           }}
-          initial={{ opacity: 0 }}
-          key="veil"
-          style={{ backgroundColor: palette["--prototype-canvas"] }}
-          transition={{ duration: reduceMotion ? 0 : 0.28, ease: EASE }}
+          transition={{ duration: reduceMotion ? 0 : 0.5, ease: EASE }}
         />
-      ) : null}
-      {visible && anchor ? (
+        <motion.div
+          animate={
+            becoming && becomingTarget
+              ? {
+                  width: becomingTarget.width,
+                  height: becomingTarget.height,
+                  borderRadius: 0,
+                  borderColor: "rgba(0,0,0,0)",
+                  backgroundColor: palette["--prototype-canvas"],
+                  boxShadow: "0 0 0 rgba(0,0,0,0)",
+                }
+              : {}
+          }
+          className="relative flex overflow-hidden border"
+          data-testid="polyphonic-onboarding-shell"
+          initial={false}
+          ref={shellRef}
+          style={{
+            width: restingShell
+              ? restingShell.width
+              : polyphonicCardFrameStyle.width,
+            height: restingShell
+              ? restingShell.height
+              : polyphonicCardFrameStyle.height,
+            borderRadius: 15,
+            borderColor: "var(--prototype-hairline)",
+            backgroundColor: "var(--prototype-raised)",
+            boxShadow:
+              "inset 0 1px 0 var(--prototype-hairline-soft), 0 1px 2px rgb(0 0 0/0.08), 0 22px 64px var(--prototype-shadow)",
+          }}
+          transition={{
+            duration: reduceMotion ? 0 : BECOMING_GROW_MS / 1000,
+            ease: EASE,
+          }}
+        >
+          {/* The pane. On becoming it is the sidebar: same recess, same hairline. */}
+          <motion.div
+            animate={
+              becoming && becomingTarget
+                ? { width: becomingTarget.paneWidth }
+                : {}
+            }
+            className="relative shrink-0 border-r border-[var(--prototype-hairline)] bg-[var(--prototype-recessed)]"
+            initial={false}
+            ref={paneRef}
+            style={{
+              width: restingShell
+                ? restingShell.paneWidth
+                : POLYPHONIC_PANE_TRACK,
+            }}
+            transition={{
+              duration: reduceMotion ? 0 : BECOMING_GROW_MS / 1000,
+              ease: EASE,
+            }}
+          >
+            <motion.div
+              animate={{ opacity: becoming ? 0 : 1 }}
+              className="absolute inset-0"
+              initial={false}
+              style={{
+                background:
+                  "radial-gradient(60% 55% at 50% 50%, rgb(255 255 255 / 0.028), transparent 70%)",
+              }}
+              transition={{ duration: reduceMotion ? 0 : 0.3, ease: EASE }}
+            />
+            <motion.span
+              animate={{ opacity: becoming ? 0 : 1 }}
+              className="absolute bottom-5 left-6 text-sm font-medium tracking-[-0.01em] text-[var(--prototype-ink)]"
+              initial={false}
+              transition={{ duration: reduceMotion ? 0 : 0.2, ease: EASE }}
+            >
+              Polyphonic
+            </motion.span>
+          </motion.div>
+          <div className="min-w-0 flex-1" />
+        </motion.div>
+      </motion.div>
+
+      {/* The field, above the column content: it is drawn over the pane the
+          door and the card leave transparent for it. */}
+      <motion.div
+        animate={{
+          opacity: becoming ? 0 : 1,
+          x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,
+          y: anchor.y - POLYPHONIC_FIELD_SIZE / 2,
+          scale: fieldScale,
+        }}
+        aria-hidden
+        className="pointer-events-none fixed left-0 top-0 z-[60] flex items-center justify-center"
+        data-testid="polyphonic-onboarding-field"
+        initial={{
+          opacity: 1,
+          x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,
+          y: anchor.y - POLYPHONIC_FIELD_SIZE / 2,
+          scale: fieldScale,
+        }}
+        style={{
+          width: POLYPHONIC_FIELD_SIZE,
+          height: POLYPHONIC_FIELD_SIZE,
+        }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : {
+                opacity: {
+                  duration: becoming ? BECOMING_FIELD_FADE_MS / 1000 : 1.1,
+                  ease: EASE,
+                },
+                // Placement follows the pane through resizes; it should not
+                // read as travel, so it is quick.
+                default: { duration: 0.35, ease: EASE },
+              }
+        }
+      >
         <motion.div
           animate={{
-            opacity: 1,
-            x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,
-            y: anchor.y - POLYPHONIC_FIELD_SIZE / 2,
-            scale,
+            opacity: atDoor ? [0.7, 0.86, 0.7] : scene.resolving ? 0.42 : 0.86,
           }}
-          aria-hidden
-          className="pointer-events-none fixed left-0 top-0 z-[60] flex items-center justify-center"
-          data-testid="polyphonic-onboarding-field"
-          exit={{
-            opacity: 0,
-            transition: { duration: reduceMotion ? 0 : 0.7, ease: EASE },
-          }}
-          initial={{
-            opacity: 0,
-            x: anchor.x - POLYPHONIC_FIELD_SIZE / 2,
-            y: anchor.y - POLYPHONIC_FIELD_SIZE / 2,
-            scale,
-          }}
-          key="field"
-          style={{
-            width: POLYPHONIC_FIELD_SIZE,
-            height: POLYPHONIC_FIELD_SIZE,
-          }}
+          className="absolute inset-0"
+          ref={dendriteRef}
           transition={
-            reduceMotion
-              ? { duration: 0 }
+            atDoor && !reduceMotion
+              ? {
+                  duration: 12,
+                  ease: "easeInOut",
+                  repeat: Number.POSITIVE_INFINITY,
+                }
               : {
-                  opacity: { duration: 1.1, ease: EASE },
-                  // Placement follows the pane through resizes; it should not
-                  // read as travel, so it is quick.
-                  default: { duration: 0.35, ease: EASE },
+                  duration: reduceMotion ? 0 : scene.resolving ? 1.4 : 0.6,
+                  ease: EASE,
                 }
           }
         >
-          <motion.div
-            animate={{
-              opacity: atDoor
-                ? [0.7, 0.86, 0.7]
-                : scene.resolving
-                  ? 0.42
-                  : 0.86,
-            }}
-            className="absolute inset-0"
-            ref={fieldScope}
-            transition={
-              atDoor && !reduceMotion
-                ? {
-                    duration: 12,
-                    ease: "easeInOut",
-                    repeat: Number.POSITIVE_INFINITY,
-                  }
-                : {
-                    duration: reduceMotion ? 0 : scene.resolving ? 1.4 : 0.6,
-                    ease: EASE,
-                  }
-            }
-          >
-            <DotSigil
-              bloom={0.02}
-              cell={4}
-              dot={fieldIsLight ? "39,40,36" : "164,167,173"}
-              scene="recall"
-              seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
-              size={POLYPHONIC_FIELD_SIZE}
-            />
-          </motion.div>
-          {/* The mark at the heart of the field is Luca. While Luca is being
-              made ready the noise settles and the name comes forward. */}
-          <motion.div
-            animate={
-              scene.resolving
-                ? { scale: 1.16, filter: "brightness(1.35)" }
-                : { scale: 1, filter: "brightness(1)" }
-            }
-            className="relative flex h-20 w-20 items-center justify-center"
-            transition={{ duration: reduceMotion ? 0 : 1.4, ease: EASE }}
-          >
-            <LucaThresholdGlyph
-              ink={fieldIsLight ? "39,40,36" : "240,240,242"}
-            />
-          </motion.div>
+          <DotSigil
+            bloom={0.02}
+            cell={4}
+            dot={isLight ? "39,40,36" : "164,167,173"}
+            scene="recall"
+            seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
+            size={POLYPHONIC_FIELD_SIZE}
+          />
         </motion.div>
-      ) : null}
-    </AnimatePresence>
+      </motion.div>
+
+      {/* The mark at the heart of the field is Luca. While Luca is being made
+          ready the noise settles and the mark comes forward; when the card
+          becomes the application the mark travels to the sidebar and lands on
+          top of the sidebar's own, which is the same mark. */}
+      <motion.div
+        animate={{
+          opacity: shellGone && becoming ? 0 : 1,
+          x: glyphCenter.x - GLYPH_SIZE / 2,
+          y: glyphCenter.y - GLYPH_SIZE / 2,
+          scale: glyphScale,
+          filter:
+            scene.resolving && !becoming ? "brightness(1.35)" : "brightness(1)",
+        }}
+        aria-hidden
+        className="pointer-events-none fixed left-0 top-0 z-[60] flex items-center justify-center"
+        data-testid="polyphonic-onboarding-glyph"
+        initial={false}
+        style={{ width: GLYPH_SIZE, height: GLYPH_SIZE }}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : {
+                opacity: {
+                  duration: BECOMING_GLYPH_FADE_MS / 1000,
+                  ease: EASE,
+                },
+                // Following the pane through a resize is placement, not
+                // travel; the journey to the sidebar is the travel.
+                x: {
+                  duration: becoming ? BECOMING_GROW_MS / 1000 : 0.35,
+                  ease: EASE,
+                },
+                y: {
+                  duration: becoming ? BECOMING_GROW_MS / 1000 : 0.35,
+                  ease: EASE,
+                },
+                default: {
+                  duration: becoming ? BECOMING_GROW_MS / 1000 : 1.4,
+                  ease: EASE,
+                },
+              }
+        }
+      >
+        <LucaThresholdGlyph ink={isLight ? "39,40,36" : "240,240,242"} />
+      </motion.div>
+    </>
   );
 }

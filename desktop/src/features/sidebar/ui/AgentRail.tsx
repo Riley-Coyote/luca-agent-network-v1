@@ -2,6 +2,8 @@ import * as React from "react";
 import { Plus } from "lucide-react";
 
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
+import { CANONICAL_LUCA_PERSONA_ID } from "@/features/luca/canonicalLucaResident";
+import { usePublishFieldAnchor } from "@/features/onboarding/polyphonicOnboardingGeometry";
 import {
   RAIL_CONTROL_CLASS,
   RAIL_ROW_CLASS,
@@ -29,6 +31,38 @@ export type AgentRailActivity = {
   recent: string;
   unread: boolean;
 };
+
+/**
+ * A resident's mark in the rail. Luca's is also where the onboarding mark
+ * lands: when the setup card becomes the application, the mark that was at
+ * the heart of the field travels here and settles onto this one, which is the
+ * same mark. The rail publishes where it is; the onboarding layer does the
+ * travelling, and only while a first run is in flight.
+ */
+function AgentRailMark({ agent }: { agent: AgentRailAgent }) {
+  const markRef = React.useRef<HTMLSpanElement>(null);
+  usePublishFieldAnchor(
+    markRef,
+    "app",
+    agent.personaId === CANONICAL_LUCA_PERSONA_ID,
+  );
+  return (
+    <span
+      className="flex size-5 shrink-0 items-center justify-center text-ink-muted group-data-[open=true]:text-foreground"
+      ref={markRef}
+    >
+      <ResidentIdentityMark
+        accessibleName={agent.name}
+        avatarUrl={agent.avatarUrl}
+        decorative
+        personaId={agent.personaId}
+        presentation="glyph"
+        publicKey={agent.pubkey}
+        size={20}
+      />
+    </span>
+  );
+}
 
 // Memoised so a column toggle (which changes only `selectedAgentPubkey`)
 // re-renders these few rows and nothing beside them.
@@ -81,17 +115,7 @@ export const AgentRail = React.memo(function AgentRail({
             onClick={() => onSelectAgent(agent.pubkey)}
             type="button"
           >
-            <span className="flex size-5 shrink-0 items-center justify-center text-ink-muted group-data-[open=true]:text-foreground">
-              <ResidentIdentityMark
-                accessibleName={agent.name}
-                avatarUrl={agent.avatarUrl}
-                decorative
-                personaId={agent.personaId}
-                presentation="glyph"
-                publicKey={agent.pubkey}
-                size={20}
-              />
-            </span>
+            <AgentRailMark agent={agent} />
             <span
               className={cn(
                 "flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm",

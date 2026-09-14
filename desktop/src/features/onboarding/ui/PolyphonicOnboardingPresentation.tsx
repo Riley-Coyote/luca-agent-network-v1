@@ -68,7 +68,8 @@ export function PolyphonicPresentationHeading({
   id,
   title,
 }: {
-  description: string;
+  /** Omitted where the heading is the whole sentence. */
+  description?: string;
   headingRef?: React.Ref<HTMLHeadingElement>;
   id: string;
   title: string;
@@ -83,9 +84,11 @@ export function PolyphonicPresentationHeading({
       >
         {title}
       </h1>
-      <p className="mt-2 max-w-[34rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
-        {description}
-      </p>
+      {description ? (
+        <p className="mt-2 max-w-[34rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
+          {description}
+        </p>
+      ) : null}
     </header>
   );
 }

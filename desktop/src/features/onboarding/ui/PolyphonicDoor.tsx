@@ -12,11 +12,12 @@ import { polyphonicDarkPalette } from "./PolyphonicOnboardingPresentation";
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 
 /**
- * The door. It is laid out as the setup card's skeleton — the field (drawn by
- * PolyphonicOnboardingFieldLayer) where the card's pane will be, the title
- * where the form will be — so that on Begin nothing moves: the copy lifts
- * away, the scene goes to "opening", and the card materialises around the
- * field wherever the app's gates let it mount.
+ * The door. It is the setup card, already here: the shell, the pane, the field
+ * and the mark are all drawn by PolyphonicOnboardingFieldLayer, and the door
+ * contributes only the column content on a transparent frame of exactly the
+ * card's geometry. So on Begin nothing materialises — the copy lifts away,
+ * the field flares for a beat, and the first question arrives in the same
+ * object, wherever the app's gates let it mount.
  *
  * The door is the application; Luca — the resident who greets you — is
  * introduced one step later, so the name is not spent before it means
@@ -48,13 +49,14 @@ export function PolyphonicDoor({
 
   return (
     <div
-      className="relative flex h-dvh w-full items-center justify-center p-4"
+      className="relative grid h-dvh w-full place-items-center"
       data-testid="polyphonic-door"
       style={{ ...polyphonicDarkPalette, fontFamily: "var(--font-ui)" }}
     >
-      {/* Transparent border so the columns sit exactly where the card's will. */}
+      {/* Transparent border so the columns sit exactly where the shell's are;
+          the shell itself is drawn by the layer above the canvas. */}
       <div
-        className="grid border border-transparent"
+        className="relative z-[45] grid border border-transparent"
         style={polyphonicCardFrameStyle}
       >
         <div aria-hidden ref={anchorRef} />

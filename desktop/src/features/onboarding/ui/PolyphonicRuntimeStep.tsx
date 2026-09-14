@@ -359,9 +359,9 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   return (
     <div className="flex h-full min-h-0 flex-col">
       <PolyphonicStepHeading
-        description="Pick the AI Luca should use on this Mac. You can change it later without changing who Luca is."
+        description="Luca is the same either way. This only chooses the voice."
         stage="runtime"
-        title="Choose what powers Luca"
+        title="Who speaks for Luca?"
       />
       <div
         className="mt-5 min-h-0 flex-1 overflow-y-auto pb-1"

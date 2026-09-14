@@ -70,8 +70,20 @@ export const PolyphonicAgentsStep = React.forwardRef<
   {
     onBusyChange: (busy: boolean) => void;
     onContinueLabelChange: (label: string) => void;
+    /** Whether agents brought in here get memory of their own. Recorded with
+     *  the owner's other answers; see the row below. */
+    residentMemory: boolean;
+    onResidentMemoryChange: (value: boolean) => void;
   }
->(function PolyphonicAgentsStep({ onBusyChange, onContinueLabelChange }, ref) {
+>(function PolyphonicAgentsStep(
+  {
+    onBusyChange,
+    onContinueLabelChange,
+    onResidentMemoryChange,
+    residentMemory,
+  },
+  ref,
+) {
   const queryClient = useQueryClient();
   const managedQuery = useManagedAgentsQuery();
   const createMutation = useCreateManagedAgentMutation();
@@ -109,6 +121,11 @@ export const PolyphonicAgentsStep = React.forwardRef<
     React.useState<NativeProvisioningPreviewV1 | null>(null);
   const [lucaRequest, setLucaRequest] =
     React.useState<NativeProvisioningRequestV1 | null>(null);
+
+  // importCandidate is a stable callback the import queue iterates; the answer
+  // is read at the moment of the import, not captured when the row last moved.
+  const residentMemoryRef = React.useRef(residentMemory);
+  residentMemoryRef.current = residentMemory;
 
   const replaceErrors = React.useCallback(
     (update: (current: Record<string, string>) => Record<string, string>) => {
@@ -257,7 +274,14 @@ export const PolyphonicAgentsStep = React.forwardRef<
           spawnAfterCreate: false,
           startOnAppLaunch: false,
         });
-        await setResidentContinuityEnabled(created.agent.pubkey, true);
+        // "Give them memory here": continuity is the same kind of memory Luca
+        // keeps, and it is the one option this call already takes. Nothing
+        // else about memory is decided during setup — the rest of the answer
+        // lives in the transaction for WP-ALIVE3 to act on.
+        await setResidentContinuityEnabled(
+          created.agent.pubkey,
+          residentMemoryRef.current,
+        );
         if (created.spawnError || created.profileSyncError) {
           throw new Error(
             created.spawnError ??
@@ -433,9 +457,9 @@ export const PolyphonicAgentsStep = React.forwardRef<
   return (
     <>
       <PolyphonicStepHeading
-        description="Choose how new agents run, add Luca if you want a conversational operator, and bring in agents already on this Mac."
+        description="Agents already on your Mac. Bring in whoever you want; the rest can come later."
         stage="agents"
-        title="Bring your agents together"
+        title="Who else lives here?"
       />
       <div className="mt-6 space-y-3">
         {operatorSettings.data ? (
@@ -564,6 +588,36 @@ export const PolyphonicAgentsStep = React.forwardRef<
           sourceOutcomes={sourceOutcomes}
         />
       </div>
+      {/* One quiet choice under the list: a hairline row, its own border on
+          focus, and the honest consequence of saying no. */}
+      <button
+        aria-pressed={residentMemory}
+        className="group mt-3.5 flex w-full max-w-[30rem] items-start gap-3 border-t border-[var(--prototype-hairline)] px-1 pt-2.5 text-left outline-none"
+        data-testid="polyphonic-resident-memory"
+        onClick={() => onResidentMemoryChange(!residentMemory)}
+        type="button"
+      >
+        <span
+          aria-hidden
+          className={cn(
+            "mt-0.5 grid size-4 shrink-0 place-items-center rounded-[5px] border transition-colors",
+            residentMemory
+              ? "border-[var(--prototype-ink)] bg-[var(--prototype-ink)] text-[var(--prototype-field)]"
+              : "border-[var(--prototype-hairline)] text-transparent group-hover:border-[var(--prototype-muted)] group-focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)]",
+          )}
+        >
+          <Check className="size-3" />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-[var(--prototype-ink)]">
+            Give them memory here
+          </span>
+          <span className="mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+            The same kind Luca has. Say no and what they already remember stays
+            exactly as it is.
+          </span>
+        </span>
+      </button>
       {errors.luca ? (
         <p className="mt-4 text-sm text-destructive" role="alert">
           {errors.luca}

@@ -1,5 +1,5 @@
 import * as React from "react";
-import { LoaderCircle } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -33,11 +33,38 @@ import {
   type NativeProvisioningRequestV1,
 } from "@/shared/api/tauriOperatorForge";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
-import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
+import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
 const LUCA_READY_TIMEOUT_MS = 30_000;
+
+/**
+ * What the owner is being given, one frame at a time, while Luca reads. There
+ * is no spinner and no invented counter: the wait is spent saying four true
+ * things about the place they are about to be in.
+ */
+const WALKTHROUGH: ReadonlyArray<{ body: string; title: string }> = [
+  {
+    title: "Conversations",
+    body: "You talk to Luca; Luca talks to everyone else.",
+  },
+  {
+    title: "Residents",
+    body: "Luca can make new ones, and they get their own time.",
+  },
+  {
+    title: "Quick chat",
+    body: "Luca anywhere in the app, without leaving what you’re doing.",
+  },
+  {
+    title: "Brain",
+    body: "What Luca has read, and what it may read next. Yours to change.",
+  },
+];
+const FRAME_MS = 2600;
+const FRAME_CROSSFADE_MS = 500;
 
 async function waitForLucaChannelSubscription(
   pubkey: string,
@@ -58,15 +85,13 @@ async function waitForLucaChannelSubscription(
 export function PolyphonicPreparingStep({
   onComplete,
   onBack,
-  showMark = true,
 }: {
   displayName: string;
   onComplete: (channelId: string) => void;
   onBack?: () => void;
-  /** Hide the inline brand mark when the frame already shows the mark. */
-  showMark?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const reduceMotion = useReducedMotion();
   const managed = useManagedAgentsQuery();
   const personas = usePersonasQuery();
   const runtimes = useAcpRuntimesQuery({ enabled: true });
@@ -80,6 +105,10 @@ export function PolyphonicPreparingStep({
   const refetchManaged = managed.refetch;
   const [error, setError] = React.useState<string | null>(null);
   const [working, setWorking] = React.useState(true);
+  const [frame, setFrame] = React.useState(0);
+  const readyChannelRef = React.useRef<string | null>(null);
+  const onCompleteRef = React.useRef(onComplete);
+  onCompleteRef.current = onComplete;
   const visibleError =
     error ??
     settings.error?.message ??
@@ -217,7 +246,9 @@ export function PolyphonicPreparingStep({
     setError(null);
     void handoffRef.current
       .then((channelId) => {
-        if (!cancelled) onComplete(channelId);
+        // Luca is ready. The walkthrough releases it at the end of whatever
+        // frame is on screen — a sentence is never cut in half.
+        if (!cancelled) readyChannelRef.current = channelId;
       })
       .catch((cause) => {
         if (!cancelled) {
@@ -232,32 +263,86 @@ export function PolyphonicPreparingStep({
     attempt,
     managed.data,
     managed.isPending,
-    onComplete,
     personas.data,
     queryClient,
     settings.data,
   ]);
 
+  // One frame at a time, and the last word of the frame on screen is always
+  // spoken. If Luca takes longer than the four frames, they come round again.
+  React.useEffect(() => {
+    if (visibleError) return;
+    const timer = window.setInterval(() => {
+      const ready = readyChannelRef.current;
+      if (ready) {
+        window.clearInterval(timer);
+        onCompleteRef.current(ready);
+        return;
+      }
+      setFrame((current) => (current + 1) % WALKTHROUGH.length);
+    }, FRAME_MS);
+    return () => window.clearInterval(timer);
+  }, [visibleError]);
+
   return (
+    // The frame already carries the polite live region for this chapter; the
+    // walkthrough is reading matter, not an announcement queue.
     <div
-      className="flex w-full max-w-lg flex-col items-center text-center"
-      role="status"
+      aria-busy={working && !visibleError}
+      className="flex h-full min-h-0 flex-col justify-center"
     >
-      {showMark ? <PolyphonicBrandMark /> : null}
-      <h1
-        id="polyphonic-preparing-heading"
-        className="mt-5 text-2xl font-medium tracking-tight text-foreground"
-      >
-        Connecting you with Luca…
-      </h1>
-      <p className="mt-3 text-base leading-relaxed text-ink-muted">
-        Just a moment. You can set up everything else together in chat.
-      </p>
-      {working && !visibleError ? (
-        <LoaderCircle className="mt-6 h-4 w-4 animate-spin text-ink-muted motion-reduce:animate-none" />
-      ) : null}
+      <PolyphonicStepHeading
+        stage="preparing"
+        title="Luca is reading what you brought."
+      />
+      {visibleError ? null : (
+        <>
+          <div className="relative mt-8 h-16 max-w-[30rem]">
+            {WALKTHROUGH.map((item, index) => (
+              <motion.div
+                animate={{
+                  opacity: index === frame ? 1 : 0,
+                  y: index === frame ? 0 : 4,
+                }}
+                className="absolute inset-0"
+                data-testid={
+                  index === frame ? "polyphonic-walkthrough-frame" : undefined
+                }
+                initial={false}
+                key={item.title}
+                transition={{
+                  duration: reduceMotion ? 0 : FRAME_CROSSFADE_MS / 1000,
+                  ease: [0.2, 0, 0, 1],
+                }}
+              >
+                <p className="text-2xs font-medium uppercase tracking-caps-wide text-[var(--prototype-muted)]">
+                  {item.title}
+                </p>
+                <p className="mt-1.5 text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-ink)]">
+                  {item.body}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+          <div
+            className="mt-[18px] flex gap-1.5"
+            data-testid="polyphonic-walkthrough-ticks"
+          >
+            {WALKTHROUGH.map((item, index) => (
+              <span
+                aria-hidden
+                className={cn(
+                  "block h-px w-4 bg-[var(--prototype-ink)] transition-opacity duration-300",
+                  index <= frame ? "opacity-80" : "opacity-20",
+                )}
+                key={item.title}
+              />
+            ))}
+          </div>
+        </>
+      )}
       {visibleError ? (
-        <div className="mt-6 flex flex-col items-center gap-4" role="alert">
+        <div className="mt-6 flex flex-col items-start gap-4" role="alert">
           <p className="break-words text-sm text-destructive">{visibleError}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button

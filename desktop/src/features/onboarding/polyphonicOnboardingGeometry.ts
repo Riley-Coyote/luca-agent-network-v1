@@ -3,6 +3,7 @@ import * as React from "react";
 import {
   type PolyphonicSceneStage,
   releasePolyphonicScene,
+  setPolyphonicLanding,
   setPolyphonicScene,
 } from "./polyphonicOnboardingScene";
 
@@ -29,6 +30,10 @@ export const polyphonicCardFrameStyle: React.CSSProperties = {
  * mounted, following resizes. `stage` names who is publishing; on unmount the
  * scene is released only if nobody else has taken it over (a passage in
  * flight leaves it at "opening" until the card claims it).
+ *
+ * "app" is the exception: the sidebar's own Luca mark publishes where the
+ * glyph should *land* when the card becomes the application. It never moves
+ * the field on its own — it only tells the layer where the journey ends.
  */
 export function usePublishFieldAnchor(
   ref: React.RefObject<HTMLElement | null>,
@@ -38,16 +43,19 @@ export function usePublishFieldAnchor(
   React.useLayoutEffect(() => {
     const element = ref.current;
     if (!element || !enabled) return;
+    const landing = stage === "app";
     const publish = () => {
       const rect = element.getBoundingClientRect();
-      setPolyphonicScene({
-        stage,
-        anchor: {
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-          width: rect.width,
-        },
-      });
+      // A mark inside a collapsed or unmounted rail measures zero; it is not
+      // somewhere the glyph could land, so it is not published.
+      if (landing && (rect.width === 0 || rect.height === 0)) return;
+      const anchor = {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+        width: rect.width,
+      };
+      if (landing) setPolyphonicLanding(anchor);
+      else setPolyphonicScene({ stage, anchor });
     };
     publish();
     const observer = new ResizeObserver(publish);
@@ -56,7 +64,8 @@ export function usePublishFieldAnchor(
     return () => {
       observer.disconnect();
       window.removeEventListener("resize", publish);
-      releasePolyphonicScene(stage);
+      if (landing) setPolyphonicLanding(null);
+      else releasePolyphonicScene(stage);
     };
   }, [enabled, ref, stage]);
 }
