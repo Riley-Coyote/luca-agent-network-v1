@@ -723,15 +723,30 @@ async fn resolve_managed_lookup_fail_soft(
     if remaining.is_zero() {
         return None;
     }
-    let result = tokio::time::timeout(remaining, provider.resolve(intent))
-        .await
-        .ok()?
-        .ok()?;
+    let result = match tokio::time::timeout(remaining, provider.resolve(intent)).await {
+        Ok(Ok(result)) => result,
+        failure => {
+            // Operational status only: never log the retrieval cue, packet,
+            // native memory, or conversation bodies on this fail-soft path.
+            tracing::warn!(
+                target: "luca::continuity",
+                request_id = intent.request_id.as_str(),
+                reason = if failure.is_err() { "deadline_expired" } else { "channel_unavailable" },
+                "managed continuity was not delivered"
+            );
+            return None;
+        }
+    };
     if unix_time_millis() >= intent.deadline_unix_ms.get()
         || result.validate().is_err()
         || result.request_id != intent.request_id
         || result.resident_pubkey != intent.resident_pubkey
     {
+        tracing::warn!(
+            target: "luca::continuity",
+            request_id = intent.request_id.as_str(),
+            "managed continuity response was expired or invalid"
+        );
         return None;
     }
     let packet_is_bounded = result

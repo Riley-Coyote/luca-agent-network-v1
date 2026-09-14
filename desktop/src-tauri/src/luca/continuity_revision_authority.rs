@@ -34,6 +34,8 @@ use super::continuity_store::{
 
 mod nonce_reservations;
 use nonce_reservations::{persist_nonce_reservations, validate_nonce_reservations};
+mod generation_cache;
+pub(super) use generation_cache::ValidatedGenerationCache;
 
 const AUTHORITY_SCHEMA_V1: i64 = 1;
 const MAX_TYPED_BLOB_BYTES: usize = 4 * 1024 * 1024;
@@ -448,7 +450,7 @@ impl ContinuityStore {
     ) -> Result<Option<StoredRevisionGenerationV1>, ContinuityStoreError> {
         #[cfg(test)]
         LOAD_REVISION_GENERATION_CALLS.set(LOAD_REVISION_GENERATION_CALLS.get() + 1);
-        load_generation(&self.connection, owner_pubkey)
+        self.with_validated_revision_read(owner_pubkey, |_, generation| Ok(generation.cloned()))
     }
 
     /// Capture one exact-scope active-head set and its complete owner authority
@@ -464,51 +466,43 @@ impl ContinuityStore {
         if requested.namespace().as_protocol().owner_pubkey != *owner_pubkey {
             return Err(ContinuityStoreError::InvalidRecord);
         }
-        let transaction = self
-            .connection
-            .unchecked_transaction()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        reject_rotation(&transaction, owner_pubkey)?;
-        let Some(generation) = load_generation_in_snapshot(&transaction, owner_pubkey)? else {
-            transaction
-                .commit()
-                .map_err(|_| ContinuityStoreError::Unavailable)?;
-            return Ok(None);
-        };
-        let active_heads = load_exact_active_heads(
-            &transaction,
-            requested,
-            &generation.token,
-            &generation.snapshot,
-        )?;
-        let mut pinned_owner_correction_heads = generation
-            .snapshot
-            .lineages
-            .iter()
-            .filter(|lineage| {
-                lineage.lifecycle == RevisionLifecycle::Active
-                    && lineage.namespace == *requested.namespace().as_protocol()
-                    && lineage.scope == *requested.as_protocol()
-                    && lineage.pinned_owner_correction
-            })
-            .filter_map(|lineage| lineage.active_head_record_id.clone())
-            .collect::<Vec<_>>();
-        pinned_owner_correction_heads.sort();
-        pinned_owner_correction_heads.dedup();
-        reject_rotation(&transaction, owner_pubkey)?;
-        let reread = load_generation_in_snapshot(&transaction, owner_pubkey)?
-            .ok_or(ContinuityStoreError::CompareAndSwapConflict)?;
-        if reread.token != generation.token {
-            return Err(ContinuityStoreError::CompareAndSwapConflict);
-        }
-        transaction
-            .commit()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        Ok(Some(ImmutableScopeCaptureV1 {
-            token: generation.token,
-            active_heads,
-            pinned_owner_correction_heads,
-        }))
+        self.with_validated_revision_read(owner_pubkey, |transaction, generation| {
+            reject_rotation(&transaction, owner_pubkey)?;
+            let Some(generation) = generation else {
+                return Ok(None);
+            };
+            let active_heads = load_exact_active_heads(
+                &transaction,
+                requested,
+                &generation.token,
+                &generation.snapshot,
+            )?;
+            let mut pinned_owner_correction_heads = generation
+                .snapshot
+                .lineages
+                .iter()
+                .filter(|lineage| {
+                    lineage.lifecycle == RevisionLifecycle::Active
+                        && lineage.namespace == *requested.namespace().as_protocol()
+                        && lineage.scope == *requested.as_protocol()
+                        && lineage.pinned_owner_correction
+                })
+                .filter_map(|lineage| lineage.active_head_record_id.clone())
+                .collect::<Vec<_>>();
+            pinned_owner_correction_heads.sort();
+            pinned_owner_correction_heads.dedup();
+            reject_rotation(&transaction, owner_pubkey)?;
+            // Every read above shares one immutable SQLite snapshot. Another
+            // connection cannot change this transaction's generation, so loading
+            // and validating the entire ledger a second time adds no protection.
+            // revalidate_immutable_capture still checks a fresh snapshot before
+            // any decrypted context is released to the runtime.
+            Ok(Some(ImmutableScopeCaptureV1 {
+                token: generation.token.clone(),
+                active_heads,
+                pinned_owner_correction_heads,
+            }))
+        })
     }
 
     /// Revalidate a previously captured owner authority token while rejecting
@@ -518,20 +512,11 @@ impl ContinuityStore {
         &self,
         expected: &RevisionAuthorityTokenV1,
     ) -> Result<bool, ContinuityStoreError> {
-        let transaction = self
-            .connection
-            .unchecked_transaction()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        reject_rotation(&transaction, &expected.owner_pubkey)?;
-        let current = load_generation_in_snapshot(&transaction, &expected.owner_pubkey)?;
-        reject_rotation(&transaction, &expected.owner_pubkey)?;
-        let matches = current
-            .as_ref()
-            .is_some_and(|generation| generation.token == *expected);
-        transaction
-            .commit()
-            .map_err(|_| ContinuityStoreError::Unavailable)?;
-        Ok(matches)
+        self.with_validated_revision_read(&expected.owner_pubkey, |transaction, current| {
+            reject_rotation(&transaction, &expected.owner_pubkey)?;
+            let matches = current.is_some_and(|generation| generation.token == *expected);
+            Ok(matches)
+        })
     }
 
     /// Apply one revision operation through owner-global SQLite CAS.
@@ -1552,20 +1537,6 @@ fn purge_name(value: PurgeExecutionStatusV1) -> &'static str {
     }
 }
 
-fn load_generation(
-    connection: &Connection,
-    owner: &Hex64,
-) -> Result<Option<StoredRevisionGenerationV1>, ContinuityStoreError> {
-    let transaction = connection
-        .unchecked_transaction()
-        .map_err(|_| ContinuityStoreError::Unavailable)?;
-    let result = load_generation_in_snapshot(&transaction, owner)?;
-    transaction
-        .commit()
-        .map_err(|_| ContinuityStoreError::Unavailable)?;
-    Ok(result)
-}
-
 fn load_generation_in_snapshot(
     connection: &Connection,
     owner: &Hex64,
@@ -1623,16 +1594,10 @@ fn load_generation_in_snapshot(
     let manifest = preflight_authority_bounds(connection, owner, generation)?;
     let snapshot = load_snapshot(connection, owner, generation, &manifest)?;
     validate_snapshot_owner(&snapshot, owner)?;
-    let round_trip = RevisionLedger::from_snapshot(snapshot.clone())
-        .map_err(map_continuity_error)?
-        .export_snapshot()
-        .map_err(map_continuity_error)?;
-    // These DTOs serialize deterministically, so exact structural equality
-    // also proves canonical equality. Hydration, export and fingerprinting
-    // still validate the complete snapshot and its canonical size bound.
-    if round_trip != snapshot {
-        return Err(ContinuityStoreError::InvalidRecord);
-    }
+    // fingerprint() fully validates canonical ordering, unique membership,
+    // replay bindings, lifecycle/purge state, nonces and all snapshot bounds.
+    // Hydrating and exporting first repeated that same complete validation
+    // twice; valid snapshots are already required to round-trip unchanged.
     let actual = snapshot.fingerprint().map_err(map_continuity_error)?;
     if actual != token.snapshot_fingerprint {
         return Err(ContinuityStoreError::CompareAndSwapConflict);
@@ -2150,7 +2115,9 @@ fn load_snapshot(
         revision_idempotency,
         artifact_idempotency,
     };
-    RevisionLedger::from_snapshot(snapshot.clone()).map_err(map_continuity_error)?;
+    // The caller fully validates and fingerprints this snapshot
+    // after these SQL-specific checks. Do not repeat hydration here: it walks
+    // every retained lineage and replay entry, including forgotten records.
     validate_latest_mutation_domains(
         connection,
         owner,

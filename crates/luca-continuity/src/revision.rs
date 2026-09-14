@@ -916,71 +916,75 @@ impl fmt::Debug for RevisionLedger {
 impl RevisionLedger {
     /// Export the complete deterministic restart state without dropping replay history.
     pub fn export_snapshot(&self) -> Result<RevisionLedgerSnapshotV1, ContinuityError> {
-        let snapshot =
-            RevisionLedgerSnapshotV1 {
-                schema_version: REVISION_LEDGER_SNAPSHOT_SCHEMA_V1,
-                records: self
-                    .records
-                    .values()
-                    .filter(|record| {
-                        !self.lineages.values().any(|lineage| {
-                            lineage.purge_execution.as_ref().is_some_and(|purge| {
-                                purge.status == PurgeExecutionStatusV1::Completed
-                            }) && lineage.record_ids.contains(&record.record_id)
-                        })
+        let completed_purge_record_ids: BTreeSet<&str> = self
+            .lineages
+            .values()
+            .filter(|lineage| {
+                lineage
+                    .purge_execution
+                    .as_ref()
+                    .is_some_and(|purge| purge.status == PurgeExecutionStatusV1::Completed)
+            })
+            .flat_map(|lineage| lineage.record_ids.iter().map(OpaqueId::as_str))
+            .collect();
+        let snapshot = RevisionLedgerSnapshotV1 {
+            schema_version: REVISION_LEDGER_SNAPSHOT_SCHEMA_V1,
+            records: self
+                .records
+                .values()
+                .filter(|record| !completed_purge_record_ids.contains(record.record_id.as_str()))
+                .cloned()
+                .collect(),
+            lineages: self
+                .lineages
+                .values()
+                .map(|lineage| RevisionLineageSnapshotV1 {
+                    namespace: lineage.namespace.clone(),
+                    scope: lineage.scope.clone(),
+                    lineage_root_id: lineage.lineage_root_id.clone(),
+                    record_ids: lineage.record_ids.clone(),
+                    lineage_head_record_id: lineage.head_record_id.clone(),
+                    active_head_record_id: (lineage.lifecycle == RevisionLifecycle::Active)
+                        .then(|| lineage.head_record_id.clone()),
+                    lifecycle: lineage.lifecycle,
+                    pinned_owner_correction: lineage.pinned_owner_correction,
+                    record_type: lineage.record_type.clone(),
+                    lineage_envelope_key_version: lineage.lineage_envelope_key_version,
+                    envelope_replacements: lineage.envelope_replacements.clone(),
+                    derived_artifact_refs: lineage.derived_artifact_inventory.clone(),
+                    authority_mutation_idempotency_key: lineage
+                        .authority_mutation_idempotency_key
+                        .clone(),
+                    purge_execution: lineage.purge_execution.clone(),
+                })
+                .collect(),
+            revision_idempotency: self
+                .idempotency
+                .iter()
+                .map(|(key, entry)| {
+                    Ok(RevisionIdempotencySnapshotV1 {
+                        idempotency_key: Sha256Ref::parse(key.clone())
+                            .map_err(|_| ContinuityError::InvalidRevisionRequest)?,
+                        canonical_request_digest: entry.canonical_request_digest.clone(),
+                        replay_binding: entry.replay_binding.clone(),
+                        receipt: entry.receipt.clone(),
                     })
-                    .cloned()
-                    .collect(),
-                lineages: self
-                    .lineages
-                    .values()
-                    .map(|lineage| RevisionLineageSnapshotV1 {
-                        namespace: lineage.namespace.clone(),
-                        scope: lineage.scope.clone(),
-                        lineage_root_id: lineage.lineage_root_id.clone(),
-                        record_ids: lineage.record_ids.clone(),
-                        lineage_head_record_id: lineage.head_record_id.clone(),
-                        active_head_record_id: (lineage.lifecycle == RevisionLifecycle::Active)
-                            .then(|| lineage.head_record_id.clone()),
-                        lifecycle: lineage.lifecycle,
-                        pinned_owner_correction: lineage.pinned_owner_correction,
-                        record_type: lineage.record_type.clone(),
-                        lineage_envelope_key_version: lineage.lineage_envelope_key_version,
-                        envelope_replacements: lineage.envelope_replacements.clone(),
-                        derived_artifact_refs: lineage.derived_artifact_inventory.clone(),
-                        authority_mutation_idempotency_key: lineage
-                            .authority_mutation_idempotency_key
-                            .clone(),
-                        purge_execution: lineage.purge_execution.clone(),
+                })
+                .collect::<Result<Vec<_>, ContinuityError>>()?,
+            artifact_idempotency: self
+                .artifact_idempotency
+                .iter()
+                .map(|(key, entry)| {
+                    Ok(ArtifactIdempotencySnapshotV1 {
+                        idempotency_key: Sha256Ref::parse(key.clone())
+                            .map_err(|_| ContinuityError::InvalidRevisionRequest)?,
+                        canonical_request_digest: entry.canonical_request_digest.clone(),
+                        replay_binding: entry.replay_binding.clone(),
+                        receipt: entry.receipt.clone(),
                     })
-                    .collect(),
-                revision_idempotency: self
-                    .idempotency
-                    .iter()
-                    .map(|(key, entry)| {
-                        Ok(RevisionIdempotencySnapshotV1 {
-                            idempotency_key: Sha256Ref::parse(key.clone())
-                                .map_err(|_| ContinuityError::InvalidRevisionRequest)?,
-                            canonical_request_digest: entry.canonical_request_digest.clone(),
-                            replay_binding: entry.replay_binding.clone(),
-                            receipt: entry.receipt.clone(),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ContinuityError>>()?,
-                artifact_idempotency: self
-                    .artifact_idempotency
-                    .iter()
-                    .map(|(key, entry)| {
-                        Ok(ArtifactIdempotencySnapshotV1 {
-                            idempotency_key: Sha256Ref::parse(key.clone())
-                                .map_err(|_| ContinuityError::InvalidRevisionRequest)?,
-                            canonical_request_digest: entry.canonical_request_digest.clone(),
-                            replay_binding: entry.replay_binding.clone(),
-                            receipt: entry.receipt.clone(),
-                        })
-                    })
-                    .collect::<Result<Vec<_>, ContinuityError>>()?,
-            };
+                })
+                .collect::<Result<Vec<_>, ContinuityError>>()?,
+        };
         validate_revision_snapshot(&snapshot)?;
         Ok(snapshot)
     }
@@ -2877,14 +2881,26 @@ fn validate_revision_snapshot(snapshot: &RevisionLedgerSnapshotV1) -> Result<(),
             return Err(ContinuityError::RevisionConflict);
         }
 
+        // The sorted-order check above makes these lookups logarithmic even
+        // when an owner has thousands of retained, forgotten lineages.
         let revision_entry = snapshot
             .revision_idempotency
-            .iter()
-            .find(|entry| entry.idempotency_key == lineage.authority_mutation_idempotency_key);
+            .binary_search_by(|entry| {
+                entry
+                    .idempotency_key
+                    .cmp(&lineage.authority_mutation_idempotency_key)
+            })
+            .ok()
+            .map(|index| &snapshot.revision_idempotency[index]);
         let artifact_entry = snapshot
             .artifact_idempotency
-            .iter()
-            .find(|entry| entry.idempotency_key == lineage.authority_mutation_idempotency_key);
+            .binary_search_by(|entry| {
+                entry
+                    .idempotency_key
+                    .cmp(&lineage.authority_mutation_idempotency_key)
+            })
+            .ok()
+            .map(|index| &snapshot.artifact_idempotency[index]);
         match (revision_entry, artifact_entry) {
             (Some(entry), None) => {
                 let expected_head = match lineage.lifecycle {

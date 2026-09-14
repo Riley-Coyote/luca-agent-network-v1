@@ -131,6 +131,15 @@ fn immutable_scope_capture_rejects_rotation_and_authority_tamper() {
             request(RevisionOperation::Create, '6', Some(stored), None),
         )
         .unwrap();
+    // Exercise both checks after a validated generation has entered the cache.
+    assert_eq!(
+        store
+            .load_revision_generation(&owner)
+            .unwrap()
+            .unwrap()
+            .token,
+        created.token
+    );
     store
         .connection
         .execute(
@@ -171,6 +180,140 @@ fn immutable_scope_capture_rejects_rotation_and_authority_tamper() {
         Err(ContinuityStoreError::InvalidRecord)
             | Err(ContinuityStoreError::CompareAndSwapConflict)
     ));
+}
+
+#[test]
+fn validated_generation_cache_rejects_same_and_external_connection_tamper() {
+    let temp = TempDir::new().unwrap();
+    let owner = hex('1');
+    let mut store = open(&temp);
+    let stored = record("cache-record", 0, None);
+    let requested = namespace_scope(&stored);
+    store
+        .apply_revision_transition_cas(
+            &AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: owner.clone(),
+                active_root_key_version: SafeU53::new(1).unwrap(),
+            },
+            request_for_lineage(
+                "cache-record",
+                RevisionOperation::Create,
+                '6',
+                Some(stored),
+                None,
+            ),
+        )
+        .unwrap();
+    assert_eq!(
+        store
+            .capture_immutable_active_scope(&owner, &requested)
+            .unwrap()
+            .unwrap()
+            .active_heads
+            .len(),
+        1
+    );
+    assert!(store.load_revision_generation(&hex('9')).unwrap().is_none());
+    assert_eq!(
+        store
+            .capture_immutable_active_scope(&owner, &requested)
+            .unwrap()
+            .unwrap()
+            .active_heads
+            .len(),
+        1
+    );
+    store
+        .connection
+        .execute(
+            "UPDATE continuity_records SET envelope_json=?2 WHERE record_id=?1",
+            params!["cache-record", b"{}".as_slice()],
+        )
+        .unwrap();
+    assert!(matches!(
+        store.capture_immutable_active_scope(&owner, &requested),
+        Err(ContinuityStoreError::InvalidRecord)
+            | Err(ContinuityStoreError::CompareAndSwapConflict)
+    ));
+
+    let second_temp = TempDir::new().unwrap();
+    let mut second = open(&second_temp);
+    let second_owner = hex('1');
+    let second_record = record("external-cache-record", 0, None);
+    let second_scope = namespace_scope(&second_record);
+    second
+        .apply_revision_transition_cas(
+            &AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: second_owner.clone(),
+                active_root_key_version: SafeU53::new(1).unwrap(),
+            },
+            request_for_lineage(
+                "external-cache-record",
+                RevisionOperation::Create,
+                '7',
+                Some(second_record),
+                None,
+            ),
+        )
+        .unwrap();
+    assert!(second
+        .load_revision_generation(&second_owner)
+        .unwrap()
+        .is_some());
+    let path = second.connection.path().unwrap().to_owned();
+    let other = rusqlite::Connection::open(path).unwrap();
+    other
+        .execute(
+            "UPDATE continuity_records SET envelope_json=?2 WHERE record_id=?1",
+            params!["external-cache-record", b"{}".as_slice()],
+        )
+        .unwrap();
+    assert!(matches!(
+        second.capture_immutable_active_scope(&second_owner, &second_scope),
+        Err(ContinuityStoreError::InvalidRecord)
+            | Err(ContinuityStoreError::CompareAndSwapConflict)
+    ));
+}
+
+#[test]
+fn validated_generation_cache_rejects_external_write_during_read() {
+    let temp = TempDir::new().unwrap();
+    let owner = hex('1');
+    let mut store = open(&temp);
+    store
+        .apply_revision_transition_cas(
+            &AuthorityExpectationV1::UninitializedOwner {
+                owner_pubkey: owner.clone(),
+                active_root_key_version: SafeU53::new(1).unwrap(),
+            },
+            request_for_lineage(
+                "race-record",
+                RevisionOperation::Create,
+                '6',
+                Some(record("race-record", 0, None)),
+                None,
+            ),
+        )
+        .unwrap();
+    assert!(store.load_revision_generation(&owner).unwrap().is_some());
+    let path = store.connection.path().unwrap().to_owned();
+    let other = rusqlite::Connection::open(path).unwrap();
+    let result = store.with_validated_revision_read(&owner, |transaction, cached| {
+        assert!(cached.is_some());
+        let _: i64 = transaction
+            .query_row("SELECT COUNT(*) FROM continuity_records", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        other
+            .execute(
+                "UPDATE continuity_records SET envelope_json=?2 WHERE record_id=?1",
+                params!["race-record", b"{}".as_slice()],
+            )
+            .unwrap();
+        Ok(())
+    });
+    assert_eq!(result, Err(ContinuityStoreError::CompareAndSwapConflict));
 }
 
 #[test]

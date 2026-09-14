@@ -206,6 +206,8 @@ pub(crate) enum ContinuityStoreDiagnostic {
 /// only and must be authenticated before any record can participate in recall.
 pub(crate) struct ContinuityStore {
     pub(super) connection: Connection,
+    pub(super) revision_read_cache:
+        std::sync::Mutex<Option<super::continuity_revision_authority::ValidatedGenerationCache>>,
     path: PathBuf,
     diagnostics: Vec<ContinuityStoreDiagnostic>,
 }
@@ -290,6 +292,7 @@ impl ContinuityStore {
         enable_wal(&connection)?;
         Ok(ContinuityStoreOpen::Ready(Self {
             connection,
+            revision_read_cache: std::sync::Mutex::new(None),
             path,
             diagnostics: Vec::new(),
         }))
