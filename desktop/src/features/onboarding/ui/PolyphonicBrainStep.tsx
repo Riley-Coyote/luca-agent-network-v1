@@ -200,7 +200,10 @@ export const PolyphonicBrainStep = React.forwardRef<
 
   const loading = inventoryQuery.isLoading || ownerQuery.isLoading;
   return (
-    <>
+    <div
+      className="h-full overflow-y-auto overscroll-contain"
+      data-prototype-scroll-owner="true"
+    >
       <PolyphonicStepHeading
         description="So the first thing Luca says to you is true."
         stage="brain"
@@ -394,6 +397,6 @@ export const PolyphonicBrainStep = React.forwardRef<
         open={consentOpen}
         sourceLabel="selected sources"
       />
-    </>
+    </div>
   );
 });

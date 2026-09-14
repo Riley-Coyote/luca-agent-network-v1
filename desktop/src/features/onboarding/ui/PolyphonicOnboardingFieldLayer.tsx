@@ -35,9 +35,6 @@ const BECOMING_GROW_MS = 760;
 const BECOMING_FIELD_FADE_MS = 600;
 const BECOMING_SHELL_FADE_MS = 360;
 const BECOMING_GLYPH_FADE_MS = 300;
-/** How long the sidebar gets to publish its own mark before the glyph simply
- *  lands at the top of the sidebar and the application gets on with it. */
-const LANDING_WAIT_MS = 1500;
 
 /** Where the shell ends up: the window, with the pane as the sidebar. */
 function resolveBecomingTarget() {
@@ -148,21 +145,6 @@ export function PolyphonicOnboardingFieldLayer() {
     };
   }, [becoming, reduceMotion]);
 
-  // The sidebar's own mark may not be on screen yet. Give it a moment, then
-  // land at the top of the sidebar and proceed either way.
-  const [landingExpired, setLandingExpired] = React.useState(false);
-  React.useEffect(() => {
-    if (!becoming) {
-      setLandingExpired(false);
-      return;
-    }
-    const timer = window.setTimeout(
-      () => setLandingExpired(true),
-      LANDING_WAIT_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [becoming]);
-
   const chosenColorScheme = theme.followSystem
     ? systemColorScheme
     : isLightTheme(theme.selectedThemeName)
@@ -179,17 +161,17 @@ export function PolyphonicOnboardingFieldLayer() {
   const fieldScale = anchor.width / POLYPHONIC_FIELD_SIZE;
   const restingGlyphScale =
     (anchor.width / POLYPHONIC_FIELD_SIZE) * (scene.resolving ? 1.16 : 1);
-  // Where the glyph is heading: the sidebar's own mark if it has published,
-  // otherwise the top-left of the sidebar it would have sat in.
-  const landing =
-    scene.landing ??
-    (becomingTarget && (landingExpired || reduceMotion)
-      ? {
-          x: Math.min(becomingTarget.paneWidth, 64) / 2 + 12,
-          y: 40,
-          width: 20,
-        }
-      : null);
+  // Where the glyph is heading: the sidebar's own mark if it has published one
+  // that is actually on screen, otherwise the top-left of the sidebar it would
+  // have sat in. The fallback is available from the first frame, so the mark
+  // always travels somewhere a person can see.
+  const landing = becomingTarget
+    ? (scene.landing ?? {
+        x: Math.min(32, becomingTarget.paneWidth / 2),
+        y: 44,
+        width: 20,
+      })
+    : null;
   const glyphCenter = becoming && landing ? landing : anchor;
   const glyphScale =
     becoming && landing ? landing.width / GLYPH_SIZE : restingGlyphScale;

@@ -17,7 +17,6 @@ import {
   useSaveOperatorForgePreferencesMutation,
 } from "@/features/agents/operatorForgeQueries";
 import { AgentDialog } from "@/features/agents/ui/AgentDialog";
-import { AgentRuntimeTargetSelector } from "@/features/agents/ui/AgentRuntimeTargetSelector";
 import { usePersonaActions } from "@/features/agents/ui/usePersonaActions";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { discoverNativeResidents } from "@/shared/api/tauri";
@@ -49,7 +48,6 @@ import {
   type PolyphonicAgentImportRowStatus,
 } from "./PolyphonicAgentImportPane";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
-import { PolyphonicBrandMark } from "./PolyphonicThresholdField";
 
 export type PolyphonicAgentsStepHandle = {
   commit: () => Promise<
@@ -455,83 +453,36 @@ export const PolyphonicAgentsStep = React.forwardRef<
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       <PolyphonicStepHeading
         description="Agents already on your Mac. Bring in whoever you want; the rest can come later."
         stage="agents"
         title="Who else lives here?"
       />
-      <div className="mt-6 space-y-3">
-        {operatorSettings.data ? (
-          <AgentRuntimeTargetSelector
-            appearance="onboarding"
-            disabled={saveOperatorSettings.isPending}
-            onChange={(target) => {
-              setRuntimeTarget(target);
-              setLucaPreview(null);
-            }}
-            options={operatorSettings.data.runtimeOptions}
-            value={runtimeTarget}
-          />
-        ) : (
-          <p className="text-sm text-white/48" role="status">
-            Checking available runtimes…
-          </p>
-        )}
-        <button
-          aria-pressed={existingLuca ? true : lucaSelected}
-          className="group flex w-full items-center gap-3 border-y border-white/[0.055] px-1 py-2.5 text-left transition-colors hover:bg-white/[0.025] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/40"
-          disabled={Boolean(existingLuca)}
-          onClick={() => setLucaSelected((current) => !current)}
-          type="button"
+      {/* The runtime was chosen on the screen before this one, and Luca is the
+          premise of the place — neither is asked again here. Both are still
+          committed with the rest of the answers below. */}
+      {lucaPreview ? (
+        <section
+          aria-label="Review Luca native creation"
+          className="mt-4 shrink-0 rounded-md bg-[var(--prototype-selection)] px-3 py-2.5 shadow-[inset_0_0_0_1px_var(--prototype-hairline)]"
         >
-          <span
-            aria-hidden
-            className="flex h-7 w-7 shrink-0 items-center justify-center text-white/70"
-          >
-            <PolyphonicBrandMark />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm text-white/88">Luca</span>
-            <span className="mt-0.5 block text-xs leading-4 text-white/42">
-              Can help organize your Luca home and prepare agent creation for
-              your review.
-            </span>
-          </span>
-          <span
-            aria-hidden
-            className={cn(
-              "flex h-[1.125rem] w-[1.125rem] items-center justify-center rounded-[0.3rem] border transition-colors",
-              existingLuca || lucaSelected
-                ? "border-white bg-white text-black"
-                : "border-white/18 text-transparent group-hover:border-white/32",
-            )}
-          >
-            <Check className="h-3 w-3" />
-          </span>
-        </button>
-        {lucaPreview ? (
-          <section
-            className="rounded-md bg-white/[0.035] px-3 py-2.5 shadow-[inset_0_0_0_1px_rgb(255_255_255/0.07)]"
-            aria-label="Review Luca native creation"
-          >
-            <p className="text-sm font-medium text-white/88">
-              Review Luca's native setup
-            </p>
-            <ul className="mt-2 space-y-1.5 text-xs text-white/56">
-              {lucaPreview.changes.map((change) => (
-                <li key={`${change.subject}-${change.action}`}>
-                  {change.subject} · {change.detail}
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 text-xs text-white/42">
-              Press Continue again to approve these exact changes.
-            </p>
-          </section>
-        ) : null}
-      </div>
-      <div className="mt-4">
+          <p className="text-sm font-medium text-[var(--prototype-ink)]">
+            Review Luca's native setup
+          </p>
+          <ul className="mt-2 space-y-1.5 text-xs text-[var(--prototype-muted)]">
+            {lucaPreview.changes.map((change) => (
+              <li key={`${change.subject}-${change.action}`}>
+                {change.subject} · {change.detail}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-[var(--prototype-muted)]">
+            Press Continue again to approve these exact changes.
+          </p>
+        </section>
+      ) : null}
+      <div className="mt-5 min-h-0 flex-1">
         <PolyphonicAgentImportPane
           candidates={visibleCandidates}
           connectedAgents={allResidents.map((resident) => ({
@@ -592,7 +543,7 @@ export const PolyphonicAgentsStep = React.forwardRef<
           focus, and the honest consequence of saying no. */}
       <button
         aria-pressed={residentMemory}
-        className="group mt-3.5 flex w-full max-w-[30rem] items-start gap-3 border-t border-[var(--prototype-hairline)] px-1 pt-2.5 text-left outline-none"
+        className="group mt-3.5 flex w-full shrink-0 items-start gap-3 border-t border-[var(--prototype-hairline)] px-1 pt-2.5 text-left outline-none"
         data-testid="polyphonic-resident-memory"
         onClick={() => onResidentMemoryChange(!residentMemory)}
         type="button"
@@ -619,12 +570,12 @@ export const PolyphonicAgentsStep = React.forwardRef<
         </span>
       </button>
       {errors.luca ? (
-        <p className="mt-4 text-sm text-destructive" role="alert">
+        <p className="mt-3 shrink-0 text-sm text-destructive" role="alert">
           {errors.luca}
         </p>
       ) : null}
       <Button
-        className="mt-1.5 h-8 gap-2 rounded-md px-1.5 text-xs font-normal text-white/46 hover:bg-white/[0.035] hover:text-white/82"
+        className="mt-1 h-8 shrink-0 gap-2 self-start rounded-md px-1.5 text-xs font-normal text-[var(--prototype-muted)] hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)]"
         onClick={() => {
           personas.prepareCreate();
           setCreateOpen(true);
@@ -649,6 +600,6 @@ export const PolyphonicAgentsStep = React.forwardRef<
           runtimesLoading={personas.acpRuntimesQuery.isLoading}
         />
       ) : null}
-    </>
+    </div>
   );
 });

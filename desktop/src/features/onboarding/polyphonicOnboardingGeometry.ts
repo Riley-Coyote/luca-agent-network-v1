@@ -46,9 +46,23 @@ export function usePublishFieldAnchor(
     const landing = stage === "app";
     const publish = () => {
       const rect = element.getBoundingClientRect();
-      // A mark inside a collapsed or unmounted rail measures zero; it is not
-      // somewhere the glyph could land, so it is not published.
-      if (landing && (rect.width === 0 || rect.height === 0)) return;
+      // A mark in a collapsed rail is measurable but parked off-canvas, and a
+      // mark in a rail that is not there at all measures zero. Neither is
+      // somewhere the glyph could land, so neither is published — the layer
+      // uses its own fallback instead of flying the mark off the screen.
+      if (landing) {
+        const onScreen =
+          rect.width > 0 &&
+          rect.height > 0 &&
+          rect.right > 0 &&
+          rect.bottom > 0 &&
+          rect.left < window.innerWidth &&
+          rect.top < window.innerHeight;
+        if (!onScreen) {
+          setPolyphonicLanding(null);
+          return;
+        }
+      }
       const anchor = {
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
