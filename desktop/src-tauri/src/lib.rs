@@ -173,6 +173,41 @@ fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
     }
 }
 
+/// The onboarding card, not a workspace: a stranger's first launch opens at
+/// card size instead of the maximized geometry `tauri.conf.json` declares.
+const FIRST_RUN_WINDOW_WIDTH: f64 = 1000.0;
+const FIRST_RUN_WINDOW_HEIGHT: f64 = 656.0;
+
+/// Size the main window for a first run. An owner who has completed onboarding
+/// keeps their restored geometry, and so does an install whose onboarding
+/// status cannot be read — only a confirmed first run is resized. This never
+/// calls `restore_state`, which would deadlock against the window-state plugin.
+fn size_window_for_first_run(window: &tauri::Window) {
+    match luca::resident_capability_authority::any_owner_completed_onboarding(window.app_handle()) {
+        Ok(true) => return,
+        Ok(false) => {}
+        Err(_) => {
+            eprintln!(
+                "buzz-desktop: onboarding status is unavailable; keeping the restored window size"
+            );
+            return;
+        }
+    }
+    if let Err(error) = window.unmaximize() {
+        eprintln!("buzz-desktop: failed to unmaximize the first-run window: {error}");
+    }
+    if let Err(error) = window.set_size(tauri::LogicalSize::new(
+        FIRST_RUN_WINDOW_WIDTH,
+        FIRST_RUN_WINDOW_HEIGHT,
+    )) {
+        eprintln!("buzz-desktop: failed to size the first-run window: {error}");
+        return;
+    }
+    if let Err(error) = window.center() {
+        eprintln!("buzz-desktop: failed to center the first-run window: {error}");
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
     // The window remains transparent at runtime for vibrancy. Use an opaque
@@ -309,6 +344,9 @@ pub fn run() {
                             });
 
                         tauri::async_runtime::spawn(async move {
+                            // After the window-state plugin has issued its
+                            // restore, so a first run ends on the card size.
+                            size_window_for_first_run(&window);
                             wait_for_stable_initial_window_geometry(&window).await;
 
                             if tokio::time::timeout(
@@ -330,6 +368,7 @@ pub fn run() {
 
                     #[cfg(not(target_os = "macos"))]
                     {
+                        size_window_for_first_run(&window);
                         reveal_initial_window(&window);
                     }
                 })

@@ -213,16 +213,40 @@ pub(crate) fn onboarding_status(
     })
 }
 
+/// The onboarding flow mirrors each chapter it reaches, "brain" included.
+fn is_valid_onboarding_chapter(chapter: &str) -> bool {
+    matches!(
+        chapter,
+        "welcome" | "runtime" | "agents" | "brain" | "preparing" | "complete"
+    )
+}
+
+fn store_has_completed_onboarding(store: &CapabilityAuthorityStoreV1) -> bool {
+    store.owners.iter().any(|owner| {
+        owner
+            .onboarding
+            .as_ref()
+            .is_some_and(|status| status.completed)
+    })
+}
+
+/// True when any owner on this install finished onboarding. A missing store
+/// means nobody has: this is the app's first run.
+pub(crate) fn any_owner_completed_onboarding(app: &AppHandle) -> Result<bool, String> {
+    let path = store_path(app)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    read_store(&path, |store| Ok(store_has_completed_onboarding(store)))
+}
+
 pub(crate) fn set_onboarding_status(
     app: &AppHandle,
     owner_pubkey: &str,
     chapter: &str,
     completed: bool,
 ) -> Result<OnboardingCapabilityStatusV1, String> {
-    if !matches!(
-        chapter,
-        "welcome" | "runtime" | "agents" | "preparing" | "complete"
-    ) {
+    if !is_valid_onboarding_chapter(chapter) {
         return Err("onboarding chapter is invalid".into());
     }
     let path = store_path(app)?;
@@ -667,5 +691,40 @@ mod tests {
         assert_eq!(error, STORE_UNAVAILABLE);
         assert!(!error.contains("/Users/owner"));
         assert!(!error.to_ascii_lowercase().contains("permission"));
+    }
+
+    #[test]
+    fn onboarding_chapters_include_the_brain_step_and_nothing_invented() {
+        for chapter in [
+            "welcome",
+            "runtime",
+            "agents",
+            "brain",
+            "preparing",
+            "complete",
+        ] {
+            assert!(is_valid_onboarding_chapter(chapter), "{chapter}");
+        }
+        for chapter in ["", "Brain", "brains", "connect", "finished"] {
+            assert!(!is_valid_onboarding_chapter(chapter), "{chapter}");
+        }
+    }
+
+    #[test]
+    fn first_run_is_anyone_completing_onboarding_not_merely_starting_it() {
+        let mut store = CapabilityAuthorityStoreV1::default();
+        assert!(!store_has_completed_onboarding(&store));
+        owner_mut(&mut store, &"aa".repeat(32)).onboarding = Some(OnboardingCapabilityStatusV1 {
+            chapter: "brain".into(),
+            completed: false,
+            updated_at: Utc::now().to_rfc3339(),
+        });
+        assert!(!store_has_completed_onboarding(&store));
+        owner_mut(&mut store, &"bb".repeat(32)).onboarding = Some(OnboardingCapabilityStatusV1 {
+            chapter: "complete".into(),
+            completed: true,
+            updated_at: Utc::now().to_rfc3339(),
+        });
+        assert!(store_has_completed_onboarding(&store));
     }
 }
