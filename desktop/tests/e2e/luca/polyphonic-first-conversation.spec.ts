@@ -369,7 +369,7 @@ test("the becoming puts the window back: the app has its own ground again", asyn
   if (evidenceDirectory) {
     await page.screenshot({
       animations: "allow",
-      path: `${evidenceDirectory}/card-5-app-after-becoming-1280x800.png`,
+      path: `${evidenceDirectory}/card-6-app-after-becoming-1280x800.png`,
     });
   } else {
     await testInfo.attach("app after becoming", {
