@@ -2,9 +2,13 @@ import * as React from "react";
 
 import type {
   DiscoveredResidentCandidate,
-  NativeDiscoveryStatus,
+  NativeRuntimeDiscoveryOutcome,
 } from "@/shared/api/types";
-import { isReadyAgentImportCandidate } from "../onboardingAgentImport";
+import {
+  describeDiscoverySources,
+  describeResidentCandidate,
+  nativeSourceLabel,
+} from "./agentReadiness";
 import {
   PolyphonicPresentationAgentSelector,
   type PolyphonicPresentationAgent,
@@ -18,46 +22,23 @@ export type PolyphonicAgentImportRowStatus =
 
 export type PolyphonicConnectedAgentSummary = { id: string; name: string };
 
-export type PolyphonicAgentImportSourceOutcome = {
-  message?: string;
-  nativeType: DiscoveredResidentCandidate["nativeType"];
-  status: NativeDiscoveryStatus;
-};
-
 export type PolyphonicAgentImportPaneProps = {
   candidates: readonly DiscoveredResidentCandidate[];
   /** Plain rows while the list is short; see the selector. */
   compact?: boolean;
   connectedAgents: readonly PolyphonicConnectedAgentSummary[];
   disabled?: boolean;
+  /** What the list says when the scan has finished and found nobody. */
+  emptyMessage?: string;
   isScanning: boolean;
-  onClear: () => void;
-  onRescan: () => void;
-  onRetryCandidate: (candidate: DiscoveredResidentCandidate) => void;
-  onSelectAllReady: () => void;
+  onClear?: () => void;
+  onRescan?: () => void;
+  onSelectAllReady?: () => void;
   onToggleCandidate: (candidate: DiscoveredResidentCandidate) => void;
-  rowErrors?: Readonly<Record<string, string>>;
-  rowStatuses?: Readonly<Record<string, PolyphonicAgentImportRowStatus>>;
   scanError?: string | null;
   selectedIds: ReadonlySet<string>;
-  sourceOutcomes?: readonly PolyphonicAgentImportSourceOutcome[];
+  sourceOutcomes?: readonly NativeRuntimeDiscoveryOutcome[];
 };
-
-const sourceLabels = { hermes: "Hermes", openclaw: "OpenClaw" } as const;
-
-function detailText(candidate: DiscoveredResidentCandidate): string {
-  if (
-    candidate.readiness.status === "degraded" ||
-    candidate.readiness.status === "unavailable"
-  ) {
-    return candidate.readiness.message;
-  }
-  return (
-    candidate.modelSummary ??
-    candidate.workspace ??
-    `${sourceLabels[candidate.nativeType]} agent`
-  );
-}
 
 function connectedSummary(
   connectedAgents: readonly PolyphonicConnectedAgentSummary[],
@@ -68,19 +49,26 @@ function connectedSummary(
   return `${shown.join(", ")}${remaining > 0 ? ` +${remaining}` : ""}`;
 }
 
+/**
+ * The agents already on this Mac, each a row the owner can tick.
+ *
+ * Nothing is read or imported here — ticking a row is a choice, acted on in
+ * the background once the card has become the application. So every identity
+ * the scan returned is offered, including the ones a runtime currently calls
+ * unavailable: an import that fails costs the owner nothing but one line on
+ * that one row.
+ */
 export function PolyphonicAgentImportPane({
   candidates,
   compact = false,
   connectedAgents,
   disabled = false,
+  emptyMessage,
   isScanning,
   onClear,
   onRescan,
-  onRetryCandidate,
   onSelectAllReady,
   onToggleCandidate,
-  rowErrors = {},
-  rowStatuses = {},
   scanError = null,
   selectedIds,
   sourceOutcomes = [],
@@ -93,28 +81,19 @@ export function PolyphonicAgentImportPane({
   );
   const agents = React.useMemo<PolyphonicPresentationAgent[]>(
     () =>
-      candidates.map((candidate) => {
-        const status = rowStatuses[candidate.semanticId] ?? "idle";
-        const needsAttention = status === "needs-attention";
-        return {
-          detail: needsAttention
-            ? (rowErrors[candidate.semanticId] ?? "Needs attention")
-            : detailText(candidate),
-          disabled:
-            candidate.readiness.status === "unavailable" ||
-            (!isReadyAgentImportCandidate(candidate) && !needsAttention),
-          id: candidate.semanticId,
-          name: candidate.displayName,
-          source: sourceLabels[candidate.nativeType],
-          status,
-        };
-      }),
-    [candidates, rowErrors, rowStatuses],
+      candidates.map((candidate) => ({
+        detail: describeResidentCandidate(candidate),
+        id: candidate.semanticId,
+        name: candidate.displayName,
+        source: nativeSourceLabel(candidate.nativeType),
+        status: "idle" as const,
+      })),
+    [candidates],
   );
   const connected = connectedSummary(connectedAgents);
-  const sourceMessages = sourceOutcomes.filter(
-    (outcome) => outcome.status !== "available" && outcome.message,
-  );
+  // What a source has to say about itself is said once, above its rows —
+  // never repeated on every row it returned.
+  const sourceMessages = describeDiscoverySources(sourceOutcomes);
 
   return (
     <section
@@ -127,20 +106,26 @@ export function PolyphonicAgentImportPane({
           Already in Polyphonic · {connected}
         </p>
       ) : null}
+      {sourceMessages.map((outcome) => (
+        <p
+          className="mb-2 shrink-0 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
+          data-testid={`onboarding-agent-source-${outcome.nativeType}`}
+          key={outcome.nativeType}
+        >
+          {nativeSourceLabel(outcome.nativeType)} · {outcome.message}
+        </p>
+      ))}
       <div className="flex min-h-0 flex-1 flex-col">
         <PolyphonicPresentationAgentSelector
           agents={agents}
           compact={compact}
           disabled={disabled}
+          emptyMessage={emptyMessage}
           isScanning={isScanning}
-          onClear={onClear}
+          onClear={onClear ?? (() => undefined)}
           onQueryChange={setQuery}
           onRescan={onRescan}
-          onRetry={(id) => {
-            const candidate = candidateById.get(id);
-            if (candidate) onRetryCandidate(candidate);
-          }}
-          onSelectAll={onSelectAllReady}
+          onSelectAll={onSelectAllReady ?? (() => undefined)}
           onToggle={(id) => {
             const candidate = candidateById.get(id);
             if (candidate) onToggleCandidate(candidate);
@@ -157,14 +142,6 @@ export function PolyphonicAgentImportPane({
           {scanError}
         </p>
       ) : null}
-      {sourceMessages.map((outcome) => (
-        <p
-          className="mt-1 shrink-0 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
-          key={outcome.nativeType}
-        >
-          {sourceLabels[outcome.nativeType]} · {outcome.message}
-        </p>
-      ))}
     </section>
   );
 }

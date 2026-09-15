@@ -1,4 +1,50 @@
-import type { DiscoveredResidentCandidate } from "@/shared/api/types";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
+
+import { discoverNativeResidents } from "@/shared/api/tauri";
+import type {
+  DiscoveredResidentCandidate,
+  NativeResidentDiscoveryOutcome,
+} from "@/shared/api/types";
+
+export const nativeResidentDiscoveryQueryKey = [
+  "native-resident-discovery",
+] as const;
+
+/**
+ * Looking around the Mac takes as long as it takes, and the agents chapter
+ * must paint its rows the moment it opens. The scan is therefore one query,
+ * warmed a chapter early (see the flow) and read here from the cache.
+ */
+const DISCOVERY_STALE_MS = 60_000;
+
+export function useNativeResidentDiscoveryQuery() {
+  return useQuery({
+    queryKey: nativeResidentDiscoveryQueryKey,
+    queryFn: discoverNativeResidents,
+    staleTime: DISCOVERY_STALE_MS,
+  });
+}
+
+/** Start the scan without waiting for it; failures surface on the step. */
+export function prefetchNativeResidentDiscovery(client: QueryClient) {
+  void client
+    .prefetchQuery({
+      queryKey: nativeResidentDiscoveryQueryKey,
+      queryFn: discoverNativeResidents,
+      staleTime: DISCOVERY_STALE_MS,
+    })
+    .catch(() => {
+      // The agents chapter runs the same query and shows what went wrong;
+      // a warm-up that fails must never surface on the chapter before it.
+    });
+}
+
+/** Every candidate any source returned, in the sources' own order. */
+export function candidatesFromDiscovery(
+  outcome: NativeResidentDiscoveryOutcome | undefined,
+): DiscoveredResidentCandidate[] {
+  return (outcome?.runtimes ?? []).flatMap((runtime) => runtime.candidates);
+}
 
 export type NativeAgentImportGroup = {
   nativeType: DiscoveredResidentCandidate["nativeType"];

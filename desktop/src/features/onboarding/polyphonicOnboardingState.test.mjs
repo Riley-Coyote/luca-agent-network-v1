@@ -20,6 +20,7 @@ function memoryStorage(initial = {}) {
 }
 
 const FIELDS = [
+  "agentImports",
   "agentsReviewed",
   "brainReviewed",
   "chapter",
@@ -67,7 +68,7 @@ test("version three setups keep the chapter they stopped on", () => {
     });
     const carried = readPolyphonicOnboardingTransaction("owner", storage);
     assert.equal(carried?.chapter, chapter);
-    assert.equal(carried?.version, 4);
+    assert.equal(carried?.version, 5);
     // Memory is the default answer for a setup that was never asked.
     assert.equal(carried?.residentMemory, true);
   }
@@ -108,6 +109,80 @@ test("the memory answer survives a reload", () => {
   );
 });
 
+test("the agents the owner ticked survive a reload", () => {
+  const storage = memoryStorage();
+  const chosen = [
+    {
+      semanticId: "hermes:profile-01",
+      nativeType: "hermes",
+      displayName: "Hermes profile 01",
+    },
+    {
+      semanticId: "openclaw:agent-02",
+      nativeType: "openclaw",
+      displayName: "OpenClaw agent 02",
+    },
+  ];
+  savePolyphonicOnboardingTransaction(
+    {
+      ...createPolyphonicOnboardingTransaction("owner"),
+      chapter: "preparing",
+      runtimeConfirmed: true,
+      agentsReviewed: true,
+      agentImports: chosen,
+    },
+    storage,
+  );
+  assert.deepEqual(
+    readPolyphonicOnboardingTransaction("owner", storage)?.agentImports,
+    chosen,
+  );
+});
+
+test("a saved selection that is not a list of choices fails closed", () => {
+  for (const agentImports of [
+    "hermes:profile-01",
+    [{ semanticId: "hermes:profile-01" }],
+    [{ semanticId: "x", nativeType: "goose", displayName: "X" }],
+    [{ semanticId: "", nativeType: "hermes", displayName: "X" }],
+  ]) {
+    const storage = memoryStorage({
+      "polyphonic-onboarding-transaction.v1:owner": JSON.stringify({
+        ...createPolyphonicOnboardingTransaction("owner"),
+        chapter: "agents",
+        runtimeConfirmed: true,
+        agentImports,
+      }),
+    });
+    assert.equal(readPolyphonicOnboardingTransaction("owner", storage), null);
+  }
+});
+
+test("version four setups keep their place and start with nobody chosen", () => {
+  for (const chapter of ["welcome", "runtime", "agents", "preparing"]) {
+    const storage = memoryStorage({
+      "polyphonic-onboarding-transaction.v1:owner": JSON.stringify({
+        version: 4,
+        pubkey: "owner",
+        chapter,
+        profileSaved: chapter !== "welcome",
+        agentsReviewed: false,
+        brainReviewed: false,
+        residentMemory: false,
+        runtimeConfirmed: chapter === "preparing",
+        updatedAt: "2026-09-10T00:00:00.000Z",
+      }),
+    });
+    const carried = readPolyphonicOnboardingTransaction("owner", storage);
+    assert.equal(carried?.version, 5);
+    assert.equal(carried?.chapter, chapter);
+    // An answer the owner gave is not re-defaulted by the migration.
+    assert.equal(carried?.residentMemory, false);
+    assert.deepEqual(carried?.agentImports, []);
+    assert.deepEqual(Object.keys(carried ?? {}).sort(), FIELDS);
+  }
+});
+
 test("version one later chapters migrate back to required runtime confirmation", () => {
   const storage = memoryStorage({
     "polyphonic-onboarding-transaction.v1:owner-pubkey": JSON.stringify({
@@ -121,7 +196,7 @@ test("version one later chapters migrate back to required runtime confirmation",
     }),
   });
   const migrated = readPolyphonicOnboardingTransaction("owner-pubkey", storage);
-  assert.equal(migrated?.version, 4);
+  assert.equal(migrated?.version, 5);
   assert.equal(migrated?.chapter, "runtime");
   assert.equal(migrated?.runtimeConfirmed, false);
 });

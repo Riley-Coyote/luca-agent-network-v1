@@ -1,6 +1,7 @@
 import * as React from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useQueryClient } from "@tanstack/react-query";
 import { rememberLastConversation } from "@/app/navigation/lastConversation";
 
 import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
@@ -12,8 +13,14 @@ import {
   readPolyphonicOnboardingTransaction,
   savePolyphonicOnboardingTransaction,
 } from "../polyphonicOnboardingState";
+import { prefetchNativeResidentDiscovery } from "../onboardingAgentImport";
+import { stageOnboardingAgentImports } from "../onboardingBackgroundImport";
 import { setPolyphonicScene } from "../polyphonicOnboardingScene";
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
+import {
+  PolyphonicAgentsStep,
+  type PolyphonicAgentsStepHandle,
+} from "./PolyphonicAgentsStep";
 import { PolyphonicPreparingStep } from "./PolyphonicPreparingStep";
 import {
   PolyphonicRuntimeStep,
@@ -25,16 +32,20 @@ import {
   type PolyphonicYouStepHandle,
 } from "./PolyphonicYouStep";
 
-/** Two questions — your name, and who speaks for Luca — then the waking.
- *  Nothing is read during onboarding: Luca asks to look around in the
- *  conversation instead. The agents and brain chapters still exist in the
- *  transaction, its migrations and their step components; the flow simply
- *  never enters them, and a transaction saved on one of them resumes at the
- *  waking rather than stranding an owner on a chapter that is gone. */
-const CHAPTERS: PolyphonicOnboardingChapter[] = ["welcome", "runtime"];
+/** Three questions — your name, who speaks for Luca, and who else lives here
+ *  — then the waking. Nothing is read during onboarding: the agents chapter
+ *  only asks which of the agents already on this Mac should come too, and they
+ *  are brought in behind the first conversation. The brain chapter still
+ *  exists in the transaction, its migrations and its step component; the flow
+ *  never enters it, and a transaction saved on it resumes at the waking rather
+ *  than stranding an owner on a chapter that is gone. */
+const CHAPTERS: PolyphonicOnboardingChapter[] = [
+  "welcome",
+  "runtime",
+  "agents",
+];
 
 const SKIPPED_CHAPTERS: ReadonlySet<PolyphonicOnboardingChapter> = new Set([
-  "agents",
   "brain",
 ]);
 
@@ -45,8 +56,8 @@ const previousChapter: Record<
   welcome: "welcome",
   runtime: "welcome",
   agents: "runtime",
-  brain: "runtime",
-  preparing: "runtime",
+  brain: "agents",
+  preparing: "agents",
 };
 
 export function PolyphonicOnboardingFlow({
@@ -62,9 +73,9 @@ export function PolyphonicOnboardingFlow({
     const saved =
       readPolyphonicOnboardingTransaction(pubkey) ??
       createPolyphonicOnboardingTransaction(pubkey);
-    // A transaction written by a build that still asked these two questions
-    // resumes at the waking: the answers it was waiting for are no longer
-    // part of the walk.
+    // A transaction saved on a chapter this build no longer asks resumes at
+    // the waking. "agents" is a real chapter again, so a setup that stopped
+    // there resumes there, with whatever it had already ticked.
     return savePolyphonicOnboardingTransaction(
       SKIPPED_CHAPTERS.has(saved.chapter)
         ? { ...saved, chapter: "preparing" }
@@ -84,9 +95,23 @@ export function PolyphonicOnboardingFlow({
   const [busy, setBusy] = React.useState(false);
   const continuingRef = React.useRef(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
+  const [agentSelection, setAgentSelection] = React.useState({
+    found: 0,
+    selected: 0,
+  });
   const [error, setError] = React.useState<string | null>(null);
   const youRef = React.useRef<PolyphonicYouStepHandle>(null);
   const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
+  const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
+  const queryClient = useQueryClient();
+
+  // Looking around the Mac starts while the owner is still choosing a runtime,
+  // so the agents chapter paints its rows the moment it opens instead of
+  // opening onto a spinner.
+  React.useEffect(() => {
+    if (transaction.chapter !== "runtime") return;
+    prefetchNativeResidentDiscovery(queryClient);
+  }, [queryClient, transaction.chapter]);
 
   React.useEffect(() => {
     // The protected local mirror's allowlist lives in native code this work
@@ -132,7 +157,20 @@ export function PolyphonicOnboardingFlow({
       if (transaction.chapter === "runtime") {
         const target = await runtimeRef.current?.commit();
         if (!target) return;
-        persist({ chapter: "preparing", runtimeConfirmed: true });
+        persist({ chapter: "agents", runtimeConfirmed: true });
+        return;
+      }
+      if (transaction.chapter === "agents") {
+        // Nothing is imported here: the step stages what was ticked and the
+        // waking step enqueues it once Luca exists. The answer is persisted
+        // so a reload before the waking keeps the owner's choice.
+        const outcome = await agentsRef.current?.commit();
+        if (!outcome) return;
+        persist({
+          chapter: "preparing",
+          agentsReviewed: true,
+          agentImports: outcome.selection,
+        });
         return;
       }
     } catch (cause) {
@@ -186,9 +224,17 @@ export function PolyphonicOnboardingFlow({
       continueLabel={
         busy
           ? "Working…"
-          : transaction.chapter === "runtime"
-            ? "Meet Luca"
-            : "Continue"
+          : transaction.chapter !== "agents"
+            ? "Continue"
+            : agentSelection.selected > 0
+              ? `Bring in ${agentSelection.selected} agent${
+                  agentSelection.selected === 1 ? "" : "s"
+                }`
+              : // Nobody on this Mac to bring in is not a decision declined;
+                // it is simply the last screen, so it just carries on.
+                agentSelection.found === 0
+                ? "Continue"
+                : "Meet Luca"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
       onContinue={() => void continueForward()}
@@ -209,6 +255,24 @@ export function PolyphonicOnboardingFlow({
         <PolyphonicRuntimeStep
           onReadyChange={setRuntimeReady}
           ref={runtimeRef}
+        />
+      ) : null}
+      {transaction.chapter === "agents" ? (
+        <PolyphonicAgentsStep
+          onSelectionChange={setAgentSelection}
+          onSkip={() => {
+            // Declining is a decision, and it is recorded like one: nothing
+            // staged, nothing queued, straight on to the waking.
+            stageOnboardingAgentImports([]);
+            persist({
+              chapter: "preparing",
+              agentsReviewed: true,
+              agentImports: [],
+            });
+          }}
+          ref={agentsRef}
+          residentMemory={transaction.residentMemory}
+          savedSelection={transaction.agentImports}
         />
       ) : null}
       {transaction.chapter === "preparing" ? (

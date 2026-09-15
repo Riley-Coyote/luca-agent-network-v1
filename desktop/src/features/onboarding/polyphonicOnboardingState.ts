@@ -5,8 +5,19 @@ export type PolyphonicOnboardingChapter =
   | "brain"
   | "preparing";
 
+/**
+ * One agent the owner ticked on the agents chapter. Only the identity, its
+ * source and the name on the row are kept: the binding itself is re-read from
+ * discovery, so a reload can never import from a stale fingerprint.
+ */
+export type PolyphonicAgentImportChoice = {
+  semanticId: string;
+  nativeType: "hermes" | "openclaw";
+  displayName: string;
+};
+
 export type PolyphonicOnboardingTransaction = {
-  version: 4;
+  version: 5;
   pubkey: string;
   chapter: PolyphonicOnboardingChapter;
   profileSaved: boolean;
@@ -19,6 +30,8 @@ export type PolyphonicOnboardingTransaction = {
    */
   residentMemory: boolean;
   runtimeConfirmed: boolean;
+  /** Who the owner chose to bring in. Empty until the agents chapter. */
+  agentImports: PolyphonicAgentImportChoice[];
   updatedAt: string;
 };
 
@@ -39,6 +52,24 @@ function isChapter(value: unknown): value is PolyphonicOnboardingChapter {
   );
 }
 
+function isAgentImportChoice(
+  value: unknown,
+): value is PolyphonicAgentImportChoice {
+  if (!value || typeof value !== "object") return false;
+  const choice = value as Partial<PolyphonicAgentImportChoice>;
+  return (
+    typeof choice.semanticId === "string" &&
+    choice.semanticId.length > 0 &&
+    (choice.nativeType === "hermes" || choice.nativeType === "openclaw") &&
+    typeof choice.displayName === "string"
+  );
+}
+
+/** Keep only the entries that still read as choices; drop anything else. */
+function readAgentImportChoices(value: unknown): PolyphonicAgentImportChoice[] {
+  return Array.isArray(value) ? value.filter(isAgentImportChoice) : [];
+}
+
 function isTransaction(
   value: unknown,
   pubkey: string,
@@ -46,7 +77,9 @@ function isTransaction(
   if (!value || typeof value !== "object") return false;
   const transaction = value as Partial<PolyphonicOnboardingTransaction>;
   return (
-    transaction.version === 4 &&
+    transaction.version === 5 &&
+    Array.isArray(transaction.agentImports) &&
+    transaction.agentImports.every(isAgentImportChoice) &&
     transaction.pubkey === pubkey &&
     isChapter(transaction.chapter) &&
     typeof transaction.profileSaved === "boolean" &&
@@ -62,15 +95,16 @@ export function createPolyphonicOnboardingTransaction(
   pubkey: string,
 ): PolyphonicOnboardingTransaction {
   return {
-    version: 4,
+    version: 5,
     pubkey,
     chapter: "welcome",
     profileSaved: false,
     agentsReviewed: false,
     brainReviewed: false,
-    // Memory is the default answer; the owner can say no on the agents step.
+    // Memory is the default answer; nothing in setup asks it again.
     residentMemory: true,
     runtimeConfirmed: false,
+    agentImports: [],
     updatedAt: new Date().toISOString(),
   };
 }
@@ -87,8 +121,30 @@ export function readPolyphonicOnboardingTransaction(
     if (parsed && typeof parsed === "object") {
       const legacy = parsed as Record<string, unknown>;
       const version = legacy.version;
-      if (version === 4) return isTransaction(parsed, pubkey) ? parsed : null;
+      if (version === 5) return isTransaction(parsed, pubkey) ? parsed : null;
       if (legacy.pubkey !== pubkey) return null;
+      if (version === 4) {
+        // Version 4 asked the same questions; it simply had nowhere to record
+        // who the owner wanted brought in. Every chapter keeps its place.
+        const carried: PolyphonicOnboardingTransaction = {
+          version: 5,
+          pubkey,
+          chapter: isChapter(legacy.chapter) ? legacy.chapter : "welcome",
+          profileSaved: legacy.profileSaved === true,
+          agentsReviewed: legacy.agentsReviewed === true,
+          brainReviewed: legacy.brainReviewed === true,
+          residentMemory: legacy.residentMemory !== false,
+          runtimeConfirmed: legacy.runtimeConfirmed === true,
+          agentImports: readAgentImportChoices(legacy.agentImports),
+          updatedAt:
+            typeof legacy.updatedAt === "string"
+              ? legacy.updatedAt
+              : new Date().toISOString(),
+        };
+        return isTransaction(carried, pubkey)
+          ? savePolyphonicOnboardingTransaction(carried, storage)
+          : null;
+      }
       if (version === 3) {
         // Version 3 had no agents or brain chapter of its own: its "agents"
         // was the import step that moved into the conversation. A setup
@@ -102,7 +158,7 @@ export function readPolyphonicOnboardingTransaction(
               : "runtime"
             : (legacy.chapter as PolyphonicOnboardingChapter);
         const carried: PolyphonicOnboardingTransaction = {
-          version: 4,
+          version: 5,
           pubkey,
           chapter,
           profileSaved: legacy.profileSaved === true,
@@ -110,6 +166,7 @@ export function readPolyphonicOnboardingTransaction(
           brainReviewed: false,
           residentMemory: true,
           runtimeConfirmed: legacy.runtimeConfirmed === true,
+          agentImports: [],
           updatedAt:
             typeof legacy.updatedAt === "string"
               ? legacy.updatedAt
@@ -121,7 +178,7 @@ export function readPolyphonicOnboardingTransaction(
       }
       if (version !== 1 && version !== 2) return null;
       const migrated: PolyphonicOnboardingTransaction = {
-        version: 4,
+        version: 5,
         pubkey,
         chapter: legacy.chapter === "you" ? "welcome" : "runtime",
         profileSaved: legacy.profileSaved === true,
@@ -129,6 +186,7 @@ export function readPolyphonicOnboardingTransaction(
         agentsReviewed: false,
         brainReviewed: false,
         residentMemory: true,
+        agentImports: [],
         updatedAt:
           typeof legacy.updatedAt === "string"
             ? legacy.updatedAt

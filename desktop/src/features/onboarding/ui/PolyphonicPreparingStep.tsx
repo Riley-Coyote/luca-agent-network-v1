@@ -40,6 +40,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
+import { startStagedOnboardingAgentImports } from "../onboardingBackgroundImport";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
@@ -392,6 +393,21 @@ export function PolyphonicPreparingStep({
         runtimes: runtimesRef.current,
         target,
       });
+
+      // ── the agents the owner chose to bring in ────────────────────────────
+      // Started here and deliberately not awaited: the three that ship with
+      // Polyphonic exist, so everything left is the owner's own inventory and
+      // none of it may stand between them and Luca's first words. The queue
+      // runs one at a time behind the becoming; each agent appears in the rail
+      // as it is made, and one that fails keeps its reason on its own row.
+      startStagedOnboardingAgentImports({
+        onResidentsChanged: () => {
+          void queryClient.invalidateQueries({
+            queryKey: managedAgentsQueryKey,
+          });
+        },
+      });
+      // ─────────────────────────────────────────────────────────────────────
 
       const channel = await openDm({ pubkeys: [lucaPubkey] });
       if (target.kind === "managed") {

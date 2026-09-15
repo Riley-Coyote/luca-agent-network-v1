@@ -45,6 +45,10 @@ import {
 } from "@/features/channels/lib/roomProjects";
 import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { requestOpenCreateAgent } from "@/features/agents/openCreateAgentEvent";
+import {
+  PENDING_NATIVE_IMPORT_PREFIX,
+  usePendingNativeImports,
+} from "@/features/onboarding/onboardingBackgroundImport";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
 import {
@@ -230,20 +234,37 @@ export function AppSidebar({
   // The AGENTS rail lists residents, not chats. Choosing one opens the agent
   // column; choosing it again closes it.
   const selectedAgentPubkey = useSelectedAgentPubkey();
-  const railAgents = React.useMemo(
-    () =>
-      [...(managedAgentsQuery.data ?? [])]
-        .map((agent) => ({
-          name: agent.name,
-          avatarUrl: agent.avatarUrl,
-          personaId: agent.personaId,
-          pubkey: agent.pubkey,
-          waking: agent.waking,
-          lastError: agent.lastError,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [managedAgentsQuery.data],
-  );
+  // Agents chosen during setup are brought in behind the first conversation.
+  // They are in the rail from the first moment, in the state the rail already
+  // has for a resident that exists but is not up yet, and their row becomes an
+  // ordinary one the instant the real record arrives.
+  const pendingImports = usePendingNativeImports();
+  const railAgents = React.useMemo(() => {
+    const residents = [...(managedAgentsQuery.data ?? [])].map((agent) => ({
+      name: agent.name,
+      avatarUrl: agent.avatarUrl,
+      personaId: agent.personaId,
+      pubkey: agent.pubkey,
+      waking: agent.waking,
+      lastError: agent.lastError,
+    }));
+    const present = new Set(
+      residents.map((agent) => agent.name.toLocaleLowerCase()),
+    );
+    const arriving = pendingImports
+      .filter((entry) => !present.has(entry.displayName.toLocaleLowerCase()))
+      .map((entry) => ({
+        name: entry.displayName,
+        avatarUrl: null,
+        personaId: null,
+        pubkey: `${PENDING_NATIVE_IMPORT_PREFIX}${entry.semanticId}`,
+        waking: entry.error === null,
+        lastError: entry.error,
+      }));
+    return [...residents, ...arriving].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [managedAgentsQuery.data, pendingImports]);
   const selectedAgent = React.useMemo(
     () =>
       selectedAgentPubkey
@@ -679,6 +700,10 @@ export function AppSidebar({
     [],
   );
   const selectAgentFromRail = useStableCallback((pubkey: string) => {
+    // An agent still being brought in has no record to open yet. Its row is
+    // there so the owner can see it coming, and it becomes selectable the
+    // moment it is real.
+    if (pubkey.startsWith(PENDING_NATIVE_IMPORT_PREFIX)) return;
     // ...and an agent replaces whichever runtime panel was open.
     pendingRuntimeSelectionRef.current = null;
     selectedRuntimeRef.current = null;

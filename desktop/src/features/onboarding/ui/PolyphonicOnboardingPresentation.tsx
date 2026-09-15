@@ -177,6 +177,7 @@ export function PolyphonicPresentationAgentSelector({
   agents,
   compact = false,
   disabled = false,
+  emptyMessage,
   isScanning = false,
   onClear,
   onQueryChange,
@@ -195,6 +196,8 @@ export function PolyphonicPresentationAgentSelector({
    *  prototype's surface only. */
   compact?: boolean;
   disabled?: boolean;
+  /** What the list says once the scan is done and nobody was found. */
+  emptyMessage?: string;
   isScanning?: boolean;
   onClear: () => void;
   onQueryChange: (query: string) => void;
@@ -212,6 +215,7 @@ export function PolyphonicPresentationAgentSelector({
       <PolyphonicPresentationAgentRows
         agents={agents}
         disabled={disabled}
+        emptyMessage={emptyMessage}
         inventoryTestId={inventoryTestId}
         isScanning={isScanning}
         onRescan={onRescan}
@@ -421,6 +425,7 @@ export function PolyphonicPresentationAgentSelector({
 function PolyphonicPresentationAgentRows({
   agents,
   disabled,
+  emptyMessage = "No agents found yet.",
   inventoryTestId,
   isScanning,
   onRescan,
@@ -431,6 +436,7 @@ function PolyphonicPresentationAgentRows({
 }: {
   agents: readonly PolyphonicPresentationAgent[];
   disabled: boolean;
+  emptyMessage?: string;
   inventoryTestId: string;
   isScanning: boolean;
   onRescan?: () => void;
@@ -439,7 +445,6 @@ function PolyphonicPresentationAgentRows({
   rowTestIdPrefix: string;
   selectedIds: ReadonlySet<string>;
 }) {
-  const sources = new Set(agents.map((agent) => agent.source));
   const scrolls = agents.length > 4;
   return (
     <section
@@ -462,18 +467,17 @@ function PolyphonicPresentationAgentRows({
         const importing = status === "importing";
         const imported = status === "imported";
         const needsAttention = status === "needs-attention";
-        // With one source on the Mac its name is noise; with two it is the
-        // difference between the rows.
+        // Where an agent came from is part of who it is, so the row says it
+        // — unless the runtime's own sentence already opens with the name.
         const detail = importing
           ? "Importing"
           : imported
             ? "Imported"
-            : sources.size > 1 &&
-                !agent.detail
+            : agent.detail
                   .toLocaleLowerCase()
                   .startsWith(agent.source.toLocaleLowerCase())
-              ? `${agent.source} · ${agent.detail}`
-              : agent.detail;
+              ? agent.detail
+              : `${agent.source} · ${agent.detail}`;
         return (
           <div
             className="flex items-center"
@@ -550,8 +554,8 @@ function PolyphonicPresentationAgentRows({
         </p>
       ) : null}
       {!isScanning && agents.length === 0 ? (
-        <p className="flex min-h-[52px] items-center gap-3 px-3 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
-          No agents found yet.
+        <p className="flex min-h-[52px] items-center gap-3 px-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+          {emptyMessage}
           {onRescan ? (
             <button
               className="rounded-[4px] text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:text-[var(--prototype-ink)]"

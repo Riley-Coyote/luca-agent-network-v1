@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { resolveAgentReadiness } from "./agentReadiness.ts";
+import {
+  describeDiscoverySources,
+  describeResidentCandidate,
+  nativeSourceLabel,
+  resolveAgentReadiness,
+} from "./agentReadiness.ts";
 
 // Minimal stub helpers.
 function makeRuntime(overrides = {}) {
@@ -251,4 +256,128 @@ test("resolveAgentReadiness_preferred_goose_does_not_borrow_ready_buzz_agent_con
     "preferred",
   );
   assert.equal(result.ready, false);
+});
+
+// ---------------------------------------------------------------------------
+// One plain line under a discovered agent's name
+// ---------------------------------------------------------------------------
+
+function makeCandidate(overrides = {}) {
+  return {
+    nativeType: "openclaw",
+    nativeId: "agent-01",
+    semanticId: "openclaw:agent-01",
+    bindingFingerprint: "sha256:openclaw-01",
+    displayName: "OpenClaw agent 01",
+    readiness: { status: "ready" },
+    warnings: [],
+    bindingPreview: {
+      kind: "openclaw",
+      schemaVersion: 1,
+      agentId: "agent-01",
+      executablePath: "openclaw",
+      runtimeVersion: "1.0.0",
+      gatewayIdentity: "fixture-gateway",
+      gatewayUrlRef: { provider: "native_store", locator: "fixture-url-01" },
+    },
+    ...overrides,
+  };
+}
+
+test("a ready agent says Ready, or what it runs on when it knows", () => {
+  assert.equal(describeResidentCandidate(makeCandidate()), "Ready");
+  assert.equal(
+    describeResidentCandidate(makeCandidate({ modelSummary: "Sonnet 4.5" })),
+    "Sonnet 4.5",
+  );
+});
+
+test("an unavailable agent says so, and then says what to do about it", () => {
+  assert.equal(
+    describeResidentCandidate(
+      makeCandidate({
+        readiness: {
+          status: "unavailable",
+          code: "GATEWAY_IDENTITY",
+          message: "Run `openclaw doctor --fix`.",
+        },
+      }),
+    ),
+    "Unavailable — run `openclaw doctor --fix`.",
+  );
+  // A message that already opens with the word is not made to say it twice.
+  assert.equal(
+    describeResidentCandidate(
+      makeCandidate({
+        readiness: {
+          status: "unavailable",
+          code: "GATEWAY",
+          message: "Unavailable until the gateway is running.",
+        },
+      }),
+    ),
+    "Unavailable until the gateway is running.",
+  );
+  // A name is a name: only a word capitalised by the full stop before it is
+  // lowered to be joined on.
+  assert.equal(
+    describeResidentCandidate(
+      makeCandidate({
+        readiness: {
+          status: "unavailable",
+          code: "GATEWAY",
+          message: "OpenClaw's gateway is not running.",
+        },
+      }),
+    ),
+    "Unavailable — OpenClaw's gateway is not running.",
+  );
+});
+
+test("a degraded agent shows the runtime's own sentence", () => {
+  assert.equal(
+    describeResidentCandidate(
+      makeCandidate({
+        readiness: {
+          status: "degraded",
+          code: "CONFIG_REPAIR",
+          message: "Read from openclaw.json instead.",
+        },
+      }),
+    ),
+    "Read from openclaw.json instead.",
+  );
+});
+
+test("only a source with something to do about it speaks above its rows", () => {
+  assert.deepEqual(
+    describeDiscoverySources([
+      { nativeType: "hermes", status: "available", candidates: [] },
+      {
+        nativeType: "hermes",
+        status: "absent",
+        message: "No Hermes profiles here.",
+        candidates: [],
+      },
+      {
+        nativeType: "openclaw",
+        status: "degraded",
+        message:
+          "OpenClaw's own config needs repair — run `openclaw doctor --fix`.",
+        candidates: [],
+      },
+    ]),
+    [
+      {
+        nativeType: "openclaw",
+        message:
+          "OpenClaw's own config needs repair — run `openclaw doctor --fix`.",
+      },
+    ],
+  );
+});
+
+test("a source is named the way the product names it", () => {
+  assert.equal(nativeSourceLabel("hermes"), "Hermes");
+  assert.equal(nativeSourceLabel("openclaw"), "OpenClaw");
 });
