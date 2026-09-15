@@ -130,6 +130,9 @@ pub(super) fn prepare(
         RepositoryToolOperationV1::ProposeResident => {
             Err("resident proposals are handled by the broker".into())
         }
+        RepositoryToolOperationV1::ListResidentRuntimes => {
+            Err("the runtime catalogue is handled by the broker".into())
+        }
         RepositoryToolOperationV1::ProposeRuntimeTask => {
             Err("runtime task proposals are handled by the broker".into())
         }
@@ -226,6 +229,9 @@ pub(super) fn execute(
         }
         RepositoryToolOperationV1::ProposeResident => {
             Err("resident proposals are handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ListResidentRuntimes => {
+            Err("the runtime catalogue is handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeRuntimeTask => {
             Err("runtime task proposals are handled by the broker".into())

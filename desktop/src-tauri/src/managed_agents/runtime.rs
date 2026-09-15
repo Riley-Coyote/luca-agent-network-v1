@@ -2171,6 +2171,9 @@ pub fn build_managed_agent_summary(
         .to_string();
 
     Ok(ManagedAgentSummary {
+        waking: status != "running"
+            && status != "deployed"
+            && crate::managed_agents::waking::definition_is_waking(record.persona_id.as_deref()),
         pubkey: record.pubkey.clone(),
         name: record.name.clone(),
         persona_id: record.persona_id.clone(),

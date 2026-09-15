@@ -239,6 +239,8 @@ export function AppSidebar({
           avatarUrl: agent.avatarUrl,
           personaId: agent.personaId,
           pubkey: agent.pubkey,
+          waking: agent.waking,
+          lastError: agent.lastError,
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [managedAgentsQuery.data],

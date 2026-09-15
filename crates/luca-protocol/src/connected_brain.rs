@@ -479,6 +479,8 @@ impl RepositoryWorkGrantV1 {
 pub enum RepositoryToolOperationV1 {
     OperatorStatus,
     ProposeResident,
+    /// Read the startable runtimes and their real model IDs. Creates nothing.
+    ListResidentRuntimes,
     /// Ask the owner to select one repository through the existing Brain review.
     ProposeRepositoryConnection,
     /// Request a fixed owner review surface; does not approve any change.

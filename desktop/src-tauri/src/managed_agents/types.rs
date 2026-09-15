@@ -526,6 +526,11 @@ pub struct ManagedAgentSummary {
     /// Content hash of the folder; the spawn drift basis when set.
     pub documents_hash: Option<String>,
     pub status: String,
+    /// `true` while Luca is still bringing this resident up after creating it
+    /// from a conversation: the record is saved but the process is not running
+    /// yet. Lets the rail say "Waking…" instead of showing a new resident as
+    /// idle. Never `true` for a resident that is already running.
+    pub waking: bool,
     pub pid: Option<u32>,
     pub created_at: String,
     pub updated_at: String,

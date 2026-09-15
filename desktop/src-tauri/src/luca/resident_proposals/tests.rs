@@ -18,7 +18,6 @@ fn proposal_arguments_cannot_choose_origin_credentials_provider_or_budget() {
         "resident_pubkey",
         "conversation_id",
         "provider",
-        "model",
         "budget",
         "api_key",
     ] {

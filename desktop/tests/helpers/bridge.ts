@@ -100,6 +100,8 @@ type MockManagedAgentSeed = {
   model?: string | null;
   provider?: string | null;
   nativeRuntimeBinding?: RuntimeBinding | null;
+  /** Still being brought up after Luca created it from a conversation. */
+  waking?: boolean;
 };
 
 type MockSearchProfileSeed = {

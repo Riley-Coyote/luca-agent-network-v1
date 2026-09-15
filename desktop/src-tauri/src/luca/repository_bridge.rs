@@ -346,6 +346,18 @@ fn handle_frame(
     if frame.operation == RepositoryToolOperationV1::OperatorOpenSurface {
         return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments);
     }
+    if frame.operation == RepositoryToolOperationV1::ListResidentRuntimes {
+        return crate::luca::resident_proposals::consent::list_resident_runtimes(
+            app,
+            frame.arguments,
+        )
+        .map(|content| RepositoryBrokerResponseV1 {
+            protocol: BROKER_PROTOCOL,
+            ok: true,
+            content,
+            receipt: None,
+        });
+    }
     if frame.operation == RepositoryToolOperationV1::OperatorStatus {
         if frame
             .arguments

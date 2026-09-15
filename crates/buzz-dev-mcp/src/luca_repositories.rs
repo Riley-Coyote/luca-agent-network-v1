@@ -205,13 +205,46 @@ pub(crate) struct ProposeResidentParams {
     /// Exact existing Hermes profile name requested by the user; required only for import.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     native_profile_name: Option<String>,
+    /// Exact model id the owner chose, from `list_resident_runtimes`. Never invent or substitute one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    /// One short sentence saying what this specialist is for, in the owner's words.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
+    /// Event ID of the owner message in this conversation that agreed to this exact creation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    consent_event_id: Option<String>,
 }
 
 impl ProposeResidentParams {
     fn validate(&self) -> Result<(), ErrorData> {
         let name = self.display_name.trim();
         let prompt = self.system_prompt.trim();
+        if !self
+            .model
+            .as_deref()
+            .is_none_or(|model| is_bounded_line(model, 200))
+            || !self
+                .purpose
+                .as_deref()
+                .is_none_or(|purpose| is_bounded_line(purpose, 200))
+            || !self
+                .consent_event_id
+                .as_deref()
+                .is_none_or(is_event_id)
+        {
+            return Err(ErrorData::invalid_params(
+                "Supply the exact model id from list_resident_runtimes, one short purpose, and the owner's agreeing message ID",
+                None,
+            ));
+        }
         if self.provisioning_intent.as_deref() == Some("import") {
+            if self.model.is_some() || self.consent_event_id.is_some() {
+                return Err(ErrorData::invalid_params(
+                    "Existing-profile import keeps its native model and uses the owner review",
+                    None,
+                ));
+            }
             return if self.runtime_family.as_deref() == Some("hermes")
                 && name.is_empty()
                 && prompt.is_empty()
@@ -381,6 +414,10 @@ pub(crate) struct RepoCommitParams {
     message: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ListResidentRuntimesParams {}
+
 #[derive(Clone)]
 pub(crate) struct LucaRepositoriesMcp {
     client: Arc<RepositoryBrokerClient>,
@@ -437,8 +474,19 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "list_resident_runtimes",
+        description = "Read the runtimes this desktop can actually start a new specialist on, each with its real model IDs. Read-only: it creates nothing and changes nothing. Call it before proposing a specialist, offer the owner only runtimes marked available and only the exact model IDs listed here, and pass the chosen ID back verbatim as propose_resident's model. Never invent, abbreviate, or substitute a model ID; a runtime whose models could not be read reports that instead of a list."
+    )]
+    async fn list_resident_runtimes(
+        &self,
+        Parameters(params): Parameters<ListResidentRuntimesParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        self.client.call("list_resident_runtimes", params).await
+    }
+
+    #[tool(
         name = "propose_resident",
-        description = "Create a persistent specialist or import an existing Hermes profile through Polyphonic's owner review after the user asks. For an existing Hermes profile use runtime_family=hermes, provisioning_intent=import and native_profile_name; omit display_name and system_prompt so native configuration remains intact. The owner selects the exact discovered profile and approves startup and Luca handoff effects. For creation supply a name, instructions and optional runtime family. The host fixes your identity and originating conversation and returns the verified actual outcome here. Import preserves the current conversation and may reuse an existing resident identity. Imported, started and authenticated reply are distinct; do not claim readiness before a real reply. If review expires or closes, inspect existing residents before proposing again. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
+        description = "Create a persistent specialist or import an existing Hermes profile after the user asks. Ask in the conversation which runtime and which model, offering only what list_resident_runtimes reports as available; say plainly what you are about to create (name, runtime, exact model, purpose) and ask the owner to agree. When the owner agrees in their own message, pass that message's event ID as consent_event_id with the exact model: the specialist is created straight away, with no window, and this returns created_waking as soon as the record exists while startup finishes in the background - report it as created and waking, never as ready, and check polyphonic_status before claiming it can reply. Without consent_event_id this opens the owner review and waits. For an existing Hermes profile use runtime_family=hermes, provisioning_intent=import and native_profile_name; omit display_name and system_prompt so native configuration remains intact. The owner selects the exact discovered profile and approves startup and Luca handoff effects. For creation supply a name, instructions and optional runtime family. The host fixes your identity and originating conversation and returns the verified actual outcome here. Import preserves the current conversation and may reuse an existing resident identity. Imported, started and authenticated reply are distinct; do not claim readiness before a real reply. If review expires or closes, inspect existing residents before proposing again. Use existing specialists or propose_runtime_task for a temporary worker when appropriate."
     )]
     async fn propose_resident(
         &self,
@@ -595,6 +643,17 @@ fn is_sha256_ref(value: &str) -> bool {
         && value[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn is_event_id(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn is_bounded_line(value: &str, max_bytes: usize) -> bool {
+    !value.trim().is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
+}
+
 fn is_opaque_id(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 128
@@ -618,6 +677,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "list_resident_runtimes",
                 "polyphonic_open",
                 "polyphonic_status",
                 "propose_repository_connection",
@@ -784,6 +844,9 @@ mod tests {
             runtime_family: Some("hermes".into()),
             provisioning_intent: Some("fresh".into()),
             native_profile_name: None,
+            model: None,
+            purpose: None,
+            consent_event_id: None,
         }
     }
 
@@ -806,9 +869,12 @@ mod tests {
         assert_eq!(
             fields,
             [
+                "consent_event_id",
                 "display_name",
+                "model",
                 "native_profile_name",
                 "provisioning_intent",
+                "purpose",
                 "runtime_family",
                 "system_prompt"
             ]
@@ -818,7 +884,6 @@ mod tests {
             "resident",
             "conversation_id",
             "provider",
-            "model",
             "api_key",
             "budget",
         ] {
@@ -845,6 +910,60 @@ mod tests {
     }
 
     #[test]
+    fn conversational_consent_inputs_are_bounded_and_exact() {
+        let ok = |mutate: &dyn Fn(&mut ProposeResidentParams)| {
+            let mut params = ProposeResidentParams {
+                display_name: "Vektor".into(),
+                system_prompt: "Research the assigned project.".into(),
+                runtime_family: Some("codex".into()),
+                provisioning_intent: None,
+                native_profile_name: None,
+                model: None,
+                purpose: None,
+                consent_event_id: None,
+            };
+            mutate(&mut params);
+            params.validate()
+        };
+        assert!(ok(&|params| {
+            params.model = Some("gpt-5.6-sol".into());
+            params.purpose = Some("Research resident".into());
+            params.consent_event_id = Some("c".repeat(64));
+        })
+        .is_ok());
+        assert!(ok(&|params| params.model = Some(" ".into())).is_err());
+        assert!(ok(&|params| params.model = Some("x".repeat(201))).is_err());
+        assert!(ok(&|params| params.model = Some("two\nlines".into())).is_err());
+        assert!(ok(&|params| params.purpose = Some("x".repeat(201))).is_err());
+        assert!(ok(&|params| params.consent_event_id = Some("c".repeat(63))).is_err());
+        assert!(ok(&|params| params.consent_event_id = Some("C".repeat(64))).is_err());
+        assert!(ok(&|params| params.consent_event_id = Some("z".repeat(64))).is_err());
+        assert!(is_event_id(&"0123456789abcdef".repeat(4)));
+        assert!(!is_event_id("not-an-event"));
+    }
+
+    #[test]
+    fn runtime_catalog_tool_is_read_only_and_takes_no_arguments() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "list_resident_runtimes")
+            .expect("runtime catalog tool");
+        let schema = serde_json::to_value(tool.input_schema).expect("schema");
+        assert_eq!(schema["additionalProperties"], false);
+        assert!(schema["properties"]
+            .as_object()
+            .is_none_or(|properties| properties.is_empty()));
+        for field in ["runtime", "model", "owner", "conversation_id"] {
+            let value = serde_json::json!({ field: "injected" });
+            assert!(
+                serde_json::from_value::<ListResidentRuntimesParams>(value).is_err(),
+                "{field}"
+            );
+        }
+    }
+
+    #[test]
     fn hermes_import_needs_only_an_exact_profile_and_cannot_replace_native_instructions() {
         let input = serde_json::json!({"runtime_family":"hermes", "provisioning_intent":"import", "native_profile_name":"research"});
         let params: ProposeResidentParams = serde_json::from_value(input.clone()).expect("import");
@@ -858,6 +977,8 @@ mod tests {
             ("native_profile_name", " "),
             ("native_profile_name", "two\nlines"),
             ("provisioning_intent", "fresh"),
+            ("model", "gpt-5.6-sol"),
+            ("consent_event_id", &"a".repeat(64)),
         ] {
             let mut changed = input.clone();
             changed[field] = serde_json::json!(value);

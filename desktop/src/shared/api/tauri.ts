@@ -206,6 +206,8 @@ export type RawManagedAgent = {
   needs_restart: boolean;
   env_vars?: Record<string, string>;
   status: ManagedAgent["status"];
+  /** True while Luca is still bringing a just-created resident up. */
+  waking?: boolean;
   pid: number | null;
   created_at: string;
   updated_at: string;
@@ -853,6 +855,7 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     needsRestart: agent.needs_restart ?? false,
     envVars: agent.env_vars ?? {},
     status: agent.status,
+    waking: agent.waking ?? false,
     pid: agent.pid,
     createdAt: agent.created_at,
     updatedAt: agent.updated_at,

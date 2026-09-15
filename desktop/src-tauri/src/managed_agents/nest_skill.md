@@ -81,6 +81,14 @@ buzz polyphonic open --channel <current-channel-uuid> --surface onboarding
 
 The tool's supported surfaces are `onboarding`, `runtime`, `native_agents`, `brain`, `profile`, `appearance`, `recovery`, and `access` (the legacy CLI spells `native-agents` with a hyphen). Onboarding resumes its saved chapter; runtime and access open this resident's settings. Use the body-free `polyphonic_status` tool first when the request depends on current setup or capability state. Opening a surface does not approve or commit a change.
 
+## Creating a Specialist
+
+When the owner asks for a new specialist, settle it in the conversation, not in a window. Call `list_resident_runtimes` first and offer only the runtimes it marks available and only the exact model IDs it lists; never invent, shorten, or substitute a model ID, and never pick one for the owner.
+
+Then say plainly what you are about to create — name, runtime, exact model, what it is for — and ask the owner to agree. Their agreeing message is the consent: pass its event ID as `propose_resident`'s `consent_event_id`, with `model` set to the exact ID they chose and `purpose` in one short sentence. Only a fresh creation works this way; importing an existing native profile still uses the owner review, so propose that without a `consent_event_id`.
+
+The tool answers `created_waking` as soon as the resident's record exists — the process, its profile and its place in this conversation are still being set up. Say it exists and is waking, never that it is ready; check `polyphonic_status` before claiming it can reply. A refusal of `model_unavailable`, `model_required`, `runtime_required` or `runtime_unavailable` carries the real list: relay it to the owner and ask again.
+
 ## Git Repositories
 
 Buzz hosts real git repos, and **you can own one yourself** — no human key needed. `repos create` signs the announcement with *your* key, so the repo is owned by whoever runs it; the owner segment in the clone URL is your own pubkey (hex, not a username). Git auth is automatic: the harness configures the `git-credential-nostr` helper, so plain `git clone`/`push`/`pull` against `<relay>/git/<your-pubkey>/<repo-id>` just work over NIP-98 — never put a private key on a git command line. Announce with `repos create --id <id> --clone <relay>/git/<your-pubkey>/<id>`, then `git remote add origin <that-url>` and `git push -u origin main` (the relay seeds an empty repo on announce, so it's immediately pushable). Requires git 2.46+ for the credential protocol.

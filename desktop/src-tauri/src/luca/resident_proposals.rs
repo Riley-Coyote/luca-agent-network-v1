@@ -21,6 +21,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::exchange_relay::{AppExchangeRelay, ExchangeRelay};
 
+pub(crate) mod consent;
 mod native_import;
 mod native_link;
 
@@ -61,12 +62,57 @@ struct ProposalArguments {
     provisioning_intent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     native_profile_name: Option<String>,
+    /// Exact model id the owner chose, checked against what the runtime really
+    /// offers. Never substituted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    /// One short sentence saying what this specialist is for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purpose: Option<String>,
+    /// The owner's own agreeing message. Its presence is what replaces the
+    /// review dialog; the host still verifies it as one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    consent_event_id: Option<String>,
+}
+
+fn bounded_line(value: &str, max_bytes: usize) -> bool {
+    !value.trim().is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
+}
+
+fn is_event_id(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 impl ProposalArguments {
     fn validate(&self) -> Result<(), String> {
         let name = self.display_name.trim();
         let prompt = self.system_prompt.trim();
+        if !self
+            .model
+            .as_deref()
+            .is_none_or(|model| bounded_line(model, 200))
+            || !self
+                .purpose
+                .as_deref()
+                .is_none_or(|purpose| bounded_line(purpose, 200))
+            || !self.consent_event_id.as_deref().is_none_or(is_event_id)
+        {
+            return Err(
+                "A resident proposal needs the exact model ID, one short purpose, and the owner's agreeing message ID."
+                    .into(),
+            );
+        }
+        if self.provisioning_intent.as_deref() == Some("import")
+            && (self.model.is_some() || self.consent_event_id.is_some())
+        {
+            return Err(
+                "Importing an existing profile keeps its own model and uses the owner review."
+                    .into(),
+            );
+        }
         if self.provisioning_intent.as_deref() == Some("import") {
             return if self.runtime_family.as_deref() == Some("hermes")
                 && name.is_empty()
@@ -386,6 +432,14 @@ pub(crate) fn propose_resident(
         .map_err(|_| "Resident proposal arguments are invalid.".to_owned())?;
     arguments.validate()?;
     verify_origin(app, &scope)?;
+    // The owner's own answer in the conversation replaces the review window.
+    // Nothing here touches the pending-review map, so a dialog-path proposal
+    // elsewhere keeps its one-at-a-time guarantee.
+    if consent::takes_direct_path(&arguments) {
+        let result = consent::create_from_consent(app, &scope, &arguments)?;
+        return serde_json::to_string(&result)
+            .map_err(|_| "Resident setup result could not be encoded.".into());
+    }
     let request_id = format!("resident-proposal-{}", uuid::Uuid::new_v4());
     let projection = ResidentProposalV1 {
         request_id: request_id.clone(),

@@ -110,6 +110,8 @@ type MockManagedAgentSeed = {
   model?: string | null;
   provider?: string | null;
   nativeRuntimeBinding?: RuntimeBinding | null;
+  /** Still being brought up after Luca created it from a conversation. */
+  waking?: boolean;
 };
 
 type MockRelayAgentSeed = {
@@ -830,6 +832,8 @@ type RawManagedAgent = {
   last_error: string | null;
   last_error_code: number | null;
   needs_restart?: boolean;
+  /** Still being brought up after Luca created it from a conversation. */
+  waking?: boolean;
   log_path: string;
   start_on_app_launch: boolean;
   auto_restart_on_config_change?: boolean;
@@ -1110,6 +1114,17 @@ declare global {
       message: string;
       persistence: "notPersisted" | "unknown";
     }>;
+    /**
+     * Create the next resident the way Luca's in-conversation consent path
+     * does: the record exists and the process is still being started, so the
+     * rail must say "Waking…" rather than showing it as idle.
+     */
+    __BUZZ_E2E_LUCA_RESIDENT_WAKES_AFTER_CREATE__?: boolean;
+    /** Finish that bring-up: the resident is running and no longer waking. */
+    __BUZZ_E2E_SETTLE_RESIDENT_WAKE__?: (input: {
+      pubkey: string;
+      error?: string;
+    }) => void;
     __BUZZ_E2E_PUSH_MOCK_FEED_ITEM__?: (item: RawFeedItem) => RawFeedItem;
     /** Replace an existing feed item by id (or push if not found) and fire the updated event. */
     __BUZZ_E2E_REPLACE_MOCK_FEED_ITEM__?: (
@@ -1825,6 +1840,7 @@ function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
     last_error: agent.last_error,
     last_error_code: agent.last_error_code,
     needs_restart: agent.needs_restart ?? false,
+    waking: (agent.waking ?? false) && agent.status !== "running",
     log_path: agent.log_path,
     start_on_app_launch: agent.start_on_app_launch,
     auto_restart_on_config_change: agent.auto_restart_on_config_change ?? true,
@@ -2363,6 +2379,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     last_error: seed.lastError ?? null,
     last_error_code: seed.lastErrorCode ?? null,
     needs_restart: seed.needsRestart ?? false,
+    waking: seed.waking ?? false,
     log_path: `/tmp/mock-agent-${seed.pubkey}.log`,
     start_on_app_launch: true,
     auto_restart_on_config_change: seed.autoRestartOnConfigChange ?? true,
@@ -8738,6 +8755,9 @@ async function handleCreateManagedAgent(
     native_runtime_binding: args.input.nativeRuntimeBinding ?? null,
     env_vars: { ...(args.input.envVars ?? {}) },
     status: args.input.spawnAfterCreate ? "running" : "stopped",
+    waking:
+      !args.input.spawnAfterCreate &&
+      Boolean(window.__BUZZ_E2E_LUCA_RESIDENT_WAKES_AFTER_CREATE__),
     pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
     created_at: now,
     updated_at: now,
@@ -8874,6 +8894,9 @@ async function handleCreateLucaResident(
     native_runtime_binding: args.input.nativeRuntimeBinding ?? null,
     env_vars: { ...(args.input.envVars ?? {}) },
     status: args.input.spawnAfterCreate ? "running" : "stopped",
+    waking:
+      !args.input.spawnAfterCreate &&
+      Boolean(window.__BUZZ_E2E_LUCA_RESIDENT_WAKES_AFTER_CREATE__),
     pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
     created_at: now,
     updated_at: now,
@@ -8914,8 +8937,19 @@ async function handleCreateLucaResident(
     has_profile_event: true,
   });
   syncMockRelayAgentsFromManagedAgents();
+  // Mirrors the real backend, which emits this the moment the record is saved
+  // so a resident created from a conversation reaches the rail immediately.
+  emitMockAgentsDataChanged();
 
   return publicResidentCreateResponse(resident, false);
+}
+
+/** Invalidate the agents queries through both listener channels. */
+function emitMockAgentsDataChanged() {
+  window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("agents-data-changed", null);
+  for (const cb of tauriEventListeners.get("agents-data-changed") ?? []) {
+    cb();
+  }
 }
 
 function publicResidentCreateResponse(
@@ -10433,6 +10467,24 @@ export function maybeInstallE2eTauriMocks() {
         };
       }
     ).__TAURI_INTERNALS__.invoke("plugin:event|emit", { event, payload });
+  };
+  window.__BUZZ_E2E_SETTLE_RESIDENT_WAKE__ = ({ pubkey, error }) => {
+    const resident = mockManagedAgents.find(
+      (agent) => agent.pubkey.toLowerCase() === pubkey.toLowerCase(),
+    );
+    if (!resident) {
+      throw new Error(`Mock resident ${pubkey} not found.`);
+    }
+    resident.waking = false;
+    if (error) {
+      resident.last_error = error;
+    } else {
+      resident.status = "running";
+      resident.pid = 42000 + mockManagedAgents.length;
+      resident.last_started_at = new Date().toISOString();
+      setMockPresenceStatus(resident.pubkey, "online");
+    }
+    emitMockAgentsDataChanged();
   };
   window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__ = ({ channelName, kind }) => {
     const channel = mockChannels.find(

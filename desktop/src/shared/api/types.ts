@@ -369,6 +369,12 @@ export type ManagedAgent = {
   /** Per-agent env vars. Layered on top of persona envVars. */
   envVars: Record<string, string>;
   status: "running" | "stopped" | "deployed" | "not_deployed";
+  /**
+   * True while a resident Luca created from a conversation is still being
+   * brought up: the record exists but the process is not running yet. Lets a
+   * surface say "Waking…" instead of showing a brand new resident as idle.
+   */
+  waking: boolean;
   pid: number | null;
   createdAt: string;
   updatedAt: string;

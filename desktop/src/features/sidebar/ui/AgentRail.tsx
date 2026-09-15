@@ -24,6 +24,14 @@ export type AgentRailAgent = {
   avatarUrl?: string | null;
   personaId?: string | null;
   pubkey: string;
+  /**
+   * A resident Luca has just created and is still bringing up. The row appears
+   * the moment the record exists, so it has to say what is true: here, but not
+   * awake yet.
+   */
+  waking?: boolean;
+  /** Set when bringing the resident up did not finish. */
+  lastError?: string | null;
 };
 
 export type AgentRailActivity = {
@@ -101,9 +109,20 @@ export const AgentRail = React.memo(function AgentRail({
         const isActive = selectedAgentPubkey?.toLowerCase() === key;
         const activity = activityByPubkey.get(key);
         const isUnread = Boolean(activity?.unread) && !isActive;
+        const status = agent.waking
+          ? "Waking…"
+          : agent.lastError
+            ? "Needs attention"
+            : null;
         return (
           <button
-            aria-label={isUnread ? `${agent.name}, unread` : agent.name}
+            aria-label={
+              isUnread
+                ? `${agent.name}, unread`
+                : status
+                  ? `${agent.name}, ${status.replace("…", "")}`
+                  : agent.name
+            }
             aria-pressed={isActive}
             className={RAIL_ROW_CLASS}
             // "Open", not "active": the column beside the rail carries the
@@ -127,6 +146,15 @@ export const AgentRail = React.memo(function AgentRail({
             <span className="flex shrink-0 justify-end">
               {isUnread ? (
                 <span aria-hidden className={UNREAD_DOT_CLASS} />
+              ) : status ? (
+                // Same quiet mark the chat rows use for "working…": a new
+                // resident earns no new visual, only an honest word.
+                <span
+                  className="truncate text-2xs text-ink-faint"
+                  data-testid={`agent-rail-status-${agent.name.toLowerCase()}`}
+                >
+                  {status}
+                </span>
               ) : (
                 <span className="text-2xs tabular-nums text-ink-faint">
                   {activity?.recent ?? ""}

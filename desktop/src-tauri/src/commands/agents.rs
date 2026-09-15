@@ -1,5 +1,5 @@
 use nostr::{Keys, ToBech32};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use zeroize::Zeroizing;
 
 use crate::{
@@ -886,6 +886,12 @@ pub async fn create_managed_agent(
             resolved_avatar_url,
         )
     };
+
+    // The record is saved and published: tell the app now, before the spawn and
+    // profile sync below. A resident Luca created from a conversation has to
+    // appear in the rail the moment it exists — waiting for its process would
+    // leave the owner looking at nothing after agreeing to it.
+    let _ = app.emit("agents-data-changed", ());
 
     // ── Phase 3b: local spawn (async preflight outside store lock) ───────────
     let mut spawn_error = None;
