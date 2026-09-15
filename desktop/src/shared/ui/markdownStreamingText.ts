@@ -22,7 +22,21 @@ export type StreamingWordEffect = Exclude<StreamingTextEffect, "off">;
 
 export const DEFAULT_STREAMING_TEXT_EFFECT: StreamingTextEffect = "bloom";
 
-/** Marks a span the rehype pass created, and the class that gives it a box. */
+/**
+ * Marks a span the rehype pass created, and the class that gives it a box. The
+ * value says how the word may be animated:
+ *
+ * - `""`      ordinary prose: opacity, blur and transform.
+ * - `"plain"` inside an expression: no `filter` (see below).
+ * - `"clip"`  inside a gradient expression: no `filter`, and its own clip.
+ *
+ * An expression paints its gradient through the text of its whole subtree
+ * (`background-clip: text`). A descendant that takes an opacity or a filter
+ * drops out of that mask completely — it does not fade, it disappears — and a
+ * filter can push the engine into rasterizing the whole clipped element as one
+ * unit, so the entire coloured line blurs and clears together. Giving each
+ * word its own clip puts the paint back under its own opacity and transform.
+ */
 export const STREAMING_WORD_ATTRIBUTE = "data-md-stream-word";
 export const STREAMING_WORD_CLASS = "md-stream-word";
 export const STREAMING_WORD_SELECTOR = `[${STREAMING_WORD_ATTRIBUTE}]`;
@@ -39,6 +53,15 @@ export const STREAMING_GAP_RAMP_WORDS = 10;
 export const STREAMING_BLOCK_PAUSE_MS = 120;
 /** How long the bloom row takes to ease its word-spacing back to normal. */
 export const STREAMING_SPACING_EASE_MS = 300;
+/**
+ * When a whole remainder lands at once — the terminal drain flushes its buffer
+ * in 300ms — the ramp would spend half a minute reading it back out. The tail
+ * tightens instead so the sentence finishes within this, which reads as the
+ * sentence ending rather than as a second reveal.
+ */
+export const STREAMING_TAIL_BUDGET_MS = 1200;
+/** However large the backlog, words never start closer together than this. */
+export const STREAMING_GAP_MIN_MS = 4;
 
 function clamp01(value: number): number {
   if (value < 0) return 0;
@@ -85,14 +108,21 @@ export const STREAMING_EASE = cubicBezier(0.22, 0.61, 0.36, 1);
 /**
  * A constant gap reads as mechanical from the first word; starting slower and
  * settling into a rhythm reads as the sentence gathering momentum.
+ *
+ * `backlog` is how many words are still waiting behind this one. It only ever
+ * shortens the gap: on a live stream it is a word or two and the ramp stands,
+ * and on a bulk arrival it closes the rhythm up rather than trickling.
  */
-export function streamingWordGapMs(index: number): number {
+export function streamingWordGapMs(index: number, backlog = 1): number {
   const ramp = Math.min(Math.max(index, 0), STREAMING_GAP_RAMP_WORDS);
-  return lerp(
+  const paced = lerp(
     STREAMING_GAP_FIRST_MS,
     STREAMING_GAP_STEADY_MS,
     ramp / STREAMING_GAP_RAMP_WORDS,
   );
+  if (backlog <= 1) return paced;
+  const budgeted = (STREAMING_TAIL_BUDGET_MS - STREAMING_WORD_MS) / backlog;
+  return Math.max(STREAMING_GAP_MIN_MS, Math.min(paced, budgeted));
 }
 
 /** Progress of a word whose clock started at `startedAtMs`. */
@@ -113,6 +143,11 @@ export type StreamingWordAnimation = {
   readonly apply: (node: HTMLElement, progress: number) => void;
   readonly reset: (node: HTMLElement) => void;
 };
+
+/** Expression words carry their colour through a clip, which no filter survives. */
+function blurred(node: HTMLElement): boolean {
+  return node.getAttribute(STREAMING_WORD_ATTRIBUTE) === "";
+}
 
 function settle(node: HTMLElement): void {
   node.style.opacity = "";
@@ -136,7 +171,9 @@ export const STREAMING_WORD_ANIMATIONS: Record<
         return;
       }
       node.style.opacity = progress.toFixed(3);
-      node.style.filter = `blur(${(5 * (1 - progress)).toFixed(2)}px)`;
+      node.style.filter = blurred(node)
+        ? `blur(${(5 * (1 - progress)).toFixed(2)}px)`
+        : "none";
       node.style.transform = `translateY(${(2 * (1 - progress)).toFixed(2)}px)`;
     },
     reset(node) {
@@ -161,7 +198,9 @@ export const STREAMING_WORD_ANIMATIONS: Record<
       }
       node.style.opacity = Math.min(1, progress * 1.5).toFixed(3);
       node.style.transform = `scale(${(1 + 0.1 * (1 - progress)).toFixed(4)})`;
-      node.style.filter = `blur(${(2 * (1 - progress)).toFixed(2)}px)`;
+      node.style.filter = blurred(node)
+        ? `blur(${(2 * (1 - progress)).toFixed(2)}px)`
+        : "none";
     },
     reset(node) {
       STREAMING_WORD_ANIMATIONS.bloom.apply(node, 0);
@@ -175,31 +214,72 @@ export function streamingWordAnimation(
   return effect === "off" ? null : STREAMING_WORD_ANIMATIONS[effect];
 }
 
+export type StreamingWordStart = {
+  /** When this word's own 320ms begins. */
+  atMs: number;
+  /** The word that clock belongs to. */
+  text: string;
+};
+
 export type StreamingWordSchedule = {
   /**
-   * The clock for a word, assigned the first time its index is seen and never
-   * revised. The reply's markdown re-renders on every chunk, so identity has
-   * to come from the word's place in the plain-text order, not from a DOM
-   * node: a word that already settled must never animate again.
+   * The clock for a word, assigned the first time it is seen and never revised
+   * while it stays the same word. The reply's markdown re-renders on every
+   * chunk, so identity cannot come from a DOM node — a settled word must never
+   * animate again because React rebuilt its span. It comes from the pair of
+   * the word's place in the plain-text order and the word itself.
+   *
+   * The text matters because a provisional tail is not yet the text it will
+   * become: `[So much](color:warmth~care)` streams as three literal words and
+   * then parses into two coloured ones. Index alone would hand those new words
+   * a clock that had already run out, and the coloured line would finish in a
+   * burst before the plain sentence above it had.
    */
-  startAtMs(index: number, startsBlock: boolean, nowMs: number): number;
-  /** The clock already assigned to this index, or null if it has none. */
-  assignedAtMs(index: number): number | null;
+  startAtMs(
+    index: number,
+    text: string,
+    startsBlock: boolean,
+    nowMs: number,
+    backlog?: number,
+  ): number;
+  /** The clock assigned to this index for this word, or null if it has none. */
+  assignedAtMs(index: number, text: string): number | null;
   /** How many leading indices have been assigned a clock. */
   assignedCount(): number;
   /** The latest clock assigned so far — the stream's own settle deadline. */
   latestStartMs(): number;
 };
 
+/**
+ * Whether two spellings at one index are the same word still.
+ *
+ * Markdown only ever decorates around a word: a provisional tail shows
+ * `[So` and `here?](color:warmth~care)` and parses them into `So` and `here?`.
+ * Those words were already on screen and already part-way through their own
+ * clock — restarting them would step the line backwards and land its ends
+ * after its middle. A word that is genuinely new at this index (a `##` that
+ * became a title, a table's pipes collapsing into cells) shares no edge with
+ * what was there, and takes a fresh clock.
+ */
+function sameWord(before: string, after: string): boolean {
+  if (before === after) return true;
+  const [short, long] =
+    before.length < after.length ? [before, after] : [after, before];
+  return short.length > 0 && (long.startsWith(short) || long.endsWith(short));
+}
+
 export function createStreamingWordSchedule(): StreamingWordSchedule {
-  const startAt: number[] = [];
+  const startAt: (StreamingWordStart | undefined)[] = [];
   let nextFreeMs: number | null = null;
   let latestMs = 0;
 
   return {
-    startAtMs(index, startsBlock, nowMs) {
+    startAtMs(index, text, startsBlock, nowMs, backlog = 1) {
       const known = startAt[index];
-      if (known !== undefined) return known;
+      if (known && sameWord(known.text, text)) {
+        known.text = text;
+        return known.atMs;
+      }
 
       // A word cannot start before it exists, and never bunches against the
       // word ahead of it: whichever comes later wins.
@@ -207,14 +287,23 @@ export function createStreamingWordSchedule(): StreamingWordSchedule {
         nextFreeMs === null
           ? nowMs
           : nextFreeMs + (startsBlock ? STREAMING_BLOCK_PAUSE_MS : 0);
-      const assigned = Math.max(nowMs, earliestMs);
-      startAt[index] = assigned;
-      nextFreeMs = assigned + streamingWordGapMs(index);
+      let assigned = Math.max(nowMs, earliestMs);
+      // A word never overtakes its neighbours. When a provisional tail is
+      // re-tokenised, one word can need a fresh clock while the words after it
+      // are already running on theirs; left alone it would land after the rest
+      // of its own line. Reading order wins: it arrives with them instead.
+      const ahead = startAt[index + 1];
+      if (ahead) assigned = Math.min(assigned, ahead.atMs);
+      const behind = startAt[index - 1];
+      if (behind) assigned = Math.max(assigned, behind.atMs);
+      startAt[index] = { atMs: assigned, text };
+      nextFreeMs = assigned + streamingWordGapMs(index, backlog);
       if (assigned > latestMs) latestMs = assigned;
       return assigned;
     },
-    assignedAtMs(index) {
-      return startAt[index] ?? null;
+    assignedAtMs(index, text) {
+      const known = startAt[index];
+      return known && sameWord(known.text, text) ? known.atMs : null;
     },
     assignedCount() {
       return startAt.length;
@@ -271,19 +360,21 @@ function isText(node: HastNode): node is HastText {
   return node.type === "text";
 }
 
-function wordSpan(value: string): HastElement {
+export type StreamingWordKind = "" | "plain" | "clip";
+
+function wordSpan(value: string, kind: StreamingWordKind): HastElement {
   return {
     type: "element",
     tagName: "span",
     properties: {
       className: [STREAMING_WORD_CLASS],
-      [STREAMING_WORD_ATTRIBUTE]: "",
+      [STREAMING_WORD_ATTRIBUTE]: kind,
     },
     children: [{ type: "text", value }],
   };
 }
 
-function splitTextNode(node: HastText): HastNode[] {
+function splitTextNode(node: HastText, kind: StreamingWordKind): HastNode[] {
   if (!node.value.trim()) return [node];
   const parts = node.value.split(/(\s+)/);
   const out: HastNode[] = [];
@@ -291,9 +382,27 @@ function splitTextNode(node: HastText): HastNode[] {
     if (!part) continue;
     // Whitespace runs stay text nodes so the line still breaks and collapses
     // exactly the way it did before the pass ran.
-    out.push(part.trim() ? wordSpan(part) : { type: "text", value: part });
+    out.push(
+      part.trim() ? wordSpan(part, kind) : { type: "text", value: part },
+    );
   }
   return out;
+}
+
+/** True when this element paints its subtree's text itself, one way or another. */
+function expressionKind(node: HastElement): StreamingWordKind {
+  let kind: StreamingWordKind = "";
+  for (const key of Object.keys(node.properties)) {
+    const name = key.toLowerCase();
+    if (
+      name.startsWith("data-expression") ||
+      name.startsWith("dataexpression")
+    ) {
+      kind = "plain";
+      if (name.includes("gradient")) return "clip";
+    }
+  }
+  return kind;
 }
 
 /**
@@ -305,16 +414,21 @@ function splitTextNode(node: HastText): HastNode[] {
  */
 export default function rehypeStreamingWords() {
   return (tree: HastRoot) => {
-    const walk = (nodes: HastNode[]): HastNode[] => {
+    const walk = (nodes: HastNode[], kind: StreamingWordKind): HastNode[] => {
       const out: HastNode[] = [];
       for (const node of nodes) {
         if (isText(node)) {
-          out.push(...splitTextNode(node));
+          out.push(...splitTextNode(node, kind));
         } else if (isElement(node)) {
           if (STREAMING_WORD_SKIP_TAGS.has(node.tagName)) {
             out.push(node);
           } else {
-            out.push({ ...node, children: walk(node.children) });
+            // An expression is prose, not a pill: its words still split and
+            // still schedule in document order. Only how they may be painted
+            // changes, and that is inherited by everything beneath it.
+            const own = expressionKind(node);
+            const inherited = own === "" ? kind : own;
+            out.push({ ...node, children: walk(node.children, inherited) });
           }
         } else {
           out.push(node);
@@ -322,6 +436,6 @@ export default function rehypeStreamingWords() {
       }
       return out;
     };
-    tree.children = walk(tree.children);
+    tree.children = walk(tree.children, "");
   };
 }

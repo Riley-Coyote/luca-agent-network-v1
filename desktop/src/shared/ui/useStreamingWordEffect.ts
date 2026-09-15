@@ -89,6 +89,7 @@ export function useStreamingWordEffect(
   const lastBlockIndexRef = React.useRef(-1);
   const wordsRef = React.useRef<HTMLElement[]>([]);
   const staleRef = React.useRef(true);
+  const rescanRef = React.useRef(true);
 
   // Derived during render so the very first streamed paint already carries
   // spans — an effect would land one frame late and flash unstyled words.
@@ -111,25 +112,39 @@ export function useStreamingWordEffect(
           root.querySelectorAll<HTMLElement>(STREAMING_WORD_SELECTOR),
         );
         staleRef.current = false;
+        rescanRef.current = true;
       }
       const words = wordsRef.current;
       const schedule = scheduleRef.current;
 
-      for (let i = schedule.assignedCount(); i < words.length; i += 1) {
+      // Only when the tree actually changed: a provisional tail can rewrite the
+      // word at an index — `[So much](color:warmth~care)` streams as three
+      // literal words and parses into two — and those words need their own
+      // clock, not the spent one their index was holding.
+      const from = rescanRef.current ? 0 : schedule.assignedCount();
+      rescanRef.current = false;
+      for (let i = from; i < words.length; i += 1) {
         const word = words[i];
         if (!word) continue;
+        const text = word.textContent ?? "";
+        if (schedule.assignedAtMs(i, text) !== null) continue;
         const blockIndex = blockIndexOf(root, word);
         const startsBlock =
           lastBlockIndexRef.current >= 0 &&
           blockIndex !== lastBlockIndexRef.current;
-        schedule.startAtMs(i, startsBlock, nowMs);
+        schedule.startAtMs(i, text, startsBlock, nowMs, words.length - i);
         lastBlockIndexRef.current = blockIndex;
+        // A word that just took a fresh clock is in flight again, whatever the
+        // settle cursor believed.
+        if (i < firstUnsettledRef.current) firstUnsettledRef.current = i;
       }
 
       let firstUnsettled = firstUnsettledRef.current;
       for (let i = firstUnsettled; i < words.length; i += 1) {
         const word = words[i];
-        const startedAt = schedule.assignedAtMs(i);
+        const startedAt = word
+          ? schedule.assignedAtMs(i, word.textContent ?? "")
+          : null;
         if (!word || startedAt === null) continue;
         const progress = streamingWordProgress(startedAt, nowMs);
         current.apply(word, progress);

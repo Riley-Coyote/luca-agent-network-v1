@@ -21,6 +21,10 @@ const PROSE_TWO =
   "thing the reader already suspected but had not said yet, and it does so " +
   "without asking for any credit for having noticed it first.";
 const CODE = "```ts\nconst calibrated = questions.filter(honest);\n```";
+/** A flow gradient: several stops, default axis — the construct Riley hit. */
+const GRADIENT_LINE =
+  "[So what is the draft actually claiming here?](color:warmth~care~curiosity)";
+const GRADIENT_REPLY = `${PROSE_ONE}\n\n${GRADIENT_LINE}`;
 const REPLY = `${PROSE_ONE}\n\n${PROSE_TWO}\n\n${CODE}`;
 
 /** Plain-text form of the reply, for comparing against the settled row. */
@@ -151,7 +155,12 @@ async function emitFrame(
  * the frame sequence, and the row keeps streaming until the durable event
  * lands.
  */
-async function emitSignedFinal(page: Page, receiptId: string, id: string) {
+async function emitSignedFinal(
+  page: Page,
+  receiptId: string,
+  id: string,
+  body = REPLY,
+) {
   await page.evaluate(
     ({ eventId, parentEventId, pubkey, text }) => {
       window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
@@ -166,12 +175,207 @@ async function emitSignedFinal(page: Page, receiptId: string, id: string) {
         ],
       });
     },
-    { eventId: id, parentEventId: receiptId, pubkey: CLAUDE, text: REPLY },
+    { eventId: id, parentEventId: receiptId, pubkey: CLAUDE, text: body },
   );
 }
 
 function managedRow(page: Page): Locator {
   return page.locator("[data-managed-response-ui-key]").last();
+}
+
+/**
+ * Deliver a reply in small pieces, the way a resident actually sends one. The
+ * tail spends real time provisional — which is where a word's identity at an
+ * index can change under it — rather than arriving whole.
+ */
+async function streamReplyChunked(
+  page: Page,
+  turnId: string,
+  text: string,
+): Promise<string> {
+  const receiptId = await send(page, `Read this back to me (${turnId}).`);
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    sequence: 1,
+    turnId,
+  });
+  let sequence = 2;
+  for (let i = 0; i < text.length; i += 18) {
+    await emitFrame(page, {
+      kind: "public_chunk",
+      publicChunk: text.slice(i, i + 18),
+      receiptId,
+      sequence: sequence++,
+      turnId,
+    });
+    await page.waitForTimeout(60);
+  }
+  await emitFrame(page, { kind: "completed", receiptId, sequence, turnId });
+  return receiptId;
+}
+
+/**
+ * Record, inside the page, the order in which words finish. Started before the
+ * reply so it sees the provisional tail, not just the parse.
+ */
+async function recordSettleOrder(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const store = window as unknown as { __settled?: number[] };
+    store.__settled = [];
+    const done = new Set<number>();
+    const tick = () => {
+      const rows = document.querySelectorAll("[data-managed-response-ui-key]");
+      const row = rows[rows.length - 1];
+      if (row) {
+        const spans = row.querySelectorAll<HTMLElement>(
+          "[data-md-stream-word]",
+        );
+        spans.forEach((span, index) => {
+          if (done.has(index)) return;
+          const computed = getComputedStyle(span);
+          if (computed.filter !== "none" || computed.transform !== "none") {
+            return;
+          }
+          done.add(index);
+          store.__settled?.push(index);
+        });
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+type GradientFrame = {
+  opacities: number[];
+  scales: number[];
+  filtered: number;
+  clipped: number;
+  words: number;
+};
+
+/**
+ * Record, from before the reply arrives, the first frame in which the coloured
+ * line has several words at their own strength — the thing that was impossible
+ * while they all shared the parent's clip.
+ *
+ * Armed up front rather than polled afterwards: the coloured run is the last
+ * thing to animate and the tail closes its rhythm up, so a watcher that starts
+ * after the stream has been sent can easily find nothing left in flight.
+ */
+async function recordGradientFrame(
+  page: Page,
+  want: "opacity" | "scale",
+): Promise<void> {
+  await page.evaluate((signal) => {
+    const store = window as unknown as { __gradient?: GradientFrame | null };
+    store.__gradient = null;
+    const spread = (values: number[]) =>
+      new Set(values.map((value) => value.toFixed(3))).size;
+    let best = 0;
+    const tick = () => {
+      const words = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          "[data-expression-gradient] [data-md-stream-word]",
+        ),
+      );
+      const frame: GradientFrame = {
+        clipped: 0,
+        filtered: 0,
+        opacities: [],
+        scales: [],
+        words: words.length,
+      };
+      for (const word of words) {
+        const computed = getComputedStyle(word);
+        frame.opacities.push(Number.parseFloat(computed.opacity));
+        const scale = Number.parseFloat(
+          /^matrix\(([\d.]+),/.exec(computed.transform)?.[1] ?? "",
+        );
+        if (Number.isFinite(scale)) frame.scales.push(scale);
+        if (computed.filter !== "none") frame.filtered += 1;
+        const clip =
+          computed.webkitBackgroundClip ??
+          computed.getPropertyValue("background-clip");
+        if (clip === "text") frame.clipped += 1;
+      }
+      const seen = spread(signal === "scale" ? frame.scales : frame.opacities);
+      if (seen > best) {
+        best = seen;
+        store.__gradient = frame;
+      }
+      if (frame.words > 0) {
+        (store as unknown as { __trace?: string[] }).__trace?.push(
+          frame.opacities.map((o) => o.toFixed(2)).join(","),
+        );
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }, want);
+}
+
+/**
+ * A paragraph, settled, and then the coloured line as one piece — a resident
+ * finishing a thought and adding a question.
+ *
+ * Its words are new when the expression parses, rather than carrying on from
+ * clocks they started under while the tail was still provisional syntax. That
+ * is ordinary behaviour either way, but only this delivery puts the coloured
+ * line reliably in flight for long enough to look at.
+ */
+async function streamColouredLine(page: Page, turnId: string): Promise<string> {
+  const receiptId = await send(page, `Read this back to me (${turnId}).`);
+  await emitFrame(page, {
+    kind: "turn_started",
+    receiptId,
+    sequence: 1,
+    turnId,
+  });
+  let sequence = 2;
+  for (let i = 0; i < PROSE_ONE.length; i += 18) {
+    await emitFrame(page, {
+      kind: "public_chunk",
+      publicChunk: PROSE_ONE.slice(i, i + 18),
+      receiptId,
+      sequence: sequence++,
+      turnId,
+    });
+    await page.waitForTimeout(60);
+  }
+  await page.waitForTimeout(900);
+  await emitFrame(page, {
+    kind: "public_chunk",
+    publicChunk: `\n\n${GRADIENT_LINE}`,
+    receiptId,
+    sequence: sequence++,
+    turnId,
+  });
+  await emitFrame(page, { kind: "completed", receiptId, sequence, turnId });
+  return receiptId;
+}
+
+/** Give the coloured line a moment to be in flight, for the screenshot. */
+async function awaitGradientInFlight(page: Page): Promise<void> {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const deadline = performance.now() + 2_000;
+        const tick = () => {
+          const flying = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              "[data-expression-gradient] [data-md-stream-word]",
+            ),
+          ).some(
+            (word) => Number.parseFloat(getComputedStyle(word).opacity) < 1,
+          );
+          if (flying || performance.now() > deadline) return resolve();
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
 }
 
 /** Start a streamed reply and return its row. Does not wait for it to finish. */
@@ -500,6 +704,217 @@ test.describe("streamed words", () => {
       seen.some((value) => value > 0 && value < open - 0.01),
       `expected a width between 0 and ${open}; saw ${JSON.stringify(seen.slice(-40))}`,
     ).toBe(true);
+  });
+
+  for (const effect of ["bloom", "diffusion"] as const) {
+    test(`${effect} lands a coloured line word by word`, async ({ page }) => {
+      const errors = watchConsole(page);
+      await seedEffect(page, effect);
+      await openChannel(page);
+      // Bloom's opacity saturates early by design — it reads as a landing, not
+      // a fade — so its several-at-once is in the scale. Diffusion's is in the
+      // opacity. Each effect is judged on the property it actually varies.
+      const signal = effect === "bloom" ? "scale" : "opacity";
+      await recordGradientFrame(page, signal);
+      const receiptId = await streamColouredLine(page, `gradient-${effect}`);
+      await awaitGradientInFlight(page);
+      await page.screenshot({
+        path: `${SHOTS}/${effect}-gradient-midstream.png`,
+        fullPage: false,
+      });
+
+      const frame = await page.evaluate(
+        () =>
+          (window as unknown as { __gradient?: GradientFrame | null })
+            .__gradient ?? null,
+      );
+      expect(
+        frame,
+        "expected the coloured line mid-flight, not settled or absent",
+      ).not.toBe(null);
+      const gradient = frame as GradientFrame;
+      const detail = JSON.stringify(gradient);
+
+      // Several words at their own strength at one instant. Sharing the
+      // parent's clip, a word below full strength does not fade — it drops out
+      // of the mask entirely and the whole line arrives together.
+      const varied = signal === "scale" ? gradient.scales : gradient.opacities;
+      expect(distinct(varied).length, detail).toBeGreaterThanOrEqual(3);
+      for (const scale of distinct(gradient.scales)) {
+        // A transform reserves no layout; the row's spacing is sized for
+        // exactly this much overflow and no more.
+        expect(scale, detail).toBeLessThanOrEqual(1.1001);
+      }
+      // No filter reaches a clipped word, in either effect.
+      expect(gradient.filtered).toBe(0);
+      // …and every one of them is still painting its own gradient.
+      expect(gradient.clipped).toBe(gradient.words);
+
+      // The line still reads as gradient text once it settles.
+      await emitSignedFinal(
+        page,
+        receiptId,
+        `managed-gradient-${effect}`,
+        GRADIENT_REPLY,
+      );
+      await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+      const settled = await page.evaluate(() => {
+        const line = document.querySelector<HTMLElement>(
+          "[data-expression-gradient]",
+        );
+        if (!line) return null;
+        const computed = getComputedStyle(line);
+        return {
+          clip:
+            computed.webkitBackgroundClip ??
+            computed.getPropertyValue("background-clip"),
+          color: computed.color,
+          image: computed.backgroundImage.slice(0, 16),
+          text: line.textContent,
+        };
+      });
+      expect(settled?.clip).toBe("text");
+      expect(settled?.color).toBe("rgba(0, 0, 0, 0)");
+      expect(settled?.image).toContain("linear-gradient");
+      expect(settled?.text).toBe(
+        "So what is the draft actually claiming here?",
+      );
+      expect(errors).toEqual([]);
+    });
+  }
+
+  test("words finish in reading order, coloured or not", async ({ page }) => {
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    await recordSettleOrder(page);
+    const receiptId = await streamReplyChunked(
+      page,
+      "order-turn",
+      GRADIENT_REPLY,
+    );
+    await emitSignedFinal(
+      page,
+      receiptId,
+      "managed-order-signed-final",
+      GRADIENT_REPLY,
+    );
+    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    const order = await page.evaluate(
+      () => (window as unknown as { __settled?: number[] }).__settled ?? [],
+    );
+    // Every word of the reply finished, once, in the order it is read. A
+    // provisional tail re-tokenises under the scheduler — `[So` becomes `So`
+    // when the expression parses — and an index-only clock would let the
+    // coloured run finish in a burst ahead of the sentence above it.
+    expect(order.length).toBeGreaterThanOrEqual(28);
+    expect(new Set(order).size).toBe(order.length);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+  });
+
+  test("a settled row does no further work", async ({ page }) => {
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    const receiptId = await streamReplyChunked(
+      page,
+      "quiet-turn",
+      GRADIENT_REPLY,
+    );
+    await emitSignedFinal(
+      page,
+      receiptId,
+      "managed-quiet-signed-final",
+      GRADIENT_REPLY,
+    );
+    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+
+    // The prose is a settled row's prose again: nothing animating, nothing
+    // rewriting style, no frame loop left running over it. Scoped to the
+    // markdown, since the row's own entrance animation is not this work's.
+    const quiet = await page.evaluate(
+      () =>
+        new Promise<{ animations: string[]; mutations: string[] }>(
+          (resolve) => {
+            const rows = document.querySelectorAll(
+              "[data-managed-response-ui-key]",
+            );
+            const prose =
+              rows[rows.length - 1]?.querySelector(".message-markdown");
+            if (!prose)
+              return resolve({ animations: ["no prose"], mutations: [] });
+            const mutations: string[] = [];
+            const observer = new MutationObserver((records) => {
+              for (const record of records) {
+                mutations.push(`${record.type}:${record.attributeName ?? ""}`);
+              }
+            });
+            observer.observe(prose, {
+              attributes: true,
+              childList: true,
+              subtree: true,
+            });
+            setTimeout(() => {
+              observer.disconnect();
+              resolve({
+                animations: prose
+                  .getAnimations({ subtree: true })
+                  .map((animation) => String(animation.constructor.name)),
+                mutations,
+              });
+            }, 1_200);
+          },
+        ),
+    );
+    expect(quiet.mutations).toEqual([]);
+    expect(quiet.animations).toEqual([]);
+  });
+
+  test("a short reply keeps its lines through the whole stream", async ({
+    page,
+  }) => {
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    const short = "Yes — that is exactly the claim it makes.";
+    const receiptId = await streamReplyChunked(page, "short-turn", short);
+
+    // The row opens its spacing to make room for words that outgrow their box.
+    // On a reply that fits, that room must not cost it a line, or the reply
+    // re-wraps under the reader when the spacing eases shut.
+    const lines = await page.evaluate(
+      () =>
+        new Promise<number[]>((resolve) => {
+          const seen = new Set<number>();
+          const deadline = performance.now() + 4_000;
+          const tick = () => {
+            const rows = document.querySelectorAll(
+              "[data-managed-response-ui-key]",
+            );
+            const prose = rows[rows.length - 1]?.querySelector(
+              ".message-markdown p",
+            );
+            if (prose) seen.add(prose.getClientRects().length);
+            if (performance.now() > deadline) return resolve([...seen]);
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    await emitSignedFinal(page, receiptId, "managed-short-final", short);
+    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    const settledLines = await page.evaluate(
+      () =>
+        document
+          .querySelectorAll("[data-managed-response-ui-key]")
+          [
+            document.querySelectorAll("[data-managed-response-ui-key]").length -
+              1
+          ]?.querySelector(".message-markdown p")
+          ?.getClientRects().length ?? 0,
+    );
+    expect(settledLines).toBe(1);
+    expect(lines, `line counts seen while streaming: ${lines}`).toEqual([1]);
   });
 
   test("Off renders a streamed reply plain", async ({ page }) => {

@@ -12,6 +12,37 @@
 }
 
 /*
+ * An expression paints its gradient through the text of its whole subtree
+ * (`background-clip: text`), so a word that takes an opacity drops out of that
+ * mask entirely — it does not fade, it vanishes — and a filter can push the
+ * engine into rasterising the whole clipped element as one unit, blurring and
+ * clearing the coloured line together. Each word carries its own clip instead,
+ * so the paint follows its own opacity and transform. The gradient restarts
+ * per word; on the short coloured runs this construct is for, that reads as
+ * colour rather than as a seam.
+ */
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .md-stream-word[data-md-stream-word="clip"] {
+    background-image: var(--expression-gradient);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+}
+
+/*
+ * A gesture is the finished sentence's own movement. While the row is still
+ * arriving the stream owns the entrance, and the two together read as two
+ * separate animations on one line.
+ */
+[data-md-stream-effect] [data-expression-motion],
+[data-md-stream-effect]
+  [data-expression-motion="wave"]
+  [data-expression-glyph] {
+  animation: none;
+}
+
+/*
  * Bloom grows a word past its layout box without reserving any of that room,
  * so adjacent words collide while in flight. The row opens up for the whole
  * stream and eases shut once the last word has settled.
