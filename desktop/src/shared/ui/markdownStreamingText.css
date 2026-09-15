@@ -14,19 +14,18 @@
 /*
  * Bloom grows a word past its layout box without reserving any of that room,
  * so adjacent words collide while in flight. The row opens up for the whole
- * stream and eases shut once the last word has settled — the transition lives
- * on the attribute so removing the value animates it back.
+ * stream and eases shut once the last word has settled.
+ *
+ * The closed value is a length, not `normal`: a keyword and a length do not
+ * interpolate, and the row would snap shut instead of easing.
  */
 [data-md-stream-effect] {
+  word-spacing: 0;
   transition: word-spacing 300ms var(--motion-ease-standard, ease-out);
 }
 
 [data-md-stream-effect="bloom"] {
   word-spacing: 0.22em;
-}
-
-[data-md-stream-effect="settling"] {
-  word-spacing: normal;
 }
 
 /* word-spacing inherits; code must keep its own metrics. */
@@ -40,6 +39,6 @@
   }
 
   [data-md-stream-effect="bloom"] {
-    word-spacing: normal;
+    word-spacing: 0;
   }
 }

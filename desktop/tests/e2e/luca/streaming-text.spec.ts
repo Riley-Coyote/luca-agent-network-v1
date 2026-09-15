@@ -369,6 +369,49 @@ test.describe("streamed words", () => {
     expect(errors).toEqual([]);
   });
 
+  test("the bloom row eases its spacing shut behind the last word", async ({
+    page,
+  }) => {
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    const { receiptId, row } = await streamReply(page, "spacing-turn");
+    const root = row.locator("[data-md-stream-effect]").first();
+
+    await expect(root).toHaveCount(1);
+    const open = await root.evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).wordSpacing),
+    );
+    expect(open).toBeGreaterThan(0);
+
+    await expect(row).toContainText("without asking for any credit");
+    await emitSignedFinal(page, receiptId, "managed-spacing-signed-final");
+
+    // Sample as fast as the harness allows across the 300ms ease. A keyword
+    // and a length do not interpolate — if the closed value were `normal`
+    // this would only ever see the open width and then zero.
+    const seen: number[] = [];
+    for (let i = 0; i < 400; i += 1) {
+      const value = await row.evaluate((element) => {
+        const node = element.querySelector<HTMLElement>(
+          "[data-md-stream-effect]",
+        );
+        return node
+          ? Number.parseFloat(getComputedStyle(node).wordSpacing)
+          : null;
+      });
+      if (value === null) break;
+      seen.push(value);
+      if (seen.length > 3 && value === 0) break;
+    }
+    expect(
+      seen.some((value) => value > 0 && value < open - 0.01),
+      `expected an intermediate width; saw ${JSON.stringify(seen.slice(-40))}`,
+    ).toBe(true);
+    await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+  });
+
   test("Off renders a streamed reply plain", async ({ page }) => {
     await seedEffect(page, "off");
     await openChannel(page);
