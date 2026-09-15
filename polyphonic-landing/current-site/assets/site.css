@@ -13,10 +13,12 @@
 *{box-sizing:border-box}
 :root{
   --bg:#000000;--s1:#0E0E0E;--s2:#161616;--s3:#1E1E1E;--line:#232323;--line2:#2E2E2E;
-  /* t3 is the prototype's #565656 raised to #7E7E7E: the one legibility deviation on faint text
-     (WP-18 decision 2). It carries the commons eyebrow and numbers, the room topics and composers,
-     and the footer's legal line — 4.5:1 or better on #000, #0E0E0E and #161616. */
-  --t0:#E4E4E0;--t1:#B4B4B4;--t2:#7E7E7E;--t3:#7E7E7E;
+  /* t2/t3 are the prototype's #565656 raised for legibility (WP-18 decision 2). They carry the
+     commons eyebrow and numbers, the room topics and composers, the feed rows and the footer's
+     legal line. #7E7E7E clears 4.5:1 on #000 and #0E0E0E but measures 4.46 on the #161616 card
+     ground these rows actually sit on, so the token is #848484: measured 5.62 on #000,
+     5.16 on #0E0E0E, 4.84 on #161616. */
+  --t0:#E4E4E0;--t1:#B4B4B4;--t2:#848484;--t3:#848484;
   --glass:#0A0B0A;
   --sans:'Instrument Sans','Instrument Sans Fallback',system-ui,sans-serif;
   --mono:'Fragment Mono','Fragment Mono Fallback',ui-monospace,monospace;
@@ -82,6 +84,9 @@ button,input{font-family:inherit}
   [data-rv="on"]{opacity:1;transform:none}
   [data-replay="armed"] .pp-ghost{visibility:hidden}
   [data-replay="armed"] .pp-type{display:block;position:absolute;inset:0}
+  /* the dots overlay the paragraph's reserved box instead of taking a row of their own, so
+     showing and hiding them cannot move anything below (WP-18: 0px shift, measured). */
+  [data-replay="armed"] .pp-dots{display:inline-flex;gap:5px;align-items:center;position:absolute;left:2px;top:0;height:27px}
   [data-replay="armed"] [data-pp-cards] > *,[data-replay="armed"] [data-pp-receipt]{visibility:hidden}
   [data-replay="armed"] [data-pp-cards] > [data-on="1"],[data-replay="armed"] [data-pp-receipt][data-on="1"]{visibility:visible}
 }
@@ -130,7 +135,7 @@ button,input{font-family:inherit}
    reduced motion. While the replay is armed the finished text is present but invisible, holding the
    paragraph's height, and the typed characters are laid over it: nothing in the frame moves. */
 .pp-para{position:relative}
-.pp-type{display:none}
+.pp-type,.pp-dots{display:none}
 
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
