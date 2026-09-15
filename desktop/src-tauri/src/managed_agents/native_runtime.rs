@@ -22,6 +22,12 @@ mod provisioning;
 pub(crate) use provisioning::{openclaw_provisioning_context, with_openclaw_agent};
 
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+/// The one call per runtime that lists its agents. Hermes and OpenClaw are
+/// interpreted CLIs that take seconds to start on a busy Mac, and this scan now
+/// runs in the background from the setup door, so it can afford to wait: a
+/// listing that times out reads as "could not be queried" and loses every
+/// agent, while a slow one costs nothing visible.
+const LISTING_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_CAPTURE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -734,7 +740,7 @@ fn discover_hermes() -> NativeRuntimeDiscoveryOutcome {
         };
     };
     let runtime_version = command_version(&executable_path).unwrap_or_else(|| "unknown".into());
-    let Ok(list) = run_bounded(&executable_path, &["profile", "list"], DISCOVERY_TIMEOUT) else {
+    let Ok(list) = run_bounded(&executable_path, &["profile", "list"], LISTING_TIMEOUT) else {
         return NativeRuntimeDiscoveryOutcome {
             native_type: NativeRuntimeKind::Hermes,
             status: NativeDiscoveryStatus::Failed,
@@ -1127,7 +1133,7 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
     let list = run_bounded(
         &executable_path,
         &["agents", "list", "--json", "--bindings"],
-        DISCOVERY_TIMEOUT,
+        LISTING_TIMEOUT,
     );
     let config_path = openclaw_config_path();
     let (agents, fallback_message) =
