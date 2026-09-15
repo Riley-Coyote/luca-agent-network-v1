@@ -165,6 +165,64 @@ export function getActivityTrace(
   );
 }
 
+/**
+ * What a watchdog is allowed to learn about one dispatch: whether the native
+ * trace says the resident is working, and enough of a fingerprint to tell a
+ * trace that is advancing from one frozen mid-turn. Never the entries
+ * themselves — those carry owner-visible text and belong to the row that
+ * renders them.
+ */
+export type ActivityTraceLifeSignal = {
+  status: ActivityTrace["status"];
+  startedAt: number;
+  entryCount: number;
+};
+
+function lifeSignal(trace: ActivityTrace): ActivityTraceLifeSignal {
+  return {
+    status: trace.status,
+    startedAt: trace.startedAt,
+    entryCount: trace.entries.length,
+  };
+}
+
+/**
+ * Is this resident visibly working right now?
+ *
+ * A pure read over the snapshot this store already holds — no subscription, no
+ * hydration, no timer — so a caller outside the activity feature can ask the
+ * question without taking on its lifecycle. The exact dispatch receipt decides
+ * when the caller has one: a completed trace for this very turn is an answer,
+ * not a miss. An optimistic receipt matches nothing, so the fallback is the
+ * same resident working under a trace that started no earlier than the caller's
+ * turn — the trace the desktop is already drawing in the thread.
+ */
+export function findWorkingActivityTraceSignal(lookup: {
+  conversationId: string;
+  residentPubkey: string;
+  dispatchReceiptId?: string | null;
+  /** Desktop clock, Unix milliseconds: ignore work that predates the turn. */
+  seededAt?: number;
+}): ActivityTraceLifeSignal | null {
+  const residentPubkey = lookup.residentPubkey.toLowerCase();
+  let latest: ActivityTrace | null = null;
+  for (const trace of getConversationActivityTraces(lookup.conversationId)) {
+    if (trace.residentPubkey.toLowerCase() !== residentPubkey) continue;
+    if (
+      lookup.dispatchReceiptId &&
+      trace.dispatchReceiptId === lookup.dispatchReceiptId
+    ) {
+      return trace.status === "working" ? lifeSignal(trace) : null;
+    }
+    if (trace.status !== "working") continue;
+    if (lookup.seededAt !== undefined && trace.startedAt < lookup.seededAt) {
+      continue;
+    }
+    if (!latest || trace.startedAt > latest.startedAt) latest = trace;
+  }
+  return latest ? lifeSignal(latest) : null;
+}
+
 /** Clear all process caches and pending scopes before the next community mounts. */
 export function resetActivityTraceStore(): void {
   generation += 1;

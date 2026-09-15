@@ -30,10 +30,42 @@ import {
   subscribeManagedPresentationTurn,
   subscribeManagedPresentationActivity,
 } from "./managedPresentationStore.ts";
+import {
+  applyActivityTraceSnapshot,
+  resetActivityTraceStore,
+} from "./activity/activityTraceStore.ts";
 
 const conversationId = "11111111-1111-4111-8111-111111111111";
 const residentPubkey = "11".repeat(32);
 const receiptId = "22".repeat(32);
+
+/** One native activity trace, the thing the owner already sees in the thread. */
+function workingTrace(fields = {}) {
+  return {
+    conversationId,
+    residentPubkey,
+    dispatchReceiptId: receiptId,
+    turnId: "turn-1",
+    finalMessageId: null,
+    startedAt: Date.now(),
+    endedAt: null,
+    status: "working",
+    entries: [],
+    truncated: false,
+    ...fields,
+  };
+}
+
+function withFrozenClock(run) {
+  const realNow = Date.now;
+  const clock = { now: 1_000_000 };
+  Date.now = () => clock.now;
+  try {
+    run(clock);
+  } finally {
+    Date.now = realNow;
+  }
+}
 
 function frame(kind, sequence, extra = {}) {
   return {
@@ -66,7 +98,10 @@ function flushAll() {
   assert.ok(paints < 100, "presentation backlog should settle");
 }
 
-afterEach(resetManagedPresentationStore);
+afterEach(() => {
+  resetManagedPresentationStore();
+  resetActivityTraceStore();
+});
 
 describe("managedPresentationStore", () => {
   it("keeps a quiet multi-minute turn working on authenticated liveness", () => {
@@ -982,7 +1017,9 @@ describe("managedPresentationStore", () => {
     );
   });
 
-  it("marks overdue work as needs attention without synthesizing completion", () => {
+  it("marks overdue work with nothing corroborating it as unavailable", () => {
+    // No activity trace: the deadline is the only witness there is, and it says
+    // the resident never answered. This is the honest unavailable.
     seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
     const deadline = turn().deadlineAt;
     expireManagedPresentationDeadlinesForTests(deadline);
@@ -991,6 +1028,201 @@ describe("managedPresentationStore", () => {
     assert.equal(turn().finalMessageId, null);
     flushManagedPresentationSchedulerForTests(deadline);
     assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 0);
+  });
+
+  it("never calls a resident unavailable while its trace says it is working", () => {
+    withFrozenClock((clock) => {
+      seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+      const deadline = turn().deadlineAt;
+      applyActivityTraceSnapshot([workingTrace()]);
+
+      clock.now = deadline;
+      expireManagedPresentationDeadlinesForTests(deadline);
+      assert.equal(
+        turn().phase,
+        "thinking",
+        "the strip must not contradict the row the owner is watching",
+      );
+      assert.equal(turn().failure, null);
+      assert.equal(
+        turn().deadlineAt,
+        deadline + 90_000,
+        "the wait is re-armed for one liveness window, not abandoned",
+      );
+      assert.equal(getManagedResponseSlotsSnapshot(conversationId).length, 0);
+    });
+  });
+
+  it("accepts a resident working under a trace the optimistic receipt cannot name", () => {
+    withFrozenClock((clock) => {
+      const optimisticReceipt = "optimistic:message-1";
+      seedManagedPresentations(conversationId, optimisticReceipt, [
+        residentPubkey,
+      ]);
+      const deadline = turn().deadlineAt;
+      // The signed receipt the native trace carries is not the one this turn
+      // was seeded under; the resident is the same and it started after.
+      applyActivityTraceSnapshot([
+        workingTrace({ startedAt: clock.now + 200 }),
+      ]);
+
+      clock.now = deadline;
+      expireManagedPresentationDeadlinesForTests(deadline);
+      assert.equal(turn().phase, "thinking");
+      assert.equal(turn().failure, null);
+    });
+  });
+
+  it("ignores a working trace that predates the turn", () => {
+    withFrozenClock((clock) => {
+      applyActivityTraceSnapshot([
+        workingTrace({
+          dispatchReceiptId: "earlier-dispatch",
+          startedAt: clock.now - 60_000,
+        }),
+      ]);
+      seedManagedPresentations(conversationId, "optimistic:message-2", [
+        residentPubkey,
+      ]);
+      const deadline = turn().deadlineAt;
+
+      clock.now = deadline;
+      expireManagedPresentationDeadlinesForTests(deadline);
+      assert.equal(
+        turn().failure,
+        "unavailable",
+        "another turn's work is not evidence about this one",
+      );
+    });
+  });
+
+  it("surfaces unavailable when a working trace stops moving", () => {
+    withFrozenClock((clock) => {
+      seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+      const deadline = turn().deadlineAt;
+      applyActivityTraceSnapshot([workingTrace()]);
+
+      clock.now = deadline;
+      expireManagedPresentationDeadlinesForTests(deadline);
+      assert.equal(turn().failure, null, "still alive at the first check");
+
+      // The trace never advances again: same status, same entries. Five
+      // minutes after that last movement the desktop stops making excuses.
+      clock.now = deadline + 300_001;
+      expireManagedPresentationDeadlinesForTests(clock.now);
+      assert.equal(turn().phase, "needs_attention");
+      assert.equal(turn().failure, "unavailable");
+    });
+  });
+
+  it("keeps extending while the trace keeps moving", () => {
+    withFrozenClock((clock) => {
+      seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+      let deadline = turn().deadlineAt;
+      for (let step = 1; step <= 6; step += 1) {
+        applyActivityTraceSnapshot([
+          workingTrace({
+            entries: Array.from({ length: step }, (_, index) => ({
+              id: `entry-${index}`,
+              sequence: index + 1,
+              kind: "activity",
+              text: "Running a long tool",
+              roomText: "Running a long tool",
+              status: "active",
+            })),
+          }),
+        ]);
+        clock.now = deadline;
+        expireManagedPresentationDeadlinesForTests(deadline);
+        assert.equal(turn().failure, null);
+        assert.equal(turn().phase, "thinking");
+        deadline = turn().deadlineAt;
+      }
+      assert.ok(
+        deadline > 1_000_000 + 300_000,
+        "an advancing trace outlives the absolute backstop",
+      );
+    });
+  });
+
+  it("accepts a first frame whose opener never arrived", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    // Sequence 1 and 2 were dropped on the way in. Under the old gate this
+    // turn could never accept another frame for as long as it lived.
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 3, { public_chunk: "Recovered" }),
+    );
+    flushAll();
+    assert.equal(turn().visibleText, "Recovered");
+    assert.equal(turn().sessionEpoch, 7);
+
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 4, { public_chunk: " and streaming" }),
+    );
+    flushAll();
+    assert.equal(turn().visibleText, "Recovered and streaming");
+
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 6, { public_chunk: " gap" }),
+    );
+    flushAll();
+    assert.equal(
+      turn().visibleText,
+      "Recovered and streaming",
+      "a gap after the opener is still a gap",
+    );
+  });
+
+  it("does not let a dropped opener strand the turn a second time", () => {
+    seedManagedPresentations(conversationId, receiptId, [residentPubkey]);
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 3, { public_chunk: "" }),
+    );
+    assert.equal(turn().sessionEpoch, 0, "an empty chunk is not an opener");
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 4, { public_chunk: "Still arrived" }),
+    );
+    flushAll();
+    assert.equal(turn().visibleText, "Still arrived");
+  });
+
+  it("restarts the wait for a first frame when the receipt is rebound", () => {
+    withFrozenClock((clock) => {
+      const optimisticReceipt = "optimistic:message-3";
+      seedManagedPresentations(conversationId, optimisticReceipt, [
+        residentPubkey,
+      ]);
+      const seededDeadline = turn().deadlineAt;
+
+      // Signing and relaying the send burned most of the start budget.
+      clock.now += 11_000;
+      replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
+      assert.equal(
+        turn().deadlineAt,
+        clock.now + 12_000,
+        "the resident's budget starts where frames can first reach it",
+      );
+      assert.ok(turn().deadlineAt > seededDeadline);
+    });
+  });
+
+  it("replays frames that arrived under the signed receipt before the rebind", () => {
+    const optimisticReceipt = "optimistic:message-4";
+    seedManagedPresentations(conversationId, optimisticReceipt, [
+      residentPubkey,
+    ]);
+    // The resident answered before onSuccess rebound the turn to the signed id.
+    ingestManagedPresentationFrame(frame("turn_started", 1));
+    ingestManagedPresentationFrame(
+      frame("public_chunk", 2, { public_chunk: "Already talking" }),
+    );
+    assert.equal(turn().sessionEpoch, 0, "nothing could match yet");
+
+    replaceManagedPresentationReceipt(optimisticReceipt, receiptId);
+    flushAll();
+    assert.equal(turn().visibleText, "Already talking");
+    assert.equal(turn().sessionEpoch, 7);
+    assert.equal(turn().dispatchReceiptId, receiptId);
   });
 
   it("keeps the compatibility projection bounded to visible store state", () => {

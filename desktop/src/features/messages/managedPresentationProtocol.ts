@@ -9,6 +9,12 @@ export const MANAGED_TURN_START_TIMEOUT_MS = 12_000;
  *  desktop concludes it is unavailable. */
 export const MANAGED_TURN_WAKE_TIMEOUT_MS = 60_000;
 export const MANAGED_TURN_LIVENESS_MS = 90_000;
+/** The honest floor under every extension. A turn may outlive the start
+ *  timeout while the native activity trace still shows the resident working,
+ *  but once neither presentation frames nor that trace have moved for this
+ *  long, the desktop stops making excuses and says the resident is
+ *  unavailable. A genuinely dead runtime must still surface. */
+export const MANAGED_TURN_ABSOLUTE_TIMEOUT_MS = 300_000;
 export const MANAGED_TERMINAL_DRAIN_TARGET_MS = 300;
 
 const PROTOCOL = "luca.managed.presentation.v1";

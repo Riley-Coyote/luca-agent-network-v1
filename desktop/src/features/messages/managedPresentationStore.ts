@@ -15,9 +15,11 @@ import {
   managedPresentationDrainQuota,
   segmentManagedPresentationText,
 } from "@/features/messages/managedPresentationGraphemes";
+import { findWorkingActivityTraceSignal } from "@/features/messages/activity/activityTraceStore";
 import {
   MANAGED_PRESENTATION_EVENT,
   MANAGED_TERMINAL_DRAIN_TARGET_MS,
+  MANAGED_TURN_ABSOLUTE_TIMEOUT_MS,
   MANAGED_TURN_LIVENESS_MS,
   MANAGED_TURN_START_TIMEOUT_MS,
   MANAGED_TURN_WAKE_TIMEOUT_MS,
@@ -68,6 +70,17 @@ const stagedTurnUiKeys = new Set<string>();
 const stagedLegacyConversationIds = new Set<string>();
 const stagedTopologyConversationIds = new Set<string>();
 const stagedTerminalActivityUntil = new Map<string, number>();
+/** Lowest sequence a turn has seen before it accepted its first frame. */
+const lowestSeenSequence = new Map<string, number>();
+/** Last moment the native activity trace for a turn was observed to move. */
+const traceLife = new Map<string, { at: number; signature: string }>();
+/** Frames addressed to a receipt no turn answers to yet. */
+const unmatchedFrames = new Map<
+  string,
+  { at: number; frame: RawManagedPresentationFrame }[]
+>();
+const MAX_UNMATCHED_FRAMES_PER_RECEIPT = 8;
+const UNMATCHED_FRAME_TTL_MS = 30_000;
 const turnListeners = new Map<string, Set<() => void>>();
 const topologyListeners = new Map<string, Set<() => void>>();
 const legacyListeners = new Map<string, Set<() => void>>();
@@ -447,10 +460,60 @@ function scheduleNearestDeadline(): void {
   );
 }
 
+/**
+ * The resident has not sent a presentation frame in time. Is it actually gone?
+ *
+ * The native activity trace answers for the same `(resident, dispatch)` the
+ * turn is waiting on, and it is the thing the owner can already see moving in
+ * the thread. Calling that resident "unavailable · check its setup" while its
+ * own trace says `working` is the desktop contradicting itself on screen, and
+ * the owner believes the louder half.
+ *
+ * So a working trace buys the turn another liveness window instead of a
+ * verdict — but only while something is still moving. The trace's fingerprint
+ * (status, start, entry count) is remembered between checks: a trace frozen at
+ * `working` because the runtime died mid-turn stops counting as life, and
+ * {@link MANAGED_TURN_ABSOLUTE_TIMEOUT_MS} after the last movement from either
+ * source the turn takes the unavailable outcome after all.
+ */
+function residentStillWorking(
+  turn: ManagedPresentationTurn,
+  now: number,
+): boolean {
+  const signal = findWorkingActivityTraceSignal({
+    conversationId: turn.conversationId,
+    residentPubkey: turn.residentPubkey,
+    dispatchReceiptId: turn.dispatchReceiptId,
+    seededAt: turn.startedAt,
+  });
+  if (!signal) {
+    traceLife.delete(turn.uiKey);
+    return false;
+  }
+  const signature = `${signal.status}:${signal.startedAt}:${signal.entryCount}`;
+  const previous = traceLife.get(turn.uiKey);
+  const at = previous?.signature === signature ? previous.at : now;
+  traceLife.set(turn.uiKey, { at, signature });
+  return (
+    now - Math.max(at, turn.lastFrameAt) < MANAGED_TURN_ABSOLUTE_TIMEOUT_MS
+  );
+}
+
 function processDeadlines(now = Date.now()): void {
   stagedActivityExpiryAt = Math.max(stagedActivityExpiryAt ?? now, now);
+  let rearmed = false;
   for (const current of turns.values()) {
     if (current.deadlineAt === null || current.deadlineAt > now) continue;
+    if (current.sessionEpoch === 0 && residentStillWorking(current, now)) {
+      // Nothing visible changes: the row keeps the phase it is showing and the
+      // wait simply continues, so this must not repaint or restage the turn.
+      turns.set(current.uiKey, {
+        ...current,
+        deadlineAt: now + MANAGED_TURN_LIVENESS_MS,
+      });
+      rearmed = true;
+      continue;
+    }
     const next = activateTerminalResponseSlot(
       {
         ...current,
@@ -466,6 +529,7 @@ function processDeadlines(now = Date.now()): void {
       managedTerminalActivityUntil(next.phase, now),
     );
   }
+  if (rearmed) scheduleNearestDeadline();
   scheduler.requestPaint();
 }
 
@@ -489,6 +553,8 @@ function removeTurn(uiKey: string): void {
   creationOrdinals.delete(uiKey);
   terminalUiKeys.delete(uiKey);
   durableInterruptedUiKeys.delete(uiKey);
+  lowestSeenSequence.delete(uiKey);
+  traceLife.delete(uiKey);
   removeManagedPresentationActivity(uiKey, current.conversationId);
   for (const [key, value] of lookupToUiKey) {
     if (value === uiKey) lookupToUiKey.delete(key);
@@ -585,6 +651,57 @@ function withFrameActivity(
     : { ...turn, activitySteps };
 }
 
+/**
+ * Hold a frame whose receipt nothing answers to yet.
+ *
+ * The owner's turn is seeded under an optimistic id and only rebound to the
+ * signed one once the send resolves. A resident that starts talking inside that
+ * window addresses frames to the signed receipt, finds no turn, and used to
+ * have its opener dropped — which, under the old gate, silenced the whole turn.
+ * A short, small, per-receipt buffer keeps those frames until the rebind or the
+ * seed makes the receipt addressable; anything older than
+ * {@link UNMATCHED_FRAME_TTL_MS} is not a race any more and is discarded.
+ */
+function bufferUnmatchedFrame(
+  key: string,
+  frame: RawManagedPresentationFrame,
+): void {
+  const now = Date.now();
+  for (const [queuedKey, queued] of unmatchedFrames) {
+    const fresh = queued.filter(
+      (item) => now - item.at < UNMATCHED_FRAME_TTL_MS,
+    );
+    if (fresh.length === 0) unmatchedFrames.delete(queuedKey);
+    else if (fresh.length !== queued.length)
+      unmatchedFrames.set(queuedKey, fresh);
+  }
+  const queued = unmatchedFrames.get(key) ?? [];
+  queued.push({ at: now, frame });
+  while (queued.length > MAX_UNMATCHED_FRAMES_PER_RECEIPT) queued.shift();
+  unmatchedFrames.set(key, queued);
+}
+
+/**
+ * Only a frame the turn actually took counts as the opener. A frame that passed
+ * the gate and was then dropped further down — an empty public chunk, a chunk
+ * over the text limit — leaves no mark, or it would strand the turn exactly the
+ * way the old sequence-one gate did.
+ */
+function rememberOpenerSequence(uiKey: string, sequence: number | null): void {
+  if (sequence !== null) lowestSeenSequence.set(uiKey, sequence);
+}
+
+function replayUnmatchedFrames(key: string): void {
+  const queued = unmatchedFrames.get(key);
+  if (!queued) return;
+  unmatchedFrames.delete(key);
+  const now = Date.now();
+  for (const item of queued) {
+    if (now - item.at >= UNMATCHED_FRAME_TTL_MS) continue;
+    ingestManagedPresentationFrame(item.frame);
+  }
+}
+
 export function ingestManagedPresentationFrame(frameValue: unknown): void {
   if (!validManagedPresentationFrame(frameValue)) return;
   const frame = frameValue;
@@ -600,14 +717,31 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
   }
   const uiKey = lookupToUiKey.get(frameLookupKey);
   const current = uiKey ? turns.get(uiKey) : undefined;
-  if (!current) return;
-  if (
+  if (!current) {
+    bufferUnmatchedFrame(frameLookupKey, frame);
+    return;
+  }
+  // Before the first accepted frame the gate used to demand sequence 1 and
+  // nothing else, forever. One dropped or mis-keyed opener therefore did not
+  // cost a frame, it cost the turn: every later frame failed the same test, the
+  // row never moved, and the watchdog blamed the resident's setup for a stream
+  // that was arriving the whole time. The opener may now carry any sequence, as
+  // long as it is the lowest this turn has accepted; from there the epoch rules
+  // below hold unchanged and sequences still have to climb by one.
+  const openerSequence =
     current.sessionEpoch === 0
-      ? frame.sequence !== 1
-      : current.sessionEpoch !== frame.session_epoch ||
-        frame.sequence !== current.sequence + 1 ||
-        current.turnId !== frame.turn_id ||
-        current.conversationId !== frame.conversation_id
+      ? Math.min(
+          lowestSeenSequence.get(current.uiKey) ?? Number.POSITIVE_INFINITY,
+          frame.sequence,
+        )
+      : null;
+  if (openerSequence !== null) {
+    if (frame.sequence !== openerSequence) return;
+  } else if (
+    current.sessionEpoch !== frame.session_epoch ||
+    frame.sequence !== current.sequence + 1 ||
+    current.turnId !== frame.turn_id ||
+    current.conversationId !== frame.conversation_id
   ) {
     return;
   }
@@ -616,6 +750,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
   // already confirms this exact turn is alive; refresh its deadline without
   // repainting the chat or changing its activity description every ten seconds.
   if (frame.kind === "liveness") {
+    rememberOpenerSequence(current.uiKey, openerSequence);
     turns.set(current.uiKey, frameBase(current, frame));
     scheduleNearestDeadline();
     return;
@@ -681,6 +816,7 @@ export function ingestManagedPresentationFrame(frameValue: unknown): void {
       markTerminalFrame(frameLookupKey, next.uiKey);
       break;
   }
+  rememberOpenerSequence(current.uiKey, openerSequence);
   stageTurnPublication(
     next,
     topologyChanged,
@@ -774,6 +910,7 @@ export function seedManagedPresentations(
         options.wakingResidentPubkeys?.has(residentPubkey) ?? false,
       ),
     );
+    replayUnmatchedFrames(key);
   }
 }
 
@@ -960,6 +1097,26 @@ function mergeReceiptRace(
   notifyLegacy(merged.conversationId);
 }
 
+/**
+ * The start deadline was armed when the turn was seeded under an optimistic id,
+ * but a frame cannot reach the turn until the signed receipt exists. Every
+ * millisecond the signature and relay round trip took was therefore spent out
+ * of the resident's budget, and a slow send alone could reach the deadline with
+ * the resident not yet asked anything. The wait for a first frame starts where
+ * frames first become addressable. A turn already streaming keeps its liveness
+ * deadline; a terminal turn stays terminal.
+ */
+function rebindDeadlineAt(turn: ManagedPresentationTurn): number | null {
+  if (turn.deadlineAt === null || turn.sessionEpoch !== 0)
+    return turn.deadlineAt;
+  return (
+    Date.now() +
+    (turn.phase === "waking"
+      ? MANAGED_TURN_WAKE_TIMEOUT_MS
+      : MANAGED_TURN_START_TIMEOUT_MS)
+  );
+}
+
 export function replaceManagedPresentationReceipt(
   previousReceiptId: string,
   receiptId: string,
@@ -978,6 +1135,7 @@ export function replaceManagedPresentationReceipt(
     const next = {
       ...current,
       anchorKey: current.slotOrdinal === null ? null : receiptId,
+      deadlineAt: rebindDeadlineAt(current),
       dispatchReceiptId: receiptId,
       durableReceiptId: receiptId,
     };
@@ -985,6 +1143,7 @@ export function replaceManagedPresentationReceipt(
     lookupToUiKey.set(previousKey, current.uiKey);
     lookupToUiKey.set(nextKey, current.uiKey);
     publishTurn(next, current.slotOrdinal !== null);
+    replayUnmatchedFrames(nextKey);
   }
   scheduleNearestDeadline();
 }
@@ -1309,6 +1468,9 @@ export function resetManagedPresentationStore(): void {
   completedLookupKeys.clear();
   terminalFrameLookupKeys.clear();
   durableInterruptedUiKeys.clear();
+  lowestSeenSequence.clear();
+  traceLife.clear();
+  unmatchedFrames.clear();
   nextSlotOrdinal.clear();
   stagedTurnUiKeys.clear();
   stagedLegacyConversationIds.clear();
