@@ -41,14 +41,68 @@ const CODEX_SYSTEM_PROMPT: &str = "You are Codex, working directly with the owne
 /// with. Mirrors `CANONICAL_LUCA_PERSONA_ID` in the desktop client.
 pub const LUCA_PERSONA_ID: &str = "builtin:fizz";
 
-pub(crate) fn previous_luca_stock_prompt() -> &'static str {
-    LUCA_SYSTEM_PROMPT
+/// Every soul a built-in resident has shipped with, and the name it ships
+/// under.
+///
+/// The point of the list is to tell "nobody has touched this" from "these
+/// are the owner's words". A stored definition holding any entry in
+/// `previous` was written by us, not by the owner, so a new edition may
+/// replace it; anything else is left exactly as it is.
+struct StockSouls {
+    persona_id: &'static str,
+    /// What a fresh install of this build pins.
+    current: &'static str,
+    /// Souls earlier builds pinned, oldest first.
+    previous: &'static [&'static str],
 }
 
-/// The built-in definition upgrade must not silently rewrite a live Luca's
-/// old stock soul. The owner applies the reviewed document pack explicitly.
-pub(crate) fn is_luca_stock_pack_upgrade(new_pin: &str, old_pin: Option<&str>) -> bool {
-    old_pin == Some(previous_luca_stock_prompt()) && new_pin == resident_packs::LUCA.soul
+const BUILT_IN_STOCK_SOULS: &[StockSouls] = &[
+    StockSouls {
+        persona_id: LUCA_PERSONA_ID,
+        current: resident_packs::LUCA.soul,
+        // Luca predates the document packs, so its oldest stock soul is the
+        // plain constant above rather than a pack file.
+        previous: &[LUCA_SYSTEM_PROMPT, resident_packs::LUCA_2026_09_13.soul],
+    },
+    StockSouls {
+        persona_id: "builtin:fifty",
+        current: resident_packs::FIFTY.soul,
+        previous: &[resident_packs::FIFTY_2026_09_13.soul],
+    },
+    StockSouls {
+        persona_id: "builtin:trinity",
+        current: resident_packs::TRINITY.soul,
+        previous: &[resident_packs::TRINITY_2026_09_13.soul],
+    },
+];
+
+fn stock_souls(persona_id: &str) -> Option<&'static StockSouls> {
+    BUILT_IN_STOCK_SOULS
+        .iter()
+        .find(|entry| entry.persona_id == persona_id)
+}
+
+/// Souls this app shipped for `persona_id` before the current pack, oldest
+/// first. Empty for anything that is not a bundled resident.
+pub(crate) fn previous_stock_souls(persona_id: &str) -> &'static [&'static str] {
+    stock_souls(persona_id).map_or(&[], |entry| entry.previous)
+}
+
+/// The current bundled soul for a built-in whose stored prompt is still one
+/// this app shipped earlier — nobody has edited it, so it may move forward.
+///
+/// `None` means leave the stored prompt alone: it is either already current,
+/// or it is the owner's own writing and outranks anything we bundle.
+pub(crate) fn stock_soul_upgrade(persona_id: &str, stored: &str) -> Option<&'static str> {
+    let entry = stock_souls(persona_id)?;
+    if entry.current == stored {
+        return None;
+    }
+    entry
+        .previous
+        .iter()
+        .any(|previous| *previous == stored)
+        .then_some(entry.current)
 }
 
 /// The small product-approved self-model seed for a bundled resident.
@@ -265,17 +319,18 @@ fn merge_personas(mut stored: Vec<AgentDefinition>, now: &str) -> (Vec<AgentDefi
                 existing.updated_at = now.to_string();
                 changed = true;
             }
-            // Upgrade only Luca's untouched previous stock definition. The
-            // linked resident keeps its key and any edited folder documents;
-            // the folder re-pin rule separately protects an owner-edited soul.
-            if existing.id == LUCA_PERSONA_ID
-                && existing.display_name == "Luca"
-                && existing.system_prompt == LUCA_SYSTEM_PROMPT
-                && existing.system_prompt != resident_packs::LUCA.soul
-            {
-                existing.system_prompt = resident_packs::LUCA.soul.to_owned();
-                existing.updated_at = now.to_string();
-                changed = true;
+            // Move a bundled resident whose definition is still untouched
+            // forward to its current soul — for every built-in with a
+            // document pack, and from any soul we shipped, not just the one
+            // immediately before. A renamed or rewritten definition is the
+            // owner's and keeps every byte; the linked resident keeps its key
+            // and its folder documents either way.
+            if existing.display_name == built_in.display_name {
+                if let Some(soul) = stock_soul_upgrade(&existing.id, &existing.system_prompt) {
+                    existing.system_prompt = soul.to_owned();
+                    existing.updated_at = now.to_string();
+                    changed = true;
+                }
             }
             if !existing.is_builtin {
                 existing.is_builtin = true;
@@ -507,6 +562,108 @@ mod resident_pack_tests {
         assert!(merged
             .iter()
             .any(|record| record.id == "builtin:honey" && record.is_active));
+    }
+
+    /// Every bundled resident moves forward from every soul we ever shipped
+    /// it, and from nothing else. The beta.6 install that never edited Luca
+    /// is the second row of this: its stored prompt is the 2026-09-13 pack
+    /// soul, and it lands on the resident-authored one.
+    #[test]
+    fn untouched_stock_definitions_move_forward_from_either_generation() {
+        for (persona_id, display_name, pack) in [
+            (LUCA_PERSONA_ID, "Luca", &resident_packs::LUCA),
+            ("builtin:fifty", "Fifty", &resident_packs::FIFTY),
+            ("builtin:trinity", "Trinity", &resident_packs::TRINITY),
+        ] {
+            let seed = built_in_persona_records("2026-09-15T00:00:00Z")
+                .into_iter()
+                .find(|record| record.id == persona_id)
+                .unwrap();
+            let generations = previous_stock_souls(persona_id);
+            assert!(
+                !generations.is_empty(),
+                "{persona_id}: a bundled resident has a shipped history"
+            );
+            for stock in generations {
+                let mut stored = seed.clone();
+                stored.system_prompt = (*stock).to_owned();
+                let (merged, changed) = merge_personas(vec![stored], "2026-09-15T00:00:00Z");
+                let record = merged
+                    .iter()
+                    .find(|record| record.id == persona_id)
+                    .unwrap();
+                assert!(changed);
+                assert_eq!(
+                    record.system_prompt, pack.soul,
+                    "{persona_id}: an untouched stock prompt moves to the current soul"
+                );
+                assert_eq!(
+                    record.display_name, display_name,
+                    "{persona_id}: the migration never renames a resident"
+                );
+            }
+
+            // Already current — nothing to do, and nothing claimed.
+            let (merged, _) = merge_personas(vec![seed.clone()], "2026-09-15T00:00:00Z");
+            assert_eq!(
+                merged
+                    .iter()
+                    .find(|record| record.id == persona_id)
+                    .unwrap()
+                    .system_prompt,
+                pack.soul
+            );
+            assert_eq!(
+                stock_soul_upgrade(persona_id, pack.soul),
+                None,
+                "{persona_id}: an already-current prompt is a no-op"
+            );
+
+            // The owner's own words outrank anything we bundle.
+            let mut edited = seed.clone();
+            edited.system_prompt = "I wrote this myself.".to_owned();
+            let (merged, _) = merge_personas(vec![edited], "2026-09-15T00:00:00Z");
+            assert_eq!(
+                merged
+                    .iter()
+                    .find(|record| record.id == persona_id)
+                    .unwrap()
+                    .system_prompt,
+                "I wrote this myself.",
+                "{persona_id}: a user-edited prompt is never overwritten"
+            );
+
+            // A rename is an edit too.
+            let mut renamed = seed.clone();
+            renamed.system_prompt = generations[0].to_owned();
+            renamed.display_name = format!("My {display_name}");
+            let (merged, _) = merge_personas(vec![renamed], "2026-09-15T00:00:00Z");
+            let record = merged
+                .iter()
+                .find(|record| record.id == persona_id)
+                .unwrap();
+            assert_eq!(record.system_prompt, generations[0]);
+            assert_eq!(record.display_name, format!("My {display_name}"));
+        }
+    }
+
+    #[test]
+    fn stock_soul_history_is_distinct_and_only_covers_bundled_residents() {
+        for entry in BUILT_IN_STOCK_SOULS {
+            for previous in entry.previous {
+                assert_ne!(
+                    *previous, entry.current,
+                    "{}: a retired soul must differ from the current one",
+                    entry.persona_id
+                );
+            }
+        }
+        assert!(previous_stock_souls("builtin:honey").is_empty());
+        assert_eq!(
+            stock_soul_upgrade("builtin:honey", VEKTOR_SYSTEM_PROMPT),
+            None
+        );
+        assert_eq!(stock_soul_upgrade("custom:mine", LUCA_SYSTEM_PROMPT), None);
     }
 
     #[test]

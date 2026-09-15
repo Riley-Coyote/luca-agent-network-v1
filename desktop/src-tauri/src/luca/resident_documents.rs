@@ -1102,6 +1102,16 @@ pub(crate) fn repin_soul_for_record(
     }
     let dir = ensure_resident_dir(app, &record.pubkey)?;
     repin_soul_in_dir(&dir, record.system_prompt.as_deref(), old_pin)?;
+    if let Some(persona_id) = record.persona_id.as_deref() {
+        let refreshed = refresh_founding_documents(&dir, persona_id)?;
+        if !refreshed.is_empty() {
+            eprintln!(
+                "buzz-desktop: resident-documents: {}: founding documents moved to the current edition: {}",
+                record.name,
+                refreshed.join(", ")
+            );
+        }
+    }
     refresh_documents_hash(app, record)?;
     Ok(())
 }
@@ -1147,9 +1157,6 @@ pub(crate) fn repin_soul_in_dir(
     let Some(new_pin) = new_pin.filter(|value| !value.trim().is_empty()) else {
         return Ok(());
     };
-    if crate::managed_agents::is_luca_stock_pack_upgrade(new_pin, old_pin) {
-        return Ok(());
-    }
     let path = dir.join(DocumentKind::Soul.file_name());
     let existing = std::fs::read_to_string(&path).ok();
     // Missing soul → the folder has nothing to lose. Soul equal to the old
@@ -1174,4 +1181,108 @@ pub(crate) fn repin_soul_in_dir(
         DocumentWriter::Owner,
     )?;
     Ok(())
+}
+
+/// One founding document: the file it occupies, the text this build ships
+/// for it, and every text an earlier build shipped for it.
+struct FoundingSlot {
+    target: DocumentTarget,
+    current: &'static str,
+    previous: Vec<&'static str>,
+}
+
+impl FoundingSlot {
+    fn file_name(&self) -> String {
+        match &self.target {
+            DocumentTarget::Kind { kind } => kind.file_name().to_owned(),
+            DocumentTarget::RelPath { rel_path } => rel_path.clone(),
+        }
+    }
+}
+
+/// The four documents that say who a bundled resident is: soul, convictions,
+/// self-model, IDENTITY. The learned documents — lessons, memory, user-model,
+/// relationship — are deliberately absent; nothing here may touch them.
+fn founding_slots(persona_id: &str) -> Vec<FoundingSlot> {
+    use crate::managed_agents::resident_packs;
+
+    let Some(pack) = resident_packs::for_persona(persona_id) else {
+        return Vec::new();
+    };
+    let editions = resident_packs::previous_editions(persona_id);
+    vec![
+        FoundingSlot {
+            target: DocumentTarget::Kind {
+                kind: DocumentKind::Soul,
+            },
+            current: pack.soul,
+            // The soul is also the pin, so its history includes the plain
+            // constant Luca shipped with before the packs existed.
+            previous: crate::managed_agents::previous_stock_souls(persona_id).to_vec(),
+        },
+        FoundingSlot {
+            target: DocumentTarget::Kind {
+                kind: DocumentKind::Convictions,
+            },
+            current: pack.convictions,
+            previous: editions.iter().map(|edition| edition.convictions).collect(),
+        },
+        FoundingSlot {
+            target: DocumentTarget::Kind {
+                kind: DocumentKind::SelfModel,
+            },
+            current: pack.self_model,
+            previous: editions.iter().map(|edition| edition.self_model).collect(),
+        },
+        FoundingSlot {
+            target: DocumentTarget::RelPath {
+                rel_path: "IDENTITY.md".to_owned(),
+            },
+            current: pack.identity,
+            previous: editions.iter().map(|edition| edition.identity).collect(),
+        },
+    ]
+}
+
+/// Move a bundled resident's founding documents to the current edition,
+/// file by file, and only where the file on disk is still exactly a text
+/// this app shipped.
+///
+/// The rule is per document and it is a byte comparison, which is the whole
+/// safety argument: a file that still matches a shipped edition contains
+/// nobody's writing, so replacing it destroys nothing; a file that differs by
+/// one word was authored by the resident or the owner and is left untouched.
+/// An absent file stays absent — this moves work forward, it does not seed.
+/// Every replacement goes through [`write`], so it lands in `writes.jsonl`
+/// like any other desktop write.
+///
+/// Returns the file names actually rewritten.
+pub(crate) fn refresh_founding_documents(
+    dir: &Path,
+    persona_id: &str,
+) -> Result<Vec<String>, String> {
+    let mut refreshed = Vec::new();
+    for slot in founding_slots(persona_id) {
+        let (path, _) = resolve_target(dir, &slot.target)?;
+        let Ok(existing) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if existing == slot.current {
+            continue;
+        }
+        if !slot.previous.iter().any(|shipped| *shipped == existing) {
+            continue;
+        }
+        let name = slot.file_name();
+        write(
+            dir,
+            slot.target,
+            slot.current,
+            Some(&file_hash(&existing)),
+            DocumentWriter::Owner,
+        )
+        .map_err(|error| format!("refresh {name}: {error}"))?;
+        refreshed.push(name);
+    }
+    Ok(refreshed)
 }

@@ -291,10 +291,14 @@ fn initial_document_seed_is_absence_only() {
     );
 }
 
+/// A soul that is still exactly the pin that seeded it follows the pin — the
+/// ordinary re-pin rule, now applied to the stock-pack upgrade too. beta.6
+/// deliberately froze a live Luca's old soul here; the residents' own
+/// documents supersede that, but only where nobody has written a word.
 #[test]
-fn resident_pack_luca_upgrade_keeps_existing_live_soul() {
+fn resident_pack_upgrade_moves_an_untouched_live_soul_forward() {
     let dir = folder();
-    let old = crate::managed_agents::previous_luca_stock_prompt();
+    let old = crate::managed_agents::previous_stock_souls("builtin:fizz")[0];
     put(dir.path(), DocumentKind::Soul, old);
     repin_soul_in_dir(
         dir.path(),
@@ -304,7 +308,127 @@ fn resident_pack_luca_upgrade_keeps_existing_live_soul() {
     .unwrap();
     assert_eq!(
         std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
-        old
+        crate::managed_agents::resident_packs::LUCA.soul
+    );
+}
+
+/// The founding refresh, per resident and per document: every generation we
+/// shipped moves forward, one word of anybody's own writing does not, and
+/// the learned documents are not in the set at all.
+#[test]
+fn founding_documents_refresh_only_while_they_are_still_stock() {
+    use crate::managed_agents::resident_packs;
+
+    for persona_id in ["builtin:fizz", "builtin:fifty", "builtin:trinity"] {
+        let pack = resident_packs::for_persona(persona_id).unwrap();
+        for edition in resident_packs::previous_editions(persona_id) {
+            let dir = folder();
+            put(dir.path(), DocumentKind::Soul, edition.soul);
+            put(dir.path(), DocumentKind::Convictions, edition.convictions);
+            put(dir.path(), DocumentKind::SelfModel, edition.self_model);
+            std::fs::write(dir.path().join("IDENTITY.md"), edition.identity).unwrap();
+            // Learned work, and an owner-edited user model, must survive.
+            put(dir.path(), DocumentKind::Lessons, "What I learned.");
+            std::fs::write(dir.path().join("MEMORY.md"), "Ours.").unwrap();
+            put(dir.path(), DocumentKind::UserModel, pack.user_model);
+
+            let refreshed = refresh_founding_documents(dir.path(), persona_id).unwrap();
+            assert_eq!(
+                refreshed,
+                vec![
+                    "soul.md".to_owned(),
+                    "convictions.md".to_owned(),
+                    "self-model.md".to_owned(),
+                    "IDENTITY.md".to_owned(),
+                ],
+                "{persona_id}: all four founding documents move forward"
+            );
+            for (name, expected) in [
+                ("soul.md", pack.soul),
+                ("convictions.md", pack.convictions),
+                ("self-model.md", pack.self_model),
+                ("IDENTITY.md", pack.identity),
+            ] {
+                assert_eq!(
+                    std::fs::read_to_string(dir.path().join(name)).unwrap(),
+                    expected,
+                    "{persona_id}: {name}"
+                );
+            }
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("lessons.md")).unwrap(),
+                "What I learned."
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("MEMORY.md")).unwrap(),
+                "Ours."
+            );
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("user-model.md")).unwrap(),
+                pack.user_model,
+                "{persona_id}: the user model is not a founding document"
+            );
+
+            // Idempotent: a second pass has nothing left to move.
+            assert!(refresh_founding_documents(dir.path(), persona_id)
+                .unwrap()
+                .is_empty());
+        }
+
+        // Anybody's own words stay, whichever document they are in.
+        let dir = folder();
+        put(dir.path(), DocumentKind::Soul, "I rewrote my own soul.");
+        put(dir.path(), DocumentKind::Convictions, "Mine.");
+        std::fs::write(dir.path().join("IDENTITY.md"), "Mine too.").unwrap();
+        assert!(refresh_founding_documents(dir.path(), persona_id)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
+            "I rewrote my own soul."
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("convictions.md")).unwrap(),
+            "Mine."
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("IDENTITY.md")).unwrap(),
+            "Mine too."
+        );
+    }
+}
+
+/// The refresh moves existing work forward; it never seeds. A resident that
+/// only ever had a soul does not wake up holding three new documents.
+#[test]
+fn founding_refresh_never_creates_an_absent_document() {
+    let dir = folder();
+    let old = crate::managed_agents::previous_stock_souls("builtin:fizz")[0];
+    put(dir.path(), DocumentKind::Soul, old);
+    let refreshed = refresh_founding_documents(dir.path(), "builtin:fizz").unwrap();
+    assert_eq!(refreshed, vec!["soul.md".to_owned()]);
+    for name in ["convictions.md", "self-model.md", "IDENTITY.md"] {
+        assert!(
+            !dir.path().join(name).exists(),
+            "{name} was absent and stays absent"
+        );
+    }
+}
+
+/// A resident that is not one of ours is none of this migration's business.
+#[test]
+fn founding_refresh_ignores_unbundled_personas() {
+    let dir = folder();
+    put(dir.path(), DocumentKind::Soul, "A custom resident.");
+    assert!(refresh_founding_documents(dir.path(), "custom:mine")
+        .unwrap()
+        .is_empty());
+    assert!(refresh_founding_documents(dir.path(), "builtin:honey")
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
+        "A custom resident."
     );
 }
 

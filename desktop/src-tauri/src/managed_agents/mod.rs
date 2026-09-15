@@ -64,8 +64,8 @@ pub(crate) use managed_node_paths::*;
 pub use native_runtime::*;
 pub use nest::*;
 pub(crate) use owner_brain_authority::current_owner_brain_runtime_authority;
+pub(crate) use personas::previous_stock_souls;
 pub use personas::*;
-pub(crate) use personas::{is_luca_stock_pack_upgrade, previous_luca_stock_prompt};
 #[cfg(windows)]
 pub use process_lifecycle::*;
 pub(crate) use readiness::{
