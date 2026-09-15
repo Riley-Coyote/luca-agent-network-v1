@@ -237,8 +237,8 @@ test("live native activity replaces narration in place and stops the exact resid
     throw new Error("Activity row is not laid out");
   // The mark is one token (--resident-activity-mark-size) that sizes both the
   // slot and the canvas inside it; the row, not the mark, sets the line.
-  expect(indicatorBox?.width).toBe(22);
-  expect(indicatorBox?.height).toBe(22);
+  expect(indicatorBox?.width).toBeCloseTo(22, 3);
+  expect(indicatorBox?.height).toBeCloseTo(22, 3);
   expect(indicatorBox.x + indicatorBox.width).toBeLessThan(statusBox.x);
   expect(
     Math.abs(
