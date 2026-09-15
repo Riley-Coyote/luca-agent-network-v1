@@ -181,8 +181,8 @@ fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
 /// are the window's INNER size — `set_size` maps to `set_inner_size` — so the
 /// card fills the window edge to edge with no transparent margin around it.
 /// The card drops its own 2rem gutter while it floats, for the same reason.
-const FIRST_RUN_WINDOW_WIDTH: f64 = 960.0;
-const FIRST_RUN_WINDOW_HEIGHT: f64 = 544.0;
+const FIRST_RUN_WINDOW_WIDTH: f64 = 1040.0;
+const FIRST_RUN_WINDOW_HEIGHT: f64 = 584.0;
 
 /// A stranger's first launch: no owner has completed onboarding.
 ///
