@@ -57,11 +57,12 @@
 
 /* The bar is a window drag region that happens to carry controls: the pointer
    gestures on its empty run move the window itself, and every control on it
-   opts out of the drag by being a real button. One hairline underneath, from
-   the shell's own border token — no painted band, no shadow. */
+   opts out of the drag by being a real button. Nothing underneath it — no
+   hairline, no painted band, no shadow. In a 380px window a rule across the
+   top draws a second title bar where there is only one, and the name already
+   sits high and alone: the air below it is the separation. */
 .luca-popout__strip {
   align-items: center;
-  border-bottom: 1px solid hsl(var(--mn-border));
   display: flex;
   flex-shrink: 0;
   gap: 8px;
