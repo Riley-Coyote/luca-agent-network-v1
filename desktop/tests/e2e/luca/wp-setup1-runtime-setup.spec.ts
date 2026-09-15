@@ -103,9 +103,15 @@ test("the adapter installs itself: no Install button, one honest line", async ({
   await expect(
     page.getByRole("button", { name: "Install", exact: true }),
   ).toHaveCount(0);
-  await expect(page.getByTestId("runtime-silent-setup")).toContainText(
-    "Setting up Codex",
-  );
+  // The adapter installs itself. The scan of this Mac now starts at the door,
+  // so by the time the owner reaches this page the honest "Setting up Codex…"
+  // line may already have come and gone; either the line or the signed-in row
+  // is the truth, and an Install button is never it.
+  await expect(
+    page
+      .getByTestId("runtime-silent-setup")
+      .or(page.getByText("Signed in with ChatGPT")),
+  ).toBeVisible();
   await waitForAnimations(page);
   await page.screenshot({ path: `${SHOT_DIR}/01-adapter-installs-itself.png` });
 
