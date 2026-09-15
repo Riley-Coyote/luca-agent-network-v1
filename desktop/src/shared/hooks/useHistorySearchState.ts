@@ -89,6 +89,14 @@ export function useHistorySearchState<K extends string>(keys: readonly K[]) {
           },
           replace: flush.replace,
           resetScroll: false,
+          // Panel state is not a route change. The router wraps every
+          // navigation in a document view transition (`defaultViewTransition`),
+          // which snapshots the whole content plane and freezes it while the
+          // swap runs — so opening a drawer crossfaded the timeline behind it.
+          // A patch here only ever rewrites search params on the route already
+          // showing (`to: "."`), so it opts out; real route changes keep their
+          // choreography.
+          viewTransition: false,
         } as never);
       });
     },

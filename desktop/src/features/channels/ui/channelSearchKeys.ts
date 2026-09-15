@@ -35,3 +35,54 @@ export function buildAutoSendClearPatch(): Partial<
 > {
   return { autoSend: null };
 }
+
+/** The sentinel the channel-management panel carries — open/closed only. */
+export const CHANNEL_MANAGEMENT_OPEN_VALUE = "1";
+
+/**
+ * A whole auxiliary-panel arrangement, as one patch.
+ *
+ * Omitted keys are left alone; `null` clears. Opening one panel usually means
+ * closing three others, and doing that with four separate setters produced
+ * four URL patches — four navigations the router each wrapped in its own
+ * document view transition, aborting one another mid-flight. One arrangement
+ * is one patch, so it is one navigation.
+ */
+export type ChannelPanelState = {
+  agentSession?: string | null;
+  agentSessionChannel?: string | null;
+  channelManagement?: boolean;
+  profile?: string | null;
+  thread?: string | null;
+};
+
+export function buildPanelStatePatch(
+  next: ChannelPanelState,
+): Partial<Record<ChannelSearchKey, string | null>> {
+  const patch: Partial<Record<ChannelSearchKey, string | null>> = {};
+  if (next.thread !== undefined) {
+    patch.thread = next.thread;
+  }
+  if (next.profile !== undefined) {
+    // Opening, switching, or closing a profile always resets its sub-view —
+    // the carried `profileView` would otherwise leak onto the next profile.
+    patch.profile = next.profile;
+    patch.profileTab = null;
+    patch.profileView = null;
+  }
+  if (next.agentSession !== undefined) {
+    patch.agentSession = next.agentSession;
+    // Closing the session drops its channel scope with it; opening one leaves
+    // the scope to an explicit `agentSessionChannel` below.
+    if (next.agentSession === null) patch.agentSessionChannel = null;
+  }
+  if (next.agentSessionChannel !== undefined) {
+    patch.agentSessionChannel = next.agentSessionChannel;
+  }
+  if (next.channelManagement !== undefined) {
+    patch.channelManagement = next.channelManagement
+      ? CHANNEL_MANAGEMENT_OPEN_VALUE
+      : null;
+  }
+  return patch;
+}

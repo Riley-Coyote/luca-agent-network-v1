@@ -124,6 +124,7 @@ export function ChannelScreen({
     readStateVersion,
   } = useAppShell();
   const {
+    applyPanelState,
     channelManagementOpen,
     clearAutoSend,
     clearMessageRouteTarget,
@@ -134,8 +135,6 @@ export function ChannelScreen({
     profilePanelTab,
     profilePanelView,
     setChannelManagementOpen,
-    setOpenAgentSessionChannelId,
-    setOpenAgentSessionPubkey,
     setOpenThreadHeadId,
     setProfilePanelTab,
     setProfilePanelPubkey,
@@ -571,6 +570,7 @@ export function ChannelScreen({
     agentSessionAgents,
     backFromAgentSession: handleBackFromAgentSession,
     channelAgentSessionAgents,
+    clearAgentSessionReturnTarget,
     closeAgentSession: handleCloseAgentSession,
     hasAgentSessionReturnTarget,
     openAgentSession: handleOpenAgentSession,
@@ -582,18 +582,19 @@ export function ChannelScreen({
       !channelMembersQuery.isLoading &&
       !managedAgentsQuery.isLoading &&
       !relayAgentsQuery.isLoading,
+    applyPanelState,
     channelMembers,
     handleOpenThread,
     managedAgents: agentSessionCandidates,
+    // A membership refetch is exactly what a resident joining or leaving
+    // triggers; the stale-session close must wait for its answer rather than
+    // rewrite the URL while the list is briefly short of a member.
+    membersSettled:
+      !channelMembersQuery.isPending && !channelMembersQuery.isFetching,
     openAgentSessionPubkey,
     openThreadHeadId: effectiveOpenThreadHeadId,
     profilePanelPubkey,
-    setChannelManagementOpen,
     setExpandedThreadReplyIds,
-    setOpenAgentSessionChannelId,
-    setOpenAgentSessionPubkey,
-    setOpenThreadHeadId,
-    setProfilePanelPubkey,
     setThreadReplyTargetId,
     setThreadScrollTargetId,
   });
@@ -734,22 +735,25 @@ export function ChannelScreen({
       return;
     }
 
-    setOpenThreadHeadId(null);
     setExpandedThreadReplyIds(new Set());
     setThreadScrollTargetId(null);
     setThreadReplyTargetId(null);
-    handleCloseAgentSession();
-    setProfilePanelPubkey(null);
+    clearAgentSessionReturnTarget();
     setIsConversationContextOpen(false);
-    setChannelManagementOpen(true);
+    // One arrangement, one navigation — see `buildPanelStatePatch`.
+    applyPanelState({
+      agentSession: null,
+      channelManagement: true,
+      profile: null,
+      thread: null,
+    });
   }, [
     activeChannel?.channelType,
+    applyPanelState,
     channelManagementOpen,
+    clearAgentSessionReturnTarget,
     openGlobalChannelManagement,
     setChannelManagementOpen,
-    setOpenThreadHeadId,
-    handleCloseAgentSession,
-    setProfilePanelPubkey,
   ]);
   const handleToggleMembers = React.useCallback(() => {
     if (isConversationContextOpen) {
@@ -758,42 +762,44 @@ export function ChannelScreen({
       return;
     }
 
-    setOpenThreadHeadId(null);
     setExpandedThreadReplyIds(new Set());
     setThreadScrollTargetId(null);
     setThreadReplyTargetId(null);
-    handleCloseAgentSession();
-    setProfilePanelPubkey(null);
-    setChannelManagementOpen(false);
+    clearAgentSessionReturnTarget();
     setRequestedExchangeId(null);
     setIsConversationContextOpen(true);
+    applyPanelState({
+      agentSession: null,
+      channelManagement: false,
+      profile: null,
+      thread: null,
+    });
   }, [
-    handleCloseAgentSession,
+    applyPanelState,
+    clearAgentSessionReturnTarget,
     isConversationContextOpen,
-    setChannelManagementOpen,
-    setOpenThreadHeadId,
-    setProfilePanelPubkey,
   ]);
 
   const handleOpenExchange = React.useCallback(
     (exchangeId: string) => {
-      setOpenThreadHeadId(null);
       setExpandedThreadReplyIds(new Set());
       setThreadScrollTargetId(null);
       setThreadReplyTargetId(null);
-      handleCloseAgentSession();
-      setProfilePanelPubkey(null);
-      setChannelManagementOpen(false);
+      clearAgentSessionReturnTarget();
       setIsMembersSidebarOpen(false);
       setRequestedExchangeId(exchangeId);
       setIsConversationContextOpen(true);
+      // A resident arriving is the flicker's origin: four setters here meant
+      // four URL patches, and every one of them was a whole-document view
+      // transition. One patch, no transition (see useHistorySearchState).
+      applyPanelState({
+        agentSession: null,
+        channelManagement: false,
+        profile: null,
+        thread: null,
+      });
     },
-    [
-      handleCloseAgentSession,
-      setChannelManagementOpen,
-      setOpenThreadHeadId,
-      setProfilePanelPubkey,
-    ],
+    [applyPanelState, clearAgentSessionReturnTarget],
   );
 
   const exchangeObservationRef = React.useRef<{

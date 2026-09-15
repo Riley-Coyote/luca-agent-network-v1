@@ -14,7 +14,7 @@ import {
   type AgentSessionReturnTarget,
   resolveAgentSessionReturnTarget,
 } from "./agentSessionSelection";
-import type { PanelValueSetter } from "./useChannelPanelHistoryState";
+import type { PanelStateSetter } from "./useChannelPanelHistoryState";
 
 export type ChannelAgentSessionAgent = Pick<
   ManagedAgent,
@@ -30,18 +30,17 @@ type UseChannelAgentSessionsOptions = {
   activeChannel: Channel | null;
   activeChannelId: string | null;
   agentsLoaded: boolean;
+  /** Moves several panels in one navigation; see `buildPanelStatePatch`. */
+  applyPanelState: PanelStateSetter;
   channelMembers?: ChannelMember[];
   handleOpenThread: (message: TimelineMessage) => void;
   managedAgents: ChannelAgentSessionAgent[];
+  /** The members query has answered and is not refetching. */
+  membersSettled: boolean;
   openAgentSessionPubkey: string | null;
   openThreadHeadId: string | null;
   profilePanelPubkey?: string | null;
-  setChannelManagementOpen: (open: boolean) => void;
   setExpandedThreadReplyIds: (value: Set<string>) => void;
-  setOpenAgentSessionChannelId: PanelValueSetter;
-  setOpenAgentSessionPubkey: PanelValueSetter;
-  setOpenThreadHeadId: (value: string | null) => void;
-  setProfilePanelPubkey: (value: string | null) => void;
   setThreadReplyTargetId: (value: string | null) => void;
   setThreadScrollTargetId: (value: string | null) => void;
 };
@@ -165,22 +164,51 @@ export function getChannelAgentSessionAgents({
   });
 }
 
+/**
+ * Whether an open `agentSession` param no longer names anyone in the room.
+ *
+ * An empty agent list can mean the queries behind it have not answered yet —
+ * a reload restoring the param, or a membership refetch in flight while a
+ * resident is being brought in or let go. Closing on that transient emptiness
+ * rewrites the URL mid-arrival, which is a navigation the shell then has to
+ * absorb. So both the agent queries and the members query must have settled
+ * first; once they have, a room that legitimately has zero agents still closes
+ * a stale param. A profile panel showing the same resident is not stale — the
+ * session is that panel's own view.
+ */
+export function shouldCloseStaleAgentSession({
+  agents,
+  agentsLoaded,
+  membersSettled,
+  openAgentSessionPubkey,
+  profilePanelPubkey,
+}: {
+  agents: readonly { pubkey: string }[];
+  agentsLoaded: boolean;
+  membersSettled: boolean;
+  openAgentSessionPubkey: string | null;
+  profilePanelPubkey?: string | null;
+}): boolean {
+  if (!openAgentSessionPubkey) return false;
+  if (!agentsLoaded || !membersSettled) return false;
+  const open = normalizePubkey(openAgentSessionPubkey);
+  if (normalizePubkey(profilePanelPubkey ?? "") === open) return false;
+  return !agents.some((agent) => normalizePubkey(agent.pubkey) === open);
+}
+
 export function useChannelAgentSessions({
   activeChannel,
   activeChannelId,
   agentsLoaded,
+  applyPanelState,
   channelMembers,
   handleOpenThread,
   managedAgents,
+  membersSettled,
   openAgentSessionPubkey,
   openThreadHeadId,
   profilePanelPubkey = null,
-  setChannelManagementOpen,
   setExpandedThreadReplyIds,
-  setOpenAgentSessionChannelId,
-  setOpenAgentSessionPubkey,
-  setOpenThreadHeadId,
-  setProfilePanelPubkey,
   setThreadReplyTargetId,
   setThreadScrollTargetId,
 }: UseChannelAgentSessionsOptions) {
@@ -206,8 +234,8 @@ export function useChannelAgentSessions({
 
   const closeAgentSession = React.useCallback(() => {
     returnTarget.clear();
-    setOpenAgentSessionPubkey(null);
-  }, [returnTarget, setOpenAgentSessionPubkey]);
+    applyPanelState({ agentSession: null });
+  }, [applyPanelState, returnTarget]);
 
   const openAgentSession = React.useCallback(
     (pubkey: string, channelId?: string | null) => {
@@ -219,29 +247,29 @@ export function useChannelAgentSessions({
           }),
         );
       }
-      setOpenThreadHeadId(null);
       setExpandedThreadReplyIds(new Set());
       setThreadScrollTargetId(null);
       setThreadReplyTargetId(null);
-      setChannelManagementOpen(false);
-      setOpenAgentSessionPubkey(pubkey);
-      // Fall back to activeChannelId so opening from within a channel always
-      // scopes the panel to that channel — even when no explicit channelId is
-      // supplied (e.g. activity-list click). Without this, a null channelId
-      // bypasses scopeByChannel and lets all channels' live frames through.
-      setOpenAgentSessionChannelId(channelId ?? activeChannelId ?? null);
+      // One arrangement, one navigation. `agentSessionChannel` falls back to
+      // activeChannelId so opening from within a channel always scopes the
+      // panel to that channel — even when no explicit channelId is supplied
+      // (e.g. activity-list click). Without this, a null channelId bypasses
+      // scopeByChannel and lets all channels' live frames through.
+      applyPanelState({
+        agentSession: pubkey,
+        agentSessionChannel: channelId ?? activeChannelId ?? null,
+        channelManagement: false,
+        thread: null,
+      });
     },
     [
       activeChannelId,
+      applyPanelState,
       isAgentSessionOpen,
       openThreadHeadId,
       profilePanelPubkey,
       returnTarget,
-      setChannelManagementOpen,
       setExpandedThreadReplyIds,
-      setOpenAgentSessionChannelId,
-      setOpenAgentSessionPubkey,
-      setOpenThreadHeadId,
       setThreadReplyTargetId,
       setThreadScrollTargetId,
     ],
@@ -252,80 +280,69 @@ export function useChannelAgentSessions({
   // `agentSession` URL) it simply closes — never a blind history pop.
   const backFromAgentSession = React.useCallback(() => {
     const target = returnTarget.consume();
-    setOpenAgentSessionPubkey(null);
-    if (target?.kind === "thread") {
-      setOpenThreadHeadId(target.threadHeadId);
-      return;
-    }
-    if (target?.kind === "profile") {
-      setProfilePanelPubkey(target.pubkey);
-    }
-  }, [
-    returnTarget,
-    setOpenAgentSessionPubkey,
-    setOpenThreadHeadId,
-    setProfilePanelPubkey,
-  ]);
+    applyPanelState({
+      agentSession: null,
+      ...(target?.kind === "thread" ? { thread: target.threadHeadId } : {}),
+      ...(target?.kind === "profile" ? { profile: target.pubkey } : {}),
+    });
+  }, [applyPanelState, returnTarget]);
 
   const selectAgentSession = React.useCallback(
     (pubkey: string, channelId?: string | null) => {
-      setOpenAgentSessionPubkey(pubkey);
       // Same fallback as openAgentSession: use activeChannelId when the caller
       // omits channelId, so the panel is always scoped to the current channel.
-      setOpenAgentSessionChannelId(channelId ?? activeChannelId ?? null);
+      applyPanelState({
+        agentSession: pubkey,
+        agentSessionChannel: channelId ?? activeChannelId ?? null,
+      });
     },
-    [activeChannelId, setOpenAgentSessionChannelId, setOpenAgentSessionPubkey],
+    [activeChannelId, applyPanelState],
   );
 
   const openThreadAndCloseAgentSession = React.useCallback(
     (message: TimelineMessage) => {
       returnTarget.clear();
-      setOpenAgentSessionPubkey(null);
-      setProfilePanelPubkey(null);
-      setChannelManagementOpen(false);
+      applyPanelState({
+        agentSession: null,
+        channelManagement: false,
+        profile: null,
+      });
       handleOpenThread(message);
     },
-    [
-      handleOpenThread,
-      returnTarget,
-      setChannelManagementOpen,
-      setOpenAgentSessionPubkey,
-      setProfilePanelPubkey,
-    ],
+    [applyPanelState, handleOpenThread, returnTarget],
   );
 
   React.useEffect(() => {
-    // An empty agent list can mean the queries behind it are still loading
-    // (e.g. a reload restoring the agentSession URL param), so wait until the
-    // agent queries have settled. Once loaded, a channel that legitimately has
-    // zero agents will still auto-close a stale param.
     if (
-      openAgentSessionPubkey &&
-      agentsLoaded &&
-      normalizePubkey(profilePanelPubkey ?? "") !==
-        normalizePubkey(openAgentSessionPubkey) &&
-      !agentSessionAgents.some(
-        (agent) =>
-          normalizePubkey(agent.pubkey) ===
-          normalizePubkey(openAgentSessionPubkey),
-      )
+      !shouldCloseStaleAgentSession({
+        agents: agentSessionAgents,
+        agentsLoaded,
+        membersSettled,
+        openAgentSessionPubkey,
+        profilePanelPubkey,
+      })
     ) {
-      returnTarget.clear();
-      setOpenAgentSessionPubkey(null, { replace: true });
+      return;
     }
+    returnTarget.clear();
+    applyPanelState({ agentSession: null }, { replace: true });
   }, [
     agentSessionAgents,
     agentsLoaded,
+    applyPanelState,
+    membersSettled,
     openAgentSessionPubkey,
     profilePanelPubkey,
     returnTarget,
-    setOpenAgentSessionPubkey,
   ]);
 
   return {
     agentSessionAgents,
     backFromAgentSession,
     channelAgentSessionAgents,
+    /** Drop the Activity back-arrow breadcrumb without touching the URL, so a
+     *  caller closing several panels can do it in one combined patch. */
+    clearAgentSessionReturnTarget: returnTarget.clear,
     closeAgentSession,
     hasAgentSessionReturnTarget,
     openAgentSession,

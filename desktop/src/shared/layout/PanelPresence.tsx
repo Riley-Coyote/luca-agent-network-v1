@@ -12,13 +12,18 @@ export function PanelPresence({
   onClose?: () => void;
 }) {
   const present = Boolean(children);
-  const [retained, setRetained] = React.useState(children);
+  // The retained element is only ever read once `children` has gone null, so
+  // capturing it must not schedule a render. State here re-rendered on every
+  // parent render (JSX children are a fresh object each time), which turned
+  // one panel update into a render-phase update loop behind the drawer; a ref
+  // holds the same element identity, so the exit still reconciles in place.
+  const retainedRef = React.useRef<React.ReactNode>(null);
+  const [, dropRetained] = React.useReducer((count: number) => count + 1, 0);
   const [visible, setVisible] = React.useState(false);
   const frameReady = React.useRef(false);
   const triggerRef = React.useRef<HTMLElement | null>(null);
   useEscapeKey(() => onClose?.(), present && Boolean(onClose));
-  // Refresh the retained element without adding a stale-content paint on swaps.
-  if (present && children !== retained) setRetained(children);
+  if (present) retainedRef.current = children;
 
   React.useLayoutEffect(() => {
     const reduced = window.matchMedia(
@@ -66,7 +71,8 @@ export function PanelPresence({
     const timer = window.setTimeout(
       () => {
         frameReady.current = false;
-        setRetained(null);
+        retainedRef.current = null;
+        dropRetained();
       },
       reduced ? 0 : (Number.isFinite(duration) ? duration : 240) + 32,
     );
@@ -75,7 +81,7 @@ export function PanelPresence({
 
   return (
     <PanelPresenceContext.Provider value={present && visible}>
-      {children || retained}
+      {children || retainedRef.current}
     </PanelPresenceContext.Provider>
   );
 }

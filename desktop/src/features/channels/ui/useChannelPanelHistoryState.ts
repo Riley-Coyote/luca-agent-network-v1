@@ -12,9 +12,12 @@ import {
 } from "@/shared/hooks/useHistorySearchState";
 import {
   buildAutoSendClearPatch,
+  buildPanelStatePatch,
+  CHANNEL_MANAGEMENT_OPEN_VALUE,
+  type ChannelPanelState,
   CHANNEL_SEARCH_KEYS,
 } from "./channelSearchKeys";
-export type { ChannelSearchKey } from "./channelSearchKeys";
+export type { ChannelPanelState, ChannelSearchKey } from "./channelSearchKeys";
 
 /**
  * Auxiliary-panel state for the channel routes, backed by URL search params
@@ -38,7 +41,11 @@ export type PanelValueSetter = (
   options?: PanelSetterOptions,
 ) => void;
 
-const CHANNEL_MANAGEMENT_OPEN_VALUE = "1";
+/** Move several panels at once — one patch, so one navigation. */
+export type PanelStateSetter = (
+  next: ChannelPanelState,
+  options?: PanelSetterOptions,
+) => void;
 
 export type ChannelPanelHistoryState = ReturnType<
   typeof useUrlChannelPanelHistoryState
@@ -49,6 +56,14 @@ const LocalChannelPanelStateContext =
 
 function useUrlChannelPanelHistoryState() {
   const { applyPatch, values } = useHistorySearchState(CHANNEL_SEARCH_KEYS);
+
+  // Opening a panel usually closes the others. Expressed as one patch, that
+  // arrangement is a single navigation instead of one per panel — no stack of
+  // overlapping transitions, and one history entry for one user action.
+  const applyPanelState = React.useCallback<PanelStateSetter>(
+    (next, options) => applyPatch(buildPanelStatePatch(next), options),
+    [applyPatch],
+  );
 
   const setOpenThreadHeadId = React.useCallback<PanelValueSetter>(
     (value, options) => applyPatch({ thread: value }, options),
@@ -118,6 +133,7 @@ function useUrlChannelPanelHistoryState() {
   );
 
   return {
+    applyPanelState,
     channelManagementOpen: values.channelManagement != null,
     clearAutoSend,
     clearMessageRouteTarget,
@@ -236,6 +252,28 @@ export function LocalChannelPanelStateProvider({
     },
     [focused, urlState.setChannelManagementOpen],
   );
+  const applyPanelState = React.useCallback<PanelStateSetter>(
+    (next, options) => {
+      if (next.thread !== undefined) setOpenThreadHeadIdState(next.thread);
+      if (next.profile !== undefined) {
+        setProfilePanelPubkeyState(next.profile);
+        setProfilePanelViewState("summary");
+        setProfilePanelTabState("info");
+      }
+      if (next.agentSession !== undefined) {
+        setOpenAgentSessionPubkeyState(next.agentSession);
+        if (next.agentSession === null) setOpenAgentSessionChannelIdState(null);
+      }
+      if (next.agentSessionChannel !== undefined) {
+        setOpenAgentSessionChannelIdState(next.agentSessionChannel);
+      }
+      if (next.channelManagement !== undefined) {
+        setChannelManagementOpenState(next.channelManagement);
+      }
+      if (focused) urlState.applyPanelState(next, options);
+    },
+    [focused, urlState.applyPanelState],
+  );
   const clearMessageRouteTarget = React.useCallback(
     (options?: PanelSetterOptions) => {
       if (focused) urlState.clearMessageRouteTarget(options);
@@ -251,6 +289,7 @@ export function LocalChannelPanelStateProvider({
 
   const value = React.useMemo<ChannelPanelHistoryState>(
     () => ({
+      applyPanelState,
       channelManagementOpen: focused
         ? urlState.channelManagementOpen
         : channelManagementOpen,
@@ -277,6 +316,7 @@ export function LocalChannelPanelStateProvider({
       setProfilePanelView,
     }),
     [
+      applyPanelState,
       channelManagementOpen,
       clearAutoSend,
       clearMessageRouteTarget,
