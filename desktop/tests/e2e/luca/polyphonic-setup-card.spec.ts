@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 
+import type { NativeResidentDiscoveryOutcome } from "../../../src/shared/api/types";
 import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
+import { THREE_NATIVE_AGENTS } from "./onboarding-agent-import-fixture";
 
 const READY_CODEX_RUNTIME = {
   id: "codex",
@@ -21,13 +23,13 @@ const READY_CODEX_RUNTIME = {
   login_hint: "Sign in to Codex",
 };
 
-async function openDoor(page: import("@playwright/test").Page) {
+async function openDoor(
+  page: import("@playwright/test").Page,
+  nativeResidentDiscovery: NativeResidentDiscoveryOutcome = { runtimes: [] },
+) {
   await installMockBridge(
     page,
-    {
-      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
-      nativeResidentDiscovery: { runtimes: [] },
-    },
+    { acpRuntimesCatalog: [READY_CODEX_RUNTIME], nativeResidentDiscovery },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
   await page.goto("/?e2e=mock&machineOnboarding=1");
@@ -642,13 +644,15 @@ test("a step change moves the column and nothing else, and never empties the pan
   }
   expect(Math.round(after.pane?.width ?? 0)).toBe(PANE_WIDTH);
 
-  // And the press Riley watched turn into "Working…" for a couple of seconds:
-  // "Meet Luca" is a page change like any other, and the work happens on the
-  // page it arrives at.
+  // And the press Riley watched turn into "Working…" for a couple of seconds.
+  // It is the last chapter's press now — the agents question sits between the
+  // runtime and the waking — and it is a page change like any other: the work
+  // happens on the page it arrives at.
   await page.getByRole("radio", { name: /Codex/ }).check();
-  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
-    "Meet Luca",
-  );
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
   const toWaking = await page.evaluate(
     () =>
       new Promise<number>((resolve) => {
@@ -714,7 +718,9 @@ test("every page of the card, over a bright desktop", async ({
   test.setTimeout(90_000);
   await page.emulateMedia({ colorScheme: "dark" });
   await page.setViewportSize(FIRST_RUN_VIEWPORT);
-  await openDoor(page);
+  // Agents on this Mac, so the agents chapter is photographed with its rows
+  // rather than with the sentence it shows an empty Mac.
+  await openDoor(page, THREE_NATIVE_AGENTS);
   const evidenceDirectory = process.env.LUCA_VISUAL_EVIDENCE_DIR?.trim();
   const shoot = async (name: string) => {
     await waitForAnimations(page);
@@ -743,9 +749,17 @@ test("every page of the card, over a bright desktop", async ({
 
   await page.getByTestId("polyphonic-setup-continue").click();
   await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 15_000 });
+  // The chapter this work package did not write, in the frame it did: same
+  // column, same measure, same actions on the column's bottom edge.
+  await shoot("card-4-agents");
+
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
     page.getByRole("heading", { name: "Luca is waking up." }),
   ).toBeVisible({ timeout: 15_000 });
-  await shoot("card-4-waking");
+  await shoot("card-5-waking");
 });
 
 test("the composition survives a smaller window than the card asks for", async ({
