@@ -34,7 +34,7 @@ pub async fn relay_reconnect_hook() -> Result<(), String> {
     // and must not run on an async worker. The whole hook is non-fatal — a join
     // failure logs and returns Ok so the frontend's relay reconnect still fires.
     if let Err(e) = tokio::task::spawn_blocking(move || run_hook(&config)).await {
-        eprintln!("[relay_reconnect_hook] task join failed: {e}");
+        luca_log!(warn, "[relay_reconnect_hook] task join failed: {e}");
     }
 
     Ok(())
@@ -104,10 +104,15 @@ fn run_hook(config: &ReconnectHookConfig) {
         }
         match run_with_timeout(step, cap) {
             Ok(o) if !o.status.success() => {
-                eprintln!("[relay_reconnect_hook] step {:?} exited {}", step, o.status);
+                luca_log!(
+                    info,
+                    "[relay_reconnect_hook] step {:?} exited {}",
+                    step,
+                    o.status
+                );
             }
             Err(e) => {
-                eprintln!("[relay_reconnect_hook] step {:?} failed: {e}", step);
+                luca_log!(warn, "[relay_reconnect_hook] step {:?} failed: {e}", step);
             }
             _ => {}
         }
@@ -127,7 +132,7 @@ fn run_hook(config: &ReconnectHookConfig) {
                 return;
             }
             Err(e) => {
-                eprintln!("[relay_reconnect_hook] probe failed: {e}");
+                luca_log!(warn, "[relay_reconnect_hook] probe failed: {e}");
             }
             _ => {}
         }

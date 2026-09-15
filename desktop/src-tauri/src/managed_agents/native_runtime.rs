@@ -1112,7 +1112,7 @@ fn resolve_openclaw_agents(
         .ok()
         .and_then(|output| first_stderr_line(&output.stderr));
     if let Some(line) = &stderr_line {
-        eprintln!("buzz-desktop: openclaw agents list reported: {line}");
+        luca_log!(info, "buzz-desktop: openclaw agents list reported: {line}");
     }
     match config_path.and_then(read_openclaw_config_agents) {
         Some(rows) if !rows.is_empty() => Ok((rows, Some(OPENCLAW_CONFIG_FALLBACK_MESSAGE))),

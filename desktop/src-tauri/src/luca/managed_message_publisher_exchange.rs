@@ -52,7 +52,8 @@ impl ManagedMessagePublisher {
         message: &str,
     ) -> Result<SerializedSubmission, ManagedPublicationAuthorityError> {
         if classify_exchange_refusal(message) == Some(ExchangeRefusal::TurnTaken) {
-            eprintln!(
+            luca_log!(
+                info,
                 "luca-exchange: {} lost the race for that turn — re-signing on the next free one",
                 entry.request.resident_pubkey.as_str()
             );
@@ -85,7 +86,8 @@ impl ManagedMessagePublisher {
             return;
         }
         let Some(exchange) = &self.exchange else {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-exchange: {}'s reply was held ({}) and the room could not be told",
                 request.resident_pubkey.as_str(),
                 denial.code()
@@ -124,7 +126,7 @@ impl ManagedMessagePublisher {
         denial: ExchangeDenial,
     ) -> ManagedPublicationAuthorityError {
         if let Err(error) = self.settle_failed_retune(request, refused_event_id, outbox) {
-            eprintln!(
+            luca_log!(warn,
                 "luca-exchange: {} was refused ({}) but the reply could not be settled — the room is not told, and this stays open",
                 request.resident_pubkey.as_str(),
                 denial.code()
@@ -158,7 +160,7 @@ impl ManagedMessagePublisher {
                 request.cancellation_epoch.get(),
                 refused_event_id,
             ) {
-                eprintln!(
+                luca_log!(warn,
                     "luca-exchange: {resident}'s refused bytes could not be unbound ({error:?}) — settling the held reply anyway"
                 );
             }

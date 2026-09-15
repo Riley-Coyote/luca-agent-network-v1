@@ -137,7 +137,10 @@ pub(crate) fn observe(
             let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
         }
         Ok(false) => {}
-        Err(_) => eprintln!("luca-activity-trace: public work history could not be saved"),
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: public work history could not be saved"
+        ),
     }
 }
 
@@ -182,7 +185,10 @@ pub(crate) fn publication_accepted(
             let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
         }
         Ok(false) => {}
-        Err(_) => eprintln!("luca-activity-trace: final work association could not be saved"),
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: final work association could not be saved"
+        ),
     }
 }
 

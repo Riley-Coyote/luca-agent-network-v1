@@ -227,12 +227,15 @@ fn identity_from_env() -> Option<Keys> {
         Ok(nsec) => match Keys::parse(zeroize::Zeroizing::new(nsec).trim()) {
             Ok(keys) => Some(keys),
             Err(error) => {
-                eprintln!("buzz-desktop: invalid BUZZ_PRIVATE_KEY: {error}");
+                luca_log!(warn, "buzz-desktop: invalid BUZZ_PRIVATE_KEY: {error}");
                 None
             }
         },
         Err(std::env::VarError::NotUnicode(_)) => {
-            eprintln!("buzz-desktop: BUZZ_PRIVATE_KEY contains invalid UTF-8");
+            luca_log!(
+                info,
+                "buzz-desktop: BUZZ_PRIVATE_KEY contains invalid UTF-8"
+            );
             None
         }
         Err(std::env::VarError::NotPresent) => None,
@@ -265,7 +268,8 @@ pub fn build_app_state() -> AppState {
     // in setup() will replace the ephemeral placeholder with a persisted key.
     let keys = match identity_from_env() {
         Some(keys) => {
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-desktop: configured identity pubkey {}",
                 keys.public_key().to_hex()
             );

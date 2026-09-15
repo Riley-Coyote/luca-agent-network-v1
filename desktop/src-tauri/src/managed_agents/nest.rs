@@ -110,7 +110,8 @@ pub fn init_nest_dir(is_dev: bool) {
     let _ = NATIVE_STATE_ISOLATION_REQUESTED.set(isolation_requested);
     let path = resolve_nest_dir(home.as_deref(), is_dev, isolation_root.as_deref());
     if isolation_requested && path.is_none() {
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: refusing invalid native-state isolation root; Nest is unavailable"
         );
     }
@@ -806,7 +807,10 @@ pub fn regenerate_nest_context(app: &AppHandle) -> Result<(), String> {
 /// a stale AGENTS.md, so we warn and continue rather than propagating the error.
 pub fn try_regenerate_nest(app: &AppHandle) {
     if let Err(error) = regenerate_nest_context(app) {
-        eprintln!("buzz-desktop: nest context regeneration failed: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: nest context regeneration failed: {error}"
+        );
     }
 }
 

@@ -242,7 +242,7 @@ pub(crate) fn ensure_wake_dispatch(
         Ok(Some(event)) => event,
         Ok(None) => return,
         Err(error) => {
-            eprintln!("luca-exchange: wake trigger fetch failed — {error}");
+            luca_log!(warn, "luca-exchange: wake trigger fetch failed — {error}");
             return;
         }
     };
@@ -253,7 +253,10 @@ pub(crate) fn ensure_wake_dispatch(
         store
             .stage_wake_from_trigger(&trigger, resident_pubkey, owner.as_str(), now_unix_secs)
             .map_err(|error| {
-                eprintln!("luca-exchange: could not stage a wake dispatch — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: could not stage a wake dispatch — {error}"
+                );
             })
     });
     let _ = staged;
@@ -298,7 +301,7 @@ fn authoritative_head(
         }
         Ok(None) => Ok(None),
         Err(error) => {
-            eprintln!(
+            luca_log!(warn,
                 "luca-exchange: the relay could not be read ({error}) — answering for {} from the copy this desktop holds",
                 exchange_id.as_str()
             );
@@ -322,7 +325,7 @@ fn settled_head(
     match relay.fetch_head(&published.exchange_id, owner) {
         Ok(Some(head)) => {
             if head.record != published {
-                eprintln!(
+                luca_log!(info,
                     "luca-exchange: the relay kept a different head for {} — reporting the relay's record, not the one just signed",
                     published.exchange_id.as_str()
                 );
@@ -331,14 +334,14 @@ fn settled_head(
             Ok(head.record)
         }
         Ok(None) => {
-            eprintln!(
+            luca_log!(info,
                 "luca-exchange: the relay does not hold the head just published for {} — reporting the record that was signed",
                 published.exchange_id.as_str()
             );
             Ok(published)
         }
         Err(error) => {
-            eprintln!(
+            luca_log!(warn,
                 "luca-exchange: the head just published for {} could not be re-read ({error}) — reporting the record that was signed",
                 published.exchange_id.as_str()
             );
@@ -501,7 +504,8 @@ pub(crate) fn publish_note(
     note: &ExchangeNote,
 ) {
     if let Err(error) = relay.publish_note(conversation_id, &note.to_content()) {
-        eprintln!(
+        luca_log!(
+            warn,
             "luca-exchange: could not tell {} that \"{}\": {error}",
             note.resident.as_str(),
             note.text

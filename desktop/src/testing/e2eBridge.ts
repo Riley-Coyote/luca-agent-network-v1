@@ -190,6 +190,8 @@ type MockExchangeSeed = {
 
 type E2eConfig = {
   mode?: "mock" | "relay";
+  /** Arm the render-error probe so the crash boundary can be exercised. */
+  crashProbe?: boolean;
   mock?: {
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
@@ -1061,6 +1063,12 @@ declare global {
     __BUZZ_E2E_COMMAND_LOG__?: Array<{
       command: string;
       payload: unknown;
+    }>;
+    /** Every line the webview pushed at `append_ui_log`, in order. */
+    __BUZZ_E2E_UI_LOG__?: Array<{
+      level: string;
+      source: string;
+      message: string;
     }>;
     __BUZZ_E2E_WEBVIEW_ZOOM__?: number;
     __BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?: (input: {
@@ -10418,6 +10426,7 @@ export function maybeInstallE2eTauriMocks() {
   window.__BUZZ_E2E_COMMANDS__ = [];
   window.__BUZZ_E2E_COMMAND_PAYLOADS__ = [];
   window.__BUZZ_E2E_COMMAND_LOG__ = [];
+  window.__BUZZ_E2E_UI_LOG__ = [];
   window.__BUZZ_E2E_SIGNED_EVENTS__ = [];
   window.__BUZZ_E2E_WEBVIEW_ZOOM__ = 1;
   window.__BUZZ_E2E_SET_ARTIFACT_PREVIEW_STATUS__ = (status) => {
@@ -11248,6 +11257,35 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      // ── The app log ────────────────────────────────────────────────────
+      // Additive: the webview's error tee has to reach *something* under the
+      // mock bridge, and a spec has to be able to see that it did.
+      case "append_ui_log": {
+        const line = (payload ?? {}) as {
+          level?: string;
+          source?: string;
+          message?: string;
+        };
+        window.__BUZZ_E2E_UI_LOG__?.push({
+          level: String(line.level ?? ""),
+          source: String(line.source ?? ""),
+          message: String(line.message ?? ""),
+        });
+        return null;
+      }
+      case "app_log_path":
+        return "/Users/mock/Library/Application Support/luca/logs/polyphonic.log";
+      case "read_recent_app_log": {
+        const redactPaths =
+          (payload as { redactPaths?: boolean } | null)?.redactPaths === true;
+        const path = redactPaths
+          ? "[REDACTED:absolute_path]"
+          : "/Users/mock/Library/Application Support/luca";
+        return [
+          `2026-09-15T08:12:03.123Z info buzz_lib::diag polyphonic starting: version=0.0.0-mock build=debug os=macos/aarch64 data_dir=${path}`,
+          "2026-09-15T08:12:03.456Z info buzz_lib::relay [relay] phase=boot effective_relay_url=ws://localhost:3000 mode=mock setup_default=ws://localhost:3000",
+        ].join("\n");
+      }
       case "list_artifacts": {
         const filter =
           (

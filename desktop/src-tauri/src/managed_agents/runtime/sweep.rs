@@ -504,7 +504,7 @@ pub(crate) fn sweep_untracked_bundle_harnesses(skip_pids: &[u32]) {
     if to_kill.is_empty() {
         return;
     }
-    eprintln!(
+    luca_log!(info,
         "buzz-desktop: sweep_untracked_bundle_harnesses: reaping {} stale harness process(es) {:?} (exe: {})",
         to_kill.len(),
         to_kill,

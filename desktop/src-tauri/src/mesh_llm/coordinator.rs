@@ -58,7 +58,7 @@ pub async fn start_coordinator(app: AppHandle) {
             tokio::time::sleep(ROSTER_POLL_INTERVAL).await;
             let state = roster_app.state::<AppState>();
             if let Err(error) = reconcile_roster(&state, &mut pending_shrink).await {
-                eprintln!("buzz-mesh: roster reconcile failed: {error}");
+                luca_log!(warn, "buzz-mesh: roster reconcile failed: {error}");
             }
         }
     });
@@ -114,7 +114,8 @@ fn roster_reconcile_action(
 ) -> RosterReconcileAction {
     let fresh = match query {
         Err(error) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-mesh: roster reconcile query failed; keeping current allowlist: {error}"
             );
             return RosterReconcileAction::Keep;
@@ -169,7 +170,10 @@ async fn reconcile_roster(
             return Ok(());
         }
         RosterReconcileAction::AwaitConfirm(reduced) => {
-            eprintln!("buzz-mesh: roster shrink observed; awaiting confirmation before restart");
+            luca_log!(
+                info,
+                "buzz-mesh: roster shrink observed; awaiting confirmation before restart"
+            );
             *pending_shrink = Some(reduced);
             return Ok(());
         }
@@ -185,9 +189,15 @@ async fn reconcile_roster(
     let Some(running) = guard.take() else {
         return Ok(());
     };
-    eprintln!("buzz-mesh: membership roster changed; restarting mesh node with fresh allowlist");
+    luca_log!(
+        info,
+        "buzz-mesh: membership roster changed; restarting mesh node with fresh allowlist"
+    );
     if let Err(error) = running.stop().await {
-        eprintln!("buzz-mesh: stopping mesh node for roster restart failed: {error}");
+        luca_log!(
+            warn,
+            "buzz-mesh: stopping mesh node for roster restart failed: {error}"
+        );
     }
     let replacement = crate::mesh_llm::DesktopMeshRuntime::start(request)
         .await
@@ -205,8 +215,11 @@ pub(crate) async fn publish_current_status_once(app: &AppHandle, reason: &str) {
     .await
     {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("buzz-mesh: status report after {reason} failed: {error}"),
-        Err(_) => eprintln!("buzz-mesh: status report after {reason} timed out"),
+        Ok(Err(error)) => luca_log!(
+            warn,
+            "buzz-mesh: status report after {reason} failed: {error}"
+        ),
+        Err(_) => luca_log!(info, "buzz-mesh: status report after {reason} timed out"),
     }
 }
 
@@ -220,9 +233,15 @@ pub(crate) async fn publish_stopped_status_once(app: &AppHandle, reason: &str) {
     {
         Ok(Ok(())) => {}
         Ok(Err(error)) => {
-            eprintln!("buzz-mesh: stopped status report after {reason} failed: {error}");
+            luca_log!(
+                warn,
+                "buzz-mesh: stopped status report after {reason} failed: {error}"
+            );
         }
-        Err(_) => eprintln!("buzz-mesh: stopped status report after {reason} timed out"),
+        Err(_) => luca_log!(
+            info,
+            "buzz-mesh: stopped status report after {reason} timed out"
+        ),
     }
 }
 

@@ -94,7 +94,7 @@ pub(super) fn retain_managed_agent_pending(
         )
     })();
     if let Err(e) = result {
-        eprintln!("buzz-desktop: agent-retain: {e}");
+        luca_log!(info, "buzz-desktop: agent-retain: {e}");
     }
 }
 
@@ -153,7 +153,7 @@ pub(super) fn tombstone_managed_agent_pending(
         )
     })();
     if let Err(e) = result {
-        eprintln!("buzz-desktop: agent-tombstone: {e}");
+        luca_log!(info, "buzz-desktop: agent-tombstone: {e}");
     }
 }
 
@@ -242,7 +242,7 @@ pub(super) fn archive_managed_agent_pending(app: &AppHandle, state: &AppState, a
         )
     })();
     if let Err(e) = result {
-        eprintln!("buzz-desktop: agent-archive: {e}");
+        luca_log!(info, "buzz-desktop: agent-archive: {e}");
     }
 }
 
@@ -865,7 +865,10 @@ pub async fn create_managed_agent(
             &mut record,
             seed_prompt.as_deref(),
         ) {
-            eprintln!("buzz-desktop: resident-documents: seed on create failed: {error}");
+            luca_log!(
+                warn,
+                "buzz-desktop: resident-documents: seed on create failed: {error}"
+            );
         }
 
         records.push(record);
@@ -1139,7 +1142,8 @@ pub async fn start_managed_agent(
                 reconcile_agent_profile(&state, &reconcile_app, &reconcile_pubkey, &reconcile_data)
                     .await
             {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: profile reconciliation failed for agent {reconcile_pubkey}: {e}"
                 );
             }

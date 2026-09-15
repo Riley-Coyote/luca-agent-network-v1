@@ -65,7 +65,10 @@ fn warm_luca_in_dir(dir: &Path) {
             .get("name")
             .and_then(|value| value.as_str())
             .unwrap_or("Luca");
-        eprintln!("buzz-desktop: luca-wakes-with-app: {name:?} now starts when the app opens");
+        luca_log!(
+            info,
+            "buzz-desktop: luca-wakes-with-app: {name:?} now starts when the app opens"
+        );
         obj.insert(
             "start_on_app_launch".to_string(),
             serde_json::Value::Bool(true),
@@ -76,7 +79,10 @@ fn warm_luca_in_dir(dir: &Path) {
     // store with no Luca yet is still marked: a Luca created later is created
     // warm by the create path, and a Luca the owner later turns off stays off.
     if let Err(error) = std::fs::write(&marker, "v1\n") {
-        eprintln!("buzz-desktop: luca-wakes-with-app: could not write marker: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: luca-wakes-with-app: could not write marker: {error}"
+        );
     }
 }
 

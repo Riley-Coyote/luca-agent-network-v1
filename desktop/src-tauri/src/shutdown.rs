@@ -20,7 +20,7 @@ pub(crate) fn shut_down_app(app: &tauri::AppHandle, shutdown_done: &std::sync::a
     if !shutdown_done.swap(true, Ordering::SeqCst) {
         prevent_sleep::release(&app.state::<AppState>().prevent_sleep);
         if let Err(error) = shutdown_managed_agents(app) {
-            eprintln!("buzz-desktop: failed to stop managed agents: {error}");
+            luca_log!(warn, "buzz-desktop: failed to stop managed agents: {error}");
         }
         #[cfg(feature = "mesh-llm")]
         shutdown_mesh_runtime(app);
@@ -52,7 +52,10 @@ pub(crate) fn install_signal_handler(
         #[cfg(not(all(feature = "mesh-llm", target_os = "macos")))]
         std::process::exit(0);
     }) {
-        eprintln!("buzz-desktop: failed to register signal handler: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to register signal handler: {error}"
+        );
     }
 }
 
@@ -85,10 +88,13 @@ pub(crate) fn relaunch_after_mesh_shutdown(app: &tauri::AppHandle) -> ! {
                 .args(env.args_os.iter().skip(1))
                 .spawn()
             {
-                eprintln!("buzz-desktop: failed to relaunch app: {error}");
+                luca_log!(warn, "buzz-desktop: failed to relaunch app: {error}");
             }
         }
-        Err(error) => eprintln!("buzz-desktop: failed to locate app for relaunch: {error}"),
+        Err(error) => luca_log!(
+            warn,
+            "buzz-desktop: failed to locate app for relaunch: {error}"
+        ),
     }
     hard_exit_after_mesh_shutdown();
 }
@@ -116,17 +122,26 @@ pub(crate) fn shutdown_mesh_runtime(app: &tauri::AppHandle) {
     });
     match rx.recv_timeout(std::time::Duration::from_secs(5)) {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => eprintln!("buzz-desktop: failed to stop Mesh runtime: {error}"),
-        Err(error) => eprintln!("buzz-desktop: timed out stopping Mesh runtime: {error}"),
+        Ok(Err(error)) => luca_log!(warn, "buzz-desktop: failed to stop Mesh runtime: {error}"),
+        Err(error) => luca_log!(
+            warn,
+            "buzz-desktop: timed out stopping Mesh runtime: {error}"
+        ),
     }
 }
 
 pub(crate) fn shutdown_managed_agents(app: &tauri::AppHandle) -> Result<(), String> {
     if let Err(error) = crate::commands::stop_all_preview_sessions() {
-        eprintln!("luca-artifacts: failed to revoke previews during shutdown: {error}");
+        luca_log!(
+            warn,
+            "luca-artifacts: failed to revoke previews during shutdown: {error}"
+        );
     }
     if let Err(error) = crate::luca::artifacts::presentation::revoke_all() {
-        eprintln!("luca-artifacts: failed to revoke static presentations during shutdown: {error}");
+        luca_log!(
+            warn,
+            "luca-artifacts: failed to revoke static presentations during shutdown: {error}"
+        );
     }
     let state = app.state::<AppState>();
     let _restore_transition = state
@@ -189,7 +204,10 @@ pub(crate) fn shutdown_managed_agents(app: &tauri::AppHandle) -> Result<(), Stri
         for agent in &to_stop {
             let resident = records[agent.idx].pubkey.clone();
             if let Err(error) = managed_agents::join_managed_signing_broker(&resident) {
-                eprintln!("luca-signing: failed to stop managed brokers for {resident}: {error}");
+                luca_log!(
+                    warn,
+                    "luca-signing: failed to stop managed brokers for {resident}: {error}"
+                );
             }
         }
 

@@ -201,7 +201,10 @@ impl TtsPipeline {
     /// `TEXT_QUEUE_DEPTH`) — caller may log and discard.
     pub fn speak(&self, text: String) -> Result<(), String> {
         self.text_tx.try_send(text).map_err(|e| {
-            eprintln!("buzz-desktop: TTS queue saturated, dropping message: {e}");
+            luca_log!(
+                info,
+                "buzz-desktop: TTS queue saturated, dropping message: {e}"
+            );
             format!("TTS queue full, dropping: {e}")
         })
     }
@@ -246,7 +249,8 @@ fn tts_worker(
     let engine = match load_text_to_speech(&model_dir_str) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: TTS engine init failed (model_dir={}): {e}. TTS disabled.",
                 model_dir.display()
             );
@@ -260,7 +264,8 @@ fn tts_worker(
     let style = match load_voice_style(&voice_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: TTS voice style load failed ({voice_name}): {e}. TTS disabled."
             );
             drain_until_shutdown(text_rx, &shutdown);
@@ -276,14 +281,17 @@ fn tts_worker(
     {
         let t = std::time::Instant::now();
         match engine.synth_chunk("warmup", "en", &style, SYNTH_STEPS, SYNTH_SPEED) {
-            Ok(_) => eprintln!(
+            Ok(_) => luca_log!(
+                info,
                 "buzz-desktop: TTS warmup completed in {:.0}ms",
                 t.elapsed().as_millis()
             ),
-            Err(e) => eprintln!(
+            Err(e) => {
+                luca_log!(warn,
                 "buzz-desktop: TTS warmup failed after {:.0}ms: {e} — first utterance may be slow",
                 t.elapsed().as_millis()
-            ),
+            )
+            }
         }
     }
 
@@ -295,7 +303,10 @@ fn tts_worker(
     {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("buzz-desktop: TTS audio output failed: {e}. TTS disabled.");
+            luca_log!(
+                warn,
+                "buzz-desktop: TTS audio output failed: {e}. TTS disabled."
+            );
             drain_until_shutdown(text_rx, &shutdown);
             return;
         }
@@ -304,14 +315,14 @@ fn tts_worker(
     let channels = match NonZero::new(1u16) {
         Some(c) => c,
         None => {
-            eprintln!("buzz-desktop: TTS channel count invariant violated");
+            luca_log!(info, "buzz-desktop: TTS channel count invariant violated");
             return;
         }
     };
     let rate = match NonZero::new(SAMPLE_RATE) {
         Some(r) => r,
         None => {
-            eprintln!("buzz-desktop: TTS sample rate invariant violated");
+            luca_log!(info, "buzz-desktop: TTS sample rate invariant violated");
             return;
         }
     };
@@ -395,7 +406,10 @@ fn tts_worker(
     if let Err(ref e) = monitor {
         // Degraded but functional: barge-in still works between sentences
         // via the worker's own checks, just not mid-synthesis.
-        eprintln!("buzz-desktop: TTS barge-in monitor failed to spawn: {e}");
+        luca_log!(
+            warn,
+            "buzz-desktop: TTS barge-in monitor failed to spawn: {e}"
+        );
     }
 
     // ── 4. Main loop ──────────────────────────────────────────────────────────
@@ -549,7 +563,7 @@ fn tts_worker(
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    eprintln!("buzz-desktop: TTS synth failed: {e}");
+                    luca_log!(warn, "buzz-desktop: TTS synth failed: {e}");
                 }
             }
         }

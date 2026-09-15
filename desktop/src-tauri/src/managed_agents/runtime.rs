@@ -263,7 +263,10 @@ pub(crate) fn join_managed_signing_broker(resident_pubkey: &str) -> Result<(), S
             resident_pubkey,
             owner.session_epoch,
         ) {
-            eprintln!("luca-artifacts: failed to revoke resident previews: {error}");
+            luca_log!(
+                warn,
+                "luca-artifacts: failed to revoke resident previews: {error}"
+            );
         }
         #[cfg(unix)]
         let shutdown_result = owner.shutdown.shutdown();
@@ -406,7 +409,7 @@ fn spawn_restart_interrupted_artifact_receipt_retry(
                 RESTART_RECEIPT_RETRY_DELAYS_MS.len() + 1,
             );
             if remaining > 0 {
-                eprintln!(
+                luca_log!(info,
                     "luca-artifacts: restart-interrupted receipt settlement deferred after bounded retries"
                 );
             }
@@ -791,7 +794,7 @@ fn resolve_pgids_and_kill(candidate_pids: &[i32]) {
         !alive
     });
     if pgids.is_empty() && candidate_groups > 0 {
-        eprintln!(
+        luca_log!(info,
             "buzz-desktop: orphan sweep: skipped all {candidate_groups} candidate group(s) (live foreign group leader or candidate already exited); nothing signalled"
         );
     }
@@ -825,7 +828,7 @@ fn resolve_pgids_and_kill(candidate_pids: &[i32]) {
         !alive
     });
     if pgids.is_empty() && candidate_groups > 0 {
-        eprintln!(
+        luca_log!(info,
             "buzz-desktop: orphan sweep: skipped all {candidate_groups} candidate group(s) (live foreign group leader or candidate already exited); nothing signalled"
         );
     }
@@ -975,7 +978,8 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
     }
 
     if !orphans.is_empty() {
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: system sweep found {} orphaned agent process(es), cleaning up",
             orphans.len()
         );
@@ -1038,7 +1042,8 @@ pub(crate) fn sweep_system_agent_processes(instance_id: &str, skip_pids: &[u32])
     }
 
     if !orphans.is_empty() {
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: system sweep found {} orphaned agent process(es), cleaning up",
             orphans.len()
         );
@@ -1068,7 +1073,8 @@ pub(crate) fn sweep_system_agent_processes_with_grace(
         .map(|&pid| pid as i32)
         .collect();
     if !confirmed.is_empty() {
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: periodic sweep confirmed {} orphaned agent process(es), cleaning up",
             confirmed.len()
         );
@@ -1580,7 +1586,8 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         if desktop_is_alive_for_instance(instance_id) {
             continue;
         }
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: reaping {} orphaned agent(s) from dead instance '{instance_id}'",
             agent_pids.len()
         );
@@ -1641,7 +1648,8 @@ pub(crate) fn reap_dead_instance_agents(our_instance_id: &str, skip_pids: &[u32]
         if desktop_is_alive_for_instance(instance_id) {
             continue;
         }
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: reaping {} orphaned agent(s) from dead instance '{instance_id}'",
             agent_pids.len()
         );
@@ -1758,7 +1766,7 @@ impl Drop for ManagedResidentStartGuard {
                             activation.previous_session_epoch,
                         );
                     }
-                    Err(_) => eprintln!(
+                    Err(_) => luca_log!(warn,
                         "luca-managed-dispatch: failed to restore session after resident start failure"
                     ),
                 }
@@ -1893,14 +1901,18 @@ fn schedule_deferred_process_exit_dispatch_cleanup(
                     process_exit_now_unix_secs,
                 );
                 if let Err(error) = result {
-                    eprintln!(
+                    luca_log!(
+                        warn,
                         "luca-managed-dispatch: deferred process-exit cleanup failed: {error}"
                     );
                 }
             }
         })
     {
-        eprintln!("luca-managed-dispatch: failed to schedule process-exit cleanup: {error}");
+        luca_log!(
+            warn,
+            "luca-managed-dispatch: failed to schedule process-exit cleanup: {error}"
+        );
     }
 }
 
@@ -1924,7 +1936,7 @@ pub fn sync_managed_agent_processes(
                 schedule_deferred_process_exit_dispatch_cleanup(&dispatch_store, cleanup.deferred);
             }
             Err(error) => {
-                eprintln!(
+                luca_log!(warn,
                     "luca-managed-dispatch: failed to terminalize work orphaned by process exit: {error}"
                 );
             }
@@ -1991,7 +2003,10 @@ where
     let mut exited_pubkeys: Vec<String> = exited.clone();
     for pubkey in exited {
         if let Err(error) = join_managed_signing_broker(&pubkey) {
-            eprintln!("luca-signing: failed to confirm broker shutdown for {pubkey}: {error}");
+            luca_log!(
+                warn,
+                "luca-signing: failed to confirm broker shutdown for {pubkey}: {error}"
+            );
         }
         runtimes.remove(&pubkey);
     }
@@ -2319,7 +2334,8 @@ fn assembled_documents_prompt(app: &AppHandle, record: &ManagedAgentRecord) -> O
     let dir = match crate::luca::resident_documents::resident_dir(app, &record.pubkey) {
         Ok(dir) => dir,
         Err(error) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: resident-documents: no folder path for {}: {error}",
                 record.name
             );
@@ -2329,7 +2345,8 @@ fn assembled_documents_prompt(app: &AppHandle, record: &ManagedAgentRecord) -> O
     match crate::luca::resident_documents::load(&dir) {
         Ok(loaded) => crate::luca::resident_documents::assemble_system_prompt(&loaded),
         Err(error) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: resident-documents: could not read {}'s folder at spawn: {error}",
                 record.name
             );
@@ -2525,7 +2542,7 @@ fn spawn_agent_child_unix(
     })()
     .map(Some)
     .unwrap_or_else(|_| {
-        eprintln!(
+        luca_log!(info,
             "luca-artifacts: broker unavailable; continuing the managed resident without artifact tools"
         );
         None
@@ -2774,7 +2791,8 @@ fn spawn_agent_child_unix(
                 match serde_json::to_string(&payload) {
                     Ok(json) => Some(json),
                     Err(e) => {
-                        eprintln!(
+                        luca_log!(
+                            warn,
                             "buzz-desktop: failed to serialize setup payload for {}: {e}",
                             record.name
                         );
@@ -2802,7 +2820,8 @@ fn spawn_agent_child_unix(
         // Set the payload only when desktop computed NotReady.
         if let Some(json) = setup_payload_json {
             command.env("BUZZ_ACP_SETUP_PAYLOAD", json);
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-desktop: agent {} not ready — spawning in setup-listener mode",
                 record.name
             );
@@ -3146,7 +3165,7 @@ fn spawn_agent_child_unix(
                 ) {
                     Ok(Some(interrupted)) => {
                         if interrupted > 0 {
-                            eprintln!(
+                            luca_log!(info,
                                 "luca-signing: interrupted {interrupted} prior-epoch managed dispatch(es) after complete startup outbox reconciliation"
                             );
                         }
@@ -3155,13 +3174,13 @@ fn spawn_agent_child_unix(
                             &dispatch_store,
                             resident_for_broker.as_str(),
                         ) {
-                            eprintln!("luca-artifacts: failed to settle restart-interrupted receipts: {error}");
+                            luca_log!(warn, "luca-artifacts: failed to settle restart-interrupted receipts: {error}");
                         }
                     }
-                    Ok(None) => eprintln!(
+                    Ok(None) => luca_log!(info,
                         "luca-signing: managed publication startup reconciliation deferred; preserving prior dispatch authority"
                     ),
-                    Err(error) => eprintln!(
+                    Err(error) => luca_log!(warn,
                         "luca-signing: failed to terminalize prior dispatches after startup reconciliation: {error}"
                     ),
                 }
@@ -3170,7 +3189,7 @@ fn spawn_agent_child_unix(
                     runtime_configuration_sha256: &runtime_configuration_sha256,
                 };
                 if let Err(error) = broker.serve_relay_auth_session(&mut broker_stream, caller) {
-                    eprintln!("luca-signing: managed broker session closed: {error}");
+                    luca_log!(warn, "luca-signing: managed broker session closed: {error}");
                 }
                 crate::luca::managed_permission::cancel_resident_session(
                     resident_for_broker.as_str(),
@@ -3216,7 +3235,7 @@ fn spawn_agent_child_unix(
     #[cfg(unix)]
     if let Some(artifact_broker_lease) = artifact_broker_lease {
         if artifact_broker_lease.commit().is_err() {
-            eprintln!(
+            luca_log!(warn,
                 "luca-artifacts: broker registration failed; conversation remains available without artifact tools"
             );
         }
@@ -3310,7 +3329,7 @@ pub fn start_managed_agent_process(
     // spawn falls back to the record's pin below.
     if record.documents_dir.is_some() {
         if let Err(error) = crate::luca::resident_documents::refresh_documents_hash(app, record) {
-            eprintln!(
+            luca_log!(warn,
                 "buzz-desktop: resident-documents: hash refresh for {} failed before spawn: {error}",
                 record.name
             );

@@ -192,12 +192,12 @@ pub async fn apply_workspace(
         }
         if workspace_identity_changed {
             if let Err(error) = crate::commands::artifact_preview::stop_all_preview_sessions() {
-                eprintln!(
+                luca_log!(warn,
                     "luca-artifacts: failed to revoke previews during workspace switch: {error}"
                 );
             }
             if let Err(error) = crate::luca::artifacts::presentation::revoke_all() {
-                eprintln!(
+                luca_log!(warn,
                     "luca-artifacts: failed to revoke static presentations during workspace switch: {error}"
                 );
             }
@@ -222,10 +222,10 @@ pub async fn apply_workspace(
         // `repos-dir-error`.
         if let Some(nest) = nest.as_deref() {
             if let Err(error) = write_persisted_repos_dir(nest, effective_repos_dir.as_deref()) {
-                eprintln!("buzz-desktop: persist repos dir failed: {error}");
+                luca_log!(warn, "buzz-desktop: persist repos dir failed: {error}");
             }
             if let Err(error) = ensure_repos_symlink(nest, effective_repos_dir.as_deref()) {
-                eprintln!("buzz-desktop: repos dir setup failed: {error}");
+                luca_log!(warn, "buzz-desktop: repos dir setup failed: {error}");
                 let _ = app.emit("repos-dir-error", error);
             }
         }
@@ -236,7 +236,7 @@ pub async fn apply_workspace(
                 &app, &state,
             )?;
             if changed > 0 {
-                eprintln!("buzz-desktop: backfilled NIP-OA auth tags for {changed} local agent(s)");
+                luca_log!(info, "buzz-desktop: backfilled NIP-OA auth tags for {changed} local agent(s)");
             }
         }
 
@@ -266,7 +266,10 @@ pub async fn apply_workspace(
                 if let Err(error) =
                     crate::commands::mesh_llm::restore_mesh_sharing(&app, &state).await
                 {
-                    eprintln!("buzz-desktop: failed to restore Share Compute: {error}");
+                    luca_log!(
+                        warn,
+                        "buzz-desktop: failed to restore Share Compute: {error}"
+                    );
                 }
             }
             crate::mesh_llm::publish_current_status_once(&app, "workspace apply").await;
@@ -274,13 +277,19 @@ pub async fn apply_workspace(
                 if let Err(error) =
                     restore_managed_agents_on_launch(&app, &state.shutdown_started).await
                 {
-                    eprintln!("buzz-desktop: failed to restore managed agents: {error}");
+                    luca_log!(
+                        warn,
+                        "buzz-desktop: failed to restore managed agents: {error}"
+                    );
                 }
                 if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
-                    eprintln!("luca-continuity: pending handoff recovery unavailable");
+                    luca_log!(
+                        info,
+                        "luca-continuity: pending handoff recovery unavailable"
+                    );
                 }
                 if crate::luca::journal_jobs::recover_interrupted(&app).is_err() {
-                    eprintln!("luca-continuity: journal job recovery unavailable");
+                    luca_log!(info, "luca-continuity: journal job recovery unavailable");
                 }
             }
         });
@@ -294,13 +303,19 @@ pub async fn apply_workspace(
             if let Err(error) =
                 restore_managed_agents_on_launch(&app, &state.shutdown_started).await
             {
-                eprintln!("buzz-desktop: failed to restore managed agents: {error}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: failed to restore managed agents: {error}"
+                );
             }
             if crate::luca::continuity_jobs::recover_pending(&app).is_err() {
-                eprintln!("luca-continuity: pending handoff recovery unavailable");
+                luca_log!(
+                    info,
+                    "luca-continuity: pending handoff recovery unavailable"
+                );
             }
             if crate::luca::journal_jobs::recover_interrupted(&app).is_err() {
-                eprintln!("luca-continuity: journal job recovery unavailable");
+                luca_log!(info, "luca-continuity: journal job recovery unavailable");
             }
         });
     }

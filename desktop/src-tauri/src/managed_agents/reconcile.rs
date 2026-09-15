@@ -40,12 +40,13 @@ pub(crate) fn reconcile_agents_to_events(app: &tauri::AppHandle, keys: &nostr::K
     match reconcile_agents_in_dir(&base_dir, keys) {
         Ok(0) => {}
         Ok(reconciled) => {
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-desktop: agent-event-reconcile: {reconciled} agents reconciled to retention"
             );
         }
         Err(e) => {
-            eprintln!("buzz-desktop: agent-event-reconcile: {e}");
+            luca_log!(info, "buzz-desktop: agent-event-reconcile: {e}");
         }
     }
 }

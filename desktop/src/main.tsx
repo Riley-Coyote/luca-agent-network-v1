@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "@/app/App";
+import { AppErrorBoundary } from "@/app/AppErrorBoundary";
 import { PopoutApp } from "@/app/popout/PopoutApp";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
@@ -18,6 +19,8 @@ import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
+import { installAppLogBridge } from "@/shared/lib/appLog";
+import { E2eCrashProbe } from "@/testing/E2eCrashProbe";
 
 type E2eWindow = Window & {
   __BUZZ_E2E__?: unknown;
@@ -181,7 +184,9 @@ function renderPopoutApp() {
   document.documentElement.setAttribute("data-luca-popout", "");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <PopoutApp />
+      <AppErrorBoundary screen="This conversation window">
+        <PopoutApp />
+      </AppErrorBoundary>
     </React.StrictMode>,
   );
 }
@@ -192,7 +197,9 @@ function renderApp() {
   document.documentElement.setAttribute("data-luca-shell", "");
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <CommunitiesProvider>
+      <AppErrorBoundary screen="Polyphonic">
+        <E2eCrashProbe />
+        <CommunitiesProvider>
         <CommunityOnboardingProvider>
           <ThemeProvider>
             <TooltipProvider delayDuration={300}>
@@ -208,7 +215,8 @@ function renderApp() {
             </TooltipProvider>
           </ThemeProvider>
         </CommunityOnboardingProvider>
-      </CommunitiesProvider>
+        </CommunitiesProvider>
+      </AppErrorBoundary>
     </React.StrictMode>,
   );
 }
@@ -231,6 +239,9 @@ async function bootstrap() {
   resetDevWebviewStateFromUrl();
   configureDevE2eBridgeFromUrl();
   await installE2eBridgeIfConfigured();
+  // After the bridge, before the first render: the earliest point where a
+  // thrown line has somewhere to go.
+  installAppLogBridge();
   await migrateLegacyCommunityStorageBeforeRender();
   if (isPopoutWindow()) {
     renderPopoutApp();

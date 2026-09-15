@@ -497,7 +497,10 @@ pub async fn confirm_agent_snapshot_import(
             &mut record,
             seed_prompt.as_deref(),
         ) {
-            eprintln!("buzz-desktop: resident-documents: seed on import failed: {error}");
+            luca_log!(
+                warn,
+                "buzz-desktop: resident-documents: seed on import failed: {error}"
+            );
         }
 
         records.push(record.clone());
@@ -638,7 +641,7 @@ fn retain_agent_pending(app: &AppHandle, state: &AppState, record: &ManagedAgent
         )
     })();
     if let Err(e) = result {
-        eprintln!("buzz-desktop: snapshot-import retain-agent: {e}");
+        luca_log!(info, "buzz-desktop: snapshot-import retain-agent: {e}");
     }
 }
 

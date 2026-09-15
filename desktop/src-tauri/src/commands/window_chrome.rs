@@ -239,7 +239,8 @@ where
         let ns_window = match handle.ns_window() {
             Ok(pointer) => pointer,
             Err(error) => {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "luca-window: no native window for {}: {error}",
                     handle.label()
                 );
@@ -247,7 +248,7 @@ where
             }
         };
         let Some(ns_window) = std::ptr::NonNull::new(ns_window) else {
-            eprintln!("luca-window: {} has no NSWindow yet", handle.label());
+            luca_log!(info, "luca-window: {} has no NSWindow yet", handle.label());
             return;
         };
         // SAFETY: `ns_window()` returns this window's live `NSWindow`, and
@@ -258,7 +259,8 @@ where
     });
 
     if let Err(error) = dispatched {
-        eprintln!(
+        luca_log!(
+            warn,
             "luca-window: failed to {what} on {}: {error}",
             window.label()
         );

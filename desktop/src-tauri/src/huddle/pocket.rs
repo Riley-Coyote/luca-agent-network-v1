@@ -430,7 +430,8 @@ impl PocketTts {
 
         let sample_rate = audio.sample_rate();
         if sample_rate != SAMPLE_RATE as i32 {
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-desktop: Pocket TTS returned unexpected sample rate {sample_rate}Hz \
                  (expected {SAMPLE_RATE}Hz); playback speed may be wrong"
             );

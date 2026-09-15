@@ -48,18 +48,18 @@ pub(crate) fn data_dir_override() -> Option<&'static Path> {
             let resolved = validate_override(raw.as_deref());
             match (&raw, &resolved) {
                 (Some(value), None) if !value.trim().is_empty() => {
-                    eprintln!(
+                    luca_log!(info,
                         "buzz-desktop: {DATA_DIR_ENV} ignored, the value must be an absolute path: {value}"
                     );
                 }
                 (_, Some(path)) => {
                     if let Err(error) = std::fs::create_dir_all(path) {
-                        eprintln!(
+                        luca_log!(warn,
                             "buzz-desktop: could not create the {DATA_DIR_ENV} directory {}: {error}",
                             path.display()
                         );
                     }
-                    eprintln!(
+                    luca_log!(info,
                         "buzz-desktop: app data directory overridden by {DATA_DIR_ENV} -> {}",
                         path.display()
                     );

@@ -301,14 +301,20 @@ async fn write_meeting_record(
         handoff_trigger_ids: Vec::new(),
     };
     let Ok(_guard) = record::STATE_LOCK.lock() else {
-        eprintln!("buzz-desktop: first meeting record lock is unavailable");
+        luca_log!(
+            info,
+            "buzz-desktop: first meeting record lock is unavailable"
+        );
         return;
     };
     if record::load(root, owner, relay_scope, conversation).is_some() {
         return;
     }
     if let Err(error) = record::save(root, owner, relay_scope, conversation, &meeting) {
-        eprintln!("buzz-desktop: first meeting record was not saved: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: first meeting record was not saved: {error}"
+        );
     }
 }
 

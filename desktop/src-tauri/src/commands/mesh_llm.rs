@@ -120,7 +120,10 @@ pub(crate) async fn resolve_trusted_owner_ids_or_self_only(state: &AppState) -> 
     match resolve_trusted_owner_ids(state).await {
         Ok(owners) => owners,
         Err(error) => {
-            eprintln!("buzz-mesh: roster query failed; allowing only this node: {error}");
+            luca_log!(
+                warn,
+                "buzz-mesh: roster query failed; allowing only this node: {error}"
+            );
             Vec::new()
         }
     }

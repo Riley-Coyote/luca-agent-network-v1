@@ -98,7 +98,10 @@ fn materialize_documents_in_dir(data_dir: &Path) {
         if let Err(error) = ensure_root_at(&data_dir.join("residents"))
             .and_then(|()| ensure_dir_at(&dir).map(|_| ()))
         {
-            eprintln!("buzz-desktop: materialize-resident-documents: {pubkey}: {error}");
+            luca_log!(
+                warn,
+                "buzz-desktop: materialize-resident-documents: {pubkey}: {error}"
+            );
             return false;
         }
         let name = obj
@@ -113,7 +116,10 @@ fn materialize_documents_in_dir(data_dir: &Path) {
         if let Some(prompt) = prompt {
             if !soul.exists() {
                 if let Err(error) = seed_document_verbatim(&dir, DocumentKind::Soul, prompt) {
-                    eprintln!("buzz-desktop: materialize-resident-documents: {name:?}: {error}");
+                    luca_log!(
+                        warn,
+                        "buzz-desktop: materialize-resident-documents: {name:?}: {error}"
+                    );
                     return false;
                 }
             }
@@ -121,7 +127,8 @@ fn materialize_documents_in_dir(data_dir: &Path) {
         let Ok(loaded) = load(&dir) else {
             return false;
         };
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: materialize-resident-documents: {name:?}: agent folder at {relative}"
         );
         obj.insert(

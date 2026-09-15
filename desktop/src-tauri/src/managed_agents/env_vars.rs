@@ -262,7 +262,7 @@ pub(crate) fn merged_user_env(
     }
     merged.retain(|k, v| {
         if is_reserved_env_key(k) {
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: ignoring reserved env var `{k}` from persona/agent overrides"
             );
             return false;
@@ -272,7 +272,7 @@ pub(crate) fn merged_user_env(
             // on-disk records (saved before the tightened validator) can't
             // smuggle a reserved key past us via `=`-in-key tricks. See
             // `is_well_formed_env_key` for the exploit.
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: ignoring malformed env var key `{}` from persona/agent overrides",
                 display_invalid_key(k)
             );
@@ -282,13 +282,13 @@ pub(crate) fn merged_user_env(
             // `Command::env` panics on interior NULs. Older records may
             // have escaped the value validator; drop them here rather
             // than crash the spawn. We deliberately do NOT log the value.
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: ignoring env var `{k}` with NUL byte in value"
             );
             return false;
         }
         if v.len() > MAX_ENV_VALUE_BYTES {
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: ignoring env var `{k}` with oversize value ({} bytes > {MAX_ENV_VALUE_BYTES})",
                 v.len()
             );

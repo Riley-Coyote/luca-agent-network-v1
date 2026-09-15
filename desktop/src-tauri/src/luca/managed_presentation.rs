@@ -331,7 +331,7 @@ fn serve(
                     frame.dispatch_receipt_id.as_str(),
                 );
                 if !terminalize_failed_dispatch(&dispatch_store, &frame) {
-                    eprintln!(
+                    luca_log!(warn,
                         "luca-managed-presentation: failed dispatch terminalization; suppressing retryable frame"
                     );
                     continue;

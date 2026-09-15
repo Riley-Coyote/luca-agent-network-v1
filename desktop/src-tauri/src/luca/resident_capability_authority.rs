@@ -97,7 +97,10 @@ fn store_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 fn redact_store_path_result<T>(result: Result<T, String>) -> Result<T, String> {
     result.map_err(|_| {
-        eprintln!("buzz-desktop: capability authority storage location is unavailable");
+        luca_log!(
+            info,
+            "buzz-desktop: capability authority storage location is unavailable"
+        );
         STORE_UNAVAILABLE.to_owned()
     })
 }
@@ -124,7 +127,10 @@ fn save_store(path: &Path, store: &CapabilityAuthorityStoreV1) -> Result<(), Str
     let bytes = serde_json::to_vec_pretty(store)
         .map_err(|_| "capability settings could not be serialized")?;
     atomic_write_json_restricted(path, &bytes).map_err(|_| {
-        eprintln!("buzz-desktop: capability authority persistence failed");
+        luca_log!(
+            warn,
+            "buzz-desktop: capability authority persistence failed"
+        );
         "capability settings could not be persisted".to_owned()
     })
 }

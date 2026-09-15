@@ -451,7 +451,8 @@ impl ManagedMessageOutbox {
         passphrase: SecretString,
     ) -> Result<Self, ManagedMessageOutboxError> {
         Self::load_encrypted_inner(installation_session_id, path, passphrase).map_err(|stage| {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-signing: managed outbox load failed at {}",
                 stage.code()
             );

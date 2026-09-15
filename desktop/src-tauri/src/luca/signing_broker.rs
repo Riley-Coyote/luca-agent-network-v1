@@ -402,7 +402,8 @@ impl ResidentSigningBroker {
                 Err(SigningTransportError::IdleTimeout) => {
                     self.service_capsule_requests();
                     if let Err(error) = self.reconcile_publication_outbox_slice() {
-                        eprintln!(
+                        luca_log!(
+                            warn,
                             "luca-signing: managed publication reconciliation deferred: {error}"
                         );
                     }
@@ -415,7 +416,10 @@ impl ResidentSigningBroker {
             write_frame(stream, &result)?;
             self.service_capsule_requests();
             if let Err(error) = self.reconcile_publication_outbox_slice() {
-                eprintln!("luca-signing: managed publication reconciliation deferred: {error}");
+                luca_log!(
+                    warn,
+                    "luca-signing: managed publication reconciliation deferred: {error}"
+                );
             }
         }
     }

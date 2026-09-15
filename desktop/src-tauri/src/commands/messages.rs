@@ -675,7 +675,10 @@ pub async fn cancel_managed_turn(
         // Preview cleanup is an independent capability boundary. A poisoned
         // preview registry must not prevent the already-durable cancellation
         // from continuing through the existing ACP watchdog path.
-        eprintln!("luca-artifacts: failed to revoke cancelled-turn previews: {error}");
+        luca_log!(
+            warn,
+            "luca-artifacts: failed to revoke cancelled-turn previews: {error}"
+        );
     }
     let cancellation = match cancellation {
         crate::luca::managed_dispatch_store::ExactDispatchCancellationResult::Cancelled(value) => {
@@ -700,7 +703,10 @@ pub async fn cancel_managed_turn(
     ) {
         // Receipt truth is best-effort metadata and must never make a durable
         // conversation cancellation fail.
-        eprintln!("luca-artifacts: failed to interrupt cancelled-turn receipts: {error}");
+        luca_log!(
+            warn,
+            "luca-artifacts: failed to interrupt cancelled-turn receipts: {error}"
+        );
     }
 
     // There is no backend-visible acknowledgement from the harness for a

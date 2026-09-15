@@ -284,21 +284,21 @@ impl ManagedMessagePublisher {
         let trigger = match exchange.relay.fetch_trigger(&trigger_id) {
             Ok(Some(event)) => event,
             Ok(None) => {
-                eprintln!(
+                luca_log!(info,
                     "luca-exchange: wake trigger {} is not on the relay — leaving the turn unstaged",
                     trigger_id.as_str()
                 );
                 return;
             }
             Err(error) => {
-                eprintln!("luca-exchange: wake trigger fetch failed — {error}");
+                luca_log!(warn, "luca-exchange: wake trigger fetch failed — {error}");
                 return;
             }
         };
         let owner = match exchange.relay.owner() {
             Ok(owner) => owner,
             Err(error) => {
-                eprintln!("luca-exchange: owner lookup failed — {error}");
+                luca_log!(warn, "luca-exchange: owner lookup failed — {error}");
                 return;
             }
         };
@@ -308,7 +308,8 @@ impl ManagedMessagePublisher {
             owner.as_str(),
             now_unix_secs,
         ) {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-exchange: could not stage a wake dispatch for {} — {error}",
                 request.resident_pubkey.as_str()
             );
@@ -494,7 +495,10 @@ impl ManagedMessagePublisher {
         // leaves this encrypted outbox row recoverable until a later broker
         // slice records the idempotent job.
         if let Err(error) = self.record_handoff_job(entry, outbox) {
-            eprintln!("luca-continuity: handoff job scheduling unavailable: {error:?}");
+            luca_log!(
+                warn,
+                "luca-continuity: handoff job scheduling unavailable: {error:?}"
+            );
         }
         if self
             .settle_artifact_receipts(
@@ -534,7 +538,8 @@ impl ManagedMessagePublisher {
         {
             Ok(()) => true,
             Err(_) => {
-                eprintln!(
+                luca_log!(
+                    info,
                     "luca-exchange: accepted owner return has pending close/visit settlement"
                 );
                 false
@@ -592,7 +597,7 @@ impl ManagedMessagePublisher {
             }
             Ok(_) => Ok(()),
             Err(()) => {
-                eprintln!("luca-artifacts: receipt settlement unavailable");
+                luca_log!(info, "luca-artifacts: receipt settlement unavailable");
                 Err(())
             }
         }
@@ -1028,7 +1033,8 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         match decided {
             Ok(plan) => Ok(plan),
             Err(denial) => {
-                eprintln!(
+                luca_log!(
+                    info,
                     "luca-exchange: {} — {denial}",
                     request.resident_pubkey.as_str()
                 );
@@ -1074,7 +1080,8 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
             }
             Ok(tag) => tag,
             Err(denial) => {
-                eprintln!(
+                luca_log!(
+                    info,
                     "luca-exchange: {} — {denial}",
                     request.resident_pubkey.as_str()
                 );

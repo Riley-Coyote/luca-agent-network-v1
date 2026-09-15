@@ -377,7 +377,10 @@ pub(super) fn extract_poster_frame(
     {
         if !result.status.success() {
             let stderr = String::from_utf8_lossy(&result.stderr);
-            eprintln!("buzz-desktop: poster seek-to-1s failed, trying first frame: {stderr}");
+            luca_log!(
+                warn,
+                "buzz-desktop: poster seek-to-1s failed, trying first frame: {stderr}"
+            );
         }
         let _ = std::fs::remove_file(&output);
         let fallback = run_ffmpeg_with_timeout(
@@ -401,7 +404,10 @@ pub(super) fn extract_poster_frame(
 
         if !fallback.status.success() || !output.exists() {
             let stderr = String::from_utf8_lossy(&fallback.stderr);
-            eprintln!("buzz-desktop: poster frame extraction failed: {stderr}");
+            luca_log!(
+                warn,
+                "buzz-desktop: poster frame extraction failed: {stderr}"
+            );
             let _ = std::fs::remove_file(&output);
             return Err("ffmpeg could not extract a poster frame".to_string());
         }
@@ -428,7 +434,10 @@ pub(super) fn transcode_and_extract_poster(
             bytes
         }
         Err(e) => {
-            eprintln!("buzz-desktop: poster extraction failed (non-fatal): {e}");
+            luca_log!(
+                warn,
+                "buzz-desktop: poster extraction failed (non-fatal): {e}"
+            );
             None
         }
     };
@@ -571,7 +580,7 @@ mod tests {
     #[test]
     fn test_transcode_to_mp4_drops_source_metadata() {
         let Ok(ffmpeg) = find_ffmpeg() else {
-            eprintln!("skipping metadata round-trip: ffmpeg not found");
+            luca_log!(info, "skipping metadata round-trip: ffmpeg not found");
             return;
         };
         let source =
@@ -593,7 +602,10 @@ mod tests {
             .output()
             .expect("run ffmpeg fixture generation");
         if !generated.status.success() {
-            eprintln!("skipping metadata round-trip: ffmpeg cannot encode H.264");
+            luca_log!(
+                info,
+                "skipping metadata round-trip: ffmpeg cannot encode H.264"
+            );
             let _ = std::fs::remove_file(&source);
             return;
         }
@@ -616,7 +628,7 @@ mod tests {
     #[test]
     fn test_transcode_heic_round_trip() {
         let Ok(ffmpeg) = find_ffmpeg() else {
-            eprintln!("skipping HEIC round-trip: ffmpeg not found");
+            luca_log!(info, "skipping HEIC round-trip: ffmpeg not found");
             return;
         };
 
@@ -634,7 +646,10 @@ mod tests {
             Ok(o) if o.status.success() && heic_path.exists() => o,
             other => {
                 // This ffmpeg build can't encode HEIC — skip rather than fail.
-                eprintln!("skipping HEIC round-trip: ffmpeg cannot encode HEIC: {other:?}");
+                luca_log!(
+                    info,
+                    "skipping HEIC round-trip: ffmpeg cannot encode HEIC: {other:?}"
+                );
                 let _ = std::fs::remove_file(&heic_path);
                 return;
             }

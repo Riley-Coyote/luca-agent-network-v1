@@ -188,7 +188,10 @@ impl<'a> ExchangeResolver<'a> {
             .map_err(|_| ExchangeDenial::Unavailable)?
             .retune_decision(&key, &tag)
             .map_err(|error| {
-                eprintln!("luca-exchange: could not record the retuned turn: {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: could not record the retuned turn: {error}"
+                );
                 ExchangeDenial::Unavailable
             })?;
         Ok(tag)
@@ -204,7 +207,8 @@ impl<'a> ExchangeResolver<'a> {
     ) -> Result<Decided, ExchangeDenial> {
         let mut record = self.head_or_fetch(&proposed.exchange_id, &request.owner_pubkey)?;
         if record.conversation_id != request.conversation_id {
-            eprintln!(
+            luca_log!(
+                info,
                 "luca-exchange: {} was refused — that exchange lives in another room",
                 request.resident_pubkey.as_str()
             );
@@ -257,7 +261,7 @@ impl<'a> ExchangeResolver<'a> {
                 .relay
                 .conversation_members(&request.conversation_id)
                 .map_err(|error| {
-                    eprintln!("luca-exchange: visit mint refused — {error}");
+                    luca_log!(warn, "luca-exchange: visit mint refused — {error}");
                     ExchangeDenial::MintRefused
                 })?;
             return self.fresh_mint(
@@ -475,7 +479,8 @@ impl<'a> ExchangeResolver<'a> {
             )
             .map_err(|_| ExchangeDenial::Unavailable)?;
         if depth != 0 {
-            eprintln!(
+            luca_log!(
+                info,
                 "luca-exchange: {} was refused — a sibling-triggered reply needs an exchange",
                 request.resident_pubkey.as_str()
             );
@@ -489,7 +494,7 @@ impl<'a> ExchangeResolver<'a> {
             .relay
             .conversation_members(&request.conversation_id)
             .map_err(|error| {
-                eprintln!("luca-exchange: mint refused — {error}");
+                luca_log!(warn, "luca-exchange: mint refused — {error}");
                 ExchangeDenial::MintRefused
             })?;
         let mut addressed: Vec<Hex64> = mentioned.iter().map(|(_, key)| key.clone()).collect();
@@ -534,7 +539,7 @@ impl<'a> ExchangeResolver<'a> {
             )
         }
         .map_err(|error| {
-            eprintln!("luca-exchange: mint refused — {error}");
+            luca_log!(warn, "luca-exchange: mint refused — {error}");
             ExchangeDenial::MintRefused
         })?;
         let prior = self
@@ -602,7 +607,10 @@ impl<'a> ExchangeResolver<'a> {
                 },
             )
             .map_err(|error| {
-                eprintln!("luca-exchange: the exchange decision could not be frozen — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the exchange decision could not be frozen — {error}"
+                );
                 ExchangeDenial::Unavailable
             })
     }
@@ -627,7 +635,10 @@ impl<'a> ExchangeResolver<'a> {
             return Ok(());
         }
         settle_visit_grants(self.relay, self.store, &decision.visit_grants).map_err(|error| {
-            eprintln!("luca-exchange: visit could not be established — {error}");
+            luca_log!(
+                warn,
+                "luca-exchange: visit could not be established — {error}"
+            );
             ExchangeDenial::MintRefused
         })?;
         if decision.mint_published {
@@ -646,7 +657,10 @@ impl<'a> ExchangeResolver<'a> {
             .relay
             .publish_record(record, created_at)
             .map_err(|error| {
-                eprintln!("luca-exchange: the exchange record was refused — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the exchange record was refused — {error}"
+                );
                 ExchangeDenial::MintRefused
             })?;
         self.store
@@ -658,7 +672,10 @@ impl<'a> ExchangeResolver<'a> {
                 event_id,
             })
             .map_err(|error| {
-                eprintln!("luca-exchange: the exchange head could not be stored — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the exchange head could not be stored — {error}"
+                );
                 ExchangeDenial::MintRefused
             })?;
         let additional: Vec<String> = decision
@@ -676,7 +693,10 @@ impl<'a> ExchangeResolver<'a> {
                 now_unix_secs,
             )
             .map_err(|error| {
-                eprintln!("luca-exchange: the reply audience could not be widened — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the reply audience could not be widened — {error}"
+                );
                 ExchangeDenial::MintRefused
             })?;
         self.store
@@ -684,7 +704,10 @@ impl<'a> ExchangeResolver<'a> {
             .map_err(|_| ExchangeDenial::Unavailable)?
             .mark_mint_published(key)
             .map_err(|error| {
-                eprintln!("luca-exchange: the frozen mint could not be settled — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the frozen mint could not be settled — {error}"
+                );
                 ExchangeDenial::Unavailable
             })
     }
@@ -703,17 +726,26 @@ impl<'a> ExchangeResolver<'a> {
         }
         for note in &decision.notes {
             if let Err(error) = self.relay.publish_note(&request.conversation_id, note) {
-                eprintln!("luca-exchange: an exchange note could not be published — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: an exchange note could not be published — {error}"
+                );
                 return;
             }
         }
         match self.store.lock() {
             Ok(mut store) => {
                 if let Err(error) = store.mark_notes_published(key) {
-                    eprintln!("luca-exchange: exchange notes may be repeated — {error}");
+                    luca_log!(
+                        warn,
+                        "luca-exchange: exchange notes may be repeated — {error}"
+                    );
                 }
             }
-            Err(_) => eprintln!("luca-exchange: exchange notes may be repeated — store is locked"),
+            Err(_) => luca_log!(
+                info,
+                "luca-exchange: exchange notes may be repeated — store is locked"
+            ),
         }
     }
 
@@ -742,7 +774,10 @@ impl<'a> ExchangeResolver<'a> {
             .relay
             .fetch_head(exchange_id, owner)
             .map_err(|error| {
-                eprintln!("luca-exchange: the exchange head could not be read — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the exchange head could not be read — {error}"
+                );
                 ExchangeDenial::Unavailable
             })?
             .ok_or(ExchangeDenial::Unknown)?;
@@ -756,7 +791,10 @@ impl<'a> ExchangeResolver<'a> {
             .map_err(|_| ExchangeDenial::Unavailable)?
             .adopt_head(fetched.clone())
             .map_err(|error| {
-                eprintln!("luca-exchange: the exchange head could not be stored — {error}");
+                luca_log!(
+                    warn,
+                    "luca-exchange: the exchange head could not be stored — {error}"
+                );
                 ExchangeDenial::Unavailable
             })?;
         Ok(fetched.record)
@@ -764,7 +802,10 @@ impl<'a> ExchangeResolver<'a> {
 
     fn spent(&self, record: &ExchangeRecordV1) -> Result<BTreeSet<u8>, ExchangeDenial> {
         self.relay.spent_turns(record).map_err(|error| {
-            eprintln!("luca-exchange: the spent turns could not be counted — {error}");
+            luca_log!(
+                warn,
+                "luca-exchange: the spent turns could not be counted — {error}"
+            );
             ExchangeDenial::Unavailable
         })
     }
@@ -800,7 +841,10 @@ impl<'a> ExchangeResolver<'a> {
             return Ok(Vec::new());
         }
         let owned = self.relay.owned_residents().map_err(|error| {
-            eprintln!("luca-exchange: the resident registry could not be read — {error}");
+            luca_log!(
+                warn,
+                "luca-exchange: the resident registry could not be read — {error}"
+            );
             ExchangeDenial::Unavailable
         })?;
         let resolved = self

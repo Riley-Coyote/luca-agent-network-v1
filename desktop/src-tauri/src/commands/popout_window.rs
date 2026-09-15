@@ -147,18 +147,27 @@ pub(crate) fn plan_popout(channel_id: &str, live_labels: &[String]) -> Result<Po
 /// first reveal.
 fn reveal_popout_window(window: &tauri::WebviewWindow) {
     if let Err(error) = window.show() {
-        eprintln!("luca-popout: failed to reveal {}: {error}", window.label());
+        luca_log!(
+            warn,
+            "luca-popout: failed to reveal {}: {error}",
+            window.label()
+        );
         return;
     }
     if let Err(error) = window.set_focus() {
-        eprintln!("luca-popout: failed to focus {}: {error}", window.label());
+        luca_log!(
+            warn,
+            "luca-popout: failed to focus {}: {error}",
+            window.label()
+        );
     }
 }
 
 #[cfg(target_os = "macos")]
 fn set_popout_backing(window: &tauri::WebviewWindow) {
     if let Err(error) = window.set_background_color(Some(POPOUT_BACKING_COLOR)) {
-        eprintln!(
+        luca_log!(
+            warn,
             "luca-popout: failed to set initial backing for {}: {error}",
             window.label()
         );
@@ -169,7 +178,8 @@ fn set_popout_backing(window: &tauri::WebviewWindow) {
 async fn clear_popout_backing(window: &tauri::WebviewWindow) {
     tokio::time::sleep(Duration::from_millis(250)).await;
     if let Err(error) = window.set_background_color(None) {
-        eprintln!(
+        luca_log!(
+            warn,
             "luca-popout: failed to clear initial backing for {}: {error}",
             window.label()
         );
@@ -268,7 +278,10 @@ pub async fn open_channel_popout(
             .await
             .is_err()
         {
-            eprintln!("luca-popout: {reveal_label} did not paint before the reveal timeout");
+            luca_log!(
+                info,
+                "luca-popout: {reveal_label} did not paint before the reveal timeout"
+            );
         }
 
         reveal_popout_window(&window);

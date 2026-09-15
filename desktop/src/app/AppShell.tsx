@@ -2,6 +2,7 @@ import { QuickChatRoot } from "@/features/quickchat/QuickChatRoot";
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useLocation } from "@tanstack/react-router";
+import { AppErrorBoundary } from "@/app/AppErrorBoundary";
 import { toast } from "sonner";
 
 import { deriveShellRoute } from "@/app/AppShell.helpers";
@@ -945,6 +946,9 @@ export function AppShell() {
                         ) : null}
                         {settingsOpen ? (
                           <div className="flex min-h-0 flex-1 overflow-hidden">
+                            {/* One broken settings panel must not take the
+                                rail and every conversation with it. */}
+                            <AppErrorBoundary screen="Settings">
                             <React.Suspense
                               fallback={<SettingsLoadingFallback />}
                             >
@@ -988,6 +992,7 @@ export function AppShell() {
                                 section={settingsSection}
                               />
                             </React.Suspense>
+                            </AppErrorBoundary>
                           </div>
                         ) : (
                           <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -1158,6 +1163,7 @@ export function AppShell() {
                                         <BuzzTheme.ContentSurface
                                           card={!routeOwnsFloor}
                                         >
+                                          <AppErrorBoundary screen="This conversation">
                                           {SUPPORTS_VIEW_TRANSITIONS ? (
                                             /* The content plane. Route changes
                                            snapshot exactly this element —
@@ -1181,6 +1187,7 @@ export function AppShell() {
                                               <Outlet />
                                             </NavigationTransition>
                                           )}
+                                          </AppErrorBoundary>
                                         </BuzzTheme.ContentSurface>
                                         <RightCardsSlot />
                                       </div>

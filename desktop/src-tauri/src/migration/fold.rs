@@ -26,11 +26,11 @@ pub fn fold_personas_into_agent_store(app: &tauri::AppHandle) {
     match fold_personas_in_dir(&base_dir) {
         Ok(None) => {}
         Ok(Some(folded)) => {
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: persona-store-fold: {folded} definitions folded into the unified store"
             );
         }
-        Err(e) => eprintln!("buzz-desktop: persona-store-fold: {e}"),
+        Err(e) => luca_log!(info, "buzz-desktop: persona-store-fold: {e}"),
     }
 }
 

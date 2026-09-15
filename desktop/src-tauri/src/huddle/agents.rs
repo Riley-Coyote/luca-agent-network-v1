@@ -98,7 +98,8 @@ pub async fn add_agent_to_huddle(
         match submit_event(add_parent, state).await {
             Ok(_) => (true, None),
             Err(e) => {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: add agent to parent channel failed (may already be member): {e}"
                 );
                 (false, Some(e))

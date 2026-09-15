@@ -140,7 +140,8 @@ pub fn finish_spawn(
 ) -> super::ManagedAgentProcess {
     let job = create_job_for_child(child.id());
     if job.is_none() {
-        eprintln!(
+        luca_log!(
+            warn,
             "buzz-desktop: failed to assign agent {agent_name} to a Job Object; \
              teardown will fall back to killing only the harness process"
         );

@@ -529,7 +529,8 @@ pub(crate) fn load(dir: &Path) -> Result<LoadedDocuments, String> {
             // A non-UTF-8 or unreadable slot file is skipped rather than
             // failing the whole folder: the other documents still describe
             // the resident, and the inspector reports the file as present.
-            Err(error) => eprintln!(
+            Err(error) => luca_log!(
+                warn,
                 "buzz-desktop: resident-documents: skipping {}: {error}",
                 path.display()
             ),

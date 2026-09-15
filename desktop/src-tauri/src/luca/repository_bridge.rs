@@ -597,7 +597,7 @@ fn preserve_terminal_operation_truth<T>(
     terminal_status: &'static str,
 ) -> T {
     if receipt_persistence.is_err() {
-        eprintln!(
+        luca_log!(warn,
             "buzz-desktop: capability receipt persistence failed after terminal repository operation ({terminal_status})"
         );
     }

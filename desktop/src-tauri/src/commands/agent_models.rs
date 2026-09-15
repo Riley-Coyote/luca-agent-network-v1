@@ -824,7 +824,10 @@ pub async fn update_managed_agent(
                 record,
                 prompt_update.as_deref(),
             ) {
-                eprintln!("buzz-desktop: resident-documents: pin edit failed: {error}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: resident-documents: pin edit failed: {error}"
+                );
             }
         }
         if let Some(parallelism) = input.parallelism {

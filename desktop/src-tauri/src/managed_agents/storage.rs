@@ -138,7 +138,8 @@ fn migrate_inline_key(store: &impl KeyStore, record: &ManagedAgentRecord) -> Key
             match store.write_and_verify(&name, &record.private_key_nsec) {
                 Ok(()) => KeyMigration::Persisted,
                 Err(e) => {
-                    eprintln!(
+                    luca_log!(
+                        warn,
                         "buzz-desktop: keyring write for agent {} failed ({e}), keeping inline",
                         record.pubkey
                     );
@@ -215,7 +216,8 @@ pub(crate) fn load_agent_definitions(app: &AppHandle) -> Result<Vec<ManagedAgent
 pub(crate) fn backup_invalid_store(path: &Path) {
     let backup = path.with_extension("json.invalid");
     if let Err(e) = fs::copy(path, &backup) {
-        eprintln!(
+        luca_log!(
+            warn,
             "buzz-desktop: failed to preserve malformed store {} as {}: {e}",
             path.display(),
             backup.display()
@@ -259,7 +261,8 @@ fn hydrate_keys_with(store: &impl KeyStore, records: &mut [ManagedAgentRecord]) 
             match store.load(&agent_keyring_name(&record.pubkey)) {
                 Ok(Some(nsec)) => record.private_key_nsec = nsec,
                 Ok(None) => {
-                    eprintln!(
+                    luca_log!(
+                        info,
                         "buzz-desktop: agent {} has no key in JSON or keyring",
                         record.pubkey
                     );
@@ -268,7 +271,8 @@ fn hydrate_keys_with(store: &impl KeyStore, records: &mut [ManagedAgentRecord]) 
                 // unreadable this boot. Leave it empty so the spawn path
                 // refuses rather than launching with no identity.
                 Err(e) => {
-                    eprintln!(
+                    luca_log!(
+                        warn,
                         "buzz-desktop: agent {} key unavailable — keyring read failed ({e}); \
                          agent will be refused until the keyring is reachable",
                         record.pubkey
@@ -399,7 +403,10 @@ pub fn migrate_agent_keys_to_dev_service(app: &tauri::AppHandle) {
     let records = match load_agent_store(app) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("buzz-desktop: keyring-dev-migration: cannot read agent store: {e}");
+            luca_log!(
+                info,
+                "buzz-desktop: keyring-dev-migration: cannot read agent store: {e}"
+            );
             return;
         }
     };
@@ -453,7 +460,10 @@ fn copy_agent_keys_between_stores(pubkeys: &[String], src: &impl KeyStore, dst: 
         Ok(Some(map)) => map,
         Ok(None) => HashMap::new(),
         Err(e) => {
-            eprintln!("buzz-desktop: keyring-dev-migration: cannot read dev keyring: {e}");
+            luca_log!(
+                info,
+                "buzz-desktop: keyring-dev-migration: cannot read dev keyring: {e}"
+            );
             return;
         }
     };
@@ -468,7 +478,10 @@ fn copy_agent_keys_between_stores(pubkeys: &[String], src: &impl KeyStore, dst: 
             Ok(Some(map)) => map,
             Ok(None) => HashMap::new(), // prod has no blob yet — nothing to copy
             Err(e) => {
-                eprintln!("buzz-desktop: keyring-dev-migration: cannot read prod keyring: {e}");
+                luca_log!(
+                    info,
+                    "buzz-desktop: keyring-dev-migration: cannot read prod keyring: {e}"
+                );
                 return;
             }
         }
@@ -495,12 +508,16 @@ fn copy_agent_keys_between_stores(pubkeys: &[String], src: &impl KeyStore, dst: 
     to_write.insert(DEV_MIGRATION_MARKER.to_string(), "done".to_string());
 
     if let Err(e) = dst.store_all(&to_write) {
-        eprintln!("buzz-desktop: keyring-dev-migration: cannot write to dev keyring: {e}");
+        luca_log!(
+            info,
+            "buzz-desktop: keyring-dev-migration: cannot write to dev keyring: {e}"
+        );
         return;
     }
 
     if copied > 0 {
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: keyring-dev-migration: copied {copied} agent key(s) from buzz-desktop"
         );
     }
@@ -522,7 +539,10 @@ pub(crate) fn try_delete_agent_key(pubkey: &str) -> Result<(), String> {
 /// is deleted so its secret does not linger in the OS store.
 pub fn delete_agent_key(pubkey: &str) {
     if let Err(e) = try_delete_agent_key(pubkey) {
-        eprintln!("buzz-desktop: failed to delete agent {pubkey} key from keyring: {e}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to delete agent {pubkey} key from keyring: {e}"
+        );
     }
 }
 

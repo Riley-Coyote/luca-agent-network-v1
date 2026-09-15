@@ -126,7 +126,10 @@ pub async fn set_voice_input_mode(
             // Best-effort restart — if models aren't ready, the pipeline
             // stays down until the next hotstart cycle picks it up.
             if let Err(e) = maybe_start_stt_pipeline(&state, &eph_id).await {
-                eprintln!("buzz-desktop: STT pipeline restart on mode switch failed: {e}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: STT pipeline restart on mode switch failed: {e}"
+                );
             }
         }
     }
@@ -230,7 +233,10 @@ pub async fn start_huddle(
             events::build_huddle_guidelines(&ephemeral_channel_id, &guidelines)
         {
             if let Err(e) = submit_event(guidelines_builder, &state).await {
-                eprintln!("buzz-desktop: huddle guidelines (kind:48106) failed: {e}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: huddle guidelines (kind:48106) failed: {e}"
+                );
             }
         }
 
@@ -241,7 +247,10 @@ pub async fn start_huddle(
             match submit_event(add_builder, &state).await {
                 Ok(_) => successful_agents.push(pubkey.clone()),
                 Err(e) => {
-                    eprintln!("buzz-desktop: huddle add_member failed for {pubkey}: {e}");
+                    luca_log!(
+                        warn,
+                        "buzz-desktop: huddle add_member failed for {pubkey}: {e}"
+                    );
                     // Intentionally not added — policy rejected this agent.
                 }
             }
@@ -292,7 +301,8 @@ pub async fn start_huddle(
                 // Archive the ephemeral channel and reset state.
                 if let Ok(archive_builder) = events::build_archive(ephemeral_uuid) {
                     if let Err(ae) = submit_event(archive_builder, &state).await {
-                        eprintln!(
+                        luca_log!(
+                            warn,
                             "buzz-desktop: rollback archive of {ephemeral_channel_id} failed: {ae}"
                         );
                     }
@@ -313,7 +323,8 @@ pub async fn start_huddle(
             if channel_was_created {
                 if let Ok(archive_builder) = events::build_archive(ephemeral_uuid) {
                     if let Err(ae) = submit_event(archive_builder, &state).await {
-                        eprintln!(
+                        luca_log!(
+                            warn,
                             "buzz-desktop: rollback archive of {ephemeral_channel_id} failed: {ae}"
                         );
                     }
@@ -450,7 +461,7 @@ async fn emit_end_and_archive(
             events::build_huddle_ended(parent_channel_id, ephemeral_channel_id)
         {
             if let Err(e) = submit_event(ended_builder, state).await {
-                eprintln!("buzz-desktop: huddle_ended event failed: {e}");
+                luca_log!(warn, "buzz-desktop: huddle_ended event failed: {e}");
             }
         }
     }
@@ -459,7 +470,7 @@ async fn emit_end_and_archive(
         if let Ok(uuid) = parse_channel_uuid(ephemeral_channel_id) {
             if let Ok(archive_builder) = events::build_archive(uuid) {
                 if let Err(e) = submit_event(archive_builder, state).await {
-                    eprintln!("buzz-desktop: archive ephemeral channel failed: {e}");
+                    luca_log!(warn, "buzz-desktop: archive ephemeral channel failed: {e}");
                 }
             }
         }
@@ -483,7 +494,10 @@ async fn remove_huddle_agents(ephemeral_channel_id: &str, state: &AppState) {
     {
         Ok(pubkeys) => pubkeys,
         Err(e) => {
-            eprintln!("buzz-desktop: fetch huddle agents for cleanup failed: {e}");
+            luca_log!(
+                warn,
+                "buzz-desktop: fetch huddle agents for cleanup failed: {e}"
+            );
             return;
         }
     };
@@ -493,7 +507,10 @@ async fn remove_huddle_agents(ephemeral_channel_id: &str, state: &AppState) {
             continue;
         };
         if let Err(e) = submit_event(remove_builder, state).await {
-            eprintln!("buzz-desktop: remove huddle agent {pubkey} failed: {e}");
+            luca_log!(
+                warn,
+                "buzz-desktop: remove huddle agent {pubkey} failed: {e}"
+            );
         }
     }
 }
@@ -541,14 +558,17 @@ pub async fn leave_huddle(state: State<'_, AppState>) -> Result<(), String> {
             // Archive subsumes leave (the channel is gone, membership is moot).
             // This avoids the "cannot remove the last owner" relay error that
             // build_leave hits when the creator is the sole remaining member.
-            eprintln!("buzz-desktop: last human left huddle — auto-ending");
+            luca_log!(info, "buzz-desktop: last human left huddle — auto-ending");
             emit_end_and_archive(&parent_channel_id, &ephemeral_channel_id, &state).await;
         } else {
             // Other humans still in the huddle — just remove self from membership.
             if let Ok(eph_uuid) = parse_channel_uuid(&ephemeral_channel_id) {
                 if let Ok(leave_builder) = events::build_leave(eph_uuid) {
                     if let Err(e) = submit_event(leave_builder, &state).await {
-                        eprintln!("buzz-desktop: huddle leave ephemeral channel failed: {e}");
+                        luca_log!(
+                            warn,
+                            "buzz-desktop: huddle leave ephemeral channel failed: {e}"
+                        );
                     }
                 }
             }
@@ -735,14 +755,14 @@ pub async fn check_pipeline_hotstart(state: State<'_, AppState>) -> Result<(), S
     // Start TTS first (so STT can capture tts_cancel).
     if !has_tts && (tts_ready || models::is_tts_ready()) {
         if let Err(e) = maybe_start_tts_pipeline(&state).await {
-            eprintln!("buzz-desktop: TTS hotstart failed: {e}");
+            luca_log!(warn, "buzz-desktop: TTS hotstart failed: {e}");
         }
     }
 
     if transcription_enabled && !has_stt && (stt_ready || models::is_stt_ready()) {
         if let Some(eph_id) = &ephemeral_channel_id {
             if let Err(e) = maybe_start_stt_pipeline(&state, eph_id).await {
-                eprintln!("buzz-desktop: STT hotstart failed: {e}");
+                luca_log!(warn, "buzz-desktop: STT hotstart failed: {e}");
             }
         }
     }
@@ -855,7 +875,7 @@ pub async fn set_tts_enabled(enabled: bool, state: State<'_, AppState>) -> Resul
         };
         if matches!(phase, HuddlePhase::Connected | HuddlePhase::Active) {
             if let Err(e) = maybe_start_tts_pipeline(&state).await {
-                eprintln!("buzz-desktop: TTS pipeline restart failed: {e}");
+                luca_log!(warn, "buzz-desktop: TTS pipeline restart failed: {e}");
             }
         }
     }
@@ -896,7 +916,7 @@ pub async fn speak_agent_message(text: String, state: State<'_, AppState>) -> Re
     // Lazy-start: models may have finished downloading after the huddle began.
     if needs_pipeline {
         if let Err(e) = maybe_start_tts_pipeline(&state).await {
-            eprintln!("buzz-desktop: TTS lazy-start failed: {e}");
+            luca_log!(warn, "buzz-desktop: TTS lazy-start failed: {e}");
         }
     }
 

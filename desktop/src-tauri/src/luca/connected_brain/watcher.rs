@@ -69,7 +69,10 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
     // authoritative at startup) and nothing re-indexes until the next explicit
     // connect/refresh. Remove once refresh is incremental.
     if std::env::var_os("LUCA_DISABLE_BRAIN_WATCHER").is_some() {
-        eprintln!("buzz-desktop: connected Brain watcher disabled by LUCA_DISABLE_BRAIN_WATCHER");
+        luca_log!(
+            info,
+            "buzz-desktop: connected Brain watcher disabled by LUCA_DISABLE_BRAIN_WATCHER"
+        );
         return Ok(());
     }
     let state = app.state::<AppState>();
@@ -124,7 +127,8 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
         .name("luca-connected-brain-startup".to_owned())
         .spawn(move || {
             if let Err(error) = reconcile_connected_sources(&app) {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: connected Brain startup reconciliation unavailable: {error}"
                 );
             }
@@ -227,7 +231,7 @@ fn reconcile_connected_sources(app: &AppHandle) -> Result<(), String> {
                 )
                 .is_err()
                 {
-                    eprintln!(
+                    luca_log!(info,
                         "buzz-desktop: Brain source remains readable but background watch is unavailable"
                     );
                 }
@@ -273,7 +277,10 @@ fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) {
             .map_err(|error| error.code().to_owned())
     })();
     if result.is_err() {
-        eprintln!("buzz-desktop: background Brain refresh failed; keeping the last verified index");
+        luca_log!(
+            warn,
+            "buzz-desktop: background Brain refresh failed; keeping the last verified index"
+        );
     }
 }
 

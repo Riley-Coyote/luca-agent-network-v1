@@ -527,7 +527,8 @@ pub fn apply_persona_snapshot(record: &mut ManagedAgentRecord, persona: &AgentDe
 pub fn repin_soul(app: &tauri::AppHandle, record: &mut ManagedAgentRecord, old_pin: Option<&str>) {
     if let Err(error) = crate::luca::resident_documents::repin_soul_for_record(app, record, old_pin)
     {
-        eprintln!(
+        luca_log!(
+            warn,
             "buzz-desktop: resident-documents: re-pin for {} failed: {error}",
             record.name
         );

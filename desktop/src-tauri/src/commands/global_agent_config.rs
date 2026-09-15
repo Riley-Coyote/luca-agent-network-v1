@@ -112,7 +112,7 @@ pub async fn set_global_agent_config(
         let owner_hex = match super::agents::workspace_owner_hex(&state) {
             Ok(h) => h,
             Err(e) => {
-                eprintln!(
+                luca_log!(warn,
                     "buzz-desktop: set_global_agent_config: failed to compute owner_hex for restart: {e}"
                 );
                 return Ok(GlobalAgentConfigSaveResult {
@@ -181,7 +181,7 @@ fn collect_restart_candidates(
     let records = match load_managed_agents(app) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!(
+            luca_log!(warn,
                 "buzz-desktop: set_global_agent_config: failed to load agents for restart scan: {e}"
             );
             return (Vec::new(), Vec::new());
@@ -190,7 +190,7 @@ fn collect_restart_candidates(
     let all_personas = match load_personas(app) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!(
+            luca_log!(warn,
                 "buzz-desktop: set_global_agent_config: failed to load personas for restart scan: {e}"
             );
             return (Vec::new(), Vec::new());
@@ -348,11 +348,14 @@ async fn restart_local_agent_on_config_change(
     let stopped = match stop_result {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
-            eprintln!("buzz-desktop: set_global_agent_config: skipping restart of {pubkey}: {e}");
+            luca_log!(
+                info,
+                "buzz-desktop: set_global_agent_config: skipping restart of {pubkey}: {e}"
+            );
             false
         }
         Err(e) => {
-            eprintln!(
+            luca_log!(warn,
                 "buzz-desktop: set_global_agent_config: spawn_blocking failed for stop of {pubkey}: {e}"
             );
             false
@@ -376,18 +379,18 @@ async fn restart_local_agent_on_config_change(
             .await
         {
             Ok(_) => {
-                eprintln!(
+                luca_log!(info,
                     "buzz-desktop: set_global_agent_config: restarted agent {pubkey} with updated config"
                 );
                 RestartOutcome::Restarted
             }
             Err(e) => {
-                eprintln!(
+                luca_log!(warn,
                     "buzz-desktop: set_global_agent_config: failed to start {pubkey} after restart: {e}"
                 );
                 // Persist last_error so the UI surfaces a diagnosable stopped state.
                 if let Err(save_err) = persist_last_error(app, pubkey, &e) {
-                    eprintln!(
+                    luca_log!(warn,
                         "buzz-desktop: set_global_agent_config: failed to persist last_error for {pubkey}: {save_err}"
                     );
                 }

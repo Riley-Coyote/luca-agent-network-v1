@@ -125,7 +125,11 @@ pub fn describe_relay_source(state: &AppState) -> (String, &'static str) {
 /// Log the effective relay URL and the mode that chose it.
 pub fn log_effective_relay(state: &AppState, phase: &str) {
     let (url, mode) = describe_relay_source(state);
-    println!("[relay] phase={phase} effective_relay_url={url} mode={mode} setup_default={}", default_setup_relay_url());
+    luca_log!(
+        info,
+        "[relay] phase={phase} effective_relay_url={url} mode={mode} setup_default={}",
+        default_setup_relay_url()
+    );
 }
 
 /// Returns the relay HTTP API base URL, checking the workspace override first.

@@ -361,7 +361,8 @@ pub(crate) fn link_runtime_cli(cli: &str, target: &Path) {
     #[cfg(windows)]
     let outcome = std::fs::copy(target, &link).map(|_| ());
     if outcome.is_ok() {
-        eprintln!(
+        luca_log!(
+            info,
             "[runtime-discovery] linked {} -> {}",
             link.display(),
             target.display()
@@ -510,7 +511,8 @@ pub(crate) fn log_search_order_once(runtimes: &[KnownAcpRuntime]) {
             .iter()
             .map(SearchLocation::describe)
             .collect();
-        eprintln!(
+        luca_log!(
+            info,
             "[runtime-discovery] {}: searching for `{}` (minimum {}, source: {}) in order: {}",
             runtime.id,
             cli,

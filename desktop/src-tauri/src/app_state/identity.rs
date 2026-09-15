@@ -105,7 +105,8 @@ pub(super) fn resolve_identity_with_store(
             if let Some(nsec) = store.load(IDENTITY_KEY_NAME)? {
                 match Keys::parse(nsec.trim()) {
                     Ok(keyring_keys) => {
-                        eprintln!(
+                        luca_log!(
+                            info,
                             "buzz-desktop: persisted identity pubkey {}",
                             keyring_keys.public_key().to_hex()
                         );
@@ -120,7 +121,8 @@ pub(super) fn resolve_identity_with_store(
                                 Ok(file_keys)
                                     if file_keys.public_key() != keyring_keys.public_key() =>
                                 {
-                                    eprintln!(
+                                    luca_log!(
+                                        info,
                                         "buzz-desktop: identity.key differs from keyring; \
                                          adopting imported key {}",
                                         file_keys.public_key().to_hex()
@@ -138,7 +140,8 @@ pub(super) fn resolve_identity_with_store(
                                         legacy_path,
                                         data_dir,
                                     ) {
-                                        eprintln!(
+                                        luca_log!(
+                                            warn,
                                             "buzz-desktop: keyring adoption of identity.key \
                                              failed ({e}); using file key, will retry next boot"
                                         );
@@ -151,7 +154,8 @@ pub(super) fn resolve_identity_with_store(
                                 // Corrupt file — keyring is authoritative. Log before
                                 // cleanup so there is a diagnostic for the lost data.
                                 Err(e) => {
-                                    eprintln!(
+                                    luca_log!(
+                                        info,
                                         "buzz-desktop: leftover identity.key is corrupt ({e}); \
                                          keyring is authoritative, removing"
                                     );
@@ -176,7 +180,8 @@ pub(super) fn resolve_identity_with_store(
                         if !legacy_path.exists() && !migration_marker_path(data_dir).exists() {
                             if let Err(e) = write_migration_marker(&migration_marker_path(data_dir))
                             {
-                                eprintln!(
+                                luca_log!(
+                                    warn,
                                     "buzz-desktop: keyring present but marker missing; \
                                      self-heal marker write failed ({e}), continuing"
                                 );
@@ -225,7 +230,8 @@ pub(super) fn resolve_identity_with_store(
                 // surface a "lost" flag so the frontend prompts re-import rather
                 // than silently starting a fresh identity.
                 let ephemeral = Keys::generate();
-                eprintln!(
+                luca_log!(
+                    info,
                     "buzz-desktop: identity lost — keyring was empty despite migration marker; \
                      using ephemeral key {}, awaiting user re-import",
                     ephemeral.public_key().to_hex()
@@ -252,7 +258,8 @@ pub(super) fn resolve_identity_with_store(
             //     Generate to the `0o600` file (legitimate first-run).
             if !legacy_path.exists() && migration_marker_path(data_dir).exists() {
                 let ephemeral = Keys::generate();
-                eprintln!(
+                luca_log!(
+                    info,
                     "buzz-desktop: keyring unreachable but migration marker present; \
                      booting keyring-locked recovery with ephemeral key {} — \
                      unlock the keyring and relaunch",
@@ -291,9 +298,15 @@ pub(super) fn recover_from_keyring(
     data_dir: &std::path::Path,
     error: &str,
 ) -> Result<ResolvedIdentity, String> {
-    eprintln!("buzz-desktop: corrupt nsec in keyring ({error}), clearing and recovering from file");
+    luca_log!(
+        warn,
+        "buzz-desktop: corrupt nsec in keyring ({error}), clearing and recovering from file"
+    );
     if let Err(e) = store.delete(IDENTITY_KEY_NAME) {
-        eprintln!("buzz-desktop: failed to clear corrupt keyring value: {e}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to clear corrupt keyring value: {e}"
+        );
     }
     if legacy_path.exists() {
         if let Some(keys) = migrate_identity_file(store, legacy_path, data_dir)? {
@@ -308,7 +321,8 @@ pub(super) fn recover_from_keyring(
     // is unrecoverable. Enter Lost recovery instead of silently rotating.
     if migration_marker_path(data_dir).exists() {
         let ephemeral = Keys::generate();
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: identity lost — keyring had corrupt data and no valid identity.key \
              backup; prior identity (migration marker present) is unrecoverable; \
              using ephemeral key {}, awaiting user re-import",
@@ -336,7 +350,8 @@ pub(super) fn load_file_or_generate(
     if legacy_path.exists() {
         match load_key_file(legacy_path) {
             Ok(keys) => {
-                eprintln!(
+                luca_log!(
+                    info,
                     "buzz-desktop: persisted identity pubkey {}",
                     keys.public_key().to_hex()
                 );
@@ -347,7 +362,8 @@ pub(super) fn load_file_or_generate(
     }
     let keys = Keys::generate();
     save_key_file(legacy_path, &keys)?;
-    eprintln!(
+    luca_log!(
+        info,
         "buzz-desktop: generated and saved identity pubkey {}",
         keys.public_key().to_hex()
     );
@@ -365,7 +381,10 @@ pub(super) fn migrate_identity_file(
     let keys = match load_key_file(legacy_path) {
         Ok(keys) => keys,
         Err(error) => {
-            eprintln!("buzz-desktop: corrupt identity.key during migration ({error}), skipping");
+            luca_log!(
+                warn,
+                "buzz-desktop: corrupt identity.key during migration ({error}), skipping"
+            );
             return Ok(None);
         }
     };
@@ -393,16 +412,20 @@ pub(super) fn migrate_identity_file(
     // cannot be written, keep the file so the key is never stranded.
     let marker_path = migration_marker_path(data_dir);
     if let Err(e) = write_migration_marker(&marker_path) {
-        eprintln!(
+        luca_log!(
+            warn,
             "buzz-desktop: keyring import ok but failed to write migration marker ({e}); \
              keeping identity.key so the key is not stranded"
         );
         return Ok(Some(keys));
     }
     if let Err(e) = std::fs::remove_file(legacy_path) {
-        eprintln!("buzz-desktop: keyring import ok but failed to delete identity.key: {e}");
+        luca_log!(
+            warn,
+            "buzz-desktop: keyring import ok but failed to delete identity.key: {e}"
+        );
     } else {
-        eprintln!("buzz-desktop: migrated identity key into OS keyring");
+        luca_log!(info, "buzz-desktop: migrated identity key into OS keyring");
     }
     Ok(Some(keys))
 }
@@ -448,7 +471,8 @@ pub(super) fn persist_identity_to_keyring(
         // treating this as a fresh install and silently rotating identity.
         if !legacy_path.exists() {
             if let Err(write_err) = save_key_file(legacy_path, keys) {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: keyring ok but marker write failed ({e}) and \
                      identity.key write also failed ({write_err}); key may be unrecoverable"
                 );
@@ -458,13 +482,15 @@ pub(super) fn persist_identity_to_keyring(
                      identity must not be treated as durably persisted — retry the import"
                 ));
             } else {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: keyring ok but marker write failed ({e}); \
                      wrote identity.key as fallback so the key is not stranded"
                 );
             }
         } else {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: keyring ok but marker write failed ({e}); \
                  keeping existing identity.key so the key is not stranded"
             );
@@ -474,7 +500,10 @@ pub(super) fn persist_identity_to_keyring(
 
     if legacy_path.exists() {
         if let Err(e) = std::fs::remove_file(legacy_path) {
-            eprintln!("buzz-desktop: keyring write ok but failed to delete identity.key: {e}");
+            luca_log!(
+                warn,
+                "buzz-desktop: keyring write ok but failed to delete identity.key: {e}"
+            );
         }
     }
 
@@ -494,7 +523,8 @@ pub(super) fn persist_imported_identity_impl(
     match persist_identity_to_keyring(store, keys, legacy_path, data_dir) {
         Ok(()) => Ok(()),
         Err(e) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: keyring write failed during import ({e}), \
                  falling back to identity.key"
             );
@@ -563,14 +593,16 @@ pub(super) fn generate_and_persist(
     if let PersistBackend::Keyring = store_key_preferring_keyring(store, &keys, legacy_path)? {
         let marker_path = migration_marker_path(data_dir);
         if let Err(e) = write_migration_marker(&marker_path) {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: stored identity in keyring but failed to write migration marker \
                  ({e}); saving identity.key fallback so the key is not stranded"
             );
             save_key_file(legacy_path, &keys)?;
         }
     }
-    eprintln!(
+    luca_log!(
+        info,
         "buzz-desktop: generated and saved identity pubkey {}",
         keys.public_key().to_hex()
     );
@@ -594,7 +626,10 @@ pub(super) fn store_key_preferring_keyring(
     match store.store(IDENTITY_KEY_NAME, &nsec) {
         Ok(()) => Ok(PersistBackend::Keyring),
         Err(keyring_err) => {
-            eprintln!("buzz-desktop: keyring write failed ({keyring_err}), using file fallback");
+            luca_log!(
+                warn,
+                "buzz-desktop: keyring write failed ({keyring_err}), using file fallback"
+            );
             save_key_file(legacy_path, keys)?;
             Ok(PersistBackend::File)
         }
@@ -615,7 +650,8 @@ pub(super) fn ensure_marker_then_cleanup(
     let marker_ok = marker_path.exists()
         || write_migration_marker(&marker_path)
             .map_err(|e| {
-                eprintln!(
+                luca_log!(
+                    warn,
                     "buzz-desktop: keyring present but marker missing; \
                      failed to write marker ({e}), keeping identity.key"
                 );
@@ -634,8 +670,14 @@ pub(super) fn cleanup_leftover_identity_file(legacy_path: &std::path::Path) {
         return;
     }
     match std::fs::remove_file(legacy_path) {
-        Ok(()) => eprintln!("buzz-desktop: removed leftover identity.key (key is in keyring)"),
-        Err(e) => eprintln!("buzz-desktop: failed to remove leftover identity.key: {e}"),
+        Ok(()) => luca_log!(
+            info,
+            "buzz-desktop: removed leftover identity.key (key is in keyring)"
+        ),
+        Err(e) => luca_log!(
+            warn,
+            "buzz-desktop: failed to remove leftover identity.key: {e}"
+        ),
     }
 }
 
@@ -654,7 +696,10 @@ pub(super) fn quarantine_corrupt_key(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let bad_name = format!("identity.key.bad.{ts}");
-    eprintln!("buzz-desktop: corrupt identity.key ({error}), quarantining to {bad_name}");
+    luca_log!(
+        warn,
+        "buzz-desktop: corrupt identity.key ({error}), quarantining to {bad_name}"
+    );
     let bad_path = data_dir.join(bad_name);
     if std::fs::rename(key_path, &bad_path).is_err() {
         let _ = std::fs::remove_file(key_path);

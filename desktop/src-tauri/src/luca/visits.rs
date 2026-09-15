@@ -157,7 +157,8 @@ pub(crate) fn rollback_owner_message_visit_memberships(
 ) {
     for resident in provisioned.iter().rev() {
         if let Err(error) = relay.remove_conversation_member(&plan.conversation_id, resident) {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-visit: failed owner-send membership rollback for {}: {error}",
                 resident.as_str()
             );
@@ -321,7 +322,7 @@ pub(crate) fn settle_visit_grants(
                         .remove_visit(&grant.conversation_id, &grant.resident)
                         .map_err(ExchangeRelayError::Unavailable);
                     if let Err(rollback_error) = rollback {
-                        eprintln!("luca-visit: failed membership grant also failed to roll back: {rollback_error}");
+                        luca_log!(warn, "luca-visit: failed membership grant also failed to roll back: {rollback_error}");
                     }
                 }
                 return Err(error);
@@ -348,7 +349,7 @@ pub(crate) fn settle_visit_grants(
                             .remove_visit(&grant.conversation_id, &grant.resident)
                             .map_err(ExchangeRelayError::Unavailable);
                         if let Err(rollback_error) = rollback {
-                            eprintln!(
+                            luca_log!(warn,
                                 "luca-visit: failed arrival note also failed visit rollback: {rollback_error}"
                             );
                         }
@@ -357,7 +358,7 @@ pub(crate) fn settle_visit_grants(
                         // Keep the visit record when membership removal fails;
                         // it is the durable authority a retry needs to repair
                         // the otherwise stranded guest.
-                        eprintln!(
+                        luca_log!(warn,
                             "luca-visit: failed arrival note also failed membership rollback for {}: {rollback_error}",
                             grant.resident.as_str()
                         );

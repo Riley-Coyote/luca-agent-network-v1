@@ -84,8 +84,7 @@ pub fn get_default_relay_url(state: State<'_, AppState>) -> Result<String, Strin
     // A hosted default remains just that: resolving it never spawns an unused
     // local sidecar. The local workspace sentinel starts its sidecar during
     // `apply_workspace`. With nothing configured, the default IS local mode.
-    Ok(relay::workspace_relay_override(&state)
-        .unwrap_or_else(relay::default_setup_relay_url))
+    Ok(relay::workspace_relay_override(&state).unwrap_or_else(relay::default_setup_relay_url))
 }
 
 #[tauri::command]
@@ -356,7 +355,11 @@ pub async fn import_identity(
         let pubkey_hex = pubkey.to_hex();
         let display_name = truncated_display_name(&pubkey)?;
 
-        eprintln!("buzz-desktop: imported identity pubkey {}", pubkey_hex);
+        luca_log!(
+            info,
+            "buzz-desktop: imported identity pubkey {}",
+            pubkey_hex
+        );
 
         Ok(IdentityInfo {
             pubkey: pubkey_hex,
@@ -461,7 +464,7 @@ pub async fn sign_out(app: tauri::AppHandle) -> Result<(), String> {
 
     // Stop all managed agents before restart so they don't race the wipe.
     if let Err(e) = crate::shutdown::shutdown_managed_agents(&app) {
-        eprintln!("buzz-desktop sign-out: agent shutdown: {e}");
+        luca_log!(info, "buzz-desktop sign-out: agent shutdown: {e}");
     }
 
     // Write the reset sentinel — destruction happens on next boot.

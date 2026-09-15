@@ -93,12 +93,31 @@ impl RedactionSummary {
     }
 }
 
+/// Every class this crate knows how to find.
+pub const ALL_SENSITIVE_CLASSES: &[SensitiveClass] = &[
+    SensitiveClass::Secret,
+    SensitiveClass::ProtectedBody,
+    SensitiveClass::AbsolutePath,
+];
+
 /// Return safe, fixed diagnostic text and a count-only summary.
 ///
 /// Matching values are replaced with a fixed class marker rather than a hash.
 /// A hash of a short provider token can itself become a disclosure oracle.
 pub fn redact_diagnostic(input: &str) -> (String, RedactionSummary) {
-    let matches = sensitive_matches(input);
+    redact_classes(input, ALL_SENSITIVE_CLASSES)
+}
+
+/// Redact only the named classes, leaving every other class verbatim.
+///
+/// The local application log wants this: a secret must never reach disk, but an
+/// absolute path is the whole point of a log line that says which file failed.
+/// Text that leaves the machine still goes through [`redact_diagnostic`].
+pub fn redact_classes(input: &str, classes: &[SensitiveClass]) -> (String, RedactionSummary) {
+    let matches: Vec<SensitiveMatch> = sensitive_matches(input)
+        .into_iter()
+        .filter(|matched| classes.contains(&matched.class))
+        .collect();
     if matches.is_empty() {
         return (input.to_owned(), RedactionSummary::default());
     }

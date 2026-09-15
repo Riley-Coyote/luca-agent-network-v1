@@ -146,7 +146,10 @@ pub async fn spawn_media_proxy(http_client: reqwest::Client, app_handle: tauri::
         axum::serve(listener, app).await.ok();
     });
 
-    eprintln!("buzz-desktop: media proxy listening on 127.0.0.1:{port}");
+    luca_log!(
+        info,
+        "buzz-desktop: media proxy listening on 127.0.0.1:{port}"
+    );
     port
 }
 

@@ -1,4 +1,8 @@
 #![recursion_limit = "256"] // Deep Tauri command futures exceed the default layout query depth.
+                            // `diag` first and `#[macro_use]`: `luca_log!` has to be in scope for every
+                            // module declared below it.
+#[macro_use]
+mod diag;
 mod app_state;
 mod archive;
 mod builderlab;
@@ -165,11 +169,11 @@ mod shell_navigation_tests {
 
 fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
     if let Err(error) = window.show() {
-        eprintln!("buzz-desktop: failed to reveal main window: {error}");
+        luca_log!(warn, "buzz-desktop: failed to reveal main window: {error}");
         return;
     }
     if let Err(error) = window.set_focus() {
-        eprintln!("buzz-desktop: failed to focus main window: {error}");
+        luca_log!(warn, "buzz-desktop: failed to focus main window: {error}");
     }
 }
 
@@ -195,7 +199,8 @@ fn is_confirmed_first_run(window: &tauri::Window) -> bool {
     match luca::resident_capability_authority::any_owner_completed_onboarding(window.app_handle()) {
         Ok(completed) => !completed,
         Err(_) => {
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-desktop: onboarding status is unavailable; opening as a returning owner"
             );
             false
@@ -213,13 +218,19 @@ fn size_window_for_first_run(window: &tauri::Window, first_run: bool) {
         return;
     }
     if let Err(error) = window.unmaximize() {
-        eprintln!("buzz-desktop: failed to unmaximize the first-run window: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to unmaximize the first-run window: {error}"
+        );
     }
     if let Err(error) = window.set_size(tauri::LogicalSize::new(
         FIRST_RUN_WINDOW_WIDTH,
         FIRST_RUN_WINDOW_HEIGHT,
     )) {
-        eprintln!("buzz-desktop: failed to size the first-run window: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to size the first-run window: {error}"
+        );
         return;
     }
     commands::center_on_current_monitor(window);
@@ -231,7 +242,10 @@ fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
     // native backing only across the first visible frames so the previous app
     // cannot show through before WebKit has submitted its first surface.
     if let Err(error) = window.set_background_color(Some(tauri::window::Color(17, 21, 24, 255))) {
-        eprintln!("buzz-desktop: failed to set initial window backing: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to set initial window backing: {error}"
+        );
     }
 }
 
@@ -239,7 +253,10 @@ fn set_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
 async fn clear_initial_window_backing<R: tauri::Runtime>(window: &tauri::Window<R>) {
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     if let Err(error) = window.set_background_color(None) {
-        eprintln!("buzz-desktop: failed to clear initial window backing: {error}");
+        luca_log!(
+            warn,
+            "buzz-desktop: failed to clear initial window backing: {error}"
+        );
     }
 }
 
@@ -276,7 +293,10 @@ async fn wait_for_stable_initial_window_geometry<R: tauri::Runtime>(window: &tau
         tokio::time::sleep(std::time::Duration::from_millis(16)).await;
     }
 
-    eprintln!("buzz-desktop: initial window geometry did not settle before reveal timeout");
+    luca_log!(
+        info,
+        "buzz-desktop: initial window geometry did not settle before reveal timeout"
+    );
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -297,7 +317,8 @@ pub fn run() {
             // Keep the runtime alive for the process lifetime; dropping it
             // would shut down the workers Tauri now depends on.
             std::mem::forget(runtime);
-            eprintln!(
+            luca_log!(
+                info,
                 "buzz-mesh: installed tokio runtime with {} MiB worker stacks",
                 crate::mesh_llm::MESH_WORKER_STACK_SIZE / (1024 * 1024)
             );
@@ -305,7 +326,10 @@ pub fn run() {
         Err(error) => {
             // Fall back to Tauri's default runtime: the app still works,
             // only deep mesh-llm futures are at risk of stack overflow.
-            eprintln!("buzz-mesh: failed to build big-stack tokio runtime, using default: {error}");
+            luca_log!(
+                warn,
+                "buzz-mesh: failed to build big-stack tokio runtime, using default: {error}"
+            );
         }
     }
 
@@ -408,7 +432,7 @@ pub fn run() {
                             .await
                             .is_err()
                             {
-                                eprintln!(
+                                luca_log!(info,
                                     "buzz-desktop: initial render did not commit before reveal timeout"
                                 );
                             }
@@ -574,6 +598,15 @@ pub fn run() {
             // init_nest_dir is called early here (normally it runs inside
             // run_boot_migrations) so reset::run_boot_reset can call nest_dir().
             let app_data_dir = app_handle.buzz_path().app_data_dir().ok();
+
+            // ── The app log ───────────────────────────────────────────────────
+            // Everything above this point reached stderr only; `init` replays
+            // the lines it buffered as soon as it knows where the file lives.
+            if let Some(data_dir) = app_data_dir.as_ref() {
+                crate::diag::init(data_dir);
+                let version = app_handle.package_info().version.to_string();
+                luca_log!(info, "{}", crate::diag::startup_header(&version, data_dir));
+            }
             let is_dev_for_reset = app_data_dir
                 .as_ref()
                 .and_then(|data_dir| data_dir.file_name())
@@ -613,7 +646,7 @@ pub fn run() {
             // memberships, DMs, and relay identity.
             let state = app_handle.state::<AppState>();
             if let Err(e) = resolve_persisted_identity(&app_handle, &state) {
-                eprintln!("buzz-desktop: fatal: identity resolution failed: {e}");
+                luca_log!(warn, "buzz-desktop: fatal: identity resolution failed: {e}");
                 std::process::exit(1);
             }
 
@@ -640,7 +673,7 @@ pub fn run() {
             let owner_keys = match state.keys.lock() {
                 Ok(k) => k.clone(),
                 Err(e) => {
-                    eprintln!("buzz-desktop: fatal: owner keys lock poisoned: {e}");
+                    luca_log!(info, "buzz-desktop: fatal: owner keys lock poisoned: {e}");
                     std::process::exit(1);
                 }
             };
@@ -656,7 +689,10 @@ pub fn run() {
                 (Ok(app_data_dir), Ok(owner_pubkey)) => {
                     state.initialize_continuity_runtime(&app_data_dir, owner_pubkey, recovery_mode)
                 }
-                _ => eprintln!("buzz-desktop: continuity runtime unavailable this launch"),
+                _ => luca_log!(
+                    info,
+                    "buzz-desktop: continuity runtime unavailable this launch"
+                ),
             }
 
             // Reconcile the owner-local artifact staging area and immutable
@@ -674,7 +710,8 @@ pub fn run() {
                                 || report.missing_blob_versions > 0
                                 || report.removed_unreferenced_blobs > 0 =>
                         {
-                            eprintln!(
+                            luca_log!(
+                                info,
                                 "luca-artifacts: reconciled staging={} missing={} garbage={}",
                                 report.removed_staging_entries,
                                 report.missing_blob_versions,
@@ -689,7 +726,8 @@ pub fn run() {
                             );
                         }
                         Ok(_) => {}
-                        Err(error) => eprintln!(
+                        Err(error) => luca_log!(
+                            warn,
                             "luca-artifacts: startup reconciliation unavailable: {}",
                             error.code()
                         ),
@@ -704,7 +742,7 @@ pub fn run() {
             // snapshot. Synchronous and best-effort — a failure here must not
             // block launch, but a missing persona is logged loudly inside.
             if let Err(e) = backfill_persona_snapshots(&app_handle) {
-                eprintln!("buzz-desktop: persona-snapshot backfill failed: {e}");
+                luca_log!(warn, "buzz-desktop: persona-snapshot backfill failed: {e}");
             }
 
             // Store the AppHandle so huddle commands can emit `huddle-state-changed`
@@ -720,7 +758,10 @@ pub fn run() {
             if let Err(error) =
                 crate::luca::connected_brain::start_connected_source_watcher(app_handle.clone())
             {
-                eprintln!("buzz-desktop: connected Brain watcher unavailable: {error}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: connected Brain watcher unavailable: {error}"
+                );
             }
 
             // Bring up the runtime-owned shared-compute coordinator before
@@ -756,7 +797,7 @@ pub fn run() {
             // nest directory. Ordinary launches fall back to $HOME if nest
             // creation fails; explicitly isolated launches fail closed.
             if let Err(error) = ensure_nest() {
-                eprintln!("buzz-desktop: failed to create nest: {error}");
+                luca_log!(warn, "buzz-desktop: failed to create nest: {error}");
             }
 
             // Resolve the REPOS symlink from the persisted repos_dir BEFORE
@@ -814,7 +855,7 @@ pub fn run() {
                     if let Some(parent) = exe.parent() {
                         if let Err(error) = managed_agents::ensure_cli_symlink(parent, is_dev_nest)
                         {
-                            eprintln!("buzz-desktop: failed to create CLI symlink: {error}");
+                            luca_log!(warn, "buzz-desktop: failed to create CLI symlink: {error}");
                         }
                     }
                 }
@@ -920,7 +961,10 @@ pub fn run() {
                     let Ok(db_path) = managed_agents::managed_agents_base_dir(&flush_handle)
                         .map(|d| d.join("retention.db"))
                     else {
-                        eprintln!("buzz-desktop: event-flush: cannot resolve retention db path");
+                        luca_log!(
+                            info,
+                            "buzz-desktop: event-flush: cannot resolve retention db path"
+                        );
                         return;
                     };
                     loop {
@@ -929,7 +973,7 @@ pub fn run() {
                             managed_agents::persona_events::flush_pending_events(&db_path, &state)
                                 .await
                         {
-                            eprintln!("buzz-desktop: event-flush: {e}");
+                            luca_log!(info, "buzz-desktop: event-flush: {e}");
                         }
                         tokio::time::sleep(Duration::from_secs(30)).await;
                     }
@@ -955,7 +999,10 @@ pub fn run() {
                         format!("{base} \u{b7} DEV")
                     };
                     if let Err(error) = window.set_title(&marked) {
-                        eprintln!("buzz-desktop: could not set the DEV window title: {error}");
+                        luca_log!(
+                            warn,
+                            "buzz-desktop: could not set the DEV window title: {error}"
+                        );
                     }
                 }
             }
@@ -989,6 +1036,9 @@ pub fn run() {
             get_preview_session,
             refresh_preview_health,
             detach_preview_session,
+            append_ui_log,
+            app_log_path,
+            read_recent_app_log,
             get_identity,
             export_protected_owner_identity,
             preview_protected_owner_identity,

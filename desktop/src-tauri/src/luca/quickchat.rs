@@ -425,7 +425,10 @@ fn remember(state: &AppState, key: &ContextKey, options: &serde_json::Value) {
     }
     if let Some(path) = remembered_path(state) {
         if let Err(error) = effort_store::save(&path, &cache) {
-            eprintln!("quickchat: could not remember the runtime thinking ladder — {error}");
+            luca_log!(
+                warn,
+                "quickchat: could not remember the runtime thinking ladder — {error}"
+            );
         }
     }
 }

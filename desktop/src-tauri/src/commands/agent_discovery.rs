@@ -311,7 +311,8 @@ async fn restart_setup_mode_agents_after_install(
     let owner_hex = match super::agents::workspace_owner_hex(&state) {
         Ok(h) => h,
         Err(e) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: install_acp_runtime: failed to compute owner_hex for restart: {e}"
             );
             return (0, 0);
@@ -497,11 +498,14 @@ async fn restart_single_agent_after_install(
     let stopped = match stop_result {
         Ok(Ok(())) => true,
         Ok(Err(e)) => {
-            eprintln!("buzz-desktop: install_acp_runtime: skipping restart of {pubkey}: {e}");
+            luca_log!(
+                info,
+                "buzz-desktop: install_acp_runtime: skipping restart of {pubkey}: {e}"
+            );
             false
         }
         Err(e) => {
-            eprintln!(
+            luca_log!(warn,
                 "buzz-desktop: install_acp_runtime: spawn_blocking failed for stop of {pubkey}: {e}"
             );
             false
@@ -520,18 +524,18 @@ async fn restart_single_agent_after_install(
             .await
         {
             Ok(_) => {
-                eprintln!(
+                luca_log!(info,
                     "buzz-desktop: install_acp_runtime: restarted setup-mode agent {pubkey} after install"
                 );
                 InstallRestartOutcome::Restarted
             }
             Err(e) => {
-                eprintln!(
+                luca_log!(warn,
                     "buzz-desktop: install_acp_runtime: failed to start {pubkey} after install: {e}"
                 );
                 // Persist last_error so the UI surfaces a diagnosable stopped state.
                 if let Err(save_err) = persist_last_error_on_install(app, pubkey, &e) {
-                    eprintln!(
+                    luca_log!(warn,
                         "buzz-desktop: install_acp_runtime: failed to persist last_error for {pubkey}: {save_err}"
                     );
                 }

@@ -675,7 +675,7 @@ pub async fn connect_connected_brain_source(
             if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
                 .is_err()
             {
-                eprintln!(
+                luca_log!(info,
                     "buzz-desktop: connected Brain source is current but background watch is unavailable"
                 );
             }
@@ -712,7 +712,7 @@ pub async fn refresh_connected_brain_source(
         if connected_brain::register_connected_source(&state, source_id.clone(), &watch_root)
             .is_err()
         {
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: refreshed Brain source is current but background watch is unavailable"
             );
         }

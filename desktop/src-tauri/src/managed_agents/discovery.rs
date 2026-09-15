@@ -1364,7 +1364,8 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
             // included — and refuse anything below the adapter's minimum.
             let cli = runtime_cli::resolve_runtime_cli(runtime);
             for rejected in &cli.rejected {
-                eprintln!(
+                luca_log!(
+                    info,
                     "[runtime-discovery] {}: rejected {} (version {}) — {}",
                     runtime.id,
                     rejected.path.display(),
@@ -1376,7 +1377,8 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
                 if let Some(cli_name) = runtime.underlying_cli {
                     runtime_cli::link_runtime_cli(cli_name, found);
                 }
-                eprintln!(
+                luca_log!(
+                    info,
                     "[runtime-discovery] {}: using {} (version {})",
                     runtime.id,
                     found.display(),
@@ -1490,9 +1492,11 @@ pub fn discover_acp_runtimes() -> Vec<AcpRuntimeCatalogEntry> {
         if partial.entry.availability != AcpAvailabilityStatus::Available {
             continue;
         }
-        eprintln!(
+        luca_log!(
+            info,
             "[runtime-discovery] {}: already signed in per {} — no sign-in step shown",
-            existing.runtime_id, existing.how,
+            existing.runtime_id,
+            existing.how,
         );
         partial.entry.auth_status = AuthStatus::LoggedIn;
         partial.entry.login_hint = None;

@@ -554,10 +554,16 @@ pub async fn send_channel_message(
         .await
         {
             Err(error) => {
-                eprintln!("luca-visit: accepted owner message visit commit task failed: {error}")
+                luca_log!(
+                    warn,
+                    "luca-visit: accepted owner message visit commit task failed: {error}"
+                )
             }
             Ok(Err(error)) => {
-                eprintln!("luca-visit: accepted owner message visit commit failed: {error}")
+                luca_log!(
+                    warn,
+                    "luca-visit: accepted owner message visit commit failed: {error}"
+                )
             }
             Ok(Ok(())) => {}
         }

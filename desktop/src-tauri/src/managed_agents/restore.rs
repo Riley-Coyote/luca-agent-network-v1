@@ -52,7 +52,7 @@ pub fn backfill_persona_snapshots(app: &tauri::AppHandle) -> Result<(), String> 
             continue;
         }
         let Some(persona) = personas.iter().find(|p| p.id == persona_id) else {
-            eprintln!(
+            luca_log!(info,
                 "buzz-desktop: persona-snapshot backfill: agent {} links persona {persona_id} which no longer exists; leaving snapshot empty — it will spawn from its record fields",
                 record.pubkey
             );
@@ -366,7 +366,10 @@ pub async fn restore_managed_agents_on_launch(
                 crate::commands::reconcile_agent_profile(&state, &reconcile_app, &pubkey, &data)
                     .await
             {
-                eprintln!("buzz-desktop: profile reconciliation failed for agent {pubkey}: {e}");
+                luca_log!(
+                    warn,
+                    "buzz-desktop: profile reconciliation failed for agent {pubkey}: {e}"
+                );
             }
         });
     }

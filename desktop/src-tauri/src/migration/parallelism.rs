@@ -84,7 +84,8 @@ fn right_size_parallelism_in_file(path: &Path) {
             .get("name")
             .and_then(|value| value.as_str())
             .unwrap_or("?");
-        eprintln!(
+        luca_log!(
+            info,
             "buzz-desktop: right-size-parallelism: {name:?}: \
              {LEGACY_TEAM_CHANNEL_PARALLELISM} → {DEFAULT_AGENT_PARALLELISM} agent process(es)"
         );

@@ -98,7 +98,10 @@ impl PeerSlot {
                 last_packet_at: tokio::time::Instant::now(),
             }),
             Err(e) => {
-                eprintln!("buzz-desktop: jitter buffer init peer {peer_idx}: {e}");
+                luca_log!(
+                    info,
+                    "buzz-desktop: jitter buffer init peer {peer_idx}: {e}"
+                );
                 None
             }
         }
@@ -193,7 +196,7 @@ pub(crate) async fn run_playout_recv_loop(
                             // oldest queued frame rather than letting the
                             // queue grow without bound.
                             if slot.player.len() >= PLAYOUT_QUEUE_HIGH_WATER {
-                                eprintln!(
+                                luca_log!(info,
                                     "buzz-desktop: playout queue high-water for peer {peer_idx} \
                                      (depth={}) — dropping oldest frame",
                                     slot.player.len(),
@@ -203,7 +206,7 @@ pub(crate) async fn run_playout_recv_loop(
                             slot.player.append(SamplesBuffer::new(channels, rate, samples));
                         }
                         Err(e) => {
-                            eprintln!(
+                            luca_log!(info,
                                 "buzz-desktop: jitter get_audio peer {peer_idx}: {e}"
                             );
                         }
@@ -236,7 +239,7 @@ pub(crate) async fn run_playout_recv_loop(
                             // Malformed v2 frame: header parse only fails when
                             // the slice is too short, which `if data.len() <= ...`
                             // already guards. Defensive log + drop.
-                            eprintln!(
+                            luca_log!(info,
                                 "buzz-desktop: dropping malformed audio frame from peer {peer_idx} ({} bytes)",
                                 data.len(),
                             );
@@ -280,7 +283,7 @@ pub(crate) async fn run_playout_recv_loop(
                             slot.jitter
                                 .insert_packet(header.seq, header.ts_48k, opus_bytes)
                         {
-                            eprintln!(
+                            luca_log!(info,
                                 "buzz-desktop: jitter insert peer {peer_idx}: {err}"
                             );
                         } else {
