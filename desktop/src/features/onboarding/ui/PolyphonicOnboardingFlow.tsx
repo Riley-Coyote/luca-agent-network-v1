@@ -1,4 +1,6 @@
 import * as React from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { rememberLastConversation } from "@/app/navigation/lastConversation";
 
 import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
@@ -170,6 +172,22 @@ export function PolyphonicOnboardingFlow({
       // The layer grows the shell into the window while the conversation
       // mounts beneath it and the mark travels to the sidebar.
       setPolyphonicScene({ stage: "becoming", resolving: false });
+      // Onboarding runs in a small centred window so only the card is on
+      // screen. The card becoming the application is also the window
+      // becoming the application: macOS animates the zoom, and the field
+      // layer retargets the growing shell on every resize frame.
+      if (isTauri()) {
+        try {
+          void getCurrentWindow()
+            .maximize()
+            .catch(() => {
+              // A window that refuses to zoom is not a reason to stay on the
+              // card; the conversation is already mounted beneath it.
+            });
+        } catch {
+          // Same: the handoff never depends on the window manager.
+        }
+      }
       rememberLastConversation(channelId);
       actions.complete();
       window.location.hash = `/channels/${encodeURIComponent(channelId)}`;

@@ -1,5 +1,6 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import {
@@ -275,9 +276,37 @@ function AppReady({
 
   return (
     <KnownAgentPubkeysProvider>
+      <AppWindowFit />
       <RouterProvider router={router} />
     </KnownAgentPubkeysProvider>
   );
+}
+
+/** The onboarding card runs in a small centred window. Every path that
+ *  reaches the application without the becoming animation — "Set up later",
+ *  an existing identity, a returning owner whose window state was saved
+ *  mid-setup — would otherwise inherit that card-sized window. Once, and only
+ *  while nothing of the card is still on screen, give it the desk back. */
+function AppWindowFit() {
+  const scene = usePolyphonicScene();
+  const done = useRef(false);
+
+  useEffect(() => {
+    if (done.current || !isTauri() || scene.stage !== "off") return;
+    if (window.innerWidth > 1000 || window.innerHeight > 700) return;
+    done.current = true;
+    try {
+      void getCurrentWindow()
+        .maximize()
+        .catch(() => {
+          // A window that will not zoom is still a usable window.
+        });
+    } catch {
+      // Same.
+    }
+  }, [scene.stage]);
+
+  return null;
 }
 
 function PersonalHomeProvisioningError({

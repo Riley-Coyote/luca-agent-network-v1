@@ -35,6 +35,12 @@ const BECOMING_GROW_MS = 760;
 const BECOMING_FIELD_FADE_MS = 600;
 const BECOMING_SHELL_FADE_MS = 360;
 const BECOMING_GLYPH_FADE_MS = 300;
+/** The window is zooming while the shell grows. Hold the shell's fade until
+ *  the resize has been quiet this long, so the shell never dissolves onto a
+ *  window that is still smaller than it. */
+const BECOMING_RESIZE_SETTLE_MS = 120;
+/** …but never hold it past this, whatever the window manager is doing. */
+const BECOMING_MAX_HOLD_MS = 1500;
 
 /** Where the shell ends up: the window, with the pane as the sidebar. */
 function resolveBecomingTarget() {
@@ -132,16 +138,39 @@ export function PolyphonicOnboardingFieldLayer() {
       setPolyphonicScene({ stage: "off", anchor: null, resolving: false });
       return;
     }
-    const timers = [
-      window.setTimeout(() => setShellGone(true), BECOMING_GROW_MS),
-      window.setTimeout(
+    // The native window zooms at the same moment. Motion retargets an
+    // in-flight animation, so every resize frame simply moves the goalposts
+    // and the shell keeps growing into whatever the window has become.
+    const startedAt = Date.now();
+    let fadeTimer = 0;
+    let offTimer = 0;
+    function scheduleFade(delayMs: number) {
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(offTimer);
+      const capped = Math.min(delayMs, BECOMING_MAX_HOLD_MS - elapsed());
+      const wait = Math.max(0, capped);
+      fadeTimer = window.setTimeout(() => setShellGone(true), wait);
+      offTimer = window.setTimeout(
         () =>
           setPolyphonicScene({ stage: "off", anchor: null, resolving: false }),
-        BECOMING_GROW_MS + BECOMING_SHELL_FADE_MS + BECOMING_GLYPH_FADE_MS,
-      ),
-    ];
+        wait + BECOMING_SHELL_FADE_MS + BECOMING_GLYPH_FADE_MS,
+      );
+    }
+    function elapsed() {
+      return Date.now() - startedAt;
+    }
+    function onResize() {
+      setBecomingTarget(resolveBecomingTarget());
+      // The grow still needs its full run from here, but the fade waits for
+      // the window to be still — and never longer than the cap.
+      scheduleFade(Math.max(BECOMING_GROW_MS - elapsed(), BECOMING_RESIZE_SETTLE_MS));
+    }
+    scheduleFade(BECOMING_GROW_MS);
+    window.addEventListener("resize", onResize);
     return () => {
-      for (const timer of timers) window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(offTimer);
     };
   }, [becoming, reduceMotion]);
 
