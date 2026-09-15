@@ -90,10 +90,35 @@ export function installAppLogBridge(): void {
   }
   installed = true;
 
-  window.addEventListener("error", (event) => {
-    const detail = event.error ?? event.message ?? "unknown error";
-    appendUiLog("error", "window.onerror", formatErrorLine("uncaught", detail));
-  });
+  window.addEventListener(
+    "error",
+    (event) => {
+      // A failed <script>/<img>/<link> fires the same event with no `error`
+      // and no `message`. Reporting "unknown error" for those would hide the
+      // one thing worth knowing, which is what failed to load.
+      const failedResource =
+        event.target instanceof HTMLElement
+          ? (event.target.getAttribute("src") ??
+            event.target.getAttribute("href"))
+          : null;
+      if (failedResource) {
+        appendUiLog(
+          "error",
+          "window.onerror",
+          `resource failed to load: ${failedResource}`,
+        );
+        return;
+      }
+      const detail = event.error ?? event.message ?? "unknown error";
+      appendUiLog(
+        "error",
+        "window.onerror",
+        formatErrorLine("uncaught", detail),
+      );
+    },
+    // Resource errors do not bubble; only the capture phase sees them.
+    true,
+  );
 
   window.addEventListener("unhandledrejection", (event) => {
     appendUiLog(
