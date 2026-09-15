@@ -19,6 +19,12 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
 
 const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const CHARLIE_DM_ID = "d1ec7000-d000-4000-8000-000000000001";
+/** The mock's alice↔owner DM, standing in for the owner's DM with Luca. */
+const LUCA_DM_ID = "f48efb06-0c93-5025-aac9-2e646bb6bfa8";
+const LUCA_DM_NAME = "alice-tyler";
+const LUCA_PUBKEY =
+  "953d3363262e86b770419834c53d2446409db6d918a57f8f339d495d54ab001f";
+const LUCA_GREETING = /Hello, I’m Luca/;
 const POPOUT_URL = `/?e2e=mock&window=popout&channel=${GENERAL_CHANNEL_ID}#/channels/${GENERAL_CHANNEL_ID}`;
 const POPOUT_WINDOWS_FEATURE_ID = "popout-chat-windows";
 const OPEN_IN_MAIN_EVENT = "luca://popout-open-in-main";
@@ -393,6 +399,73 @@ test.describe("the pop-out shell", () => {
       .toBe(engineeringId);
     await expect.poll(() => page.title()).toBe("engineering");
     await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+  });
+
+  test("renders Luca's opening choices, never the raw fence", async ({
+    page,
+  }) => {
+    // Who Luca is comes from the resident registry: one entry on the canonical
+    // persona, in a DM with exactly the owner and that resident.
+    await installMockBridge(page, {
+      managedAgents: [
+        {
+          channelNames: [],
+          name: "Luca",
+          personaId: "builtin:fizz",
+          pubkey: LUCA_PUBKEY,
+          status: "running",
+        },
+      ],
+    });
+    await page.goto(
+      `/?e2e=mock&window=popout&channel=${LUCA_DM_ID}#/channels/${LUCA_DM_ID}`,
+    );
+    await expect(page.getByTestId("popout-shell")).toBeVisible();
+
+    // The kickoff the native side runs on arrival, with its fixture reply.
+    await page.evaluate(
+      (channelId) =>
+        window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("begin_luca_first_meeting", {
+          channelId,
+        }),
+      LUCA_DM_ID,
+    );
+
+    const choices = page.getByTestId("luca-greeting-choices");
+    await expect(choices).toBeVisible();
+    await expect(choices.getByRole("button")).toHaveCount(2);
+    // In Luca's own row, the way the main window places them.
+    await expect(
+      page
+        .getByTestId("message-row")
+        .filter({ hasText: LUCA_GREETING })
+        .getByTestId("luca-greeting-choices"),
+    ).toHaveCount(1);
+
+    // THE REGRESSION. Without the canonical-Luca registration this window
+    // never recognised the DM, so the block the buttons are built from was
+    // rendered to the owner as a fenced code block.
+    await expect(page.getByText("polyphonic-choices")).toHaveCount(0);
+    await expect(page.locator("pre code")).toHaveCount(0);
+
+    // Choosing sends the owner's own words through the conversation's send
+    // path, and the offer retires — exactly as in the main window.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          (channelName) =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName,
+            }) ?? false,
+          LUCA_DM_NAME,
+        ),
+      )
+      .toBe(true);
+    await page.getByTestId("luca-greeting-choice-1").click();
+    await expect(page.getByText("Shape an idea", { exact: true })).toHaveCount(
+      1,
+    );
+    await expect(choices).toHaveCount(0);
   });
 
   test("asks the main window to take over, then closes itself", async ({

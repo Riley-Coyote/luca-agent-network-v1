@@ -14,6 +14,7 @@ import { usePopoutReadState } from "@/app/popout/usePopoutReadState";
 import { router } from "@/app/router";
 import { KnownAgentPubkeysProvider } from "@/features/agents/useKnownAgentPubkeys";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useRegisterCanonicalLuca } from "@/features/luca/canonicalLucaResident";
 import { CommunitiesProvider } from "@/features/communities/useCommunities";
 import { HuddleProvider } from "@/features/huddle";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -68,6 +69,24 @@ function PopoutChannelNavigation({ children }: { children: React.ReactNode }) {
       {children}
     </ChannelNavigationProvider>
   );
+}
+
+/**
+ * Resolve who Luca is, in this window.
+ *
+ * `useCanonicalLucaPubkey` reads a MODULE-LEVEL store, and only this hook fills
+ * it — in the main window, from `App.tsx`. A pop-out skips `App.tsx` by design,
+ * so the store stayed null here and every consumer silently fell back to "this
+ * is not Luca's DM": the first-meeting reply lost its choice buttons AND its
+ * prose trimming, so the `polyphonic-choices` block the buttons are built from
+ * was rendered to the owner as a raw fenced code block.
+ *
+ * It is a query and a `useEffect`, nothing else — no dialog, no notifier, no
+ * workspace — which is why it can cross the line `App.tsx` otherwise draws.
+ */
+function PopoutCanonicalLuca({ children }: { children: React.ReactNode }) {
+  useRegisterCanonicalLuca();
+  return <>{children}</>;
 }
 
 /**
@@ -170,14 +189,16 @@ export function PopoutApp() {
             <KnownAgentPubkeysProvider>
               <HuddleProvider>
                 <PopoutChannelNavigation>
-                  <EmojiBurstProvider>
-                    <PoofBurstProvider>
-                      <PopoutAppShellContext>
-                        <RouterProvider router={router} />
-                      </PopoutAppShellContext>
-                      <Toaster />
-                    </PoofBurstProvider>
-                  </EmojiBurstProvider>
+                  <PopoutCanonicalLuca>
+                    <EmojiBurstProvider>
+                      <PoofBurstProvider>
+                        <PopoutAppShellContext>
+                          <RouterProvider router={router} />
+                        </PopoutAppShellContext>
+                        <Toaster />
+                      </PoofBurstProvider>
+                    </EmojiBurstProvider>
+                  </PopoutCanonicalLuca>
                 </PopoutChannelNavigation>
               </HuddleProvider>
             </KnownAgentPubkeysProvider>
