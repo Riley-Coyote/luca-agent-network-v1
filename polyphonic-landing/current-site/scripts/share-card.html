@@ -1,23 +1,24 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>Polyphonic share card</title>
+<!-- The v3 hero, at 1200x630. Render with scripts/share-card.mjs; it writes assets/share/polyphonic-beta.png. -->
 <style>
-@font-face{font-family:"Inter";src:url(../assets/fonts/inter.woff2) format("woff2");font-weight:100 900;font-display:block}
-@font-face{font-family:"JetBrains Mono";src:url(../assets/fonts/jetbrains-mono.woff2) format("woff2");font-weight:300 500;font-display:block}
-html,body{margin:0;background:#060608}
-.card{position:relative;width:1200px;height:630px;overflow:hidden;background:#060608;color:rgba(236,232,224,.92);font-family:"Inter",system-ui,sans-serif;font-weight:300;-webkit-font-smoothing:antialiased}
-.card:after{content:"";position:absolute;inset:0;background:radial-gradient(ellipse 70% 55% at 50% 100%,rgba(236,232,224,.05),transparent 70%);pointer-events:none}
-.brand{position:absolute;left:84px;top:76px;display:flex;align-items:center;gap:14px;font-size:24px;font-weight:300;letter-spacing:-.01em}
-.brand img{width:32px;height:32px;display:block}
-.title{position:absolute;left:80px;top:196px;margin:0;font-weight:200;font-size:132px;line-height:1.04;letter-spacing:-.02em;color:rgba(236,232,224,.92)}
-.word{position:absolute;left:84px;top:342px;margin:0;font:200 119px/1.04 "Inter",system-ui,sans-serif;letter-spacing:-.02em;color:rgba(236,232,224,.92)}
-.meta{position:absolute;left:84px;right:84px;bottom:74px;display:flex;justify-content:space-between;align-items:baseline;font:400 17px "JetBrains Mono",monospace;letter-spacing:.28em;text-transform:uppercase;color:rgba(236,232,224,.4)}
-.meta .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#c9a23a;margin-right:14px;vertical-align:middle;position:relative;top:-2px}
-.meta .url{letter-spacing:.08em;text-transform:none;color:rgba(236,232,224,.56)}
+@font-face{font-family:'Instrument Sans';src:url(../assets/fonts/instrument-sans.woff2) format('woff2');font-weight:400 700;font-display:block}
+@font-face{font-family:'Fragment Mono';src:url(../assets/fonts/fragment-mono.woff2) format('woff2');font-weight:400;font-display:block}
+html,body{margin:0;background:#000}
+.card{position:relative;width:1200px;height:630px;overflow:hidden;background:#000;color:#E4E4E0;font-family:'Instrument Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.brand{position:absolute;left:80px;top:72px;display:flex;align-items:center;gap:14px;font-size:26px;font-weight:500;letter-spacing:-.01em}
+.brand svg{width:30px;height:30px;display:block;flex:none}
+.title{position:absolute;left:80px;right:80px;top:188px;margin:0;font-size:98px;font-weight:500;line-height:.97;letter-spacing:-.042em;color:#E4E4E0}
+.sub{position:absolute;left:80px;right:180px;top:414px;margin:0;font-size:25px;font-weight:400;line-height:1.5;letter-spacing:-.006em;color:#B4B4B4}
+.meta{position:absolute;left:80px;right:80px;bottom:70px;display:flex;justify-content:space-between;align-items:baseline;font-family:'Fragment Mono',monospace;font-size:16px;letter-spacing:.16em;text-transform:uppercase;color:#7E7E7E}
+.meta .url{letter-spacing:.04em;text-transform:none}
+.rule{position:absolute;left:80px;right:80px;bottom:126px;height:1px;background:#232323}
 </style>
 <div class="card">
-  <div class="brand"><img src="../assets/brand/polyphonic-solid.svg" alt=""><span>Polyphonic</span></div>
-  <h1 class="title">Your agents,</h1>
-  <p class="word">together.</p>
-  <div class="meta"><span><span class="dot"></span>Beta · macOS</span><span class="url">polyphonic.chat/beta</span></div>
+  <div class="brand"><svg viewBox="0 0 7 7" fill="currentColor" aria-hidden="true"><path d="M0.3 0H1V1H0.3A0.3 0.3 0 0 1 0 0.7V0.3A0.3 0.3 0 0 1 0.3 0Z M1 0H2V1H1V0Z M2 0H2.7A0.3 0.3 0 0 1 3 0.3V1H2V0Z M4.3 0H5V1H4V0.3A0.3 0.3 0 0 1 4.3 0Z M5 0H6V1H5V0Z M6 0H6.7A0.3 0.3 0 0 1 7 0.3V0.7A0.3 0.3 0 0 1 6.7 1H6V0Z M2 1H3V2H2V1Z M3 1H4V2H3V1Z M4 1H5V2H4V1Z M2 2H3V3H2V2Z M4 2H5V3H4V2Z M0.3 3H1V4H0V3.3A0.3 0.3 0 0 1 0.3 3Z M1 3H2V4H1V3Z M2 3H3V3.7A0.3 0.3 0 0 1 2.7 4H2V3Z M4 3H5V4H4.3A0.3 0.3 0 0 1 4 3.7V3Z M5 3H6V4H5V3Z M6 3H6.7A0.3 0.3 0 0 1 7 3.3V4H6V3Z M0 4H1V5H0V4Z M6 4H7V5H6V4Z M0 5H1V6H0V5Z M6 5H7V6H6V5Z M0 6H1V6.7A0.3 0.3 0 0 1 0.7 7H0.3A0.3 0.3 0 0 1 0 6.7V6Z M6 6H7V6.7A0.3 0.3 0 0 1 6.7 7H6.3A0.3 0.3 0 0 1 6 6.7V6Z"></path></svg><span>Polyphonic</span></div>
+  <h1 class="title">One home for your agents.</h1>
+  <p class="sub">Claude Code, Codex and the agents you already run, in one place on your Mac.</p>
+  <div class="rule"></div>
+  <div class="meta"><span>Beta · macOS</span><span class="url">polyphonic.chat/beta</span></div>
 </div>
