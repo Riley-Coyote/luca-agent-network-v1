@@ -1,6 +1,7 @@
 import type { ParsedMessageLink } from "@/features/messages/lib/messageLink";
 import type { Channel } from "@/shared/api/types";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
+import type { StreamingTextEffect } from "../markdownStreamingText";
 import type { VideoReviewContext } from "../VideoPlayer";
 
 export type ImetaEntry = {
@@ -64,6 +65,11 @@ export type MarkdownProps = {
   searchQuery?: string;
   /** Parse only completed blocks while an in-flight public response grows. */
   streaming?: boolean;
+  /**
+   * How a streamed reply's words arrive. Read only while `streaming` is set —
+   * a settled row and every history row render exactly as they did before.
+   */
+  streamingTextEffect?: StreamingTextEffect;
   /** Retain the progressive block tree after a managed response is signed. */
   progressive?: boolean;
   /** Display name shown in shared-agent card metadata. */

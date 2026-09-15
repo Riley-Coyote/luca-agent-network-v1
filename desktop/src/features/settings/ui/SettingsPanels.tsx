@@ -33,6 +33,11 @@ import {
   useChatMarkAppearance,
   type ChatMarkStyle,
 } from "@/features/messages/lib/chatMarkAppearancePreference";
+import {
+  setStreamingTextEffect,
+  useStreamingTextEffect,
+} from "@/features/messages/lib/streamingTextPreference";
+import type { StreamingTextEffect } from "@/shared/ui/markdownStreamingText";
 import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
 import { cn } from "@/shared/lib/cn";
 import { Switch } from "@/shared/ui/switch";
@@ -640,6 +645,17 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   );
 }
 
+/** Label and one line of help for each streaming-text choice. */
+const STREAMING_TEXT_CHOICES = [
+  ["bloom", "Bloom", "Words land a touch large and settle."],
+  ["diffusion", "Diffusion", "Words condense out of the page."],
+  ["off", "Off", "Text appears as it arrives."],
+] as const satisfies readonly (readonly [
+  StreamingTextEffect,
+  string,
+  string,
+])[];
+
 function ConversationAppearanceSettings({
   currentPubkey,
 }: {
@@ -647,6 +663,7 @@ function ConversationAppearanceSettings({
 }) {
   const agentNamesInMessages = useAgentNamesInMessages(currentPubkey);
   const chatMarks = useChatMarkAppearance(currentPubkey);
+  const streamingText = useStreamingTextEffect(currentPubkey);
 
   return (
     <div className="mt-8">
@@ -725,6 +742,37 @@ function ConversationAppearanceSettings({
                 disabled={!currentPubkey || !chatMarks.visible}
                 key={style}
                 onClick={() => setChatMarkAppearance(currentPubkey, { style })}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+        </SettingsOptionRow>
+        <SettingsOptionRow className="flex-wrap border-t border-border/30">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Streaming text</p>
+            <p className="text-sm font-normal text-muted-foreground">
+              {STREAMING_TEXT_CHOICES.find(
+                ([value]) => value === streamingText,
+              )?.[2] ?? ""}
+            </p>
+          </div>
+          <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
+            <legend className="sr-only">Streaming text</legend>
+            {STREAMING_TEXT_CHOICES.map(([value, label]) => (
+              <button
+                aria-pressed={streamingText === value}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  streamingText === value
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                data-testid={`streaming-text-${value}`}
+                disabled={!currentPubkey}
+                key={value}
+                onClick={() => setStreamingTextEffect(currentPubkey, value)}
                 type="button"
               >
                 {label}

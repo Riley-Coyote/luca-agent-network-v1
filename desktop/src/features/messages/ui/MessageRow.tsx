@@ -77,6 +77,7 @@ import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
+import { useStreamingTextEffect } from "@/features/messages/lib/streamingTextPreference";
 import { InChatAgentMark } from "./InChatAgentMark";
 
 const DiffMessage = React.lazy(() => import("./DiffMessage"));
@@ -287,6 +288,7 @@ export const MessageRow = React.memo(
     const identityQuery = useIdentityQuery();
     const ownerPubkey = identityQuery.data?.pubkey;
     const chatMarkAppearance = useChatMarkAppearance(ownerPubkey);
+    const streamingTextEffect = useStreamingTextEffect(ownerPubkey);
     const isOwnMessage = Boolean(
       ownerPubkey &&
         message.pubkey &&
@@ -588,6 +590,7 @@ export const MessageRow = React.memo(
               searchQuery={searchQuery}
               snapshotSharedBy={snapshotSharedBy}
               streaming={message.managedPresentation?.streaming ?? false}
+              streamingTextEffect={streamingTextEffect}
               videoReviewContext={videoReviewContext}
             />
           );

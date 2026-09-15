@@ -14,6 +14,7 @@ import remarkMentions from "@/shared/lib/remarkMentions";
 import remarkExpressionColors from "@/shared/lib/remarkExpressionColors";
 import remarkSpoilers from "@/shared/lib/remarkSpoilers";
 
+import rehypeStreamingWords from "../markdownStreamingText";
 import { messageLinkUrlTransform } from "./utils";
 
 /**
@@ -68,6 +69,12 @@ export type MarkdownParseInputs = {
   customEmoji?: CustomEmoji[];
   mentionNames?: string[];
   searchQuery?: string;
+  /**
+   * Wrap every prose word in an inline-block span so a streaming row can give
+   * each word its own clock. Folded into `variant` by the caller, so a parse
+   * made with spans can never be reused for one made without them.
+   */
+  streamWords?: boolean;
   variant: string;
 };
 
@@ -88,6 +95,9 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   if (input.searchQuery && input.searchQuery.trim().length >= 2) {
     rehypePlugins.push([rehypeSearchHighlight, { query: input.searchQuery }]);
   }
+  // Last, so every other pass has already settled its own elements and this
+  // one only ever splits the text that survived them.
+  if (input.streamWords) rehypePlugins.push(rehypeStreamingWords);
   // Called as a plain function rather than rendered as <ReactMarkdown/>:
   // react-markdown's `Markdown` is synchronous and hook-free (the hook
   // variant is `MarkdownHooks`), so this returns the parsed element tree

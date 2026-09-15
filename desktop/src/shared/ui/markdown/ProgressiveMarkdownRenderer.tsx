@@ -1,5 +1,9 @@
 import * as React from "react";
 
+import {
+  STREAMING_WORD_ATTRIBUTE,
+  STREAMING_WORD_CLASS,
+} from "../markdownStreamingText";
 import { renderUncachedMarkdown, type MarkdownParseInputs } from "./nodeCache";
 import {
   advanceProgressiveMarkdownSnapshot,
@@ -14,6 +18,29 @@ export type ProgressiveMarkdownRendererProps = Omit<
 > & {
   content: string;
 };
+
+/**
+ * The literal tail is raw text, not a parse, so the rehype word pass never
+ * reaches it. Split it here on the same terms: an unfinished `**bold` would
+ * otherwise show its words plain and then animate them a second time once the
+ * block completes and the parse takes over.
+ */
+function streamingWordNodes(text: string): React.ReactNode {
+  return text.split(/(\s+)/).map((part, index) =>
+    part.trim() ? (
+      <span
+        className={STREAMING_WORD_CLASS}
+        // biome-ignore lint/suspicious/noArrayIndexKey: positional by design — word identity is its place in the text
+        key={index}
+        {...{ [STREAMING_WORD_ATTRIBUTE]: "" }}
+      >
+        {part}
+      </span>
+    ) : (
+      part
+    ),
+  );
+}
 
 function shallowArrayEqual(
   left: readonly string[] | undefined,
@@ -78,6 +105,7 @@ const ProgressiveMarkdownBlockNode = React.memo(
     components,
     customEmoji,
     mentionNames,
+    streamWords,
     variant,
   }: ProgressiveMarkdownBlockNodeProps) {
     if (!block.content.trim()) return null;
@@ -89,6 +117,7 @@ const ProgressiveMarkdownBlockNode = React.memo(
           content: block.content,
           customEmoji,
           mentionNames,
+          streamWords,
           variant,
         })}
       </React.Fragment>
@@ -140,7 +169,7 @@ function ProgressiveMarkdownTail({
   if (progressiveMarkdownTailMode(content) === "literal") {
     return (
       <p className="whitespace-pre-wrap" data-streaming-tail="">
-        {content}
+        {parseInputs.streamWords ? streamingWordNodes(content) : content}
       </p>
     );
   }

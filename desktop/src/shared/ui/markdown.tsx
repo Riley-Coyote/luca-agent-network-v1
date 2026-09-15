@@ -120,7 +120,9 @@ import {
 } from "./markdown/runtimeContext";
 import { AgentSnapshotCard } from "./markdown/AgentSnapshotCard";
 import { resolveFileCard, resolveSnapshotCard } from "./markdownFileCard";
+import { STREAMING_EFFECT_ATTRIBUTE } from "./markdownStreamingText";
 import type { MarkdownProps, MarkdownRuntime } from "./markdown/types";
+import { useStreamingWordEffect } from "./useStreamingWordEffect";
 import { SpoilerInline } from "./markdown/SpoilerInline";
 import {
   imageReserveStyle,
@@ -1870,8 +1872,17 @@ function MarkdownInner({
   searchQuery,
   snapshotSharedBy,
   streaming = false,
+  streamingTextEffect = "off",
   videoReviewContext,
 }: MarkdownProps) {
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  // A streamed reply's words arrive one at a time. Everything else — settled
+  // managed rows, history, every other Markdown surface — passes `off` and
+  // takes the idle path: no spans in the parse, no frame loop, no attribute.
+  const streamingWords = useStreamingWordEffect(rootRef, {
+    active: streaming,
+    effect: streamingTextEffect,
+  });
   const { channels: rawChannels } = useChannelNavigation();
   const channels = useStableArray(rawChannels);
   const { goChannel, goAgents } = useAppNavigation();
@@ -1961,6 +1972,12 @@ function MarkdownInner({
   // When a config-nudge suppresses the prose (selectProseOrNudge returns
   // null), skip the parse entirely — it would be thrown away unrendered.
   const componentSet = getMarkdownComponents(mediaInset);
+  // The word pass changes the parse, so it has to change the parse identity
+  // too: the progressive block memos and the node cache both key on `variant`.
+  const streamWords = streamingWords.wordSpans;
+  const parseVariant = streamWords
+    ? `${componentSet.variant}:w`
+    : componentSet.variant;
   const progressiveMode = progressive || streaming;
   const markdownNode =
     configNudge !== null ? null : progressiveMode ? (
@@ -1970,7 +1987,8 @@ function MarkdownInner({
         content={processedContent}
         customEmoji={customEmoji}
         mentionNames={mentionNames}
-        variant={componentSet.variant}
+        streamWords={streamWords}
+        variant={parseVariant}
       />
     ) : (
       renderCachedMarkdown({
@@ -1980,12 +1998,14 @@ function MarkdownInner({
         customEmoji,
         mentionNames,
         searchQuery,
-        variant: componentSet.variant,
+        variant: parseVariant,
       })
     );
 
   return (
     <div
+      {...{ [STREAMING_EFFECT_ATTRIBUTE]: streamingWords.effectAttribute }}
+      ref={rootRef}
       className={cn(
         MESSAGE_MARKDOWN_CLASS,
         [
@@ -2052,6 +2072,7 @@ export const Markdown = React.memo(
     prev.searchQuery === next.searchQuery &&
     prev.progressive === next.progressive &&
     prev.streaming === next.streaming &&
+    prev.streamingTextEffect === next.streamingTextEffect &&
     prev.snapshotSharedBy === next.snapshotSharedBy &&
     prev.videoReviewContext === next.videoReviewContext,
 );

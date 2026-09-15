@@ -1,0 +1,45 @@
+/*
+ * Streamed replies arrive word by word. The rehype pass wraps each prose word
+ * in a span so one clock can drive its own progress; these rules carry the two
+ * things that must not be written per-frame from script.
+ */
+
+.md-stream-word {
+  /* A transform only moves a box that has one. Inline spans do not. */
+  display: inline-block;
+  /* Long unbroken tokens (URLs, hashes) still have to break inside the word. */
+  overflow-wrap: anywhere;
+}
+
+/*
+ * Bloom grows a word past its layout box without reserving any of that room,
+ * so adjacent words collide while in flight. The row opens up for the whole
+ * stream and eases shut once the last word has settled — the transition lives
+ * on the attribute so removing the value animates it back.
+ */
+[data-md-stream-effect] {
+  transition: word-spacing 300ms var(--motion-ease-standard, ease-out);
+}
+
+[data-md-stream-effect="bloom"] {
+  word-spacing: 0.22em;
+}
+
+[data-md-stream-effect="settling"] {
+  word-spacing: normal;
+}
+
+/* word-spacing inherits; code must keep its own metrics. */
+[data-md-stream-effect] :where(pre, code, kbd, samp, [data-code-block]) {
+  word-spacing: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-md-stream-effect] {
+    transition: none;
+  }
+
+  [data-md-stream-effect="bloom"] {
+    word-spacing: normal;
+  }
+}
