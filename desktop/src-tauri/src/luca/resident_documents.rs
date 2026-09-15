@@ -1102,7 +1102,14 @@ pub(crate) fn repin_soul_for_record(
     }
     let dir = ensure_resident_dir(app, &record.pubkey)?;
     repin_soul_in_dir(&dir, record.system_prompt.as_deref(), old_pin)?;
-    if let Some(persona_id) = record.persona_id.as_deref() {
+    // A native resident's documents are the runtime's own files — cloned
+    // from an OpenClaw or Hermes workspace we never authored — so there is
+    // no shipped text of ours there to move forward.
+    if let Some(persona_id) = record
+        .persona_id
+        .as_deref()
+        .filter(|_| native_layout_for(Some(record)).is_none())
+    {
         let refreshed = refresh_founding_documents(&dir, persona_id)?;
         if !refreshed.is_empty() {
             eprintln!(

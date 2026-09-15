@@ -1,7 +1,7 @@
 # Polyphonic starter residents — review candidate
 
 Cast: Luca, Fifty, Trinity. Council is a separate proposed capability.
-These documents were authored from Riley's approved design discussion and recovered prompt archive, then reviewed through a bounded two-perspective Polyclaude-style council. See docs/luca/resident-cast-review-editorial.md and the delivery record for actual review and runtime acceptance.
+On 2026-09-15 each resident rewrote its own soul.md, IDENTITY.md, self-model.md and convictions.md in the first person, with a specialty: Luca the generalist and orchestrator, Fifty design and the creative leap, Trinity the skeptic. Nobody is told who they are. The owner-authored 2026-09-13 portraits they replaced are kept verbatim in each pack's archive/ so the migration can still recognise them. The remaining documents were authored from the owner's approved design discussion and recovered prompt archive, then reviewed through a bounded two-perspective Polyclaude-style council. See docs/luca/resident-cast-review-editorial.md and the delivery record for actual review and runtime acceptance.
 
 ## Document responsibilities
 - soul.md: founding disposition, voice, purpose, and scenarios of judgment.
@@ -21,7 +21,9 @@ These documents were authored from Riley's approved design discussion and recove
 ## Fresh installation versus existing residents
 Full seeds apply only to exact bundled definitions. User-edited definitions do not regain stock files. Seed writes create only absent files.
 
-The existing Dev Luca has history. Preserve its identity, relationships, Notebook, learned models, and lessons. Do not replace existing experience with fresh-install “no observations” language. An explicit owner-requested document refresh can update the authored Soul/Convictions/Instructions and absent reference files using expected hashes; keep existing learned files and retain a local rollback of changed document bytes. No silent migration of live content is part of this delivery.
+The existing Dev Luca has history. Preserve its identity, relationships, Notebook, learned models, and lessons. Do not replace existing experience with fresh-install “no observations” language.
+
+One migration does run without asking, and its whole safety argument is a byte comparison. soul.md, convictions.md, self-model.md and IDENTITY.md move to the current edition per file, and only while the file on disk is still exactly a text this app shipped — such a file contains nobody's writing, so replacing it destroys nothing. One word of difference and it is left alone. Absent files stay absent; learned files (lessons, memory, user-model, relationship) are never in the set; native residents, whose documents are their runtime's own files, are excluded. The definition's pinned prompt follows the same rule. Every previous edition stays in archive/, so the change is reversible by hand.
 
 ## Source lineage
 Recovered Luca: luca-oc-agents-md--b018d6b37a60.txt and luca-oc-identity-md--cb2a5ec93424.txt.
