@@ -76,3 +76,53 @@ Copy decisions: no support matrix. The page says "Start with Claude Code or Code
 ## Provenance and verification
 
 Copied from the active `polyphonic-landing-production` design folder, not an older prototype. The original preview remains available separately. Source assets were compared by hash during transfer. Audit documents describe prior passes; they are historical evidence, not a fresh certification of every interaction. Selected screenshots are included for layout reference. Exploratory logo studies are not production requirements.
+
+---
+
+## v3 (14 September 2026)
+
+**The page changed wholesale.** Everything above this line describes the seven-window beta page.
+That page is gone. `index.html`, `assets/site.css` and `assets/site.js` were rewritten for the v3
+design; `assets/demo.js`, `assets/demo.css`, `assets/effects.js`, `assets/luca-sigil-engine.js`,
+`assets/dot-display.js`, `assets/mnemos-scenes.js`, `assets/brand/**` and `scripts/verify-demo.mjs`
+were deleted with it. Read the "v3" section of `README.md` first; it is the current description.
+
+**What to preserve.**
+
+- **The page makes no third-party requests.** No CDN, no Google Fonts, no framework, no analytics.
+  If you are tempted to add one, don't — `verify.mjs` fails the build on any host but the origin,
+  at 320, 390, 768, 1024 and 1440.
+- **Identity marks are pre-rendered.** `scripts/glyphs.mjs` emits the SVG path for each seed at
+  authoring time and the paths are inlined in `index.html`. Never ship the glyph engine or a public
+  key to the browser; `verify.mjs` asserts there is no `identityGlyph`/`glyphToSvgPath` in
+  `site.js` and no 64-hex string anywhere in the bundle. Seeds are as WP-15: Luca by his key,
+  Fifty and Trinity from their embedded 49-bit cell strings, everyone else by lowercase name.
+- **The signup contract is unchanged** — see the section above. It is the same implementation,
+  attached to the v3 form: `window.POLYPHONIC_CONFIG` from `assets/config.js`, honeypot `#website`
+  (hidden, `autocomplete="off"`, `tabindex="-1"`), `source: 'polyphonic-beta'`, a 12s timeout, the
+  statuses `subscribed` / `already_subscribed` / `confirmation_required`, a retry message on
+  failure, no concurrent requests, and with no endpoint the form says so and sends nothing. The
+  markup around it changed; nothing in the contract did.
+- **The replay must not move the frame.** Paragraph heights are reserved by a hidden ghost span,
+  and the typing dots and typed text are absolute overlays on that box. If you make the dots a row
+  of their own again, the frame shrinks by 30px when they disappear.
+- **The three documented deviations** from the prototype (phone nav below 640px, faint text at
+  `#848484`, `:focus-visible` only) are deliberate and are covered by checks.
+
+**Deploy.** Unchanged, except that `BASE_PATH=/beta/` now rewrites `site.js` and `site.css`
+(it used to rewrite `demo.js`, which no longer exists — that was a build break, fixed):
+
+```sh
+BASE_PATH=/beta/ PUBLISH=1 SIGNUP_ENDPOINT=https://... \
+  PRIVACY_URL=https://polyphonic.chat/privacy npm run build
+# then copy dist/ over polyphonic-v2/public/beta/ and push main
+```
+
+**Verify.** `VERIFY_ORIGIN=http://127.0.0.1:<port> npm run verify`. The origin is a variable now;
+do not hard-code a port into the scripts again.
+
+**Links.** Nav goes to `#how`, `#agents`, `#beta`; both pills to `#beta`; "See how it works →" to
+`#how`. The footer's "Source on GitHub" points at `https://github.com/Riley-Coyote/mnemos`
+(**Riley to confirm this is the right public repo**). "Write to us" is deliberately **absent**
+until there is an address to use — no dead links. Privacy comes from `config.privacyUrl` and is
+hidden when that is empty.

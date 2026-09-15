@@ -6,9 +6,9 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "start": "node scripts/serve.mjs",
-    "verify": "node scripts/verify.mjs && node scripts/verify-demo.mjs && node scripts/verify-release.mjs",
+    "verify": "node scripts/verify.mjs && node scripts/verify-release.mjs",
     "capture": "node scripts/capture.mjs",
-    "audit:performance": "lighthouse http://127.0.0.1:8744/ --chrome-flags=\"--headless\" --output=json --output-path=audit/lighthouse-mobile-final.json --quiet"
+    "audit:performance": "lighthouse ${VERIFY_ORIGIN:-http://127.0.0.1:8744}/ --chrome-flags=\"--headless\" --output=json --output-path=audit/lighthouse-mobile-final.json --quiet"
   },
   "engines": {
     "node": ">=20"

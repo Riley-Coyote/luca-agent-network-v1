@@ -93,7 +93,10 @@ button,input{font-family:inherit}
 
 /* ---- the shell ---- tokens resolved from the app's source under vitesse-black; row states from
    its conversation-shell.css; online green is PresenceDot's bg-emerald-500. */
-[data-pp-shell]{--mn-raised:0 0% 8.6%;--mn-border:60 2.22% 17.6%;--mn-ink:44 12% 75.5%;--mn-ink-muted:50 5.88% 60%;--mn-ink-faint:48 3.97% 50.6%;--mn-ink-ghost:42.9 3.74% 36.7%;--mn-online:oklch(69.6% .17 162.48)}
+/* The shell's tokens come from the app's own source. ink-faint is the one exception: at the
+   app's 50.6% it measures 4.43:1 on the selected chat row's #1f1e1e ground, so it is 54%
+   (measured 4.86:1 there). Same legibility deviation as --t2/--t3 above. */
+[data-pp-shell]{--mn-raised:0 0% 8.6%;--mn-border:60 2.22% 17.6%;--mn-ink:44 12% 75.5%;--mn-ink-muted:50 5.88% 60%;--mn-ink-faint:48 3.97% 54%;--mn-ink-ghost:42.9 3.74% 36.7%;--mn-online:oklch(69.6% .17 162.48)}
 [data-pp-row]{display:flex;align-items:center;gap:10px;width:100%;min-height:30px;padding:0 8px;border:1px solid transparent;border-radius:8px;background:transparent;color:hsl(var(--mn-ink-muted));font:inherit;text-align:left;cursor:pointer}
 [data-pp-row]:not([data-active="true"]):hover{background:hsl(var(--mn-ink) / .045);color:hsl(var(--mn-ink))}
 [data-pp-row][data-open="true"]{background:hsl(var(--mn-ink) / .06);color:hsl(var(--mn-ink))}

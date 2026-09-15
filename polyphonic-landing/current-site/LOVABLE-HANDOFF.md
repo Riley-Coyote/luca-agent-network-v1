@@ -71,3 +71,50 @@ The demonstration uses fictional presentational components, not exact native cap
 6. Repeat keyboard/mobile/popout checks on the deployed domain. Check real browser zoom and screen-reader operation, and rerun performance after adding third-party services.
 
 Suggested integration prompt: “Integrate this existing Polyphonic page without redesigning it. Preserve its fonts, spacing, responsive layout and deterministic interactive demo. Connect the email form using the contract in LOVABLE-HANDOFF.md, keep secrets server-side, and implement the remaining domain/privacy/metadata configuration. Compare against the included source and rerun the documented checks before publishing.”
+
+---
+
+## v3 (14 September 2026)
+
+The beta page was replaced wholesale by the v3 design. Everything above describes the page it
+replaced. What matters for integration:
+
+**It is static.** `index.html` + `assets/site.css` + `assets/site.js` + local fonts. No CDN, no
+Google Fonts, no framework, no build step beyond `scripts/build.mjs`. The page must keep making
+**zero third-party requests**; that is checked at five viewport widths and fails the verify run.
+
+**Preserve during integration**
+
+- The signup markup ids: `#beta-form`, `#email`, `#signup-submit`, `#signup-note`, the honeypot
+  `#website`, and `#privacy-slot`. The signup contract is unchanged from the previous page — same
+  endpoint, same `source: 'polyphonic-beta'`, same statuses, same 12s timeout, same
+  no-endpoint behaviour. Only the surrounding markup changed.
+- The cache-busting query on `site.css` and `site.js` (`?v=20260914-wp18-1`). Bump it when either
+  file changes.
+- The preloaded local fonts and their `crossorigin` attribute. Dropping the preload reintroduces a
+  layout shift on first paint.
+- `:focus-visible` styling. Do not add a focus ring on mouse click.
+- The `<meta name="robots" content="noindex, nofollow">` line in the source: `PUBLISH=1` removes it
+  at build time and the build throws if it cannot find it.
+
+**Serving under /beta/**
+
+```sh
+BASE_PATH=/beta/ PUBLISH=1 SIGNUP_ENDPOINT=https://... \
+  PRIVACY_URL=https://polyphonic.chat/privacy npm run build
+```
+
+This rewrites every `assets/` reference in `index.html`, `site.js` and `site.css` to `/beta/assets/`.
+Verified by serving `dist/` under a `/beta/` prefix and confirming every request returns 200.
+
+**Final checks after integration**
+
+```sh
+PORT=<port> npm start
+VERIFY_ORIGIN=http://127.0.0.1:<port> npm run verify
+```
+
+Green means: no third-party requests, clean console, no horizontal overflow at 320–1440, both fonts
+loaded, the shell and its replay behaving, the rooms rail steady, reduced motion honoured, every
+text node at 4.5:1 or better, no axe violations, and the whole signup contract exercised against
+intercepted fixtures.

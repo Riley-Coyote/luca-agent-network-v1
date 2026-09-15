@@ -76,3 +76,80 @@ npm run audit:performance
 Lighthouse uses installed Chrome; set `CHROME_PATH` if it cannot locate a browser. Verification uses local intercepted signup responses and test-only addresses, never an external signup account.
 
 Read `audit/DELIVERY.md` for the measured results and remaining limits. Browser automation and screenshots complement manual visual inspection; they are not proof of complete accessibility conformance or field performance.
+
+---
+
+## v3 (14 September 2026)
+
+The page is now the v3 design that replaced the seven-window beta page wholesale. It ships as
+static HTML, one stylesheet and one vanilla-JS file, and it makes **no third-party requests** — no
+CDN, no Google Fonts, no framework. The design prototype it was ported from built itself in the
+browser from React and Babel over unpkg; none of that ships.
+
+**What the page is.** One scroll: hero, a working model of the app shell, five feature sections
+(how it works, the agents it works with, memory under one roof, working together, staying in
+control), the rooms rail, the commons, the agents' own voices, and the beta signup. Nine sections,
+`#top #preview #how #agents #memory #together #control #rooms #commons #voices #beta`.
+
+**How it is built.**
+
+- `index.html` carries the markup and the identity marks. The marks are **pre-rendered**: the
+  glyph generator lives in `scripts/glyphs.mjs` and is run at authoring time, and only the finished
+  `<svg viewBox="0 0 7 7">` paths are in the page. No glyph code and no public key reaches the
+  browser (`verify.mjs` asserts both).
+- `assets/site.css` holds the tokens and layout; `assets/site.js` holds the behaviour — the shell's
+  rail and chats column, Luca's `morning` replay, the Brain source toggles, the permission strip,
+  the rooms rail and the scroll reveals. Both are cache-busted with `?v=20260914-wp18-1`.
+- Fonts are local and preloaded: `assets/fonts/instrument-sans.woff2` (variable 400–700) and
+  `assets/fonts/fragment-mono.woff2`. Inter, Doto and JetBrains Mono remain in the repo with their
+  licences but are no longer loaded by the page.
+- The old page's files are gone: `assets/demo.js`, `assets/demo.css`, `assets/effects.js`,
+  `assets/luca-sigil-engine.js`, `assets/dot-display.js`, `assets/mnemos-scenes.js`,
+  `assets/brand/**` and `scripts/verify-demo.mjs`.
+
+**Motion.** The replay runs **once**, when the shell first scrolls into view, and leaves the
+finished state behind. Every paragraph's height is reserved before it types — the typing dots and
+the typed text are absolute overlays on an already-sized box — so the conversation frame does not
+move while it plays (measured: 480px before, during and after). The rooms rail is one rAF chain at
+a constant ~19 px/s; it ignores scroll, does not pause on hover, and does not speed up when a
+backgrounded tab comes back. Under `prefers-reduced-motion: reduce` all of it collapses: reveals
+are shown at once, the rail is static, and the replay's finished state is there from the start.
+
+**Three deviations from the prototype, all legibility.**
+
+1. Below 640px the three nav text links hide and the "Get the beta" pill stays, pointing at
+   `#beta`. The prototype pushed them off-screen below ~550px.
+2. The prototype's `#565656` faint text is raised. `#7E7E7E` was the intended value, but it
+   measures 4.46:1 on the `#161616` card ground the feed rows actually sit on, so the token is
+   `#848484` — measured 5.62 on `#000`, 5.16 on `#0E0E0E`, 4.84 on `#161616`.
+3. Focus is `:focus-visible` only; the prototype's ring on mouse click is gone.
+
+**Build and publish.** Unchanged in shape:
+
+```sh
+npm run build                       # local preview: indexing blocked, no signup endpoint
+BASE_PATH=/beta/ PUBLISH=1 \
+  SIGNUP_ENDPOINT=https://... \
+  PRIVACY_URL=https://polyphonic.chat/privacy npm run build
+```
+
+`BASE_PATH=/beta/` rewrites `assets/` references in `index.html`, `site.js` and `site.css`. It is
+proved by serving `dist/` under a `/beta/` prefix and checking every request returns 200
+(`beta_prefix_build` in the checks).
+
+**Verify.** `scripts/verify.mjs` was rewritten for this page and takes its origin from
+`VERIFY_ORIGIN` (default `http://127.0.0.1:8744`), so no one has to edit a port into the file:
+
+```sh
+PORT=8749 npm start
+VERIFY_ORIGIN=http://127.0.0.1:8749 npm run verify
+```
+
+It measures, in a real browser: third-party requests at five widths, a clean console, no
+horizontal overflow, the phone nav, that both fonts really load (by `measureText`) and that cold-load
+CLS stays near zero, the replay running once without moving the frame, rail and project selection,
+the chats column, conversation switching, the shell breakpoints, the Brain toggles, the permission
+strip, the rooms rail's speed and its indifference to hover and to a hide/show, the reveals,
+reduced motion, the contrast of every text node, axe, the whole signup contract against intercepted
+fixtures, the links and metadata, and that no glyph code or 64-hex key ships. `verify-demo.mjs` is
+gone from the chain.

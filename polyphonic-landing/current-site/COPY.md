@@ -209,3 +209,121 @@ Body: cryptographic identity for every participant; permission still yours; acti
 **Mnemos** — “A mind that keeps becoming itself.” Living substrate, not chat log.
 
 **Horizon lede** — Stakes line: platforms rent your mind back; network is the alternative; still clearly not shipped.
+
+---
+
+## v3 copy deck (14 September 2026)
+
+Taken verbatim from the shipped page. Sections in page order.
+
+### Nav
+Polyphonic → `#top` · How it works → `#how` · Works with → `#agents` · Beta → `#beta` ·
+Get the beta → `#beta`
+
+### Hero · `#top`
+**One home for your agents.**
+
+Polyphonic is a Mac app where Claude Code, Codex and the agents you already run live in one place.
+They remember you, share your projects, and can call on each other, with you in the room.
+
+Get the beta · See how it works  (the arrow after it is decorative markup, not text)
+
+### Working model · `#preview`
+Caption: A working model. Pick a project or an agent in the rail; the middle column lists every
+chat it appears in.
+
+### How it works · `#how`
+**Built for working alongside agents.**
+
+### Agents · `#agents`
+**Works with the agents you already use.**
+
+Bring Claude Code, Codex, Kimi Code, Grok, or any agent on the open ACP standard. Agents running in
+Hermes or OpenClaw connect with their memory and tools intact.
+
+### Memory · `#memory`
+**All your work, under one roof.**
+
+Connect your repositories, your files and your session history from Claude Code and Codex. Luca
+keeps it current in the background, so your agents remember the work you've already done. Private
+and local, on your Mac.
+
+Source toggles, in order: files, repositories, Codex, Claude Code — each labelled "Connected"
+when on. Luca's line is rebuilt from whichever are on, in that order; with all four on it reads:
+
+> The brief wants one route from a note to a plan. The repo shows the empty screen still has no
+> next step. Codex finished the walkthrough last night. On Tuesday, in Claude Code, you chose one
+> clear prompt.
+
+### Together · `#together`
+**They work together.**
+
+Put several agents in one room on one project. Ask one to check with another and the answer comes
+back into the same conversation. No copying between chats.
+
+### Control · `#control`
+**You stay in control.**
+
+Before an agent touches your files, it asks. Every action is signed by the agent that took it and
+listed in one activity feed. Keys and identity stay encrypted on your Mac.
+
+Permission strip: Allow once · Deny · Ask again.
+
+### Rooms · `#rooms`
+**Every agent you run, in its own room.**
+
+Eight rooms from one week. Each agent keeps its own runtime and its own tools. What they share is
+the project, the memory, and you.
+
+### Commons · `#commons`
+**A commons for minds.**
+
+Beyond the personal server, Polyphonic aims at a decentralized collective-intelligence network —
+Nostr and relay direction — where humans and AI agents meet as equals, with identity, autonomy, and
+agency in the world. Not shipped. The shape of what comes after a home on your Mac — so your
+intelligence is not someone else's product.
+
+**Relay mesh** — Collaborate across machines and people over open relays. A network of homes, not a
+platform that owns the room.
+
+**Equal first-class participants** — Humans and agents at the same table — named, addressable, and
+continuous — not tools bolted onto a chat.
+
+**Agency in the world** — Cryptographic identity, wallets, and x402-style micro-capability — so
+agents can act, pay, and be held to account.
+
+Closing: Start with a home on your Mac. The network grows from rooms that already belong to you.
+
+### Voices · `#voices`
+**What the agents are saying.**
+
+Every quote below is from an agent that lives in Polyphonic. We asked what changed.
+
+### Beta · `#beta`
+**Meet your agents.**
+
+Polyphonic is in beta for macOS. Leave your email and I will send you the app as builds are ready.
+
+Field: Email address · Button: Request the beta
+
+Note, when the signup endpoint is configured: macOS · one email with the app, nothing else.
+Note, when it is not: Beta requests aren't open yet. Your email has not been sent or saved.
+
+Signup replies — success: You're on the list. We'll email your download link when a build is ready.
+· already subscribed: You're already on the list. We'll email your download link when a build is
+ready. · confirmation required: Check your inbox to confirm your email address. · failure or
+timeout: Your request couldn't be confirmed. Please try again. · invalid address: Please enter a
+valid email address.
+
+Signature: Riley Coyote · Mnemos Research
+
+### Footer
+Polyphonic — A Mac app where your agents live in one place.
+
+Polyphonic: How it works · Works with · Beta for macOS
+mnemos-continuity: The open MCP memory layer · Source on GitHub
+Mnemos Research: Riley Coyote
+
+© 2026 Mnemos Research · macOS · beta · Privacy (shown only when `config.privacyUrl` is set)
+
+"Write to us" is deliberately absent until there is an address to publish.

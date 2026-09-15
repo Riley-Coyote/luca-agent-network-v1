@@ -9,8 +9,8 @@ if(!base.startsWith('/')||!base.endsWith('/'))throw new Error('BASE_PATH must st
 await rm('dist',{recursive:true,force:true});
 await mkdir('dist',{recursive:true});
 await cp('assets','dist/assets',{recursive:true});
-// Exploratory studies and unused brand variants stay out of the deployable bundle.
-for(const f of ['brand/agents','brand/agents.html','brand/study.html','brand/README.md','brand/polyphonic-display.svg','brand/polyphonic-matrix.svg','brand/polyphonic-soft.svg','brand/polyphonic-sharp.svg'])await rm(`dist/assets/${f}`,{recursive:true,force:true});
+// Source notes and licences stay out of the deployable bundle; the fonts' licences must ship.
+for(const f of ['brand','polyphonic/BRAND-SOURCES.md'])await rm(`dist/assets/${f}`,{recursive:true,force:true});
 let html=await readFile('index.html','utf8');
 if(html.includes('{{')||html.includes('x-dc'))throw new Error('Editor template remains in output');
 if(publish){
@@ -21,7 +21,9 @@ if(publish){
 const rewrite=text=>text.replace(/(["'(=]|&quot;)assets\//g,`$1${base}assets/`);
 if(base!=='/'){
   html=rewrite(html);
-  for(const file of ['dist/assets/demo.js']){await writeFile(file,rewrite(await readFile(file,'utf8')));}
+  // site.js carries the one runtime asset path (the harness avatar); site.css carries none today,
+  // but it is rewritten too so a future url() keeps working under /beta/.
+  for(const file of ['dist/assets/site.js','dist/assets/site.css']){await writeFile(file,rewrite(await readFile(file,'utf8')));}
 }
 await writeFile('dist/index.html',html);
 const config={signupEndpoint:process.env.SIGNUP_ENDPOINT||'',privacyUrl:process.env.PRIVACY_URL||'',siteUrl};
