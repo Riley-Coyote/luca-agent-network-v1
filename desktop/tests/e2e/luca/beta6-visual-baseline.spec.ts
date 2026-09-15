@@ -7,9 +7,11 @@ for (const theme of ["buzz-dark", "paper"]) {
     page,
   }, info) => {
     await page.setViewportSize({ width: 1280, height: 850 });
+    // Each palette is named outright. Leaving one to the empty store made the
+    // baseline mean "whatever ships", and the shipped default is Vitesse Black
+    // now — a palette change would silently re-point a named baseline.
     await page.addInitScript((value) => {
-      if (value === "buzz-dark") localStorage.removeItem("buzz-theme");
-      else localStorage.setItem("buzz-theme", value);
+      localStorage.setItem("buzz-theme", value);
       localStorage.setItem("buzz-follow-system", "false");
     }, theme);
     await installMockBridge(page, {

@@ -7,8 +7,16 @@
 
 import type { ThemeRegistrationRaw } from "shiki";
 
-/** The appearance used on first launch, before an owner chooses a theme. */
-export const DEFAULT_THEME_NAME = "buzz-dark";
+/**
+ * The appearance used on first launch, before an owner chooses a theme.
+ *
+ * Vitesse Black is what the product ships in (beta.7). It only governs a
+ * profile with nothing stored under `buzz-theme`: an existing install keeps
+ * whatever it last chose. Follow-system defaults OFF (see `ThemeProvider`),
+ * so a fresh install opens dark whatever the Mac's appearance is; turning it
+ * on pairs Vitesse Black with Vitesse Light (see `THEME_PAIRS`).
+ */
+export const DEFAULT_THEME_NAME = "vitesse-black";
 
 /**
  * Legacy internal key for Luca's first-party shell theme. It intentionally
