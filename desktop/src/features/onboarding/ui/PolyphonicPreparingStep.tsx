@@ -13,7 +13,6 @@ import {
   buildInstanceInputForDefinition,
 } from "@/features/agents/lib/instanceInputForDefinition";
 import { useOperatorForgeSettingsQuery } from "@/features/agents/operatorForgeQueries";
-import { markLucaArrival } from "@/features/luca/lucaArrival";
 import { createLucaResident } from "@/features/luca/residents/api";
 import { lucaResidentsQueryKey } from "@/features/luca/residents/hooks";
 import {
@@ -33,7 +32,17 @@ import {
   type NativeProvisioningRequestV1,
 } from "@/shared/api/tauriOperatorForge";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
+import {
+  type IndexProgressV1,
+  listConnectedBrainSources,
+  listenToConnectedBrainIndexProgress,
+} from "@/shared/api/tauriBrain";
+import { getChannelWindowEvents } from "@/shared/api/channelWindow";
+import { MANAGED_PRESENTATION_EVENT } from "@/features/messages/managedPresentationProtocol";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { PendingBrainConnect } from "./PolyphonicBrainStep";
 import { cn } from "@/shared/lib/cn";
+import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
@@ -66,6 +75,55 @@ const WALKTHROUGH: ReadonlyArray<{ body: string; title: string }> = [
 const FRAME_MS = 2600;
 const FRAME_CROSSFADE_MS = 500;
 
+/**
+ * The three true things that happen between "Meet Luca" and Luca's first
+ * words. One of them is on screen at a time, and none of them is invented:
+ * the counts come from native's own index progress, and "writing" is not
+ * claimed until something Luca-signed is actually in the conversation.
+ */
+type ReadingPhase = "connecting" | "waking" | "writing";
+
+const SOURCE_PHRASE: Record<string, string> = {
+  repository: "Reading repositories",
+  codex_history: "Reading Codex sessions",
+  claude_history: "Reading Claude Code sessions",
+};
+/** How often the reading step asks native whether an index it did not start
+ *  (a reload mid-connect) has finished. */
+const CONNECT_POLL_MS = 1000;
+const LUCA_WRITING_POLL_MS = 250;
+const LUCA_WRITING_TIMEOUT_MS = 20_000;
+/** Even with no counts the bar is a line, not an empty groove. */
+const MIN_PHASE_FRACTION = 0.08;
+
+function readingPhaseLine(
+  phase: ReadingPhase,
+  progress: IndexProgressV1 | null,
+): string {
+  if (phase === "waking") return "Waking Luca";
+  if (phase === "writing") return "Luca is writing to you";
+  if (!progress || progress.state === "done") return "Connecting your sources";
+  const phrase = SOURCE_PHRASE[progress.kind] ?? progress.label;
+  if (typeof progress.total === "number" && progress.total > 0) {
+    return `${phrase} · ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`;
+  }
+  if (progress.done > 0) return `${phrase} · ${progress.done.toLocaleString()}`;
+  return phrase;
+}
+
+function readingFraction(
+  phase: ReadingPhase,
+  progress: IndexProgressV1 | null,
+): number {
+  if (phase === "writing") return 1;
+  if (phase === "waking") return 2 / 3;
+  const within =
+    progress && typeof progress.total === "number" && progress.total > 0
+      ? Math.min(1, progress.done / progress.total)
+      : 0;
+  return (1 / 3) * Math.max(MIN_PHASE_FRACTION, within);
+}
+
 async function waitForLucaChannelSubscription(
   pubkey: string,
   channelId: string,
@@ -82,13 +140,48 @@ async function waitForLucaChannelSubscription(
   );
 }
 
+/**
+ * "Luca is writing to you" is only allowed to be on screen while it is true,
+ * and the card is only allowed to become the application once Luca's first
+ * words are already there to open onto. Anything Luca-signed counts: a
+ * published row, or a presentation frame for this conversation. After the cap
+ * we stop waiting rather than hold the owner on a screen that cannot finish.
+ */
+async function waitForLucaToSpeak(
+  channelId: string,
+  lucaPubkey: string,
+  spokeIn: ReadonlySet<string>,
+) {
+  const luca = normalizePubkey(lucaPubkey);
+  const deadline = Date.now() + LUCA_WRITING_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (spokeIn.has(channelId)) return;
+    try {
+      const events = await getChannelWindowEvents(channelId, null, 20);
+      if (events.some((event) => normalizePubkey(event.pubkey ?? "") === luca))
+        return;
+    } catch {
+      // The conversation is already open beneath; a read that fails is not a
+      // reason to keep the owner on the reading screen.
+      return;
+    }
+    await new Promise((resolve) =>
+      window.setTimeout(resolve, LUCA_WRITING_POLL_MS),
+    );
+  }
+}
+
 export function PolyphonicPreparingStep({
   onComplete,
   onBack,
+  pendingConnect = null,
 }: {
   displayName: string;
   onComplete: (channelId: string) => void;
   onBack?: () => void;
+  /** The connect the Brain chapter started. Absent after a reload, when the
+   *  step asks native what is still running instead of starting anything. */
+  pendingConnect?: PendingBrainConnect | null;
 }) {
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -109,11 +202,140 @@ export function PolyphonicPreparingStep({
   const readyChannelRef = React.useRef<string | null>(null);
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
+  const [connectSettled, setConnectSettled] = React.useState(false);
+  const [connectError, setConnectError] = React.useState<string | null>(null);
+  const [connectAttempt, setConnectAttempt] = React.useState(0);
+  const [writingStarted, setWritingStarted] = React.useState(false);
+  const [progressBySource, setProgressBySource] = React.useState<
+    ReadonlyMap<string, IndexProgressV1>
+  >(() => new Map());
+  const pendingConnectRef = React.useRef(pendingConnect);
+  const spokeInRef = React.useRef(new Set<string>());
+  // Luca is not asked to read until the sources it was given are in. The gate
+  // is a promise so the preparation can run alongside the index and wait for
+  // it only at the one moment that matters.
+  const connectGateRef = React.useRef<{
+    promise: Promise<void>;
+    open: () => void;
+  } | null>(null);
+  if (!connectGateRef.current) {
+    let open: () => void = () => undefined;
+    const promise = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    connectGateRef.current = { promise, open };
+  }
   const visibleError =
     error ??
     settings.error?.message ??
     personas.error?.message ??
     managed.error?.message;
+
+  // What the index is doing, keyed by source. Native may emit nothing at all;
+  // the phrase alone is then the whole truth and no counter is invented.
+  React.useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listenToConnectedBrainIndexProgress((next) => {
+      setProgressBySource((current) => {
+        const map = new Map(current);
+        map.delete(next.sourceId);
+        map.set(next.sourceId, next);
+        return map;
+      });
+    })
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // No progress channel on this build: the reading screen still reads.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // A presentation frame is Luca speaking before the row is published.
+  React.useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    const seen = spokeInRef.current;
+    void listen<{ conversation_id?: unknown }>(
+      MANAGED_PRESENTATION_EVENT,
+      (event) => {
+        const conversationId = event.payload?.conversation_id;
+        if (typeof conversationId === "string") seen.add(conversationId);
+      },
+    )
+      .then((stop) => {
+        if (cancelled) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {
+        // The published row is the fallback signal.
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // The connection the owner authorised. It is already running when it gets
+  // here; after a reload it is native's to report, never ours to start again.
+  React.useEffect(() => {
+    let cancelled = false;
+    const settle = () => {
+      if (cancelled) return;
+      setConnectSettled(true);
+      connectGateRef.current?.open();
+    };
+    const pending = pendingConnectRef.current;
+    if (pending) {
+      const run = connectAttempt === 0 ? pending.promise : pending.retry();
+      run
+        .then((outcome) => {
+          if (cancelled) return;
+          if (outcome.error) {
+            setConnectError(outcome.error);
+            return;
+          }
+          settle();
+        })
+        .catch((cause) => {
+          if (cancelled) return;
+          setConnectError(
+            cause instanceof Error ? cause.message : String(cause),
+          );
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+    let timer = 0;
+    async function poll() {
+      try {
+        const inventory = await listConnectedBrainSources();
+        if (cancelled) return;
+        if (
+          !inventory.sources.some((source) => source.status === "connecting")
+        ) {
+          settle();
+          return;
+        }
+      } catch {
+        settle();
+        return;
+      }
+      timer = window.setTimeout(() => void poll(), CONNECT_POLL_MS);
+    }
+    void poll();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [connectAttempt]);
 
   React.useEffect(() => {
     void attempt;
@@ -222,7 +444,11 @@ export function PolyphonicPreparingStep({
       if (target.kind === "managed") {
         await waitForLucaChannelSubscription(lucaPubkey, channel.id);
       }
+      // Nothing is asked of Luca until what the owner brought is in.
+      await connectGateRef.current?.promise;
+      setWritingStarted(true);
       await beginLucaFirstMeeting(channel.id);
+      await waitForLucaToSpeak(channel.id, lucaPubkey, spokeInRef.current);
       return channel.id;
     }
     // Query refreshes can arrive while native startup is in flight. Reuse the
@@ -239,7 +465,6 @@ export function PolyphonicPreparingStep({
         await listManagedAgents(),
       );
       await queryClient.invalidateQueries({ queryKey: lucaResidentsQueryKey });
-      markLucaArrival(channelId);
       return channelId;
     });
     setWorking(true);
