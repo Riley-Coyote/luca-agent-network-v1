@@ -2,18 +2,25 @@ import * as React from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ChevronDown, TerminalSquare } from "lucide-react";
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
+  managedAgentsQueryKey,
+  personasQueryKey,
   useAcpAuthMethodsQuery,
   useAcpRuntimesQuery,
   useConnectAcpRuntimeMutation,
   useInstallAcpRuntimeMutation,
 } from "@/features/agents/hooks";
 import {
+  operatorForgeSettingsQueryKey,
   useOperatorForgeSettingsQuery,
   useSaveOperatorForgePreferencesMutation,
 } from "@/features/agents/operatorForgeQueries";
+import { listManagedAgents } from "@/shared/api/tauri";
+import { listPersonas } from "@/shared/api/tauriPersonas";
 import type {
   AgentRuntimeTargetV1,
+  OperatorForgeSettingsV1,
   RuntimeTargetOptionV1,
 } from "@/shared/api/tauriOperatorForge";
 import type { AcpAuthMethod, AcpRuntimeCatalogEntry } from "@/shared/api/types";
@@ -25,7 +32,8 @@ import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 import { RuntimeIcon } from "./RuntimeIcon";
 
 export type PolyphonicRuntimeStepHandle = {
-  commit: () => Promise<AgentRuntimeTargetV1 | undefined>;
+  /** The chosen runtime, at once; the write follows behind the next page. */
+  commit: () => AgentRuntimeTargetV1 | undefined;
 };
 
 function targetKey(target: AgentRuntimeTargetV1) {
@@ -297,12 +305,28 @@ export const PolyphonicRuntimeStep = React.forwardRef<
 >(function PolyphonicRuntimeStep({ onReadyChange }, ref) {
   const settings = useOperatorForgeSettingsQuery();
   const runtimes = useAcpRuntimesQuery();
+  const queryClient = useQueryClient();
   const save = useSaveOperatorForgePreferencesMutation();
   const savePreferences = save.mutateAsync;
   const [selected, setSelected] = React.useState<AgentRuntimeTargetV1 | null>(
     null,
   );
   const [showOtherRuntimes, setShowOtherRuntimes] = React.useState(false);
+
+  // What the pages after this one open on, fetched while the owner is reading
+  // this one: the residents already here and the personas they can be made
+  // from — the agents chapter's rows, and the two lists the waking step will
+  // not start without.
+  React.useEffect(() => {
+    void queryClient.prefetchQuery({
+      queryKey: managedAgentsQueryKey,
+      queryFn: listManagedAgents,
+    });
+    void queryClient.prefetchQuery({
+      queryKey: personasQueryKey,
+      queryFn: listPersonas,
+    });
+  }, [queryClient]);
 
   React.useEffect(() => {
     if (!settings.data || selected) return;
@@ -322,15 +346,37 @@ export const PolyphonicRuntimeStep = React.forwardRef<
   const ready = selectedOption?.readiness === "ready";
   React.useEffect(() => onReadyChange(ready), [onReadyChange, ready]);
 
-  const commit = React.useCallback(async () => {
+  const commit = React.useCallback(() => {
     if (!selected || !ready) return undefined;
-    await savePreferences({
+    // The owner has answered; the waking page can start on that answer at
+    // once. Publish it to the cache the waking page reads, then write it
+    // through behind the page rather than holding "Meet Luca" on "Working…"
+    // for a round trip. The mutation's own onSuccess replaces this with the
+    // authoritative settings when it lands.
+    const current = queryClient.getQueryData<OperatorForgeSettingsV1>(
+      operatorForgeSettingsQueryKey,
+    );
+    if (current) {
+      queryClient.setQueryData(operatorForgeSettingsQueryKey, {
+        ...current,
+        preferences: {
+          ...current.preferences,
+          defaultRuntimeTarget: selected,
+          runtimeConfirmed: true,
+          lucaEnabled: true,
+        },
+      });
+    }
+    void savePreferences({
       defaultRuntimeTarget: selected,
       runtimeConfirmed: true,
       lucaEnabled: true,
+    }).catch(() => {
+      // The choice is already what the rest of setup is acting on, and the
+      // waking step surfaces anything that actually cannot be done with it.
     });
     return selected;
-  }, [ready, savePreferences, selected]);
+  }, [queryClient, ready, savePreferences, selected]);
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
   const options = settings.data?.runtimeOptions ?? [];
@@ -372,12 +418,16 @@ export const PolyphonicRuntimeStep = React.forwardRef<
           aria-busy={settings.isPending}
           aria-label="Luca runtime"
           className={cn(
-            "grid grid-cols-1 rounded-[10px] bg-[var(--prototype-recessed)] p-1",
+            "grid grid-cols-1 gap-1",
+            // Five rows, then it scrolls: a list that runs past the card's
+            // bottom edge is a list nobody reads the end of.
+            "max-h-[17.25rem] overflow-y-auto overscroll-contain",
             // Hold three rows' worth of height until the options resolve, so
             // the card does not collapse and re-grow in the frames between
             // this chapter mounting and its query returning.
-            !settings.data && "min-h-[10.25rem] place-items-center",
+            !settings.data && "min-h-[10rem] place-items-center",
           )}
+          data-testid="polyphonic-runtime-rows"
           role="radiogroup"
         >
           {!settings.data ? (
@@ -423,10 +473,12 @@ export const PolyphonicRuntimeStep = React.forwardRef<
             return (
               <label
                 className={cn(
-                  "group relative flex min-h-[52px] w-full cursor-pointer items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-[-2px] has-[:focus-visible]:outline-[var(--prototype-focus)]",
+                  "group relative flex h-[52px] w-full cursor-pointer items-center gap-3 rounded-[12px] border px-3.5 text-left outline-none transition-[border-color,background-color] duration-[90ms]",
+                  // Focus is this row's own border coming up, in place.
+                  "has-[:focus-visible]:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)]",
                   checked
-                    ? "bg-[var(--prototype-raised)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                    : "hover:bg-[var(--prototype-selection)]",
+                    ? "border-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
+                    : "border-[var(--prototype-hairline)] hover:border-[color-mix(in_srgb,var(--prototype-ink)_18%,transparent)]",
                 )}
                 key={targetKey(option.target)}
               >
@@ -466,12 +518,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
                 </span>
                 <span
                   aria-hidden="true"
-                  className={cn(
-                    "grid size-4 shrink-0 place-items-center rounded-full border",
-                    checked
-                      ? "border-[var(--prototype-ink)]"
-                      : "border-[var(--prototype-hairline)]",
-                  )}
+                  className="grid size-4 shrink-0 place-items-center"
                 >
                   {checked ? (
                     <span className="size-1.5 rounded-full bg-[var(--prototype-ink)]" />
@@ -491,7 +538,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         {absentOptions.length > 0 && !revealAllRuntimes ? (
           <button
             aria-expanded="false"
-            className="mt-2.5 flex w-fit items-center gap-1 rounded-[6px] py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            className="mt-3 -ml-1 flex w-fit items-center gap-1 rounded-[6px] border border-transparent px-1 py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
             onClick={() => setShowOtherRuntimes(true)}
             type="button"
           >

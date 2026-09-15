@@ -1,4 +1,4 @@
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { cn } from "@/shared/lib/cn";
@@ -9,7 +9,9 @@ import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
 import { usePolyphonicCardDrag } from "../polyphonicFloatingWindow";
 import {
+  POLYPHONIC_COLUMN_MEASURE,
   polyphonicCardFrameStyle,
+  polyphonicFieldBoxStyle,
   usePublishFieldAnchor,
 } from "../polyphonicOnboardingGeometry";
 import {
@@ -22,6 +24,12 @@ import {
   polyphonicLightPalette,
   PolyphonicPresentationHeading,
 } from "./PolyphonicOnboardingPresentation";
+
+/** The step change, in full: a page leaves in a tenth of a second, the next
+ *  one rises 6px into place on the arrival curve. Nothing but the column. */
+const STEP_OUT_MS = 100;
+const STEP_IN_MS = 180;
+const ARRIVAL_EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 
 /**
  * The setup card: a living visual on the left, the interaction on the right.
@@ -70,7 +78,8 @@ export function PolyphonicSetupFrame({
       ? polyphonicLightPalette
       : polyphonicDarkPalette;
   const paneRef = useRef<HTMLDivElement>(null);
-  usePublishFieldAnchor(paneRef, "card");
+  const fieldBoxRef = useRef<HTMLDivElement>(null);
+  usePublishFieldAnchor(fieldBoxRef, "card");
   // The same handle as the door's, because it is the same pane: floating, the
   // card is dragged by the panel the field lives in.
   usePolyphonicCardDrag(paneRef, usePolyphonicFloatingCard());
@@ -100,24 +109,36 @@ export function PolyphonicSetupFrame({
           data-testid="polyphonic-setup-assistant"
           style={polyphonicCardFrameStyle}
         >
-          {/* visual pane: the field lives here, drawn by the layer. */}
+          {/* visual pane: the field lives here, drawn by the layer. The
+              dendrite's own box is inset inside it, so the field has air on
+              both sides, and that box — not the pane — is the anchor. */}
           <div
             aria-hidden
-            className="relative"
+            className="relative grid place-items-center"
             data-luca-card-drag-handle=""
             data-testid="polyphonic-setup-pane"
             ref={paneRef}
-          />
+          >
+            <div
+              data-testid="polyphonic-setup-field-box"
+              ref={fieldBoxRef}
+              style={polyphonicFieldBoxStyle}
+            />
+          </div>
 
-          {/* interaction column */}
+          {/* interaction column: one measure, centred in the pane, its content
+              group centred against the card's own height rather than hung from
+              the top, and the actions on the column's bottom edge — not adrift
+              in the card's corner. */}
           <form
-            className="grid min-h-0 grid-rows-[3.5rem_minmax(0,1fr)_3.5rem]"
+            className="mx-auto grid min-h-0 w-full grid-rows-[3.5rem_minmax(0,1fr)_3.5rem] px-6"
             onSubmit={(event) => {
               event.preventDefault();
               if (showFooter && !continueDisabled) onContinue();
             }}
+            style={{ maxWidth: `calc(${POLYPHONIC_COLUMN_MEASURE} + 3rem)` }}
           >
-            <header className="flex items-center justify-end px-9">
+            <header className="flex items-center justify-end">
               {steps ? (
                 <div
                   aria-label={`Step ${Math.min(steps.current + 1, steps.total)} of ${steps.total}`}
@@ -132,8 +153,8 @@ export function PolyphonicSetupFrame({
                       className={cn(
                         "block h-px w-4 rounded-full bg-[var(--prototype-ink)] transition-opacity duration-300",
                         step <= steps.current + 1
-                          ? "opacity-100"
-                          : "opacity-20",
+                          ? "opacity-60"
+                          : "opacity-[0.14]",
                       )}
                       key={step}
                     />
@@ -141,18 +162,35 @@ export function PolyphonicSetupFrame({
                 </div>
               ) : null}
             </header>
-            <div className="polyphonic-onboarding-body relative min-h-0 overflow-hidden px-9 pb-6 pt-2">
-              <motion.div
-                animate={{ opacity: 1 }}
-                className="h-full min-h-0"
-                initial={reduceMotion ? false : { opacity: 0 }}
-                key={stage}
-                transition={{ duration: reduceMotion ? 0 : 0.12 }}
-              >
-                {children}
-              </motion.div>
+            <div className="polyphonic-onboarding-body relative min-h-0 overflow-hidden pb-6 pt-2">
+              {/* One page leaves while the next is already arriving, both in
+                  the same place: the outgoing column dims out under the
+                  incoming one, so the pane is never empty for a frame. Nothing
+                  else moves — not the card, not the pane, not the field. */}
+              <AnimatePresence initial={false}>
+                <motion.div
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute inset-x-0 bottom-6 top-2 flex min-h-0 flex-col justify-center"
+                  data-testid="polyphonic-setup-column"
+                  exit={{
+                    opacity: 0,
+                    transition: {
+                      duration: reduceMotion ? 0 : STEP_OUT_MS / 1000,
+                      ease: "linear",
+                    },
+                  }}
+                  initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                  key={stage}
+                  transition={{
+                    duration: reduceMotion ? 0 : STEP_IN_MS / 1000,
+                    ease: ARRIVAL_EASE,
+                  }}
+                >
+                  {children}
+                </motion.div>
+              </AnimatePresence>
             </div>
-            <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4 px-9">
+            <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4">
               {showFooter ? (
                 <>
                   {/* Focus is the element's own border coming up, in place:

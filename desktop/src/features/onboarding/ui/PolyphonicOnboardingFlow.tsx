@@ -1,7 +1,5 @@
-import * as React from "react";
-import { isTauri } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueryClient } from "@tanstack/react-query";
+import * as React from "react";
 import { rememberLastConversation } from "@/app/navigation/lastConversation";
 
 import { isIdentityKeyLabel } from "@/features/profile/lib/identity";
@@ -15,7 +13,9 @@ import {
 } from "../polyphonicOnboardingState";
 import { prefetchNativeResidentDiscovery } from "../onboardingAgentImport";
 import { stageOnboardingAgentImports } from "../onboardingBackgroundImport";
+import { landPolyphonicAppWindow } from "../polyphonicOnboardingGeometry";
 import { setPolyphonicScene } from "../polyphonicOnboardingScene";
+import { adoptPolyphonicSetupDiscovery } from "../polyphonicSetupDiscovery";
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
 import {
   PolyphonicAgentsStep,
@@ -92,7 +92,6 @@ export function PolyphonicOnboardingFlow({
       pendingProfile?.displayName ?? initialProfile.profile?.displayName ?? "";
     return isIdentityKeyLabel(seed, pubkey) ? "" : seed;
   });
-  const [busy, setBusy] = React.useState(false);
   const continuingRef = React.useRef(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
   const [agentSelection, setAgentSelection] = React.useState({
@@ -104,6 +103,14 @@ export function PolyphonicOnboardingFlow({
   const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
   const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
   const queryClient = useQueryClient();
+
+  // The card lives under its own query client, below the one the door was on.
+  // Take over whatever the door already asked the Mac, on the way in, so the
+  // runtime chapter can open on rows that were fetched a page ago.
+  React.useEffect(() => {
+    adoptPolyphonicSetupDiscovery(queryClient);
+  }, [queryClient]);
+
 
   // Looking around the Mac starts while the owner is still choosing a runtime,
   // so the agents chapter paints its rows the moment it opens instead of
@@ -141,21 +148,29 @@ export function PolyphonicOnboardingFlow({
     total: CHAPTERS.length,
   };
 
-  async function continueForward() {
-    if (busy || continuingRef.current) return;
+  /**
+   * Forward, in the same tick as the press.
+   *
+   * Each step hands its answer back synchronously and writes it through
+   * behind the page that follows, so nothing here awaits a round trip before
+   * changing chapter: a press paints the next page, and the persistence
+   * catches up under it. `setPolyphonicOnboardingStatus` is already a
+   * fire-and-forget effect on the new chapter, for the same reason.
+   */
+  function continueForward() {
+    if (continuingRef.current) return;
     continuingRef.current = true;
-    setBusy(true);
     setError(null);
     try {
       if (transaction.chapter === "welcome") {
-        const outcome = await youRef.current?.commit();
+        const outcome = youRef.current?.commit();
         if (!outcome) return;
         setDisplayName(outcome.displayName);
         persist({ chapter: "runtime", profileSaved: true });
         return;
       }
       if (transaction.chapter === "runtime") {
-        const target = await runtimeRef.current?.commit();
+        const target = runtimeRef.current?.commit();
         if (!target) return;
         persist({ chapter: "agents", runtimeConfirmed: true });
         return;
@@ -177,7 +192,6 @@ export function PolyphonicOnboardingFlow({
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       continuingRef.current = false;
-      setBusy(false);
     }
   }
 
@@ -191,21 +205,12 @@ export function PolyphonicOnboardingFlow({
       // mounts beneath it and the mark travels to the sidebar.
       setPolyphonicScene({ stage: "becoming", resolving: false });
       // Onboarding runs in a small centred window so only the card is on
-      // screen. The card becoming the application is also the window
-      // becoming the application: macOS animates the zoom, and the field
-      // layer retargets the growing shell on every resize frame.
-      if (isTauri()) {
-        try {
-          void getCurrentWindow()
-            .maximize()
-            .catch(() => {
-              // A window that refuses to zoom is not a reason to stay on the
-              // card; the conversation is already mounted beneath it.
-            });
-        } catch {
-          // Same: the handoff never depends on the window manager.
-        }
-      }
+      // screen. The card becoming the application is also the window becoming
+      // the application — but the application is not the whole screen. It
+      // lands at a standard desk size, centred, and the owner takes it from
+      // there. The field layer retargets the growing shell on every resize
+      // frame, so the shell follows the window wherever it settles.
+      void landPolyphonicAppWindow();
       rememberLastConversation(channelId);
       actions.complete();
       window.location.hash = `/channels/${encodeURIComponent(channelId)}`;
@@ -215,29 +220,26 @@ export function PolyphonicOnboardingFlow({
 
   return (
     <PolyphonicSetupFrame
-      backDisabled={transaction.chapter === "welcome" || busy}
+      backDisabled={transaction.chapter === "welcome"}
       continueDisabled={
-        busy ||
         (transaction.chapter === "welcome" && !displayName.trim()) ||
         (transaction.chapter === "runtime" && !runtimeReady)
       }
       continueLabel={
-        busy
-          ? "Working…"
-          : transaction.chapter !== "agents"
-            ? "Continue"
-            : agentSelection.selected > 0
-              ? `Bring in ${agentSelection.selected} agent${
-                  agentSelection.selected === 1 ? "" : "s"
-                }`
-              : // Nobody on this Mac to bring in is not a decision declined;
-                // it is simply the last screen, so it just carries on.
-                agentSelection.found === 0
-                ? "Continue"
-                : "Meet Luca"
+        transaction.chapter !== "agents"
+          ? "Continue"
+          : agentSelection.selected > 0
+            ? `Bring in ${agentSelection.selected} agent${
+                agentSelection.selected === 1 ? "" : "s"
+              }`
+            : // Nobody on this Mac to bring in is not a decision declined;
+              // it is simply the last screen, so it just carries on.
+              agentSelection.found === 0
+              ? "Continue"
+              : "Meet Luca"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
-      onContinue={() => void continueForward()}
+      onContinue={continueForward}
       showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
       steps={steps}
@@ -245,7 +247,6 @@ export function PolyphonicOnboardingFlow({
       {transaction.chapter === "welcome" ? (
         <PolyphonicYouStep
           displayName={displayName}
-          onBusyChange={setBusy}
           onDisplayNameChange={setDisplayName}
           pubkey={pubkey}
           ref={youRef}

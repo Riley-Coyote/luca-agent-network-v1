@@ -1,6 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
 import { emit } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import {
@@ -41,6 +40,7 @@ import {
 import { OnboardingFlow } from "@/features/onboarding/ui/OnboardingFlow";
 import { useRegisterCanonicalLuca } from "@/features/luca/canonicalLucaResident";
 import { ThinkingIndicatorLab } from "@/features/messages/lab/ThinkingIndicatorLab";
+import { landPolyphonicAppWindow } from "@/features/onboarding/polyphonicOnboardingGeometry";
 import { usePolyphonicScene } from "@/features/onboarding/polyphonicOnboardingScene";
 import { PolyphonicOnboardingFieldLayer } from "@/features/onboarding/ui/PolyphonicOnboardingFieldLayer";
 import { PolyphonicOnboardingFlow } from "@/features/onboarding/ui/PolyphonicOnboardingFlow";
@@ -286,7 +286,8 @@ function AppReady({
  *  reaches the application without the becoming animation — "Set up later",
  *  an existing identity, a returning owner whose window state was saved
  *  mid-setup — would otherwise inherit that card-sized window. Once, and only
- *  while nothing of the card is still on screen, give it the desk back. */
+ *  while nothing of the card is still on screen, give it the desk back: the
+ *  same standard size the becoming lands on, not the whole screen. */
 function AppWindowFit() {
   const scene = usePolyphonicScene();
   const done = useRef(false);
@@ -295,15 +296,7 @@ function AppWindowFit() {
     if (done.current || !isTauri() || scene.stage !== "off") return;
     if (window.innerWidth > 1000 || window.innerHeight > 700) return;
     done.current = true;
-    try {
-      void getCurrentWindow()
-        .maximize()
-        .catch(() => {
-          // A window that will not zoom is still a usable window.
-        });
-    } catch {
-      // Same.
-    }
+    void landPolyphonicAppWindow();
   }, [scene.stage]);
 
   return null;

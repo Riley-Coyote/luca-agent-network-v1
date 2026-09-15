@@ -28,6 +28,9 @@ import {
 export const POLYPHONIC_FIELD_SIZE = 576;
 /** The identity mark inside the glyph, unscaled. */
 const GLYPH_SIZE = 56;
+/** The field's ground. Not the canvas token and not a tinted near-black:
+ *  behind the dendrite there is nothing at all. */
+const PANE_BLACK = "#000";
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
 
 /** Becoming, in order. Pixel values only — WKWebView will not transition a
@@ -190,6 +193,14 @@ export function PolyphonicOnboardingFieldLayer() {
   const isLight =
     !atDoor && scene.stage !== "opening" && chosenColorScheme === "light";
   const palette = isLight ? polyphonicLightPalette : polyphonicDarkPalette;
+  // The field's ground is the black pane until the card becomes the
+  // application, whatever appearance the owner picked for the app: dark dots
+  // on black would be no dendrite at all. Only at the becoming — when the
+  // mark travels to a sidebar that really is the chosen appearance — does the
+  // ink follow the theme.
+  const onBlackPane = !becoming;
+  const fieldDot = onBlackPane || !isLight ? "164,167,173" : "39,40,36";
+  const glyphInk = onBlackPane || !isLight ? "240,240,242" : "39,40,36";
 
   if (!visible || !anchor) return null;
 
@@ -290,23 +301,26 @@ export function PolyphonicOnboardingFieldLayer() {
             ease: EASE,
           }}
         >
-          {/* The pane. On becoming it is the sidebar: same recess, same hairline. */}
+          {/* The pane is pure black, opaque, edge to edge: the dendrite is a
+              thing of light and wants no plate under it and no desktop
+              through it — the glass is the other half's, and the hairline
+              between them is what says so. On becoming it is the sidebar, so
+              it paints across to the application's own recess once, in the
+              same breath as the shell. */}
           <motion.div
             animate={
               becoming && becomingTarget
-                ? { width: becomingTarget.paneWidth }
+                ? {
+                    width: becomingTarget.paneWidth,
+                    backgroundColor: palette["--prototype-recessed"],
+                  }
                 : {}
             }
-            className="relative shrink-0 border-r border-[var(--prototype-hairline)]"
+            className="relative shrink-0 overflow-hidden border-r border-[var(--prototype-hairline)]"
             initial={false}
             ref={paneRef}
             style={{
-              // One material across both halves while floating, so the card
-              // reads as one object of glass and not a recess beside a plate.
-              // The hairline between them stays either way.
-              backgroundColor: floating
-                ? "transparent"
-                : "var(--prototype-recessed)",
+              backgroundColor: PANE_BLACK,
               width: restingShell
                 ? restingShell.paneWidth
                 : POLYPHONIC_PANE_TRACK,
@@ -316,16 +330,6 @@ export function PolyphonicOnboardingFieldLayer() {
               ease: EASE,
             }}
           >
-            <motion.div
-              animate={{ opacity: becoming ? 0 : 1 }}
-              className="absolute inset-0"
-              initial={false}
-              style={{
-                background:
-                  "radial-gradient(60% 55% at 50% 50%, rgb(255 255 255 / 0.028), transparent 70%)",
-              }}
-              transition={{ duration: reduceMotion ? 0 : 0.3, ease: EASE }}
-            />
             <motion.span
               animate={{ opacity: becoming ? 0 : 1 }}
               className="absolute bottom-5 left-6 text-sm font-medium tracking-[-0.01em] text-[var(--prototype-ink)]"
@@ -397,7 +401,7 @@ export function PolyphonicOnboardingFieldLayer() {
           <DotSigil
             bloom={0.02}
             cell={4}
-            dot={isLight ? "39,40,36" : "164,167,173"}
+            dot={fieldDot}
             scene="recall"
             seed={`${POLYPHONIC_IDENTITY_SEED}:threshold`}
             size={POLYPHONIC_FIELD_SIZE}
@@ -448,7 +452,7 @@ export function PolyphonicOnboardingFieldLayer() {
               }
         }
       >
-        <LucaThresholdGlyph ink={isLight ? "39,40,36" : "240,240,242"} />
+        <LucaThresholdGlyph ink={glyphInk} />
       </motion.div>
     </>
   );

@@ -4,13 +4,16 @@ import * as React from "react";
 import { Button } from "@/shared/ui/button";
 import { usePolyphonicCardDrag } from "../polyphonicFloatingWindow";
 import {
+  POLYPHONIC_COLUMN_MEASURE,
   polyphonicCardFrameStyle,
+  polyphonicFieldBoxStyle,
   usePublishFieldAnchor,
 } from "../polyphonicOnboardingGeometry";
 import {
   setPolyphonicScene,
   usePolyphonicFloatingCard,
 } from "../polyphonicOnboardingScene";
+import { startPolyphonicSetupDiscovery } from "../polyphonicSetupDiscovery";
 import { polyphonicDarkPalette } from "./PolyphonicOnboardingPresentation";
 
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
@@ -42,12 +45,18 @@ export function PolyphonicDoor({
 }) {
   const reduceMotion = useReducedMotion();
   const anchorRef = React.useRef<HTMLDivElement>(null);
+  const paneRef = React.useRef<HTMLDivElement>(null);
   const [leaving, setLeaving] = React.useState(false);
   usePublishFieldAnchor(anchorRef, "door");
+
+  // Ask the Mac what AI it has while the owner is reading this page, so the
+  // runtime page opens on its rows rather than on a spinner.
+  React.useEffect(startPolyphonicSetupDiscovery, []);
+
   // Floating, the window has no title bar to take hold of: the pane the field
   // lives in is the handle. It carries no controls, so there is nothing here
   // a drag could steal.
-  usePolyphonicCardDrag(anchorRef, usePolyphonicFloatingCard());
+  usePolyphonicCardDrag(paneRef, usePolyphonicFloatingCard());
 
   const begin = () => {
     setLeaving(true);
@@ -67,10 +76,23 @@ export function PolyphonicDoor({
         className="relative z-[45] grid border border-transparent"
         style={polyphonicCardFrameStyle}
       >
-        <div aria-hidden data-luca-card-drag-handle="" ref={anchorRef} />
+        <div
+          aria-hidden
+          className="grid place-items-center"
+          data-luca-card-drag-handle=""
+          ref={paneRef}
+        >
+          <div ref={anchorRef} style={polyphonicFieldBoxStyle} />
+        </div>
         <motion.div
-          animate={leaving ? { opacity: 0, y: -8 } : { opacity: 1, y: 0 }}
-          className="flex flex-col justify-center px-9 text-left"
+          // Leaving, the copy dims and settles rather than vanishing: the
+          // gates between the door and the first question take as long as
+          // they take, and an empty pane for that second is the one thing the
+          // card must never show. It rests here, quiet and inert, until the
+          // question crossfades in over it.
+          animate={leaving ? { opacity: 0.24, y: -6 } : { opacity: 1, y: 0 }}
+          className="mx-auto flex w-full flex-col justify-center px-6 text-left"
+          style={{ maxWidth: `calc(${POLYPHONIC_COLUMN_MEASURE} + 3rem)` }}
           initial={reduceMotion ? false : { opacity: 0, y: 6 }}
           transition={
             reduceMotion
@@ -101,9 +123,9 @@ export function PolyphonicDoor({
             >
               {isPending ? "Opening…" : "Begin setup"}
             </Button>
-            <p className="flex items-center gap-2.5 text-xs text-white/45">
+            <p className="-ml-1 flex items-center gap-2 text-xs text-white/45">
               <button
-                className="rounded-[4px] hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)] disabled:opacity-50"
+                className="rounded-[5px] border border-transparent px-1 py-0.5 outline-none hover:text-white/80 focus-visible:border-white/50 focus-visible:text-white/80 focus-visible:outline-none disabled:opacity-50"
                 disabled={isPending || leaving}
                 onClick={onExistingIdentity}
                 type="button"
@@ -114,7 +136,7 @@ export function PolyphonicDoor({
                 ·
               </span>
               <button
-                className="rounded-[4px] hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)] disabled:opacity-50"
+                className="rounded-[5px] border border-transparent px-1 py-0.5 outline-none hover:text-white/80 focus-visible:border-white/50 focus-visible:text-white/80 focus-visible:outline-none disabled:opacity-50"
                 disabled={isPending || leaving}
                 onClick={onSetUpLater}
                 type="button"

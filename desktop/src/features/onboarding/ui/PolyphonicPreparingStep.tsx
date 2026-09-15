@@ -498,7 +498,7 @@ export function PolyphonicPreparingStep({
           </p>
           <div
             aria-hidden
-            className="mt-3 h-px w-full max-w-[30rem] overflow-hidden"
+            className="mt-3 h-px w-full overflow-hidden"
             data-testid="polyphonic-reading-progress"
             style={{ backgroundColor: "var(--prototype-hairline)" }}
           >
@@ -517,7 +517,7 @@ export function PolyphonicPreparingStep({
               }}
             />
           </div>
-          <div className="relative mt-8 h-16 max-w-[30rem]">
+          <div className="relative mt-8 h-16 w-full">
             {WALKTHROUGH.map((item, index) => (
               <motion.div
                 animate={{

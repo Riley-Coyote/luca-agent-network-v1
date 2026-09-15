@@ -14277,6 +14277,19 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:window|close":
       case "title_bar_double_click":
         return null;
+      // No window server here, so these do nothing — but WHAT was asked for
+      // is the assertion: the becoming lands the application at a standard
+      // size on the monitor's middle, and specs read that off the command log.
+      case "plugin:window|set_size":
+      case "plugin:window|set_position":
+      case "plugin:window|center":
+      case "plugin:window|maximize":
+      case "plugin:window|unmaximize":
+        return null;
+      case "plugin:window|is_maximized":
+        return false;
+      case "plugin:window|scale_factor":
+        return 1;
       case "plugin:window|set_title":
         // No window server here; the pop-out's title effect is still exercised.
         return null;
