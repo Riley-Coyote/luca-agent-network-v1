@@ -498,6 +498,39 @@
   background: transparent;
 }
 
+@layer base {
+  /*
+   * The floating card (first run).
+   *
+   * The window is transparent-capable already; the slab around the card was
+   * ours. While `data-luca-floating-card` is on `<html>` — the door, the
+   * opening and the card, published by the onboarding scene store and nothing
+   * else — every surface between the desktop and the card stops painting, and
+   * the card's shell (drawn by PolyphonicOnboardingFieldLayer) is the only
+   * opaque region left. macOS draws the window shadow from it, so it hugs the
+   * card. The becoming takes the attribute off and the application's own
+   * background is back under the growing shell before it fades.
+   *
+   * `!important` throughout, and deliberately: the boot guard in `index.html`
+   * paints `<html>` with an inline style, and the setup frame's canvas is a
+   * Tailwind `!bg-[…]` utility. Hence `@layer base` as well — the cascade
+   * reverses layer order for important declarations, so an important rule in
+   * `base` is the one thing that outranks an important utility. Both come
+   * straight back the moment the attribute goes.
+   */
+  :root[data-luca-floating-card],
+  :root[data-luca-floating-card] body,
+  :root[data-luca-floating-card] #root,
+  :root[data-luca-floating-card] .buzz-startup-shell,
+  :root[data-luca-floating-card] .buzz-setup-loading-shell,
+  :root[data-luca-floating-card] [data-testid="polyphonic-door"] {
+    /* biome-ignore lint/complexity/noImportantStyles: beats an inline style on <html> (the index.html boot guard) and the setup frame's own `!bg-[…]` utility; nothing else can. */
+    background-color: transparent !important;
+    /* biome-ignore lint/complexity/noImportantStyles: same — the onboarding shell's dot grid is a layered background-image the boot guard cannot be reasoned with. */
+    background-image: none !important;
+  }
+}
+
 :root[data-buzz-translucent] .buzz-huddle-app-surface::after {
   background: transparent;
 }

@@ -7,11 +7,15 @@ import { isLightTheme } from "@/shared/theme/theme-loader";
 import { useSystemColorScheme } from "@/shared/theme/useSystemColorScheme";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
+import { usePolyphonicCardDrag } from "../polyphonicFloatingWindow";
 import {
   polyphonicCardFrameStyle,
   usePublishFieldAnchor,
 } from "../polyphonicOnboardingGeometry";
-import { setPolyphonicScene } from "../polyphonicOnboardingScene";
+import {
+  setPolyphonicScene,
+  usePolyphonicFloatingCard,
+} from "../polyphonicOnboardingScene";
 import type { PolyphonicOnboardingChapter } from "../polyphonicOnboardingState";
 import {
   polyphonicDarkPalette,
@@ -67,6 +71,9 @@ export function PolyphonicSetupFrame({
       : polyphonicDarkPalette;
   const paneRef = useRef<HTMLDivElement>(null);
   usePublishFieldAnchor(paneRef, "card");
+  // The same handle as the door's, because it is the same pane: floating, the
+  // card is dragged by the panel the field lives in.
+  usePolyphonicCardDrag(paneRef, usePolyphonicFloatingCard());
   useEffect(() => {
     setPolyphonicScene({ resolving: stage === "preparing" });
   }, [stage]);
@@ -97,6 +104,7 @@ export function PolyphonicSetupFrame({
           <div
             aria-hidden
             className="relative"
+            data-luca-card-drag-handle=""
             data-testid="polyphonic-setup-pane"
             ref={paneRef}
           />

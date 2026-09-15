@@ -178,20 +178,33 @@ fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
 const FIRST_RUN_WINDOW_WIDTH: f64 = 1000.0;
 const FIRST_RUN_WINDOW_HEIGHT: f64 = 656.0;
 
-/// Size the main window for a first run. An owner who has completed onboarding
-/// keeps their restored geometry, and so does an install whose onboarding
-/// status cannot be read — only a confirmed first run is resized. This never
-/// calls `restore_state`, which would deadlock against the window-state plugin.
-fn size_window_for_first_run(window: &tauri::Window) {
+/// A stranger's first launch: no owner has completed onboarding.
+///
+/// An install whose onboarding status cannot be read is deliberately NOT a
+/// first run. Everything keyed on this — the card-sized window, the floating
+/// card's hidden stoplights, the skipped opaque backing — is a departure from
+/// how the app opens for its owner, and a departure is only worth making on a
+/// confirmed answer.
+fn is_confirmed_first_run(window: &tauri::Window) -> bool {
     match luca::resident_capability_authority::any_owner_completed_onboarding(window.app_handle()) {
-        Ok(true) => return,
-        Ok(false) => {}
+        Ok(completed) => !completed,
         Err(_) => {
             eprintln!(
-                "buzz-desktop: onboarding status is unavailable; keeping the restored window size"
+                "buzz-desktop: onboarding status is unavailable; opening as a returning owner"
             );
-            return;
+            false
         }
+    }
+}
+
+/// Size the main window for a first run. An owner who has completed onboarding
+/// keeps their restored geometry — see `is_confirmed_first_run`, which the
+/// reveal plugin asks once and hands to everything that depends on the
+/// answer. This never calls `restore_state`, which would deadlock against the
+/// window-state plugin.
+fn size_window_for_first_run(window: &tauri::Window, first_run: bool) {
+    if !first_run {
+        return;
     }
     if let Err(error) = window.unmaximize() {
         eprintln!("buzz-desktop: failed to unmaximize the first-run window: {error}");
@@ -331,10 +344,29 @@ pub fn run() {
                     // for several identical outer bounds and for React to
                     // commit the startup surface before revealing it.
                     let window = webview.window();
+                    let first_run = is_confirmed_first_run(&window);
 
                     #[cfg(target_os = "macos")]
                     {
-                        set_initial_window_backing(&window);
+                        if first_run {
+                            // Nothing but the card is on screen for a first
+                            // run, so there is no window frame to put a
+                            // stoplight cluster in the corner of. Hidden here,
+                            // before the reveal, so they are never seen; the
+                            // card asks for them back at the becoming through
+                            // `set_main_window_traffic_lights_hidden`.
+                            commands::set_traffic_lights_hidden(&window, true);
+                        } else {
+                            // The opaque backing exists so the previous app's
+                            // pixels cannot show through the transparent
+                            // window before WebKit submits its first surface.
+                            // A first run must not have it: it would paint a
+                            // slab in exactly the transparent margin the
+                            // floating card is there to leave empty, and the
+                            // document is already painting its own opaque boot
+                            // colour by the time the reveal waits on it.
+                            set_initial_window_backing(&window);
+                        }
 
                         let (initial_render_tx, initial_render_rx) = tokio::sync::oneshot::channel();
                         window
@@ -346,7 +378,7 @@ pub fn run() {
                         tauri::async_runtime::spawn(async move {
                             // After the window-state plugin has issued its
                             // restore, so a first run ends on the card size.
-                            size_window_for_first_run(&window);
+                            size_window_for_first_run(&window, first_run);
                             wait_for_stable_initial_window_geometry(&window).await;
 
                             if tokio::time::timeout(
@@ -362,13 +394,15 @@ pub fn run() {
                             }
 
                             reveal_initial_window(&window);
-                            clear_initial_window_backing(&window).await;
+                            if !first_run {
+                                clear_initial_window_backing(&window).await;
+                            }
                         });
                     }
 
                     #[cfg(not(target_os = "macos"))]
                     {
-                        size_window_for_first_run(&window);
+                        size_window_for_first_run(&window, first_run);
                         reveal_initial_window(&window);
                     }
                 })
@@ -929,6 +963,7 @@ pub fn run() {
             unarchive_builderlab_community,
             transfer_builderlab_community,
             title_bar_double_click,
+            set_main_window_traffic_lights_hidden,
             set_artifact_canvas_window_open,
             get_preview_session,
             refresh_preview_health,

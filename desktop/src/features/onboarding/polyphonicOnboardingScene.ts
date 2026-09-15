@@ -114,3 +114,42 @@ export function resetPolyphonicScene() {
   scene = OFF;
   emit();
 }
+
+/**
+ * The stages where the card is the only thing on screen.
+ *
+ * On a first run the native window is transparent and sized to hold just the
+ * card: the desktop shows around it, the window server draws the shadow from
+ * the card's own opaque pixels, and there are no traffic lights. That is one
+ * fact with one source — this predicate over `stage` — and never a second
+ * flag to keep in step with it. The becoming ends it: the application's own
+ * surface comes back under the growing shell, so `becoming`, `app` and `off`
+ * are all solid ground.
+ */
+const FLOATING_STAGES: ReadonlySet<PolyphonicSceneStage> = new Set([
+  "door",
+  "opening",
+  "card",
+]);
+
+export function isFloatingCardStage(stage: PolyphonicSceneStage): boolean {
+  return FLOATING_STAGES.has(stage);
+}
+
+/** The same answer outside React, for the theme layer's native handshake. */
+export function readPolyphonicFloatingCard(): boolean {
+  return isFloatingCardStage(scene.stage);
+}
+
+/**
+ * Whether the card is floating, as a boolean snapshot: subscribers that only
+ * care about the window re-render when the answer changes and not when the
+ * field's anchor moves.
+ */
+export function usePolyphonicFloatingCard(): boolean {
+  return useSyncExternalStore(
+    subscribe,
+    () => isFloatingCardStage(scene.stage),
+    () => false,
+  );
+}

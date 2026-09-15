@@ -22,6 +22,7 @@
         "maximized": true,
         "visible": false,
         "transparent": true,
+        "shadow": true,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "dragDropEnabled": false,

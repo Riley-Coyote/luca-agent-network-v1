@@ -10,6 +10,7 @@ import {
   POLYPHONIC_PANE_TRACK,
   polyphonicCardFrameStyle,
 } from "../polyphonicOnboardingGeometry";
+import { usePolyphonicFloatingWindow } from "../polyphonicFloatingWindow";
 import {
   setPolyphonicScene,
   usePolyphonicScene,
@@ -69,6 +70,9 @@ function resolveBecomingTarget() {
  */
 export function PolyphonicOnboardingFieldLayer() {
   const scene = usePolyphonicScene();
+  // The card is the only thing on screen while the scene is floating: this
+  // stamps the document and tells the native window about its stoplights.
+  const floating = usePolyphonicFloatingWindow();
   const reduceMotion = useReducedMotion();
   const theme = useTheme();
   const systemColorScheme = useSystemColorScheme();
@@ -225,9 +229,11 @@ export function PolyphonicOnboardingFieldLayer() {
         }}
       >
         {/* A faint halo under the card, so it reads as an object floating and
-            not a panel cut out of the canvas. */}
+            not a panel cut out of the canvas. While the card really is
+            floating there is no canvas to lift it off — the halo would be the
+            one thing painting the transparent margin — so it stays down. */}
         <motion.div
-          animate={{ opacity: becoming ? 0 : 1 }}
+          animate={{ opacity: becoming || floating ? 0 : 1 }}
           className="pointer-events-none fixed h-[900px] w-[1400px]"
           initial={false}
           style={{
@@ -266,8 +272,13 @@ export function PolyphonicOnboardingFieldLayer() {
             borderRadius: 15,
             borderColor: "var(--prototype-hairline)",
             backgroundColor: "var(--prototype-raised)",
-            boxShadow:
-              "inset 0 1px 0 var(--prototype-hairline-soft), 0 1px 2px rgb(0 0 0/0.08), 0 22px 64px var(--prototype-shadow)",
+            // Floating, the window server draws the drop shadow from the
+            // card's own opaque pixels; a CSS one would be painted *inside*
+            // the transparent margin, beside the real one. The inset lit edge
+            // is the surface itself and stays either way.
+            boxShadow: floating
+              ? "inset 0 1px 0 var(--prototype-hairline-soft)"
+              : "inset 0 1px 0 var(--prototype-hairline-soft), 0 1px 2px rgb(0 0 0/0.08), 0 22px 64px var(--prototype-shadow)",
           }}
           transition={{
             duration: reduceMotion ? 0 : BECOMING_GROW_MS / 1000,

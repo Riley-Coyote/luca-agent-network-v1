@@ -103,7 +103,14 @@ test("the setup card follows the application appearance", async ({ page }) => {
   const surface = page.getByTestId("polyphonic-onboarding-shell");
   const frame = page.getByTestId("polyphonic-setup-assistant");
   await expect(onboarding).toHaveAttribute("data-system-color-scheme", "dark");
-  await expect(onboarding).toHaveCSS("background-color", "rgb(6, 6, 8)");
+  // The canvas behind the card is not painted while the card floats on its
+  // own transparent window, so the appearance the card follows is carried by
+  // the token and shown by the shell.
+  await expect(onboarding).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  const canvasToken = await onboarding.evaluate((el) =>
+    getComputedStyle(el).getPropertyValue("--prototype-canvas").trim(),
+  );
+  expect(canvasToken).toBe("#060608");
   await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
   await expect(frame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 

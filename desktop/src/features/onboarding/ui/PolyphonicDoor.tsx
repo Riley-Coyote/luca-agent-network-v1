@@ -2,11 +2,15 @@ import { motion, useReducedMotion } from "motion/react";
 import * as React from "react";
 
 import { Button } from "@/shared/ui/button";
+import { usePolyphonicCardDrag } from "../polyphonicFloatingWindow";
 import {
   polyphonicCardFrameStyle,
   usePublishFieldAnchor,
 } from "../polyphonicOnboardingGeometry";
-import { setPolyphonicScene } from "../polyphonicOnboardingScene";
+import {
+  setPolyphonicScene,
+  usePolyphonicFloatingCard,
+} from "../polyphonicOnboardingScene";
 import { polyphonicDarkPalette } from "./PolyphonicOnboardingPresentation";
 
 const EASE: [number, number, number, number] = [0.2, 0, 0, 1];
@@ -40,6 +44,10 @@ export function PolyphonicDoor({
   const anchorRef = React.useRef<HTMLDivElement>(null);
   const [leaving, setLeaving] = React.useState(false);
   usePublishFieldAnchor(anchorRef, "door");
+  // Floating, the window has no title bar to take hold of: the pane the field
+  // lives in is the handle. It carries no controls, so there is nothing here
+  // a drag could steal.
+  usePolyphonicCardDrag(anchorRef, usePolyphonicFloatingCard());
 
   const begin = () => {
     setLeaving(true);
@@ -59,7 +67,7 @@ export function PolyphonicDoor({
         className="relative z-[45] grid border border-transparent"
         style={polyphonicCardFrameStyle}
       >
-        <div aria-hidden ref={anchorRef} />
+        <div aria-hidden data-luca-card-drag-handle="" ref={anchorRef} />
         <motion.div
           animate={leaving ? { opacity: 0, y: -8 } : { opacity: 1, y: 0 }}
           className="flex flex-col justify-center px-9 text-left"

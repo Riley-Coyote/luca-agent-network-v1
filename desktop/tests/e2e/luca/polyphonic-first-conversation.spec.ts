@@ -321,3 +321,36 @@ test("all three residents exist from the first launch, and only Luca is awake", 
   await expect(page.getByTestId("agent-rail-fifty")).toBeVisible();
   await expect(page.getByTestId("agent-rail-trinity")).toBeVisible();
 });
+
+test("the becoming puts the window back: the app has its own ground again", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1000, height: 656 });
+  await arriveInLucaDm(page);
+
+  // The card stopped floating the moment it started becoming the app — not
+  // when the app finished arriving — so the growing shell never sat on a
+  // transparent void.
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-luca-floating-card",
+    "",
+  );
+  const bodyBackground = await page.evaluate(
+    () => window.getComputedStyle(document.body).backgroundColor,
+  );
+  expect(bodyBackground).not.toBe("rgba(0, 0, 0, 0)");
+
+  await waitForAnimations(page);
+  const evidenceDirectory = process.env.LUCA_VISUAL_EVIDENCE_DIR?.trim();
+  if (evidenceDirectory) {
+    await page.screenshot({
+      animations: "allow",
+      path: `${evidenceDirectory}/floating-card-after-becoming.png`,
+    });
+  } else {
+    await testInfo.attach("app after becoming", {
+      body: await page.screenshot({ animations: "allow" }),
+      contentType: "image/png",
+    });
+  }
+});

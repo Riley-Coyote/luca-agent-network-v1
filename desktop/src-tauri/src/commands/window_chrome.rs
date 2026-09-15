@@ -223,6 +223,86 @@ pub fn set_artifact_canvas_window_open(
     })
 }
 
+/// Hide or show the macOS stoplight cluster (close, minimize, zoom) on one
+/// window.
+///
+/// Two windows ask for this, for the same reason and with the same answer. A
+/// pop-out draws its own minimize and close in the one 36px bar it owns, so
+/// the native cluster beside them is two answers to the same question. The
+/// first-run onboarding card floats on a transparent window with nothing
+/// around it but the desktop — a stoplight cluster there would be the corner
+/// of a window frame that is not being drawn.
+///
+/// Both windows keep `TitleBarStyle::Overlay` and `hidden_title(true)`:
+/// removing the buttons is not the same as removing the title bar, and the
+/// title bar is what carries the native resize edges, the window shadow and
+/// the corner radius. `-[NSWindow standardWindowButton:]` is public AppKit;
+/// hiding the views it returns is the supported way to suppress the cluster
+/// on an overlay title bar.
+///
+/// Best-effort by construction: a window that cannot be reached still opens,
+/// with its stoplights as they were, rather than failing the owner's request.
+#[cfg(target_os = "macos")]
+pub fn set_traffic_lights_hidden<R: tauri::Runtime>(window: &tauri::Window<R>, hidden: bool) {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+
+    let handle = window.clone();
+    let dispatched = window.run_on_main_thread(move || {
+        let ns_window = match handle.ns_window() {
+            Ok(pointer) => pointer,
+            Err(error) => {
+                eprintln!(
+                    "luca-window: no native window for {}: {error}",
+                    handle.label()
+                );
+                return;
+            }
+        };
+        let Some(ns_window) = std::ptr::NonNull::new(ns_window) else {
+            eprintln!("luca-window: {} has no NSWindow yet", handle.label());
+            return;
+        };
+        // SAFETY: `ns_window()` returns this window's live `NSWindow`, and
+        // `run_on_main_thread` is what puts this closure on the thread AppKit
+        // requires for it.
+        let ns_window: &NSWindow = unsafe { ns_window.cast().as_ref() };
+        for kind in [
+            NSWindowButton::CloseButton,
+            NSWindowButton::MiniaturizeButton,
+            NSWindowButton::ZoomButton,
+        ] {
+            if let Some(button) = ns_window.standardWindowButton(kind) {
+                button.setHidden(hidden);
+            }
+        }
+    });
+
+    if let Err(error) = dispatched {
+        eprintln!(
+            "luca-window: failed to set the traffic lights on {}: {error}",
+            window.label()
+        );
+    }
+}
+
+/// The frontend's half of the floating first-run card: the reveal plugin hides
+/// the stoplights before a first-run window is ever shown, and the card asks
+/// for them back at the becoming — the moment it stops floating and grows into
+/// the application.
+///
+/// Scoped to the main window on purpose. A pop-out's cluster is hidden for its
+/// own reasons and is not the onboarding card's to give back.
+#[tauri::command]
+pub fn set_main_window_traffic_lights_hidden(window: tauri::Window, hidden: bool) {
+    if window.label() != "main" {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    set_traffic_lights_hidden(&window, hidden);
+    #[cfg(not(target_os = "macos"))]
+    let _ = hidden;
+}
+
 /// Performs the platform's default sidebar alignment haptic when available.
 #[tauri::command]
 pub fn perform_sidebar_default_haptic() {

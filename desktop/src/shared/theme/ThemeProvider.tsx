@@ -10,6 +10,10 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
+import {
+  readPolyphonicFloatingCard,
+  usePolyphonicFloatingCard,
+} from "@/features/onboarding/polyphonicOnboardingScene";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
@@ -380,10 +384,21 @@ function setBuzzTranslucent(enabled: boolean) {
  * ships an opaque surface on a transparent-capable window, so it must never
  * claim a vibrancy layer it has not installed — the glass CSS would go
  * see-through onto nothing.
+ *
+ * The floating onboarding card is the same case, for the same reason and only
+ * for as long as it floats: there is nothing behind that window but the
+ * desktop. An NSVisualEffectView installed under it would frost the desktop
+ * and the card would sit on a pane of glass instead of on the desk. The
+ * marker is withdrawn while the card floats and stamped again at the becoming
+ * — see the vibrancy effect in ThemeProvider, which re-runs on that edge.
  */
 function applyNativeMarker(themeName: string) {
   if (!isTauri() || isPopoutWindow()) return;
   const root = document.documentElement;
+  if (readPolyphonicFloatingCard()) {
+    root.removeAttribute("data-luca-native");
+    return;
+  }
   root.setAttribute("data-luca-native", "");
   if (isGlassTheme(themeName)) {
     // The index.html boot guard paints <html> inline to prevent a cold-boot
@@ -760,6 +775,9 @@ export function ThemeProvider({
   const [systemIsDark, setSystemIsDark] = useState<boolean>(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
+  // The first-run card floats on a transparent window with only the desktop
+  // behind it. The native material handshake below is gated on this.
+  const floatingCard = usePolyphonicFloatingCard();
 
   // Resolve the effective theme based on follow-system preference
   const effectiveTheme = (() => {
@@ -800,6 +818,31 @@ export function ThemeProvider({
     // command is caller-scoped) and then go translucent over a layer the M1
     // design never asked for.
     if (isPopoutWindow()) return;
+    // The floating first-run card is denied the same thing for the same
+    // reason: its window is transparent onto the desktop, and a vibrancy view
+    // installed under it would frost the desktop into a pane of glass the
+    // card would then sit on. `floatingCard` is a dependency, so the becoming
+    // re-runs this effect and the app's glass comes back exactly as it was.
+    //
+    // `data-luca-native` is withdrawn and restored on the same edge, here,
+    // because `applyTheme` stamps it only when the theme itself changes and
+    // the card can start floating long after the theme settled.
+    applyNativeMarker(effectiveTheme);
+    if (floatingCard) {
+      // Cleared, not merely left alone: a dev reset can reopen the door with
+      // a glass theme's layer already live, and the card would be sitting on
+      // frosted desktop. The becoming re-runs this effect and the normal
+      // path below installs whatever the theme asks for, from scratch.
+      setBuzzTranslucent(false);
+      if (isTauri()) {
+        void invokeTauri<void>("set_window_vibrancy", { enabled: false }).catch(
+          () => {
+            // Nothing behind the card either way; the door does not wait.
+          },
+        );
+      }
+      return;
+    }
     // Strictly sequential, not parallel: applyBuzzVibrancy issues
     // `set_window_vibrancy(enabled: false)` for every non-Buzz theme, so
     // installing the glass layer before it resolves would have that clear
@@ -811,7 +854,7 @@ export function ThemeProvider({
       .then(() => {
         void applyGlassVibrancy(effectiveTheme);
       });
-  }, [effectiveTheme]);
+  }, [effectiveTheme, floatingCard]);
 
   // One-time hygiene: the retired per-theme glass toggle and material
   // picker left these keys behind; the two-glass system stores nothing.
