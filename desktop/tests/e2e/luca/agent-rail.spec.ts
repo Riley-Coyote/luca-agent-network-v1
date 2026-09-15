@@ -570,10 +570,11 @@ test("the column arrives and leaves on the compositor, and holds still under red
       ? getComputedStyle(el.parentElement).transitionProperty
       : "",
   }));
-  // The column fades and drifts; the mover slides by transform. Nothing
-  // here animates `left` or `width`.
-  expect(transitions.column).toMatch(/opacity/);
-  expect(transitions.column).toMatch(/translate/);
+  // The column itself holds still — the pane's edge is what uncovers it,
+  // so a fade on top of that would be a second arrival. The mover slides by
+  // transform. Nothing here animates `left` or `width`.
+  expect(transitions.column).not.toMatch(/opacity/);
+  expect(transitions.column).not.toMatch(/translate/);
   expect(transitions.mover).toMatch(/transform|translate/);
   expect(transitions.mover).not.toMatch(/left|width/);
 
@@ -630,39 +631,70 @@ test("a runtime and a resident's column never open together", async ({
   await expect(runtimePanel).toHaveCount(0);
 });
 
-test("the rail slides by transform, the inset changes once, and the phone sheet is on the drawer curve", async ({
+test("the rail slides by transform and the reading plane travels with it, and the phone sheet is on the drawer curve", async ({
   page,
 }) => {
   await page.goto("/?e2e=mock");
 
   const container = page.getByTestId("app-sidebar");
   const styles = () =>
-    container.evaluate((el) => ({
-      container: getComputedStyle(el).transitionProperty,
-      gapDuration: el.previousElementSibling
-        ? getComputedStyle(el.previousElementSibling).transitionDuration
-        : "",
-      translate: getComputedStyle(el).translate,
-    }));
+    container.evaluate((el) => {
+      const gap = el.previousElementSibling;
+      const gapStyle = gap ? getComputedStyle(gap) : null;
+      return {
+        container: getComputedStyle(el).transitionProperty,
+        containerDuration: getComputedStyle(el).transitionDuration,
+        containerEasing: getComputedStyle(el).transitionTimingFunction,
+        gapProperty: gapStyle?.transitionProperty ?? "",
+        gapDuration: gapStyle?.transitionDuration ?? "",
+        gapEasing: gapStyle?.transitionTimingFunction ?? "",
+        gapWidth: gap ? gap.getBoundingClientRect().width : -1,
+        translate: getComputedStyle(el).translate,
+      };
+    });
+  const tokens = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    return {
+      duration: root.getPropertyValue("--motion-duration-standard").trim(),
+      easing: root.getPropertyValue("--motion-ease-standard").trim(),
+    };
+  });
   const resting = await styles();
   expect(resting.container).toMatch(/transform|translate/);
   expect(resting.container).not.toMatch(/left|right/);
-  expect(resting.gapDuration).toBe("0s");
+  // The gap is the rail's footprint under the reading plane, so the plane's
+  // leading edge and the rail's trailing edge are one line: the same
+  // duration and the same curve as the rail's own slide. Snapping it
+  // teleported the conversation while the rail slid out from under it.
+  expect(resting.gapProperty).toMatch(/width/);
+  const toMs = (value: string) =>
+    value.trim().endsWith("ms")
+      ? Number.parseFloat(value)
+      : Number.parseFloat(value) * 1000;
+  expect(toMs(resting.gapDuration)).toBe(toMs(tokens.duration));
+  // The token is authored as `.25`; the computed value normalises to `0.25`.
+  const curve = (value: string) =>
+    value.replace(/\s+/g, "").replace(/(^|[(,])\./g, "$10.");
+  expect(curve(resting.gapEasing)).toBe(curve(tokens.easing));
+  expect(resting.gapWidth).toBeGreaterThan(0);
 
-  // Collapse: the container leaves by translate; the gap is gone at once.
+  // Collapse: the container leaves by translate and the gap closes with it,
+  // arriving at zero at the end of the slide rather than at its start.
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
   await expect.poll(async () => (await styles()).translate).toMatch(/^-\d+px/);
-  expect(
-    await container.evaluate((el) =>
-      el.previousElementSibling
-        ? el.previousElementSibling.getBoundingClientRect().width
-        : -1,
-    ),
-  ).toBe(0);
+  await expect.poll(async () => (await styles()).gapWidth).toBe(0);
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
   await expect
     .poll(async () => (await styles()).translate)
     .toMatch(/^(none|0px)/);
+
+  // Reduced motion: the gap is instant again, so the slide adds nothing the
+  // owner asked not to see.
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  // `transition-property: none` is the thing that stops it; the duration
+  // longhand keeps its value either way, so that is not the probe.
+  expect((await styles()).gapProperty).toBe("none");
+  await page.emulateMedia({ reducedMotion: null });
 
   // The phone sheet arrives on the house drawer curve.
   await page.setViewportSize({ width: 390, height: 844 });

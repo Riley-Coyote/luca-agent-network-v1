@@ -343,12 +343,19 @@ const Sidebar = React.forwardRef<
         {/* This is what handles the sidebar gap on desktop */}
         <div
           className={cn(
-            // Deliberately no transition. The content inset changes once, at
-            // the start of a collapse or an expand, and the rail alone moves
-            // (by transform, below). Animating this width relayouts the
-            // reading plane every frame and, through MainInsetProvider, turns
-            // each of those frames into a React commit of the conversation.
+            // The gap IS the rail's footprint under the reading plane, so it
+            // travels on the rail's own duration and curve: the card's leading
+            // edge and the rail's trailing edge are the same line, and they
+            // move together. Snapping it (what this did) teleported the
+            // conversation the rail's whole width in one frame while the rail
+            // slid out from under it — card and rail read as two objects.
+            // The cost of animating it is measured, not assumed:
+            // `nav-motion.perf.ts` reports the layout passes and the long
+            // tasks for a 600-message room.
             "relative w-(--sidebar-width) bg-transparent",
+            "transition-[width] [transition-duration:var(--motion-duration-standard)] [transition-timing-function:var(--motion-ease-standard)] motion-reduce:transition-none",
+            // A drag-resize follows the pointer; a transition would lag it.
+            "group-data-[resizing=true]:transition-none",
             "group-data-[collapsible=offcanvas]:w-0",
             "group-data-[side=right]:rotate-180",
             variant === "floating" || variant === "inset"

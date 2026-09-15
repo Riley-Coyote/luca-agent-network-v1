@@ -30,8 +30,9 @@ const NO_ITEMS: readonly ChatListItem[] = [];
  * a stage that clips to the container (so a closing column is swallowed by
  * the pane's returning edge instead of overhanging the conversation), a
  * mover that slides by transform when the rail is put away or peeked, and
- * the column itself, which arrives and leaves by opacity and a short drift
- * under `PanelPresence`.
+ * the column itself, which does not animate at all: the pane's edge
+ * uncovers it and covers it again, and `PanelPresence` only keeps it
+ * mounted long enough for that edge to finish.
  */
 export const AgentChatsColumn = React.memo(function AgentChatsColumn({
   agent,
@@ -108,12 +109,13 @@ export const AgentChatsColumn = React.memo(function AgentChatsColumn({
         mobile
           ? "min-h-0 w-full flex-1 bg-sidebar"
           : cn(
+              // The column itself does not animate. It is already at full
+              // strength behind the pane's edge; the pane widening is what
+              // uncovers it and the pane narrowing is what swallows it, on
+              // the rail's own duration and curve. A fade on top of that
+              // reveal was a second, softer motion over the first — the
+              // column arrived twice.
               "pointer-events-auto h-full w-full",
-              // Arrival: opacity and an 8px drift at fast · arrival. Leaving:
-              // the reverse at instant · standard. Reduced motion: at once.
-              "transition-[opacity,translate] motion-reduce:transition-none",
-              "data-[panel-open=true]:[transition-duration:var(--motion-duration-fast)] data-[panel-open=true]:[transition-timing-function:var(--motion-ease-arrival)]",
-              "data-[panel-open=false]:-translate-x-2 data-[panel-open=false]:opacity-0 data-[panel-open=false]:[transition-duration:var(--motion-duration-instant)] data-[panel-open=false]:[transition-timing-function:var(--motion-ease-standard)]",
             ),
       )}
       data-panel-open={open}
