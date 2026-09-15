@@ -72,7 +72,8 @@ export function SandpileActivityIndicator({
 }: {
   active?: boolean;
   seed: string;
-  size?: number;
+  /** A pixel count, or any CSS length ("100%") letting the box own the size. */
+  size?: number | string;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
 

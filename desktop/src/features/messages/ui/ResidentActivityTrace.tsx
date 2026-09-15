@@ -225,7 +225,7 @@ export function ResidentActivityTrace({
             <span className="resident-activity-indicator" aria-hidden="true">
               <SandpileActivityIndicator
                 seed={`${residentPubkey}:activity`}
-                size={49}
+                size="100%"
               />
             </span>
             {identity}

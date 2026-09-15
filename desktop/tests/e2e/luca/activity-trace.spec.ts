@@ -208,8 +208,10 @@ test("live native activity replaces narration in place and stops the exact resid
   const statusBox = await trace.locator("[data-activity-status]").boundingBox();
   if (!indicatorBox || !statusBox)
     throw new Error("Activity row is not laid out");
-  expect(indicatorBox?.width).toBe(49);
-  expect(indicatorBox?.height).toBe(49);
+  // The mark is one token (--resident-activity-mark-size) that sizes both the
+  // slot and the canvas inside it; the row, not the mark, sets the line.
+  expect(indicatorBox?.width).toBe(22);
+  expect(indicatorBox?.height).toBe(22);
   expect(indicatorBox.x + indicatorBox.width).toBeLessThan(statusBox.x);
   expect(
     Math.abs(

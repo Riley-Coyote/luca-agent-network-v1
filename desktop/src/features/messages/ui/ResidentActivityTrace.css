@@ -3,20 +3,24 @@
 }
 
 .resident-activity-header {
+  /* The single truth for the live mark. The box below is sized from it and the
+     canvas fills that box, so the drawing and its slot can never disagree. */
+  --resident-activity-mark-size: 22px;
+
   display: flex;
   min-width: 0;
   min-height: 1rem;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
 .resident-activity-indicator {
   display: inline-flex;
-  flex: 0 0 49px;
+  flex: 0 0 var(--resident-activity-mark-size);
   align-items: center;
   justify-content: center;
-  width: 49px;
-  height: 49px;
+  width: var(--resident-activity-mark-size);
+  height: var(--resident-activity-mark-size);
 }
 
 .resident-activity-name {
@@ -237,7 +241,6 @@
 }
 
 @media (max-width: 480px) {
-  .resident-activity-header,
   .resident-activity-controls {
     gap: 0.5rem;
   }
