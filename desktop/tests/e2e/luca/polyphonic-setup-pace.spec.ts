@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../../helpers/bridge";
+import { THREE_NATIVE_AGENTS } from "./onboarding-agent-import-fixture";
 
 const READY_CODEX_RUNTIME = {
   id: "codex",
@@ -30,6 +31,11 @@ const READY_CODEX_RUNTIME = {
 const PAGE_CHANGE_BUDGET_MS = 150;
 /** The door hands over through the app's own gates; they cost what they cost. */
 const DOOR_BUDGET_MS = 400;
+/** What the modelled scan of this Mac costs, start to finish. */
+const SCAN_COST_MS = 800;
+/** How long the owner reads the door for. Zero is the worst case: a press on
+ *  the frame the door appears, which leaves the prefetch almost no head start. */
+const DWELL_MS = Number(process.env.LUCA_PACE_DWELL_MS ?? 1500);
 
 declare global {
   interface Window {
@@ -119,7 +125,8 @@ test("no page of setup waits on a round trip before it changes", async ({
     page,
     {
       acpRuntimesCatalog: [READY_CODEX_RUNTIME],
-      nativeResidentDiscovery: { runtimes: [] },
+      // Agents to find, so "opens on rows" is a question this can answer.
+      nativeResidentDiscovery: THREE_NATIVE_AGENTS,
     },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
@@ -128,7 +135,7 @@ test("no page of setup waits on a round trip before it changes", async ({
   await expect(page.getByTestId("polyphonic-door-begin")).toBeVisible();
   // The owner reads the door before pressing it, and the discovery the door
   // starts has that long to land.
-  await page.waitForTimeout(Number(process.env.LUCA_PACE_DWELL_MS ?? 1500));
+  await page.waitForTimeout(DWELL_MS);
 
   const doorToName = await page.evaluate(() =>
     window.__paceMeasure?.(
@@ -162,6 +169,27 @@ test("no page of setup waits on a round trip before it changes", async ({
 
   await page.getByRole("radio", { name: /Codex/ }).check();
   await expect(page.getByTestId("polyphonic-setup-continue")).toBeEnabled();
+  // The agents chapter is the same bargain: the scan was started a chapter
+  // ago, so the question arrives with its rows already under it.
+  const runtimeToAgents = await page.evaluate(() =>
+    window.__paceMeasure?.(
+      '[data-testid="polyphonic-setup-continue"]',
+      "#polyphonic-agents-heading",
+    ),
+  );
+  const agentRowsAfterHeading = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const start = performance.now();
+        const tick = () => {
+          if (document.querySelector('[data-testid^="onboarding-agent-row-"]'))
+            resolve(performance.now() - start);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+
   // "Meet Luca" moves to the waking page and does its work there; it never
   // becomes "Working…" on the page the owner is still looking at.
   const meetLucaToWaking = await page.evaluate(() =>
@@ -175,17 +203,28 @@ test("no page of setup waits on a round trip before it changes", async ({
     door_to_name_ms: Math.round(doorToName ?? -1),
     name_to_runtime_ms: Math.round(nameToRuntime ?? -1),
     runtime_rows_after_heading_ms: Math.round(rowsAfterHeading),
+    runtime_to_agents_ms: Math.round(runtimeToAgents ?? -1),
+    agent_rows_after_heading_ms: Math.round(agentRowsAfterHeading),
     meet_luca_to_waking_ms: Math.round(meetLucaToWaking ?? -1),
   };
   console.log(`LUCA_SETUP_PACE ${JSON.stringify(pace)}`);
 
   expect(pace.name_to_runtime_ms).toBeGreaterThanOrEqual(0);
   expect(pace.name_to_runtime_ms).toBeLessThan(PAGE_CHANGE_BUDGET_MS);
+  expect(pace.runtime_to_agents_ms).toBeGreaterThanOrEqual(0);
+  expect(pace.runtime_to_agents_ms).toBeLessThan(PAGE_CHANGE_BUDGET_MS);
   expect(pace.meet_luca_to_waking_ms).toBeGreaterThanOrEqual(0);
   expect(pace.meet_luca_to_waking_ms).toBeLessThan(PAGE_CHANGE_BUDGET_MS);
-  expect(pace.runtime_rows_after_heading_ms).toBeLessThan(
-    PAGE_CHANGE_BUDGET_MS,
-  );
+  // Rows are a different promise from page changes: they are asked for at the
+  // door, so an owner who read it at all finds them already home. An owner who
+  // pressed on the first frame still gets the head start the door bought —
+  // well under what the scan would cost if it began when its chapter opened.
+  const rowsBudget =
+    DWELL_MS >= SCAN_COST_MS ? PAGE_CHANGE_BUDGET_MS : SCAN_COST_MS / 2;
+  expect(pace.runtime_rows_after_heading_ms).toBeLessThan(rowsBudget);
+  // The scan of this Mac is the slowest thing setup asks for, and it is two
+  // chapters from where it is needed precisely so this number is not it.
+  expect(pace.agent_rows_after_heading_ms).toBeLessThan(rowsBudget);
   expect(pace.door_to_name_ms).toBeGreaterThanOrEqual(0);
   expect(pace.door_to_name_ms).toBeLessThan(DOOR_BUDGET_MS);
 });
