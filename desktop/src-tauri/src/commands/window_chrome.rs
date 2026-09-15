@@ -348,6 +348,81 @@ pub fn set_main_window_traffic_lights_hidden(window: tauri::Window, hidden: bool
     let _ = hidden;
 }
 
+/// Put a window in the middle of the monitor it is actually on.
+///
+/// `Window::center` measures against the PRIMARY display, so a window sitting
+/// on a second monitor gets a centre computed in the wrong coordinate space
+/// and lands wherever that arithmetic points — for one owner, (-4684, -94)
+/// for the first-run card on a 5120×1440 ultrawide beside a Retina built-in,
+/// and (-3200, 47) for the application the card becomes. The monitor under
+/// the window is the one that matters; the primary is the fallback, and only
+/// if there is no monitor at all does Tauri's own centring get a turn.
+///
+/// Everything here is physical pixels: `work_area` and `outer_size` share one
+/// coordinate space, so there is no scale factor to apply — mixing in a
+/// logical size is how the arithmetic goes wrong in the first place. The work
+/// area, not the full frame, so the menu bar and the Dock are not centred
+/// into.
+pub fn center_on_current_monitor<R: tauri::Runtime>(window: &tauri::Window<R>) {
+    let monitor = match window.current_monitor() {
+        Ok(Some(monitor)) => Some(monitor),
+        Ok(None) => None,
+        Err(error) => {
+            eprintln!(
+                "luca-window: current monitor is unavailable for {}: {error}",
+                window.label()
+            );
+            None
+        }
+    };
+    let Some(monitor) = monitor.or_else(|| window.primary_monitor().ok().flatten()) else {
+        eprintln!("luca-window: no monitor to centre {} on", window.label());
+        if let Err(error) = window.center() {
+            eprintln!("luca-window: failed to centre {}: {error}", window.label());
+        }
+        return;
+    };
+
+    let outer = match window.outer_size() {
+        Ok(size) => size,
+        Err(error) => {
+            eprintln!(
+                "luca-window: size is unavailable for {}: {error}",
+                window.label()
+            );
+            return;
+        }
+    };
+
+    // A window wider or taller than the work area pins to its origin rather
+    // than hanging off the leading edge.
+    let area = monitor.work_area();
+    let left = i64::from(area.position.x)
+        + (i64::from(area.size.width) - i64::from(outer.width)).max(0) / 2;
+    let top = i64::from(area.position.y)
+        + (i64::from(area.size.height) - i64::from(outer.height)).max(0) / 2;
+    let position = tauri::PhysicalPosition::new(
+        i32::try_from(left).unwrap_or(area.position.x),
+        i32::try_from(top).unwrap_or(area.position.y),
+    );
+
+    if let Err(error) = window.set_position(position) {
+        eprintln!("luca-window: failed to centre {}: {error}", window.label());
+    }
+}
+
+/// The frontend's own centring, for the window it is running in.
+///
+/// The becoming sizes the application window and then has to place it, and
+/// `getCurrentWindow().center()` is the same wrong arithmetic as above — the
+/// card landed the app at (-3200, 47) on an ultrawide, centred across the
+/// primary display's width and anchored to its top. The web side cannot see
+/// the monitor it is on; this can.
+#[tauri::command]
+pub fn center_window_on_its_monitor(window: tauri::Window) {
+    center_on_current_monitor(&window);
+}
+
 /// Performs the platform's default sidebar alignment haptic when available.
 #[tauri::command]
 pub fn perform_sidebar_default_haptic() {

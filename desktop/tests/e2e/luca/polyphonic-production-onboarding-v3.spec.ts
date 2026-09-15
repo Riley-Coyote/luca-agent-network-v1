@@ -886,8 +886,11 @@ function windowPlacement(page: import("@playwright/test").Page) {
           (entry.payload as { value?: { Logical?: unknown } } | undefined)
             ?.value?.Logical,
       ),
+      // Not `plugin:window|center`: that measures against the primary
+      // display, so the becoming asks the native side to centre on the
+      // monitor the window is actually on.
       centred: payloads.filter(
-        (entry) => entry.command === "plugin:window|center",
+        (entry) => entry.command === "center_window_on_its_monitor",
       ).length,
       maximised: payloads.filter(
         (entry) => entry.command === "plugin:window|maximize",

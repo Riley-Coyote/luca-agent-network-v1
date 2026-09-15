@@ -1,4 +1,4 @@
-import { isTauri } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { LogicalSize, getCurrentWindow } from "@tauri-apps/api/window";
 import * as React from "react";
 
@@ -85,9 +85,18 @@ export function resolvePolyphonicAppWindowSize(work?: {
  * Put the window on the desk at the standard size, centred on its monitor.
  *
  * Deliberately not `maximize()`: the first thing the application does should
- * not be to swallow the screen. Best effort throughout — a window manager
- * that refuses is not a reason to hold up the handoff, and the owner is free
- * to resize the moment they have it.
+ * not be to swallow the screen.
+ *
+ * And deliberately not `center()`, which measures against the PRIMARY display
+ * however many displays there are: on a two-display Mac it landed the
+ * application at (-3200, 47) — centred across the built-in's width, anchored
+ * to its top, on the ultrawide the card was actually on. The web side cannot
+ * see which monitor it is on; `center_window_on_its_monitor` can, and centres
+ * in that monitor's work area.
+ *
+ * Best effort throughout — a window manager that refuses is not a reason to
+ * hold up the handoff, and the owner is free to resize the moment they have
+ * it.
  */
 export async function landPolyphonicAppWindow(): Promise<void> {
   if (!isTauri()) return;
@@ -95,7 +104,7 @@ export async function landPolyphonicAppWindow(): Promise<void> {
     const { width, height } = resolvePolyphonicAppWindowSize();
     const appWindow = getCurrentWindow();
     await appWindow.setSize(new LogicalSize(width, height));
-    await appWindow.center();
+    await invoke("center_window_on_its_monitor");
   } catch {
     // A window that will not be placed is still a usable window.
   }
