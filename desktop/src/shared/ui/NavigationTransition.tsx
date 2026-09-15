@@ -16,9 +16,14 @@ const motionByVariant = {
     enter: { opacity: 0.94, y: 2 },
     duration: 0.16,
   },
+  // An in-page tab strip (Place / Documents / Notebook / Settings, Brain's
+  // modes, Settings' panels) is not a journey: the page did not change, one
+  // panel of it did. So no drift — a tab whose content slid would claim the
+  // page had moved — and the shortest opacity in the system, on the panel
+  // alone.
   section: {
-    enter: { opacity: 0.96, y: 2 },
-    duration: 0.14,
+    enter: { opacity: 0.96 },
+    duration: 0.12,
   },
 } as const;
 
