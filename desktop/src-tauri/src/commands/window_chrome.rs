@@ -370,7 +370,8 @@ pub fn center_on_current_monitor<R: tauri::Runtime>(window: &tauri::Window<R>) {
         Ok(Some(monitor)) => Some(monitor),
         Ok(None) => None,
         Err(error) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-window: current monitor is unavailable for {}: {error}",
                 window.label()
             );
@@ -378,9 +379,17 @@ pub fn center_on_current_monitor<R: tauri::Runtime>(window: &tauri::Window<R>) {
         }
     };
     let Some(monitor) = monitor.or_else(|| window.primary_monitor().ok().flatten()) else {
-        eprintln!("luca-window: no monitor to centre {} on", window.label());
+        luca_log!(
+            info,
+            "luca-window: no monitor to centre {} on",
+            window.label()
+        );
         if let Err(error) = window.center() {
-            eprintln!("luca-window: failed to centre {}: {error}", window.label());
+            luca_log!(
+                warn,
+                "luca-window: failed to centre {}: {error}",
+                window.label()
+            );
         }
         return;
     };
@@ -388,7 +397,8 @@ pub fn center_on_current_monitor<R: tauri::Runtime>(window: &tauri::Window<R>) {
     let outer = match window.outer_size() {
         Ok(size) => size,
         Err(error) => {
-            eprintln!(
+            luca_log!(
+                warn,
                 "luca-window: size is unavailable for {}: {error}",
                 window.label()
             );
@@ -409,7 +419,11 @@ pub fn center_on_current_monitor<R: tauri::Runtime>(window: &tauri::Window<R>) {
     );
 
     if let Err(error) = window.set_position(position) {
-        eprintln!("luca-window: failed to centre {}: {error}", window.label());
+        luca_log!(
+            warn,
+            "luca-window: failed to centre {}: {error}",
+            window.label()
+        );
     }
 }
 

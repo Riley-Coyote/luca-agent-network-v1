@@ -1113,7 +1113,8 @@ pub(crate) fn repin_soul_for_record(
     {
         let refreshed = refresh_founding_documents(&dir, persona_id)?;
         if !refreshed.is_empty() {
-            eprintln!(
+            luca_log!(
+                warn,
                 "buzz-desktop: resident-documents: {}: founding documents moved to the current edition: {}",
                 record.name,
                 refreshed.join(", ")
