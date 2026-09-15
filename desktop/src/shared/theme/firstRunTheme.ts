@@ -16,7 +16,7 @@
  * gets painted; the command decides what gets written, and
  * {@link resetThemeForFirstRun} explains why the two are not interchangeable.
  *
- * Only the three appearance keys are touched. Everything else in the store is
+ * Only the four appearance keys are touched. Everything else in the store is
  * owner-scoped or harmless, and clearing it wholesale would take onboarding
  * state and drafts with it. Once the owner finishes onboarding the answer goes
  * false and their later choices persist exactly as they do today.
@@ -63,6 +63,9 @@ function restoreShippedAppearance(): void {
   // The cache is the pre-paint seed's fast path. Left behind it would repaint
   // the old owner's background for a frame before the reset above lands.
   window.localStorage.removeItem(THEME_CACHE_KEY);
+  // The accent is the same class of leak: a previous owner's choice would
+  // colour a new owner's first run. Removing it restores the shipped accent.
+  window.localStorage.removeItem("buzz-accent-color");
 }
 
 /**

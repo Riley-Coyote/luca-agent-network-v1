@@ -74,7 +74,7 @@ function SourceMessage({ message }: { message: string }) {
           <code
             // A command that wraps in the middle is a command nobody can
             // copy: it moves to the next line whole or not at all.
-            className="whitespace-nowrap font-[var(--font-mono)] text-[0.925em]"
+            className="whitespace-nowrap font-[var(--font-mono)] text-xs"
             key={segment.key}
           >
             {segment.text}
