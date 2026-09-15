@@ -4,6 +4,7 @@ import type {
   ActivityTrace,
   ActivityTraceEntry,
 } from "@/features/messages/activity/activityTraceTypes";
+import { activityPhrase } from "@/features/agents/lib/activityPhrase";
 import { Shimmer } from "@/shared/ui/Shimmer";
 import { SandpileActivityIndicator } from "@/shared/ui/SandpileActivityIndicator";
 import { TurnContextReceipt } from "./TurnContextReceipt";
@@ -15,6 +16,8 @@ export type ResidentActivityTraceProps = {
   trace: ActivityTrace;
   residentName: string;
   privateConversation: boolean;
+  /** The resident's reply text is already arriving on the row below. */
+  streaming?: boolean;
   onStop?: () => void;
   stopping?: boolean;
   /** The enclosing MessageRow normally owns the identity header and mark. */
@@ -22,6 +25,9 @@ export type ResidentActivityTraceProps = {
   /** Preserve the enclosing row's profile popover when displaying its name. */
   identityNode?: React.ReactNode;
 };
+
+/** One replacement, in place: out for half of it, in for the other half. */
+const PHRASE_SWAP_MS = 160;
 
 function elapsedLabel(milliseconds: number): string {
   const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
@@ -137,6 +143,7 @@ export function ResidentActivityTrace({
   trace,
   residentName,
   privateConversation,
+  streaming = false,
   onStop,
   stopping = false,
   showIdentity = false,
@@ -188,15 +195,37 @@ export function ResidentActivityTrace({
   );
   const activities = entries.filter((entry) => entry.kind === "activity");
   const latestActivity = activities.at(-1);
-  const latestNarration = [...entries]
-    .reverse()
-    .find((entry) => entry.kind === "narration");
-  const status =
-    (latestActivity && entryText(latestActivity, privateConversation)) ||
-    "Thinking";
-  const narration = latestNarration
-    ? entryText(latestNarration, privateConversation)
-    : "";
+  // Riley, 2026-09-15: one plain phrase, and it changes as the step changes.
+  // Not the runtime's thought header, not its narration, not its arguments.
+  const phrase = activityPhrase({
+    step: latestActivity
+      ? {
+          text: latestActivity.text,
+          roomText: latestActivity.roomText,
+          active: latestActivity.status === "active",
+        }
+      : null,
+    streaming,
+    privateConversation,
+  });
+  // Replaced in place, never two at once: the old phrase fades out, the new
+  // one fades in behind it, and the row's height never moves.
+  const [shownPhrase, setShownPhrase] = React.useState(phrase);
+  const [swapping, setSwapping] = React.useState(false);
+  React.useEffect(() => {
+    if (phrase === shownPhrase) return;
+    if (!animate) {
+      setShownPhrase(phrase);
+      setSwapping(false);
+      return;
+    }
+    setSwapping(true);
+    const timeout = window.setTimeout(() => {
+      setShownPhrase(phrase);
+      setSwapping(false);
+    }, PHRASE_SWAP_MS / 2);
+    return () => window.clearTimeout(timeout);
+  }, [phrase, shownPhrase, animate]);
   const identity = showIdentity ? (
     <span
       className="resident-activity-name text-sm leading-none"
@@ -220,62 +249,53 @@ export function ResidentActivityTrace({
       ref={elementRef}
     >
       {live ? (
-        <>
-          <div className="resident-activity-header">
-            <span className="resident-activity-indicator" aria-hidden="true">
-              <SandpileActivityIndicator
-                seed={`${residentPubkey}:activity`}
-                size="100%"
-              />
-            </span>
-            {identity}
-            <div
-              className="resident-activity-status text-base leading-normal"
-              data-activity-status
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              {animate ? (
-                <Shimmer className="resident-activity-shimmer">
-                  {status}
-                </Shimmer>
-              ) : (
-                <span className="resident-activity-status-text">{status}</span>
-              )}
-            </div>
-            <span className="resident-activity-controls">
-              <span
-                className="resident-activity-elapsed text-xs leading-none tabular-nums"
-                data-activity-elapsed
-                role="timer"
-                aria-label={`Elapsed ${elapsedLabel(now - trace.startedAt)}`}
-              >
-                {elapsedLabel(now - trace.startedAt)}
+        <div className="resident-activity-header">
+          <span className="resident-activity-indicator" aria-hidden="true">
+            <SandpileActivityIndicator
+              seed={`${residentPubkey}:activity`}
+              size="100%"
+            />
+          </span>
+          {identity}
+          <div
+            className="resident-activity-status text-base leading-normal"
+            data-activity-status
+            data-activity-phrase={swapping ? "swapping" : "settled"}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {animate ? (
+              <Shimmer className="resident-activity-shimmer">
+                {shownPhrase}
+              </Shimmer>
+            ) : (
+              <span className="resident-activity-status-text">
+                {shownPhrase}
               </span>
-              <button
-                className="resident-activity-stop text-xs leading-none"
-                data-activity-stop
-                type="button"
-                onClick={onStop}
-                disabled={stopping || !onStop}
-                aria-label={`${stopping ? "Stopping" : "Stop"} ${residentName}`}
-              >
-                {stopping ? "Stopping" : "Stop"}
-              </button>
-            </span>
+            )}
           </div>
-          {narration ? (
-            <div
-              className="resident-activity-narration text-base"
-              data-activity-narration
-              aria-live="polite"
-              aria-atomic="true"
+          <span className="resident-activity-controls">
+            <span
+              className="resident-activity-elapsed text-xs leading-none tabular-nums"
+              data-activity-elapsed
+              role="timer"
+              aria-label={`Elapsed ${elapsedLabel(now - trace.startedAt)}`}
             >
-              {narration}
-            </div>
-          ) : null}
-        </>
+              {elapsedLabel(now - trace.startedAt)}
+            </span>
+            <button
+              className="resident-activity-stop text-xs leading-none"
+              data-activity-stop
+              type="button"
+              onClick={onStop}
+              disabled={stopping || !onStop}
+              aria-label={`${stopping ? "Stopping" : "Stop"} ${residentName}`}
+            >
+              {stopping ? "Stopping" : "Stop"}
+            </button>
+          </span>
+        </div>
       ) : (
         <>
           {showIdentity ? (

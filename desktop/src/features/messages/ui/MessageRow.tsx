@@ -928,6 +928,13 @@ export const MessageRow = React.memo(
         trace={activityTrace}
         residentName={message.author}
         privateConversation={privateTraceConversation}
+        // WP-R2-5: the working row says "Writing" once the reply is actually
+        // arriving, instead of holding the last finished tool step.
+        streaming={
+          managedPhase === "writing" ||
+          managedPhase === "finalizing" ||
+          replyBody.length > 0
+        }
         showIdentity={!quietAgent}
         identityNode={
           message.pubkey && !quietAgent ? (

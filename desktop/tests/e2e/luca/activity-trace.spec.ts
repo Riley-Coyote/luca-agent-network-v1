@@ -55,6 +55,28 @@ const ENTRIES: ActivityTraceEntry[] = [
   },
 ];
 
+// A working turn always has one open step. The settled tests keep ENTRIES as
+// they are, so their record and step count stay the surface they already test.
+const OPEN_READ: ActivityTraceEntry = {
+  id: "open-read",
+  sequence: 5,
+  kind: "activity",
+  status: "active",
+  text: "Reading src/features/task-notes.md",
+  roomText: "Reading files",
+};
+
+const OPEN_COMMAND: ActivityTraceEntry = {
+  id: "open-command",
+  sequence: 6,
+  kind: "activity",
+  status: "active",
+  text: "Running pnpm test --filter desktop",
+  roomText: "Running a command",
+};
+
+const WORKING_ENTRIES: ActivityTraceEntry[] = [...ENTRIES, OPEN_READ];
+
 function snapshot(overrides: Partial<ActivityTrace> = {}): ActivityTrace {
   const endedAt = Date.now();
   return {
@@ -191,16 +213,21 @@ test("live native activity replaces narration in place and stops the exact resid
     status: "working",
     startedAt: Date.now() - 125_000,
     endedAt: null,
+    entries: WORKING_ENTRIES,
   });
   await publishSnapshots(page, [live]);
   const trace = page.locator(`[data-activity-trace="${receiptId}"]`);
   await expect(trace).toBeVisible();
+  // Riley, 2026-09-15: one plain phrase naming the step, and nothing else.
   await expect(trace.locator("[data-activity-status]")).toHaveText(
-    "Searching task-notes.md",
+    "Reading task-notes.md",
   );
-  await expect(trace.locator("[data-activity-narration]")).toHaveText(
-    "I found the section to update.",
-  );
+  // No narration line, no bracketed commentary, no record while working.
+  await expect(trace.locator("[data-activity-narration]")).toHaveCount(0);
+  await expect(trace.locator("[data-activity-trace-list]")).toHaveCount(0);
+  await expect(trace).not.toContainText("[");
+  await expect(trace).not.toContainText("I found the section to update.");
+  await expect(trace).not.toContainText("src/features");
   await expect(page.locator("[data-sandpile-activity]")).toHaveCount(1);
   const indicator = trace.locator("[data-sandpile-activity]");
   await expect(indicator).toBeVisible();
@@ -230,25 +257,18 @@ test("live native activity replaces narration in place and stops the exact resid
   ).toHaveCount(1);
   await expect(trace).toHaveAttribute("data-activity-animating", "true");
   const before = await trace.boundingBox();
+  // The phrase is replaced in place as the step changes: same row, same
+  // height, and the command's own arguments never reach the conversation.
   await publishSnapshots(page, [
     {
       ...live,
-      entries: [
-        ...ENTRIES,
-        {
-          id: "voice-three",
-          sequence: 5,
-          kind: "narration",
-          status: "done",
-          text: "I am preparing the update now.",
-          roomText: "Work update",
-        },
-      ],
+      entries: [...ENTRIES, { ...OPEN_READ, status: "done" }, OPEN_COMMAND],
     },
   ]);
-  await expect(trace.locator("[data-activity-narration]")).toHaveText(
-    "I am preparing the update now.",
+  await expect(trace.locator("[data-activity-status]")).toHaveText(
+    "Running a command",
   );
+  await expect(trace).not.toContainText("pnpm test");
   expect((await trace.boundingBox())?.height).toBeCloseTo(
     before?.height ?? 0,
     1,
@@ -379,22 +399,24 @@ test("the same native objects stay private when the owner moves from a DM to a r
       dispatchReceiptId: "private-record",
       status: "working",
       endedAt: null,
+      entries: WORKING_ENTRIES,
     }),
     snapshot({
       dispatchReceiptId: "room-record",
       status: "working",
       endedAt: null,
+      entries: WORKING_ENTRIES,
     }),
   ]);
   await expect(
     page.locator(
       '[data-activity-trace="private-record"] [data-activity-status]',
     ),
-  ).toHaveText("Searching task-notes.md");
+  ).toHaveText("Reading task-notes.md");
   await page.getByTestId(`channel-${ROOM}`).click();
   await expect(
     page.locator('[data-activity-trace="room-record"] [data-activity-status]'),
-  ).toHaveText("Searching files");
+  ).toHaveText("Reading a file");
   await expect(page.locator("body")).not.toContainText("task-notes.md");
   await expect(page.locator("[data-sandpile-activity]")).toHaveCount(1);
 });
@@ -404,11 +426,26 @@ test("a narrow zoomed row keeps controls within bounds and honors reduced motion
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await open(page, [
-    snapshot({ conversationId: DM_ID, status: "working", endedAt: null }),
+    snapshot({
+      conversationId: DM_ID,
+      status: "working",
+      endedAt: null,
+      entries: WORKING_ENTRIES,
+    }),
   ]);
   const trace = page.locator('[data-activity-trace="activity-test-dispatch"]');
   await expect(trace).toBeVisible();
   await expect(trace).toHaveAttribute("data-activity-animating", "false");
+  // Reduced motion swaps the phrase with no crossfade at all.
+  await expect(trace.locator("[data-activity-status]")).toHaveAttribute(
+    "data-activity-phrase",
+    "settled",
+  );
+  expect(
+    await trace
+      .locator("[data-activity-status]")
+      .evaluate((element) => getComputedStyle(element).transitionDuration),
+  ).toBe("0s");
   await expect(trace.locator(".buzz-shimmer")).toHaveCount(0);
   const initialTextSize = await trace
     .locator("[data-activity-status]")
@@ -465,6 +502,7 @@ test("only simultaneous working names align, and light mode retains readable act
       status: index < 2 ? "working" : "completed",
       startedAt: Date.now() - 4_000,
       endedAt: index < 2 ? null : Date.now(),
+      entries: index < 2 ? WORKING_ENTRIES : ENTRIES,
     }),
   );
   await open(page, traces, ROOM);
@@ -566,7 +604,7 @@ test("only simultaneous working names align, and light mode retains readable act
       return traces.flatMap((trace) =>
         [
           ...trace.querySelectorAll<HTMLElement>(
-            "[data-activity-status], [data-activity-narration], [data-activity-elapsed], [data-activity-stop], [data-activity-trace-summary]",
+            "[data-activity-status], [data-activity-elapsed], [data-activity-stop], [data-activity-trace-summary]",
           ),
         ].map((element) => {
           let parent: HTMLElement | null = element;

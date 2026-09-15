@@ -75,18 +75,49 @@ function render(traceOverrides = {}, props = {}) {
   );
 }
 
-test("live status and public narration each replace the preceding entry in place", () => {
+test("the working row is one plain phrase, and nothing else", () => {
   const html = render({ status: "working", endedAt: null });
-  assert.match(html, /Searching private-notes\.md/);
-  assert.match(html, /I found the section to update\./);
-  assert.doesNotMatch(html, /Reading private-notes\.md/);
+  // The step, said plainly. Not the runtime's own words, not its narration.
+  assert.match(html, /Searching the code/);
+  assert.doesNotMatch(html, /private-notes\.md/);
+  assert.doesNotMatch(html, /I found the section to update\./);
   assert.doesNotMatch(html, /I am checking the first section\./);
   assert.equal((html.match(/data-activity-status=/g) ?? []).length, 1);
-  assert.equal((html.match(/data-activity-narration=/g) ?? []).length, 1);
+  // No narration line, and no expanded record while the turn is working.
+  assert.equal((html.match(/data-activity-narration=/g) ?? []).length, 0);
+  assert.doesNotMatch(html, /data-activity-trace-list|<ol/);
+  assert.match(html, /data-activity-phrase="settled"/);
   assert.match(html, /data-activity-stop="true"/);
   assert.match(html, /aria-label="Stop Luca"/);
   assert.doesNotMatch(html, /<details|data-activity-name/);
   assert.equal((html.match(/<canvas/g) ?? []).length, 1);
+});
+
+test("the phrase names the object for the owner and follows the open step", () => {
+  const reading = render({
+    status: "working",
+    endedAt: null,
+    entries: [firstActivity],
+  });
+  assert.match(reading, /Reading private-notes\.md/);
+  // A finished step yields to the reply once its words start arriving.
+  const writing = render(
+    { status: "working", endedAt: null },
+    { streaming: true },
+  );
+  assert.match(
+    writing,
+    /<span class="resident-activity-status-text">Writing<\/span>/,
+  );
+  const open = render(
+    {
+      status: "working",
+      endedAt: null,
+      entries: [{ ...latestActivity, status: "active" }],
+    },
+    { streaming: true },
+  );
+  assert.match(open, /Searching the code/);
 });
 
 test("the settled disclosure starts closed, counts tools only and preserves event order", () => {
@@ -117,11 +148,23 @@ test("the settled disclosure starts closed, counts tools only and preserves even
 });
 
 test("shared conversations use the room projection in both live and durable records", () => {
-  for (const status of ["working", "completed"]) {
-    const html = render({ status }, { privateConversation: false });
-    assert.match(html, /Searching files/);
-    assert.doesNotMatch(html, /private-notes\.md/);
-  }
+  // Live, the room gets the plain phrase with the object dropped entirely.
+  const live = render({ status: "working" }, { privateConversation: false });
+  assert.match(live, /Searching the code/);
+  assert.doesNotMatch(live, /private-notes\.md/);
+  const roomRead = render(
+    { status: "working", entries: [firstActivity] },
+    { privateConversation: false },
+  );
+  assert.match(roomRead, /Reading a file/);
+  assert.doesNotMatch(roomRead, /private-notes\.md/);
+  // The durable record keeps the native room projection verbatim.
+  const settled = render(
+    { status: "completed" },
+    { privateConversation: false },
+  );
+  assert.match(settled, /Searching files/);
+  assert.doesNotMatch(settled, /private-notes\.md/);
   const missingProjection = render(
     {
       entries: [

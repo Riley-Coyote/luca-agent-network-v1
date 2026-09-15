@@ -37,6 +37,13 @@
   min-width: 0;
   flex: 1;
   color: rgb(255 255 255 / 50%);
+  /* One phrase replaced in place: half the 160ms out, half back in. Never two
+     phrases at once, and the row's height never moves while it happens. */
+  transition: opacity 80ms linear;
+}
+
+.resident-activity-status[data-activity-phrase="swapping"] {
+  opacity: 0;
 }
 
 .resident-activity-status-text,
@@ -106,16 +113,6 @@
   border-color: transparent;
   color: rgb(255 255 255 / 45%);
   cursor: default;
-}
-
-.resident-activity-narration {
-  min-height: 1.5rem;
-  margin-top: 0.25rem;
-  overflow: hidden;
-  color: rgb(255 255 255 / 42%);
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .resident-activity-disclosure {
@@ -204,7 +201,6 @@
 
 :root:not(.dark) .resident-activity-status,
 :root:not(.dark) .resident-activity-trace .resident-activity-shimmer,
-:root:not(.dark) .resident-activity-narration,
 :root:not(.dark) .resident-activity-elapsed,
 :root:not(.dark) .resident-activity-stop,
 :root:not(.dark) .resident-activity-summary,
@@ -256,6 +252,7 @@
     animation: none;
   }
 
+  .resident-activity-status,
   .resident-activity-stop,
   .resident-activity-summary {
     transition: none;
