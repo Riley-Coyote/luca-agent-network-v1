@@ -511,11 +511,32 @@ test("a large inventory is rows, none ticked, and first chat is not delayed", as
   );
   await page.setViewportSize({ width: 800, height: 500 });
   await begin(page);
+  // Looking around the Mac starts while the runtime question is still on
+  // screen, so the chapter after it opens onto rows and not a spinner.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+            (command) => command === "discover_native_residents",
+          ).length,
+      ),
+    )
+    .toBe(1);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
   await expect(
     page.getByRole("heading", { name: "Bring in your agents" }),
   ).toBeVisible({ timeout: 10_000 });
+  // …and the chapter reads that one scan rather than starting its own.
+  expect(
+    await page.evaluate(
+      () =>
+        (window.__BUZZ_E2E_COMMANDS__ ?? []).filter(
+          (command) => command === "discover_native_residents",
+        ).length,
+    ),
+  ).toBe(1);
 
   // Forty-two of them, and every one is a row the owner can read and tick.
   // The old "past eight, show an inventory instead" rule is gone, and so is
