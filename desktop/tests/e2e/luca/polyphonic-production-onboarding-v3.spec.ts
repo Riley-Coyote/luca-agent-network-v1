@@ -143,15 +143,40 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
     commands: window.__BUZZ_E2E_COMMANDS__ ?? [],
     payloads: window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [],
   }));
+  // The three residents Polyphonic ships are made once each, and only Luca
+  // is asked to wake with the application.
   expect(
     evidence.commands.filter((command) => command === "create_luca_resident"),
-  ).toHaveLength(1);
-  expect(
-    evidence.payloads.find((entry) => entry.command === "create_luca_resident")
-      ?.payload,
-  ).toMatchObject({
-    input: { spawnAfterCreate: true, startOnAppLaunch: true },
+  ).toHaveLength(3);
+  const creations = evidence.payloads
+    .filter((entry) => entry.command === "create_luca_resident")
+    .map(
+      (entry) =>
+        (
+          entry.payload as {
+            input: {
+              personaId: string | null;
+              spawnAfterCreate: boolean;
+              startOnAppLaunch: boolean;
+            };
+          }
+        ).input,
+    );
+  expect(creations.map((input) => input.personaId)).toEqual([
+    "builtin:fizz",
+    "builtin:fifty",
+    "builtin:trinity",
+  ]);
+  expect(creations[0]).toMatchObject({
+    spawnAfterCreate: true,
+    startOnAppLaunch: true,
   });
+  for (const input of creations.slice(1)) {
+    expect(input).toMatchObject({
+      spawnAfterCreate: false,
+      startOnAppLaunch: false,
+    });
+  }
   expect(
     evidence.commands.filter((command) => command === "start_managed_agent"),
   ).toHaveLength(0);
@@ -217,7 +242,11 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
         );
       }
       const result = await invoke(command, payload, options);
-      if (command === "create_luca_resident") {
+      if (
+        command === "create_luca_resident" &&
+        (payload as { input?: { personaId?: string } } | undefined)?.input
+          ?.personaId === "builtin:fizz"
+      ) {
         state.pubkey = (
           result as { resident: { residentPubkey: string } }
         ).resident.residentPubkey;
@@ -288,9 +317,11 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
     }),
     saved.before,
   );
+  // The three ship-with residents were made once each, before the refresh
+  // failed; the retry below is checked to add none.
   expect(
     evidence.all.filter((command) => command === "create_luca_resident"),
-  ).toHaveLength(1);
+  ).toHaveLength(3);
   // The first meeting was kicked off once, before the refresh failed, and the
   // retry does not start a second one.
   expect(evidence.greeting).toHaveLength(1);
@@ -449,6 +480,12 @@ test("large native inventories never delay first chat or import extra agents", a
       (entry) => entry.command === "create_luca_resident",
     ),
   );
-  expect(created).toHaveLength(1);
-  expect(created[0]?.payload).toMatchObject({ input: { name: "Luca" } });
+  // The three residents that ship with Polyphonic, and no one from the
+  // native inventory.
+  expect(created).toHaveLength(3);
+  expect(
+    created.map(
+      (entry) => (entry.payload as { input: { name: string } }).input.name,
+    ),
+  ).toEqual(["Luca", "Fifty", "Trinity"]);
 });

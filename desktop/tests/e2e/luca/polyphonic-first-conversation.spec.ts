@@ -252,3 +252,72 @@ test("first-use layout preserves the canonical resident and one durable greeting
     channelId: identity.channel?.id,
   });
 });
+
+test("all three residents exist from the first launch, and only Luca is awake", async ({
+  page,
+}) => {
+  await arriveInLucaDm(page);
+  const world = await page.evaluate(async () => {
+    const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
+    if (!invoke) throw new Error("Mock command boundary is unavailable");
+    const registry = (await invoke("list_luca_residents")) as {
+      residents: Array<{
+        personaId: string | null;
+        residentPubkey: string;
+        status: string;
+      }>;
+    };
+    const commands = window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [];
+    return {
+      residents: registry.residents,
+      creates: commands
+        .filter((entry) => entry.command === "create_luca_resident")
+        .map(
+          (entry) =>
+            (
+              entry.payload as {
+                input: {
+                  personaId: string | null;
+                  spawnAfterCreate: boolean;
+                  startOnAppLaunch: boolean;
+                };
+              }
+            ).input,
+        ),
+    };
+  });
+
+  // Polyphonic ships three residents, so three exist before the application
+  // opens — exactly one each, with nothing for the owner to have done.
+  const byPersona = (personaId: string) =>
+    world.residents.filter((resident) => resident.personaId === personaId);
+  expect(byPersona("builtin:fizz")).toHaveLength(1);
+  expect(byPersona("builtin:fifty")).toHaveLength(1);
+  expect(byPersona("builtin:trinity")).toHaveLength(1);
+
+  // Luca wakes with the app. The other two are here, not running: they wake
+  // on the first message, like every other resident.
+  expect(byPersona("builtin:fizz")[0].status).toBe("running");
+  expect(byPersona("builtin:fifty")[0].status).toBe("stopped");
+  expect(byPersona("builtin:trinity")[0].status).toBe("stopped");
+
+  const createdFor = (personaId: string) =>
+    world.creates.filter((input) => input.personaId === personaId);
+  expect(createdFor("builtin:fizz")).toHaveLength(1);
+  expect(createdFor("builtin:fizz")[0]).toMatchObject({
+    spawnAfterCreate: true,
+    startOnAppLaunch: true,
+  });
+  for (const personaId of ["builtin:fifty", "builtin:trinity"]) {
+    expect(createdFor(personaId)).toHaveLength(1);
+    expect(createdFor(personaId)[0]).toMatchObject({
+      spawnAfterCreate: false,
+      startOnAppLaunch: false,
+    });
+  }
+
+  // And the rail simply lists all three.
+  await expect(page.getByTestId("agent-rail-luca")).toBeVisible();
+  await expect(page.getByTestId("agent-rail-fifty")).toBeVisible();
+  await expect(page.getByTestId("agent-rail-trinity")).toBeVisible();
+});

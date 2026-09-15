@@ -2735,6 +2735,18 @@ function resetMockPersonas(config?: E2eConfig) {
         "You are Luca, Polyphonic's optional conversational operator.",
     },
     {
+      id: "builtin:fifty",
+      display_name: "Fifty",
+      avatar_url: null,
+      system_prompt: "You are Fifty.",
+    },
+    {
+      id: "builtin:trinity",
+      display_name: "Trinity",
+      avatar_url: null,
+      system_prompt: "You are Trinity.",
+    },
+    {
       id: "builtin:direct-runtime:claude",
       display_name: "Claude Code",
       avatar_url: null,

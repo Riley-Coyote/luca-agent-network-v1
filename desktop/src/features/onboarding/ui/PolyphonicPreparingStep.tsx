@@ -29,9 +29,11 @@ import { openDm } from "@/shared/api/tauriChannels";
 import {
   executeNativeAgentProvisioning,
   previewNativeAgentProvisioning,
+  type AgentRuntimeTargetV1,
   type NativeProvisioningRequestV1,
 } from "@/shared/api/tauriOperatorForge";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
+import type { AgentPersona } from "@/shared/api/types";
 import { getChannelWindowEvents } from "@/shared/api/channelWindow";
 import { MANAGED_PRESENTATION_EVENT } from "@/features/messages/managedPresentationProtocol";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
@@ -42,6 +44,15 @@ import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 
 const LUCA_PERSONA_ID = "builtin:fizz";
 const LUCA_READY_TIMEOUT_MS = 30_000;
+
+/**
+ * The other two who live here from the first launch. Polyphonic ships three
+ * residents, so all three exist by the time the application opens — there is
+ * nothing for the owner to add and nothing for them to do about it. Only Luca
+ * wakes with the app; these two wake on the first message, like every other
+ * resident.
+ */
+const STARTER_PERSONA_IDS = ["builtin:fifty", "builtin:trinity"] as const;
 
 /**
  * What the owner is being given, one frame at a time, while Luca wakes. There
@@ -129,6 +140,78 @@ async function waitForLucaToSpeak(
     await new Promise((resolve) =>
       window.setTimeout(resolve, LUCA_WRITING_POLL_MS),
     );
+  }
+}
+
+/**
+ * Fifty and Trinity, made in the same breath as Luca and on the same runtime.
+ * `create_luca_resident` is persona-agnostic and idempotent, so a second walk
+ * through setup recovers the existing records rather than minting duplicates.
+ *
+ * Nothing here is ever the step's failure. Luca is the one the owner is
+ * waiting for; if one of the other two cannot be made, the walk continues and
+ * the Agents library shows that one as needing attention. They are created one
+ * after another because the native creation lock serialises them anyway.
+ */
+async function createOtherStarters({
+  existingPersonaIds,
+  personas,
+  runtimes,
+  target,
+}: {
+  existingPersonaIds: ReadonlySet<string>;
+  personas: readonly AgentPersona[];
+  runtimes: Parameters<typeof availableRuntimesForStart>[0];
+  target: AgentRuntimeTargetV1;
+}) {
+  for (const personaId of STARTER_PERSONA_IDS) {
+    if (existingPersonaIds.has(personaId)) continue;
+    const persona = personas.find((candidate) => candidate.id === personaId);
+    if (!persona) continue;
+    try {
+      if (!persona.isActive) {
+        await setPersonaActive(personaId, true);
+      }
+      if (target.kind === "managed") {
+        const available = await availableRuntimesForStart(runtimes);
+        const runtime = available.find(
+          (candidate) => candidate.id === target.runtimeId,
+        );
+        if (!runtime)
+          throw new Error("The selected runtime is no longer ready.");
+        const baseInput = await buildInstanceInputForDefinition(
+          persona,
+          runtime,
+        );
+        // Only Luca wakes with the app. These two wake on send, which is the
+        // rule every resident after Luca already lives by.
+        await createLucaResident({
+          ...baseInput,
+          spawnAfterCreate: false,
+          startOnAppLaunch: false,
+        });
+      } else {
+        const request: NativeProvisioningRequestV1 = {
+          displayName: persona.displayName,
+          systemPrompt: persona.systemPrompt,
+          runtime: target.runtime,
+          mode: "fresh",
+          selectedSkills: [],
+          includeMemory: false,
+          workspaceDocuments: [],
+        };
+        const preview = await previewNativeAgentProvisioning(request);
+        await executeNativeAgentProvisioning(
+          preview.transactionId,
+          personaId,
+          request,
+        );
+      }
+    } catch (cause) {
+      // Deliberately swallowed: see the note above. The owner is not told,
+      // because there is nothing here for them to do.
+      console.warn(`Polyphonic setup could not create ${personaId}`, cause);
+    }
   }
 }
 
@@ -295,6 +378,21 @@ export function PolyphonicPreparingStep({
 
       if (!lucaPubkey)
         throw new Error("Luca could not be created on this Mac.");
+
+      // Three residents ship with Polyphonic, so three exist before the
+      // application opens. This is invisible work: the phase line still says
+      // "Starting Luca", because that is still what the owner is waiting for.
+      await createOtherStarters({
+        existingPersonaIds: new Set(
+          (managed.data ?? []).flatMap((resident) =>
+            resident.personaId ? [resident.personaId] : [],
+          ),
+        ),
+        personas: currentPersonas,
+        runtimes: runtimesRef.current,
+        target,
+      });
+
       const channel = await openDm({ pubkeys: [lucaPubkey] });
       if (target.kind === "managed") {
         await waitForLucaChannelSubscription(lucaPubkey, channel.id);
