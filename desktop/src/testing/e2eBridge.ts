@@ -14280,6 +14280,10 @@ export function maybeInstallE2eTauriMocks() {
       // No window server here, so these do nothing — but WHAT was asked for
       // is the assertion: the becoming lands the application at a standard
       // size on the monitor's middle, and specs read that off the command log.
+      // The same goes for the first run's own window: a spec that forces
+      // `isTauri` walks the card exactly as the desktop does.
+      case "set_window_vibrancy":
+      case "set_main_window_traffic_lights_hidden":
       case "plugin:window|set_size":
       case "plugin:window|set_position":
       case "plugin:window|center":

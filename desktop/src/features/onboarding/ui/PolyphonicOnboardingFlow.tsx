@@ -111,7 +111,6 @@ export function PolyphonicOnboardingFlow({
     adoptPolyphonicSetupDiscovery(queryClient);
   }, [queryClient]);
 
-
   // Looking around the Mac starts while the owner is still choosing a runtime,
   // so the agents chapter paints its rows the moment it opens instead of
   // opening onto a spinner.
@@ -151,13 +150,19 @@ export function PolyphonicOnboardingFlow({
   /**
    * Forward, in the same tick as the press.
    *
-   * Each step hands its answer back synchronously and writes it through
-   * behind the page that follows, so nothing here awaits a round trip before
-   * changing chapter: a press paints the next page, and the persistence
-   * catches up under it. `setPolyphonicOnboardingStatus` is already a
-   * fire-and-forget effect on the new chapter, for the same reason.
+   * Each step hands its answer back without a round trip and writes it
+   * through behind the page that follows, so nothing here waits on the
+   * network or the disk before changing chapter: a press paints the next
+   * page, and the persistence catches up under it.
+   * `setPolyphonicOnboardingStatus` is already a fire-and-forget effect on
+   * the new chapter, for the same reason.
+   *
+   * This is `async` only for the agents chapter, whose commit stages the
+   * ticked rows for the waking step — no I/O, one microtask. Everything
+   * before the first `await` still runs in the caller's own tick, which is
+   * where the name and the runtime answers change the page from.
    */
-  function continueForward() {
+  async function continueForward() {
     if (continuingRef.current) return;
     continuingRef.current = true;
     setError(null);
@@ -239,7 +244,7 @@ export function PolyphonicOnboardingFlow({
               : "Meet Luca"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
-      onContinue={continueForward}
+      onContinue={() => void continueForward()}
       showFooter={transaction.chapter !== "preparing"}
       stage={transaction.chapter}
       steps={steps}

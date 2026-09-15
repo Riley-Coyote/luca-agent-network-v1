@@ -160,9 +160,16 @@ test("the shell is the same object on the door and in the card", async ({
   expect(frame).toEqual(before);
 });
 
-/** On a first run the window IS the card: 960×544, no margin around it. */
-const FIRST_RUN_VIEWPORT = { width: 960, height: 544 };
+/** On a first run the window IS the card: 1040×584, no margin around it. */
+const FIRST_RUN_VIEWPORT = { width: 1040, height: 584 };
+/** The pane the dendrite lives in, and the air either side of the dendrite. */
+const PANE_WIDTH = 480;
+const FIELD_INSET = 40;
+/** The interaction column's measure, and the air either side of it. */
+const COLUMN_MEASURE = 480;
+const COLUMN_GUTTER = 40;
 const TRANSPARENT = "rgba(0, 0, 0, 0)";
+const PURE_BLACK = "rgb(0, 0, 0)";
 
 /**
  * A bright, busy stand-in for the desktop, painted behind the transparent
@@ -316,4 +323,389 @@ test("the first run floats: nothing is painted but the card", async ({
       contentType: "image/png",
     });
   }
+});
+
+/** Every rect the layout is judged on, in one read of the page. */
+async function readCardGeometry(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const box = (selector: string) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      return {
+        left: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      };
+    };
+    return {
+      card: box('[data-testid="polyphonic-onboarding-shell"]'),
+      pane: box('[data-testid="polyphonic-setup-pane"]'),
+      fieldBox: box('[data-testid="polyphonic-setup-field-box"]'),
+      field: box('[data-testid="polyphonic-onboarding-field"]'),
+      column: box('[data-testid="polyphonic-setup-column"]'),
+      heading: box("#polyphonic-welcome-heading"),
+      footer: box(".polyphonic-onboarding-footer"),
+      body: box(".polyphonic-onboarding-body"),
+    };
+  });
+}
+
+test("the card is 1040×584: a pane wide enough for the dendrite to breathe", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  // The field settles onto its anchor; these are the resting numbers.
+  await waitForAnimations(page);
+
+  const geometry = await readCardGeometry(page);
+  const { card, pane, fieldBox, column } = geometry;
+  expect(card).not.toBeNull();
+  expect(pane).not.toBeNull();
+  expect(fieldBox).not.toBeNull();
+  expect(column).not.toBeNull();
+  if (!card || !pane || !fieldBox || !column) return;
+
+  // The window is the card.
+  expect(Math.round(card.width)).toBe(FIRST_RUN_VIEWPORT.width);
+  expect(Math.round(card.height)).toBe(FIRST_RUN_VIEWPORT.height);
+  expect(Math.round(pane.width)).toBe(PANE_WIDTH);
+
+  // …and the dendrite has the same air on both sides of itself. This is the
+  // whole point of the wider pane: edge to edge is not a composition.
+  expect(Math.round(fieldBox.left - pane.left)).toBe(FIELD_INSET);
+  expect(Math.round(pane.right - fieldBox.right)).toBe(FIELD_INSET);
+  expect(Math.round(fieldBox.width)).toBe(PANE_WIDTH - FIELD_INSET * 2);
+  // Square, and centred on the pane.
+  expect(Math.round(fieldBox.height)).toBe(Math.round(fieldBox.width));
+  expect(
+    Math.abs(fieldBox.top - pane.top - (pane.bottom - fieldBox.bottom)),
+  ).toBeLessThan(1.5);
+  // …and the dendrite that is actually drawn is on that box, not behind it.
+  // The card slides to the window's edges when the document stops painting
+  // around it, without ever changing size; the field has to follow that.
+  const { field } = geometry;
+  expect(field).not.toBeNull();
+  if (!field) return;
+  expect(Math.abs(field.left - fieldBox.left)).toBeLessThan(1.5);
+  expect(Math.abs(field.right - fieldBox.right)).toBeLessThan(1.5);
+
+  // One column, one measure, centred in the half that is left — and its air
+  // is the dendrite's air, so the two halves breathe the same amount.
+  // (The card's own 1px border is inside these numbers, hence the tolerance.)
+  expect(Math.round(column.width)).toBe(COLUMN_MEASURE);
+  const leftGutter = column.left - pane.right;
+  const rightGutter = card.right - column.right;
+  expect(Math.abs(leftGutter - rightGutter)).toBeLessThanOrEqual(1);
+  expect(Math.abs(leftGutter - COLUMN_GUTTER)).toBeLessThanOrEqual(1);
+  expect(Math.abs(rightGutter - COLUMN_GUTTER)).toBeLessThanOrEqual(1);
+});
+
+test("the column is centred in the card, and the actions sit on its bottom edge", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+
+  const { column, heading, footer, body, card } = await readCardGeometry(page);
+  expect(heading).not.toBeNull();
+  expect(footer).not.toBeNull();
+  if (!column || !heading || !footer || !body || !card) return;
+
+  // The content group is centred against the card's height, not hung from the
+  // top of it: the empty space is shared between above and below, and the
+  // group's own middle is the card's middle.
+  const group = await page.evaluate(() => {
+    const column = document.querySelector(
+      '[data-testid="polyphonic-setup-column"]',
+    );
+    const content = column?.firstElementChild;
+    if (!content) return null;
+    const rect = content.getBoundingClientRect();
+    return { top: rect.top, bottom: rect.bottom };
+  });
+  expect(group).not.toBeNull();
+  if (!group) return;
+  const above = group.top - column.top;
+  const below = column.bottom - group.bottom;
+  expect(above).toBeGreaterThan(8);
+  expect(Math.abs(above - below)).toBeLessThan(2);
+  expect(
+    Math.abs((group.top + group.bottom) / 2 - (card.top + card.bottom) / 2),
+  ).toBeLessThan(2);
+
+  // The actions are the column's, not the card's corner: same edges, and on
+  // the bottom edge of the column rather than floating above the card's.
+  expect(Math.round(footer.left)).toBe(Math.round(column.left));
+  expect(Math.round(footer.right)).toBe(Math.round(column.right));
+  const back = await page.getByRole("button", { name: "Back" }).boundingBox();
+  const primary = await page
+    .getByTestId("polyphonic-setup-continue")
+    .boundingBox();
+  expect(back).not.toBeNull();
+  expect(primary).not.toBeNull();
+  if (!back || !primary) return;
+  expect(Math.round(back.x)).toBe(Math.round(column.left));
+  expect(Math.round(primary.x + primary.width)).toBe(Math.round(column.right));
+  // Quiet Back on the left, primary on the right, both on one baseline.
+  expect(back.x).toBeLessThan(primary.x);
+  expect(
+    Math.abs(back.y + back.height / 2 - (primary.y + primary.height / 2)),
+  ).toBeLessThan(2);
+});
+
+test("the pane is pure black and the glass is the other half's", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+
+  // The field's ground is nothing at all: not the canvas token, not a tinted
+  // near-black, and above all not the plate showing through at 76%.
+  const pane = page
+    .getByTestId("polyphonic-onboarding-shell")
+    .locator("> div")
+    .first();
+  await expect(pane).toHaveCSS("background-color", PURE_BLACK);
+  // No gradient laid over it either.
+  await expect(pane).toHaveCSS("background-image", "none");
+  // The card behind it is still the glass the right half is made of.
+  await expect(page.getByTestId("polyphonic-onboarding-shell")).toHaveCSS(
+    "background-color",
+    "rgba(20, 20, 22, 0.76)",
+  );
+});
+
+test("the field is 44px and focus is its own border, in place", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  const field = page.getByTestId("polyphonic-owner-name");
+  await expect(field).toBeVisible();
+  const box = await field.boundingBox();
+  expect(Math.round(box?.height ?? 0)).toBe(44);
+
+  const resting = await field.evaluate((el) => ({
+    border: getComputedStyle(el).borderColor,
+    width: getComputedStyle(el).borderTopWidth,
+  }));
+  expect(resting.width).toBe("1px");
+  await field.focus();
+  const focused = await field.evaluate((el) => ({
+    border: getComputedStyle(el).borderColor,
+    outline: getComputedStyle(el).outlineStyle,
+    width: getComputedStyle(el).borderTopWidth,
+    shadow: getComputedStyle(el).boxShadow,
+  }));
+  // The border brightened where it already was. No second ring beside it.
+  expect(focused.border).not.toBe(resting.border);
+  expect(focused.width).toBe("1px");
+  expect(focused.outline).toBe("none");
+  expect(focused.shadow).not.toMatch(/0px 0px 0px [1-9]/);
+});
+
+test("a chosen runtime is a brighter hairline and a dot, never a fill", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await page.getByTestId("polyphonic-setup-continue").click();
+  const row = page.getByRole("radio", { name: /Codex/ }).locator("..");
+  await expect(row).toBeVisible();
+
+  const shape = await row.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      height: Math.round(el.getBoundingClientRect().height),
+      radius: style.borderTopLeftRadius,
+      borderWidth: style.borderTopWidth,
+      background: style.backgroundColor,
+    };
+  });
+  expect(shape.height).toBe(52);
+  expect(shape.radius).toBe("12px");
+  expect(shape.borderWidth).toBe("1px");
+
+  const unchosen = await row.evaluate((el) => getComputedStyle(el).borderColor);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  const chosen = await row.evaluate((el) => ({
+    border: getComputedStyle(el).borderColor,
+    background: getComputedStyle(el).backgroundColor,
+  }));
+  // Brighter hairline, and the row's ground is exactly what it was: a chosen
+  // row is not a lit plate.
+  expect(chosen.border).not.toBe(unchosen);
+  expect(chosen.background).toBe(shape.background);
+  // …and the small filled dot is there to say so.
+  await expect(row.locator("span.rounded-full").first()).toBeVisible();
+
+  // Five rows before the list scrolls.
+  const rows = page.getByTestId("polyphonic-runtime-rows");
+  const maxHeight = await rows.evaluate((el) => getComputedStyle(el).maxHeight);
+  expect(maxHeight).toBe("276px");
+});
+
+test("a step change moves the column and nothing else, and never empties the pane", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  // The field settles onto its anchor once, on arrival; the question here is
+  // whether the STEP change moves it, so start from rest.
+  await waitForAnimations(page);
+
+  const before = await readCardGeometry(page);
+  // Press, then sample the card every frame across the whole change: the next
+  // page has to be on screen fast, the pane is never allowed to be empty, and
+  // the card, the pane and the field are not allowed to move at all.
+  const trace = await page.evaluate(async () => {
+    const rect = (selector: string) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const r = node.getBoundingClientRect();
+      return { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width) };
+    };
+    const samples: {
+      at: number;
+      columns: number;
+      card: ReturnType<typeof rect>;
+      pane: ReturnType<typeof rect>;
+      field: ReturnType<typeof rect>;
+    }[] = [];
+    const start = performance.now();
+    let arrivedAt = -1;
+    const sample = () => {
+      const columns = document.querySelectorAll(
+        '[data-testid="polyphonic-setup-column"]',
+      ).length;
+      samples.push({
+        at: performance.now() - start,
+        columns,
+        card: rect('[data-testid="polyphonic-onboarding-shell"]'),
+        pane: rect('[data-testid="polyphonic-setup-pane"]'),
+        field: rect('[data-testid="polyphonic-onboarding-field"]'),
+      });
+      if (
+        arrivedAt < 0 &&
+        document.querySelector("#polyphonic-runtime-heading")
+      )
+        arrivedAt = performance.now() - start;
+    };
+    document
+      .querySelector<HTMLElement>('[data-testid="polyphonic-setup-continue"]')
+      ?.click();
+    await new Promise<void>((resolve) => {
+      const tick = () => {
+        sample();
+        if (performance.now() - start > 400) resolve();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    return { samples, arrivedAt };
+  });
+
+  // The next page is painted well inside the budget.
+  expect(trace.arrivedAt).toBeGreaterThanOrEqual(0);
+  expect(trace.arrivedAt).toBeLessThan(150);
+  // There was a column on screen in every single frame of the change.
+  expect(trace.samples.every((sample) => sample.columns >= 1)).toBe(true);
+  // And the object around it never moved.
+  const after = await readCardGeometry(page);
+  for (const sample of trace.samples) {
+    expect(sample.card).toEqual({
+      x: Math.round(before.card?.left ?? 0),
+      y: Math.round(before.card?.top ?? 0),
+      w: Math.round(before.card?.width ?? 0),
+    });
+    expect(sample.field).toEqual({
+      x: Math.round(before.field?.left ?? 0),
+      y: Math.round(before.field?.top ?? 0),
+      w: Math.round(before.field?.width ?? 0),
+    });
+  }
+  expect(Math.round(after.pane?.width ?? 0)).toBe(PANE_WIDTH);
+
+  // And the press Riley watched turn into "Working…" for a couple of seconds:
+  // "Meet Luca" is a page change like any other, and the work happens on the
+  // page it arrives at.
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+    "Meet Luca",
+  );
+  const toWaking = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const start = performance.now();
+        document
+          .querySelector<HTMLElement>(
+            '[data-testid="polyphonic-setup-continue"]',
+          )
+          ?.click();
+        const tick = () => {
+          if (document.querySelector("#polyphonic-preparing-heading"))
+            resolve(performance.now() - start);
+          else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  expect(toWaking).toBeLessThan(150);
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(0);
+});
+
+test("every page of the card, over a bright desktop", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  const evidenceDirectory = process.env.LUCA_VISUAL_EVIDENCE_DIR?.trim();
+  const shoot = async (name: string) => {
+    await waitForAnimations(page);
+    const body = await page.screenshot({ animations: "allow" });
+    if (evidenceDirectory) {
+      await page.screenshot({
+        animations: "allow",
+        path: `${evidenceDirectory}/${name}.png`,
+      });
+    }
+    await testInfo.attach(name, { body, contentType: "image/png" });
+  };
+
+  await paintDesktopBehind(page);
+  await shoot("card-1-door");
+
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await shoot("card-2-name");
+
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(page.getByRole("radio", { name: /Codex/ })).toBeVisible();
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await shoot("card-3-runtime");
+
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Luca is waking up." }),
+  ).toBeVisible({ timeout: 15_000 });
+  await shoot("card-4-waking");
 });

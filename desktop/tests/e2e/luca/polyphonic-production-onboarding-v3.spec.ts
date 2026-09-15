@@ -735,3 +735,102 @@ test("an import that fails says so on its own row and stops nothing", async ({
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });
+
+/**
+ * The becoming asks the window for a place on the desk. There is no window
+ * server in the harness, so what is asserted is the ask: the command log.
+ */
+async function asNativeWindow(
+  page: import("@playwright/test").Page,
+  work: { availWidth: number; availHeight: number },
+) {
+  await page.addInitScript((area) => {
+    (window as typeof window & { isTauri?: boolean }).isTauri = true;
+    Object.defineProperty(window.screen, "availWidth", {
+      configurable: true,
+      get: () => area.availWidth,
+    });
+    Object.defineProperty(window.screen, "availHeight", {
+      configurable: true,
+      get: () => area.availHeight,
+    });
+  }, work);
+}
+
+function windowPlacement(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const payloads = window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [];
+    const sized = payloads.filter(
+      (entry) => entry.command === "plugin:window|set_size",
+    );
+    return {
+      sizes: sized.map(
+        (entry) =>
+          (entry.payload as { value?: { Logical?: unknown } } | undefined)
+            ?.value?.Logical,
+      ),
+      centred: payloads.filter(
+        (entry) => entry.command === "plugin:window|center",
+      ).length,
+      maximised: payloads.filter(
+        (entry) => entry.command === "plugin:window|maximize",
+      ).length,
+    };
+  });
+}
+
+/** The whole walk, on a Mac with nobody else on it, to the first conversation. */
+async function walkToFirstConversation(page: import("@playwright/test").Page) {
+  await begin(page);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgents(page);
+  await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
+}
+
+test("the becoming lands the app at a standard size, centred — never maximised", async ({
+  page,
+}) => {
+  // An ultrawide: the case Riley named. Nobody wants their first window to be
+  // a yard across.
+  await asNativeWindow(page, { availWidth: 3440, availHeight: 1440 });
+  await page.setViewportSize({ width: 1040, height: 584 });
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: NO_AGENTS,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await walkToFirstConversation(page);
+
+  const placement = await windowPlacement(page);
+  expect(placement.sizes).toContainEqual({ width: 1280, height: 800 });
+  expect(placement.centred).toBeGreaterThan(0);
+  // The whole point: the application does not swallow the screen.
+  expect(placement.maximised).toBe(0);
+});
+
+test("a small display gets its work area back, less a margin", async ({
+  page,
+}) => {
+  // A 13" Mac's work area: 1280×800 plus 48px of room will not fit, so the
+  // window takes what there is and leaves the margin.
+  await asNativeWindow(page, { availWidth: 1280, availHeight: 747 });
+  await page.setViewportSize({ width: 1040, height: 584 });
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: NO_AGENTS,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await walkToFirstConversation(page);
+
+  const placement = await windowPlacement(page);
+  expect(placement.sizes).toContainEqual({ width: 1232, height: 699 });
+  expect(placement.centred).toBeGreaterThan(0);
+  expect(placement.maximised).toBe(0);
+});

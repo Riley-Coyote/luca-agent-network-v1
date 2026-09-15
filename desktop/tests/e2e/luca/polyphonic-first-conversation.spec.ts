@@ -346,7 +346,10 @@ test("all three residents exist from the first launch, and only Luca is awake", 
 test("the becoming puts the window back: the app has its own ground again", async ({
   page,
 }, testInfo) => {
-  await page.setViewportSize({ width: 1000, height: 656 });
+  // The size the becoming actually asks for: a standard desk window, not the
+  // screen. The harness has no window server, so the viewport is set to what
+  // `landPolyphonicAppWindow` asks the real one for.
+  await page.setViewportSize({ width: 1280, height: 800 });
   await arriveInLucaDm(page);
 
   // The card stopped floating the moment it started becoming the app — not
@@ -366,7 +369,7 @@ test("the becoming puts the window back: the app has its own ground again", asyn
   if (evidenceDirectory) {
     await page.screenshot({
       animations: "allow",
-      path: `${evidenceDirectory}/floating-card-after-becoming.png`,
+      path: `${evidenceDirectory}/card-5-app-after-becoming-1280x800.png`,
     });
   } else {
     await testInfo.attach("app after becoming", {

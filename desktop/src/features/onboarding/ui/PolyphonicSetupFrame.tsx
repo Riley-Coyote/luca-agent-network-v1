@@ -162,7 +162,7 @@ export function PolyphonicSetupFrame({
                 </div>
               ) : null}
             </header>
-            <div className="polyphonic-onboarding-body relative min-h-0 overflow-hidden pb-6 pt-2">
+            <div className="polyphonic-onboarding-body relative min-h-0 overflow-hidden py-4">
               {/* One page leaves while the next is already arriving, both in
                   the same place: the outgoing column dims out under the
                   incoming one, so the pane is never empty for a frame. Nothing
@@ -170,7 +170,7 @@ export function PolyphonicSetupFrame({
               <AnimatePresence initial={false}>
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
-                  className="absolute inset-x-0 bottom-6 top-2 flex min-h-0 flex-col justify-center"
+                  className="absolute inset-x-0 inset-y-4 flex min-h-0 flex-col justify-center"
                   data-testid="polyphonic-setup-column"
                   exit={{
                     opacity: 0,

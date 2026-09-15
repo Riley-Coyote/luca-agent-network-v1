@@ -403,7 +403,10 @@ export const PolyphonicRuntimeStep = React.forwardRef<
     ? [...presentOptions, ...absentOptions]
     : presentOptions;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // `max-h-full` rather than `h-full`: short of the column's height this
+    // page is centred with every other one, and only a list long enough to
+    // need it takes the whole column and scrolls inside itself.
+    <div className="flex max-h-full min-h-0 flex-col">
       <PolyphonicStepHeading
         description="Luca is the same either way. This only chooses the voice."
         stage="runtime"

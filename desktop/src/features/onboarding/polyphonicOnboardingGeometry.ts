@@ -14,9 +14,8 @@ import {
  * them: the door is laid out as the card's skeleton — field where the pane
  * will be, copy where the form will be — and the card materialises around it.
  * Pixel values, clamped to the viewport at the use site.
- */
-/**
- * The card, derived rather than chosen.
+ *
+ * And derived rather than chosen.
  *
  * The interaction column asks for a 30rem measure with 2.5rem of air each
  * side, so the right half reserves 35rem = 560px. The left half is the living
@@ -186,8 +185,20 @@ export function usePublishFieldAnchor(
     const observer = new ResizeObserver(publish);
     observer.observe(element);
     window.addEventListener("resize", publish);
+    // The card MOVES without changing size the moment the window stops
+    // painting around it: `data-luca-floating-card` takes the card's gutter
+    // to zero and the whole frame slides to the window's edges. A
+    // ResizeObserver never sees that — the box is the same box, in a new
+    // place — and the field would stay behind, sitting off-centre in its own
+    // pane. Watching the attribute that causes it is the fix.
+    const attributes = new MutationObserver(publish);
+    attributes.observe(document.documentElement, { attributes: true });
+    // …and once more after the first paint, for whatever settles a frame late.
+    const settle = requestAnimationFrame(() => requestAnimationFrame(publish));
     return () => {
       observer.disconnect();
+      attributes.disconnect();
+      cancelAnimationFrame(settle);
       window.removeEventListener("resize", publish);
       if (landing) setPolyphonicLanding(null);
       else releasePolyphonicScene(stage);
