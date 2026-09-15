@@ -43,25 +43,11 @@ const categories: Array<{
   },
 ];
 
-/** What the connection turned out to be, once it is over. It never throws:
- *  a failure is a value the reading screen can offer a choice about. */
-export type BrainConnectOutcome = {
-  issueCount: number;
-  sourceCount: number;
-  error: string | null;
-};
-
-/** The connect the owner has just authorised, handed on to the reading step.
- *  It is already running when it arrives; `retry` runs the same one again. */
-export type PendingBrainConnect = {
-  promise: Promise<BrainConnectOutcome>;
-  retry: () => Promise<BrainConnectOutcome>;
-};
-
 export type PolyphonicBrainStepHandle = {
   commit: () => Promise<{
     cancelled: boolean;
-    connect: PendingBrainConnect | null;
+    issueCount: number;
+    sourceCount: number;
   }>;
 };
 
@@ -82,6 +68,7 @@ export const PolyphonicBrainStep = React.forwardRef<
   const consentResolver = React.useRef<((result: CommitResult) => void) | null>(
     null,
   );
+  const consentConfirming = React.useRef(false);
   const initializedInventory = React.useRef(false);
 
   const inventory = inventoryQuery.data;
@@ -102,22 +89,21 @@ export const PolyphonicBrainStep = React.forwardRef<
     );
   }, [inventory]);
 
-  // The whole index used to be awaited inside this card, which is why the
-  // owner watched the word "Connecting" sit in a button. It is now a value
-  // handed forward: the card is finished the moment consent is given.
   const performConnection =
-    React.useCallback(async (): Promise<BrainConnectOutcome> => {
+    React.useCallback(async (): Promise<CommitResult> => {
       const current = inventoryQuery.data;
       if (!current || selected.size === 0) {
         return {
+          cancelled: false,
           issueCount: inventoryQuery.isError ? 1 : 0,
           sourceCount:
             current?.sources.filter(
               (source) => source.status !== "disconnected",
             ).length ?? 0,
-          error: null,
         };
       }
+      onBusyChange(true);
+      setError(null);
       try {
         const result = await connectedActions.connect.mutateAsync({
           discoveryIds: [...selected],
@@ -126,6 +112,7 @@ export const PolyphonicBrainStep = React.forwardRef<
         const refreshed = await inventoryQuery.refetch();
         const sources = refreshed.data?.sources ?? result.sources;
         return {
+          cancelled: false,
           issueCount: sources.filter(
             (source) =>
               source.status === "needs_attention" ||
@@ -134,22 +121,15 @@ export const PolyphonicBrainStep = React.forwardRef<
           sourceCount: sources.filter(
             (source) => source.status !== "disconnected",
           ).length,
-          error: null,
         };
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
-        return {
-          issueCount: 1,
-          sourceCount: 0,
-          error: message.replaceAll("-", " "),
-        };
+        setError(message.replaceAll("-", " "));
+        return { cancelled: false, issueCount: 1, sourceCount: 0 };
+      } finally {
+        onBusyChange(false);
       }
-    }, [connectedActions.connect, inventoryQuery, selected]);
-
-  const startConnection = React.useCallback((): PendingBrainConnect => {
-    const retry = () => performConnection();
-    return { promise: retry(), retry };
-  }, [performConnection]);
+    }, [connectedActions.connect, inventoryQuery, onBusyChange, selected]);
 
   const commit = React.useCallback(async (): Promise<CommitResult> => {
     const hasConnection = Boolean(
@@ -157,14 +137,12 @@ export const PolyphonicBrainStep = React.forwardRef<
         (source) => source.status !== "disconnected",
       ),
     );
-    if (selected.size === 0 || hasConnection) {
-      return { cancelled: false, connect: startConnection() };
-    }
+    if (selected.size === 0 || hasConnection) return performConnection();
     setConsentOpen(true);
     return new Promise<CommitResult>((resolve) => {
       consentResolver.current = resolve;
     });
-  }, [inventoryQuery.data?.sources, startConnection, selected.size]);
+  }, [inventoryQuery.data?.sources, performConnection, selected.size]);
 
   React.useImperativeHandle(ref, () => ({ commit }), [commit]);
 
@@ -393,18 +371,25 @@ export const PolyphonicBrainStep = React.forwardRef<
         consentCopy={inventory?.consentCopy ?? ""}
         isConnecting={connectedActions.connect.isPending}
         onConfirm={() => {
-          // Consent is the whole of this dialog's business. Start the work,
-          // close, and let the reading screen say what is happening.
-          const pending = startConnection();
-          const resolve = consentResolver.current;
-          consentResolver.current = null;
-          setConsentOpen(false);
-          resolve?.({ cancelled: false, connect: pending });
+          consentConfirming.current = true;
+          void performConnection().then((result) => {
+            consentResolver.current?.(result);
+            consentResolver.current = null;
+            setConsentOpen(false);
+            consentConfirming.current = false;
+          });
         }}
         onOpenChange={(open) => {
           setConsentOpen(open);
-          if (!open && consentResolver.current) {
-            consentResolver.current({ cancelled: true, connect: null });
+          if (!open && consentResolver.current && !consentConfirming.current) {
+            consentResolver.current({
+              cancelled: true,
+              issueCount: 0,
+              sourceCount:
+                inventory?.sources.filter(
+                  (source) => source.status !== "disconnected",
+                ).length ?? 0,
+            });
             consentResolver.current = null;
           }
         }}
