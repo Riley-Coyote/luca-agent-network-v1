@@ -4,10 +4,6 @@ import { sigilPattern } from "@/shared/ui/dot-display/engine";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { AgentCharacter } from "@/shared/ui/characters/AgentCharacter";
 import {
-  useAgentPhotoPreferred,
-  useCharacterId,
-} from "@/shared/ui/characters/characterAppearance";
-import {
   residentGlyphSeed,
   useCanonicalLucaPubkey,
 } from "@/features/luca/canonicalLucaResident";
@@ -59,9 +55,7 @@ export function AgentIdentitySpecimen({
   size?: number;
   state?: AgentVisualState;
 }) {
-  const characterId = useCharacterId(publicKey);
   const customAvatar = avatarUrl?.trim() || null;
-  const photoPreferred = useAgentPhotoPreferred(publicKey, customAvatar);
   const lucaPubkey = useCanonicalLucaPubkey();
 
   return (
@@ -72,7 +66,7 @@ export function AgentIdentitySpecimen({
       style={{ width: size, height: size }}
       title={`${accessibleName} · ${shortAgentFingerprint(publicKey)}`}
     >
-      {customAvatar && (custody === "owner" || photoPreferred) ? (
+      {customAvatar && custody === "owner" ? (
         <UserAvatar
           avatarUrl={customAvatar}
           className="h-full w-full"
@@ -88,7 +82,6 @@ export function AgentIdentitySpecimen({
       ) : (
         <AgentCharacter
           accessibleName={accessibleName}
-          id={characterId}
           motion={motion}
           publicKey={publicKey}
           size={size}

@@ -15,8 +15,14 @@ test("resident picker honors the selected glyph identity", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByTestId("settings-nav-appearance").click();
+  await expect(page.getByTestId("chat-mark-style-pixel")).toHaveCount(0);
   await page.getByTestId("chat-mark-style-glyph").click();
   await page.getByRole("button", { name: "Back to app", exact: true }).click();
+  await page.getByRole("button", { name: "Agents", exact: true }).click();
+  await expect(
+    page.locator('[data-agent-appearance="glyph"]').first(),
+  ).toBeVisible();
+  await expect(page.locator('img[src*="/characters/"]')).toHaveCount(0);
   await page
     .getByRole("button", { name: "New conversation", exact: true })
     .click();

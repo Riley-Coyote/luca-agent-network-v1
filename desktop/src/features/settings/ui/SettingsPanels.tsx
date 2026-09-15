@@ -701,8 +701,8 @@ function ConversationAppearanceSettings({
           <div className="min-w-0">
             <p className="text-sm font-medium">Chat mark</p>
             <p className="text-sm font-normal text-muted-foreground">
-              Sphere stays above the composer. Glyphs and pixel art sit beside
-              replies; pixel art uses each agent’s chosen character.
+              Sphere stays above the composer. Glyphs sit beside replies. This
+              style also applies to agent profiles and pickers.
             </p>
           </div>
           <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
@@ -710,7 +710,6 @@ function ConversationAppearanceSettings({
             {(
               [
                 ["sphere", "Sphere"],
-                ["pixel", "Pixel art"],
                 ["glyph", "Glyph"],
               ] as const satisfies readonly (readonly [ChatMarkStyle, string])[]
             ).map(([style, label]) => (

@@ -1,6 +1,6 @@
 import * as React from "react";
 
-export type ChatMarkStyle = "sphere" | "pixel" | "glyph";
+export type ChatMarkStyle = "sphere" | "glyph";
 
 export type ChatMarkAppearance = {
   visible: boolean;
@@ -26,7 +26,7 @@ function decode(snapshot: string): ChatMarkAppearance {
   const [visibility, style] = snapshot.split(":");
   return {
     visible: visibility === "visible",
-    style: style === "pixel" || style === "glyph" ? style : "sphere",
+    style: style === "pixel" || style === "glyph" ? "glyph" : "sphere",
   };
 }
 
