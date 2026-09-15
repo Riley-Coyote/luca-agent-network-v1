@@ -19,9 +19,20 @@ export const POLYPHONIC_PANE_WIDTH = 416;
 /** The pane gives way on narrow windows; the field scales with it. */
 export const POLYPHONIC_PANE_TRACK = `min(${POLYPHONIC_PANE_WIDTH}px, 44%, max(12rem, calc(100vw - 38rem)))`;
 
+/**
+ * How much of the window the card leaves around itself.
+ *
+ * A card inside the application keeps a margin so it reads as an object on a
+ * canvas. A card that IS the window has no canvas and no margin: the gutter
+ * goes to zero under `data-luca-floating-card` (theme.css), and then
+ * `100vw` — which the pane track also measures against — is the card, so the
+ * interaction column lands on exactly the 38rem it asks for.
+ */
+const CARD_GUTTER = "var(--polyphonic-card-gutter, 2rem)";
+
 export const polyphonicCardFrameStyle: React.CSSProperties = {
-  width: `min(${POLYPHONIC_CARD_WIDTH}px, calc(100vw - 2rem))`,
-  height: `min(${POLYPHONIC_CARD_HEIGHT}px, calc(100dvh - 2rem))`,
+  width: `min(${POLYPHONIC_CARD_WIDTH}px, calc(100vw - ${CARD_GUTTER}))`,
+  height: `min(${POLYPHONIC_CARD_HEIGHT}px, calc(100dvh - ${CARD_GUTTER}))`,
   gridTemplateColumns: `${POLYPHONIC_PANE_TRACK} minmax(0, 1fr)`,
 };
 

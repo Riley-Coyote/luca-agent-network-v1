@@ -502,14 +502,22 @@
   /*
    * The floating card (first run).
    *
-   * The window is transparent-capable already; the slab around the card was
-   * ours. While `data-luca-floating-card` is on `<html>` — the door, the
-   * opening and the card, published by the onboarding scene store and nothing
-   * else — every surface between the desktop and the card stops painting, and
-   * the card's shell (drawn by PolyphonicOnboardingFieldLayer) is the only
-   * opaque region left. macOS draws the window shadow from it, so it hugs the
-   * card. The becoming takes the attribute off and the application's own
-   * background is back under the growing shell before it fades.
+   * On a first run the window is sized to the card exactly, so the window IS
+   * the card: what surrounds it is the desktop, blurred by a native vibrancy
+   * view, with the card's own surface over it at 76%. Everything between the
+   * two has to stop painting, which is what these rules do.
+   *
+   * `data-luca-floating-card` goes on `<html>` only once that vibrancy view
+   * is installed — the scene store says WHEN the card floats,
+   * `polyphonicFloatingWindow.ts` says when there is something behind the
+   * window to float over. The becoming takes the attribute off and the
+   * application's own background is back under the growing shell before it
+   * fades, so the shell never grows onto a void.
+   *
+   * These transparencies are deliberately NOT gated on `data-luca-native`
+   * the way glass-floor.css gates its own: this is the one surface whose
+   * translucency has to be judged and asserted in the browser harness, and
+   * there is no theme behind it to fall back to.
    *
    * `!important` throughout, and deliberately: the boot guard in `index.html`
    * paints `<html>` with an inline style, and the setup frame's canvas is a
@@ -518,6 +526,13 @@
    * `base` is the one thing that outranks an important utility. Both come
    * straight back the moment the attribute goes.
    */
+  /* The card is the window: no canvas around it, so no gutter inside it.
+     `polyphonicOnboardingGeometry.ts` reads this, and so does the pane track
+     through the `100vw` it measures. */
+  :root[data-luca-floating-card] {
+    --polyphonic-card-gutter: 0px;
+  }
+
   :root[data-luca-floating-card],
   :root[data-luca-floating-card] body,
   :root[data-luca-floating-card] #root,

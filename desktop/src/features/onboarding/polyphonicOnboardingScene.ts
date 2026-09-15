@@ -136,11 +136,6 @@ export function isFloatingCardStage(stage: PolyphonicSceneStage): boolean {
   return FLOATING_STAGES.has(stage);
 }
 
-/** The same answer outside React, for the theme layer's native handshake. */
-export function readPolyphonicFloatingCard(): boolean {
-  return isFloatingCardStage(scene.stage);
-}
-
 /**
  * Whether the card is floating, as a boolean snapshot: subscribers that only
  * care about the window re-render when the answer changes and not when the

@@ -104,7 +104,8 @@ test("the setup card is dark whatever the system scheme, and reads in the app's 
   // The card's surface is the shell the door already had; the frame in the
   // tree is transparent and holds only the column.
   const card = page.getByTestId("polyphonic-onboarding-shell");
-  await expect(card).toHaveCSS("background-color", "rgb(20, 20, 22)");
+  // The card's surface while it floats: the dark plate at 76% over the blur.
+  await expect(card).toHaveCSS("background-color", "rgba(20, 20, 22, 0.76)");
   // The frame's canvas is still the dark one whatever the OS says; it is
   // simply not painted while the card floats on a transparent window, so the
   // token is what carries the fact and the surface reports nothing.
@@ -159,9 +160,34 @@ test("the shell is the same object on the door and in the card", async ({
   expect(frame).toEqual(before);
 });
 
-/** The window is 1000×656 on a first run; the card is the only thing in it. */
-const FIRST_RUN_VIEWPORT = { width: 1000, height: 656 };
+/** On a first run the window IS the card: 960×544, no margin around it. */
+const FIRST_RUN_VIEWPORT = { width: 960, height: 544 };
 const TRANSPARENT = "rgba(0, 0, 0, 0)";
+
+/**
+ * A bright, busy stand-in for the desktop, painted behind the transparent
+ * document so the glass can be judged where it is hardest: the dendrite's dots
+ * have to hold their ground over a light wallpaper, not only a dark one.
+ */
+async function paintDesktopBehind(page: import("@playwright/test").Page) {
+  await page.evaluate(() => {
+    const id = "wp-float-desktop";
+    if (document.getElementById(id)) return;
+    const node = document.createElement("div");
+    node.id = id;
+    node.style.cssText = [
+      "position:fixed",
+      "inset:0",
+      "z-index:-1",
+      "background:" +
+        "repeating-linear-gradient(45deg, rgba(0,0,0,0.06) 0 12px, rgba(255,255,255,0.06) 12px 24px)," +
+        "radial-gradient(60% 70% at 25% 20%, #fff8e1, transparent 70%)," +
+        "radial-gradient(70% 60% at 80% 75%, #cfe9ff, transparent 70%)," +
+        "linear-gradient(140deg, #f7f4ee 0%, #e8d9c2 45%, #dbe8f2 100%)",
+    ].join(";");
+    document.body.appendChild(node);
+  });
+}
 
 function backgroundOf(
   page: import("@playwright/test").Page,
@@ -193,14 +219,18 @@ test("the first run floats: nothing is painted but the card", async ({
     await backgroundOf(page, '[data-testid="machine-onboarding-gate"]'),
   ).toBe(TRANSPARENT);
 
-  // …and the card's shell is the one opaque region left, which is what the
-  // macOS window server draws the window's shadow from.
+  // …and the card is a plate of glass over the blurred desktop: the same
+  // surface colour at 76%, with the pane sharing it so the two halves read as
+  // one object.
   const shell = page.getByTestId("polyphonic-onboarding-shell");
   await expect(shell).toBeVisible();
-  const shellBackground = await shell.evaluate(
-    (node) => window.getComputedStyle(node).backgroundColor,
-  );
-  expect(shellBackground).toBe("rgb(20, 20, 22)");
+  await expect(shell).toHaveCSS("background-color", "rgba(20, 20, 22, 0.76)");
+  await expect(page.getByTestId("polyphonic-setup-pane")).toHaveCount(0);
+
+  // The window is the card: it fills the viewport, no margin around it.
+  const shellBox = await shell.boundingBox();
+  expect(shellBox?.width).toBe(FIRST_RUN_VIEWPORT.width);
+  expect(shellBox?.height).toBe(FIRST_RUN_VIEWPORT.height);
 
   // The living field stays inside the card — there is no canvas outside it to
   // spill onto any more.
@@ -242,6 +272,22 @@ test("the first run floats: nothing is painted but the card", async ({
     });
   } else {
     await testInfo.attach("floating door", {
+      body: await page.screenshot({ animations: "allow" }),
+      contentType: "image/png",
+    });
+  }
+
+  // And over a bright desktop: the plate has to carry the field's dots there
+  // too, which is the only place 76% is actually a judgement call.
+  await paintDesktopBehind(page);
+  await waitForAnimations(page);
+  if (evidenceDirectory) {
+    await page.screenshot({
+      animations: "allow",
+      path: `${evidenceDirectory}/floating-card-door-over-bright-desktop.png`,
+    });
+  } else {
+    await testInfo.attach("floating door over a bright desktop", {
       body: await page.screenshot({ animations: "allow" }),
       contentType: "image/png",
     });

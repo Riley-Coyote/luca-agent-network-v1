@@ -32,6 +32,9 @@ export const polyphonicLightPalette: PolyphonicPresentationPalette = {
   "--prototype-muted": "#686963",
   "--prototype-muted-strong": "#575852",
   "--prototype-raised": "#f6f5f1",
+  /* The same surface with the desktop showing through, for the one case
+     where the card IS the window and a native blur sits behind it. */
+  "--prototype-raised-glass": "rgba(246, 245, 241, 0.76)",
   "--prototype-recessed": "#e3e2dd",
   "--prototype-selection": "rgba(38, 39, 34, 0.055)",
   "--prototype-shadow": "rgba(27, 28, 24, 0.09)",
@@ -55,6 +58,9 @@ export const polyphonicDarkPalette: PolyphonicPresentationPalette = {
   "--prototype-muted": "rgba(210, 208, 204, 0.68)",
   "--prototype-muted-strong": "rgba(210, 208, 204, 0.78)",
   "--prototype-raised": "#141416",
+  /* 76%: dark enough that the dendrite's dots hold over a bright desktop,
+     open enough that the desktop's colour is unmistakably there. */
+  "--prototype-raised-glass": "rgba(20, 20, 22, 0.76)",
   "--prototype-recessed": "#0a0a0c",
   "--prototype-selection": "rgba(220, 219, 216, 0.07)",
   "--prototype-shadow": "rgba(0, 0, 0, 0.42)",

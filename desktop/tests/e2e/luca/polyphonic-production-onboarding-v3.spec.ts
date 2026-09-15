@@ -111,7 +111,9 @@ test("the setup card follows the application appearance", async ({ page }) => {
     getComputedStyle(el).getPropertyValue("--prototype-canvas").trim(),
   );
   expect(canvasToken).toBe("#060608");
-  await expect(surface).toHaveCSS("background-color", "rgb(20, 20, 22)");
+  // The floating card is glass: the dark surface at 76% over the blurred
+  // desktop, not the opaque plate it was when a canvas sat behind it.
+  await expect(surface).toHaveCSS("background-color", "rgba(20, 20, 22, 0.76)");
   await expect(frame).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
   // Setup does not ask for an appearance any more: the application's own

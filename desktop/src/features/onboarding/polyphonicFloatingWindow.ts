@@ -8,20 +8,38 @@ import { usePolyphonicFloatingCard } from "./polyphonicOnboardingScene";
  * The first launch is the card, and nothing else.
  *
  * The native window is already transparent-capable (`transparent: true` in
- * `tauri.conf.json`), so the dark slab a stranger saw around the card was
- * ours: html, body and the onboarding wrappers painting a canvas the card did
- * not need. While the scene is floating this module publishes one fact —
- * `data-luca-floating-card` on `<html>` — and every rule that stops painting
- * keys on it (`theme.css`). The window server draws the shadow from the only
- * opaque region left, which is the card.
+ * `tauri.conf.json`), and on a first run it is sized to the card exactly, so
+ * the window IS the card. What the owner sees around the card is the desktop,
+ * blurred by a native `NSVisualEffectView`, with the card's own surface laid
+ * over it at 76% — one object of glass, not a plate on a slab.
+ *
+ * The order matters and is the whole reason this module exists:
+ *
+ *   1. the scene reaches `door` (or `opening`, or `card`);
+ *   2. the vibrancy view is installed and AWAITED, with the card's corner
+ *      radius so the frosted material is card-shaped;
+ *   3. only then does `data-luca-floating-card` go on `<html>` and the
+ *      document stop painting (`theme.css`).
+ *
+ * Reverse those and there is a frame of transparent webview over nothing.
+ * If the install fails the attribute never goes on, and the card simply
+ * stays opaque in a card-sized window — a worse first run, not a broken one.
  *
  * It also owns the two native halves of the same fact: the traffic lights,
  * which no floating card has, and the drag, which a window with no title bar
  * has to get from the card itself.
  */
 
-/** Stamped on `<html>` for as long as the card is the only thing on screen. */
+/** Stamped on `<html>` once the window behind the card is really glass. */
 export const FLOATING_CARD_ATTRIBUTE = "data-luca-floating-card";
+
+/**
+ * The same material the application's glass themes install, so the card and
+ * the app it becomes are blurring the desktop the same way.
+ */
+const CARD_VIBRANCY_MATERIAL = "sidebar";
+/** The card's own radius (`PolyphonicOnboardingFieldLayer`'s shell). */
+const CARD_CORNER_RADIUS_PX = 15;
 
 /**
  * Anything the pointer could be doing instead of moving the window. The card's
@@ -51,15 +69,56 @@ function setMainWindowTrafficLightsHidden(hidden: boolean) {
  */
 export function usePolyphonicFloatingWindow(): boolean {
   const floating = usePolyphonicFloatingCard();
+  // Not a second source of truth for floating — `floating` is still the only
+  // one. This is the native handshake's answer: whether there is something
+  // behind the window for the document to stop painting onto.
+  const [glassInstalled, setGlassInstalled] = React.useState(false);
 
+  React.useEffect(() => {
+    if (!floating) {
+      setGlassInstalled(false);
+      return;
+    }
+    if (!isTauri()) {
+      // A browser has no vibrancy view and needs none: nothing is behind the
+      // page to protect, and the harness has to be able to see the glass.
+      setGlassInstalled(true);
+      return;
+    }
+    let cancelled = false;
+    void invoke("set_window_vibrancy", {
+      enabled: true,
+      material: CARD_VIBRANCY_MATERIAL,
+      // The card does not turn opaque when the owner clicks elsewhere.
+      state: "active",
+      cornerRadius: CARD_CORNER_RADIUS_PX,
+    })
+      .then(() => {
+        if (!cancelled) setGlassInstalled(true);
+      })
+      .catch((error) => {
+        // No layer, so no transparency: the card stays opaque rather than
+        // showing a window with nothing behind it.
+        console.warn("floating card vibrancy unavailable", error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [floating]);
+
+  // The card's own layer is never cleared here. When floating ends, the
+  // theme's vibrancy effect re-runs (it takes `floatingCard` as a dependency)
+  // and installs or clears the window's material for the theme the owner is
+  // actually in — one hand on the window at a time.
+  const painted = floating && glassInstalled;
   React.useLayoutEffect(() => {
     const root = document.documentElement;
-    if (floating) root.setAttribute(FLOATING_CARD_ATTRIBUTE, "");
+    if (painted) root.setAttribute(FLOATING_CARD_ATTRIBUTE, "");
     else root.removeAttribute(FLOATING_CARD_ATTRIBUTE);
     return () => {
       root.removeAttribute(FLOATING_CARD_ATTRIBUTE);
     };
-  }, [floating]);
+  }, [painted]);
 
   // Only a *change* reaches the window. The first observation says nothing:
   // on a first run the reveal plugin has already hidden the lights before the

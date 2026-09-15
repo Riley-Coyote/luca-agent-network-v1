@@ -26,11 +26,18 @@
 /// live even while the window is unfocused (the glass themes' contract —
 /// glass does not turn opaque when the user clicks elsewhere). Any other
 /// value, or omission, leaves AppKit's default follows-window behavior.
+///
+/// `corner_radius` rounds the effect view itself. The application window
+/// wants none — its material fills a rectangle the OS already rounds. The
+/// first-run onboarding window wants the card's own radius, because there the
+/// window IS the card and a square blur would show its corners outside the
+/// rounded plate drawn over it.
 #[tauri::command]
 pub fn set_window_vibrancy(
     #[allow(unused_variables)] enabled: bool,
     #[allow(unused_variables)] material: Option<String>,
     #[allow(unused_variables)] state: Option<String>,
+    #[allow(unused_variables)] corner_radius: Option<f64>,
     #[allow(unused_variables)] window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -67,7 +74,8 @@ pub fn set_window_vibrancy(
             Some("active") => Some(NSVisualEffectState::Active),
             _ => None,
         };
-        apply_vibrancy(&window, material, state, None).map_err(|e| e.to_string())?;
+        let corner_radius = corner_radius.filter(|radius| radius.is_finite() && *radius > 0.0);
+        apply_vibrancy(&window, material, state, corner_radius).map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -10,10 +10,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
-import {
-  readPolyphonicFloatingCard,
-  usePolyphonicFloatingCard,
-} from "@/features/onboarding/polyphonicOnboardingScene";
+import { usePolyphonicFloatingCard } from "@/features/onboarding/polyphonicOnboardingScene";
 import { invokeTauri } from "@/shared/api/tauri";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
@@ -385,20 +382,14 @@ function setBuzzTranslucent(enabled: boolean) {
  * claim a vibrancy layer it has not installed — the glass CSS would go
  * see-through onto nothing.
  *
- * The floating onboarding card is the same case, for the same reason and only
- * for as long as it floats: there is nothing behind that window but the
- * desktop. An NSVisualEffectView installed under it would frost the desktop
- * and the card would sit on a pane of glass instead of on the desk. The
- * marker is withdrawn while the card floats and stamped again at the becoming
- * — see the vibrancy effect in ThemeProvider, which re-runs on that edge.
+ * The floating onboarding card is NOT one of those contexts: it installs a
+ * vibrancy view of its own, with the card's corner radius, before it lets the
+ * document go transparent — see `polyphonicFloatingWindow.ts`. The marker is
+ * as true there as anywhere else in the main window.
  */
 function applyNativeMarker(themeName: string) {
   if (!isTauri() || isPopoutWindow()) return;
   const root = document.documentElement;
-  if (readPolyphonicFloatingCard()) {
-    root.removeAttribute("data-luca-native");
-    return;
-  }
   root.setAttribute("data-luca-native", "");
   if (isGlassTheme(themeName)) {
     // The index.html boot guard paints <html> inline to prevent a cold-boot
@@ -818,31 +809,15 @@ export function ThemeProvider({
     // command is caller-scoped) and then go translucent over a layer the M1
     // design never asked for.
     if (isPopoutWindow()) return;
-    // The floating first-run card is denied the same thing for the same
-    // reason: its window is transparent onto the desktop, and a vibrancy view
-    // installed under it would frost the desktop into a pane of glass the
-    // card would then sit on. `floatingCard` is a dependency, so the becoming
-    // re-runs this effect and the app's glass comes back exactly as it was.
-    //
-    // `data-luca-native` is withdrawn and restored on the same edge, here,
-    // because `applyTheme` stamps it only when the theme itself changes and
-    // the card can start floating long after the theme settled.
-    applyNativeMarker(effectiveTheme);
-    if (floatingCard) {
-      // Cleared, not merely left alone: a dev reset can reopen the door with
-      // a glass theme's layer already live, and the card would be sitting on
-      // frosted desktop. The becoming re-runs this effect and the normal
-      // path below installs whatever the theme asks for, from scratch.
-      setBuzzTranslucent(false);
-      if (isTauri()) {
-        void invokeTauri<void>("set_window_vibrancy", { enabled: false }).catch(
-          () => {
-            // Nothing behind the card either way; the door does not wait.
-          },
-        );
-      }
-      return;
-    }
+    // While the first-run card floats, IT owns the window's material: it
+    // installs the blur with the card's own corner radius and waits for it
+    // before the document goes transparent (`polyphonicFloatingWindow.ts`).
+    // Two hands on one window is how you get a cleared layer landing after an
+    // installed one. `floatingCard` is a dependency, so the becoming re-runs
+    // this effect and the owner's own theme takes the window back — installed
+    // or cleared — while the CSS is already opaque again, so the handover is
+    // one paint.
+    if (floatingCard) return;
     // Strictly sequential, not parallel: applyBuzzVibrancy issues
     // `set_window_vibrancy(enabled: false)` for every non-Buzz theme, so
     // installing the glass layer before it resolves would have that clear

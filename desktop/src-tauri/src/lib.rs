@@ -175,8 +175,14 @@ fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
 
 /// The onboarding card, not a workspace: a stranger's first launch opens at
 /// card size instead of the maximized geometry `tauri.conf.json` declares.
-const FIRST_RUN_WINDOW_WIDTH: f64 = 1000.0;
-const FIRST_RUN_WINDOW_HEIGHT: f64 = 656.0;
+///
+/// These ARE the card's own dimensions (`POLYPHONIC_CARD_WIDTH` /
+/// `POLYPHONIC_CARD_HEIGHT` in `polyphonicOnboardingGeometry.ts`), and they
+/// are the window's INNER size — `set_size` maps to `set_inner_size` — so the
+/// card fills the window edge to edge with no transparent margin around it.
+/// The card drops its own 2rem gutter while it floats, for the same reason.
+const FIRST_RUN_WINDOW_WIDTH: f64 = 960.0;
+const FIRST_RUN_WINDOW_HEIGHT: f64 = 544.0;
 
 /// A stranger's first launch: no owner has completed onboarding.
 ///

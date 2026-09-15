@@ -230,8 +230,8 @@ export function PolyphonicOnboardingFieldLayer() {
       >
         {/* A faint halo under the card, so it reads as an object floating and
             not a panel cut out of the canvas. While the card really is
-            floating there is no canvas to lift it off — the halo would be the
-            one thing painting the transparent margin — so it stays down. */}
+            floating there is no canvas to lift it off — and no room either,
+            since the card fills the window — so it stays down. */}
         <motion.div
           animate={{ opacity: becoming || floating ? 0 : 1 }}
           className="pointer-events-none fixed h-[900px] w-[1400px]"
@@ -271,11 +271,16 @@ export function PolyphonicOnboardingFieldLayer() {
               : polyphonicCardFrameStyle.height,
             borderRadius: 15,
             borderColor: "var(--prototype-hairline)",
-            backgroundColor: "var(--prototype-raised)",
-            // Floating, the window server draws the drop shadow from the
-            // card's own opaque pixels; a CSS one would be painted *inside*
-            // the transparent margin, beside the real one. The inset lit edge
-            // is the surface itself and stays either way.
+            // Floating, the card is the window and a native blur is installed
+            // behind it: the plate is the same surface at 76%, so the desktop
+            // reads through without the field's dots losing their ground.
+            backgroundColor: floating
+              ? "var(--prototype-raised-glass)"
+              : "var(--prototype-raised)",
+            // Floating, the card fills the window: a CSS drop shadow would
+            // be painted inside the card's own bounds, and the real one is
+            // the window server's, drawn outside them. The inset lit edge is
+            // the surface itself and stays either way.
             boxShadow: floating
               ? "inset 0 1px 0 var(--prototype-hairline-soft)"
               : "inset 0 1px 0 var(--prototype-hairline-soft), 0 1px 2px rgb(0 0 0/0.08), 0 22px 64px var(--prototype-shadow)",
@@ -292,10 +297,16 @@ export function PolyphonicOnboardingFieldLayer() {
                 ? { width: becomingTarget.paneWidth }
                 : {}
             }
-            className="relative shrink-0 border-r border-[var(--prototype-hairline)] bg-[var(--prototype-recessed)]"
+            className="relative shrink-0 border-r border-[var(--prototype-hairline)]"
             initial={false}
             ref={paneRef}
             style={{
+              // One material across both halves while floating, so the card
+              // reads as one object of glass and not a recess beside a plate.
+              // The hairline between them stays either way.
+              backgroundColor: floating
+                ? "transparent"
+                : "var(--prototype-recessed)",
               width: restingShell
                 ? restingShell.paneWidth
                 : POLYPHONIC_PANE_TRACK,
