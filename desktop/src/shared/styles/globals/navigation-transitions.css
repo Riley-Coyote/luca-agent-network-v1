@@ -24,10 +24,29 @@
 
 @media (prefers-reduced-motion: no-preference) {
   /* Law 1: nothing outside the content plane animates. The root swap is
-     instant, so the rail's active highlight snaps — responsive, stable. */
+     instant, so the rail's active highlight snaps — responsive, stable.
+     The GROUP is pinned too, and that is the part that matters most: a
+     group keeps the UA's own 250ms morph even when both its images are
+     still, and a document transition lasts as long as its longest
+     animation. Leaving the root group running meant every route change
+     froze the whole live shell — rail, chrome, second column — behind a
+     snapshot for ~300ms, so anything that moved out there during a
+     navigation played invisibly and then popped into place. */
+  ::view-transition-group(root),
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation: none;
+  }
+
+  /* The plane's own group: routes that bring their own canvas sit flush
+     while a card route is inset by its lip, so the plane's box does change
+     by a few pixels between them. Let it morph, but on the house curve and
+     the house duration rather than the UA's 250ms ease — and never longer
+     than the arrival it accompanies, since the group is what holds the
+     whole transition (and the live shell) open. */
+  ::view-transition-group(luca-content) {
+    animation-duration: var(--motion-duration-standard);
+    animation-timing-function: var(--motion-ease-arrival);
   }
 
   /* Law 2: fast out… */
@@ -60,8 +79,13 @@
     animation-name: luca-nav-in-shallower;
   }
 
-  /* A same-path navigation (search params, redirects) swaps silently —
-     it trails a real navigation and must not replay its motion. */
+  /* "Same" is the motionless case, and it covers two things: a same-path
+     navigation (search params, redirects), which trails a real navigation
+     and must not replay its motion; and one conversation to the next,
+     where the frame, the header and the composer are the same objects
+     before and after, so crossfading the plane would dissolve furniture
+     that never moved. The swap is instant in both. */
+  :root[data-nav-motion="same"]::view-transition-group(luca-content),
   :root[data-nav-motion="same"]::view-transition-old(luca-content),
   :root[data-nav-motion="same"]::view-transition-new(luca-content) {
     animation: none;

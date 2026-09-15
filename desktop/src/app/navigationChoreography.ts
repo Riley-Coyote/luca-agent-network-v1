@@ -12,6 +12,9 @@ import type { router as appRouter } from "@/app/router";
  *   - Opening a detail surface (a conversation, a project, a workflow) is
  *     "deeper": the new plane rises and settles from slightly smaller.
  *   - Coming back out is "shallower": the reverse.
+ *   - Moving between two detail surfaces — one conversation to the next —
+ *     is "same": motionless. Nothing about the frame changed, only the
+ *     timeline inside it.
  *   - Everything else is a plain asymmetric crossfade.
  *
  * This module only computes the relationship and stamps it on <html> as
@@ -29,6 +32,7 @@ const RAIL_ORDER: ReadonlyArray<readonly [prefix: string, index: number]> = [
   ["/agents", 3],
   ["/pulse", 4],
   ["/brain", 5],
+  ["/settings", 6],
 ];
 
 /** Route prefixes that read as a detail surface below their section. */
@@ -46,15 +50,26 @@ function isDetail(pathname: string): boolean {
   return DETAIL_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
-export type NavMotion = "up" | "down" | "deeper" | "shallower" | "swap";
+export type NavMotion =
+  | "up"
+  | "down"
+  | "deeper"
+  | "shallower"
+  | "same"
+  | "swap";
 
 export function resolveNavMotion(from: string, to: string): NavMotion {
-  if (from === to) return "swap";
+  if (from === to) return "same";
   const fromDetail = isDetail(from);
   const toDetail = isDetail(to);
   if (toDetail && !fromDetail) return "deeper";
   if (fromDetail && !toDetail) return "shallower";
-  if (fromDetail && toDetail) return "swap"; // sibling conversations stay quiet
+  // Sibling conversations stay quiet — and quiet means motionless, not a
+  // softer crossfade. The frame, the header and the composer are the same
+  // two objects before and after; only the timeline is different, so
+  // fading the whole plane dissolves furniture that never moved. This
+  // used to resolve to "swap", which is the plain crossfade.
+  if (fromDetail && toDetail) return "same";
   const a = railIndex(from);
   const b = railIndex(to);
   if (a === null || b === null || a === b) return "swap";
@@ -94,15 +109,11 @@ export function wireNavigationChoreography(router: typeof appRouter): void {
     const from = event.fromLocation?.pathname ?? router.state.location.pathname;
     const to = event.toLocation?.pathname;
     if (!to) return;
-    if (from === to) {
-      // Search-param and redirect navigations still run a view transition
-      // (the router wraps every navigation) — stamping them "same" keeps
-      // that second transition motionless instead of replaying the last
-      // direction as a visible stutter.
-      document.documentElement.dataset.navMotion = "same";
-      delete document.documentElement.dataset.navDissolve;
-      return;
-    }
+    // A same-path navigation (search params, a redirect) resolves to "same"
+    // and goes through `stamp` like any other, so it also arms the clear
+    // timer: stamping it by hand left the attribute for an earlier
+    // navigation's timer to delete mid-transition, which handed the plane
+    // back its animation halfway through.
     stamp(from, to);
   });
 }
