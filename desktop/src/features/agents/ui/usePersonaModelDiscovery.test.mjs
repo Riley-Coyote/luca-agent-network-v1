@@ -20,6 +20,24 @@ function response(overrides = {}) {
   };
 }
 
+test("runtime aliases keep readable labels and descriptions without changing their IDs", () => {
+  const options = getDiscoveredPersonaModelOptions(
+    response({
+      agentDefaultModel: "opus[1m]",
+      models: [
+        { id: "opus[1m]", name: "Opus", description: "Opus with 1M context" },
+      ],
+    }),
+    "",
+  );
+  assert.equal(options[0].label, "Default model (Opus)");
+  assert.deepEqual(options[1], {
+    id: "opus[1m]",
+    label: "Opus",
+    description: "Opus with 1M context",
+  });
+});
+
 test("merges the harness's own 'default' catalog entry into the canonical default row", () => {
   const options = getDiscoveredPersonaModelOptions(
     response({

@@ -42,7 +42,7 @@ export function ResidentModelMenu({
 
   const choose = React.useCallback(
     (next: string) => {
-      if (!next || next === model.currentModel) return;
+      if (next === (model.currentModel ?? "")) return;
       const label =
         model.options.find((option) => option.value === next)?.label ?? next;
       void model
@@ -77,7 +77,14 @@ export function ResidentModelMenu({
 
   return (
     <div className={variant === "inline" ? "inline-flex min-w-0" : undefined}>
-      <DropdownMenu modal={false} onOpenChange={setOpen} open={open}>
+      <DropdownMenu
+        modal={false}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (next) model.refresh();
+        }}
+        open={open}
+      >
         <DropdownMenuTrigger asChild>
           <button
             aria-label={`Model: ${currentLabel}. Change model`}
@@ -116,6 +123,11 @@ export function ResidentModelMenu({
           }
         >
           <div className="max-h-[min(18rem,var(--radix-dropdown-menu-content-available-height))] overflow-y-auto overscroll-contain">
+            {model.busy ? (
+              <p className="px-3 py-2 text-sm text-muted-foreground">
+                Refreshing available models…
+              </p>
+            ) : null}
             <DropdownMenuRadioGroup
               onValueChange={(next) => {
                 choose(next);
@@ -125,11 +137,19 @@ export function ResidentModelMenu({
             >
               {model.options.map((option) => (
                 <DropdownMenuRadioItem
+                  disabled={model.busy}
                   className="pr-3 text-sm"
                   key={option.value}
                   value={option.value}
                 >
-                  {option.label}
+                  <span className="min-w-0">
+                    <span className="block">{option.label}</span>
+                    {option.description ? (
+                      <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
+                        {option.description}
+                      </span>
+                    ) : null}
+                  </span>
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
@@ -137,7 +157,18 @@ export function ResidentModelMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       {variant === "field" ? (
-        <p className="mt-2 text-2xs leading-4 text-ink-faint">{helper}</p>
+        <p className="mt-2 text-2xs leading-4 text-ink-faint">
+          {helper}
+          {model.status && !model.busy ? (
+            <button
+              type="button"
+              className="ml-2 underline"
+              onClick={model.refresh}
+            >
+              Retry
+            </button>
+          ) : null}
+        </p>
       ) : null}
     </div>
   );

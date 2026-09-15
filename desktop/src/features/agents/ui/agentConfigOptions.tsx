@@ -61,6 +61,7 @@ const KNOWN_LLM_PROVIDER_IDS = [
 type PersonaLlmProviderId = (typeof KNOWN_LLM_PROVIDER_IDS)[number];
 
 export type PersonaModelOption = {
+  description?: string;
   id: string;
   label: string;
 };

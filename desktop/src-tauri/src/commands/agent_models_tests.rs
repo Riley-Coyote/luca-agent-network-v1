@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn acp_model_catalog_preserves_names_groups_and_current_value() {
+    let raw = serde_json::json!({"stable": {"configOptions": [{
+        "category": "model", "currentValue": "opus[1m]", "options": [
+            {"value": "opus[1m]", "name": "Opus", "description": "Opus with 1M context"},
+            {"name": "Other models", "options": [{"value": "sonnet", "name": "Sonnet"}]}
+        ]
+    }]}, "unstable": {"availableModels": [{"modelId": "opus[1m]", "name": "Duplicate"}, {"modelId": "extra", "name": "Extra"}]}});
+    let result = normalize_agent_models(&raw, Some("saved".into()));
+    assert_eq!(result.models.len(), 3);
+    assert_eq!(result.models[0].name.as_deref(), Some("Opus"));
+    assert_eq!(
+        result.models[0].description.as_deref(),
+        Some("Opus with 1M context")
+    );
+    assert_eq!(result.models[1].name.as_deref(), Some("Sonnet"));
+    assert_eq!(result.agent_default_model.as_deref(), Some("opus[1m]"));
+    assert_eq!(result.selected_model.as_deref(), Some("saved"));
+}
+
+#[test]
 fn openai_model_normalization_keeps_agent_text_models() {
     let models = normalize_openai_compatible_models(
         OpenAiModelListResponse {

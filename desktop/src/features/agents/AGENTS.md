@@ -100,6 +100,20 @@ with a TypeScript lookup table or an id comparison in a component.
 
 ## Keep this file true
 
+Model catalogs preserve ACP `name`, `description`, nested option groups, and
+stable `currentValue` (legacy `displayName` remains supported). Never turn an
+explicit model selection into an unset default merely because it currently
+matches the runtime default. The empty selection explicitly clears a pin.
+Resident appearance uses the shared Sphere/Glyph preference; legacy pixel
+assignments are inert and must never be offered by a product picker.
+
+Claude version pins are supplied by the native `claude_model_bridge` launcher,
+not a frontend list. Its documented active versions supplement live aliases;
+they do not claim account entitlement. Explicit allowlists and custom-provider
+catalogs remain authoritative. The bridge never edits upstream packages or
+native settings. Keep the native CLI floor aligned with its newest model and
+verify exact ACP selection; pinned models must never silently fall back.
+
 **If you change how agent configuration is modeled, rendered, persisted,
 applied, or cleared — update this file in the same PR.** A rule that no longer
 matches the code is worse than no rule; a new pattern that isn't written down

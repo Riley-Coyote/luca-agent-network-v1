@@ -71,18 +71,19 @@ export function ModelPicker({
 
   const handleOpenChange = React.useCallback(
     (open: boolean) => {
-      if (!open || loading || modelsData) {
+      if (!open || loading) {
         return;
       }
 
       setHasRequestedModels(true);
       void fetchModels();
     },
-    [fetchModels, loading, modelsData],
+    [fetchModels, loading],
   );
 
   const currentValue = agent.model ?? modelsData?.agentDefaultModel ?? "";
   const displayLabel =
+    modelsData?.models.find((model) => model.id === agent.model)?.name ??
     agent.model ??
     (modelsData?.agentDefaultModel
       ? `${modelsData.agentDefaultModel} (default)`
@@ -155,7 +156,7 @@ export function ModelPicker({
       // Non-live path (idle, stopped, or non-persona): persist the default.
       await updateManagedAgent({
         pubkey: agent.pubkey,
-        model: modelId === modelsData?.agentDefaultModel ? null : modelId,
+        model: modelId === "default" || modelId === "" ? null : modelId,
       });
       void queryClient.invalidateQueries({ queryKey: managedAgentsQueryKey });
       if (isRunning) {

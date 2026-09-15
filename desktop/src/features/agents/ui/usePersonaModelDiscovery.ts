@@ -64,7 +64,7 @@ export function getDiscoveredPersonaModelOptions(
               provider === "relay-mesh"
                 ? "Default (auto)"
                 : agentDefaultModel
-                  ? `Default model (${agentDefaultModel})`
+                  ? `Default model (${explicitModels.find((model) => model.id === agentDefaultModel)?.name?.trim() || agentDefaultModel})`
                   : "Default model",
           },
         ];
@@ -78,6 +78,9 @@ export function getDiscoveredPersonaModelOptions(
     ...explicitModels.map((model) => ({
       id: model.id,
       label: model.name?.trim() || model.id,
+      ...(model.description?.trim()
+        ? { description: model.description.trim() }
+        : {}),
     })),
   ];
 }
@@ -140,6 +143,7 @@ export function deriveModelDiscoveryPending({
 }
 
 export function usePersonaModelDiscovery({
+  refreshGeneration = 0,
   envVars,
   isCustomProviderEditing,
   modelFieldVisible,
@@ -147,6 +151,7 @@ export function usePersonaModelDiscovery({
   provider,
   selectedRuntime,
 }: {
+  refreshGeneration?: number;
   envVars: EnvVarsValue;
   isCustomProviderEditing: boolean;
   modelFieldVisible: boolean;
@@ -201,12 +206,14 @@ export function usePersonaModelDiscovery({
     }
 
     return JSON.stringify({
+      refreshGeneration,
       agentCommand: discoveryAgentCommand,
       agentArgs: modelDiscoveryArgsKey,
       provider: trimmedProvider,
       envVars: modelDiscoveryEnvKey,
     });
   }, [
+    refreshGeneration,
     canDiscoverModelOptions,
     discoveryAgentCommand,
     modelDiscoveryArgsKey,
@@ -216,6 +223,7 @@ export function usePersonaModelDiscovery({
 
   React.useEffect(() => {
     if (modelDiscoveryKey === null || discoveryAgentCommand === null) {
+      modelDiscoveryCacheRef.current.clear();
       modelDiscoveryRequestRef.current += 1;
       setModelDiscoveryData(null);
       setModelDiscoveryDataKey(null);

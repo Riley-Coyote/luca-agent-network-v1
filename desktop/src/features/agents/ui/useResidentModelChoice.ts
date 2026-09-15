@@ -19,7 +19,11 @@ import {
 import { useAgentDialogDefaults } from "./useAgentDialogDefaults";
 import { usePersonaModelDiscovery } from "./usePersonaModelDiscovery";
 
-export type ResidentModelOption = { label: string; value: string };
+export type ResidentModelOption = {
+  label: string;
+  value: string;
+  description?: string;
+};
 
 const EMPTY_ENV_VARS: Record<string, string> = {};
 const EMPTY_RUNTIMES: readonly [] = [];
@@ -80,7 +84,11 @@ export function mergeResidentModelOptions({
       continue;
     }
     seen.add(value);
-    options.push({ label: option.label.trim() || value, value });
+    options.push({
+      label: option.label.trim() || value,
+      value,
+      ...(option.description ? { description: option.description } : {}),
+    });
   }
 
   const trimmedCurrent = (currentModel ?? "").trim();
@@ -140,6 +148,7 @@ function useStableEnvVars(
 export function useResidentModelChoice(agent: ManagedAgent | null): {
   /** Human runtime label, e.g. "Codex", "Claude Code", "Hermes"; null while unknown. */
   runtimeLabel: string | null;
+  refresh: () => void;
   /** The model the agent effectively runs (agent.model, else the inherited persona/global default), or null if unknown. */
   currentModel: string | null;
   /** Options to offer: the discovered models for this agent's runtime/provider, always including currentModel if it isn't in the list. */
@@ -153,6 +162,10 @@ export function useResidentModelChoice(agent: ManagedAgent | null): {
 } {
   const queryClient = useQueryClient();
   const [applying, setApplying] = React.useState(false);
+  const [refreshGeneration, refresh] = React.useReducer(
+    (value: number) => value + 1,
+    0,
+  );
 
   const hasAgent = agent !== null;
   const pubkey = agent?.pubkey ?? null;
@@ -239,6 +252,7 @@ export function useResidentModelChoice(agent: ManagedAgent | null): {
     modelDiscoveryLoading,
     modelDiscoveryStatus,
   } = usePersonaModelDiscovery({
+    refreshGeneration,
     envVars: envVarsForDiscovery,
     isCustomProviderEditing: false,
     modelFieldVisible: true,
@@ -314,6 +328,7 @@ export function useResidentModelChoice(agent: ManagedAgent | null): {
   );
 
   return {
+    refresh,
     runtimeLabel,
     currentModel,
     options,

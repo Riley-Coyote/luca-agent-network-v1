@@ -2984,6 +2984,10 @@ fn spawn_agent_child_unix(
         command.env_remove("LUCA_PLAYWRIGHT_ISOLATED");
     }
     configure_runtime_cli(&mut command, runtime_meta);
+    super::claude_model_bridge::configure_claude_model_bridge(
+        &mut command,
+        &resolved_agent_command,
+    )?;
 
     // Buzz shared compute is stored as a native provider; derive the OpenAI-compatible
     // transport at spawn time and scrub any unrelated ambient OpenAI key.

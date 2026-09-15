@@ -144,12 +144,10 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
             "~/Applications/Claude.app/Contents/Resources/claude",
         ],
         cli_version_args: &["--version"],
-        // `@agentclientprotocol/claude-agent-acp` depends on
-        // `@anthropic-ai/claude-agent-sdk`, not on the `claude` CLI, so there
-        // is no adapter-pinned floor to enforce. Left `None` rather than
-        // invented.
-        min_cli_version: None,
-        min_cli_version_source: None,
+        // Full version picker includes Fable 5.1. Official model-config docs
+        // require 2.1.257 for it; onboarding must offer an update on older CLIs.
+        min_cli_version: Some((2, 1, 257)),
+        min_cli_version_source: Some("Claude Code model-config: Fable 5.1 requires 2.1.257"),
         auth_files: &["~/.claude/.credentials.json"],
     },
     KnownAcpRuntime {

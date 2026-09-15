@@ -1121,7 +1121,8 @@ async fn create_session_and_apply_model(
     // Apply desired_model if set, matching against the fresh session/new response.
     // Track whether the switch succeeded so session_config_captured reflects
     // the post-switch state (not the pre-switch desired state).
-    let strict_model_binding = matches!(source, PromptSource::Continuity(_));
+    let strict_model_binding = matches!(source, PromptSource::Continuity(_))
+        || std::env::var("LUCA_REQUIRE_EXACT_MODEL").as_deref() == Ok("1");
     let switch_succeeded = if let Some(ref desired) = agent.desired_model {
         match resolve_model_switch_method(&resp.raw, desired) {
             Some(method) => {
@@ -1129,7 +1130,8 @@ async fn create_session_and_apply_model(
                     apply_model_switch(&mut agent.acp, &resp.session_id, desired, &method).await?;
                 if strict_model_binding && applied.is_none() {
                     return Err(AcpError::Protocol(
-                        "private continuity refused runtime model substitution".into(),
+                        "requested model could not be applied; refusing runtime model substitution"
+                            .into(),
                     ));
                 }
                 // The thinking ladder belongs to the model the turn will run
@@ -1148,7 +1150,7 @@ async fn create_session_and_apply_model(
             None => {
                 if strict_model_binding {
                     return Err(AcpError::Protocol(
-                        "private continuity requested model is unavailable".into(),
+                        "requested model is unavailable; choose another model or update the runtime".into(),
                     ));
                 }
                 tracing::warn!(
