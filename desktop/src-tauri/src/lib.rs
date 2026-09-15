@@ -222,7 +222,61 @@ fn size_window_for_first_run(window: &tauri::Window, first_run: bool) {
         eprintln!("buzz-desktop: failed to size the first-run window: {error}");
         return;
     }
-    if let Err(error) = window.center() {
+    center_first_run_window(window);
+}
+
+/// Put the first-run window in the middle of the monitor it is actually on.
+///
+/// `Window::center` measures against the PRIMARY display, so on a second
+/// monitor it computes a centre in the wrong coordinate space and the window
+/// lands wherever that arithmetic points — for one owner, (-4684, -94) on a
+/// 5120×1440 ultrawide beside a Retina built-in. The monitor under the window
+/// is the one that matters; the primary is the fallback, and only if there is
+/// no monitor at all does Tauri's own centring get a turn.
+///
+/// Everything here is physical pixels: `work_area`, `outer_position` and
+/// `outer_size` share one coordinate space, so there is no scale factor to
+/// apply — mixing in a logical size is how the arithmetic goes wrong in the
+/// first place. The work area, not the full frame, so the menu bar and the
+/// Dock are not centred into.
+fn center_first_run_window(window: &tauri::Window) {
+    let monitor = match window.current_monitor() {
+        Ok(Some(monitor)) => Some(monitor),
+        Ok(None) => None,
+        Err(error) => {
+            eprintln!("buzz-desktop: current monitor is unavailable: {error}");
+            None
+        }
+    };
+    let Some(monitor) = monitor.or_else(|| window.primary_monitor().ok().flatten()) else {
+        eprintln!("buzz-desktop: no monitor to centre the first-run window on");
+        if let Err(error) = window.center() {
+            eprintln!("buzz-desktop: failed to center the first-run window: {error}");
+        }
+        return;
+    };
+
+    let outer = match window.outer_size() {
+        Ok(size) => size,
+        Err(error) => {
+            eprintln!("buzz-desktop: first-run window size is unavailable: {error}");
+            return;
+        }
+    };
+
+    // A window wider or taller than the work area pins to its origin rather
+    // than hanging off the leading edge.
+    let area = monitor.work_area();
+    let left = i64::from(area.position.x)
+        + (i64::from(area.size.width) - i64::from(outer.width)).max(0) / 2;
+    let top = i64::from(area.position.y)
+        + (i64::from(area.size.height) - i64::from(outer.height)).max(0) / 2;
+    let position = tauri::PhysicalPosition::new(
+        i32::try_from(left).unwrap_or(area.position.x),
+        i32::try_from(top).unwrap_or(area.position.y),
+    );
+
+    if let Err(error) = window.set_position(position) {
         eprintln!("buzz-desktop: failed to center the first-run window: {error}");
     }
 }
@@ -392,6 +446,16 @@ pub fn run() {
                             // restore, so a first run ends on the card size.
                             size_window_for_first_run(&window, first_run);
                             wait_for_stable_initial_window_geometry(&window).await;
+                            if first_run {
+                                // Again, now that the resize has landed: the
+                                // first attempt runs while `set_size` is still
+                                // in flight on the main thread, so it centres
+                                // the size the window is leaving, and it can
+                                // run before the window server has told anyone
+                                // which display the window is on. Still hidden
+                                // here, so the correction costs no frame.
+                                center_first_run_window(&window);
+                            }
 
                             if tokio::time::timeout(
                                 std::time::Duration::from_secs(5),
