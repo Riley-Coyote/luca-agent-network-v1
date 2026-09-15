@@ -182,8 +182,13 @@ test.describe("the pop-out shell", () => {
       "rgba(0, 0, 0, 0)",
     );
 
-    // …and the shell carries the one translucent plate.
-    await expect(shell).toHaveCSS("background-color", "rgba(27, 28, 29, 0.7)");
+    // …and the shell carries the one translucent plate. The colour is the
+    // theme's conversation-card surface and moves with the palette; the alpha
+    // is the pop-out's own decision and is what this asserts.
+    const plate = await shell.evaluate(
+      (node) => window.getComputedStyle(node).backgroundColor,
+    );
+    expect(plate).toMatch(/^rgba\(\d+, \d+, \d+, 0\.7\)$/);
 
     // Nothing inside may paint an opaque surface across the window: a single
     // full-bleed opaque child and the glass is a rumour.
