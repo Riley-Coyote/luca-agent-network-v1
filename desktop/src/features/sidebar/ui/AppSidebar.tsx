@@ -5,7 +5,6 @@ import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
 import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
-import { shouldShowProjectsSection } from "@/features/communities/communityStorage";
 import { useResidentMoteWarmup } from "@/features/luca/residents/ResidentMote";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
@@ -890,9 +889,6 @@ export function AppSidebar({
                         agents={railAgents}
                         selectedAgentPubkey={selectedAgentPubkey}
                         onSelectAgent={selectAgentFromRail}
-                        showProjects={shouldShowProjectsSection(
-                          activeCommunity?.relayUrl,
-                        )}
                       />
                       <RuntimeRailSection
                         onSelect={handleSelectRuntime}
@@ -1223,6 +1219,9 @@ export function AppSidebar({
         onCreate={async (draft, checkpoint) => {
           if (!currentPubkey)
             throw new Error("Your identity is still loading.");
+          // The rail's "+" makes a device-local RoomProject — a named grouping
+          // of rooms. Never useCreateProject/kind 30617: on a local relay that
+          // would publish a ghost git repository nothing can serve.
           return runProjectCreationTransaction(draft, checkpoint, {
             createProject: ({ label, sourceIds }) =>
               createEmptyRoomProject(currentPubkey, activeCommunity?.relayUrl, {

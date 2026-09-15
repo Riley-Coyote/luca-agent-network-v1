@@ -211,7 +211,7 @@ test("a stale local assignment cannot project a direct message into a project", 
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("DM Trap");
   await dialog.getByTestId("project-first-room-enabled").click();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   const dm = page.getByTestId("channel-alice-tyler");
   const dmId = await dm.getAttribute("data-channel-id");
@@ -363,7 +363,7 @@ test("a new project creates its first real room with chosen connected context", 
   await dialog.getByRole("button", { name: /Context/ }).click();
   await dialog.getByRole("button", { name: "Select all" }).click();
   await expect(dialog.getByText("luca-agent-network")).toBeVisible();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByTestId("project-row-launch-work")).toBeVisible();
   await expect(page.getByTestId("chat-title")).toHaveText("planning");
@@ -389,7 +389,7 @@ test("a project can begin empty with no room residents or sources", async ({
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Quiet Research");
   await dialog.getByTestId("project-first-room-enabled").click();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByTestId("project-row-quiet-research")).toBeVisible();
   const store = await storedProjects(page);
@@ -413,7 +413,7 @@ test("project details rename, reopen, recover missing context, and remove an emp
   const createDialog = page.getByTestId("create-room-project-dialog");
   await createDialog.getByTestId("create-project-name").fill("Quiet Research");
   await createDialog.getByTestId("project-first-room-enabled").click();
-  await createDialog.getByRole("button", { name: "Create channel" }).click();
+  await createDialog.getByRole("button", { name: "Create project" }).click();
 
   await page.getByTestId("project-row-quiet-research").click();
   const navigator = page.getByTestId("project-room-navigator");
@@ -510,7 +510,7 @@ test("removing a populated project keeps its room, message, and native state int
   const createDialog = page.getByTestId("create-room-project-dialog");
   await createDialog.getByTestId("create-project-name").fill("Launch Work");
   await createDialog.getByTestId("create-project-room-name").fill("planning");
-  await createDialog.getByRole("button", { name: "Create channel" }).click();
+  await createDialog.getByRole("button", { name: "Create project" }).click();
   await expect(page.getByTestId("chat-title")).toHaveText("planning");
 
   await page
@@ -567,7 +567,7 @@ test("a first room attaches selected existing residents as membership only", asy
   await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-existing").click();
   await dialog.getByText("Atlas", { exact: true }).click();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   await expect(page.getByTestId("chat-title")).toHaveText("resident-room");
   const membershipCalls = (await commandLog(page)).filter(
@@ -606,7 +606,7 @@ test("a new resident handoff contains only the exact created room identity", asy
   await dialog.getByTestId("create-project-room-name").fill("agent-room");
   await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-new").click();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   const request = await page.evaluate(
     () =>
@@ -635,7 +635,7 @@ test("a room failure retains one empty project and retry creates one room", asyn
   const dialog = page.getByTestId("create-room-project-dialog");
   await dialog.getByTestId("create-project-name").fill("Recovery Plan");
   await dialog.getByTestId("create-project-room-name").fill("recovery-room");
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   await expect(dialog.getByRole("alert")).toContainText(
     "The empty project is saved",
@@ -668,7 +668,7 @@ test("a membership failure retries membership without another project or room", 
   await dialog.getByRole("button", { name: /People/ }).click();
   await dialog.getByTestId("project-resident-mode-existing").click();
   await dialog.getByText("Atlas", { exact: true }).click();
-  await dialog.getByRole("button", { name: "Create channel" }).click();
+  await dialog.getByRole("button", { name: "Create project" }).click();
 
   await expect(dialog.getByRole("alert")).toContainText(
     "Retry to add only the remaining residents",
@@ -684,4 +684,89 @@ test("a membership failure retries membership without another project or room", 
     commands.filter((entry) => entry.command === "add_channel_members"),
   ).toHaveLength(2);
   expect((await storedProjects(page))?.projects).toHaveLength(1);
+});
+
+/**
+ * Point the seeded community at the bundled on-this-device relay. Registered
+ * after `installMockBridge`, so it runs after the community seed and rewrites
+ * it in place.
+ */
+async function useLocalOnlyCommunity(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    const raw = window.localStorage.getItem("buzz-communities");
+    if (!raw) throw new Error("Expected a seeded community to localise.");
+    const communities = JSON.parse(raw) as Array<Record<string, unknown>>;
+    for (const community of communities) {
+      community.relayUrl = "buzz-local://on-this-device";
+      community.local = true;
+    }
+    window.localStorage.setItem(
+      "buzz-communities",
+      JSON.stringify(communities),
+    );
+  });
+}
+
+/**
+ * A project in the rail is a device-local grouping of rooms — localStorage
+ * only, no git and no relay round-trip — so PROJECTS renders on the bundled
+ * on-this-device relay exactly as it does on a hosted one. It briefly did not
+ * (b5872e5a3), which also swallowed every project-assigned room: `groupChats`
+ * buckets those under their project, so with the section withheld they fell
+ * out of the rail entirely and were reachable only by URL.
+ */
+test("projects group rooms in the rail on the bundled on-this-device relay", async ({
+  page,
+}) => {
+  await useLocalOnlyCommunity(page);
+  await page.goto("/?e2e=mock");
+
+  expect(
+    await page.evaluate(() => {
+      const raw = window.localStorage.getItem("buzz-communities") ?? "[]";
+      return (JSON.parse(raw) as Array<{ relayUrl: string }>).map(
+        (community) => community.relayUrl,
+      );
+    }),
+  ).toEqual(["buzz-local://on-this-device"]);
+
+  const rooms = page.getByTestId("chat-channels");
+  await expect(rooms.getByText("Projects", { exact: true })).toBeVisible();
+
+  // Two affordances share the name "New project": the section header's "+"
+  // (data-testid="create-channel") and the empty-state row. Assert the row.
+  const emptyState = rooms.locator(
+    'button:not([data-testid="create-channel"])',
+    { hasText: "New project" },
+  );
+  await expect(emptyState).toBeVisible();
+
+  await emptyState.click();
+  const dialog = page.getByTestId("create-room-project-dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByTestId("create-project-name").fill("Field Work");
+  await dialog.getByTestId("create-project-room-name").fill("field-notes");
+  await dialog.getByRole("button", { name: "Create project" }).click();
+
+  const projectRow = page.getByTestId("project-row-field-work");
+  await expect(projectRow).toBeVisible();
+  await expect(emptyState).toHaveCount(0);
+  await expect(page.getByTestId("chat-title")).toHaveText("field-notes");
+
+  // The room belongs to the project, so it is listed by the project's room
+  // navigator rather than as a loose rail row — and it must not vanish.
+  const navigator = page.getByTestId("project-room-navigator");
+  await expect(navigator).toBeVisible();
+  await expect(
+    navigator.getByText("field-notes", { exact: true }),
+  ).toBeVisible();
+  await expect(rooms.getByTestId("channel-field-notes")).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByTestId("project-row-field-work")).toBeVisible();
+  await expect(
+    page.getByTestId("project-room-navigator").getByText("field-notes", {
+      exact: true,
+    }),
+  ).toBeVisible();
 });

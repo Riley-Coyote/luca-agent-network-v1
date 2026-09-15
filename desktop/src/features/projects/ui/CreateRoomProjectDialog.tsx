@@ -169,7 +169,7 @@ export function CreateRoomProjectDialog({
         setCheckpoint(cause.checkpoint);
       }
       setError(
-        cause instanceof Error ? cause.message : "Couldn’t create the channel.",
+        cause instanceof Error ? cause.message : "Couldn’t create the project.",
       );
     } finally {
       setIsSubmitting(false);
@@ -184,7 +184,7 @@ export function CreateRoomProjectDialog({
         data-testid="create-room-project-dialog"
       >
         <DialogHeader className="border-b border-border/55 px-6 pb-5 pt-6">
-          <DialogTitle>New channel</DialogTitle>
+          <DialogTitle>New project</DialogTitle>
           <DialogDescription>
             Create a shared space for related conversations and work.
           </DialogDescription>
@@ -194,7 +194,7 @@ export function CreateRoomProjectDialog({
           id="create-room-project-form"
           onSubmit={submit}
         >
-          <Field htmlFor="create-project-name" label="Channel name">
+          <Field htmlFor="create-project-name" label="Project name">
             <Input
               autoFocus
               data-testid="create-project-name"
@@ -236,7 +236,7 @@ export function CreateRoomProjectDialog({
                   Start with a room
                 </span>
                 <span className="mt-0.5 block text-xs text-muted-foreground">
-                  Open the channel with its first conversation, or add one
+                  Open the project with its first conversation, or add one
                   later.
                 </span>
               </span>
@@ -351,7 +351,7 @@ export function CreateRoomProjectDialog({
                 <div className="flex items-start gap-2 rounded-xl border border-border/65 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
                   <UserPlus className="mt-0.5 size-4 shrink-0" />
                   <span>
-                    After the channel is ready, Luca will open agent setup for
+                    After the project is ready, Luca will open agent setup for
                     this room.
                   </span>
                 </div>
@@ -364,7 +364,7 @@ export function CreateRoomProjectDialog({
           ) : null}
 
           <DisclosureSection
-            description="Attach existing Brain sources to this channel."
+            description="Attach existing Brain sources to this project."
             label="Context"
             open={showContext}
             onToggle={() => setShowContext((current) => !current)}
@@ -480,7 +480,7 @@ export function CreateRoomProjectDialog({
               ? "Creating…"
               : isCheckpointed
                 ? "Retry setup"
-                : "Create channel"}
+                : "Create project"}
           </Button>
         </DialogFooter>
       </DialogContent>
