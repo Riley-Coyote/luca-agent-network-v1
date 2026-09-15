@@ -26,11 +26,12 @@ const REPLY = `${PROSE_ONE}\n\n${PROSE_TWO}\n\n${CODE}`;
 /** Plain-text form of the reply, for comparing against the settled row. */
 const REPLY_WORDS = `${PROSE_ONE} ${PROSE_TWO}`.split(/\s+/);
 
-type WordSample = {
-  filter: string;
-  transform: string;
-  opacity: string;
-  text: string;
+/** One instant of the row, read inside the page. */
+type WordFrame = {
+  blurs: number[];
+  scales: number[];
+  settled: number;
+  words: number;
 };
 
 async function seedEffect(page: Page, effect: string) {
@@ -78,14 +79,18 @@ async function openChannel(page: Page, reducedMotion = false) {
   });
   await page.goto("/?e2e=mock");
   await page.getByTestId("channel-general").click();
+  // Generous on purpose: this spec is run in parallel with others, and four
+  // concurrent browsers can take well past the default before the app boots.
   await expect
-    .poll(() =>
-      page.evaluate(
-        () =>
-          window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
-            channelName: "general",
-          }) ?? false,
-      ),
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({
+              channelName: "general",
+            }) ?? false,
+        ),
+      { timeout: 30_000 },
     )
     .toBe(true);
 }
@@ -96,6 +101,7 @@ async function send(page: Page, content: string): Promise<string> {
   await expect(page.getByTestId("message-input")).toHaveAttribute(
     "contenteditable",
     "true",
+    { timeout: 30_000 },
   );
   await page.getByTestId("message-input").fill(content);
   await page.getByTestId("send-message").click();
@@ -191,55 +197,135 @@ async function streamReply(
   return { receiptId, row: managedRow(page) };
 }
 
-/** Every word span in the row, read in one instant. */
-function sampleWords(row: Locator): Promise<WordSample[]> {
-  return row.evaluate((element) =>
-    Array.from(element.querySelectorAll("[data-md-stream-word]")).map(
-      (span) => {
-        const computed = getComputedStyle(span);
-        return {
-          filter: computed.filter,
-          transform: computed.transform,
-          opacity: computed.opacity,
-          text: span.textContent ?? "",
+/**
+ * Sample the live row from inside the page, one reading per animation frame,
+ * and resolve with the first frame that satisfies the predicate.
+ *
+ * Deliberately not a Playwright poll: one cross-process round trip on a loaded
+ * machine already costs more than a whole 320ms word, so a test-side loop
+ * cannot see a leading edge at all — it sees two readings and a settled row.
+ *
+ * The row is re-queried every frame rather than captured once: a managed row
+ * remounts when its optimistic id gives way to the signed one, and a held
+ * element handle would go quietly stale mid-stream.
+ */
+function watchFrames(
+  page: Page,
+  want: "blur" | "scale",
+  timeoutMs = 10_000,
+): Promise<WordFrame | null> {
+  return page.evaluate(
+    (input) =>
+      new Promise<WordFrame | null>((resolve) => {
+        const deadline = performance.now() + input.timeoutMs;
+        const spread = (values: number[]) =>
+          new Set(values.map((value) => value.toFixed(3))).size;
+        const read = (): WordFrame => {
+          const rows = document.querySelectorAll(
+            "[data-managed-response-ui-key]",
+          );
+          const row = rows[rows.length - 1];
+          const spans = row
+            ? Array.from(row.querySelectorAll("[data-md-stream-word]"))
+            : [];
+          const frame: WordFrame = {
+            blurs: [],
+            scales: [],
+            settled: 0,
+            words: spans.length,
+          };
+          for (const span of spans) {
+            const computed = getComputedStyle(span);
+            const blur = Number.parseFloat(
+              /blur\(([\d.]+)px\)/.exec(computed.filter)?.[1] ?? "",
+            );
+            if (Number.isFinite(blur) && blur > 0) frame.blurs.push(blur);
+            const scale = Number.parseFloat(
+              /^matrix\(([\d.]+),/.exec(computed.transform)?.[1] ?? "",
+            );
+            if (Number.isFinite(scale) && scale > 1) frame.scales.push(scale);
+            if (computed.filter === "none" && computed.transform === "none") {
+              frame.settled += 1;
+            }
+          }
+          return frame;
         };
-      },
-    ),
+        const tick = () => {
+          const frame = read();
+          const enough =
+            input.want === "blur"
+              ? spread(frame.blurs) >= 3 && frame.settled > 0
+              : spread(frame.scales) >= 3;
+          if (enough) return resolve(frame);
+          if (performance.now() > deadline) return resolve(null);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { timeoutMs, want },
   );
 }
 
-function blurValues(samples: readonly WordSample[]): number[] {
-  return samples
-    .map((sample) => Number(/blur\(([\d.]+)px\)/.exec(sample.filter)?.[1]))
-    .filter((value) => Number.isFinite(value) && value > 0);
-}
-
-function scaleValues(samples: readonly WordSample[]): number[] {
-  return samples
-    .map((sample) =>
-      Number(/^matrix\(([\d.]+),/.exec(sample.transform)?.[1] ?? Number.NaN),
-    )
-    .filter((value) => Number.isFinite(value) && value > 1);
+/**
+ * The worst reading `count` produces over `ms`, sampled every frame in the
+ * page. For the assertions that must hold at every instant of a stream rather
+ * than at one instant of it. Re-queries the row every frame, as above.
+ */
+function watchWorst(
+  page: Page,
+  count: "code-words" | "words" | "disturbance",
+  ms = 2_500,
+): Promise<number> {
+  return page.evaluate(
+    (input) =>
+      new Promise<number>((resolve) => {
+        const deadline = performance.now() + input.ms;
+        const read = () => {
+          const rows = document.querySelectorAll(
+            "[data-managed-response-ui-key]",
+          );
+          const row = rows[rows.length - 1];
+          if (!row) return 0;
+          if (input.count === "code-words") {
+            return row.querySelectorAll(
+              "pre [data-md-stream-word], code [data-md-stream-word]",
+            ).length;
+          }
+          if (input.count === "words") {
+            return row.querySelectorAll("[data-md-stream-word]").length;
+          }
+          let styled = 0;
+          for (const node of row.querySelectorAll<HTMLElement>(
+            ".message-markdown *",
+          )) {
+            const inline = node.style;
+            if (
+              (inline.filter && inline.filter !== "none") ||
+              (inline.transform && inline.transform !== "none")
+            ) {
+              styled += 1;
+            }
+          }
+          return (
+            row.querySelectorAll("[data-md-stream-word]").length +
+            row.querySelectorAll("[data-md-stream-effect]").length +
+            styled
+          );
+        };
+        let worst = 0;
+        const tick = () => {
+          worst = Math.max(worst, read());
+          if (worst > 0 || performance.now() > deadline) return resolve(worst);
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }),
+    { count, ms },
+  );
 }
 
 function distinct(values: readonly number[]): number[] {
   return [...new Set(values.map((value) => value.toFixed(3)))].map(Number);
-}
-
-/** Poll the live row until `read` returns a value that satisfies `accept`. */
-async function pollFrames<T>(
-  row: Locator,
-  read: (row: Locator) => Promise<T>,
-  accept: (value: T) => boolean,
-  attempts = 220,
-): Promise<T | null> {
-  let last: T | null = null;
-  for (let i = 0; i < attempts; i += 1) {
-    const value = await read(row);
-    last = value;
-    if (accept(value)) return value;
-  }
-  return accept(last as T) ? last : null;
 }
 
 test.describe("streamed words", () => {
@@ -253,15 +339,11 @@ test.describe("streamed words", () => {
     await openChannel(page);
     const { row } = await streamReply(page, "bloom-turn");
 
-    const midStream = await pollFrames(
-      row,
-      sampleWords,
-      (samples) => distinct(scaleValues(samples)).length >= 3,
-    );
+    const midStream = await watchFrames(page, "scale");
     expect(midStream, "expected a frame with words still in flight").not.toBe(
       null,
     );
-    const scales = distinct(scaleValues(midStream ?? []));
+    const scales = distinct(midStream?.scales ?? []);
     expect(scales.length).toBeGreaterThanOrEqual(3);
     // The peak is capped: a transform reserves no layout, and the row's
     // word-spacing is sized for exactly this much overflow.
@@ -284,31 +366,21 @@ test.describe("streamed words", () => {
     const errors = watchConsole(page);
     await seedEffect(page, "diffusion");
     await openChannel(page);
-    const { row } = await streamReply(page, "diffusion-turn");
+    await streamReply(page, "diffusion-turn");
 
-    // One frame that is both a gradient at the edge and settled behind it.
-    const midStream = await pollFrames(
-      row,
-      sampleWords,
-      (samples) =>
-        distinct(blurValues(samples)).length >= 3 &&
-        samples.some((sample) => sample.filter === "none"),
-    );
+    // One frame that is both a gradient at the edge and settled behind it —
+    // settled counts only words whose filter AND transform are `none`.
+    const midStream = await watchFrames(page, "blur");
     expect(midStream, "expected a frame with words still in flight").not.toBe(
       null,
     );
-    const blurs = distinct(blurValues(midStream ?? []));
+    const blurs = distinct(midStream?.blurs ?? []);
     expect(blurs.length).toBeGreaterThanOrEqual(3);
     for (const blur of blurs) {
       expect(blur).toBeGreaterThan(0);
       expect(blur).toBeLessThanOrEqual(5.001);
     }
-    // Settled words behind the edge have left their composited layer.
-    const settled = (midStream ?? []).filter(
-      (sample) => sample.filter === "none",
-    );
-    expect(settled.length).toBeGreaterThan(0);
-    for (const sample of settled) expect(sample.transform).toBe("none");
+    expect(midStream?.settled ?? 0).toBeGreaterThan(0);
 
     await page.screenshot({
       path: `${SHOTS}/diffusion-midstream.png`,
@@ -323,20 +395,8 @@ test.describe("streamed words", () => {
     const { row } = await streamReply(page, "code-turn");
 
     await expect(row).toContainText("const calibrated");
-    // Checked repeatedly across the stream, not once after it settles.
-    const leaked = await pollFrames(
-      row,
-      (target) =>
-        target.evaluate(
-          (element) =>
-            element.querySelectorAll(
-              `pre ${"[data-md-stream-word]"}, code ${"[data-md-stream-word]"}`,
-            ).length,
-        ),
-      (count) => count > 0,
-      60,
-    );
-    expect(leaked).toBe(null);
+    // Every frame of the stream, not one instant after it settles.
+    expect(await watchWorst(page, "code-words")).toBe(0);
   });
 
   test("the spans unwrap when the stream ends, leaving the plain reply", async ({
@@ -377,39 +437,69 @@ test.describe("streamed words", () => {
     const { receiptId, row } = await streamReply(page, "spacing-turn");
     const root = row.locator("[data-md-stream-effect]").first();
 
-    await expect(root).toHaveCount(1);
-    const open = await root.evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).wordSpacing),
-    );
-    expect(open).toBeGreaterThan(0);
+    // The signed final is deliberately still held here, so the row cannot
+    // settle out from under the sample however slow the machine is. What can
+    // still be late is the width itself: the markdown stylesheet arrives in
+    // its own chunk, so a single read can land while the attribute is on the
+    // element but its rule has not applied to it yet, and report the inherited
+    // `normal` — which parses to NaN, not to a width. Poll for a real one.
+    await expect(root).toHaveAttribute("data-md-stream-effect", "bloom");
+    let open = 0;
+    await expect
+      .poll(
+        async () => {
+          open = await root.evaluate(
+            (element) =>
+              Number.parseFloat(getComputedStyle(element).wordSpacing) || 0,
+          );
+          return open;
+        },
+        {
+          message: "the bloom row must open its spacing while words fly",
+          timeout: 15_000,
+        },
+      )
+      .toBeGreaterThan(0);
 
     await expect(row).toContainText("without asking for any credit");
-    await emitSignedFinal(page, receiptId, "managed-spacing-signed-final");
 
-    // Sample as fast as the harness allows across the 300ms ease. A keyword
-    // and a length do not interpolate — if the closed value were `normal`
-    // this would only ever see the open width and then zero.
-    const seen: number[] = [];
-    for (let i = 0; i < 400; i += 1) {
-      const value = await row.evaluate((element) => {
-        const node = element.querySelector<HTMLElement>(
+    // Record the ease from inside the page, one reading per frame. The whole
+    // animation is 300ms and a single cross-process read can cost more than
+    // that on a loaded machine, so a test-side loop sees the open width, then
+    // nothing, and concludes the row snapped.
+    await page.evaluate(() => {
+      const store = window as unknown as { __streamSpacing?: number[] };
+      store.__streamSpacing = [];
+      const tick = () => {
+        const node = document.querySelector<HTMLElement>(
           "[data-md-stream-effect]",
         );
-        return node
-          ? Number.parseFloat(getComputedStyle(node).wordSpacing)
-          : null;
-      });
-      if (value === null) break;
-      seen.push(value);
-      if (seen.length > 3 && value === 0) break;
-    }
+        if (!node) return;
+        store.__streamSpacing?.push(
+          Number.parseFloat(getComputedStyle(node).wordSpacing) || 0,
+        );
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    await emitSignedFinal(page, receiptId, "managed-spacing-signed-final");
+    await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+
+    // The row has to ease, not snap: without the transition this records the
+    // open width and then zero, with nothing in between.
+    const seen = await page.evaluate(
+      () =>
+        (window as unknown as { __streamSpacing?: number[] }).__streamSpacing ??
+        [],
+    );
+    expect(seen.length, "the recorder must have run").toBeGreaterThan(1);
     expect(
       seen.some((value) => value > 0 && value < open - 0.01),
-      `expected an intermediate width; saw ${JSON.stringify(seen.slice(-40))}`,
+      `expected a width between 0 and ${open}; saw ${JSON.stringify(seen.slice(-40))}`,
     ).toBe(true);
-    await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
-      timeout: 15_000,
-    });
   });
 
   test("Off renders a streamed reply plain", async ({ page }) => {
@@ -417,13 +507,7 @@ test.describe("streamed words", () => {
     await openChannel(page);
     const { row } = await streamReply(page, "off-turn");
 
-    const appeared = await pollFrames(
-      row,
-      (target) => target.locator(WORD).count(),
-      (count) => count > 0,
-      80,
-    );
-    expect(appeared).toBe(null);
+    expect(await watchWorst(page, "words")).toBe(0);
     await expect(row).toContainText("Everything else in the piece is context");
     await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0);
   });
@@ -477,35 +561,9 @@ test.describe("streamed words under reduced motion", () => {
     ).toBe(true);
     const { row } = await streamReply(page, "reduced-turn");
 
-    const disturbed = await pollFrames(
-      row,
-      (target) =>
-        target.evaluate((element) => {
-          const spans = element.querySelectorAll(
-            "[data-md-stream-word]",
-          ).length;
-          const spaced = element.querySelectorAll(
-            "[data-md-stream-effect]",
-          ).length;
-          let styled = 0;
-          const prose = element.querySelectorAll<HTMLElement>(
-            ".message-markdown *",
-          );
-          for (const node of prose) {
-            const inline = node.style;
-            if (
-              (inline.filter && inline.filter !== "none") ||
-              (inline.transform && inline.transform !== "none")
-            ) {
-              styled += 1;
-            }
-          }
-          return { spans, spaced, styled };
-        }),
-      (value) => value.spans > 0 || value.spaced > 0 || value.styled > 0,
-      80,
-    );
-    expect(disturbed).toBe(null);
+    // No span, no spacing attribute, and no inline filter or transform on any
+    // node of the prose, at any frame of the stream.
+    expect(await watchWorst(page, "disturbance")).toBe(0);
     await expect(row).toContainText("without asking for any credit");
   });
 });
