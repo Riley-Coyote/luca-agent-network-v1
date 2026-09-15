@@ -7,11 +7,11 @@ import * as React from "react";
 
 import { PopoutConversationPicker } from "@/app/popout/PopoutConversationPicker";
 import { POPOUT_OPEN_IN_MAIN_EVENT } from "@/app/popout/popoutMode";
+import { usePopoutConversations } from "@/app/popout/usePopoutConversations";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
 import { ArtifactCanvasProvider } from "@/features/artifacts/ArtifactCanvasProvider";
-import { useChannelsQuery } from "@/features/channels/hooks";
 import { useWebviewScrollBoundaryLock } from "@/shared/hooks/useWebviewScrollBoundaryLock";
 import {
   chromeCssVarDefaults,
@@ -153,10 +153,13 @@ export function PopoutShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const { goChannel } = useAppNavigation();
   const channelId = channelIdFromPathname(location.pathname);
-  const channelsQuery = useChannelsQuery();
-  const channelTitle =
-    channelsQuery.data?.find((channel) => channel.id === channelId)?.name ??
-    "Conversation";
+  // The SAME resolved label the bar's picker shows. Reading `channel.name`
+  // here instead titled every direct-message window "DM" the moment the
+  // channel list loaded, overwriting the display name `open_channel_popout`
+  // had been handed — and that title is what ⌘-tab, Mission Control and the
+  // Window menu read.
+  const { selected } = usePopoutConversations(channelId);
+  const channelTitle = selected?.label ?? "Conversation";
   const stripRef = React.useRef<HTMLDivElement>(null);
   const insetRef = React.useRef<HTMLDivElement>(null);
   const [dockFailed, setDockFailed] = React.useState(false);

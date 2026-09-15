@@ -75,6 +75,8 @@
   display: flex;
   flex-shrink: 0;
   gap: 2px;
+  /* Everything between the name and here is drag surface. */
+  margin-inline-start: auto;
 }
 
 /* Visible at rest, quiet at rest. These were opacity 0 until hover, which is
@@ -125,10 +127,14 @@
    name whether or not it is also a menu. One line, not two: at 36px there is
    no room for a subtitle, and the window title already says the rest.
    ───────────────────────────────────────────────────────────── */
+/* Sized to the NAME, not to the bar. A hover plate that runs the full width
+   of the window reads as a text field; this one hugs the word it belongs to,
+   and the run beyond it stays drag surface. */
 .luca-popout-picker {
-  flex: 1;
+  max-width: 100%;
   min-width: 0;
   position: relative;
+  width: max-content;
 }
 
 :root[data-luca-popout] .luca-popout-picker__button {

@@ -1,33 +1,16 @@
 import { Check, ChevronDown } from "lucide-react";
 import * as React from "react";
 
-import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import {
-  useRoomProjectCatalog,
-  useRoomProjects,
-} from "@/features/channels/lib/roomProjects";
-import { useChannelsQuery } from "@/features/channels/hooks";
-import { useCommunities } from "@/features/communities/useCommunities";
-import { useUsersBatchQuery } from "@/features/profile/hooks";
-import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
-import { useIdentityQuery } from "@/shared/api/hooks";
-import type { Channel } from "@/shared/api/types";
+  usePopoutConversations,
+  type PopoutConversationGroup,
+} from "@/app/popout/usePopoutConversations";
+import { ConversationTypeIcon } from "@/features/channels/ui/ConversationTypeIcon";
 import { cn } from "@/shared/lib/cn";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 
 /** Above this many conversations the list stops being scannable by eye. */
 const SEARCH_THRESHOLD = 8;
-
-type PickerEntry = {
-  channel: Channel;
-  label: string;
-};
-
-type PickerGroup = {
-  id: string;
-  label: string;
-  entries: PickerEntry[];
-};
 
 function moveOptionFocus(
   options: readonly HTMLButtonElement[],
@@ -49,7 +32,7 @@ function moveOptionFocus(
  * groups instead and look each row up.
  */
 function orderedOptions(
-  groups: readonly PickerGroup[],
+  groups: readonly PopoutConversationGroup[],
   refs: Map<string, HTMLButtonElement>,
 ): HTMLButtonElement[] {
   return groups
@@ -57,60 +40,6 @@ function orderedOptions(
       group.entries.map((entry) => refs.get(entry.channel.id)),
     )
     .filter((node): node is HTMLButtonElement => node !== undefined);
-}
-
-/**
- * Group every conversation the owner can reach the way the sidebar does:
- * each project's rooms under the project's own label, then the rooms that
- * belong to no project, then the direct messages.
- *
- * Projects come first because a project label is the only grouping here that
- * carries meaning the channel list cannot state for itself; "Rooms" and
- * "Direct" are kinds, and a kind is a weaker sort than a piece of work.
- */
-function groupConversations(
-  channels: readonly Channel[],
-  labelFor: (channel: Channel) => string,
-  projectByChannelId: ReadonlyMap<string, { id: string; label: string }>,
-  projectOrder: readonly { id: string; label: string }[],
-): PickerGroup[] {
-  const byProject = new Map<string, PickerEntry[]>();
-  const rooms: PickerEntry[] = [];
-  const direct: PickerEntry[] = [];
-
-  for (const channel of channels) {
-    const entry = { channel, label: labelFor(channel) };
-    if (channel.channelType === "dm") {
-      direct.push(entry);
-      continue;
-    }
-    const project = projectByChannelId.get(channel.id);
-    if (!project) {
-      rooms.push(entry);
-      continue;
-    }
-    const bucket = byProject.get(project.id);
-    if (bucket) bucket.push(entry);
-    else byProject.set(project.id, [entry]);
-  }
-
-  const groups: PickerGroup[] = [];
-  for (const project of projectOrder) {
-    const entries = byProject.get(project.id);
-    if (entries?.length) {
-      groups.push({
-        id: `project:${project.id}`,
-        label: project.label,
-        entries,
-      });
-    }
-  }
-  if (rooms.length)
-    groups.push({ id: "rooms", label: "Rooms", entries: rooms });
-  if (direct.length) {
-    groups.push({ id: "direct", label: "Direct", entries: direct });
-  }
-  return groups;
 }
 
 /**
@@ -138,62 +67,7 @@ export function PopoutConversationPicker({
   const optionRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const searchRef = React.useRef<HTMLInputElement>(null);
 
-  const channelsQuery = useChannelsQuery();
-  const identityQuery = useIdentityQuery();
-  const communities = useCommunities();
-  const channels = React.useMemo(
-    () => channelsQuery.data ?? [],
-    [channelsQuery.data],
-  );
-  const currentPubkey = identityQuery.data?.pubkey;
-  const relayUrl = communities.activeCommunity?.relayUrl;
-
-  // Direct messages are named by who is in them, which needs the profiles the
-  // sidebar already fetches for exactly this reason.
-  const dmParticipantPubkeys = React.useMemo(
-    () =>
-      channels.flatMap((channel) =>
-        channel.channelType === "dm"
-          ? channel.participantPubkeys.filter(
-              (pubkey) => pubkey.toLowerCase() !== currentPubkey?.toLowerCase(),
-            )
-          : [],
-      ),
-    [channels, currentPubkey],
-  );
-  const dmProfilesQuery = useUsersBatchQuery(dmParticipantPubkeys, {
-    enabled: dmParticipantPubkeys.length > 0,
-  });
-  const dmProfiles = dmProfilesQuery.data?.profiles;
-
-  const projectByChannelId = useRoomProjects(channels, currentPubkey, relayUrl);
-  const projectCatalog = useRoomProjectCatalog(
-    channels,
-    currentPubkey,
-    relayUrl,
-  );
-
-  const labelFor = React.useCallback(
-    (channel: Channel) =>
-      resolveChannelDisplayLabel(channel, currentPubkey, dmProfiles),
-    [currentPubkey, dmProfiles],
-  );
-
-  const groups = React.useMemo(
-    () =>
-      groupConversations(
-        channels,
-        labelFor,
-        projectByChannelId,
-        projectCatalog,
-      ),
-    [channels, labelFor, projectByChannelId, projectCatalog],
-  );
-
-  const entryCount = React.useMemo(
-    () => groups.reduce((total, group) => total + group.entries.length, 0),
-    [groups],
-  );
+  const { groups, entryCount, selected } = usePopoutConversations(channelId);
   const showSearch = entryCount > SEARCH_THRESHOLD;
 
   const visibleGroups = React.useMemo(() => {
@@ -208,15 +82,6 @@ export function PopoutConversationPicker({
       }))
       .filter((group) => group.entries.length > 0);
   }, [groups, query]);
-
-  const selected = React.useMemo(() => {
-    for (const group of groups) {
-      for (const entry of group.entries) {
-        if (entry.channel.id === channelId) return entry;
-      }
-    }
-    return null;
-  }, [channelId, groups]);
 
   const focusSelected = React.useCallback(() => {
     if (showSearch) {
@@ -233,11 +98,19 @@ export function PopoutConversationPicker({
     if (!next) setQuery("");
   }, []);
 
+  /**
+   * NAVIGATE FIRST, THEN CLOSE — the order is load-bearing.
+   *
+   * Closing first queues the popover's own state update ahead of the router's,
+   * and the router's transition never commits: the URL changes and the tree
+   * stays on the old conversation. The project-room picker has always done it
+   * in this order; so does this one.
+   */
   const handleSelect = React.useCallback(
     (nextChannelId: string) => {
+      if (nextChannelId !== channelId) onSelectChannel(nextChannelId);
       setOpen(false);
       setQuery("");
-      if (nextChannelId !== channelId) onSelectChannel(nextChannelId);
     },
     [channelId, onSelectChannel],
   );

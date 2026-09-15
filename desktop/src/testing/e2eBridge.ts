@@ -14263,8 +14263,11 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:window|close":
       case "title_bar_double_click":
         return null;
+      case "plugin:window|set_title":
+        // No window server here; the pop-out's title effect is still exercised.
+        return null;
       case "plugin:window|title":
-        // No native window titles in the harness; the pop-out strip falls back
+        // No native window titles in the harness; the pop-out bar falls back
         // to the channel's own name, which is the path a browser context takes.
         return "";
       case "plugin:updater|check":

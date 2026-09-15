@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
@@ -13,12 +13,27 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../helpers/features";
  *
  * What is NOT covered here, and only a live installed app can answer: window
  * creation, the reveal handshake, geometry restore, the pin actually floating
- * over other apps, and what happens when the main window closes.
+ * over other apps, the traffic lights being hidden natively, and what happens
+ * when the main window closes.
  */
 
 const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+const CHARLIE_DM_ID = "d1ec7000-d000-4000-8000-000000000001";
 const POPOUT_URL = `/?e2e=mock&window=popout&channel=${GENERAL_CHANNEL_ID}#/channels/${GENERAL_CHANNEL_ID}`;
 const POPOUT_WINDOWS_FEATURE_ID = "popout-chat-windows";
+const OPEN_IN_MAIN_EVENT = "luca://popout-open-in-main";
+
+/**
+ * Claim the native runtime for one page.
+ *
+ * `isTauri()` is false in a browser context and every window control gates on
+ * it. The mocked IPC serves the window commands they reach for.
+ */
+async function claimNativeRuntime(page: Page) {
+  await page.addInitScript(() => {
+    (window as typeof window & { isTauri?: boolean }).isTauri = true;
+  });
+}
 
 test.describe("the pop-out shell", () => {
   // The window's own opening size.
@@ -36,8 +51,10 @@ test.describe("the pop-out shell", () => {
     const strip = page.getByTestId("popout-drag-strip");
     await expect(strip).toBeVisible();
 
-    // ONE title. The conversation header names the window; the strip above it
-    // carries controls and drag surface only, or the same word reads twice.
+    // ONE bar, and it carries the title. The conversation header the main
+    // window draws is not rendered here at all: stacked under the strip it
+    // restated the name and spent ~92px of a 560px window on chrome.
+    await expect(page.getByTestId("chat-header")).toHaveCount(0);
     await expect(page.getByTestId("chat-title")).toHaveText("general");
     await expect(page.getByTestId("popout-title")).toHaveCount(0);
     await expect(page.getByTestId("open-channel-popout")).toHaveCount(0);
@@ -46,20 +63,38 @@ test.describe("the pop-out shell", () => {
     ).toHaveCount(0);
     await expect(page.locator("[data-luca-inspector]")).toHaveCount(0);
 
-    // The strip stands where a title bar would, clear of the traffic lights.
+    // The bar stands where a title bar would, and owns its full width — the
+    // native traffic lights are hidden, so nothing is reserved on the left.
     const stripBox = await strip.boundingBox();
     expect(stripBox?.y).toBe(0);
     expect(stripBox?.width).toBe(380);
-    expect(stripBox?.height).toBe(40);
+    expect(stripBox?.height).toBe(36);
 
-    // Both conversation veils are present at pop-out dimensions — the edges of
-    // a 380px window occlude exactly as they do in the main one.
-    const veilTop = page.locator(".luca-conversation-veil-top");
+    // With no overlaid header the timeline owes the bar air, not clearance.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const shell = document.querySelector('[data-testid="popout-shell"]');
+          if (!shell) return null;
+          return getComputedStyle(shell)
+            .getPropertyValue("--buzz-channel-content-top-padding")
+            .trim();
+        }),
+      )
+      .toBe("12px");
+
+    // The composer veil is present at pop-out dimensions. The header veil is
+    // not: it lived inside the conversation header, which this window has
+    // traded for the bar above.
     const veilBottom = page.locator(".luca-conversation-veil-bottom");
-    await expect(veilTop).toHaveCount(1);
+    await expect(page.locator(".luca-conversation-veil-top")).toHaveCount(0);
     await expect(veilBottom).toHaveCount(1);
-    expect((await veilTop.boundingBox())?.width).toBe(380);
     expect((await veilBottom.boundingBox())?.width).toBe(380);
+
+    // 14px gutters, not the shared reading plane's 20px: at 380px that rule
+    // spent more than a tenth of the window on air.
+    const measure = page.locator(".luca-measure").first();
+    expect((await measure.boundingBox())?.width).toBe(380 - 28);
   });
 
   test("sends into the channel from its own composer", async ({ page }) => {
@@ -150,31 +185,82 @@ test.describe("the pop-out shell", () => {
     expect(commands).not.toContain("set_artifact_canvas_window_open");
   });
 
-  test("reveals Pin and Dock only on header approach or keyboard focus", async ({
+  test("keeps all four window controls visible and reachable at rest", async ({
     page,
   }) => {
     await installMockBridge(page);
     await page.goto(POPOUT_URL);
 
     const controls = page.getByTestId("popout-controls");
-    const pin = page.getByTestId("popout-pin");
-    const dock = page.getByTestId("popout-dock");
-    await expect(controls).toHaveCSS("opacity", "0");
-    await expect(controls).toHaveCSS("pointer-events", "none");
-
-    await page.getByTestId("chat-header").hover();
+    await expect(controls).toBeVisible();
+    // They used to be opacity 0 until the pointer approached the header,
+    // which is how the owner came to believe the window had no controls.
     await expect(controls).toHaveCSS("opacity", "1");
-    await expect(dock).toBeVisible();
+    await expect(controls).not.toHaveCSS("pointer-events", "none");
+
+    for (const testId of [
+      "popout-pin",
+      "popout-dock",
+      "popout-minimize",
+      "popout-close",
+    ]) {
+      const control = page.getByTestId(testId);
+      await expect(control).toBeVisible();
+      await control.focus();
+      await expect(control).toBeFocused();
+    }
+
+    await expect(page.getByTestId("popout-dock")).toHaveAccessibleName(
+      "Open in Polyphonic",
+    );
+    await expect(page.getByTestId("popout-minimize")).toHaveAccessibleName(
+      "Minimize",
+    );
+    await expect(page.getByTestId("popout-close")).toHaveAccessibleName("Close");
+
+    const pin = page.getByTestId("popout-pin");
     await expect(pin).toHaveAttribute("aria-pressed", "false");
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "true");
+  });
 
-    await page.getByTestId("message-input").click();
-    await page.mouse.move(190, 300);
-    await expect(controls).toHaveCSS("opacity", "0");
-    await dock.focus();
-    await expect(controls).toHaveCSS("opacity", "1");
-    await expect(dock).toBeFocused();
+  test("reaches every conversation from a direct message's own bar", async ({
+    page,
+  }) => {
+    await installMockBridge(page);
+    await page.goto(
+      `/?e2e=mock&window=popout&channel=${CHARLIE_DM_ID}#/channels/${CHARLIE_DM_ID}`,
+    );
+
+    // A DM had no switcher at all before: the project-room picker only ever
+    // rendered for a room that belonged to a project.
+    const trigger = page.getByTestId("popout-conversation-picker-trigger");
+    await expect(trigger).toBeVisible();
+    await expect(page.getByTestId("chat-title")).toHaveText("charlie");
+
+    await trigger.click();
+    const picker = page.getByTestId("popout-conversation-picker");
+    await expect(picker).toBeVisible();
+    // Grouped: each project's rooms under its label, then Rooms, then Direct.
+    await expect(picker.getByRole("group", { name: "Direct" })).toBeVisible();
+    await expect(picker.getByRole("group", { name: "Rooms" })).toBeVisible();
+    await expect(
+      picker.getByTestId(`popout-conversation-picker-option-${CHARLIE_DM_ID}`),
+    ).toHaveAttribute("aria-selected", "true");
+
+    await picker
+      .getByTestId(`popout-conversation-picker-option-${GENERAL_CHANNEL_ID}`)
+      .click();
+
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await expect(page).toHaveURL(
+      new RegExp(`#/channels/${GENERAL_CHANNEL_ID}$`),
+    );
+    // The window's own identity follows the conversation it is showing.
+    await expect
+      .poll(() => new URL(page.url()).searchParams.get("channel"))
+      .toBe(GENERAL_CHANNEL_ID);
+    await expect.poll(() => page.title()).toBe("general");
   });
 
   test("switches project rooms inside the same compact window", async ({
@@ -185,15 +271,21 @@ test.describe("the pop-out shell", () => {
       `/?e2e=mock&projectDemo=1&window=popout&channel=${GENERAL_CHANNEL_ID}#/channels/${GENERAL_CHANNEL_ID}`,
     );
 
-    const trigger = page.getByTestId("project-room-picker-trigger");
-    await expect(trigger).toHaveAccessibleName(/general in Luca/);
+    // The project-room picker is the main window header's control and left
+    // with the header; the bar's own picker carries project rooms under their
+    // project label instead.
+    await expect(page.getByTestId("project-room-picker-trigger")).toHaveCount(0);
+    const trigger = page.getByTestId("popout-conversation-picker-trigger");
+    await expect(trigger).toHaveAccessibleName(/general/);
     await trigger.click();
-    const engineering = page
-      .getByTestId("project-room-picker")
-      .getByRole("option", { name: /engineering/i });
+
+    const picker = page.getByTestId("popout-conversation-picker");
+    const luca = picker.getByRole("group", { name: "Luca" });
+    await expect(luca).toBeVisible();
+    const engineering = luca.getByRole("option", { name: /engineering/i });
     const optionTestId = await engineering.getAttribute("data-testid");
     const engineeringId = optionTestId?.replace(
-      "project-room-picker-option-",
+      "popout-conversation-picker-option-",
       "",
     );
     if (!engineeringId) throw new Error("Expected the engineering room id.");
@@ -206,6 +298,63 @@ test.describe("the pop-out shell", () => {
       .toBe(engineeringId);
     await expect.poll(() => page.title()).toBe("engineering");
     await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+  });
+
+  test("asks the main window to take over, then closes itself", async ({
+    page,
+  }) => {
+    await claimNativeRuntime(page);
+    await installMockBridge(page);
+    await page.goto(POPOUT_URL);
+    await expect(page.getByTestId("popout-shell")).toBeVisible();
+
+    // Stand in for the main window's `usePopoutRequests`. It registers with
+    // `listen()`, i.e. `EventTarget::Any` — which is precisely why the old
+    // `emitTo("main", …)` never arrived: tauri's `filter_target` does not
+    // match `Any` against an addressed emit, so Rust dropped it and returned
+    // Ok. A broadcast takes the unfiltered path, and this is where that shows.
+    await page.evaluate((eventName) => {
+      const internals = (
+        window as unknown as {
+          __TAURI_INTERNALS__: {
+            invoke: (command: string, args: unknown) => Promise<unknown>;
+            transformCallback: (callback: (data: unknown) => void) => number;
+          };
+        }
+      ).__TAURI_INTERNALS__;
+      const received: unknown[] = [];
+      (
+        window as unknown as { __POPOUT_DOCK_REQUESTS__: unknown[] }
+      ).__POPOUT_DOCK_REQUESTS__ = received;
+      const handler = internals.transformCallback((data) => {
+        received.push((data as { payload?: unknown }).payload);
+      });
+      return internals.invoke("plugin:event|listen", {
+        event: eventName,
+        target: { kind: "Any" },
+        handler,
+      });
+    }, OPEN_IN_MAIN_EVENT);
+
+    await page.getByTestId("popout-dock").click();
+
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __POPOUT_DOCK_REQUESTS__?: unknown[] })
+              .__POPOUT_DOCK_REQUESTS__ ?? [],
+        ),
+      )
+      .toEqual([{ channelId: GENERAL_CHANNEL_ID }]);
+
+    // Focus belongs to the window taking it; this one is done.
+    await expect
+      .poll(() => page.evaluate(() => window.__BUZZ_E2E_COMMANDS__ ?? []))
+      .toContain("plugin:window|close");
+
+    // The bar only says so when the request could not be delivered.
+    await expect(page.getByTestId("popout-dock-error")).toHaveCount(0);
   });
 });
 
