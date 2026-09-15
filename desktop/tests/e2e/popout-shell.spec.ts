@@ -155,6 +155,92 @@ test.describe("the pop-out shell", () => {
     await expect(pill).toHaveCSS("pointer-events", "auto");
   });
 
+  test("is glass: the window opens onto the desktop, not onto a plate", async ({
+    page,
+  }, testInfo) => {
+    await installMockBridge(page);
+    await page.goto(POPOUT_URL);
+    const shell = page.getByTestId("popout-shell");
+    await expect(shell).toBeVisible();
+
+    // The attribute is stamped only after the vibrancy install resolves —
+    // here there is no native window, so there is nothing to wait for and
+    // nothing behind the page to protect.
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-luca-popout-glass",
+      "",
+    );
+
+    // Root and body step aside entirely, so the window's own rounded corners
+    // and the native shadow have nothing painted into them…
+    await expect(page.locator("html")).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+    await expect(page.locator("body")).toHaveCSS(
+      "background-color",
+      "rgba(0, 0, 0, 0)",
+    );
+
+    // …and the shell carries the one translucent plate.
+    await expect(shell).toHaveCSS("background-color", "rgba(27, 28, 29, 0.7)");
+
+    // Nothing inside may paint an opaque surface across the window: a single
+    // full-bleed opaque child and the glass is a rumour.
+    const opaqueCovers = await page.evaluate(() => {
+      const area = window.innerWidth * window.innerHeight;
+      const offenders: string[] = [];
+      for (const node of Array.from(document.body.querySelectorAll("*"))) {
+        const rect = node.getBoundingClientRect();
+        if (rect.width * rect.height < area * 0.85) continue;
+        const style = window.getComputedStyle(node);
+        const opaqueColor =
+          style.backgroundColor !== "rgba(0, 0, 0, 0)" &&
+          !/rgba\([^)]*,\s*0?\.\d+\)$/.test(style.backgroundColor);
+        const hasImage = style.backgroundImage !== "none";
+        if (opaqueColor || hasImage) {
+          offenders.push(
+            `${node.tagName.toLowerCase()}.${node.className || "-"}: ${style.backgroundColor} / ${style.backgroundImage}`,
+          );
+        }
+      }
+      return offenders;
+    });
+    expect(opaqueCovers).toEqual([]);
+
+    // Evidence: the plate over a bright, busy stand-in for the desktop, with
+    // the conversation actually in it — the composer and its veil are the
+    // surfaces most likely to land as a solid band on glass.
+    await expect(page.getByTestId("chat-title")).toHaveText("general");
+    await expect(page.getByTestId("message-input")).toBeVisible();
+    await page.evaluate(() => {
+      const node = document.createElement("div");
+      node.style.cssText = [
+        "position:fixed",
+        "inset:0",
+        "z-index:-1",
+        "background:" +
+          "repeating-linear-gradient(45deg, rgba(0,0,0,0.07) 0 12px, rgba(255,255,255,0.07) 12px 24px)," +
+          "radial-gradient(60% 70% at 25% 20%, #fff8e1, transparent 70%)," +
+          "radial-gradient(70% 60% at 80% 75%, #cfe9ff, transparent 70%)," +
+          "linear-gradient(140deg, #f7f4ee 0%, #e8d9c2 45%, #dbe8f2 100%)",
+      ].join(";");
+      document.body.appendChild(node);
+    });
+    const evidenceDirectory = process.env.LUCA_VISUAL_EVIDENCE_DIR?.trim();
+    if (evidenceDirectory) {
+      await page.screenshot({
+        animations: "allow",
+        path: `${evidenceDirectory}/popout-glass-over-bright-desktop.png`,
+      });
+    } else {
+      await testInfo.attach("pop-out glass over a bright desktop", {
+        body: await page.screenshot({ animations: "allow" }),
+        contentType: "image/png",
+      });
+    }
+  });
+
   test("does not open the canvas on a resident's canvas-present", async ({
     page,
   }) => {

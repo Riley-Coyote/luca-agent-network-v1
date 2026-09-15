@@ -293,3 +293,63 @@
   opacity: 1;
   pointer-events: auto;
 }
+
+/* ── GLASS ───────────────────────────────────────────────────────
+   The material above is what a pop-out paints when it has nothing behind it.
+   When it does — `ThemeProvider.applyPopoutGlass` installs an
+   `NSVisualEffectView` on the window and stamps `data-luca-popout-glass` only
+   once that call has RESOLVED — the same two tokens open up and the desktop
+   comes through them. Never the reverse order: a transparent webview over an
+   uninstalled layer is a window with nothing in it.
+
+   The alphas are the pop-out's own, not the theme's. Dark rides the
+   conversation-card surface at 70%: a small window parked over other work
+   should read as glass more plainly than the full-screen app does, and 70%
+   still gives running text its ground. Light rides the floor at 80% — dark
+   ink on a light plate over a dark wallpaper is the first thing to go, and
+   the extra ten points buy it back. Both are lighter than the application's
+   own card glass, which is the point.
+
+   One plate, on the shell: root and body step aside entirely so the window's
+   own rounded corners and the native shadow have nothing painted into them,
+   and `.luca-popout` — which is the whole window, bar included — carries the
+   material as one surface. No stroke is added anywhere; the bar keeps the
+   one hairline it already had.
+   ───────────────────────────────────────────────────────────── */
+:root[data-luca-popout][data-luca-popout-glass],
+:root[data-luca-popout][data-luca-popout-glass] body {
+  background: transparent;
+}
+
+:root[data-luca-popout][data-luca-popout-glass] .luca-popout {
+  background: hsl(var(--mn-surface) / 0.7);
+}
+
+:root[data-luca-popout][data-luca-popout-glass]:not(.dark) .luca-popout {
+  background: hsl(var(--mn-floor) / 0.8);
+}
+
+/* The scroll-edge veil is a solid band of `--background` faded at one end. It
+   exists to cover the timeline under the floating composer, and over glass it
+   covers the desktop instead — the one surface in the window that reads as a
+   painted stripe. It yields completely, and the timeline fades itself with a
+   mask, which is the answer the application's own glass already arrived at
+   (`glass-floor.css`, the conversation card's veils). The composer pill keeps
+   its own fill: it is an object on the glass, like a message card. */
+:root[data-luca-popout][data-luca-popout-glass]
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  background: transparent;
+}
+
+:root[data-luca-popout][data-luca-popout-glass] [data-luca-timeline-viewport] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--composer-overlay-height, 6rem)),
+    transparent calc(100% - var(--composer-overlay-height, 6rem) + 3rem)
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    black calc(100% - var(--composer-overlay-height, 6rem)),
+    transparent calc(100% - var(--composer-overlay-height, 6rem) + 3rem)
+  );
+}

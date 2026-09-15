@@ -39,6 +39,7 @@ import {
   extractThemeInfo,
   getThemePair,
   isGlassTheme,
+  isLightTheme,
   loadThemeData,
   resolveSystemTheme,
 } from "./theme-loader";
@@ -410,6 +411,70 @@ function setGlassVibrancyFallback(enabled: boolean) {
     root.setAttribute("data-luca-glass-fallback", "");
   } else {
     root.removeAttribute("data-luca-glass-fallback");
+  }
+}
+
+/** Stamped on a pop-out's root once its window really is glass. */
+const POPOUT_GLASS_ATTRIBUTE = "data-luca-popout-glass";
+
+/**
+ * Give a pop-out chat window the blur the main window's glass has.
+ *
+ * A pop-out ships on a transparent-capable window and used to paint an opaque
+ * surface on it, because it installed no vibrancy view and CSS must never go
+ * see-through onto nothing. This is the other half of that bargain: install
+ * the layer, wait for it, and only then let `popout.css` open the surface.
+ *
+ * It is NOT the theme's material. A pop-out is one small window a person
+ * parks over their work, and it wears the glass whatever palette the app is
+ * in — the same way its bar, its picker and its reading gutters are the
+ * pop-out's own and not the theme's. `data-luca-native` stays withheld for
+ * the same reason it always was: glass-floor.css belongs to two named themes
+ * in the main window, and nothing here should reach into it.
+ *
+ * The window's effective appearance is pinned first: `NSVisualEffectMaterial`
+ * renders per the WINDOW's appearance, so without this a dark pop-out on a
+ * light-mode Mac would wear the milky variant under its dark ink.
+ */
+async function applyPopoutGlass(themeName: string) {
+  const root = document.documentElement;
+
+  if (window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches) {
+    // The accessibility contract has a native half as well as a CSS one: no
+    // layer, and the pop-out keeps the opaque surface it shipped with.
+    root.removeAttribute(POPOUT_GLASS_ATTRIBUTE);
+    return;
+  }
+
+  if (!isTauri()) {
+    // No vibrancy view exists and none can fail to install — and nothing is
+    // behind the page to protect. The translucency is still stamped so the
+    // pop-out's own material is visible, and assertable, in the harness.
+    root.setAttribute(POPOUT_GLASS_ATTRIBUTE, "");
+    return;
+  }
+
+  try {
+    await getCurrentWindow().setTheme(
+      isLightTheme(themeName) ? "light" : "dark",
+    );
+  } catch (error) {
+    // A material in the wrong polarity is still glass; not a reason to stop.
+    console.warn("pop-out appearance override unavailable", error);
+  }
+
+  try {
+    await invokeTauri<void>("set_window_vibrancy", {
+      enabled: true,
+      material: GLASS_VIBRANCY_MATERIAL,
+      // A chat window parked over other work does not turn opaque when the
+      // owner clicks back into what it is parked over.
+      state: "active",
+    });
+    root.setAttribute(POPOUT_GLASS_ATTRIBUTE, "");
+  } catch (error) {
+    console.warn("pop-out vibrancy unavailable", error);
+    root.removeAttribute(POPOUT_GLASS_ATTRIBUTE);
   }
 }
 
@@ -803,12 +868,15 @@ export function ThemeProvider({
 
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
-    // The native window material belongs to the window that owns its floor.
-    // A pop-out chat window ships opaque and installs nothing: without this
-    // it would apply the main window's material to ITSELF (the vibrancy
-    // command is caller-scoped) and then go translucent over a layer the M1
-    // design never asked for.
-    if (isPopoutWindow()) return;
+    // The native window material belongs to the window that owns its floor,
+    // and a pop-out owns its own: it installs the glass itself, with its own
+    // alpha, and never runs the main window's theme path — the vibrancy
+    // command is caller-scoped, so that path would repaint the pop-out's
+    // floor with the main window's answer.
+    if (isPopoutWindow()) {
+      void applyPopoutGlass(effectiveTheme);
+      return;
+    }
     // While the first-run card floats, IT owns the window's material: it
     // installs the blur with the card's own corner radius and waits for it
     // before the document goes transparent (`polyphonicFloatingWindow.ts`).
