@@ -29,13 +29,6 @@ const POPOUT_HEIGHT_PX: f64 = 560.0;
 const POPOUT_MIN_WIDTH_PX: f64 = 320.0;
 const POPOUT_MIN_HEIGHT_PX: f64 = 400.0;
 
-/// Traffic lights sit inside the pop-out's own drag strip, which is shorter
-/// than the main window's title area.
-#[cfg(target_os = "macos")]
-const POPOUT_TRAFFIC_LIGHT_X_PX: f64 = 12.0;
-#[cfg(target_os = "macos")]
-const POPOUT_TRAFFIC_LIGHT_Y_PX: f64 = 13.0;
-
 /// How long the reveal waits for the pop-out to report a painted frame before
 /// showing it anyway. A window that never arrives is worse than one that
 /// arrives a beat early.
@@ -183,6 +176,65 @@ async fn clear_popout_backing(window: &tauri::WebviewWindow) {
     }
 }
 
+/// Hide the native stoplights.
+///
+/// A pop-out draws its own minimize and close in the one 36px bar it owns
+/// (`PopoutShell`), so the native cluster beside them is two answers to the
+/// same question — and the 72px of leading inset it demanded was the widest
+/// single thing in a 380px window.
+///
+/// The window keeps `TitleBarStyle::Overlay` and `hidden_title(true)`: removing
+/// the buttons is not the same as removing the title bar, and the title bar is
+/// what carries the native resize edges, the window shadow and the corner
+/// radius. `-[NSWindow standardWindowButton:]` is public AppKit; hiding the
+/// views it returns is the supported way to suppress the cluster on an overlay
+/// title bar.
+///
+/// Best-effort by construction: a window that cannot be reached still opens,
+/// with its stoplights showing, rather than failing the owner's request.
+#[cfg(target_os = "macos")]
+fn hide_popout_traffic_lights(window: &tauri::WebviewWindow) {
+    use objc2_app_kit::{NSWindow, NSWindowButton};
+
+    let handle = window.clone();
+    let dispatched = window.run_on_main_thread(move || {
+        let ns_window = match handle.ns_window() {
+            Ok(pointer) => pointer,
+            Err(error) => {
+                eprintln!(
+                    "luca-popout: no native window for {}: {error}",
+                    handle.label()
+                );
+                return;
+            }
+        };
+        let Some(ns_window) = std::ptr::NonNull::new(ns_window) else {
+            eprintln!("luca-popout: {} has no NSWindow yet", handle.label());
+            return;
+        };
+        // SAFETY: `ns_window()` returns this window's live `NSWindow`, and
+        // `run_on_main_thread` is what puts this closure on the thread AppKit
+        // requires for it.
+        let ns_window: &NSWindow = unsafe { ns_window.cast().as_ref() };
+        for kind in [
+            NSWindowButton::CloseButton,
+            NSWindowButton::MiniaturizeButton,
+            NSWindowButton::ZoomButton,
+        ] {
+            if let Some(button) = ns_window.standardWindowButton(kind) {
+                button.setHidden(true);
+            }
+        }
+    });
+
+    if let Err(error) = dispatched {
+        eprintln!(
+            "luca-popout: failed to hide the traffic lights on {}: {error}",
+            window.label()
+        );
+    }
+}
+
 /// Open the pop-out chat window for one conversation, or focus the one that is
 /// already open for it.
 ///
@@ -233,14 +285,14 @@ pub async fn open_channel_popout(
     // An overlay chat that stops receiving while unfocused is not an overlay.
     .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled);
 
+    // `Overlay` + `hidden_title` stay: they are what give the window native
+    // resize edges, shadow and corner radius while leaving the title band to
+    // the web side. The stoplights themselves are hidden after the build —
+    // see `hide_popout_traffic_lights`.
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
-        .hidden_title(true)
-        .traffic_light_position(tauri::LogicalPosition::new(
-            POPOUT_TRAFFIC_LIGHT_X_PX,
-            POPOUT_TRAFFIC_LIGHT_Y_PX,
-        ));
+        .hidden_title(true);
 
     let window = builder
         .build()
@@ -248,6 +300,9 @@ pub async fn open_channel_popout(
 
     #[cfg(target_os = "macos")]
     set_popout_backing(&window);
+
+    #[cfg(target_os = "macos")]
+    hide_popout_traffic_lights(&window);
 
     // Window state is keyed by label, so each conversation's pop-out keeps
     // its own geometry for free: the window-state plugin restores every

@@ -1,5 +1,5 @@
 import { isTauri } from "@tauri-apps/api/core";
-import { emit, emitTo } from "@tauri-apps/api/event";
+import { emit } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
@@ -91,7 +91,12 @@ function PopoutAppShellContext({ children }: { children: React.ReactNode }) {
       if (!isTauri()) {
         return;
       }
-      void emitTo("main", POPOUT_READ_EVENT, {
+      // Broadcast, not addressed — see the note on `handleDock` in
+      // `PopoutShell`. `emitTo("main", …)` never reached the main window's
+      // `listen()`, so every read a pop-out delegated was dropped in Rust
+      // without an error. Only the main window acts on this: the handler
+      // lives in `usePopoutRequests`, which returns early inside a pop-out.
+      void emit(POPOUT_READ_EVENT, {
         channelId,
         readAt: readAt ?? null,
         topLevelOnly: options?.topLevelOnly === true,

@@ -95,55 +95,59 @@ export function ChannelScreenHeader({
     onJoinChannel;
 
   if (!showHeaderContent) return null;
+  // A pop-out draws ONE bar, and it is the window's own (`PopoutShell`): it
+  // carries the conversation's name as a picker and the window controls. This
+  // header would restate the title 36px below it and offer actions that are
+  // inert in a second window — two bars, ~92px of chrome, one message visible.
+  if (popoutWindow) return null;
 
-  const actions =
-    activeChannel && !popoutWindow ? (
-      showJoinButton ? (
-        <Button
-          disabled={isJoining}
-          onClick={() => void onJoinChannel()}
-          size="sm"
-          variant="default"
-        >
-          <LogIn className="mr-1.5 h-4 w-4" />
-          {isJoining ? "Joining…" : "Join"}
-        </Button>
-      ) : (
-        <>
-          <WorkspaceLayoutMenuButton />
-          {popoutWindowsEnabled ? (
-            <Button
-              aria-label="Open as window"
-              data-testid="open-channel-popout"
-              onClick={() => {
-                void openChannelPopout(
-                  activeChannel.id,
-                  activeChannelTitle,
-                ).catch((error) => {
-                  console.warn("pop-out window unavailable", error);
-                });
-              }}
-              size="icon"
-              title="Open as window"
-              type="button"
-              variant="ghost"
-            >
-              <PictureInPicture2 />
-            </Button>
-          ) : null}
+  const actions = activeChannel ? (
+    showJoinButton ? (
+      <Button
+        disabled={isJoining}
+        onClick={() => void onJoinChannel()}
+        size="sm"
+        variant="default"
+      >
+        <LogIn className="mr-1.5 h-4 w-4" />
+        {isJoining ? "Joining…" : "Join"}
+      </Button>
+    ) : (
+      <>
+        <WorkspaceLayoutMenuButton />
+        {popoutWindowsEnabled ? (
           <Button
-            aria-label="Open conversation details"
-            onClick={onToggleMembers}
+            aria-label="Open as window"
+            data-testid="open-channel-popout"
+            onClick={() => {
+              void openChannelPopout(
+                activeChannel.id,
+                activeChannelTitle,
+              ).catch((error) => {
+                console.warn("pop-out window unavailable", error);
+              });
+            }}
             size="icon"
-            title="Conversation details"
+            title="Open as window"
             type="button"
             variant="ghost"
           >
-            <PanelRight />
+            <PictureInPicture2 />
           </Button>
-        </>
-      )
-    ) : null;
+        ) : null}
+        <Button
+          aria-label="Open conversation details"
+          onClick={onToggleMembers}
+          size="icon"
+          title="Conversation details"
+          type="button"
+          variant="ghost"
+        >
+          <PanelRight />
+        </Button>
+      </>
+    )
+  ) : null;
 
   const humanDmLeading =
     activeChannel?.channelType === "dm" &&

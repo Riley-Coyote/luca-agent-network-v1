@@ -1,9 +1,9 @@
 /* ── THE POP-OUT CHAT WINDOW ──────────────────────────────────────
-   One conversation in its own window. No rail, no sidebar, no second
-   place to go — so the only chrome it owns is the strip where a title bar
-   would be: a drag region and two controls that reveal only when the owner
-   approaches the header or reaches them by keyboard. The strip does not name the window; the conversation header
-   directly beneath it is the one title.
+   One conversation in its own window. No rail, no sidebar, no second place to
+   go — so the only chrome it owns is ONE bar where a title bar would be: the
+   conversation's own name on the left, four window controls on the right, and
+   the run between them to drag the window by. There is no second header
+   beneath it; the bar IS the header.
 
    The window is transparent-capable but paints an OPAQUE surface: the theme
    layer withholds `data-luca-native` here, so the glass themes render from
@@ -13,18 +13,35 @@
    ───────────────────────────────────────────────────────────────── */
 
 :root[data-luca-popout] {
-  /* Tall enough to clear the traffic lights (12px tall, y=13) with a hair of
-     air, short enough that it reads as a title bar and not a toolbar. */
-  --luca-popout-strip-h: 40px;
-  /* The lights sit at x=12 and the cluster runs ~52px; the strip's own content
-     starts clear of them. Paired with `trafficLightPosition` in
-     `open_channel_popout` — if one moves, so does the other. */
-  --luca-popout-strip-inset: 72px;
+  /* ONE bar, and it owns its full width. The native traffic lights are hidden
+     by `hide_popout_traffic_lights` in `popout_window.rs`, so nothing has to
+     be reserved at the leading edge any more — the declared pair that used to
+     tie a 72px inset here to `traffic_light_position` there is gone from both
+     sides together.
+
+     36px: tall enough to seat a 24px control with air above and below, short
+     enough to read as a title bar rather than a toolbar. */
+  --luca-popout-strip-h: 36px;
+  /* The bar's own leading inset, and the rhythm the conversation's gutters
+     answer to. */
+  --luca-popout-inline: 12px;
 }
 
+/* ── MATERIAL ────────────────────────────────────────────────────
+   Opaque, always. Dark rides the CONVERSATION-CARD surface — `--mn-surface`,
+   the exact token the message card and the composer sit on — so a popped-out
+   conversation is the same material as the card it left. Light rides the
+   FLOOR: on paper the card token is nearly the page, and a card-on-card light
+   window reads as a sheet with nothing behind it.
+   ───────────────────────────────────────────────────────────── */
 :root[data-luca-popout],
 :root[data-luca-popout] body {
-  background: hsl(var(--background));
+  background: hsl(var(--mn-surface));
+}
+
+:root[data-luca-popout]:not(.dark),
+:root[data-luca-popout]:not(.dark) body {
+  background: hsl(var(--mn-floor));
 }
 
 .luca-popout {
@@ -38,22 +55,18 @@
   overscroll-behavior: none;
 }
 
-/* The strip carries no border and no painted band: the window is one
-   continuous surface, and the conversation's own top veil occludes whatever
-   scrolls beneath it.
-
-   Lights at the left edge, controls at the right, and a long empty run between
-   them to grab the window by. The start inset holds even with nothing in it:
-   it is what keeps the controls from ever crowding the traffic lights when the
-   window is dragged down to its minimum width. */
+/* The bar is a window drag region that happens to carry controls: the pointer
+   gestures on its empty run move the window itself, and every control on it
+   opts out of the drag by being a real button. One hairline underneath, from
+   the shell's own border token — no painted band, no shadow. */
 .luca-popout__strip {
   align-items: center;
+  border-bottom: 1px solid hsl(var(--mn-border));
   display: flex;
   flex-shrink: 0;
-  gap: 6px;
+  gap: 8px;
   height: var(--luca-popout-strip-h);
-  justify-content: flex-end;
-  padding-inline: var(--luca-popout-strip-inset) 8px;
+  padding-inline: var(--luca-popout-inline) 6px;
   user-select: none;
 }
 
@@ -62,38 +75,40 @@
   display: flex;
   flex-shrink: 0;
   gap: 2px;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--motion-duration-instant) var(--motion-ease-standard);
 }
 
-.luca-popout__strip:hover .luca-popout__controls,
-.luca-popout__strip:focus-within .luca-popout__controls,
-.luca-popout:has([data-testid="chat-header"]:hover) .luca-popout__controls,
-.luca-popout:has([data-testid="chat-header"]:focus-within)
-  .luca-popout__controls {
-  opacity: 1;
-  pointer-events: auto;
+/* Visible at rest, quiet at rest. These were opacity 0 until hover, which is
+   how the owner came to believe the window had no controls at all. Ink at 40%
+   states they are there without competing with the name beside them. */
+:root[data-luca-popout] .luca-popout__control {
+  color: hsl(var(--mn-ink) / 0.4);
+  transition: color var(--motion-duration-instant) var(--motion-ease-standard);
+}
+
+:root[data-luca-popout] .luca-popout__control:hover,
+:root[data-luca-popout] .luca-popout__control:focus-visible {
+  color: hsl(var(--mn-ink));
 }
 
 /* Pinned is a held state, not an action: the control keeps its own glyph and
    changes its ink and its seat, the way a pressed toggle should. */
-.luca-popout__pin[aria-pressed="true"] {
+:root[data-luca-popout] .luca-popout__control[aria-pressed="true"] {
   background: var(--mn-plate);
   box-shadow: var(--mn-lit-edge);
   color: hsl(var(--mn-ink));
 }
 
-/* A row, not a column: the conversation and the right-cards slot are flex
-   siblings here exactly as they are in the main window, so a pane that portals
-   into the slot lands beside the conversation rather than inside it. The slot
-   is a zero-width element until something arrives in it. */
-.luca-popout__body {
-  display: flex;
+/* The bar could not reach the main window. One line, in the bar, where the
+   name was — a console warning is not a message to anybody. */
+.luca-popout__notice {
+  color: hsl(var(--mn-ink-muted));
   flex: 1;
-  flex-direction: row;
-  min-height: 0;
+  font-size: var(--type-ui-size);
+  line-height: var(--type-ui-leading);
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .luca-popout__content {
@@ -104,18 +119,118 @@
   min-width: 0;
 }
 
-/* At pop-out widths the conversation header's workspace-scale gutters eat the
-   title. Tighten them to the strip's own rhythm; nothing else about the header
-   changes. */
-:root[data-luca-shell][data-luca-popout] [data-testid="chat-header"] {
-  padding-inline: 14px;
+/* ── THE CONVERSATION PICKER, AS THE TITLE ───────────────────────
+   Same anatomy as the project-room picker in the main window's header — an
+   absolutely positioned button over a decorative row — so the name stays the
+   name whether or not it is also a menu. One line, not two: at 36px there is
+   no room for a subtitle, and the window title already says the rest.
+   ───────────────────────────────────────────────────────────── */
+.luca-popout-picker {
+  flex: 1;
+  min-width: 0;
+  position: relative;
 }
 
-/* A project-room pop-out has no inspector actions competing in this row. Give
-   its room identity enough measure to remain a breadcrumb rather than
-   truncating the project context at the compact window's normal width. */
-:root[data-luca-shell][data-luca-popout] .luca-project-room-picker-control {
-  width: min(248px, 100%);
+:root[data-luca-popout] .luca-popout-picker__button {
+  border-radius: 7px;
+  inset: -2px -6px;
+  position: absolute;
+  z-index: 1;
+}
+
+:root[data-luca-popout] .luca-popout-picker__face {
+  align-items: center;
+  border-radius: 7px;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  gap: 7px;
+  margin-inline: -6px;
+  min-width: 0;
+  padding: 2px 6px;
+  pointer-events: none;
+  position: relative;
+  transition: background-color var(--motion-duration-instant)
+    var(--motion-ease-standard);
+}
+
+:root[data-luca-popout]
+  .luca-popout-picker__button:hover
+  + .luca-popout-picker__face {
+  background: hsl(var(--mn-hover));
+}
+
+:root[data-luca-popout]
+  .luca-popout-picker__button:focus-visible
+  + .luca-popout-picker__face {
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink-faint));
+}
+
+:root[data-luca-popout] .luca-popout-picker__name {
+  font-size: var(--type-ui-size);
+  font-weight: 540;
+  line-height: var(--type-ui-leading);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The popover itself borrows the project-room picker's surface wholesale (see
+   `.luca-project-room-picker` in conversation-shell.css). Only the group
+   headers and the search field are new. */
+:root[data-luca-shell] .luca-popout-picker__group-label {
+  color: hsl(var(--mn-ink-faint));
+  font-size: var(--type-eyebrow-size);
+  font-weight: 500;
+  letter-spacing: var(--type-eyebrow-tracking);
+  padding: 8px 8px 4px;
+  text-transform: uppercase;
+}
+
+:root[data-luca-shell]
+  .luca-popout-picker__group:first-child
+  .luca-popout-picker__group-label {
+  padding-top: 2px;
+}
+
+:root[data-luca-shell] .luca-popout-picker__search {
+  background: hsl(var(--mn-ink) / 0.05);
+  border: 1px solid hsl(var(--mn-border));
+  border-radius: 7px;
+  color: hsl(var(--mn-ink));
+  font-size: var(--type-ui-size);
+  line-height: var(--type-ui-leading);
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
+:root[data-luca-shell] .luca-popout-picker__search::placeholder {
+  color: hsl(var(--mn-ink-ghost));
+}
+
+:root[data-luca-shell] .luca-popout-picker__search:focus-visible {
+  border-color: hsl(var(--mn-ink-faint));
+  outline: none;
+}
+
+:root[data-luca-shell] .luca-popout-picker__empty {
+  color: hsl(var(--mn-ink-faint));
+  font-size: var(--type-ui-size);
+  line-height: var(--type-ui-leading);
+  padding: 10px 8px;
+}
+
+/* ── THE READING GUTTERS, AT POP-OUT WIDTHS ──────────────────────
+   The shared reading column keeps a 20px gutter a side at every width
+   (`conversation-shell.css`, THE READING COLUMN). That is a pane-relative
+   rule written for panes, and at 380px it spends 40px — more than a tenth of
+   the window — on air. 14px a side here; the composer, the intro and the
+   receipts all take their width from the same place, so they follow.
+   ───────────────────────────────────────────────────────────── */
+:root[data-luca-shell][data-luca-popout]
+  :is([data-luca-reading-plane], .luca-measure) {
+  width: calc(100% - 28px);
 }
 
 /* ── THE HOVER ACTIONS, AT POP-OUT WIDTHS ────────────────────────

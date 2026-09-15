@@ -14258,6 +14258,9 @@ export function maybeInstallE2eTauriMocks() {
       case "plugin:window|set_always_on_top":
       case "plugin:window|start_dragging":
       case "plugin:window|minimize":
+      // The pop-out bar draws its own close; there is no window server here,
+      // so record the request and let the page carry on.
+      case "plugin:window|close":
       case "title_bar_double_click":
         return null;
       case "plugin:window|title":

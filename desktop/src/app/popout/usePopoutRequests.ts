@@ -50,6 +50,12 @@ function isOpenInMainRequest(
  *    taking it.
  *
  * Main-window only, and a no-op outside Tauri.
+ *
+ * THESE LISTENERS ARE DELIBERATELY UNTARGETED. `listen()` registers
+ * `EventTarget::Any`, and tauri's `filter_target` (2.11, `manager/mod.rs`)
+ * does NOT match `Any` against an addressed `emit_to`. A pop-out therefore
+ * BROADCASTS with `emit`; addressing the emit back to `"main"` would silently
+ * drop it again, which is exactly the bug both of these requests shipped with.
  */
 export function usePopoutRequests(args: {
   dockChannel: (channelId: string) => void;
