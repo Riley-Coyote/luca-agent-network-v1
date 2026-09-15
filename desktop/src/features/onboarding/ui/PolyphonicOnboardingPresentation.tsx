@@ -167,10 +167,6 @@ export type PolyphonicPresentationAgent = {
   status?: "idle" | "importing" | "imported" | "needs-attention";
 };
 
-/** Up to this many agents, the list is plain rows: no search, no toolbar, no
- *  box. A handful of names does not need an inventory around it. */
-const COMPACT_AGENT_LIMIT = 8;
-
 export function PolyphonicPresentationAgentSelector({
   agents,
   compact = false,
@@ -188,8 +184,9 @@ export function PolyphonicPresentationAgentSelector({
   selectedIds,
 }: {
   agents: readonly PolyphonicPresentationAgent[];
-  /** Plain hairline rows while the list is short; the full inventory
-   *  (search, select-all, grouped scroll box) only past COMPACT_AGENT_LIMIT. */
+  /** The setup card always lists agents as plain hairline rows. The full
+   *  inventory (search, select-all, grouped scroll box) is the conversational
+   *  prototype's surface only. */
   compact?: boolean;
   disabled?: boolean;
   isScanning?: boolean;
@@ -204,7 +201,7 @@ export function PolyphonicPresentationAgentSelector({
   rowTestIdPrefix?: string;
   selectedIds: ReadonlySet<string>;
 }) {
-  if (compact && agents.length <= COMPACT_AGENT_LIMIT) {
+  if (compact) {
     return (
       <PolyphonicPresentationAgentRows
         agents={agents}
