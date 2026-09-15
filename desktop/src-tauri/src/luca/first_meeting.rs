@@ -3,6 +3,7 @@
 
 mod context;
 mod kickoff;
+mod record;
 pub(crate) use context::for_dispatch;
 pub(crate) use kickoff::{begin, StartResult};
 
@@ -102,7 +103,7 @@ pub(crate) fn phase_from_history(
 pub(crate) fn brief(phase: MeetingPhase) -> String {
     let position = match phase {
         MeetingPhase::Opening => "This is the opening turn. If permission-checked recent-session references are attached, read the bounded visible content before composing your greeting. Otherwise use the no-source greeting; do not imply a read happened.".to_owned(),
-        MeetingPhase::Reply(index) => format!("This is owner reply {index} of the bounded first-meeting window. Follow the conversation, including any request to skip or start work; do not repeat answered questions or declined offers."),
+        MeetingPhase::Reply(index) => format!("This is owner reply {index} of the bounded first-meeting window. Any session references were supplied on the opening turn and are listed again as identifiers only; do not re-read them or repeat discovery. Follow the conversation, including any request to skip or start work; do not repeat answered questions or declined offers."),
     };
     format!("{FIRST_MEETING_PROMPT}\n{position}")
 }
@@ -212,7 +213,9 @@ mod tests {
     #[test]
     fn prompt_describes_objectives_and_preserves_ordinary_authority() {
         let opening = brief(MeetingPhase::Opening);
-        assert!(opening.len() < 8 * 1024);
+        // Comfortably inside the 16 KiB ceiling `record::compose_brief`
+        // enforces once the setup name, sources and references are appended.
+        assert!(opening.len() < 10 * 1024, "{}", opening.len());
         assert!(opening.contains("before composing your greeting"));
         assert!(opening.contains("no-source greeting"));
         assert!(!opening.contains("Do not inspect their history before"));
@@ -242,9 +245,40 @@ mod tests {
         assert!(includes_recent_references(MeetingPhase::Opening));
         for index in 1..=MAX_OWNER_REPLIES {
             assert!(!includes_recent_references(MeetingPhase::Reply(index)));
+            // Every reply turn says so in the brief itself, not only by the
+            // absence of references, so a reply never re-runs discovery.
+            let reply = brief(MeetingPhase::Reply(index));
+            assert!(reply.contains("supplied on the opening turn"));
+            assert!(reply.contains("do not re-read them or repeat discovery"));
         }
         assert!(FIRST_MEETING_PROMPT.contains("at most 64 KiB"));
         assert!(FIRST_MEETING_PROMPT.contains("at most three transcript tails"));
         assert!(FIRST_MEETING_PROMPT.contains("never imply you read"));
+    }
+
+    /// Nothing is connected during setup any more, so the opening turn has to
+    /// carry the offer instead of a read that never happened.
+    #[test]
+    fn the_no_source_opening_offers_to_look_rather_than_waiting_to_be_asked() {
+        assert!(FIRST_MEETING_PROMPT.contains("If no references are attached"));
+        assert!(FIRST_MEETING_PROMPT.contains("Greet them by the name they entered"));
+        assert!(
+            FIRST_MEETING_PROMPT.contains("ask what they hope this collaboration makes possible")
+        );
+        assert!(FIRST_MEETING_PROMPT.contains("offer once"));
+        assert!(
+            FIRST_MEETING_PROMPT.contains("existing Brain review or repository proposal surface")
+        );
+        assert!(FIRST_MEETING_PROMPT
+            .contains("If they decline, or bring you a task instead, start that work immediately"));
+        assert!(FIRST_MEETING_PROMPT.contains("open from something real you found"));
+        assert!(FIRST_MEETING_PROMPT.contains("When the host says what you have read"));
+        // The offer must not become a second route into the filesystem.
+        assert!(FIRST_MEETING_PROMPT
+            .contains("Do not bypass a declined Brain connection using broader filesystem access"));
+        // The quick-answer block stays exactly as it was.
+        assert!(FIRST_MEETING_PROMPT.contains("polyphonic-choices"));
+        // Nothing is selected during setup now; the prompt must not claim it.
+        assert!(!FIRST_MEETING_PROMPT.contains("owner selected these sources during setup"));
     }
 }

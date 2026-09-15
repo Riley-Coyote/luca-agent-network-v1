@@ -1,5 +1,5 @@
 //! Recover only the fixed first-meeting action, never arbitrary owner messages.
-use super::{has_tag, FIRST_MEETING_MARKER};
+use super::{has_tag, record, FIRST_MEETING_MARKER};
 use crate::luca::{
     conversation_context::active_scope,
     managed_dispatch_store::{atomic_write_restricted, global_dispatch_store},
@@ -35,7 +35,7 @@ struct SavedKickoff {
     resident: String,
     event: Event,
 }
-fn record_path(root: &Path, owner: &str, relay: &str, conversation: &str) -> PathBuf {
+pub(super) fn record_path(root: &Path, owner: &str, relay: &str, conversation: &str) -> PathBuf {
     let scope = serde_json::json!([owner, relay, conversation]).to_string();
     root.join("first-meetings")
         .join(format!("{}.json", hex::encode(Sha256::digest(scope))))
@@ -198,9 +198,25 @@ pub(crate) async fn begin(app: &AppHandle, conversation: &str) -> Result<StartRe
         }
         _ => return Err("Saved meeting action is unavailable".into()),
     };
-    if active_scope(&state)? != (owner, scope) {
+    let current = active_scope(&state)?;
+    if current.0 != owner || current.1 != scope {
         return Err("Active workspace changed; please retry".into());
     }
+    // Write the meeting down before it is published, so every later turn reads
+    // what this one knew instead of re-deriving it from relay history under a
+    // two-second budget. A record that cannot be written is not fatal: the
+    // relay-derived path in `context.rs` remains as the fallback.
+    write_meeting_record(
+        app,
+        &state,
+        &owner,
+        &scope,
+        conversation,
+        &resident,
+        &saved.event.id.to_hex(),
+        &root,
+    )
+    .await;
     // The opener deliberately has no selected history context. Keep its staged
     // authority identical when replaying the saved action after a crash.
     let context = None;
@@ -228,6 +244,72 @@ pub(crate) async fn begin(app: &AppHandle, conversation: &str) -> Result<StartRe
         status: "started",
         trigger_event_id: Some(saved.event.id.to_hex()),
     })
+}
+
+/// Capture the meeting once: the owner's setup name, whatever recent session
+/// references are eligible right now, and a body-free note of their connected
+/// sources. Grants are deliberately not applied here — a grant depends on the
+/// live runtime binding, so it is checked per turn when the brief is composed.
+#[allow(clippy::too_many_arguments)]
+async fn write_meeting_record(
+    app: &AppHandle,
+    state: &AppState,
+    owner: &Hex64,
+    relay_scope: &str,
+    conversation: &str,
+    resident: &str,
+    trigger_event_id: &str,
+    root: &Path,
+) {
+    if record::load(root, owner, relay_scope, conversation).is_some() {
+        return;
+    }
+    let profile = tokio::time::timeout(
+        Duration::from_secs(2),
+        relay::query_relay(
+            state,
+            &[serde_json::json!({"kinds":[0], "authors":[owner.as_str()], "limit":1})],
+        ),
+    )
+    .await
+    .ok()
+    .and_then(Result::ok)
+    .unwrap_or_default();
+    let meeting = record::FirstMeetingStateV1 {
+        schema: record::FIRST_MEETING_STATE_SCHEMA.to_owned(),
+        owner: owner.clone(),
+        relay: relay_scope.to_owned(),
+        conversation: conversation.to_owned(),
+        resident: resident.to_owned(),
+        trigger_event_id: trigger_event_id.to_owned(),
+        started_at: chrono::Utc::now().to_rfc3339(),
+        setup_name: record::setup_name(&profile, owner.as_str()),
+        references: record::discover_candidates(
+            app,
+            state,
+            owner,
+            std::time::Instant::now() + Duration::from_secs(2),
+        ),
+        brain_sources: state
+            .try_read_connected_brain_catalog(owner)
+            .ok()
+            .flatten()
+            .map(|catalog| record::brain_summaries(&catalog))
+            .unwrap_or_default(),
+        reply_trigger_ids: Vec::new(),
+        completed_at: None,
+        handoff_trigger_ids: Vec::new(),
+    };
+    let Ok(_guard) = record::STATE_LOCK.lock() else {
+        eprintln!("buzz-desktop: first meeting record lock is unavailable");
+        return;
+    };
+    if record::load(root, owner, relay_scope, conversation).is_some() {
+        return;
+    }
+    if let Err(error) = record::save(root, owner, relay_scope, conversation, &meeting) {
+        eprintln!("buzz-desktop: first meeting record was not saved: {error}");
+    }
 }
 
 #[cfg(test)]
