@@ -21,9 +21,10 @@ if(publish){
 const rewrite=text=>text.replace(/(["'(=]|&quot;)assets\//g,`$1${base}assets/`);
 if(base!=='/'){
   html=rewrite(html);
-  // site.js carries the one runtime asset path (the harness avatar); site.css carries none today,
-  // but it is rewritten too so a future url() keeps working under /beta/.
-  for(const file of ['dist/assets/site.js','dist/assets/site.css']){await writeFile(file,rewrite(await readFile(file,'utf8')));}
+  // site.js carries the one runtime asset path (the harness avatar) and field.js the two engine
+  // files it loads; site.css carries none today, but it is rewritten too so a future url() keeps
+  // working under /beta/.
+  for(const file of ['dist/assets/site.js','dist/assets/field.js','dist/assets/site.css']){await writeFile(file,rewrite(await readFile(file,'utf8')));}
 }
 await writeFile('dist/index.html',html);
 const config={signupEndpoint:process.env.SIGNUP_ENDPOINT||'',privacyUrl:process.env.PRIVACY_URL||'',siteUrl};
