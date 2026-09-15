@@ -100,7 +100,7 @@ export function RuntimeTaskConfirmationCard({
   return (
     <section
       aria-label="Confirm runtime task"
-      className="mb-2 rounded-2xl border border-border/55 bg-plate/95 p-4 shadow-xl backdrop-blur-xl"
+      className="pointer-events-auto mb-2 rounded-2xl border border-border/55 bg-plate/95 p-4 shadow-xl backdrop-blur-xl"
       data-testid="runtime-task-confirmation"
     >
       <div className="flex items-start justify-between gap-3">
@@ -217,6 +217,12 @@ export function RuntimeTaskConfirmationCard({
       {capabilitySettingsQuery.isError ? (
         <p className="mt-3 text-xs text-ink-muted">
           Full Access could not be verified, so this task will ask when needed.
+        </p>
+      ) : null}
+      {runtimeQuery.isError ? (
+        <p className="mt-3 text-xs text-destructive">
+          Polyphonic could not check which runtimes are ready. Reconnect Codex
+          or Claude Code, then try this task again.
         </p>
       ) : null}
       {runtimeQuery.isSuccess && availableTargets.length === 0 ? (

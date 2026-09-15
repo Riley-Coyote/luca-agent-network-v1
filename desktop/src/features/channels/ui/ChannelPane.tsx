@@ -1332,18 +1332,23 @@ export const ChannelPane = React.memo(function ChannelPane({
                       presentationStateByPubkey={stripPresentationState}
                       workingPubkeys={stripWorkingPubkeys}
                     />
-                    <RuntimeTaskProposalConfirmation
-                      projectSourceIds={projectContext?.sourceIds ?? []}
-                      proposals={runtimeTaskProposalsQuery.data ?? []}
-                      residentNames={
-                        new Map(
-                          agentSessionAgents.map((agent) => [
-                            normalizePubkey(agent.pubkey),
-                            agent.name,
-                          ]),
-                        )
-                      }
-                    />
+                    {/* The overlay is pointer-events-none; every child that
+                        can be touched opts back in. Without this the task
+                        card renders but nothing on it can be clicked. */}
+                    <div className="luca-measure pointer-events-auto">
+                      <RuntimeTaskProposalConfirmation
+                        projectSourceIds={projectContext?.sourceIds ?? []}
+                        proposals={runtimeTaskProposalsQuery.data ?? []}
+                        residentNames={
+                          new Map(
+                            agentSessionAgents.map((agent) => [
+                              normalizePubkey(agent.pubkey),
+                              agent.name,
+                            ]),
+                          )
+                        }
+                      />
+                    </div>
                     <RuntimeTaskResultReceipts
                       onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
                       tasks={runtimeTasksQuery.data ?? []}
