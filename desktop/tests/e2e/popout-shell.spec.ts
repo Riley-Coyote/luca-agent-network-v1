@@ -216,7 +216,9 @@ test.describe("the pop-out shell", () => {
     await expect(page.getByTestId("popout-minimize")).toHaveAccessibleName(
       "Minimize",
     );
-    await expect(page.getByTestId("popout-close")).toHaveAccessibleName("Close");
+    await expect(page.getByTestId("popout-close")).toHaveAccessibleName(
+      "Close",
+    );
 
     const pin = page.getByTestId("popout-pin");
     await expect(pin).toHaveAttribute("aria-pressed", "false");
@@ -274,7 +276,9 @@ test.describe("the pop-out shell", () => {
     // The project-room picker is the main window header's control and left
     // with the header; the bar's own picker carries project rooms under their
     // project label instead.
-    await expect(page.getByTestId("project-room-picker-trigger")).toHaveCount(0);
+    await expect(page.getByTestId("project-room-picker-trigger")).toHaveCount(
+      0,
+    );
     const trigger = page.getByTestId("popout-conversation-picker-trigger");
     await expect(trigger).toHaveAccessibleName(/general/);
     await trigger.click();
