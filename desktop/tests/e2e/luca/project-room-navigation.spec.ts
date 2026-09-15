@@ -762,11 +762,15 @@ test("projects group rooms in the rail on the bundled on-this-device relay", asy
   ).toBeVisible();
   await expect(rooms.getByTestId("channel-field-notes")).toHaveCount(0);
 
+  // The grouping is device-local, so it survives a reload with no relay.
+  // (The mock bridge's channel list does not persist, so the room does not.)
   await page.reload();
   await expect(page.getByTestId("project-row-field-work")).toBeVisible();
   await expect(
-    page.getByTestId("project-room-navigator").getByText("field-notes", {
-      exact: true,
-    }),
-  ).toBeVisible();
+    page
+      .getByTestId("chat-channels")
+      .locator('button:not([data-testid="create-channel"])', {
+        hasText: "New project",
+      }),
+  ).toHaveCount(0);
 });
