@@ -843,8 +843,26 @@ struct OpenclawAgentRow {
     workspace: Option<PathBuf>,
     #[serde(default)]
     agent_dir: Option<PathBuf>,
+    /// A plain name in some records and `{ "primary": …, "fallbacks": […] }`
+    /// in others. Kept unparsed so one agent's shape cannot drop the whole
+    /// list; `model_summary` reduces it to the name we display.
     #[serde(default)]
-    model: Option<String>,
+    model: Option<serde_json::Value>,
+}
+
+/// The model name to show for an agent, from either spelling. Anything else
+/// is simply unnamed: a display string is never worth failing discovery over.
+fn model_summary(model: Option<&serde_json::Value>) -> Option<String> {
+    match model? {
+        serde_json::Value::String(name) => Some(name.clone()),
+        serde_json::Value::Object(fields) => fields
+            .get("primary")
+            .or_else(|| fields.get("id"))
+            .or_else(|| fields.get("name"))?
+            .as_str()
+            .map(str::to_owned),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1213,7 +1231,7 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
                 display_name,
                 canonical_location: agent.agent_dir,
                 workspace: default_workspace,
-                model_summary: agent.model,
+                model_summary: model_summary(agent.model.as_ref()),
                 runtime_version: Some(runtime_version.clone()),
                 readiness,
                 warnings: warnings.clone(),
@@ -1977,10 +1995,13 @@ mod tests {
         let config = directory.path().join("openclaw.json");
         std::fs::write(
             &config,
+            // Two model spellings side by side, exactly as a real config
+            // mixes them: one agent's shape must not drop the whole list.
             concat!(
                 "{\"agents\":{\"defaults\":{\"cliBackends\":{}},\"list\":[",
-                "{\"id\":\"agent-thistle\",\"name\":\"Thistle\",\"workspace\":\"/tmp\",\"model\":\"m\"},",
-                "{\"id\":\"agent-bramble\",\"models\":[\"a\"]}",
+                "{\"id\":\"agent-thistle\",\"name\":\"Thistle\",\"workspace\":\"/tmp\",",
+                "\"model\":{\"primary\":\"m-primary\",\"fallbacks\":[\"m-other\"]}},",
+                "{\"id\":\"agent-bramble\",\"model\":\"m-plain\",\"models\":[\"a\"],\"thinkingDefault\":\"on\"}",
                 "]},\"commands\":{\"ownerDisplay\":true}}",
             ),
         )
@@ -1992,6 +2013,10 @@ mod tests {
         assert_eq!(
             rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
             ["agent-thistle", "agent-bramble"]
+        );
+        assert_eq!(
+            model_summary(rows[0].model.as_ref()).as_deref(),
+            Some("m-primary")
         );
         assert_eq!(rows[0].name.as_deref(), Some("Thistle"));
         assert_eq!(message, Some(OPENCLAW_CONFIG_FALLBACK_MESSAGE));
@@ -2036,6 +2061,26 @@ mod tests {
             resolve_openclaw_agents(Ok(&healthy), Some(empty.as_path())).expect("cli rows");
         assert_eq!(rows.len(), 1);
         assert_eq!(message, None);
+        assert_eq!(model_summary(rows[0].model.as_ref()), None);
+    }
+
+    #[test]
+    fn a_model_named_either_way_is_displayed_and_never_fails_a_row() {
+        let cases = [
+            (serde_json::json!("claude-opus-5"), Some("claude-opus-5")),
+            (
+                serde_json::json!({"primary": "gpt-6", "fallbacks": ["gpt-5"]}),
+                Some("gpt-6"),
+            ),
+            (serde_json::json!({"id": "some-id"}), Some("some-id")),
+            (serde_json::json!({"fallbacks": []}), None),
+            (serde_json::json!(7), None),
+            (serde_json::json!(null), None),
+        ];
+        for (value, expected) in cases {
+            assert_eq!(model_summary(Some(&value)).as_deref(), expected, "{value}");
+        }
+        assert_eq!(model_summary(None), None);
     }
 
     /// Run explicitly against the developer's real OpenClaw installation:
