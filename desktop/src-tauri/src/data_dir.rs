@@ -86,6 +86,23 @@ impl<R: Runtime> BuzzPaths<'_, R> {
     }
 }
 
+/// The app data directory, resolved before any `App` exists.
+///
+/// [`BuzzPaths::app_data_dir`] is the answer every runtime caller must use.
+/// This exists for the single caller that runs too early to have an
+/// `AppHandle`: the first-run init script, which is registered on the plugin
+/// chain and so is assembled before `Builder::build`. It reproduces Tauri's own
+/// `app_data_dir()` — `dirs::data_dir()/<identifier>`, and this crate already
+/// depends on the same `dirs` that Tauri resolves it with — reading the
+/// identifier from the generated context rather than a literal, so the two
+/// cannot name different directories.
+pub(crate) fn app_data_dir_before_app(identifier: &str) -> Option<PathBuf> {
+    if let Some(dir) = data_dir_override() {
+        return Some(dir.to_path_buf());
+    }
+    dirs::data_dir().map(|dir| dir.join(identifier))
+}
+
 pub(crate) trait BuzzPathExt<R: Runtime> {
     fn buzz_path(&self) -> BuzzPaths<'_, R>;
 }

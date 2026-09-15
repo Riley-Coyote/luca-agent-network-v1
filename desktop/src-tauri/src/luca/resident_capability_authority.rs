@@ -239,11 +239,25 @@ fn store_has_completed_onboarding(store: &CapabilityAuthorityStoreV1) -> bool {
 /// True when any owner on this install finished onboarding. A missing store
 /// means nobody has: this is the app's first run.
 pub(crate) fn any_owner_completed_onboarding(app: &AppHandle) -> Result<bool, String> {
-    let path = store_path(app)?;
+    completed_onboarding_at(&store_path(app)?)
+}
+
+/// The same question, asked of an agents directory resolved without an
+/// `AppHandle`.
+///
+/// The first-run init script has to answer it while the Tauri builder is still
+/// being assembled — before any `App` exists, and so before `store_path` can be
+/// called at all. Unlike [`managed_agents_base_dir`] this only ever reads: a
+/// question asked this early must not create the directory it is asking about.
+pub(crate) fn any_owner_completed_onboarding_in(agents_dir: &Path) -> Result<bool, String> {
+    completed_onboarding_at(&agents_dir.join(STORE_FILE))
+}
+
+fn completed_onboarding_at(path: &Path) -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);
     }
-    read_store(&path, |store| Ok(store_has_completed_onboarding(store)))
+    read_store(path, |store| Ok(store_has_completed_onboarding(store)))
 }
 
 pub(crate) fn set_onboarding_status(
@@ -732,5 +746,47 @@ mod tests {
             updated_at: Utc::now().to_rfc3339(),
         });
         assert!(store_has_completed_onboarding(&store));
+    }
+
+    /// The pre-app probe backs the init script that decides whether a new
+    /// owner's theme is reset, so each of its three answers matters on its own:
+    /// a directory that was never created and one holding only an unfinished
+    /// owner are both first runs, and a completed owner is not.
+    #[test]
+    fn the_pre_app_probe_reads_the_same_store_without_creating_it() {
+        let temporary = tempfile::tempdir().unwrap();
+        let agents_dir = temporary.path().join("agents");
+
+        assert_eq!(any_owner_completed_onboarding_in(&agents_dir), Ok(false));
+        assert!(
+            !agents_dir.exists(),
+            "asking the question must not create the directory"
+        );
+
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        let path = agents_dir.join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+
+        mutate_store(&path, |store| {
+            owner_mut(store, &owner_pubkey).onboarding = Some(OnboardingCapabilityStatusV1 {
+                chapter: "brain".into(),
+                completed: false,
+                updated_at: Utc::now().to_rfc3339(),
+            });
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(any_owner_completed_onboarding_in(&agents_dir), Ok(false));
+
+        mutate_store(&path, |store| {
+            owner_mut(store, &owner_pubkey).onboarding = Some(OnboardingCapabilityStatusV1 {
+                chapter: "complete".into(),
+                completed: true,
+                updated_at: Utc::now().to_rfc3339(),
+            });
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(any_owner_completed_onboarding_in(&agents_dir), Ok(true));
     }
 }

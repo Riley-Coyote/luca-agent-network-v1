@@ -932,6 +932,29 @@ export async function installMockBridge(
   });
 }
 
+/**
+ * Stand in for the native first-run init script.
+ *
+ * Tauri sets `window.__BUZZ_FIRST_RUN__` before the document is parsed, which
+ * is what lets `index.html`'s pre-paint seed tell a new owner from a returning
+ * one without waiting for a command. `addInitScript` is the only seam with the
+ * same timing, so a spec exercising the real pre-paint path seeds it here.
+ *
+ * This is the paint half only. What the boot-time reset actually *writes* is
+ * decided by `is_first_run`, so a spec usually sets `mock.firstRun` too — and
+ * setting them to different values is how the stale-flag case gets covered.
+ *
+ * Register this BEFORE `page.goto` — and, like every other seeding helper, in
+ * the order the app reads things: the global has to exist before the inline
+ * seed in `<head>` runs.
+ */
+export async function seedFirstRunFlag(page: Page, firstRun: boolean) {
+  await page.addInitScript((value) => {
+    (window as Window & { __BUZZ_FIRST_RUN__?: boolean }).__BUZZ_FIRST_RUN__ =
+      value;
+  }, firstRun);
+}
+
 export async function installRelayBridge(
   page: Page,
   user: keyof typeof TEST_IDENTITIES = "tyler",

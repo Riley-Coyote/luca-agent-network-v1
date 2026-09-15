@@ -31,12 +31,17 @@ fn agent_secret_store() -> Option<&'static SecretStore> {
     }
 }
 
+/// The agents directory's name under the app data directory. Named so the
+/// first-run probe, which resolves the same directory before any `App` exists,
+/// cannot drift from this one.
+pub(crate) const MANAGED_AGENTS_DIR: &str = "agents";
+
 pub fn managed_agents_base_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .buzz_path()
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data dir: {error}"))?
-        .join("agents");
+        .join(MANAGED_AGENTS_DIR);
     fs::create_dir_all(&dir).map_err(|error| format!("failed to create agents dir: {error}"))?;
     Ok(dir)
 }

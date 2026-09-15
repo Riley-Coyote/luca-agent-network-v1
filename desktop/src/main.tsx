@@ -15,6 +15,7 @@ import { migrateLegacyCommunityStorageBeforeRender } from "@/features/communitie
 import { CommunitiesProvider } from "@/features/communities/useCommunities";
 import { CommunityOnboardingProvider } from "@/features/onboarding/communityOnboarding";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
+import { resetThemeForFirstRun } from "@/shared/theme/firstRunTheme";
 import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
@@ -243,6 +244,10 @@ async function bootstrap() {
   // thrown line has somewhere to go.
   installAppLogBridge();
   await migrateLegacyCommunityStorageBeforeRender();
+  // A new owner opens in the appearance the product ships with, even on a Mac
+  // whose localStorage still holds the last owner's theme. Must land before
+  // `ThemeProvider`, which reads these keys in its state initializers.
+  await resetThemeForFirstRun();
   if (isPopoutWindow()) {
     renderPopoutApp();
     return;

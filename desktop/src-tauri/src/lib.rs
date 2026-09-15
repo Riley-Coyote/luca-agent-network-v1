@@ -11,6 +11,7 @@ mod data_dir;
 mod deep_link;
 mod event_sync;
 mod events;
+mod first_run;
 mod huddle;
 mod local_relay;
 mod luca;
@@ -188,31 +189,11 @@ fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
 const FIRST_RUN_WINDOW_WIDTH: f64 = 1040.0;
 const FIRST_RUN_WINDOW_HEIGHT: f64 = 584.0;
 
-/// A stranger's first launch: no owner has completed onboarding.
-///
-/// An install whose onboarding status cannot be read is deliberately NOT a
-/// first run. Everything keyed on this — the card-sized window, the floating
-/// card's hidden stoplights, the skipped opaque backing — is a departure from
-/// how the app opens for its owner, and a departure is only worth making on a
-/// confirmed answer.
-fn is_confirmed_first_run(window: &tauri::Window) -> bool {
-    match luca::resident_capability_authority::any_owner_completed_onboarding(window.app_handle()) {
-        Ok(completed) => !completed,
-        Err(_) => {
-            luca_log!(
-                info,
-                "buzz-desktop: onboarding status is unavailable; opening as a returning owner"
-            );
-            false
-        }
-    }
-}
-
 /// Size the main window for a first run. An owner who has completed onboarding
-/// keeps their restored geometry — see `is_confirmed_first_run`, which the
-/// reveal plugin asks once and hands to everything that depends on the
-/// answer. This never calls `restore_state`, which would deadlock against the
-/// window-state plugin.
+/// keeps their restored geometry — see `first_run::is_confirmed_first_run`,
+/// which the reveal plugin asks once and hands to everything that depends on
+/// the answer. This never calls `restore_state`, which would deadlock against
+/// the window-state plugin.
 fn size_window_for_first_run(window: &tauri::Window, first_run: bool) {
     if !first_run {
         return;
@@ -333,10 +314,27 @@ pub fn run() {
         }
     }
 
+    // Bound here rather than inline at `build` because the first-run answer has
+    // to be known while the plugin chain is still being assembled: the init
+    // script that carries it into the webview is a plugin, and Tauri creates
+    // the config-declared main window before the `setup` hook runs. The
+    // identifier comes from this same context, so the directory probed below is
+    // the one the running app will use.
+    let context = tauri::generate_context!();
+    let first_run_at_launch =
+        first_run::is_confirmed_first_run_before_app(&context.config().identifier);
+
     let builder = tauri::Builder::default()
         .plugin(
             tauri::plugin::Builder::<_, ()>::new("shell-navigation-policy")
                 .on_navigation(|webview, url| allows_shell_navigation(webview, url))
+                .build(),
+        )
+        // Before the document is parsed, so `index.html`'s pre-paint seed can
+        // read it and a new owner never sees the previous owner's theme.
+        .plugin(
+            tauri::plugin::Builder::<_, ()>::new("first-run-flag")
+                .js_init_script(first_run::init_script(first_run_at_launch))
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
@@ -372,7 +370,7 @@ pub fn run() {
                     // for several identical outer bounds and for React to
                     // commit the startup surface before revealing it.
                     let window = webview.window();
-                    let first_run = is_confirmed_first_run(&window);
+                    let first_run = first_run::is_confirmed_first_run(window.app_handle());
 
                     #[cfg(target_os = "macos")]
                     {
@@ -1393,8 +1391,9 @@ pub fn run() {
             is_auto_update_supported,
             set_window_vibrancy,
             open_channel_popout,
+            first_run::is_first_run,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building tauri application");
 
     let shutdown_done = Arc::new(AtomicBool::new(false));

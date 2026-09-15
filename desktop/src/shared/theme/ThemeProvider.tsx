@@ -35,6 +35,9 @@ import {
   INVERSE_THEME_NAME,
   VOID_THEME_NAME,
   SYNTAX_THEMES,
+  THEME_CACHE_KEY,
+  THEME_STORAGE_KEY,
+  FOLLOW_SYSTEM_KEY,
   type SyntaxThemeName,
   extractThemeInfo,
   getThemePair,
@@ -44,8 +47,7 @@ import {
   resolveSystemTheme,
 } from "./theme-loader";
 
-export const THEME_STORAGE_KEY = "buzz-theme";
-const CACHE_KEY = "buzz-theme-cache";
+export { THEME_STORAGE_KEY };
 /**
  * Bump when the shape or vocabulary of the cached var map changes. v1 caches
  * (pre role-registry) contain semantic keys that must never be replayed onto
@@ -54,7 +56,6 @@ const CACHE_KEY = "buzz-theme-cache";
 const THEME_CACHE_VERSION = 2;
 export const ACCENT_STORAGE_KEY = "buzz-accent-color";
 export const NEUTRAL_ACCENT = "neutral";
-const FOLLOW_SYSTEM_KEY = "buzz-follow-system";
 const VIDEO_REVIEW_NEUTRAL_ACCENT = "0 0% 98%";
 const VIDEO_REVIEW_CHIP_SURFACE = "#161616";
 const VIDEO_REVIEW_TEXT_CONTRAST = 4.5;
@@ -698,14 +699,14 @@ async function applyBuzzVibrancy(themeName: string) {
 /** Apply cached CSS vars synchronously to prevent FOUC. */
 function applyCachedVars(): string | null {
   try {
-    const cached = window.localStorage.getItem(CACHE_KEY);
+    const cached = window.localStorage.getItem(THEME_CACHE_KEY);
     if (!cached) return null;
     const { version, themeName, vars, isDark } = JSON.parse(cached);
     if (version !== THEME_CACHE_VERSION) {
       // A cache written by an older vocabulary (e.g. one that inlined
       // semantic tokens) must not touch the root; the async theme load
       // repaints moments later from the current builders.
-      window.localStorage.removeItem(CACHE_KEY);
+      window.localStorage.removeItem(THEME_CACHE_KEY);
       return null;
     }
     const root = document.documentElement;
@@ -798,7 +799,7 @@ async function applyTheme(
   // Cache for FOUC prevention
   try {
     window.localStorage.setItem(
-      CACHE_KEY,
+      THEME_CACHE_KEY,
       JSON.stringify({
         version: THEME_CACHE_VERSION,
         themeName: name,

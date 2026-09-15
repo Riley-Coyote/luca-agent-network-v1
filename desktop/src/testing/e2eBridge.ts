@@ -193,6 +193,12 @@ type E2eConfig = {
   /** Arm the render-error probe so the crash boundary can be exercised. */
   crashProbe?: boolean;
   mock?: {
+    /**
+     * What `is_first_run` answers. Omitted, the bridge falls back to the
+     * init-script global, then to "returning owner". Set it to drive the
+     * command fallback without seeding the pre-paint global.
+     */
+    firstRun?: boolean;
     /** Advertised HEAD for the first mock project without adding that branch. */
     projectHeadBranch?: string;
     /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
@@ -13281,6 +13287,18 @@ export function maybeInstallE2eTauriMocks() {
       }
       case "list_managed_agents":
         return handleListManagedAgents(activeConfig);
+      // Additive: the boot path asks this before the first render whenever the
+      // init-script global is absent, and an unhandled command throws here.
+      // The config field answers for the command specifically, so a spec can
+      // drive the command fallback and the pre-paint global independently.
+      // With neither set this is a returning owner — what every existing
+      // spec's seeded theme expects.
+      case "is_first_run":
+        return (
+          activeConfig?.mock?.firstRun ??
+          (window as Window & { __BUZZ_FIRST_RUN__?: unknown })
+            .__BUZZ_FIRST_RUN__ === true
+        );
       case "get_resident_capability_settings":
         return mockResidentCapabilitySettings;
       case "set_polyphonic_onboarding_status":

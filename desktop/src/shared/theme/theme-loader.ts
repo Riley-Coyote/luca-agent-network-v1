@@ -19,6 +19,19 @@ import type { ThemeRegistrationRaw } from "shiki";
 export const DEFAULT_THEME_NAME = "vitesse-black";
 
 /**
+ * Where the appearance choice lives.
+ *
+ * These sit beside {@link DEFAULT_THEME_NAME} rather than inside
+ * `ThemeProvider` because two callers need them before any React renders: the
+ * first-run reset in `firstRunTheme.ts`, and — as literals it cannot import —
+ * the pre-paint seed in `index.html`. Rename one here and that inline script
+ * has to follow.
+ */
+export const THEME_STORAGE_KEY = "buzz-theme";
+export const THEME_CACHE_KEY = "buzz-theme-cache";
+export const FOLLOW_SYSTEM_KEY = "buzz-follow-system";
+
+/**
  * Legacy internal key for Luca's first-party shell theme. It intentionally
  * resolves to GitHub Dark for code highlighting while the app shell receives
  * its stable Luca tokens from ThemeProvider.

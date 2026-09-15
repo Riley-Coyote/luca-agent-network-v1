@@ -17,6 +17,16 @@
       so the boot color matches the themed loading gate — no black flash on light
       themes. On the first-ever launch it seeds the dark class to match
       Vitesse Black, the default appearance that ThemeProvider applies.
+
+      `window.__BUZZ_FIRST_RUN__` short-circuits all of that. Native sets it
+      from an init script before this document is parsed, and it is the only
+      thing here that can tell a brand-new owner apart from a returning one:
+      localStorage is keyed by bundle id, not by data directory, so a fresh
+      profile on a Mac that already had one still finds the previous owner's
+      theme and cache sitting in the store. `firstRunTheme.ts` resets those
+      keys before ThemeProvider reads them; this paints the matching black so
+      the reset costs no frame. Keep the key names in step with
+      `shared/theme/theme-loader.ts` — this script cannot import them.
     -->
     <style>
       html {
@@ -27,6 +37,12 @@
       (() => {
         var cached, bg, parsed;
         try {
+          if (window.__BUZZ_FIRST_RUN__ === true) {
+            // A new owner opens in Vitesse Black (#000, dark) whatever the
+            // store and the OS say. The static rule above already paints it.
+            document.documentElement.classList.add("dark");
+            return;
+          }
           cached = window.localStorage.getItem("buzz-theme-cache");
           if (!cached) {
             // Fresh profiles start in Vitesse Black, regardless of OS scheme.
