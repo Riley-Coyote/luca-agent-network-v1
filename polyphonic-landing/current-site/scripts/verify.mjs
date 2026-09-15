@@ -211,7 +211,7 @@ const open = async (w = 1440, h = 900, opts = {}) => {
   await page.close();
 
   out.shell.breakpoints = {};
-  for (const w of [740, 780, 820, 860]) {
+  for (const w of [759, 760, 839, 840]) {
     const p = await browser.newPage({viewport: {width: w, height: 900}});
     await p.goto(ORIGIN + '/', {waitUntil: 'networkidle'});
     await p.evaluate(() => document.fonts.ready);
@@ -225,6 +225,11 @@ const open = async (w = 1440, h = 900, opts = {}) => {
     });
     await p.close();
   }
+  const bp = out.shell.breakpoints;
+  assert.equal(bp[759].rail_shown, false, 'the rail appears below 760');
+  assert.equal(bp[760].rail_shown, true, 'the rail is missing at 760');
+  assert.equal(bp[839].chats_shown, false, 'the chats column appears below 840');
+  assert.equal(bp[840].chats_shown, true, 'the chats column is missing at 840');
 }
 
 /* ---- 4. brain sources and the permission strip ---- */
@@ -462,6 +467,27 @@ const open = async (w = 1440, h = 900, opts = {}) => {
     out.signup.unconfigured = await noteAfter(null, {});
     out.signup.note = 'build has no SIGNUP_ENDPOINT; only the invalid and unconfigured paths could be exercised';
   } else {
+    /* Stub the built config away so the no-endpoint branch is exercised on a configured build too. */
+    {
+      const p = await browser.newPage({viewport: {width: 1440, height: 900}});
+      await p.route('**/assets/config.js*', r => r.fulfill({contentType: 'text/javascript', body: 'window.POLYPHONIC_CONFIG=Object.freeze({signupEndpoint:"",privacyUrl:"",siteUrl:""});'}));
+      let sent = 0; p.on('request', r => { if (r.method() === 'POST') sent++; });
+      await p.goto(ORIGIN + '/', {waitUntil: 'networkidle'});
+      const noteBefore = await p.evaluate(() => document.getElementById('signup-note').textContent.trim());
+      await p.fill('#email', 'someone@example.com');
+      await p.click('#signup-submit');
+      await p.waitForTimeout(900);
+      out.signup.unconfigured = {
+        note_before_submit: noteBefore,
+        note: await p.evaluate(() => document.getElementById('signup-note').textContent.trim()),
+        posts_sent: sent,
+        privacy_link: await p.evaluate(() => !!document.querySelector('.pp-privacy'))
+      };
+      await p.close();
+      assert.equal(out.signup.unconfigured.posts_sent, 0, 'an unconfigured build sent the address anyway');
+      assert.match(out.signup.unconfigured.note, /aren.t open yet/i, 'unconfigured note wrong');
+      assert.equal(out.signup.unconfigured.privacy_link, false, 'the privacy link shows with no privacyUrl');
+    }
     out.signup.success = await noteAfter(json(200, {status: 'subscribed'}));
     out.signup.already_subscribed = await noteAfter(json(200, {status: 'already_subscribed'}));
     out.signup.confirmation_required = await noteAfter(json(200, {status: 'confirmation_required'}));
@@ -480,12 +506,24 @@ const open = async (w = 1440, h = 900, opts = {}) => {
   const {page} = await open();
   out.signup.honeypot = await page.evaluate(() => {
     const f = document.getElementById('website'); if (!f) return null;
-    const r = f.getBoundingClientRect(); const c = getComputedStyle(f);
+    /* The field is hidden by the clipping wrapper around it, not by its own box, so walk up. */
+    let hidden = false;
+    for (let n = f; n && n !== document.body; n = n.parentElement) {
+      const c = getComputedStyle(n), r = n.getBoundingClientRect();
+      if (c.display === 'none' || c.visibility === 'hidden' || Number(c.opacity) === 0) { hidden = true; break; }
+      if (c.clipPath !== 'none' && r.width <= 1 && r.height <= 1) { hidden = true; break; }
+      if (c.overflow === 'hidden' && r.width <= 1 && r.height <= 1) { hidden = true; break; }
+    }
     return {present: true, tabindex: f.getAttribute('tabindex'), autocomplete: f.getAttribute('autocomplete'),
-            visually_hidden: r.width <= 1 || r.height <= 1 || c.clipPath !== 'none' || c.position === 'absolute'};
+            visually_hidden: hidden, name: f.getAttribute('name')};
   });
   assert.ok(out.signup.honeypot && out.signup.honeypot.present, 'honeypot missing');
   assert.equal(out.signup.honeypot.tabindex, '-1', 'honeypot is in the tab order');
+  assert.equal(out.signup.honeypot.visually_hidden, true, 'the honeypot is visible');
+  await page.click('#email');
+  await page.keyboard.press('Tab');
+  out.signup.honeypot.tab_from_email_reaches = await page.evaluate(() => document.activeElement.id || document.activeElement.tagName);
+  assert.notEqual(out.signup.honeypot.tab_from_email_reaches, 'website', 'Tab lands on the honeypot');
   await page.close();
 }
 

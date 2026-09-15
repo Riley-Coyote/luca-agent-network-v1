@@ -106,8 +106,14 @@ were deleted with it. Read the "v3" section of `README.md` first; it is the curr
 - **The replay must not move the frame.** Paragraph heights are reserved by a hidden ghost span,
   and the typing dots and typed text are absolute overlays on that box. If you make the dots a row
   of their own again, the frame shrinks by 30px when they disappear.
-- **The three documented deviations** from the prototype (phone nav below 640px, faint text at
-  `#848484`, `:focus-visible` only) are deliberate and are covered by checks.
+- **The three documented deviations** from the prototype (phone nav below 640px; faint text raised
+  to `#848484` in the page and `--mn-ink-faint` to 54% inside the shell; `:focus-visible` only) are
+  deliberate and are covered by checks. Do not put those colours back: `verify.mjs` measures the
+  contrast of every text node and axe runs on the whole page.
+- **The ambient field is not ported.** The prototype's fixed full-page dot canvas costs a measured
+  p95 of 2.5ms and a max of 9.4ms per rAF callback at 1440@2x, against a 0.5ms/frame budget, so it
+  was dropped and `dot-display.js`/`mnemos-scenes.js` were deleted with it. The port's own rAF work
+  (the rooms rail) measures p95 0.1ms, max 0.2ms.
 
 **Deploy.** Unchanged, except that `BASE_PATH=/beta/` now rewrites `site.js` and `site.css`
 (it used to rewrite `demo.js`, which no longer exists — that was a build break, fixed):

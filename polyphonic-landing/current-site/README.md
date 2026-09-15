@@ -103,9 +103,16 @@ control), the rooms rail, the commons, the agents' own voices, and the beta sign
 - Fonts are local and preloaded: `assets/fonts/instrument-sans.woff2` (variable 400–700) and
   `assets/fonts/fragment-mono.woff2`. Inter, Doto and JetBrains Mono remain in the repo with their
   licences but are no longer loaded by the page.
-- The old page's files are gone: `assets/demo.js`, `assets/demo.css`, `assets/effects.js`,
-  `assets/luca-sigil-engine.js`, `assets/dot-display.js`, `assets/mnemos-scenes.js`,
-  `assets/brand/**` and `scripts/verify-demo.mjs`.
+- The old page's files are gone: `assets/base.css`, `assets/demo.js`, `assets/demo.css`,
+  `assets/effects.js`, `assets/luca-sigil-engine.js`, `assets/dot-display.js`,
+  `assets/mnemos-scenes.js`, `assets/brand/**` and `scripts/verify-demo.mjs`.
+
+  **This breaks the `polyphonic-landing/home/` mock**, which is a separate page: its `serve.mjs`
+  mounts `/assets/` from this folder, and its `index.html` loads `/assets/base.css`,
+  `/assets/luca-sigil-engine.js` and `/assets/brand/polyphonic-solid.svg` — all three now 404. Its
+  `/assets/site.css` still resolves but is this page's stylesheet, not the token set it was built
+  on. `home/` needs its own copies of those files, or its own decision; WP-18's scope was
+  `current-site/**` only, so it was left alone.
 
 **Motion.** The replay runs **once**, when the shell first scrolls into view, and leaves the
 finished state behind. Every paragraph's height is reserved before it types — the typing dots and
@@ -115,13 +122,22 @@ a constant ~19 px/s; it ignores scroll, does not pause on hover, and does not sp
 backgrounded tab comes back. Under `prefers-reduced-motion: reduce` all of it collapses: reveals
 are shown at once, the rail is static, and the replay's finished state is there from the start.
 
+**The prototype's ambient dot field is not ported.** Measured on the prototype at 1440 @2x, its
+fixed full-page canvas costs a p95 of 2.5ms and a max of 9.4ms per rAF callback, against the
+0.5ms/frame budget this page was held to (mean 0.29ms). The port's own rAF work — the rooms rail
+alone — measures p95 0.1ms, max 0.2ms. `assets/dot-display.js` and `assets/mnemos-scenes.js` were
+deleted with it. The page runs no canvas at all.
+
 **Three deviations from the prototype, all legibility.**
 
 1. Below 640px the three nav text links hide and the "Get the beta" pill stays, pointing at
    `#beta`. The prototype pushed them off-screen below ~550px.
-2. The prototype's `#565656` faint text is raised. `#7E7E7E` was the intended value, but it
-   measures 4.46:1 on the `#161616` card ground the feed rows actually sit on, so the token is
-   `#848484` — measured 5.62 on `#000`, 5.16 on `#0E0E0E`, 4.84 on `#161616`.
+2. Faint text is raised for contrast, in two places. The prototype's `#565656` body-side faint
+   text (`--t2`/`--t3`) was to become `#7E7E7E`, but that measures 4.46:1 on the `#161616` card
+   ground the feed rows actually sit on, so the token is `#848484` — measured 5.62 on `#000`,
+   5.16 on `#0E0E0E`, 4.84 on `#161616`. Inside the shell, `--mn-ink-faint` goes from the app's
+   own 50.6% lightness to 54%, because at 50.6% the selected chat row's two labels measure 4.43:1
+   on its `#1f1e1e` ground (axe agrees); at 54% they measure 4.86:1. Nothing else changes colour.
 3. Focus is `:focus-visible` only; the prototype's ring on mouse click is gone.
 
 **Build and publish.** Unchanged in shape:
