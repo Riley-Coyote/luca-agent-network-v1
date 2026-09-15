@@ -603,24 +603,59 @@ test("one agent is ticked, and arrives behind the first conversation", async ({
   await expect(
     page.getByRole("heading", { name: "Bring in your agents" }),
   ).toBeVisible({ timeout: 10_000 });
-  // What a source has to say about itself is said once, above its rows.
+  // What a source has to say about itself is said once, above its rows — and
+  // the command inside it is set as a command, not shown with its backticks.
   const openClawNotice = page.getByTestId("onboarding-agent-source-openclaw");
   await expect(openClawNotice).toHaveCount(1);
-  await expect(openClawNotice).toContainText("run `openclaw doctor --fix`");
+  await expect(openClawNotice).toContainText("run openclaw doctor --fix");
+  await expect(openClawNotice).not.toContainText("`");
+  const command = openClawNotice.locator("code");
+  await expect(command).toHaveText("openclaw doctor --fix");
+  expect(
+    await command.evaluate((el) => getComputedStyle(el).fontFamily),
+  ).toMatch(/Fragment Mono/);
   // And an agent that source will not vouch for is still a row, still
   // tickable, saying in one line what is true of it.
   await expect(
     page.getByTestId("onboarding-agent-row-openclaw:agent-01"),
-  ).toContainText("Unavailable — run `openclaw doctor --fix`.");
+  ).toContainText("Unavailable — run openclaw doctor --fix.");
 
-  await page
+  // The rows wear exactly what the runtime rows one page earlier wear: 52px
+  // on the pane's own ground, a 12px radius, a hairline and no fill.
+  const firstRow = page
     .getByTestId("onboarding-agent-row-hermes:profile-01")
     .getByRole("button")
-    .first()
-    .click();
+    .first();
+  const box = await firstRow.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      height: el.getBoundingClientRect().height,
+      radius: style.borderTopLeftRadius,
+      background: style.backgroundColor,
+      borderWidth: style.borderTopWidth,
+    };
+  });
+  expect(box).toMatchObject({
+    height: 52,
+    radius: "12px",
+    background: "rgba(0, 0, 0, 0)",
+    borderWidth: "1px",
+  });
+  // The list itself is not a plate either.
+  expect(
+    await page
+      .getByTestId("onboarding-agent-import-list")
+      .evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).toBe("rgba(0, 0, 0, 0)");
+
+  await firstRow.click();
   await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
     "Bring in 1 agent",
   );
+  // Chosen is the row's own hairline coming up, not a fill.
+  expect(
+    await firstRow.evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).toBe("rgba(0, 0, 0, 0)");
   await expect(page.getByTestId("polyphonic-agents-skip")).toBeVisible();
   await page.getByTestId("polyphonic-setup-continue").click();
   await pastWaking(page);

@@ -40,6 +40,52 @@ export type PolyphonicAgentImportPaneProps = {
   sourceOutcomes?: readonly NativeRuntimeDiscoveryOutcome[];
 };
 
+/**
+ * A runtime writes its own sentence, and the one piece of markdown it uses is
+ * a command in backticks. The card sets that as a command — the app's mono, a
+ * shade down in size so it sits inside the line — rather than showing the
+ * owner the backticks it was written with.
+ */
+function codeSegments(message: string) {
+  const segments: Array<{ isCode: boolean; key: string; text: string }> = [];
+  let offset = 0;
+  for (const part of message.split(/(`[^`]+`)/g)) {
+    const isCode =
+      part.length > 2 && part.startsWith("`") && part.endsWith("`");
+    // The key is where the segment starts, so it is stable and unique.
+    if (part.length > 0) {
+      segments.push({
+        isCode,
+        key: String(offset),
+        text: isCode ? part.slice(1, -1) : part,
+      });
+    }
+    offset += part.length;
+  }
+  return segments;
+}
+
+function SourceMessage({ message }: { message: string }) {
+  return (
+    <>
+      {codeSegments(message).map((segment) =>
+        segment.isCode ? (
+          <code
+            // A command that wraps in the middle is a command nobody can
+            // copy: it moves to the next line whole or not at all.
+            className="whitespace-nowrap font-[var(--font-mono)] text-[0.925em]"
+            key={segment.key}
+          >
+            {segment.text}
+          </code>
+        ) : (
+          <span key={segment.key}>{segment.text}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 function connectedSummary(
   connectedAgents: readonly PolyphonicConnectedAgentSummary[],
 ): string {
@@ -112,7 +158,8 @@ export function PolyphonicAgentImportPane({
           data-testid={`onboarding-agent-source-${outcome.nativeType}`}
           key={outcome.nativeType}
         >
-          {nativeSourceLabel(outcome.nativeType)} · {outcome.message}
+          {nativeSourceLabel(outcome.nativeType)} ·{" "}
+          <SourceMessage message={outcome.message} />
         </p>
       ))}
       <div className="flex min-h-0 flex-1 flex-col">

@@ -106,7 +106,10 @@ export const PolyphonicAgentsStep = React.forwardRef<
     : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // `max-h-full` rather than `h-full`, like the runtime page: short of the
+    // column's height this page is centred with every other one, and only a
+    // list long enough to need it takes the column and scrolls inside itself.
+    <div className="flex max-h-full min-h-0 flex-col">
       <PolyphonicStepHeading
         description="Agents Luca found on this Mac. Pick the ones that should live here too. Nothing is read now."
         stage="agents"

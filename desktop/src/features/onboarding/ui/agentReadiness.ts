@@ -35,6 +35,16 @@ function joinable(message: string): string {
 }
 
 /**
+ * Runtimes write their sentences in markdown, and a row's status line is not
+ * markdown: a command in backticks would arrive on the card as backticks.
+ * The line takes the words; the notice above the rows, which has room for it,
+ * sets the command in the app's mono instead.
+ */
+export function withoutCodeTicks(message: string): string {
+  return message.replace(/`([^`]+)`/g, "$1");
+}
+
+/**
  * One plain line under a discovered agent's name: what the owner would say
  * about it out loud. "Ready" when there is nothing to say, the runtime's own
  * sentence when something needs doing, and never more than one line — the
@@ -48,13 +58,13 @@ export function describeResidentCandidate(
     case "ready":
       return candidate.modelSummary?.trim() || "Ready";
     case "discovered":
-      return readiness.message.trim() || "Ready";
+      return withoutCodeTicks(readiness.message.trim()) || "Ready";
     case "degraded":
       // The source's own explanation is printed once above the rows; the row
       // says what is true of this agent.
-      return readiness.message.trim() || "Needs attention";
+      return withoutCodeTicks(readiness.message.trim()) || "Needs attention";
     case "unavailable": {
-      const message = readiness.message.trim();
+      const message = withoutCodeTicks(readiness.message.trim());
       if (!message) return "Unavailable";
       return /^unavailable/i.test(message)
         ? message

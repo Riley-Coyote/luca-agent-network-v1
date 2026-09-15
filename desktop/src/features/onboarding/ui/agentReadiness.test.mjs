@@ -6,6 +6,7 @@ import {
   describeResidentCandidate,
   nativeSourceLabel,
   resolveAgentReadiness,
+  withoutCodeTicks,
 } from "./agentReadiness.ts";
 
 // Minimal stub helpers.
@@ -292,6 +293,26 @@ test("a ready agent says Ready, or what it runs on when it knows", () => {
   );
 });
 
+test("a status line is words, not markdown: backticks never reach the row", () => {
+  assert.equal(
+    withoutCodeTicks("run `openclaw doctor --fix` then `openclaw start`"),
+    "run openclaw doctor --fix then openclaw start",
+  );
+  assert.equal(withoutCodeTicks("nothing to unpick"), "nothing to unpick");
+  assert.equal(
+    describeResidentCandidate(
+      makeCandidate({
+        readiness: {
+          status: "degraded",
+          code: "CONFIG_REPAIR",
+          message: "Read from `openclaw.json` instead.",
+        },
+      }),
+    ),
+    "Read from openclaw.json instead.",
+  );
+});
+
 test("an unavailable agent says so, and then says what to do about it", () => {
   assert.equal(
     describeResidentCandidate(
@@ -303,7 +324,7 @@ test("an unavailable agent says so, and then says what to do about it", () => {
         },
       }),
     ),
-    "Unavailable — run `openclaw doctor --fix`.",
+    "Unavailable — run openclaw doctor --fix.",
   );
   // A message that already opens with the word is not made to say it twice.
   assert.equal(

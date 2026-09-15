@@ -416,11 +416,13 @@ export function PolyphonicPresentationAgentSelector({
 }
 
 /**
- * A short list of agents in the same clothes as the runtime list one screen
- * earlier: a recessed box, rows with an icon, a name, a detail line and a
- * control at the right — here a checkbox, since more than one may come. Past
- * four rows the box scrolls in place rather than pushing the rest of the step
- * away.
+ * The agents on this Mac, in exactly the clothes the runtime list wears one
+ * page earlier: 52px rows on the pane's own ground, a 12px radius, a hairline
+ * that brightens when the row is chosen, and an icon, a name, a detail line
+ * and a control at the right — here a checkbox, since more than one may come.
+ * No plate under them and no fill inside them: two adjacent pages that list
+ * things should list them the same way. Five rows, then it scrolls, so a list
+ * never runs past the bottom edge of the card.
  */
 function PolyphonicPresentationAgentRows({
   agents,
@@ -445,17 +447,17 @@ function PolyphonicPresentationAgentRows({
   rowTestIdPrefix: string;
   selectedIds: ReadonlySet<string>;
 }) {
-  const scrolls = agents.length > 4;
+  const scrolls = agents.length > 5;
   return (
     <section
       aria-busy={isScanning}
       aria-label="Discovered agents"
       className={cn(
-        "grid min-h-0 grid-cols-1 content-start overflow-y-auto overscroll-contain rounded-[10px] bg-[var(--prototype-recessed)] p-1",
-        // A short list is exactly as tall as it is. A long one takes the room
-        // the card has and no more, so the clip lands inside a row and says
-        // plainly that there is more of it below.
-        scrolls && "max-h-full [scrollbar-gutter:stable]",
+        "grid min-h-0 grid-cols-1 content-start gap-1",
+        // Five rows, then it scrolls: the same height the runtime list is
+        // allowed, counted the same way (5 × 52px + 4 × 4px).
+        scrolls &&
+          "max-h-[17.25rem] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]",
       )}
       data-prototype-scroll-owner={scrolls ? "true" : undefined}
       data-testid={inventoryTestId}
@@ -488,10 +490,12 @@ function PolyphonicPresentationAgentRows({
               aria-describedby={`onboarding-agent-${agent.id}-detail`}
               aria-pressed={selected}
               className={cn(
-                "group flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-[8px] px-3 py-2 text-left outline-none transition-[background-color,box-shadow] duration-[90ms] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--prototype-focus)] disabled:cursor-not-allowed disabled:opacity-45",
+                "group relative flex h-[52px] min-w-0 flex-1 items-center gap-3 rounded-[12px] border px-3.5 text-left outline-none transition-[border-color,background-color] duration-[90ms] disabled:cursor-not-allowed disabled:opacity-45",
+                // Focus is this row's own border coming up, in place.
+                "focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)]",
                 selected || imported
-                  ? "bg-[var(--prototype-raised)] shadow-[0_1px_2px_var(--prototype-shadow)]"
-                  : "hover:bg-[var(--prototype-selection)]",
+                  ? "border-[color-mix(in_srgb,var(--prototype-ink)_28%,transparent)]"
+                  : "border-[var(--prototype-hairline)] hover:border-[color-mix(in_srgb,var(--prototype-ink)_18%,transparent)]",
               )}
               disabled={disabled || importing || imported || agent.disabled}
               onClick={() => onToggle(agent.id)}
@@ -536,7 +540,7 @@ function PolyphonicPresentationAgentRows({
             </button>
             {needsAttention && onRetry ? (
               <button
-                className="mr-2 min-h-8 rounded-[7px] px-2 text-xs text-[var(--prototype-muted-strong)] outline-none hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+                className="ml-2 min-h-8 rounded-[7px] border border-transparent px-2 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
                 disabled={disabled}
                 onClick={() => onRetry(agent.id)}
                 type="button"
@@ -547,18 +551,20 @@ function PolyphonicPresentationAgentRows({
           </div>
         );
       })}
+      {/* With no plate under the list, a sentence about an empty one belongs
+          on the same left edge as the question above it. */}
       {isScanning && agents.length === 0 ? (
-        <p className="flex min-h-[52px] items-center gap-2 px-3 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
+        <p className="flex min-h-[52px] items-center gap-2 text-[length:var(--prototype-support-size)] text-[var(--prototype-muted)]">
           <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
           Looking for agents on this Mac…
         </p>
       ) : null}
       {!isScanning && agents.length === 0 ? (
-        <p className="flex min-h-[52px] items-center gap-3 px-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+        <p className="flex min-h-[52px] items-center gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
           {emptyMessage}
           {onRescan ? (
             <button
-              className="rounded-[4px] text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:text-[var(--prototype-ink)]"
+              className="shrink-0 rounded-[4px] border border-transparent text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
               disabled={disabled}
               onClick={onRescan}
               type="button"
