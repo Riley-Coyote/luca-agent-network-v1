@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   describeDiscoverySources,
   describeResidentCandidate,
+  firstClause,
   nativeSourceLabel,
   resolveAgentReadiness,
   withoutCodeTicks,
@@ -285,12 +286,52 @@ function makeCandidate(overrides = {}) {
   };
 }
 
+/** A line the row can show and the title it carries, in one assertion. */
+function statusOf(overrides) {
+  return describeResidentCandidate(makeCandidate(overrides));
+}
+
 test("a ready agent says Ready, or what it runs on when it knows", () => {
-  assert.equal(describeResidentCandidate(makeCandidate()), "Ready");
-  assert.equal(
-    describeResidentCandidate(makeCandidate({ modelSummary: "Sonnet 4.5" })),
-    "Sonnet 4.5",
+  assert.deepEqual(statusOf(), { full: "Ready", short: "Ready" });
+  assert.deepEqual(statusOf({ modelSummary: "Sonnet 4.5" }), {
+    full: "Sonnet 4.5",
+    short: "Sonnet 4.5",
+  });
+});
+
+test("a reason too long for the line is cut at its own clause", () => {
+  // The sentence OpenClaw actually gives on a Mac whose gateway has no
+  // stable locator. The row keeps the source's first clause; the title keeps
+  // every word of it.
+  assert.deepEqual(
+    statusOf({
+      readiness: {
+        status: "unavailable",
+        code: "GATEWAY_IDENTITY",
+        message:
+          "OpenClaw has no stable configured Gateway locator; this agent cannot be imported safely.",
+      },
+    }),
+    {
+      full: "Unavailable — OpenClaw has no stable configured Gateway locator; this agent cannot be imported safely.",
+      short: "Unavailable — OpenClaw has no stable configured Gateway locator",
+    },
   );
+  // A dashed aside is a seam too, and "Unavailable" always survives the cut.
+  assert.equal(
+    statusOf({
+      readiness: {
+        status: "unavailable",
+        code: "GATEWAY",
+        message: "Unavailable — the gateway is down — start it and rescan.",
+      },
+    }).short,
+    "Unavailable — the gateway is down",
+  );
+  assert.equal(firstClause("one thing; another"), "one thing");
+  assert.equal(firstClause("one thing — another"), "one thing");
+  assert.equal(firstClause("one sentence. Another one."), "one sentence");
+  assert.equal(firstClause("nothing to cut here"), "nothing to cut here");
 });
 
 test("a status line is words, not markdown: backticks never reach the row", () => {
@@ -300,72 +341,68 @@ test("a status line is words, not markdown: backticks never reach the row", () =
   );
   assert.equal(withoutCodeTicks("nothing to unpick"), "nothing to unpick");
   assert.equal(
-    describeResidentCandidate(
-      makeCandidate({
-        readiness: {
-          status: "degraded",
-          code: "CONFIG_REPAIR",
-          message: "Read from `openclaw.json` instead.",
-        },
-      }),
-    ),
+    statusOf({
+      readiness: {
+        status: "degraded",
+        code: "CONFIG_REPAIR",
+        message: "Read from `openclaw.json` instead.",
+      },
+    }).full,
     "Read from openclaw.json instead.",
   );
 });
 
 test("an unavailable agent says so, and then says what to do about it", () => {
-  assert.equal(
-    describeResidentCandidate(
-      makeCandidate({
-        readiness: {
-          status: "unavailable",
-          code: "GATEWAY_IDENTITY",
-          message: "Run `openclaw doctor --fix`.",
-        },
-      }),
-    ),
-    "Unavailable — run openclaw doctor --fix.",
+  assert.deepEqual(
+    statusOf({
+      readiness: {
+        status: "unavailable",
+        code: "GATEWAY_IDENTITY",
+        message: "Run `openclaw doctor --fix`.",
+      },
+    }),
+    {
+      full: "Unavailable — run openclaw doctor --fix.",
+      short: "Unavailable — run openclaw doctor --fix.",
+    },
   );
   // A message that already opens with the word is not made to say it twice.
-  assert.equal(
-    describeResidentCandidate(
-      makeCandidate({
-        readiness: {
-          status: "unavailable",
-          code: "GATEWAY",
-          message: "Unavailable until the gateway is running.",
-        },
-      }),
-    ),
-    "Unavailable until the gateway is running.",
+  assert.deepEqual(
+    statusOf({
+      readiness: {
+        status: "unavailable",
+        code: "GATEWAY",
+        message: "Unavailable until the gateway is running.",
+      },
+    }),
+    {
+      full: "Unavailable until the gateway is running.",
+      short: "Unavailable until the gateway is running.",
+    },
   );
   // A name is a name: only a word capitalised by the full stop before it is
   // lowered to be joined on.
   assert.equal(
-    describeResidentCandidate(
-      makeCandidate({
-        readiness: {
-          status: "unavailable",
-          code: "GATEWAY",
-          message: "OpenClaw's gateway is not running.",
-        },
-      }),
-    ),
+    statusOf({
+      readiness: {
+        status: "unavailable",
+        code: "GATEWAY",
+        message: "OpenClaw's gateway is not running.",
+      },
+    }).full,
     "Unavailable — OpenClaw's gateway is not running.",
   );
 });
 
 test("a degraded agent shows the runtime's own sentence", () => {
   assert.equal(
-    describeResidentCandidate(
-      makeCandidate({
-        readiness: {
-          status: "degraded",
-          code: "CONFIG_REPAIR",
-          message: "Read from openclaw.json instead.",
-        },
-      }),
-    ),
+    statusOf({
+      readiness: {
+        status: "degraded",
+        code: "CONFIG_REPAIR",
+        message: "Read from openclaw.json instead.",
+      },
+    }).full,
     "Read from openclaw.json instead.",
   );
 });

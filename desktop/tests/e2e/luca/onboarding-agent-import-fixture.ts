@@ -155,6 +155,42 @@ export const THREE_NATIVE_AGENTS: NativeResidentDiscoveryOutcome = {
   ],
 };
 
+/** The reason OpenClaw actually gives on this Mac, word for word. */
+export const GATEWAY_LOCATOR_REASON =
+  "OpenClaw has no stable configured Gateway locator; this agent cannot be imported safely.";
+
+/**
+ * This Mac on a bad day, and the shape that broke the rows: Hermes cannot be
+ * queried at all, OpenClaw is reading its agents out of `openclaw.json`, and
+ * every agent it returns explains itself in a full sentence with a clause in
+ * the middle. Two notices above the list, three long reasons inside it.
+ */
+export const DEGRADED_NATIVE_AGENTS: NativeResidentDiscoveryOutcome = {
+  runtimes: [
+    {
+      nativeType: "hermes",
+      status: "failed",
+      message:
+        "Hermes could not be queried. Check that it can run from a login shell.",
+      candidates: [],
+    },
+    {
+      nativeType: "openclaw",
+      status: "degraded",
+      message:
+        "OpenClaw's own config needs repair — run `openclaw doctor --fix`. Agents were read from openclaw.json instead.",
+      candidates: [1, 2, 3].map((index) => ({
+        ...openClawCandidate(index),
+        readiness: {
+          status: "unavailable" as const,
+          code: "GATEWAY_IDENTITY",
+          message: GATEWAY_LOCATOR_REASON,
+        },
+      })),
+    },
+  ],
+};
+
 /**
  * Twenty of them, plus one each that a runtime will not vouch for. Every one
  * is a row: the old "past eight, show an inventory instead" rule is gone.

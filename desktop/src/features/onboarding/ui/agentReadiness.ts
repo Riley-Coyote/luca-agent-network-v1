@@ -45,30 +45,68 @@ export function withoutCodeTicks(message: string): string {
 }
 
 /**
+ * The first clause of a runtime's reason.
+ *
+ * Runtimes explain themselves in full sentences — "OpenClaw has no stable
+ * configured Gateway locator; this agent cannot be imported safely." — and a
+ * 52px row has one line. Where the sentence offers a seam (a semicolon, or a
+ * dashed aside) the line is cut there, so what the owner reads is a whole
+ * thought rather than an arbitrary number of characters. Everything the
+ * runtime said is still on the row, in its title.
+ */
+export function firstClause(reason: string): string {
+  const seam = reason.search(/;| — | – |\. /);
+  const head = (seam > 0 ? reason.slice(0, seam) : reason).trim();
+  return head.replace(/[,;:—–-]$/, "").trim();
+}
+
+/**
  * One plain line under a discovered agent's name: what the owner would say
  * about it out loud. "Ready" when there is nothing to say, the runtime's own
  * sentence when something needs doing, and never more than one line — the
  * warnings and codes belong to the Agents page, not to a setup card.
+ *
+ * `full` is everything the runtime said, for the row's title; `short` is what
+ * fits on the line. They are the same string whenever the sentence was short
+ * enough to need no cutting.
  */
 export function describeResidentCandidate(
   candidate: DiscoveredResidentCandidate,
-): string {
+): { full: string; short: string } {
   const readiness = candidate.readiness;
   switch (readiness.status) {
-    case "ready":
-      return candidate.modelSummary?.trim() || "Ready";
+    case "ready": {
+      const line = candidate.modelSummary?.trim() || "Ready";
+      return { full: line, short: line };
+    }
     case "discovered":
-      return withoutCodeTicks(readiness.message.trim()) || "Ready";
-    case "degraded":
-      // The source's own explanation is printed once above the rows; the row
-      // says what is true of this agent.
-      return withoutCodeTicks(readiness.message.trim()) || "Needs attention";
+    case "degraded": {
+      const message = withoutCodeTicks(readiness.message.trim());
+      const fallback =
+        readiness.status === "discovered" ? "Ready" : "Needs attention";
+      const full = message || fallback;
+      return { full, short: message ? firstClause(message) : fallback };
+    }
     case "unavailable": {
       const message = withoutCodeTicks(readiness.message.trim());
-      if (!message) return "Unavailable";
-      return /^unavailable/i.test(message)
-        ? message
-        : `Unavailable — ${joinable(message)}`;
+      if (!message) return { full: "Unavailable", short: "Unavailable" };
+      // The cut is always made inside the reason, never at the dash between
+      // it and the opening word: "Unavailable" is the first clause and it
+      // survives whichever way the runtime wrote the sentence.
+      if (/^unavailable/i.test(message)) {
+        const opener =
+          /^unavailable\s*(?:[—–:-]\s*)?/i.exec(message)?.[0] ?? "";
+        const reason = message.slice(opener.length);
+        return {
+          full: message,
+          short: reason ? `${opener}${firstClause(reason)}` : message,
+        };
+      }
+      const reason = joinable(message);
+      return {
+        full: `Unavailable — ${reason}`,
+        short: `Unavailable — ${firstClause(reason)}`,
+      };
     }
   }
 }

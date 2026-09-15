@@ -8,6 +8,7 @@ import {
   describeDiscoverySources,
   describeResidentCandidate,
   nativeSourceLabel,
+  withoutCodeTicks,
 } from "./agentReadiness";
 import {
   PolyphonicPresentationAgentSelector,
@@ -127,13 +128,17 @@ export function PolyphonicAgentImportPane({
   );
   const agents = React.useMemo<PolyphonicPresentationAgent[]>(
     () =>
-      candidates.map((candidate) => ({
-        detail: describeResidentCandidate(candidate),
-        id: candidate.semanticId,
-        name: candidate.displayName,
-        source: nativeSourceLabel(candidate.nativeType),
-        status: "idle" as const,
-      })),
+      candidates.map((candidate) => {
+        const status = describeResidentCandidate(candidate);
+        return {
+          detail: status.short,
+          detailFull: status.full,
+          id: candidate.semanticId,
+          name: candidate.displayName,
+          source: nativeSourceLabel(candidate.nativeType),
+          status: "idle" as const,
+        };
+      }),
     [candidates],
   );
   const connected = connectedSummary(connectedAgents);
@@ -152,16 +157,24 @@ export function PolyphonicAgentImportPane({
           Already in Polyphonic · {connected}
         </p>
       ) : null}
-      {sourceMessages.map((outcome) => (
-        <p
-          className="mb-2 shrink-0 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
-          data-testid={`onboarding-agent-source-${outcome.nativeType}`}
-          key={outcome.nativeType}
-        >
-          {nativeSourceLabel(outcome.nativeType)} ·{" "}
-          <SourceMessage message={outcome.message} />
-        </p>
-      ))}
+      {/* A Mac can have something to say about more than one source. Each
+          keeps its own line or two and no more, with a hairline of space
+          between them, so a pair of them is a note and not a wall. */}
+      {sourceMessages.length > 0 ? (
+        <div className="mb-2 flex shrink-0 flex-col gap-2">
+          {sourceMessages.map((outcome) => (
+            <p
+              className="line-clamp-2 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
+              data-testid={`onboarding-agent-source-${outcome.nativeType}`}
+              key={outcome.nativeType}
+              title={`${nativeSourceLabel(outcome.nativeType)} · ${withoutCodeTicks(outcome.message)}`}
+            >
+              {nativeSourceLabel(outcome.nativeType)} ·{" "}
+              <SourceMessage message={outcome.message} />
+            </p>
+          ))}
+        </div>
+      ) : null}
       <div className="flex min-h-0 flex-1 flex-col">
         <PolyphonicPresentationAgentSelector
           agents={agents}

@@ -27,6 +27,7 @@ import type { AcpAuthMethod, AcpRuntimeCatalogEntry } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import { Spinner } from "@/shared/ui/spinner";
+import { firstClause } from "./agentReadiness";
 import { runtimeIsReadyForOnboarding } from "./onboardingRuntimeSelection";
 import { PolyphonicStepHeading } from "./PolyphonicSetupFrame";
 import { RuntimeIcon } from "./RuntimeIcon";
@@ -473,6 +474,27 @@ export const PolyphonicRuntimeStep = React.forwardRef<
             const checked = selected
               ? targetKey(selected) === targetKey(option.target)
               : false;
+            // The row is one line high, so the runtime's own sentence is cut
+            // at its first clause and the whole of it lives in the title —
+            // the same rule the agents rows on the next page follow.
+            const status =
+              option.readiness === "ready"
+                ? [
+                    runtime?.signedInAs
+                      ? `Signed in with ${runtime.signedInAs}`
+                      : "Ready on this Mac",
+                    // Never imply a check that cannot happen.
+                    runtime && runtime.authCheckable === false
+                      ? "Luca can’t tell if you’re signed in"
+                      : null,
+                    option.recommended ? "Recommended" : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : (option.reason ??
+                  (option.readiness === "setup_required"
+                    ? "Set up"
+                    : "Unavailable"));
             return (
               <label
                 className={cn(
@@ -484,6 +506,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
                     : "border-[var(--prototype-hairline)] hover:border-[color-mix(in_srgb,var(--prototype-ink)_18%,transparent)]",
                 )}
                 key={targetKey(option.target)}
+                title={status}
               >
                 <span className="grid size-5 shrink-0 place-items-center">
                   {runtime ? (
@@ -496,27 +519,13 @@ export const PolyphonicRuntimeStep = React.forwardRef<
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium text-[var(--prototype-ink)]">
+                  <span className="block truncate text-sm font-medium text-[var(--prototype-ink)]">
                     {option.label}
                   </span>
-                  <span className="mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
+                  <span className="mt-0.5 block truncate text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]">
                     {option.readiness === "ready"
-                      ? [
-                          runtime?.signedInAs
-                            ? `Signed in with ${runtime.signedInAs}`
-                            : "Ready on this Mac",
-                          // Never imply a check that cannot happen.
-                          runtime && runtime.authCheckable === false
-                            ? "Luca can’t tell if you’re signed in"
-                            : null,
-                          option.recommended ? "Recommended" : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")
-                      : (option.reason ??
-                        (option.readiness === "setup_required"
-                          ? "Set up"
-                          : "Unavailable"))}
+                      ? status
+                      : firstClause(status)}
                   </span>
                 </span>
                 <span

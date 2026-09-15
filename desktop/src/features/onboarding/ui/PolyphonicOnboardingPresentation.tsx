@@ -165,7 +165,10 @@ export function PolyphonicPresentationAppearanceControl({
 }
 
 export type PolyphonicPresentationAgent = {
+  /** What fits on the row's one line. */
   detail: string;
+  /** Everything the runtime said, for the row's title. Defaults to `detail`. */
+  detailFull?: string;
   disabled?: boolean;
   id: string;
   name: string;
@@ -471,15 +474,21 @@ function PolyphonicPresentationAgentRows({
         const needsAttention = status === "needs-attention";
         // Where an agent came from is part of who it is, so the row says it
         // — unless the runtime's own sentence already opens with the name.
+        const sourced = (line: string) =>
+          line.toLocaleLowerCase().startsWith(agent.source.toLocaleLowerCase())
+            ? line
+            : `${agent.source} · ${line}`;
         const detail = importing
           ? "Importing"
           : imported
             ? "Imported"
-            : agent.detail
-                  .toLocaleLowerCase()
-                  .startsWith(agent.source.toLocaleLowerCase())
-              ? agent.detail
-              : `${agent.source} · ${agent.detail}`;
+            : sourced(agent.detail);
+        // The row shows one line and the title holds all of it, so a runtime
+        // that explains itself in a paragraph cannot push the next row down.
+        const detailTitle =
+          importing || imported
+            ? detail
+            : sourced(agent.detailFull ?? agent.detail);
         return (
           <div
             className="flex items-center"
@@ -499,6 +508,7 @@ function PolyphonicPresentationAgentRows({
               )}
               disabled={disabled || importing || imported || agent.disabled}
               onClick={() => onToggle(agent.id)}
+              title={detailTitle}
               type="button"
             >
               <span className="grid size-5 shrink-0 place-items-center text-[var(--prototype-muted)]">
@@ -511,12 +521,12 @@ function PolyphonicPresentationAgentRows({
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium text-[var(--prototype-ink)]">
+                <span className="block truncate text-sm font-medium text-[var(--prototype-ink)]">
                   {agent.name}
                 </span>
                 <span
                   className={cn(
-                    "mt-0.5 block text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]",
+                    "mt-0.5 block truncate text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]",
                     needsAttention && "text-destructive",
                   )}
                   id={`onboarding-agent-${agent.id}-detail`}

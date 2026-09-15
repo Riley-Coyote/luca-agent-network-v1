@@ -4,6 +4,8 @@ import type { NativeResidentDiscoveryOutcome } from "../../../src/shared/api/typ
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
 import {
+  DEGRADED_NATIVE_AGENTS,
+  GATEWAY_LOCATOR_REASON,
   LARGE_DISCOVERY_ROW_COUNT,
   LARGE_NATIVE_RESIDENT_DISCOVERY,
   THREE_NATIVE_AGENTS,
@@ -708,6 +710,86 @@ test("one agent is ticked, and arrives behind the first conversation", async ({
     "Hermes profile 01",
   ]);
   expect(imports.native).toEqual(["Hermes profile 01"]);
+});
+
+test("a runtime that explains itself at length still gets one line", async ({
+  page,
+}) => {
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1040, height: 584 });
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: DEGRADED_NATIVE_AGENTS,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await begin(page);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+
+  // Both sources have something to say, and each keeps to two lines with a
+  // hairline of space between them rather than becoming a wall of text.
+  const notices = page.locator('[data-testid^="onboarding-agent-source-"]');
+  await expect(notices).toHaveCount(2);
+  await expect(notices.first()).toContainText("Hermes could not be queried");
+  const noticeBoxes = await notices.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const style = getComputedStyle(node);
+      return {
+        height: node.getBoundingClientRect().height,
+        lineHeight: Number.parseFloat(style.lineHeight),
+        top: node.getBoundingClientRect().top,
+        bottom: node.getBoundingClientRect().bottom,
+      };
+    }),
+  );
+  for (const box of noticeBoxes) {
+    expect(box.height).toBeLessThanOrEqual(box.lineHeight * 2 + 1);
+  }
+  expect(noticeBoxes[1].top - noticeBoxes[0].bottom).toBeCloseTo(8, 0);
+
+  // The rows are one line each: the reason is cut at its own semicolon, the
+  // whole of it is on the row's title, and no row is taller than 52px — so
+  // none of them can run into the one below.
+  const rows = page.locator('[data-testid^="onboarding-agent-row-"]');
+  await expect(rows).toHaveCount(3);
+  const first = rows.first().getByRole("button").first();
+  await expect(first).toHaveAttribute(
+    "title",
+    `OpenClaw · Unavailable — ${GATEWAY_LOCATOR_REASON}`,
+  );
+  const detail = page.locator("#onboarding-agent-openclaw\\:agent-01-detail");
+  await expect(detail).toHaveText(
+    "OpenClaw · Unavailable — OpenClaw has no stable configured Gateway locator",
+  );
+  const geometry = await rows.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const row = node.querySelector("button") ?? node;
+      const line = node.querySelector('[id$="-detail"]');
+      const lineStyle = line ? getComputedStyle(line) : null;
+      return {
+        height: row.getBoundingClientRect().height,
+        lineHeight: line?.getBoundingClientRect().height ?? 0,
+        expectedLineHeight: lineStyle
+          ? Number.parseFloat(lineStyle.lineHeight)
+          : 0,
+        overflow: lineStyle?.textOverflow ?? "",
+        wraps: lineStyle?.whiteSpace ?? "",
+      };
+    }),
+  );
+  for (const row of geometry) {
+    expect(row.height).toBe(52);
+    // One line, and the browser is the one putting the ellipsis on it.
+    expect(row.lineHeight).toBeCloseTo(row.expectedLineHeight, 0);
+    expect(row.overflow).toBe("ellipsis");
+    expect(row.wraps).toBe("nowrap");
+  }
 });
 
 test("an import that fails says so on its own row and stops nothing", async ({
