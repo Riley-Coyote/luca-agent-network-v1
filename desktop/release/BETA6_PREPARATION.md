@@ -15,12 +15,11 @@ full release acceptance.
 
 Release gates still open:
 
-- Connected-Brain lifetime index retention remains unresolved. Source review
-  confirms changed index revisions create fresh page lineages; purging obsolete
-  pages preserves required authority/tombstones. Neither a reset nor simply
-  raising limits is an approved bounded-storage repair. A decision is pending
-  between completing that repair before beta.6 and making an explicitly
-  test-only candidate with the limitation documented. Do not silently defer it.
+- Connected-Brain index-page capacity has a schema-5 repair; see
+  `docs/luca/INDEX_RETENTION_REPAIR_2026_09_14.md`. Source checks passed, including
+  32 Brain tests and migration of a populated encrypted database copy. Retain a
+  paired pre-migration database backup for installation; old binaries cannot
+  read schema 5. Installed verification belongs in the delivery receipt.
 - Developer ID signing is available. No notarization credential profile has
   been verified; the attempted `AC_PASSWORD` profile does not exist. Do not
   report notarization as complete or put credentials in source/chat.

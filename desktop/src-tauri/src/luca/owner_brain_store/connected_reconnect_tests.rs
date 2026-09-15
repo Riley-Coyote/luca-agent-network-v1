@@ -67,6 +67,116 @@ fn connect_fixture_source(
 }
 
 #[test]
+fn repeated_index_refresh_keeps_live_page_capacity_bounded() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut runtime = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("refresh-repository");
+    let source_id = connect_fixture_source(&root, &mut runtime, &repository);
+    let before = runtime
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    let original = before
+        .snapshot
+        .records
+        .iter()
+        .find(|record| record.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD)
+        .unwrap()
+        .clone();
+    let candidate = candidate(&repository);
+    for iteration in 0..16 {
+        // Include A -> B -> A; the old A's archived IDs cannot be resurrected.
+        fs::write(
+            repository.join("fact.md"),
+            format!("Current fact: {}", iteration % 2),
+        )
+        .unwrap();
+        connect_source_with_runtime(
+            &root,
+            &mut runtime,
+            owner(),
+            candidate.clone(),
+            build_index(&source_id, &candidate).unwrap(),
+            &[],
+        )
+        .unwrap();
+        let generation = runtime
+            .store
+            .load_revision_generation(&owner())
+            .unwrap()
+            .unwrap();
+        let pages = generation
+            .snapshot
+            .lineages
+            .iter()
+            .filter(|lineage| lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD)
+            .count();
+        assert_eq!(pages, 1, "retired pages must not consume live capacity");
+    }
+    let raw: Vec<u8> = runtime.store.connection.query_row(
+        "SELECT snapshot_json FROM continuity_index_archive WHERE owner_pubkey=?1 AND lineage_root_id=?2",
+        rusqlite::params![owner().as_str(), original.record_id.as_str()], |row| row.get(0)).unwrap();
+    let archived = RevisionLedgerSnapshotV1::decode_bounded(&raw).unwrap();
+    assert!(archived.records.is_empty());
+    assert!(!archived.revision_idempotency.is_empty());
+    assert!(
+        crate::luca::continuity_revision_authority::index_archive::reject_record(
+            &runtime.store.connection,
+            &original
+        )
+        .is_err()
+    );
+    let mut reused_nonce = original.clone();
+    reused_nonce.record_id = OpaqueId::parse("different-record-same-retired-nonce").unwrap();
+    assert!(
+        crate::luca::continuity_revision_authority::index_archive::reject_record(
+            &runtime.store.connection,
+            &reused_nonce
+        )
+        .is_err()
+    );
+    drop(runtime);
+    let reopened = self::runtime(&temp);
+    assert!(reopened
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .is_some());
+    assert!(
+        crate::luca::continuity_revision_authority::index_archive::reject_record(
+            &reopened.store.connection,
+            &original
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn v4_brain_store_upgrades_without_resetting_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut runtime = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([8; 32]);
+    let source =
+        connect_fixture_source(&root, &mut runtime, &temp.path().join("legacy-repository"));
+    runtime.store.connection.execute_batch(
+        "DROP TABLE continuity_index_archive; DROP TABLE continuity_index_archive_reservations; PRAGMA user_version=4;"
+    ).unwrap();
+    drop(runtime);
+    let reopened = self::runtime(&temp);
+    let version: i64 = reopened
+        .store
+        .connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 5);
+    assert!(connected_source_by_id(&root, &reopened, &source)
+        .unwrap()
+        .is_some());
+}
+
+#[test]
 fn startup_watcher_batch_loads_one_generation_and_matches_individual_reads() {
     let temp = tempfile::tempdir().unwrap();
     let root = ContinuityMasterKey::new_for_test([51_u8; 32]);
@@ -354,12 +464,19 @@ fn disconnected_repository_reconnects_unchanged_without_reviving_forgotten_pages
         .load_revision_generation(&owner())
         .unwrap()
         .unwrap();
-    let forgotten_pages = disconnected
+    assert!(!disconnected
         .snapshot
         .lineages
         .iter()
-        .filter(|lineage| lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD)
-        .map(|lineage| lineage.lineage_root_id.clone())
+        .any(|lineage| lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD));
+    let forgotten_pages = runtime
+        .store
+        .connection
+        .prepare("SELECT lineage_root_id FROM continuity_index_archive WHERE owner_pubkey=?1")
+        .unwrap()
+        .query_map([owner().as_str()], |row| row.get::<_, String>(0))
+        .unwrap()
+        .map(|value| OpaqueId::parse(value.unwrap()).unwrap())
         .collect::<Vec<_>>();
     assert!(!forgotten_pages.is_empty());
 
@@ -386,8 +503,7 @@ fn disconnected_repository_reconnects_unchanged_without_reviving_forgotten_pages
         .snapshot
         .lineages
         .iter()
-        .find(|lineage| lineage.lineage_root_id == *lineage_id)
-        .is_some_and(|lineage| lineage.lifecycle == RevisionLifecycle::Forgotten)));
+        .all(|lineage| lineage.lineage_root_id != *lineage_id)));
     assert!(generation.snapshot.lineages.iter().any(|lineage| {
         lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD
             && lineage.lifecycle == RevisionLifecycle::Active

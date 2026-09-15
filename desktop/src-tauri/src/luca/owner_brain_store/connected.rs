@@ -325,6 +325,10 @@ pub(crate) fn rebind_source_with_runtime(
     if candidate.source_kind != ConnectedBrainSourceKindV1::Repository {
         return Err(OwnerBrainStoreError::Invalid);
     }
+    runtime
+        .store
+        .compact_connected_index_history(&owner_pubkey)
+        .map_err(map_store_write_error)?;
     let key_version = runtime
         .store
         .active_owner_key_version(&owner_pubkey)
@@ -614,6 +618,10 @@ pub(super) fn connect_source_with_runtime(
     build: ConnectedBrainIndexBuildV1,
     authorities: &[ConnectedBrainResidentAuthorityV1],
 ) -> Result<ConnectedBrainConnectResultV1, OwnerBrainStoreError> {
+    runtime
+        .store
+        .compact_connected_index_history(&owner_pubkey)
+        .map_err(map_store_write_error)?;
     let key_version = runtime
         .store
         .active_owner_key_version(&owner_pubkey)
@@ -780,9 +788,9 @@ fn persist_connected_index(
     let created_at = existing
         .map(|manifest| manifest.source.created_at.clone())
         .unwrap_or_else(|| now.clone());
-    let reconnect_generation = if existing.is_some_and(|manifest| {
-        manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected
-    }) {
+    // Every replacement is a new cache incarnation, including A -> B -> A.
+    // Previously forgotten IDs must never be reused or resurrected.
+    let reconnect_generation = if existing.is_some() {
         Some(
             &generation
                 .ok_or(OwnerBrainStoreError::Invalid)?

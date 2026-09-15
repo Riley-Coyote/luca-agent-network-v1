@@ -90,12 +90,11 @@ The first delivered handoff describes the earlier failure because its source
 conversation predates the repair. This is historical content, not evidence that
 delivery is still broken or that the private capture ran as another resident.
 
-Connected-Brain index retention remains a separate beta blocker: changed
-indexes create new page lineages, and forgetting/purging their ciphertext keeps
-the old authority/tombstones for replay and nonce safety. The resident reserve
-protects handoffs but does not reclaim owner-Brain capacity. Do not delete
-forgotten authority or claim the reserve solves lifetime index growth. A bounded
-retention/compaction design and migration must preserve those safety properties.
+The connected-Brain index retention blocker is addressed by the schema-5 repair
+in [INDEX_RETENTION_REPAIR_2026_09_14.md](INDEX_RETENTION_REPAIR_2026_09_14.md).
+Completed index-purge authority moves out of the live working set into a
+permanent on-disk safety archive; replay and nonce reservations remain enforced.
+This is not deletion of safety history or an increase to the live capacity limit.
 
 The original installed Dev app and a consistent encrypted database backup were
 preserved before the capacity change. The old binary's 4,096-head reader cannot

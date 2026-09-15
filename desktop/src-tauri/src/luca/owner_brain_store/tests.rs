@@ -553,12 +553,16 @@ fn connected_refresh_reconfirm_future_resident_and_disconnect_are_fail_closed() 
         .unwrap()
         .unwrap();
     for lineage_id in &old_index_lineages {
-        let lineage = refreshed
+        assert!(!refreshed
             .snapshot
             .lineages
             .iter()
-            .find(|lineage| lineage.lineage_root_id == *lineage_id)
-            .unwrap();
+            .any(|lineage| lineage.lineage_root_id == *lineage_id));
+        let raw: Vec<u8> = runtime.store.connection.query_row(
+            "SELECT snapshot_json FROM continuity_index_archive WHERE owner_pubkey=?1 AND lineage_root_id=?2",
+            rusqlite::params![owner().as_str(), lineage_id.as_str()], |row| row.get(0)).unwrap();
+        let archived = luca_continuity::RevisionLedgerSnapshotV1::decode_bounded(&raw).unwrap();
+        let lineage = &archived.lineages[0];
         assert_eq!(lineage.lifecycle, RevisionLifecycle::Forgotten);
         assert_eq!(
             lineage.purge_execution.as_ref().unwrap().status,

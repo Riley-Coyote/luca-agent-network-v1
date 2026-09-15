@@ -63,7 +63,11 @@ pub(super) fn prepare_revision<T: Serialize>(
     } else {
         digest_id(
             "brain-revision",
-            &[lineage_root_id.as_str(), root_hash.as_str()],
+            &[
+                lineage_root_id.as_str(),
+                root_hash.as_str(),
+                &revision.get().to_string(),
+            ],
         )?
     };
     let plaintext = canonicalize(body).map_err(|_| OwnerBrainStoreError::Invalid)?;
@@ -90,6 +94,7 @@ pub(super) fn prepare_revision<T: Serialize>(
         "import_transaction_id": import_transaction_id,
         "lineage_root_id": lineage_root_id,
         "root_hash": root_hash,
+        "expected_head_record_id": expected_head_record_id,
         "operation": match operation {
             RevisionOperation::Create => "create",
             RevisionOperation::Revise => "revise",

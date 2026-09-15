@@ -841,6 +841,16 @@ fn connected_index_purge_late_phase_and_sqlite_abort_restore_all_rows_after_reop
         before
     );
     assert_eq!(purge_durable_rows(&store), rows);
+    let archived_count: i64 = store
+        .connection
+        .query_row("SELECT COUNT(*) FROM continuity_index_archive", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(
+        archived_count, 0,
+        "aborted purge must not leave archival side effects"
+    );
     store
         .purge_connected_index_batch_cas(
             &AuthorityExpectationV1::Existing(token),
@@ -851,17 +861,25 @@ fn connected_index_purge_late_phase_and_sqlite_abort_restore_all_rows_after_reop
         .unwrap();
     let completed = store.load_revision_generation(&hex('1')).unwrap().unwrap();
     assert_eq!(completed.snapshot.records.len(), 3);
-    assert!(targets.iter().all(|target| completed
-        .snapshot
-        .lineages
-        .iter()
-        .find(|lineage| lineage.lineage_root_id == target.lineage_root_id)
-        .unwrap()
-        .purge_execution
-        .as_ref()
-        .unwrap()
-        .status
-        == PurgeExecutionStatusV1::Completed));
+    for target in &targets {
+        assert!(!completed
+            .snapshot
+            .lineages
+            .iter()
+            .any(|lineage| lineage.lineage_root_id == target.lineage_root_id));
+        let raw: Vec<u8> = store.connection.query_row(
+            "SELECT snapshot_json FROM continuity_index_archive WHERE owner_pubkey=?1 AND lineage_root_id=?2",
+            params![hex('1').as_str(), target.lineage_root_id.as_str()], |row| row.get(0)).unwrap();
+        let archived = RevisionLedgerSnapshotV1::decode_bounded(&raw).unwrap();
+        assert_eq!(
+            archived.lineages[0]
+                .purge_execution
+                .as_ref()
+                .unwrap()
+                .status,
+            PurgeExecutionStatusV1::Completed
+        );
+    }
 }
 
 #[test]

@@ -27,7 +27,8 @@ use super::continuity_key_custody::ContinuityKeyCustodyStatus;
 const STORE_DIRECTORY: &str = "continuity";
 const STORE_FILENAME: &str = "continuity-v1.sqlite3";
 const APPLICATION_ID: i64 = 0x4c55_4341; // "LUCA"
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
+const REVISION_SCHEMA_VERSION: i64 = 4;
 const PREVIOUS_SCHEMA_VERSION: i64 = 3;
 const LEGACY_SCHEMA_VERSION_V2: i64 = 2;
 const LEGACY_SCHEMA_VERSION: i64 = 1;
@@ -1602,6 +1603,7 @@ fn force_rollback_journal(connection: &Connection) -> Result<(), ContinuityStore
 }
 
 fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    let index_archive_schema = super::continuity_revision_authority::index_archive::SCHEMA;
     let application_id: i64 = connection
         .pragma_query_value(None, "application_id", |row| row.get(0))
         .map_err(|_| ContinuityStoreError::Unavailable)?;
@@ -1632,6 +1634,7 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
                  {};
                  PRAGMA application_id = {APPLICATION_ID};
+                 {index_archive_schema}
                  PRAGMA user_version = {SCHEMA_VERSION};
                  COMMIT;",
                 super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
@@ -1647,6 +1650,7 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                  {CREATE_ROTATION_RECEIPT_TABLE_SQL};
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
                  {};
+                 {index_archive_schema}
                  PRAGMA user_version = {SCHEMA_VERSION};
                  COMMIT;",
                 super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
@@ -1660,6 +1664,7 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
                  {CREATE_ROTATION_RECEIPT_TABLE_SQL};
                  {CREATE_SOURCE_MAPPING_TABLE_SQL};
                  {};
+                 {index_archive_schema}
                  PRAGMA user_version = {SCHEMA_VERSION};
                  COMMIT;",
                 super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
@@ -1671,11 +1676,17 @@ fn initialize_schema(connection: &Connection) -> Result<(), ContinuityStoreError
             .execute_batch(&format!(
                 "BEGIN IMMEDIATE;
                  {};
+                 {index_archive_schema}
                  PRAGMA user_version = {SCHEMA_VERSION};
                  COMMIT;",
                 super::continuity_revision_authority::CREATE_AUTHORITY_SCHEMA_SQL,
             ))
             .map_err(|_| ContinuityStoreError::Unavailable)?;
+    } else if user_version == REVISION_SCHEMA_VERSION {
+        validate_revision_schema(connection)?;
+        connection.execute_batch(&format!(
+            "BEGIN IMMEDIATE; {index_archive_schema} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+        )).map_err(|_| ContinuityStoreError::Unavailable)?;
     }
     validate_schema(connection)
 }
@@ -1707,6 +1718,7 @@ fn preflight_existing_schema(path: &Path) -> Result<ExistingSchemaPreflight, Con
             LEGACY_SCHEMA_VERSION
                 | LEGACY_SCHEMA_VERSION_V2
                 | PREVIOUS_SCHEMA_VERSION
+                | REVISION_SCHEMA_VERSION
                 | SCHEMA_VERSION
         );
     if !recognized_header {
@@ -1714,7 +1726,7 @@ fn preflight_existing_schema(path: &Path) -> Result<ExistingSchemaPreflight, Con
         // without entropy, temporary files, SQLite recovery, or source writes.
         return Err(ContinuityStoreError::SchemaIncompatible);
     }
-    let legacy = header_version < SCHEMA_VERSION;
+    let legacy = header_version < REVISION_SCHEMA_VERSION;
     let legacy_sidecar_present = legacy && sidecar_present;
     // Legacy inspection must not create or mutate SHM/WAL. Immutable mode
     // validates the checkpointed main file; any legacy sidecar then forces the
@@ -1754,6 +1766,10 @@ fn classify_existing_connection(
         LEGACY_SCHEMA_VERSION => validate_legacy_schema(connection)?,
         LEGACY_SCHEMA_VERSION_V2 => validate_v2_schema(connection)?,
         PREVIOUS_SCHEMA_VERSION => validate_previous_schema(connection)?,
+        REVISION_SCHEMA_VERSION => {
+            validate_revision_schema(connection)?;
+            return Ok(ExistingSchemaPreflight::Current);
+        }
         SCHEMA_VERSION => {
             validate_schema(connection)?;
             return Ok(ExistingSchemaPreflight::Current);
@@ -1783,13 +1799,21 @@ fn read_sqlite_identity(path: &Path) -> Result<(i64, i64), ContinuityStoreError>
 }
 
 fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
+    validate_revision_schema(connection)?;
+    super::continuity_revision_authority::index_archive::validate_schema(connection)?;
+    validate_exact_schema_inventory(connection, SCHEMA_VERSION)
+}
+
+fn validate_revision_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
     let application_id: i64 = connection
         .pragma_query_value(None, "application_id", |row| row.get(0))
         .map_err(|_| ContinuityStoreError::Unavailable)?;
     let user_version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| ContinuityStoreError::Unavailable)?;
-    if application_id != APPLICATION_ID || user_version != SCHEMA_VERSION {
+    if application_id != APPLICATION_ID
+        || !matches!(user_version, REVISION_SCHEMA_VERSION | SCHEMA_VERSION)
+    {
         return Err(ContinuityStoreError::SchemaIncompatible);
     }
     validate_record_schema(connection)?;
@@ -1835,7 +1859,10 @@ fn validate_schema(connection: &Connection) -> Result<(), ContinuityStoreError> 
         ],
     )?;
     super::continuity_revision_authority::validate_authority_schema(connection)?;
-    validate_exact_schema_inventory(connection, SCHEMA_VERSION)
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    validate_exact_schema_inventory(connection, version)
 }
 
 fn validate_previous_schema(connection: &Connection) -> Result<(), ContinuityStoreError> {
@@ -1982,9 +2009,16 @@ fn validate_exact_schema_inventory(
     if version >= PREVIOUS_SCHEMA_VERSION {
         expected.extend(["continuity_rotation_receipts", "continuity_source_mappings"]);
     }
-    if version >= SCHEMA_VERSION {
+    if version >= REVISION_SCHEMA_VERSION {
         expected.extend_from_slice(super::continuity_revision_authority::AUTHORITY_TABLES);
         expected.extend_from_slice(super::continuity_revision_authority::AUTHORITY_INDEXES);
+    }
+    if version >= SCHEMA_VERSION {
+        expected.extend(
+            super::continuity_revision_authority::index_archive::OBJECTS
+                .iter()
+                .map(|(_, name)| *name),
+        );
     }
     let placeholders = std::iter::repeat_n("?", expected.len())
         .collect::<Vec<_>>()
@@ -2260,6 +2294,12 @@ pub(super) fn insert_record(
     record: &ContinuityRecordV1,
     encoded: &[u8],
 ) -> Result<(), ContinuityStoreError> {
+    let schema: i64 = transaction
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| ContinuityStoreError::SchemaIncompatible)?;
+    if schema >= SCHEMA_VERSION {
+        super::continuity_revision_authority::index_archive::reject_record(transaction, record)?;
+    }
     transaction.execute(
         "INSERT INTO continuity_records (
             record_id, namespace_protocol, owner_pubkey, namespace_kind, resident_pubkey,

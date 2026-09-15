@@ -32,6 +32,7 @@ use super::continuity_store::{
     ContinuityStore, ContinuityStoreError,
 };
 
+pub(super) mod index_archive;
 mod nonce_reservations;
 use nonce_reservations::{persist_nonce_reservations, validate_nonce_reservations};
 mod generation_cache;
@@ -2847,6 +2848,12 @@ fn persist_transition(
     require_expectation(expectation, current)?;
     let owner = expectation.owner();
     validate_snapshot_owner(snapshot, owner)?;
+    index_archive::reject_snapshot(transaction, owner, snapshot)?;
+    // Reconcile completed purges before dropping their live projections. The
+    // archival rows and the smaller generation commit atomically.
+    reconcile_records(transaction, owner, snapshot, replace_records)?;
+    let compacted = index_archive::compact(transaction, owner, snapshot)?;
+    let snapshot = &compacted;
     let fingerprint = snapshot.fingerprint().map_err(map_continuity_error)?;
     let generation_value = match current {
         Some(current) => current.token.generation.get().checked_add(1),
@@ -2859,7 +2866,6 @@ fn persist_transition(
         _ => Uuid::new_v4().to_string(),
     };
 
-    reconcile_records(transaction, owner, snapshot, replace_records)?;
     clear_authority_rows(transaction, owner)?;
     persist_snapshot_rows(transaction, owner, generation_value, snapshot)?;
     transaction
