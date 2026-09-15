@@ -938,6 +938,164 @@ fn configured_gateway_locator(status: &OpenclawGatewayStatus) -> Option<String> 
     Some(format!("{}|ws://{host}:{port}", config_path.display()))
 }
 
+/// The exact wording shown when OpenClaw's own CLI cannot list its agents and
+/// the agents were recovered from OpenClaw's configuration file instead.
+const OPENCLAW_CONFIG_FALLBACK_MESSAGE: &str = "OpenClaw's own config needs repair — run `openclaw doctor --fix`. Agents were read from openclaw.json instead.";
+const MAX_OPENCLAW_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_JSON_START_ATTEMPTS: usize = 16;
+
+/// Either the documented top-level array or the `{ "agents": [...] }` envelope
+/// some OpenClaw builds print. Unknown sibling keys are ignored.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum OpenclawAgentListPayload {
+    Rows(Vec<OpenclawAgentRow>),
+    Wrapped { agents: Vec<OpenclawAgentRow> },
+}
+
+impl OpenclawAgentListPayload {
+    fn into_rows(self) -> Vec<OpenclawAgentRow> {
+        match self {
+            Self::Rows(rows) => rows,
+            Self::Wrapped { agents } => agents,
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenclawConfigAgents {
+    #[serde(default)]
+    list: Vec<OpenclawAgentRow>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct OpenclawConfigDocument {
+    #[serde(default)]
+    agents: OpenclawConfigAgents,
+}
+
+/// Remove terminal control sequences so a colourized or progress-decorated CLI
+/// still yields parseable JSON. Only escape sequences are dropped; no payload
+/// byte is rewritten.
+fn strip_ansi(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut characters = text.chars().peekable();
+    while let Some(character) = characters.next() {
+        if character != '\u{1b}' {
+            output.push(character);
+            continue;
+        }
+        match characters.peek().copied() {
+            // CSI: parameters and intermediates, then one final byte.
+            Some('[') => {
+                characters.next();
+                for byte in characters.by_ref() {
+                    if ('\u{40}'..='\u{7e}').contains(&byte) {
+                        break;
+                    }
+                }
+            }
+            // OSC and similar strings terminate at BEL or ESC \.
+            Some(']') | Some('P') | Some('X') | Some('^') | Some('_') => {
+                characters.next();
+                while let Some(byte) = characters.next() {
+                    if byte == '\u{7}' {
+                        break;
+                    }
+                    if byte == '\u{1b}' && characters.peek() == Some(&'\\') {
+                        characters.next();
+                        break;
+                    }
+                }
+            }
+            // A lone two-character escape.
+            Some(_) => {
+                characters.next();
+            }
+            None => {}
+        }
+    }
+    output
+}
+
+/// Parse an agent list leniently: strip terminal escapes, skip any leading
+/// human-readable preamble, and accept either JSON envelope. `None` means the
+/// output carried no agent list at all.
+fn parse_openclaw_agent_rows(stdout: &[u8]) -> Option<Vec<OpenclawAgentRow>> {
+    let text = strip_ansi(&String::from_utf8_lossy(stdout));
+    let mut attempts = 0;
+    for (offset, _) in text
+        .char_indices()
+        .filter(|(_, character)| *character == '[' || *character == '{')
+    {
+        if attempts >= MAX_JSON_START_ATTEMPTS {
+            break;
+        }
+        attempts += 1;
+        if let Ok(payload) = serde_json::from_str::<OpenclawAgentListPayload>(text[offset..].trim())
+        {
+            return Some(payload.into_rows());
+        }
+    }
+    None
+}
+
+fn openclaw_config_path() -> Option<PathBuf> {
+    match std::env::var_os("OPENCLAW_CONFIG_PATH") {
+        Some(value) if !value.is_empty() => Some(PathBuf::from(value)),
+        _ => dirs::home_dir().map(|home| home.join(".openclaw").join("openclaw.json")),
+    }
+}
+
+/// OpenClaw's own configuration lists the agents the CLI would have printed.
+/// Reading it is read-only and never repairs or rewrites the file.
+fn read_openclaw_config_agents(path: &Path) -> Option<Vec<OpenclawAgentRow>> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_OPENCLAW_CONFIG_BYTES {
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let document = serde_json::from_slice::<OpenclawConfigDocument>(&bytes).ok()?;
+    Some(document.agents.list)
+}
+
+fn first_stderr_line(stderr: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_owned)
+}
+
+/// Resolve the agent rows from the CLI, falling back to OpenClaw's own config
+/// when the CLI refuses to speak. The second field is the exact degraded
+/// message to surface, or `None` when the CLI answered normally.
+fn resolve_openclaw_agents(
+    list: Result<&CapturedOutput, ()>,
+    config_path: Option<&Path>,
+) -> Result<(Vec<OpenclawAgentRow>, Option<&'static str>), String> {
+    let cli_rows = list.ok().and_then(|output| {
+        output
+            .status
+            .success()
+            .then(|| parse_openclaw_agent_rows(&output.stdout))
+            .flatten()
+    });
+    if let Some(rows) = cli_rows {
+        return Ok((rows, None));
+    }
+    let stderr_line = list
+        .ok()
+        .and_then(|output| first_stderr_line(&output.stderr));
+    if let Some(line) = &stderr_line {
+        eprintln!("buzz-desktop: openclaw agents list reported: {line}");
+    }
+    match config_path.and_then(read_openclaw_config_agents) {
+        Some(rows) if !rows.is_empty() => Ok((rows, Some(OPENCLAW_CONFIG_FALLBACK_MESSAGE))),
+        _ => Err(stderr_line.unwrap_or_else(|| "OpenClaw could not list its agents.".to_owned())),
+    }
+}
+
 fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
     let Some(executable_path) = canonical_executable("openclaw") else {
         return NativeRuntimeDiscoveryOutcome {
@@ -948,34 +1106,24 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
         };
     };
     let runtime_version = command_version(&executable_path).unwrap_or_else(|| "unknown".into());
-    let Ok(list) = run_bounded(
+    let list = run_bounded(
         &executable_path,
         &["agents", "list", "--json", "--bindings"],
         DISCOVERY_TIMEOUT,
-    ) else {
-        return NativeRuntimeDiscoveryOutcome {
-            native_type: NativeRuntimeKind::Openclaw,
-            status: NativeDiscoveryStatus::Failed,
-            message: Some("OpenClaw could not list its agents.".into()),
-            candidates: Vec::new(),
+    );
+    let config_path = openclaw_config_path();
+    let (agents, fallback_message) =
+        match resolve_openclaw_agents(list.as_ref().map_err(|_| ()), config_path.as_deref()) {
+            Ok(resolved) => resolved,
+            Err(reason) => {
+                return NativeRuntimeDiscoveryOutcome {
+                    native_type: NativeRuntimeKind::Openclaw,
+                    status: NativeDiscoveryStatus::Failed,
+                    message: Some(reason),
+                    candidates: Vec::new(),
+                }
+            }
         };
-    };
-    if !list.status.success() {
-        return NativeRuntimeDiscoveryOutcome {
-            native_type: NativeRuntimeKind::Openclaw,
-            status: NativeDiscoveryStatus::Failed,
-            message: Some("OpenClaw returned an unreadable agent list.".into()),
-            candidates: Vec::new(),
-        };
-    }
-    let Ok(agents) = serde_json::from_slice::<Vec<OpenclawAgentRow>>(&list.stdout) else {
-        return NativeRuntimeDiscoveryOutcome {
-            native_type: NativeRuntimeKind::Openclaw,
-            status: NativeDiscoveryStatus::Failed,
-            message: Some("OpenClaw returned an unreadable agent list.".into()),
-            candidates: Vec::new(),
-        };
-    };
 
     let gateway_status = run_bounded(
         &executable_path,
@@ -1073,7 +1221,8 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
             }
         })
         .collect::<Vec<_>>();
-    let degraded = gateway_locator.is_none()
+    let degraded = fallback_message.is_some()
+        || gateway_locator.is_none()
         || !gateway_status.rpc.ok
         || candidates.iter().any(|candidate| {
             matches!(
@@ -1088,15 +1237,19 @@ fn discover_openclaw() -> NativeRuntimeDiscoveryOutcome {
         } else {
             NativeDiscoveryStatus::Available
         },
-        message: degraded.then(|| {
-            if gateway_locator.is_none() {
-                "OpenClaw has no stable configured Gateway locator.".into()
-            } else {
-                gateway_status
-                    .rpc
-                    .error
-                    .unwrap_or_else(|| "OpenClaw Gateway is configured but unavailable.".into())
-            }
+        // A config-file recovery is the actionable reason; it outranks the
+        // gateway detail, which is usually a consequence of the same breakage.
+        message: fallback_message.map(str::to_owned).or_else(|| {
+            degraded.then(|| {
+                if gateway_locator.is_none() {
+                    "OpenClaw has no stable configured Gateway locator.".into()
+                } else {
+                    gateway_status
+                        .rpc
+                        .error
+                        .unwrap_or_else(|| "OpenClaw Gateway is configured but unavailable.".into())
+                }
+            })
         }),
         candidates,
     }
@@ -1759,6 +1912,145 @@ mod tests {
                     _ => "profile show helper\n--version\n",
                 }
             );
+        }
+    }
+
+    #[cfg(unix)]
+    fn captured(code: i32, stdout: &str, stderr: &str) -> CapturedOutput {
+        use std::os::unix::process::ExitStatusExt;
+        CapturedOutput {
+            status: ExitStatus::from_raw(code << 8),
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+        }
+    }
+
+    /// Exactly the stderr OpenClaw 2026.8.2 prints on this Mac when its own
+    /// configuration carries keys a newer build no longer recognizes. Agent
+    /// names here are fabricated; nothing is copied from a real config.
+    #[cfg(unix)]
+    const OPENCLAW_INVALID_CONFIG_STDERR: &str = concat!(
+        "OpenClaw config is invalid: /Users/example/.openclaw/openclaw.json\n",
+        "- openclaw.json:3 — agents.defaults: Unrecognized keys: \"cliBackends\", \"memorySearch\", \"timeFormat\"\n",
+        "- openclaw.json:411 — commands: Unrecognized key: \"ownerDisplay\"\n",
+        "- openclaw.json:609 — session: Unrecognized key: \"agentToAgent\"\n",
+        "Fix: openclaw doctor --fix\n",
+        "Inspect: openclaw config validate\n",
+    );
+
+    #[cfg(unix)]
+    #[test]
+    fn openclaw_agent_list_accepts_decorated_and_object_wrapped_output() {
+        let wrapped = concat!(
+            "\u{1b}[32mScanning agents\u{1b}[0m\n",
+            "note: 2 agents\n",
+            "{\"agents\":[{\"id\":\"agent-north\",\"name\":\"North\",\"workspace\":\"/tmp\"},",
+            "{\"id\":\"agent-south\"}],\"generatedAt\":\"2026-09-14T00:00:00Z\"}\n",
+        );
+        let rows = parse_openclaw_agent_rows(wrapped.as_bytes()).expect("wrapped list parses");
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["agent-north", "agent-south"]
+        );
+        assert_eq!(rows[0].name.as_deref(), Some("North"));
+
+        let plain = "[{\"id\":\"agent-only\",\"identityName\":\"Only\"}]";
+        let rows = parse_openclaw_agent_rows(plain.as_bytes()).expect("array parses");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].identity_name.as_deref(), Some("Only"));
+
+        // A successful, genuinely empty list is an answer, not a parse failure.
+        assert_eq!(
+            parse_openclaw_agent_rows(b"[]")
+                .expect("empty array parses")
+                .len(),
+            0
+        );
+        assert!(parse_openclaw_agent_rows(b"").is_none());
+        assert!(parse_openclaw_agent_rows(b"OpenClaw config is invalid").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn invalid_openclaw_config_still_lists_agents_from_the_config_file() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let config = directory.path().join("openclaw.json");
+        std::fs::write(
+            &config,
+            concat!(
+                "{\"agents\":{\"defaults\":{\"cliBackends\":{}},\"list\":[",
+                "{\"id\":\"agent-thistle\",\"name\":\"Thistle\",\"workspace\":\"/tmp\",\"model\":\"m\"},",
+                "{\"id\":\"agent-bramble\",\"models\":[\"a\"]}",
+                "]},\"commands\":{\"ownerDisplay\":true}}",
+            ),
+        )
+        .expect("config fixture");
+
+        let failure = captured(1, "", OPENCLAW_INVALID_CONFIG_STDERR);
+        let (rows, message) =
+            resolve_openclaw_agents(Ok(&failure), Some(config.as_path())).expect("fallback rows");
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["agent-thistle", "agent-bramble"]
+        );
+        assert_eq!(rows[0].name.as_deref(), Some("Thistle"));
+        assert_eq!(message, Some(OPENCLAW_CONFIG_FALLBACK_MESSAGE));
+        assert_eq!(
+            message.unwrap(),
+            "OpenClaw's own config needs repair — run `openclaw doctor --fix`. Agents were read from openclaw.json instead."
+        );
+
+        // A spawn failure takes the same fallback.
+        let (rows, message) =
+            resolve_openclaw_agents(Err(()), Some(config.as_path())).expect("fallback rows");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(message, Some(OPENCLAW_CONFIG_FALLBACK_MESSAGE));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_list_without_a_usable_config_fails_with_the_cli_reason() {
+        let directory = tempfile::tempdir().expect("fixture");
+        let empty = directory.path().join("openclaw.json");
+        std::fs::write(&empty, "{\"agents\":{\"list\":[]}}").expect("config fixture");
+
+        let failure = captured(1, "", OPENCLAW_INVALID_CONFIG_STDERR);
+        assert_eq!(
+            resolve_openclaw_agents(Ok(&failure), Some(empty.as_path())).unwrap_err(),
+            "OpenClaw config is invalid: /Users/example/.openclaw/openclaw.json"
+        );
+        assert_eq!(
+            resolve_openclaw_agents(Ok(&failure), Some(&directory.path().join("missing.json")))
+                .unwrap_err(),
+            "OpenClaw config is invalid: /Users/example/.openclaw/openclaw.json"
+        );
+        // Nothing to report at all still says something plain.
+        let silent = captured(1, "", "");
+        assert_eq!(
+            resolve_openclaw_agents(Ok(&silent), None).unwrap_err(),
+            "OpenClaw could not list its agents."
+        );
+        // A healthy CLI never consults the config file.
+        let healthy = captured(0, "[{\"id\":\"agent-live\"}]", "");
+        let (rows, message) =
+            resolve_openclaw_agents(Ok(&healthy), Some(empty.as_path())).expect("cli rows");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(message, None);
+    }
+
+    /// Run explicitly against the developer's real OpenClaw installation:
+    /// `cargo test -p buzz-desktop openclaw_discovery_on_this_machine -- --ignored --nocapture`.
+    /// Read-only: it lists agents and prints the outcome; it never repairs the
+    /// configuration it reads.
+    #[test]
+    #[ignore = "depends on the local OpenClaw installation"]
+    fn openclaw_discovery_on_this_machine_reports_its_real_outcome() {
+        let outcome = discover_openclaw();
+        println!("status: {:?}", outcome.status);
+        println!("message: {:?}", outcome.message);
+        println!("candidates: {}", outcome.candidates.len());
+        for candidate in &outcome.candidates {
+            println!("  - {} ({})", candidate.display_name, candidate.native_id);
         }
     }
 }
