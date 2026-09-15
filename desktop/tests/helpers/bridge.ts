@@ -284,6 +284,14 @@ type MockBridgeOptions = {
   nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
   nativeResidentDiscoveryError?: string;
   createManagedAgentErrors?: (string | null)[];
+  /**
+   * Sequenced failures for importing an agent already on this Mac; null
+   * entries succeed. Only creations carrying a native binding consume these,
+   * so the residents Polyphonic ships are never affected.
+   */
+  nativeAgentImportErrors?: (string | null)[];
+  /** Hold each native import so its in-progress rail row is observable. */
+  nativeAgentImportDelayMs?: number;
   connectedBrainConnectErrors?: (string | null)[];
   connectedBrainConnectDelayMs?: number;
   /** Conversation-context fixture layered onto the connected Brain mock. */

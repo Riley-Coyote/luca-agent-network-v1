@@ -284,6 +284,8 @@ type E2eConfig = {
     nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
     nativeResidentDiscoveryError?: string;
     createManagedAgentErrors?: (string | null)[];
+    nativeAgentImportErrors?: (string | null)[];
+    nativeAgentImportDelayMs?: number;
     connectedBrainConnectErrors?: (string | null)[];
     connectedBrainConnectDelayMs?: number;
     conversationContextFixture?: "ready" | "multiple" | "missing";
@@ -8815,6 +8817,18 @@ async function handleCreateLucaResident(
   const delayMs = config?.mock?.createManagedAgentDelayMs ?? 0;
   if (delayMs > 0) {
     await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+  }
+
+  // An import of an agent already on this Mac arrives through this same
+  // command, distinguishable only by carrying a native binding. Its own
+  // sequence of failures leaves the ship-with residents alone.
+  if (args.input.nativeRuntimeBinding) {
+    const importDelayMs = config?.mock?.nativeAgentImportDelayMs ?? 0;
+    if (importDelayMs > 0) {
+      await new Promise((resolve) => window.setTimeout(resolve, importDelayMs));
+    }
+    const importFailure = config?.mock?.nativeAgentImportErrors?.shift();
+    if (importFailure) throw new Error(importFailure);
   }
 
   const injectedFailure =

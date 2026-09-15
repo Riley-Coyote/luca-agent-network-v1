@@ -3,7 +3,11 @@ import { expect, test } from "@playwright/test";
 import type { NativeResidentDiscoveryOutcome } from "../../../src/shared/api/types";
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
-import { LARGE_NATIVE_RESIDENT_DISCOVERY } from "./onboarding-agent-import-fixture";
+import {
+  LARGE_DISCOVERY_ROW_COUNT,
+  LARGE_NATIVE_RESIDENT_DISCOVERY,
+  THREE_NATIVE_AGENTS,
+} from "./onboarding-agent-import-fixture";
 
 const NO_AGENTS: NativeResidentDiscoveryOutcome = { runtimes: [] };
 const ONE_NATIVE_AGENT: NativeResidentDiscoveryOutcome = {
@@ -48,9 +52,20 @@ async function begin(page: import("@playwright/test").Page) {
 }
 
 /**
- * Past the runtime and into the waking. There is nothing between them any
- * more — no agents question, no sources question — so the only press is the
- * caller's own, repeated once if it landed while the runtime was committing.
+ * The agents chapter, taken without bringing anyone in. It is the last
+ * question, so its one action reads "Meet Luca" — or "Continue" where the
+ * Mac has nobody on it to decline.
+ */
+async function pastAgents(page: import("@playwright/test").Page) {
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("polyphonic-setup-continue").click();
+}
+
+/**
+ * Into the waking. The caller has already taken the agents chapter; the loop
+ * is only here for a press that landed while a chapter was committing.
  */
 async function pastWaking(page: import("@playwright/test").Page) {
   for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -138,6 +153,7 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgents(page);
   await pastWaking(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
@@ -265,6 +281,7 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   });
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgents(page);
   await pastWaking(page);
   await expect(page.getByRole("alert")).toContainText(
     "Luca's saved setup could not be refreshed",
@@ -364,6 +381,7 @@ test("the canonical Luca notice is trusted and published only once", async ({
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await pastAgents(page);
   await pastWaking(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
@@ -439,7 +457,7 @@ test("the canonical Luca notice is trusted and published only once", async ({
 });
 
 for (const runtime of ["Hermes", "OpenClaw"]) {
-  test(`${runtime} can power Luca and an empty discovery skips import`, async ({
+  test(`${runtime} can power Luca and an empty Mac says so plainly`, async ({
     page,
   }) => {
     await installMockBridge(
@@ -450,20 +468,37 @@ for (const runtime of ["Hermes", "OpenClaw"]) {
     await begin(page);
     await page.getByRole("radio", { name: new RegExp(runtime) }).check();
     await page.getByTestId("polyphonic-setup-continue").click();
+    // The question is still asked, and the answer on a Mac with nobody on it
+    // is a sentence, not an empty box — with an action that just carries on.
+    await expect(
+      page.getByRole("heading", { name: "Bring in your agents" }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByTestId("onboarding-agent-import-list"),
+    ).toContainText(
+      "No agents found on this Mac yet. You can bring agents in later from the Agents page.",
+    );
+    await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+      "Continue",
+    );
+    // Nothing to decline, so nothing offers to decline it.
+    await expect(page.getByTestId("polyphonic-agents-skip")).toHaveCount(0);
+    await page.getByTestId("polyphonic-setup-continue").click();
     await pastWaking(page);
     await expect(page).toHaveURL(/#\/channels\//);
-    // The agents question is not asked at all now, so the import surface can
-    // never appear on the way through — empty discovery or otherwise.
-    await expect(
-      page.getByRole("heading", { name: "Bring in agents you already use" }),
-    ).toHaveCount(0);
-    await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(
-      0,
+    const imported = await page.evaluate(() =>
+      (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
+        (entry) =>
+          entry.command === "create_luca_resident" &&
+          (entry.payload as { input: { nativeRuntimeBinding?: unknown } }).input
+            .nativeRuntimeBinding,
+      ),
     );
+    expect(imported).toHaveLength(0);
   });
 }
 
-test("large native inventories never delay first chat or import extra agents", async ({
+test("a large inventory is rows, none ticked, and first chat is not delayed", async ({
   page,
 }) => {
   await installMockBridge(
@@ -478,23 +513,204 @@ test("large native inventories never delay first chat or import extra agents", a
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+
+  // Forty-two of them, and every one is a row the owner can read and tick.
+  // The old "past eight, show an inventory instead" rule is gone, and so is
+  // the search box that came with it.
+  const rows = page
+    .getByTestId("onboarding-agent-import-list")
+    .locator('[data-testid^="onboarding-agent-row-"]');
+  await expect(rows).toHaveCount(LARGE_DISCOVERY_ROW_COUNT);
+  await expect(
+    page.getByRole("textbox", { name: "Search agents" }),
+  ).toHaveCount(0);
+  // None of them is ticked for the owner, so the action is the plain one.
+  await expect(
+    page.getByTestId("onboarding-agent-import-list").getByRole("button", {
+      pressed: true,
+    }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+    "Meet Luca",
+  );
+  // The list scrolls inside the card rather than growing it.
+  await expect(
+    page.getByTestId("onboarding-agent-import-list"),
+  ).toHaveAttribute("data-prototype-scroll-owner", "true");
+
+  await page.getByTestId("polyphonic-setup-continue").click();
   await pastWaking(page);
   await expect(
     page.getByTestId("message-row").filter({ hasText: GREETING }),
   ).toHaveCount(1);
   await expect(page.getByTestId("message-input")).toBeVisible();
-  await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);
   const created = await page.evaluate(() =>
     (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
       (entry) => entry.command === "create_luca_resident",
     ),
   );
   // The three residents that ship with Polyphonic, and no one from the
-  // native inventory.
+  // native inventory: nobody was ticked.
   expect(created).toHaveLength(3);
   expect(
     created.map(
       (entry) => (entry.payload as { input: { name: string } }).input.name,
     ),
   ).toEqual(["Luca", "Fifty", "Trinity"]);
+});
+
+test("one agent is ticked, and arrives behind the first conversation", async ({
+  page,
+}) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: THREE_NATIVE_AGENTS,
+      // Held open so the row is observable on its way in: the first
+      // conversation is already up several seconds before this lands.
+      nativeAgentImportDelayMs: 10_000,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await begin(page);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  // What a source has to say about itself is said once, above its rows.
+  const openClawNotice = page.getByTestId("onboarding-agent-source-openclaw");
+  await expect(openClawNotice).toHaveCount(1);
+  await expect(openClawNotice).toContainText("run `openclaw doctor --fix`");
+  // And an agent that source will not vouch for is still a row, still
+  // tickable, saying in one line what is true of it.
+  await expect(
+    page.getByTestId("onboarding-agent-row-openclaw:agent-01"),
+  ).toContainText("Unavailable — run `openclaw doctor --fix`.");
+
+  await page
+    .getByTestId("onboarding-agent-row-hermes:profile-01")
+    .getByRole("button")
+    .first()
+    .click();
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+    "Bring in 1 agent",
+  );
+  await expect(page.getByTestId("polyphonic-agents-skip")).toBeVisible();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await pastWaking(page);
+
+  // Luca's first words are there on time: the import is behind them.
+  await expect(page).toHaveURL(/#\/channels\//);
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
+  await expect(page.getByTestId("message-input")).toBeVisible();
+
+  // The agent is in the rail while it is still coming, in the state the rail
+  // already has for a resident that is not up yet.
+  const railRow = page.getByTestId("agent-rail-hermes profile 01");
+  await expect(railRow).toBeVisible();
+  await expect(
+    page.getByTestId("agent-rail-status-hermes profile 01"),
+  ).toHaveText("Waking…");
+  // …and settles into an ordinary row once the record is real.
+  await expect(
+    page.getByTestId("agent-rail-status-hermes profile 01"),
+  ).toHaveCount(0, { timeout: 20_000 });
+  await expect(railRow).toBeVisible();
+
+  const imports = await page.evaluate(() => {
+    const payloads = window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? [];
+    const creations = payloads.filter(
+      (entry) => entry.command === "create_luca_resident",
+    );
+    return {
+      names: creations.map(
+        (entry) => (entry.payload as { input: { name: string } }).input.name,
+      ),
+      native: creations
+        .filter(
+          (entry) =>
+            (entry.payload as { input: { nativeRuntimeBinding?: unknown } })
+              .input.nativeRuntimeBinding,
+        )
+        .map(
+          (entry) => (entry.payload as { input: { name: string } }).input.name,
+        ),
+    };
+  });
+  // The three that ship with Polyphonic first, then the one the owner chose.
+  expect(imports.names).toEqual([
+    "Luca",
+    "Fifty",
+    "Trinity",
+    "Hermes profile 01",
+  ]);
+  expect(imports.native).toEqual(["Hermes profile 01"]);
+});
+
+test("an import that fails says so on its own row and stops nothing", async ({
+  page,
+}) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: THREE_NATIVE_AGENTS,
+      // The queue runs in the order the rows were listed, so the Hermes
+      // profile goes first and the OpenClaw agent is the one that fails.
+      nativeAgentImportErrors: [
+        null,
+        "Start the OpenClaw gateway before importing this agent.",
+      ],
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await begin(page);
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  // The one that will fail, and one that will not: a failure must not take
+  // the rest of the queue with it.
+  await page
+    .getByTestId("onboarding-agent-row-openclaw:agent-01")
+    .getByRole("button")
+    .first()
+    .click();
+  await page
+    .getByTestId("onboarding-agent-row-hermes:profile-02")
+    .getByRole("button")
+    .first()
+    .click();
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+    "Bring in 2 agents",
+  );
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await pastWaking(page);
+
+  await expect(page).toHaveURL(/#\/channels\//);
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
+  // The one before it arrived and is an ordinary row…
+  await expect(page.getByTestId("agent-rail-hermes profile 02")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByTestId("agent-rail-status-hermes profile 02"),
+  ).toHaveCount(0, { timeout: 20_000 });
+  // …the one that failed keeps its reason on its own row…
+  await expect(
+    page.getByTestId("agent-rail-status-openclaw agent 01"),
+  ).toHaveText("Needs attention", { timeout: 20_000 });
+  // …and nothing about it was ever a dialog.
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
 });

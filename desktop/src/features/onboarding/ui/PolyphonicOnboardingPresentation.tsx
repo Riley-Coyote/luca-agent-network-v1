@@ -452,10 +452,10 @@ function PolyphonicPresentationAgentRows({
       aria-label="Discovered agents"
       className={cn(
         "grid min-h-0 grid-cols-1 content-start overflow-y-auto overscroll-contain rounded-[10px] bg-[var(--prototype-recessed)] p-1",
-        // Three rows exactly, so the clip lands between rows and the fourth
-        // is plainly "there is more". The box also shrinks with the card, so
-        // it can never run under the memory question.
-        scrolls && "max-h-[164px] [scrollbar-gutter:stable]",
+        // A short list is exactly as tall as it is. A long one takes the room
+        // the card has and no more, so the clip lands inside a row and says
+        // plainly that there is more of it below.
+        scrolls && "max-h-full [scrollbar-gutter:stable]",
       )}
       data-prototype-scroll-owner={scrolls ? "true" : undefined}
       data-testid={inventoryTestId}

@@ -31,8 +31,9 @@ const READY_CODEX_RUNTIME = {
 };
 const GREETING = /Hello, I’m Luca/;
 
-/** Two questions and a waking: the whole walk. Nothing is read on the way
- *  through — Luca asks to look around once the conversation exists. */
+/** Three questions and a waking: the whole walk. Nothing is read on the way
+ *  through — Luca asks to look around once the conversation exists, and the
+ *  agents chosen on the third question arrive behind it. */
 async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await installMockBridge(
     page,
@@ -47,6 +48,11 @@ async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
   await page.getByTestId("polyphonic-setup-continue").click();
   await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  // Nobody ticked, so the last press is still the one that meets Luca.
   await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
     "Meet Luca",
   );
@@ -60,7 +66,9 @@ async function arriveInLucaDm(page: import("@playwright/test").Page) {
   });
 }
 
-test("the walk never asks about agents or sources", async ({ page }) => {
+test("the walk asks three things and never asks to read anything", async ({
+  page,
+}) => {
   await installMockBridge(
     page,
     {
@@ -71,26 +79,35 @@ test("the walk never asks about agents or sources", async ({ page }) => {
   );
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await page.getByTestId("polyphonic-door-begin").click();
-  // Two questions, so two hairlines.
+  // Three questions, so three hairlines.
   await expect(
     page.getByRole("heading", { name: "What should Luca call you?" }),
   ).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole("img", { name: "Step 1 of 2" })).toHaveCount(1);
+  await expect(page.getByRole("img", { name: "Step 1 of 3" })).toHaveCount(1);
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
   await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(page.getByRole("img", { name: "Step 2 of 3" })).toHaveCount(1);
   await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  // The third question is about who else lives here, and it says plainly
+  // that choosing does not read anything.
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("img", { name: "Step 3 of 3" })).toHaveCount(1);
+  await expect(
+    page.getByText(
+      "Agents Luca found on this Mac. Pick the ones that should live here too. Nothing is read now.",
+    ),
+  ).toBeVisible();
   await page.getByTestId("polyphonic-setup-continue").click();
   await page
     .getByRole("heading", { name: "Luca is waking up." })
     .waitFor({ timeout: 10_000 });
-  // The two chapters that were cut are never rendered on the way past.
-  await expect(
-    page.getByRole("heading", { name: "Who else lives here?" }),
-  ).toHaveCount(0);
+  // The chapter that was cut is never rendered on the way past.
   await expect(
     page.getByRole("heading", { name: "What should Luca read?" }),
   ).toHaveCount(0);
-  await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);
   await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
 });
 
@@ -110,6 +127,10 @@ test("the waking screen says what it is doing and then hands over", async ({
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
   await page.getByTestId("polyphonic-setup-continue").click();
   await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
   await page.getByTestId("polyphonic-setup-continue").click();
   const phase = page.getByTestId("polyphonic-reading-phase");
   await expect(phase).toBeVisible({ timeout: 10_000 });

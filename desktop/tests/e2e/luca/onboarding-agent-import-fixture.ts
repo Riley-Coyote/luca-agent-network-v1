@@ -119,3 +119,48 @@ export const LARGE_NATIVE_RESIDENT_DISCOVERY: NativeResidentDiscoveryOutcome = {
 };
 
 export const LARGE_DISCOVERY_READY_COUNT = READY_PER_RUNTIME * 2;
+
+/**
+ * What this Mac actually looks like: a couple of Hermes profiles that are
+ * ready, and an OpenClaw that reads its agents out of `openclaw.json` because
+ * its own config needs repair — so it reports every one of them unavailable.
+ * The owner can still tick them; the import is no longer in their way.
+ */
+export const THREE_NATIVE_AGENTS: NativeResidentDiscoveryOutcome = {
+  runtimes: [
+    {
+      nativeType: "hermes",
+      status: "available",
+      candidates: [
+        { ...hermesCandidate(1), modelSummary: "Sonnet 4.5" },
+        hermesCandidate(2),
+      ],
+    },
+    {
+      nativeType: "openclaw",
+      status: "degraded",
+      message:
+        "OpenClaw's own config needs repair — run `openclaw doctor --fix`. Agents were read from openclaw.json instead.",
+      candidates: [
+        {
+          ...openClawCandidate(1),
+          readiness: {
+            status: "unavailable",
+            code: "GATEWAY_IDENTITY",
+            message: "Run `openclaw doctor --fix`.",
+          },
+        },
+      ],
+    },
+  ],
+};
+
+/**
+ * Twenty of them, plus one each that a runtime will not vouch for. Every one
+ * is a row: the old "past eight, show an inventory instead" rule is gone.
+ */
+export const LARGE_DISCOVERY_ROW_COUNT =
+  LARGE_NATIVE_RESIDENT_DISCOVERY.runtimes.reduce(
+    (total, runtime) => total + runtime.candidates.length,
+    0,
+  );
