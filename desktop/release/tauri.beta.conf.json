@@ -4,8 +4,11 @@
   "identifier": "chat.polyphonic.desktop",
   "version": "0.5.0-beta.7",
   "bundle": {
-    "targets": ["app", "dmg"],
-    "createUpdaterArtifacts": false,
+    "targets": [
+      "app",
+      "dmg"
+    ],
+    "createUpdaterArtifacts": true,
     "macOS": {
       "infoPlist": "Info.beta.plist",
       "minimumSystemVersion": "14.0",
@@ -15,7 +18,10 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": []
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY5NjIzNzhBQTkxMUU5MTUKUldRVjZSR3BpamRpYVlJMUk1U0xSbXF3dTFCZFVYM0UwcEczL2hoNjJySU5oZzVuTzZoaWpNaWMK",
+      "endpoints": [
+        "https://github.com/Riley-Coyote/luca-agent-network-v1/releases/latest/download/latest.json"
+      ]
     }
   }
 }
