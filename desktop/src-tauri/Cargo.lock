@@ -1081,6 +1081,7 @@ dependencies = [
  "nostr",
  "notify",
  "notify-rust",
+ "objc2",
  "objc2-app-kit",
  "opus",
  "plist",

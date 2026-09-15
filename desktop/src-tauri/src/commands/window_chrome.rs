@@ -223,6 +223,48 @@ pub fn set_artifact_canvas_window_open(
     })
 }
 
+/// Run something against a window's live `NSWindow`, on the thread AppKit
+/// requires for it.
+///
+/// Every native chrome tweak below is best-effort by construction: a window
+/// that cannot be reached still opens, wearing whatever chrome it already had,
+/// rather than failing the owner's request over a cosmetic detail.
+#[cfg(target_os = "macos")]
+fn with_ns_window<R: tauri::Runtime, F>(window: &tauri::Window<R>, what: &'static str, body: F)
+where
+    F: FnOnce(&objc2_app_kit::NSWindow) + Send + 'static,
+{
+    let handle = window.clone();
+    let dispatched = window.run_on_main_thread(move || {
+        let ns_window = match handle.ns_window() {
+            Ok(pointer) => pointer,
+            Err(error) => {
+                eprintln!(
+                    "luca-window: no native window for {}: {error}",
+                    handle.label()
+                );
+                return;
+            }
+        };
+        let Some(ns_window) = std::ptr::NonNull::new(ns_window) else {
+            eprintln!("luca-window: {} has no NSWindow yet", handle.label());
+            return;
+        };
+        // SAFETY: `ns_window()` returns this window's live `NSWindow`, and
+        // `run_on_main_thread` is what puts this closure on the thread AppKit
+        // requires for it.
+        let ns_window: &objc2_app_kit::NSWindow = unsafe { ns_window.cast().as_ref() };
+        body(ns_window);
+    });
+
+    if let Err(error) = dispatched {
+        eprintln!(
+            "luca-window: failed to {what} on {}: {error}",
+            window.label()
+        );
+    }
+}
+
 /// Hide or show the macOS stoplight cluster (close, minimize, zoom) on one
 /// window.
 ///
@@ -244,28 +286,9 @@ pub fn set_artifact_canvas_window_open(
 /// with its stoplights as they were, rather than failing the owner's request.
 #[cfg(target_os = "macos")]
 pub fn set_traffic_lights_hidden<R: tauri::Runtime>(window: &tauri::Window<R>, hidden: bool) {
-    use objc2_app_kit::{NSWindow, NSWindowButton};
+    use objc2_app_kit::NSWindowButton;
 
-    let handle = window.clone();
-    let dispatched = window.run_on_main_thread(move || {
-        let ns_window = match handle.ns_window() {
-            Ok(pointer) => pointer,
-            Err(error) => {
-                eprintln!(
-                    "luca-window: no native window for {}: {error}",
-                    handle.label()
-                );
-                return;
-            }
-        };
-        let Some(ns_window) = std::ptr::NonNull::new(ns_window) else {
-            eprintln!("luca-window: {} has no NSWindow yet", handle.label());
-            return;
-        };
-        // SAFETY: `ns_window()` returns this window's live `NSWindow`, and
-        // `run_on_main_thread` is what puts this closure on the thread AppKit
-        // requires for it.
-        let ns_window: &NSWindow = unsafe { ns_window.cast().as_ref() };
+    with_ns_window(window, "set the traffic lights", move |ns_window| {
         for kind in [
             NSWindowButton::CloseButton,
             NSWindowButton::MiniaturizeButton,
@@ -276,13 +299,35 @@ pub fn set_traffic_lights_hidden<R: tauri::Runtime>(window: &tauri::Window<R>, h
             }
         }
     });
+}
 
-    if let Err(error) = dispatched {
-        eprintln!(
-            "luca-window: failed to set the traffic lights on {}: {error}",
-            window.label()
-        );
-    }
+/// Take the separator out from under an overlay title bar.
+///
+/// `NSTitlebarSeparatorStyle` defaults to `Automatic`, and on a window with
+/// `TitleBarStyle::Overlay` that resolves to a hairline AppKit draws across
+/// the full width of the window under the title bar — regardless of what the
+/// web side paints there. In the pop-out that line lands a pixel or two under
+/// the one bar the window owns, which already carries its own hairline: two
+/// lines, one of them not ours and not removable from CSS. The main window's
+/// top chrome has the same problem for the same reason.
+///
+/// macOS 11+. Asked for by selector so an older system simply keeps the
+/// separator instead of dying on an unrecognised one.
+#[cfg(target_os = "macos")]
+pub fn set_titlebar_separator_hidden<R: tauri::Runtime>(window: &tauri::Window<R>, hidden: bool) {
+    use objc2::{runtime::NSObjectProtocol, sel};
+    use objc2_app_kit::NSTitlebarSeparatorStyle;
+
+    with_ns_window(window, "set the titlebar separator", move |ns_window| {
+        if !ns_window.respondsToSelector(sel!(setTitlebarSeparatorStyle:)) {
+            return;
+        }
+        ns_window.setTitlebarSeparatorStyle(if hidden {
+            NSTitlebarSeparatorStyle::None
+        } else {
+            NSTitlebarSeparatorStyle::Automatic
+        });
+    });
 }
 
 /// The frontend's half of the floating first-run card: the reveal plugin hides

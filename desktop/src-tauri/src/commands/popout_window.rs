@@ -242,11 +242,17 @@ pub async fn open_channel_popout(
     #[cfg(target_os = "macos")]
     set_popout_backing(&window);
 
-    // One bar, one set of controls: the pop-out draws its own, so the native
-    // cluster goes. Shared with the floating first-run card, which has no
-    // window frame at all — see `window_chrome::set_traffic_lights_hidden`.
+    // One bar, one set of controls, one hairline. The pop-out draws its own
+    // minimise and close, so the native cluster goes; and AppKit's title-bar
+    // separator would land a pixel under the bar's own border, which is a
+    // second line the web side cannot reach. Both are shared with the main
+    // window — see `window_chrome`.
     #[cfg(target_os = "macos")]
-    super::window_chrome::set_traffic_lights_hidden(&window.as_ref().window(), true);
+    {
+        let ns_window = window.as_ref().window();
+        super::window_chrome::set_traffic_lights_hidden(&ns_window, true);
+        super::window_chrome::set_titlebar_separator_hidden(&ns_window, true);
+    }
 
     // Window state is keyed by label, so each conversation's pop-out keeps
     // its own geometry for free: the window-state plugin restores every

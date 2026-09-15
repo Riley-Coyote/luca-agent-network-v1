@@ -354,6 +354,12 @@ pub fn run() {
 
                     #[cfg(target_os = "macos")]
                     {
+                        // AppKit draws a hairline under an overlay title bar
+                        // whatever the web side paints there. The main
+                        // window's top chrome owns its own edges; this is a
+                        // second line nothing in CSS can reach.
+                        commands::set_titlebar_separator_hidden(&window, true);
+
                         if first_run {
                             // Nothing but the card is on screen for a first
                             // run, so there is no window frame to put a

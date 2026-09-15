@@ -439,13 +439,6 @@ const POPOUT_GLASS_ATTRIBUTE = "data-luca-popout-glass";
 async function applyPopoutGlass(themeName: string) {
   const root = document.documentElement;
 
-  if (window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches) {
-    // The accessibility contract has a native half as well as a CSS one: no
-    // layer, and the pop-out keeps the opaque surface it shipped with.
-    root.removeAttribute(POPOUT_GLASS_ATTRIBUTE);
-    return;
-  }
-
   if (!isTauri()) {
     // No vibrancy view exists and none can fail to install — and nothing is
     // behind the page to protect. The translucency is still stamped so the
@@ -454,13 +447,28 @@ async function applyPopoutGlass(themeName: string) {
     return;
   }
 
+  // Pinned first, and whatever happens after it.
+  //
+  // Two things read the window's effective appearance. `NSVisualEffectMaterial`
+  // renders per the WINDOW, so without this a dark pop-out on a Mac in light
+  // mode wears the milky variant under its dark ink. And AppKit draws the
+  // titled window's own 1px frame outline in that same appearance — which is
+  // where the light hairline around a dark pop-out came from: the pop-out was
+  // never given an appearance at all, so it followed macOS.
   try {
     await getCurrentWindow().setTheme(
       isLightTheme(themeName) ? "light" : "dark",
     );
   } catch (error) {
-    // A material in the wrong polarity is still glass; not a reason to stop.
     console.warn("pop-out appearance override unavailable", error);
+  }
+
+  if (window.matchMedia(REDUCED_TRANSPARENCY_QUERY).matches) {
+    // The accessibility contract has a native half as well as a CSS one: no
+    // layer, and the pop-out keeps the opaque surface it shipped with. The
+    // appearance above still stands — the frame outline is drawn either way.
+    root.removeAttribute(POPOUT_GLASS_ATTRIBUTE);
+    return;
   }
 
   try {

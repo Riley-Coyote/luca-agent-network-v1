@@ -44,9 +44,13 @@ notify-rust = "4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # NSWindow + the NSButton deref chain (NSControl -> NSView -> NSResponder)
-# are what `hide_popout_traffic_lights` needs to reach
+# are what `window_chrome::set_traffic_lights_hidden` needs to reach
 # `standardWindowButton:` and `setHidden:`.
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSButton", "NSControl", "NSHapticFeedback", "NSResponder", "NSView", "NSWindow"] }
+# Already linked in behind objc2-app-kit; named here for `respondsToSelector:`,
+# which is how `setTitlebarSeparatorStyle:` (macOS 11+) is asked for without
+# risking an unrecognised selector on an older system.
+objc2 = "0.6"
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native", "vendored"], optional = true }
 security-framework = { version = "3.7.0", features = ["OSX_10_15"] }
 window-vibrancy = "0.6"
