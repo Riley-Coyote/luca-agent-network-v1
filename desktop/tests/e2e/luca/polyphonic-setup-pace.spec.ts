@@ -20,9 +20,23 @@ const READY_CODEX_RUNTIME = {
   login_hint: "Sign in to Codex",
 };
 
+/**
+ * What a page change is allowed to cost. Not a rendering budget — the harness
+ * paints in a frame either way — but a promise that nothing on the way to the
+ * next page is AWAITED: a single round trip put back in front of a chapter
+ * change costs hundreds of milliseconds under the model below, and is caught
+ * here at once.
+ */
+const PAGE_CHANGE_BUDGET_MS = 150;
+/** The door hands over through the app's own gates; they cost what they cost. */
+const DOOR_BUDGET_MS = 400;
+
 declare global {
   interface Window {
-    __wpMeasure?: (clickSelector: string, waitSelector: string) => Promise<number>;
+    __wpMeasure?: (
+      clickSelector: string,
+      waitSelector: string,
+    ) => Promise<number>;
   }
 }
 
@@ -60,14 +74,15 @@ async function installLatency(page: import("@playwright/test").Page) {
         real = fn;
       },
     });
-    (window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ =
-      internals;
+    (
+      window as unknown as { __TAURI_INTERNALS__: unknown }
+    ).__TAURI_INTERNALS__ = internals;
   });
 }
 
 async function installMeasure(page: import("@playwright/test").Page) {
   await page.addInitScript(() => {
-    (window as unknown as Window).__wpMeasure = (
+    (window as unknown as Window).__paceMeasure = (
       clickSelector: string,
       waitSelector: string,
     ) => {
@@ -94,7 +109,9 @@ async function installMeasure(page: import("@playwright/test").Page) {
   });
 }
 
-test("timing: door -> name -> runtime -> waking", async ({ page }) => {
+test("no page of setup waits on a round trip before it changes", async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   await installLatency(page);
   await installMeasure(page);
@@ -106,59 +123,69 @@ test("timing: door -> name -> runtime -> waking", async ({ page }) => {
     },
     { skipCommunitySeed: true, skipOnboardingSeed: true },
   );
-  await page.setViewportSize({ width: 960, height: 544 });
+  await page.setViewportSize({ width: 1040, height: 584 });
   await page.goto("/?e2e=mock&machineOnboarding=1");
   await expect(page.getByTestId("polyphonic-door-begin")).toBeVisible();
-  // The owner reads the door before pressing it; the discovery it starts has
-  // that long to land. (Set DWELL=0 for the worst case: an instant press.)
-  await page.waitForTimeout(Number(process.env.DWELL ?? 1500));
+  // The owner reads the door before pressing it, and the discovery the door
+  // starts has that long to land.
+  await page.waitForTimeout(Number(process.env.LUCA_PACE_DWELL_MS ?? 1500));
 
   const doorToName = await page.evaluate(() =>
-    window.__wpMeasure?.(
+    window.__paceMeasure?.(
       '[data-testid="polyphonic-door-begin"]',
       '[data-testid="polyphonic-owner-name"]',
     ),
   );
 
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
-  const nameToRuntimeHeading = await page.evaluate(() =>
-    window.__wpMeasure?.(
+  // The name is written to this Mac and handed on in the same tick; the relay
+  // write happens behind the runtime page.
+  const nameToRuntime = await page.evaluate(() =>
+    window.__paceMeasure?.(
       '[data-testid="polyphonic-setup-continue"]',
       "#polyphonic-runtime-heading",
     ),
   );
-  const rowsAt = await page.evaluate(() => {
-    const start = performance.now();
-    return new Promise<number>((resolve) => {
-      const tick = () => {
-        const el = document.querySelector('input[name="polyphonic-runtime"]');
-        if (el && (el as HTMLElement).closest("label")) {
-          resolve(performance.now() - start);
-          return;
-        }
+  // …and the page it lands on opens on its rows, because the door asked.
+  const rowsAfterHeading = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const start = performance.now();
+        const tick = () => {
+          if (document.querySelector('input[name="polyphonic-runtime"]'))
+            resolve(performance.now() - start);
+          else requestAnimationFrame(tick);
+        };
         requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-  });
+      }),
+  );
 
-  await expect(page.getByRole("radio", { name: /Codex/ })).toBeVisible();
   await page.getByRole("radio", { name: /Codex/ }).check();
   await expect(page.getByTestId("polyphonic-setup-continue")).toBeEnabled();
-  const runtimeToWaking = await page.evaluate(() =>
-    window.__wpMeasure?.(
+  // "Meet Luca" moves to the waking page and does its work there; it never
+  // becomes "Working…" on the page the owner is still looking at.
+  const meetLucaToWaking = await page.evaluate(() =>
+    window.__paceMeasure?.(
       '[data-testid="polyphonic-setup-continue"]',
       "#polyphonic-preparing-heading",
     ),
   );
 
-  console.log(
-    `WPCARD_TIMINGS ${JSON.stringify({
-      door_to_name_ms: Math.round(doorToName ?? -1),
-      name_to_runtime_heading_ms: Math.round(nameToRuntimeHeading ?? -1),
-      runtime_rows_after_heading_ms: Math.round(rowsAt),
-      name_to_runtime_rows_ms: Math.round((nameToRuntimeHeading ?? 0) + rowsAt),
-      meet_luca_to_waking_ms: Math.round(runtimeToWaking ?? -1),
-    })}`,
+  const pace = {
+    door_to_name_ms: Math.round(doorToName ?? -1),
+    name_to_runtime_ms: Math.round(nameToRuntime ?? -1),
+    runtime_rows_after_heading_ms: Math.round(rowsAfterHeading),
+    meet_luca_to_waking_ms: Math.round(meetLucaToWaking ?? -1),
+  };
+  console.log(`LUCA_SETUP_PACE ${JSON.stringify(pace)}`);
+
+  expect(pace.name_to_runtime_ms).toBeGreaterThanOrEqual(0);
+  expect(pace.name_to_runtime_ms).toBeLessThan(PAGE_CHANGE_BUDGET_MS);
+  expect(pace.meet_luca_to_waking_ms).toBeGreaterThanOrEqual(0);
+  expect(pace.meet_luca_to_waking_ms).toBeLessThan(PAGE_CHANGE_BUDGET_MS);
+  expect(pace.runtime_rows_after_heading_ms).toBeLessThan(
+    PAGE_CHANGE_BUDGET_MS,
   );
+  expect(pace.door_to_name_ms).toBeGreaterThanOrEqual(0);
+  expect(pace.door_to_name_ms).toBeLessThan(DOOR_BUDGET_MS);
 });

@@ -670,6 +670,44 @@ test("a step change moves the column and nothing else, and never empties the pan
   await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(0);
 });
 
+test("reduced motion: the next page is simply there", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+
+  // No fade, no rise: the column that arrives is opaque and in place on the
+  // very first frame it exists.
+  const arrival = await page.evaluate(
+    () =>
+      new Promise<{ opacity: string; transform: string }>((resolve) => {
+        document
+          .querySelector<HTMLElement>(
+            '[data-testid="polyphonic-setup-continue"]',
+          )
+          ?.click();
+        const tick = () => {
+          const heading = document.querySelector("#polyphonic-runtime-heading");
+          const column = heading?.closest<HTMLElement>(
+            '[data-testid="polyphonic-setup-column"]',
+          );
+          if (!column) {
+            requestAnimationFrame(tick);
+            return;
+          }
+          const style = getComputedStyle(column);
+          resolve({ opacity: style.opacity, transform: style.transform });
+        };
+        requestAnimationFrame(tick);
+      }),
+  );
+  expect(Number(arrival.opacity)).toBe(1);
+  expect(["none", "matrix(1, 0, 0, 1, 0, 0)"]).toContain(arrival.transform);
+  // …and the page it replaces is not left dissolving behind it.
+  await expect(page.getByTestId("polyphonic-setup-column")).toHaveCount(1);
+});
+
 test("every page of the card, over a bright desktop", async ({
   page,
 }, testInfo) => {
@@ -708,4 +746,32 @@ test("every page of the card, over a bright desktop", async ({
     page.getByRole("heading", { name: "Luca is waking up." }),
   ).toBeVisible({ timeout: 15_000 });
   await shoot("card-4-waking");
+});
+
+test("the composition survives a smaller window than the card asks for", async ({
+  page,
+}) => {
+  // `FIRST_RUN_WINDOW_WIDTH/HEIGHT` live in Rust as well as in
+  // `polyphonicOnboardingGeometry.ts`, and the two can land in separate
+  // commits. At the old 960×544 the card is simply smaller: the pane, the
+  // dendrite's air and the column's measure are all derived from the same
+  // reserve, so the proportions hold rather than collapsing.
+  await page.setViewportSize({ width: 960, height: 544 });
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  await waitForAnimations(page);
+
+  const { card, pane, fieldBox, column } = await readCardGeometry(page);
+  expect(card).not.toBeNull();
+  if (!card || !pane || !fieldBox || !column) return;
+  expect(Math.round(card.width)).toBe(960);
+  // The column keeps its whole 35rem reserve; the pane gives way.
+  // (Less the card's own 1px border, which the pane sits inside.)
+  expect(Math.abs(card.right - pane.right - 560)).toBeLessThanOrEqual(1);
+  expect(Math.round(pane.width)).toBe(400);
+  // And the dendrite keeps exactly the air the wider card gives it.
+  expect(Math.round(fieldBox.left - pane.left)).toBe(FIELD_INSET);
+  expect(Math.round(pane.right - fieldBox.right)).toBe(FIELD_INSET);
+  expect(Math.round(column.width)).toBe(COLUMN_MEASURE);
 });

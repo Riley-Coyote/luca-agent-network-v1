@@ -330,10 +330,18 @@ export function PolyphonicOnboardingFieldLayer() {
               ease: EASE,
             }}
           >
+            {/* The wordmark stands on the black pane, so it is lit from the
+                same side as the dendrite — the app's ink would be invisible
+                here in a light appearance. */}
             <motion.span
               animate={{ opacity: becoming ? 0 : 1 }}
-              className="absolute bottom-5 left-6 text-sm font-medium tracking-[-0.01em] text-[var(--prototype-ink)]"
+              className="absolute bottom-5 left-6 text-sm font-medium tracking-[-0.01em]"
               initial={false}
+              style={{
+                color: onBlackPane
+                  ? `rgba(${glyphInk}, 0.93)`
+                  : "var(--prototype-ink)",
+              }}
               transition={{ duration: reduceMotion ? 0 : 0.2, ease: EASE }}
             >
               Polyphonic
