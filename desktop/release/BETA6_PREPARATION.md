@@ -1,5 +1,19 @@
 # Beta.6 candidate preparation — September 12, 2026
 
+## Authorized release cut — September 14, after restart
+
+Riley authorized the beta.6 installer for a second-Mac test. Source is the
+durable `codex/first-meeting-finish` worktree, including `2189df934` (exact
+Claude model catalog) and `5ce8ac4f8` (preserved sphere/glyph appearance).
+The beta overlay is now `0.5.0-beta.6`. The saved `luca-notary` keychain profile
+was verified successfully without exposing credentials. Build all six release
+helpers and the release app; do not package the Dev/debug executables.
+Keep installed Dev and Polyphonic apps untouched. Deliver the signed, notarized
+installer locally, without publishing a public release or changing updater feeds.
+The old Dev relay at localhost:3000 is not a packaging prerequisite; isolated
+release verification must exercise the app-owned personal-home relay instead.
+Final artifact and validation results belong in the delivery receipt.
+
 ## Release preparation update — September 14
 
 Riley authorized preparation through a second-Mac test installer, without
