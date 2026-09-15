@@ -163,7 +163,9 @@ export function PolyphonicOnboardingFieldLayer() {
       setBecomingTarget(resolveBecomingTarget());
       // The grow still needs its full run from here, but the fade waits for
       // the window to be still — and never longer than the cap.
-      scheduleFade(Math.max(BECOMING_GROW_MS - elapsed(), BECOMING_RESIZE_SETTLE_MS));
+      scheduleFade(
+        Math.max(BECOMING_GROW_MS - elapsed(), BECOMING_RESIZE_SETTLE_MS),
+      );
     }
     scheduleFade(BECOMING_GROW_MS);
     window.addEventListener("resize", onResize);

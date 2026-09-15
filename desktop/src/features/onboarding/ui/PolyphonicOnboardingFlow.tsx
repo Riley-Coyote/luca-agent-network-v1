@@ -14,14 +14,6 @@ import {
 } from "../polyphonicOnboardingState";
 import { setPolyphonicScene } from "../polyphonicOnboardingScene";
 import { readPendingPolyphonicProfile } from "../polyphonicProfileSync";
-import {
-  PolyphonicAgentsStep,
-  type PolyphonicAgentsStepHandle,
-} from "./PolyphonicAgentsStep";
-import {
-  PolyphonicBrainStep,
-  type PolyphonicBrainStepHandle,
-} from "./PolyphonicBrainStep";
 import { PolyphonicPreparingStep } from "./PolyphonicPreparingStep";
 import {
   PolyphonicRuntimeStep,
@@ -33,13 +25,18 @@ import {
   type PolyphonicYouStepHandle,
 } from "./PolyphonicYouStep";
 
-/** The four questions, in order, then the reading. */
-const CHAPTERS: PolyphonicOnboardingChapter[] = [
-  "welcome",
-  "runtime",
+/** Two questions — your name, and who speaks for Luca — then the waking.
+ *  Nothing is read during onboarding: Luca asks to look around in the
+ *  conversation instead. The agents and brain chapters still exist in the
+ *  transaction, its migrations and their step components; the flow simply
+ *  never enters them, and a transaction saved on one of them resumes at the
+ *  waking rather than stranding an owner on a chapter that is gone. */
+const CHAPTERS: PolyphonicOnboardingChapter[] = ["welcome", "runtime"];
+
+const SKIPPED_CHAPTERS: ReadonlySet<PolyphonicOnboardingChapter> = new Set([
   "agents",
   "brain",
-];
+]);
 
 const previousChapter: Record<
   PolyphonicOnboardingChapter,
@@ -48,8 +45,8 @@ const previousChapter: Record<
   welcome: "welcome",
   runtime: "welcome",
   agents: "runtime",
-  brain: "agents",
-  preparing: "brain",
+  brain: "runtime",
+  preparing: "runtime",
 };
 
 export function PolyphonicOnboardingFlow({
@@ -61,14 +58,19 @@ export function PolyphonicOnboardingFlow({
   initialProfile: OnboardingProfileSeed;
   pubkey: string;
 }) {
-  const initialTransaction = React.useMemo(
-    () =>
+  const initialTransaction = React.useMemo(() => {
+    const saved =
       readPolyphonicOnboardingTransaction(pubkey) ??
-      savePolyphonicOnboardingTransaction(
-        createPolyphonicOnboardingTransaction(pubkey),
-      ),
-    [pubkey],
-  );
+      createPolyphonicOnboardingTransaction(pubkey);
+    // A transaction written by a build that still asked these two questions
+    // resumes at the waking: the answers it was waiting for are no longer
+    // part of the walk.
+    return savePolyphonicOnboardingTransaction(
+      SKIPPED_CHAPTERS.has(saved.chapter)
+        ? { ...saved, chapter: "preparing" }
+        : saved,
+    );
+  }, [pubkey]);
   const pendingProfile = readPendingPolyphonicProfile(pubkey);
   const [transaction, setTransaction] = React.useState(initialTransaction);
   const [displayName, setDisplayName] = React.useState(() => {
@@ -82,22 +84,17 @@ export function PolyphonicOnboardingFlow({
   const [busy, setBusy] = React.useState(false);
   const continuingRef = React.useRef(false);
   const [runtimeReady, setRuntimeReady] = React.useState(false);
-  const [agentsContinueLabel, setAgentsContinueLabel] =
-    React.useState("Continue");
   const [error, setError] = React.useState<string | null>(null);
   const youRef = React.useRef<PolyphonicYouStepHandle>(null);
   const runtimeRef = React.useRef<PolyphonicRuntimeStepHandle>(null);
-  const agentsRef = React.useRef<PolyphonicAgentsStepHandle>(null);
-  const brainRef = React.useRef<PolyphonicBrainStepHandle>(null);
 
   React.useEffect(() => {
-    // The protected local mirror does not know the brain chapter yet — its
-    // allowlist lives in native code this work package does not own — so the
-    // nearest chapter it does know is published. Browser state is canonical
-    // either way. See the report's open questions.
-    const mirrored =
-      transaction.chapter === "brain" ? "agents" : transaction.chapter;
-    void setPolyphonicOnboardingStatus(mirrored, false).catch(() => {
+    // The protected local mirror's allowlist lives in native code this work
+    // package does not own; the flow now only ever publishes chapters that
+    // allowlist already knows. Browser state is canonical either way.
+    const chapter = transaction.chapter;
+    if (chapter === "brain") return;
+    void setPolyphonicOnboardingStatus(chapter, false).catch(() => {
       // Browser state remains canonical if the protected local mirror is
       // temporarily unavailable; the next chapter transition repairs it.
     });
@@ -113,7 +110,7 @@ export function PolyphonicOnboardingFlow({
 
   const steps = {
     current:
-      transaction.chapter === "preparing"
+      CHAPTERS.indexOf(transaction.chapter) < 0
         ? CHAPTERS.length
         : CHAPTERS.indexOf(transaction.chapter),
     total: CHAPTERS.length,
@@ -135,24 +132,7 @@ export function PolyphonicOnboardingFlow({
       if (transaction.chapter === "runtime") {
         const target = await runtimeRef.current?.commit();
         if (!target) return;
-        persist({
-          chapter: "agents",
-          runtimeConfirmed: true,
-        });
-        return;
-      }
-      if (transaction.chapter === "agents") {
-        // The step returns undefined when it needs another pass (a native
-        // creation waiting for approval, an import that needs attention).
-        const outcome = await agentsRef.current?.commit();
-        if (!outcome) return;
-        persist({ chapter: "brain", agentsReviewed: true });
-        return;
-      }
-      if (transaction.chapter === "brain") {
-        const outcome = await brainRef.current?.commit();
-        if (!outcome || outcome.cancelled) return;
-        persist({ chapter: "preparing", brainReviewed: true });
+        persist({ chapter: "preparing", runtimeConfirmed: true });
         return;
       }
     } catch (cause) {
@@ -206,11 +186,9 @@ export function PolyphonicOnboardingFlow({
       continueLabel={
         busy
           ? "Working…"
-          : transaction.chapter === "brain"
+          : transaction.chapter === "runtime"
             ? "Meet Luca"
-            : transaction.chapter === "agents"
-              ? agentsContinueLabel
-              : "Continue"
+            : "Continue"
       }
       onBack={() => persist({ chapter: previousChapter[transaction.chapter] })}
       onContinue={() => void continueForward()}
@@ -232,20 +210,6 @@ export function PolyphonicOnboardingFlow({
           onReadyChange={setRuntimeReady}
           ref={runtimeRef}
         />
-      ) : null}
-      {transaction.chapter === "agents" ? (
-        <PolyphonicAgentsStep
-          onBusyChange={setBusy}
-          onContinueLabelChange={setAgentsContinueLabel}
-          onResidentMemoryChange={(residentMemory) =>
-            persist({ residentMemory })
-          }
-          ref={agentsRef}
-          residentMemory={transaction.residentMemory}
-        />
-      ) : null}
-      {transaction.chapter === "brain" ? (
-        <PolyphonicBrainStep onBusyChange={setBusy} ref={brainRef} />
       ) : null}
       {transaction.chapter === "preparing" ? (
         <PolyphonicPreparingStep

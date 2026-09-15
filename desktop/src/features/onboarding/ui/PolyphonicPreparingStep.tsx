@@ -32,15 +32,9 @@ import {
   type NativeProvisioningRequestV1,
 } from "@/shared/api/tauriOperatorForge";
 import { setPersonaActive } from "@/shared/api/tauriPersonas";
-import {
-  type IndexProgressV1,
-  listConnectedBrainSources,
-  listenToConnectedBrainIndexProgress,
-} from "@/shared/api/tauriBrain";
 import { getChannelWindowEvents } from "@/shared/api/channelWindow";
 import { MANAGED_PRESENTATION_EVENT } from "@/features/messages/managedPresentationProtocol";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { PendingBrainConnect } from "./PolyphonicBrainStep";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
@@ -50,7 +44,7 @@ const LUCA_PERSONA_ID = "builtin:fizz";
 const LUCA_READY_TIMEOUT_MS = 30_000;
 
 /**
- * What the owner is being given, one frame at a time, while Luca reads. There
+ * What the owner is being given, one frame at a time, while Luca wakes. There
  * is no spinner and no invented counter: the wait is spent saying four true
  * things about the place they are about to be in.
  */
@@ -76,53 +70,20 @@ const FRAME_MS = 2600;
 const FRAME_CROSSFADE_MS = 500;
 
 /**
- * The three true things that happen between "Meet Luca" and Luca's first
- * words. One of them is on screen at a time, and none of them is invented:
- * the counts come from native's own index progress, and "writing" is not
- * claimed until something Luca-signed is actually in the conversation.
+ * Two true things happen between "Meet Luca" and Luca's first words, and one
+ * of them is on screen at a time. Nothing is read during onboarding — Luca
+ * asks to look around in the conversation — so there is no count to show and
+ * none is invented.
  */
-type ReadingPhase = "connecting" | "waking" | "writing";
+type WakingPhase = "starting" | "writing";
 
-const SOURCE_PHRASE: Record<string, string> = {
-  repository: "Reading repositories",
-  codex_history: "Reading Codex sessions",
-  claude_history: "Reading Claude Code sessions",
-};
-/** How often the reading step asks native whether an index it did not start
- *  (a reload mid-connect) has finished. */
-const CONNECT_POLL_MS = 1000;
 const LUCA_WRITING_POLL_MS = 250;
 const LUCA_WRITING_TIMEOUT_MS = 20_000;
-/** Even with no counts the bar is a line, not an empty groove. */
-const MIN_PHASE_FRACTION = 0.08;
 
-function readingPhaseLine(
-  phase: ReadingPhase,
-  progress: IndexProgressV1 | null,
-): string {
-  if (phase === "waking") return "Waking Luca";
-  if (phase === "writing") return "Luca is writing to you";
-  if (!progress || progress.state === "done") return "Connecting your sources";
-  const phrase = SOURCE_PHRASE[progress.kind] ?? progress.label;
-  if (typeof progress.total === "number" && progress.total > 0) {
-    return `${phrase} · ${progress.done.toLocaleString()} of ${progress.total.toLocaleString()}`;
-  }
-  if (progress.done > 0) return `${phrase} · ${progress.done.toLocaleString()}`;
-  return phrase;
-}
-
-function readingFraction(
-  phase: ReadingPhase,
-  progress: IndexProgressV1 | null,
-): number {
-  if (phase === "writing") return 1;
-  if (phase === "waking") return 2 / 3;
-  const within =
-    progress && typeof progress.total === "number" && progress.total > 0
-      ? Math.min(1, progress.done / progress.total)
-      : 0;
-  return (1 / 3) * Math.max(MIN_PHASE_FRACTION, within);
-}
+const WAKING_LINE: Record<WakingPhase, string> = {
+  starting: "Starting Luca",
+  writing: "Luca is writing to you",
+};
 
 async function waitForLucaChannelSubscription(
   pubkey: string,
@@ -174,14 +135,10 @@ async function waitForLucaToSpeak(
 export function PolyphonicPreparingStep({
   onComplete,
   onBack,
-  pendingConnect = null,
 }: {
   displayName: string;
   onComplete: (channelId: string) => void;
   onBack?: () => void;
-  /** The connect the Brain chapter started. Absent after a reload, when the
-   *  step asks native what is still running instead of starting anything. */
-  pendingConnect?: PendingBrainConnect | null;
 }) {
   const queryClient = useQueryClient();
   const reduceMotion = useReducedMotion();
@@ -202,60 +159,13 @@ export function PolyphonicPreparingStep({
   const readyChannelRef = React.useRef<string | null>(null);
   const onCompleteRef = React.useRef(onComplete);
   onCompleteRef.current = onComplete;
-  const [connectSettled, setConnectSettled] = React.useState(false);
-  const [connectError, setConnectError] = React.useState<string | null>(null);
-  const [connectAttempt, setConnectAttempt] = React.useState(0);
-  const [writingStarted, setWritingStarted] = React.useState(false);
-  const [progressBySource, setProgressBySource] = React.useState<
-    ReadonlyMap<string, IndexProgressV1>
-  >(() => new Map());
-  const pendingConnectRef = React.useRef(pendingConnect);
+  const [phase, setPhase] = React.useState<WakingPhase>("starting");
   const spokeInRef = React.useRef(new Set<string>());
-  // Luca is not asked to read until the sources it was given are in. The gate
-  // is a promise so the preparation can run alongside the index and wait for
-  // it only at the one moment that matters.
-  const connectGateRef = React.useRef<{
-    promise: Promise<void>;
-    open: () => void;
-  } | null>(null);
-  if (!connectGateRef.current) {
-    let open: () => void = () => undefined;
-    const promise = new Promise<void>((resolve) => {
-      open = resolve;
-    });
-    connectGateRef.current = { promise, open };
-  }
   const visibleError =
     error ??
     settings.error?.message ??
     personas.error?.message ??
     managed.error?.message;
-
-  // What the index is doing, keyed by source. Native may emit nothing at all;
-  // the phrase alone is then the whole truth and no counter is invented.
-  React.useEffect(() => {
-    let cancelled = false;
-    let unlisten: UnlistenFn | undefined;
-    void listenToConnectedBrainIndexProgress((next) => {
-      setProgressBySource((current) => {
-        const map = new Map(current);
-        map.delete(next.sourceId);
-        map.set(next.sourceId, next);
-        return map;
-      });
-    })
-      .then((stop) => {
-        if (cancelled) stop();
-        else unlisten = stop;
-      })
-      .catch(() => {
-        // No progress channel on this build: the reading screen still reads.
-      });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
 
   // A presentation frame is Luca speaking before the row is published.
   React.useEffect(() => {
@@ -281,61 +191,6 @@ export function PolyphonicPreparingStep({
       unlisten?.();
     };
   }, []);
-
-  // The connection the owner authorised. It is already running when it gets
-  // here; after a reload it is native's to report, never ours to start again.
-  React.useEffect(() => {
-    let cancelled = false;
-    const settle = () => {
-      if (cancelled) return;
-      setConnectSettled(true);
-      connectGateRef.current?.open();
-    };
-    const pending = pendingConnectRef.current;
-    if (pending) {
-      const run = connectAttempt === 0 ? pending.promise : pending.retry();
-      run
-        .then((outcome) => {
-          if (cancelled) return;
-          if (outcome.error) {
-            setConnectError(outcome.error);
-            return;
-          }
-          settle();
-        })
-        .catch((cause) => {
-          if (cancelled) return;
-          setConnectError(
-            cause instanceof Error ? cause.message : String(cause),
-          );
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    let timer = 0;
-    async function poll() {
-      try {
-        const inventory = await listConnectedBrainSources();
-        if (cancelled) return;
-        if (
-          !inventory.sources.some((source) => source.status === "connecting")
-        ) {
-          settle();
-          return;
-        }
-      } catch {
-        settle();
-        return;
-      }
-      timer = window.setTimeout(() => void poll(), CONNECT_POLL_MS);
-    }
-    void poll();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [connectAttempt]);
 
   React.useEffect(() => {
     void attempt;
@@ -444,9 +299,8 @@ export function PolyphonicPreparingStep({
       if (target.kind === "managed") {
         await waitForLucaChannelSubscription(lucaPubkey, channel.id);
       }
-      // Nothing is asked of Luca until what the owner brought is in.
-      await connectGateRef.current?.promise;
-      setWritingStarted(true);
+      // The subscription is confirmed: from here the wait is Luca composing.
+      setPhase("writing");
       await beginLucaFirstMeeting(channel.id);
       await waitForLucaToSpeak(channel.id, lucaPubkey, spokeInRef.current);
       return channel.id;
@@ -516,12 +370,39 @@ export function PolyphonicPreparingStep({
       aria-busy={working && !visibleError}
       className="flex h-full min-h-0 flex-col justify-center"
     >
-      <PolyphonicStepHeading
-        stage="preparing"
-        title="Luca is reading what you brought."
-      />
+      <PolyphonicStepHeading stage="preparing" title="Luca is waking up." />
       {visibleError ? null : (
         <>
+          {/* What is happening, in two words, and a hairline that is only
+              ever half or whole — there is nothing to count, so nothing
+              pretends to be counted. */}
+          <p
+            className="mt-5 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted)]"
+            data-testid="polyphonic-reading-phase"
+          >
+            {WAKING_LINE[phase]}
+          </p>
+          <div
+            aria-hidden
+            className="mt-3 h-px w-full max-w-[30rem] overflow-hidden"
+            data-testid="polyphonic-reading-progress"
+            style={{ backgroundColor: "var(--prototype-hairline)" }}
+          >
+            <motion.div
+              animate={{ scaleX: phase === "writing" ? 1 : 0.5 }}
+              className="h-px w-full origin-left"
+              initial={false}
+              style={{
+                backgroundColor: "var(--prototype-ink)",
+                opacity: 0.5,
+                transformOrigin: "left",
+              }}
+              transition={{
+                duration: reduceMotion ? 0 : 0.6,
+                ease: [0.2, 0, 0, 1],
+              }}
+            />
+          </div>
           <div className="relative mt-8 h-16 max-w-[30rem]">
             {WALKTHROUGH.map((item, index) => (
               <motion.div
@@ -590,6 +471,7 @@ export function PolyphonicPreparingStep({
                   .then(() => {
                     preparationRef.current = null;
                     handoffRef.current = null;
+                    setPhase("starting");
                     setAttempt((value) => value + 1);
                   })
                   .catch((cause) => {

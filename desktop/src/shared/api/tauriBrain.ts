@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type OwnerBrainAvailability =
   | "ready"
@@ -217,31 +216,6 @@ export type ConnectConnectedBrainSourceInput = {
 export type ConnectedBrainSourceInput = {
   sourceId: string;
 };
-
-/** One source's indexing progress, as native reads it. `total` is absent
- *  until the scan knows how much there is; `done` is always real. */
-export type IndexProgressV1 = {
-  sourceId: string;
-  kind: ConnectedBrainSourceKind;
-  label: string;
-  done: number;
-  total?: number;
-  state: "scanning" | "indexing" | "done";
-};
-
-export const CONNECTED_BRAIN_INDEX_PROGRESS_EVENT =
-  "connected-brain:index-progress";
-
-/** Subscribe to indexing progress for every connected source. Native may not
- *  emit at all; every caller must read correctly with no events. */
-export function listenToConnectedBrainIndexProgress(
-  onProgress: (progress: IndexProgressV1) => void,
-): Promise<UnlistenFn> {
-  return listen<IndexProgressV1>(
-    CONNECTED_BRAIN_INDEX_PROGRESS_EVENT,
-    (event) => onProgress(event.payload),
-  );
-}
 
 export type ConnectedBrainResidentInput = ConnectedBrainSourceInput & {
   residentPubkey: string;

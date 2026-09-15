@@ -43,17 +43,15 @@ import { ConversationAgentActivityStrip } from "@/features/channels/ui/Conversat
 import { StopAllWorkingResidents } from "@/features/channels/ui/StopAllWorkingResidents";
 import type { ActivityShelfRetryTarget } from "@/features/channels/ui/conversationAgentActivityShelf";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
-import { LUCA_INTRO_ROLE } from "@/features/luca/canonicalLucaResident";
-import { isUntouchedLucaGreeting } from "@/features/luca/firstConversation";
-import { isFirstMeetingTimelineRow } from "@/features/luca/canonicalLucaResident";
+import {
+  isCanonicalLucaDm,
+  LUCA_INTRO_ROLE,
+  useCanonicalLucaPubkey,
+} from "@/features/luca/canonicalLucaResident";
 import {
   firstMeetingPresentation,
   latestFirstMeetingOffer,
-  visibleFirstMeetingProse,
 } from "@/features/luca/firstMeetingChoices";
-import { LucaFirstConversation } from "@/features/luca/ui/LucaFirstConversation";
-import { LucaGreetingChoices } from "@/features/luca/ui/LucaGreetingChoices";
-import { useLucaArrival } from "@/features/luca/lucaArrival";
 import { pendingReplyRows } from "@/features/messages/lib/pendingReplyRows";
 import { usePendingReplyClock } from "@/features/messages/lib/usePendingReplyClock";
 import { LucaGreetingChoicesContext } from "@/features/luca/ui/lucaGreetingChoicesContext";
@@ -237,11 +235,13 @@ export const ChannelPane = React.memo(function ChannelPane({
     mainComposerMedia.resetDragState();
   }, [activeChannelId, mainComposerMedia.resetDragState]);
   useNativeAgentNotice({ activeChannel, currentPubkey, messages });
-  const lucaArrival = useLucaArrival({
-    activeChannel,
-    currentPubkey,
-    messages,
-  });
+  // Luca's DM is an ordinary conversation. It used to carry an arrival
+  // ceremony — a collapsed sidebar, a centred stage — and now carries only
+  // the fact of whose room this is.
+  const lucaPubkey = useCanonicalLucaPubkey();
+  const isLucaDm =
+    lucaPubkey !== null &&
+    isCanonicalLucaDm(activeChannel, currentPubkey, lucaPubkey);
   const activePermissionRequests = React.useMemo(
     () =>
       pendingManagedPermissions.filter(
@@ -604,8 +604,8 @@ export const ChannelPane = React.memo(function ChannelPane({
     if (!intro) return null;
     // The one resident whose role the app can vouch for. Other residents and
     // people carry their name alone; nothing is invented for them.
-    return lucaArrival.isLucaDm ? { ...intro, role: LUCA_INTRO_ROLE } : intro;
-  }, [activeChannel, currentPubkey, lucaArrival.isLucaDm, profiles]);
+    return isLucaDm ? { ...intro, role: LUCA_INTRO_ROLE } : intro;
+  }, [activeChannel, currentPubkey, isLucaDm, profiles]);
   const handleWelcomeAddAgent = React.useCallback(() => {
     onAddAgent?.({
       beforeSend: () =>
@@ -643,47 +643,22 @@ export const ChannelPane = React.memo(function ChannelPane({
     onWelcomeAddAgent: onAddAgent ? handleWelcomeAddAgent : undefined,
   });
   const visibleMessages = React.useMemo(() => {
-    const base = lucaArrival.visibleMessages;
     if (!isWelcomeExperience(activeChannel)) {
-      return base;
+      return messages;
     }
 
-    return base.filter((message) => !isWelcomeSetupSystemMessage(message));
-  }, [activeChannel, lucaArrival.visibleMessages]);
+    return messages.filter((message) => !isWelcomeSetupSystemMessage(message));
+  }, [activeChannel, messages]);
   // Luca's opening offer stays until the owner has said anything at all. It
   // renders inside Luca's greeting row; the pane supplies the send.
   const lucaOffer =
-    lucaArrival.isLucaDm && lucaArrival.lucaPubkey && currentPubkey
-      ? latestFirstMeetingOffer(messages, currentPubkey, lucaArrival.lucaPubkey)
+    isLucaDm && lucaPubkey && currentPubkey
+      ? latestFirstMeetingOffer(messages, currentPubkey, lucaPubkey)
       : null;
   const lucaPresentation =
-    lucaArrival.isLucaDm && lucaArrival.lucaPubkey && currentPubkey
-      ? firstMeetingPresentation(
-          messages,
-          currentPubkey,
-          lucaArrival.lucaPubkey,
-        )
+    isLucaDm && lucaPubkey && currentPubkey
+      ? firstMeetingPresentation(messages, currentPubkey, lucaPubkey)
       : { triggerId: null, responseIds: new Set<string>() };
-  const showFirstConversation =
-    lucaArrival.isLucaDm &&
-    !openThreadHeadId &&
-    !targetMessageId &&
-    !channelFind.isOpen &&
-    isUntouchedLucaGreeting(
-      messages,
-      lucaArrival.lucaPubkey,
-      currentPubkey,
-      historyExhausted === true,
-      isTimelineLoading,
-    );
-  const firstGreeting = showFirstConversation
-    ? messages.find(
-        (message) =>
-          isFirstMeetingTimelineRow(message) &&
-          normalizePubkey(message.signerPubkey ?? message.pubkey ?? "") ===
-            lucaArrival.lucaPubkey,
-      )
-    : undefined;
   // WP-STRIP1 · THE WORK HAPPENS IN THE THREAD, IN EVERY ROOM.
   //
   // The reply row itself is the indicator: the resident's mark carries the
@@ -769,24 +744,18 @@ export const ChannelPane = React.memo(function ChannelPane({
       stoppablePresentationActivity,
     ],
   );
+  // The opener is an ordinary row, so its choices belong in it: the latest
+  // first-meeting row Luca signed, until the owner has answered it.
   const lucaChoicesContext = React.useMemo(
     () => ({
-      activeMessageId: !showFirstConversation
-        ? (lucaOffer?.messageId ?? null)
-        : null,
+      activeMessageId: lucaOffer?.messageId ?? null,
       triggerId: lucaPresentation.triggerId,
       responseIds: lucaPresentation.responseIds,
       options: lucaOffer?.options ?? [],
       onChoose: (choice: string) =>
         onSendMessage(choice, [], undefined, activeChannelId),
     }),
-    [
-      activeChannelId,
-      onSendMessage,
-      showFirstConversation,
-      lucaOffer,
-      lucaPresentation,
-    ],
+    [activeChannelId, onSendMessage, lucaOffer, lucaPresentation],
   );
   // Nothing working goes to the shelf any more; the thread owns all of it.
   const stripWorkingPubkeys = React.useMemo<string[]>(() => [], []);
@@ -1126,7 +1095,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   : undefined
               }
             >
-              {showFirstConversation ? null : header}
+              {header}
               {channelFind.isOpen ? (
                 <div
                   className={cn("absolute inset-x-0 z-40", channelChrome.top)}
@@ -1153,7 +1122,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   replyCount={Math.max(0, mainTimelineEntries.length - 1)}
                 />
               ) : null}
-              <div className={showFirstConversation ? "hidden" : "contents"}>
+              <div className="contents">
                 <MessageTimeline
                   ref={messageTimelineRef}
                   channelId={activeChannel?.id}
@@ -1267,12 +1236,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                 </div>
               ) : (
                 <div
-                  className={cn(
-                    "pointer-events-none z-40 isolate",
-                    showFirstConversation
-                      ? "relative flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-5 py-10 sm:px-8"
-                      : "absolute inset-x-0 bottom-0",
-                  )}
+                  className="pointer-events-none absolute inset-x-0 bottom-0 z-40 isolate"
                   data-testid="channel-composer-overlay"
                   ref={composerWrapperRef}
                 >
@@ -1283,20 +1247,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                       cards, the composer itself) inside this isolate. */}
                   <div
                     aria-hidden="true"
-                    className={cn(
-                      "luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]",
-                      showFirstConversation && "hidden",
-                    )}
+                    className="luca-conversation-veil-bottom absolute inset-x-0 bottom-0 -z-10 h-[calc(100%+3rem)]"
                   />
                   <div className="pointer-events-none">
-                    {firstGreeting ? (
-                      <LucaFirstConversation
-                        greeting={visibleFirstMeetingProse(
-                          firstGreeting.body,
-                          Boolean(firstGreeting.managedPresentation?.streaming),
-                        )}
-                      />
-                    ) : null}
                     {exchangesNeedingDecision.length > 0 ? (
                       <div className="luca-measure pointer-events-auto mb-2 grid gap-1">
                         {exchangesNeedingDecision.map((exchange) => (
@@ -1487,7 +1440,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                               : activeChannel?.channelType === "forum"
                                 ? "Forum posting is not wired in this pass."
                                 : activeChannel
-                                  ? showFirstConversation
+                                  ? isLucaDm
                                     ? "Message Luca…"
                                     : undefined
                                   : "Select a channel"
@@ -1500,15 +1453,6 @@ export const ChannelPane = React.memo(function ChannelPane({
                       }
                       typingRootEventId={openThreadHeadId ?? null}
                     />
-                    {showFirstConversation && lucaOffer ? (
-                      <div className="luca-measure pointer-events-auto px-0">
-                        <LucaGreetingChoices
-                          disabled={isComposerDisabled || isSending}
-                          options={lucaOffer?.options ?? []}
-                          onChoose={lucaChoicesContext.onChoose}
-                        />
-                      </div>
-                    ) : null}
                   </div>
                 </div>
               )}
