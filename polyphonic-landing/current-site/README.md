@@ -169,3 +169,26 @@ strip, the rooms rail's speed and its indifference to hover and to a hide/show, 
 reduced motion, the contrast of every text node, axe, the whole signup contract against intercepted
 fixtures, the links and metadata, and that no glyph code or 64-hex key ships. `verify-demo.mjs` is
 gone from the chain.
+
+### 15 September 2026 — the field and the shell's default (WP-19)
+
+**The ambient field is back.** `index.html` carries the prototype's fixed, full-page
+`canvas[data-scene="touch"]` again, painted by `assets/dot-display.js` and `assets/mnemos-scenes.js`
+(both copied verbatim from the design hand-off — never edit them) through the wrapper in
+`assets/field.js`: the scene, the pointer and scroll globals it reads, the mount, and a visibility
+gate. Ambient stays the prototype's **0.04**, so the field is nearly silent at rest and wakes where
+the pointer moves and where the scroll drags it. The budget is *no worse than the prototype*,
+measured the same way on both at 1440 @2x. It runs **no frames at all** while the tab is hidden
+(`field.js` stops the mount on `visibilitychange` and re-mounts on return) and none under
+`prefers-reduced-motion`, where the canvas stays in the page and draws nothing — exactly what the
+prototype does.
+
+**The shell opens on the minimal view.** The app frame loads with the chats column closed
+(`data-list="closed"` on `[data-pp-shell]`): rail and conversation only, Luca selected, `morning`
+open. The column's 194px goes to the conversation, so the frame's outer size does not change. A rail
+pick opens the column as before, the × closes it, and the 840px rule is untouched.
+
+`scripts/verify.mjs` grew a field section (mounted, ambient 0.04, it really draws, per-frame cost —
+set `PROTOTYPE_ORIGIN` to assert it against the prototype on the same machine, zero frames while
+hidden, nothing under reduced motion) and a shell-default section.
+

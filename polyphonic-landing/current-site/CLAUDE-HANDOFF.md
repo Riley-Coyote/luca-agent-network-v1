@@ -132,3 +132,19 @@ do not hard-code a port into the scripts again.
 (**Riley to confirm this is the right public repo**). "Write to us" is deliberately **absent**
 until there is an address to use — no dead links. Privacy comes from `config.privacyUrl` and is
 hidden when that is empty.
+
+### 15 September 2026 — Riley's two corrections (WP-19)
+
+**The background animation is back, and it is the prototype's.** `assets/dot-display.js` and
+`assets/mnemos-scenes.js` are verbatim copies from the design hand-off and must stay that way —
+wrap them, never fork them. `assets/field.js` is the wrapper: it registers the `touch` scene, feeds
+it the pointer position and scroll velocity, mounts the fixed full-page canvas, and stops the mount
+while the tab is hidden. `ambient` is the prototype's **0.04**; the field is meant to be nearly
+invisible at rest and to wake under the cursor and the scroll. Budget: no worse than the prototype,
+measured the same way at 1440 @2x. Under `prefers-reduced-motion` the engine starts no loop and the
+canvas draws nothing.
+
+**The app frame opens quiet.** `[data-pp-shell]` carries `data-list="closed"` in the markup, so the
+chats column is shut at load — rail and conversation only. Do not restore the prototype's open
+column: Riley changed it deliberately. Everything else about the shell is unchanged.
+

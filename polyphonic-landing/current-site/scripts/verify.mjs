@@ -1,7 +1,9 @@
-/* Verification for the v3 page (WP-18). Every assertion is measured in a real browser against a
-   running build; nothing is inferred from the source. Origin comes from VERIFY_ORIGIN so the port
-   never has to be edited into this file:
-     VERIFY_ORIGIN=http://127.0.0.1:8749 node scripts/verify.mjs                                   */
+/* Verification for the v3 page (WP-18, amended by WP-19). Every assertion is measured in a real
+   browser against a running build; nothing is inferred from the source. Origin comes from
+   VERIFY_ORIGIN so the port never has to be edited into this file:
+     VERIFY_ORIGIN=http://127.0.0.1:8749 node scripts/verify.mjs
+   Set PROTOTYPE_ORIGIN as well to measure the ambient field's per-frame cost against the design
+   prototype on the same machine; without it the port's own cost is reported, not asserted.       */
 import {chromium} from 'playwright';
 import {createRequire} from 'node:module';
 import assert from 'node:assert/strict';
@@ -33,6 +35,50 @@ const open = async (w = 1440, h = 900, opts = {}) => {
   page.on('request', r => { try { hosts.add(new URL(r.url()).host); } catch {} });
   await page.goto(ORIGIN + '/', {waitUntil: 'networkidle'});
   return {page, errs, hosts};
+};
+
+/* The ambient field runs inside the engine's own shared loop, so it is timed from outside by
+   wrapping DotDisplay.mount before the engine assigns itself: every item's scene call is bracketed
+   and the loop's own rAF callbacks are counted. The same script is injected into the prototype, so
+   the two numbers are comparable. */
+const FIELD_PROBE = `(() => {
+  const M = {samples: [], sceneCalls: 0, sceneCallsHidden: 0, rafRun: 0, rafRunHidden: 0, mounts: 0};
+  window.__FIELD = M;
+  window.__FIELD_RESET = () => { M.samples.length = 0; M.sceneCalls = 0; M.sceneCallsHidden = 0; M.rafRun = 0; M.rafRunHidden = 0; };
+  const isLoop = fn => { try { return typeof fn === 'function' && String(fn).indexOf('it.live && it.d.ok') >= 0; } catch (e) { return false; } };
+  const raf = window.requestAnimationFrame.bind(window);
+  window.requestAnimationFrame = cb => isLoop(cb)
+    ? raf(t => { M.rafRun++; if (document.hidden) M.rafRunHidden++; return cb(t); })
+    : raf(cb);
+  let store;
+  Object.defineProperty(window, 'DotDisplay', {configurable: true, get() { return store; }, set(v) {
+    if (v && !v.__probed) { v.__probed = 1; const orig = v.mount;
+      v.mount = function (root, opts) { const h = orig.call(this, root, opts); M.mounts++;
+        (h.items || []).forEach(it => { const f = it.fn; it.fn = function (d, t, cv) {
+          const a = performance.now(); const r = f.call(this, d, t, cv);
+          M.samples.push(performance.now() - a); M.sceneCalls++; if (document.hidden) M.sceneCallsHidden++; return r; }; });
+        return h; }; }
+    store = v; }});
+})();`;
+const fieldStats = page => page.evaluate(() => {
+  const s = window.__FIELD.samples.slice().sort((a, b) => a - b);
+  const r = n => Math.round(n * 1000) / 1000;
+  return {frames: s.length,
+          mean: s.length ? r(s.reduce((a, b) => a + b, 0) / s.length) : null,
+          p95: s.length ? r(s[Math.min(s.length - 1, Math.floor(s.length * 0.95))]) : null,
+          max: s.length ? r(s[s.length - 1]) : null};
+});
+/* how many canvas pixels the field has actually put down */
+const fieldLit = page => page.evaluate(() => {
+  const cv = document.querySelector('canvas[data-scene="touch"]');
+  if (!cv) return null;
+  const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+  return n;
+});
+const sweep = async page => {
+  for (let i = 0; i < 30; i++) { await page.mouse.move(260 + i * 26, 380 + Math.sin(i / 3) * 140); await page.waitForTimeout(24); }
+  await page.waitForTimeout(400);
 };
 
 /* ---- 1. no third-party requests, clean console, no overflow, phone nav fits ---- */
@@ -175,6 +221,21 @@ const open = async (w = 1440, h = 900, opts = {}) => {
   assert.equal(out.shell.replay_completes, true, 'replay did not finish cleanly');
   assert.equal(shift, 0, `replay moved the frame by ${shift}px`);
 
+  /* WP-19: the shell opens on the minimal view — rail and conversation, no chats column — and the
+     conversation absorbs the column's 194px, so the frame's outer box does not change. */
+  out.shell.shell_default = await page.evaluate(() => {
+    const shell = document.querySelector('[data-pp-shell]'), col = document.querySelector('[data-pp-chats]');
+    const sel = document.querySelector('[data-pick][aria-pressed="true"]');
+    return {chats_column_present: !!col && col.getBoundingClientRect().width > 0,
+            data_list: shell.getAttribute('data-list'),
+            selected: sel ? (sel.textContent.trim().split('\n')[0] || '').trim() : null,
+            conversation: document.querySelector('[data-pp-conv-body]').dataset.conv,
+            shell_box: [Math.round(shell.getBoundingClientRect().width), Math.round(shell.getBoundingClientRect().height)]};
+  });
+  assert.equal(out.shell.shell_default.chats_column_present, false, 'the chats column is open at load');
+  assert.equal(out.shell.shell_default.selected, 'Luca', 'Luca is not the selected agent at load');
+  assert.equal(out.shell.shell_default.conversation, 'ns-morning', 'morning is not the open conversation at load');
+
   const pick = async sel => page.evaluate(s => {
     document.querySelector(s).click();
     const shell = document.querySelector('[data-pp-shell]');
@@ -184,6 +245,17 @@ const open = async (w = 1440, h = 900, opts = {}) => {
             list: shell.getAttribute('data-list')};
   }, sel);
   out.shell.rail_select_fifty = await pick('[data-pick="agent:fifty"]');
+  out.shell.shell_after_agent_click = await page.evaluate(() => {
+    const shell = document.querySelector('[data-pp-shell]'), col = document.querySelector('[data-pp-chats]');
+    return {chats_column_present: col.getBoundingClientRect().width > 0,
+            column_px: Math.round(col.getBoundingClientRect().width),
+            shell_box: [Math.round(shell.getBoundingClientRect().width), Math.round(shell.getBoundingClientRect().height)]};
+  });
+  out.shell.shell_default.frame_size_unchanged =
+    out.shell.shell_default.shell_box[0] === out.shell.shell_after_agent_click.shell_box[0] &&
+    out.shell.shell_default.shell_box[1] === out.shell.shell_after_agent_click.shell_box[1];
+  assert.equal(out.shell.shell_after_agent_click.chats_column_present, true, 'a rail pick did not open the chats column');
+  assert.equal(out.shell.shell_default.frame_size_unchanged, true, 'the frame resized when the chats column opened');
   out.shell.select_project = await pick('[data-pick="project:launch"]');
   assert.equal(out.shell.rail_select_fifty.pressed, 'true', 'selecting Fifty did not press it');
   assert.ok(out.shell.rail_select_fifty.rows.length > 0, 'no chats after selecting Fifty');
@@ -223,13 +295,21 @@ const open = async (w = 1440, h = 900, opts = {}) => {
               rail_shown: !!rail && rail.getBoundingClientRect().width > 0,
               chats_shown: !!chats && chats.getBoundingClientRect().width > 0};
     });
+    /* the column is closed at load now (WP-19), so the 840px rule is read after a rail pick */
+    out.shell.breakpoints[w].chats_shown_after_pick = await p.evaluate(() => {
+      const b = document.querySelector('[data-pick="agent:fifty"]');
+      if (b) b.click();
+      const chats = document.querySelector('[data-pp-chats]');
+      return !!chats && chats.getBoundingClientRect().width > 0;
+    });
     await p.close();
   }
   const bp = out.shell.breakpoints;
   assert.equal(bp[759].rail_shown, false, 'the rail appears below 760');
   assert.equal(bp[760].rail_shown, true, 'the rail is missing at 760');
-  assert.equal(bp[839].chats_shown, false, 'the chats column appears below 840');
-  assert.equal(bp[840].chats_shown, true, 'the chats column is missing at 840');
+  for (const w of [759, 760, 839, 840]) assert.equal(bp[w].chats_shown, false, `the chats column is open at load at ${w}`);
+  assert.equal(bp[839].chats_shown_after_pick, false, 'the chats column appears below 840');
+  assert.equal(bp[840].chats_shown_after_pick, true, 'the chats column is missing at 840');
 }
 
 /* ---- 4. brain sources and the permission strip ---- */
@@ -320,6 +400,7 @@ const open = async (w = 1440, h = 900, opts = {}) => {
 /* ---- 6. reduced motion collapses everything ---- */
 {
   const page = await browser.newPage({viewport: {width: 1440, height: 900}, reducedMotion: 'reduce'});
+  await page.addInitScript(FIELD_PROBE);
   await page.goto(ORIGIN + '/', {waitUntil: 'networkidle'});
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => new Promise(r => { let y = 0; const s = () => { window.scrollTo(0, y); y += 500; if (y < document.body.scrollHeight) setTimeout(s, 25); else setTimeout(r, 800); }; s(); }));
@@ -333,10 +414,16 @@ const open = async (w = 1440, h = 900, opts = {}) => {
       reveals_shown: rv.every(e => Number(getComputedStyle(e).opacity) > 0.99),
       reveal_count: rv.length,
       replay_finished: body.getAttribute('data-replay') === null && body.querySelector('[data-pp-type="1"]').textContent.length === 0,
-      ghost_visible: getComputedStyle(body.querySelector('.pp-ghost')).visibility === 'visible',
-      field_off: !document.querySelector('canvas')
+      ghost_visible: getComputedStyle(body.querySelector('.pp-ghost')).visibility === 'visible'
     };
   });
+  /* WP-19: the field's canvas is in the page but the engine starts no loop under reduced motion
+     and its settle frame draws nothing — the prototype's own behaviour. */
+  await sweep(page);
+  out.reduced_motion.field_frames = (await page.evaluate(() => window.__FIELD.rafRun));
+  out.reduced_motion.field_lit_pixels = await fieldLit(page);
+  out.reduced_motion.field_off = out.reduced_motion.field_frames === 0 && out.reduced_motion.field_lit_pixels === 0;
+  assert.equal(out.reduced_motion.field_off, true, 'the ambient field runs under reduced motion');
   out.reduced_motion.rail_static = Math.abs(x2 - x1) < 0.5;
   assert.equal(out.reduced_motion.reveals_shown, true, 'reveals hidden under reduced motion');
   assert.equal(out.reduced_motion.rail_static, true, 'the rooms rail still moves under reduced motion');
@@ -556,10 +643,80 @@ const open = async (w = 1440, h = 900, opts = {}) => {
   await page.close();
 }
 
+/* ---- 11b. the ambient field (WP-19): mounted, drawing, within the prototype's cost, silent
+   while the tab is hidden ---- */
+{
+  const page = await browser.newPage({viewport: {width: 1440, height: 900}, deviceScaleFactor: 2});
+  await page.addInitScript(FIELD_PROBE);
+  await page.goto(ORIGIN + '/', {waitUntil: 'networkidle'});
+  await page.waitForFunction(() => window.__FIELD && window.__FIELD.mounts > 0, null, {timeout: 30000});
+  await page.waitForTimeout(3000);
+  out.field = await page.evaluate(() => {
+    const cv = document.querySelector('canvas[data-scene="touch"]');
+    return {mounted: window.__FIELD.mounts > 0, ambient: self.__ambient,
+            cell: cv && cv.dataset.cell, scene: cv && cv.dataset.scene,
+            fixed_full_page: !!cv && getComputedStyle(cv).position === 'fixed' && cv.clientWidth === innerWidth};
+  });
+  assert.equal(out.field.mounted, true, 'the ambient field never mounted');
+  assert.equal(out.field.ambient, 0.04, 'ambient is not the prototype\'s 0.04');
+  assert.equal(out.field.fixed_full_page, true, 'the field canvas is not fixed and full-page');
+
+  await page.evaluate(() => window.__FIELD_RESET());
+  const secs = Number(process.env.FIELD_SECONDS || 20);
+  await page.waitForTimeout(secs * 1000);
+  out.field.cost_ms = {port: await fieldStats(page), seconds: secs, dpr: 2, width: 1440};
+
+  await sweep(page);
+  out.field.lit_pixels_after_pointer = await fieldLit(page);
+  assert.ok(out.field.lit_pixels_after_pointer > 1000, 'the field draws nothing when the pointer moves');
+
+  /* hidden tab: the engine's own loop does not stop, so field.js stops the mount from outside.
+     document.hidden is faked because the headless visibility override does not reach rAF. */
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {configurable: true, get: () => true});
+    Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'hidden'});
+    window.__FIELD_RESET();
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(6000);
+  out.field.frames_while_hidden = await page.evaluate(() => window.__FIELD.rafRun);
+  assert.equal(out.field.frames_while_hidden, 0, 'the field kept animating while the tab was hidden');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', {configurable: true, get: () => false});
+    Object.defineProperty(document, 'visibilityState', {configurable: true, get: () => 'visible'});
+    window.__FIELD_RESET();
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.waitForTimeout(3000);
+  out.field.frames_after_return = await page.evaluate(() => window.__FIELD.rafRun);
+  assert.ok(out.field.frames_after_return > 0, 'the field did not restart when the tab came back');
+  await page.close();
+
+  /* the budget: no worse than the prototype, measured the same way on the same machine */
+  const PROTO = (process.env.PROTOTYPE_ORIGIN || '').replace(/\/$/, '');
+  if (PROTO) {
+    const pp = await browser.newPage({viewport: {width: 1440, height: 900}, deviceScaleFactor: 2});
+    await pp.addInitScript(FIELD_PROBE);
+    await pp.goto(PROTO + '/', {waitUntil: 'load'});
+    await pp.waitForFunction(() => window.__FIELD && window.__FIELD.mounts > 0, null, {timeout: 30000});
+    await pp.waitForTimeout(3000);
+    await pp.evaluate(() => window.__FIELD_RESET());
+    await pp.waitForTimeout(secs * 1000);
+    out.field.cost_ms.prototype = await fieldStats(pp);
+    await pp.close();
+    out.field.cost_ms.within_budget = out.field.cost_ms.port.mean <= out.field.cost_ms.prototype.mean * 1.15;
+    assert.equal(out.field.cost_ms.within_budget, true, 'the field costs more per frame than the prototype');
+  } else {
+    out.field.cost_ms.prototype = 'not run (set PROTOTYPE_ORIGIN)';
+  }
+}
+
 /* ---- 12. no glyph engine and no public keys shipped ---- */
 {
-  const js = await (await fetch(ORIGIN + '/assets/site.js')).text();
-  const html = await (await fetch(ORIGIN + '/')).text();
+  const parts = await Promise.all(['/assets/site.js', '/assets/field.js', '/assets/dot-display.js', '/assets/mnemos-scenes.js', '/']
+    .map(u => fetch(ORIGIN + u).then(r => r.text())));
+  const js = parts.slice(0, 4).join('\n');
+  const html = parts[4];
   const bundle = js + html;
   out.public_keys_in_bundle = (bundle.match(/\b[0-9a-f]{64}\b/g) || []).length;
   out.glyph_engine_shipped = /identityGlyph|glyphToSvgPath/.test(js);
