@@ -137,8 +137,10 @@ export function useStreamingWordEffect(
       }
       firstUnsettledRef.current = firstUnsettled;
 
+      // A reply with no prose at all (only a code block, or nothing yet) is
+      // vacuously settled — otherwise the loop would never find a reason to
+      // stop once the row went quiet.
       return (
-        words.length > 0 &&
         firstUnsettled >= words.length &&
         schedule.assignedCount() >= words.length
       );
