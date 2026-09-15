@@ -5,11 +5,21 @@ import * as React from "react";
 import type { ImetaMedia } from "@/features/messages/lib/imetaMediaMarkdown";
 import { buildOutgoingMessage } from "@/features/messages/lib/imetaMediaMarkdown";
 import type { SendFeedbackInput } from "@/features/settings/ui/SendFeedbackDialog";
+import { collectDoctorSummary } from "@/features/settings/lib/doctorSummary";
 import { relayClient } from "@/shared/api/relayClient";
+import { readRecentAppLog } from "@/shared/lib/appLog";
 import { signRelayEvent, uploadMediaBytes } from "@/shared/api/tauri";
 import { pickAndUploadImage } from "@/shared/api/tauriMedia";
 import { KIND_PRODUCT_FEEDBACK } from "@/shared/constants/kinds";
 
+/**
+ * What "Attach diagnostics" actually attaches.
+ *
+ * Environment, then the Doctor summary, then the last 200 log lines. The log
+ * is read with `redactPaths` on: this text is uploaded and leaves the Mac, so
+ * `luca-diagnostics` takes absolute paths as well as secrets — unlike Settings'
+ * "Copy recent log", which stays local and keeps them.
+ */
 async function collectDiagnostics(): Promise<string> {
   let appVersion = "unknown";
   try {
@@ -18,6 +28,10 @@ async function collectDiagnostics(): Promise<string> {
     // Non-fatal — fall through with "unknown".
   }
   const nav = typeof navigator !== "undefined" ? navigator : undefined;
+  const [doctorSummary, logLines] = await Promise.all([
+    collectDoctorSummary(),
+    readRecentAppLog(true),
+  ]);
   return [
     "Luca feedback diagnostics",
     `captured: ${new Date().toISOString()}`,
@@ -25,6 +39,12 @@ async function collectDiagnostics(): Promise<string> {
     `platform: ${nav?.platform ?? "unknown"}`,
     `user agent: ${nav?.userAgent ?? "unknown"}`,
     `language: ${nav?.language ?? "unknown"}`,
+    "",
+    "--- doctor summary ---",
+    doctorSummary,
+    "",
+    "--- recent log (redacted) ---",
+    logLines.trim().length > 0 ? logLines : "(no log lines available)",
   ].join("\n");
 }
 

@@ -34,6 +34,8 @@ import { SectionHeader } from "@/shared/ui/PageHeader";
 import { Spinner } from "@/shared/ui/spinner";
 import { Switch } from "@/shared/ui/switch";
 import { HARNESS_LOGOS, type HarnessId } from "@/shared/ui/HarnessLogo";
+import { AppLogActions } from "./AppLogActions";
+import { SettingsOptionGroup } from "./SettingsOptionGroup";
 
 // The one logo map lives in HarnessLogo; Doctor keys it by catalog id.
 const RUNTIME_LOGO_URLS: Partial<Record<string, string>> =
@@ -617,6 +619,21 @@ export function DoctorSettingsPanel() {
               {runtimesQuery.error.message}
             </p>
           ) : null}
+        </section>
+
+        {/* The log Doctor's own findings end up in. Also mounted under
+            Settings → Diagnostics, which is where this panel's runtime checks
+            are reachable today; both surfaces share one implementation. */}
+        <section aria-label="Application log">
+          <div className="mb-3 text-sm">
+            <h2 className="text-lg font-semibold tracking-tight">Log</h2>
+            <p className="mt-1 text-sm font-normal text-muted-foreground">
+              What Polyphonic recorded on this Mac.
+            </p>
+          </div>
+          <SettingsOptionGroup>
+            <AppLogActions />
+          </SettingsOptionGroup>
         </section>
       </div>
     </section>

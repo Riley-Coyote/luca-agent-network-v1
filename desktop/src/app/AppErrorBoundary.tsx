@@ -135,7 +135,9 @@ export function CrashSurface({
   const copyReport = React.useCallback(async () => {
     setCopyState("copying");
     const [appVersion, logLines] = await Promise.all([
-      getVersion().catch(() => "unknown"),
+      // The build stamp is the fallback, not "unknown": a crash report with no
+      // build number cannot be matched to a release.
+      getVersion().catch(() => __APP_VERSION__),
       readRecentAppLog(false),
     ]);
     const report = formatCrashReport({
@@ -151,7 +153,10 @@ export function CrashSurface({
   return (
     <div
       className={cn(
-        "flex min-h-0 flex-1 items-center justify-center bg-background px-6 py-10 text-foreground",
+        // `h-full` for the root boundary (its parent is #root, a definite
+        // height); `flex-1` for a pane boundary inside a flex column. Both
+        // land the surface in the middle of whatever it replaced.
+        "flex h-full min-h-0 w-full flex-1 items-center justify-center bg-background px-6 py-10 text-foreground",
         className,
       )}
       data-testid="app-error-boundary"
@@ -163,7 +168,7 @@ export function CrashSurface({
           className="mt-1.5 text-sm text-muted-foreground"
           data-testid="app-error-screen"
         >
-          {screen} stopped rendering. The rest of Polyphonic is still running.
+          {screen} stopped rendering.
         </p>
         <div className="mt-5 flex flex-wrap items-center gap-2">
           <Button

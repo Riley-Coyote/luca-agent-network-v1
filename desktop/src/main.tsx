@@ -200,21 +200,21 @@ function renderApp() {
       <AppErrorBoundary screen="Polyphonic">
         <E2eCrashProbe />
         <CommunitiesProvider>
-        <CommunityOnboardingProvider>
-          <ThemeProvider>
-            <TooltipProvider delayDuration={300}>
-              <EmojiBurstProvider>
-                <PoofBurstProvider>
-                  <UpdaterProvider>
-                    <App />
-                    <NostrBindConsentDialog />
-                  </UpdaterProvider>
-                  <Toaster />
-                </PoofBurstProvider>
-              </EmojiBurstProvider>
-            </TooltipProvider>
-          </ThemeProvider>
-        </CommunityOnboardingProvider>
+          <CommunityOnboardingProvider>
+            <ThemeProvider>
+              <TooltipProvider delayDuration={300}>
+                <EmojiBurstProvider>
+                  <PoofBurstProvider>
+                    <UpdaterProvider>
+                      <App />
+                      <NostrBindConsentDialog />
+                    </UpdaterProvider>
+                    <Toaster />
+                  </PoofBurstProvider>
+                </EmojiBurstProvider>
+              </TooltipProvider>
+            </ThemeProvider>
+          </CommunityOnboardingProvider>
         </CommunitiesProvider>
       </AppErrorBoundary>
     </React.StrictMode>,

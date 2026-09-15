@@ -61,7 +61,8 @@ export async function collectDoctorSummary(): Promise<string> {
     return formatDoctorSummary({ error: null, registry, runtimes });
   } catch (cause) {
     return formatDoctorSummary({
-      error: cause instanceof Error ? cause.message : "Diagnostics unavailable.",
+      error:
+        cause instanceof Error ? cause.message : "Diagnostics unavailable.",
       registry: null,
       runtimes: [],
     });

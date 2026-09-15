@@ -26,6 +26,8 @@ export default defineConfig({
       testMatch: [
         "**/luca/*.spec.ts",
         "**/smoke.spec.ts",
+        "**/app-error-boundary.spec.ts",
+        "**/ui-log-bridge.spec.ts",
         "**/popout-shell.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",

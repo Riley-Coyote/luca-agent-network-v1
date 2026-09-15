@@ -16,9 +16,11 @@ import {
   type LucaMcpRegistryV1,
   type RuntimeConnectionStatusV1,
 } from "@/shared/api/tauriMcp";
+import { formatDoctorSummary } from "@/features/settings/lib/doctorSummary";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 import { Button } from "@/shared/ui/button";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
+import { AppLogActions } from "./AppLogActions";
 import { MobilePairingCard } from "./MobilePairingCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
 import { ProtectedOwnerBackupRow } from "./ProtectedOwnerBackupRow";
@@ -143,35 +145,7 @@ export function DiagnosticsSettings() {
   }, [refresh]);
 
   const diagnostic = React.useMemo(
-    () =>
-      JSON.stringify(
-        {
-          runtimeConnections: runtimes.map(
-            ({ runtimeId, readiness, authentication, reason }) => ({
-              runtimeId,
-              readiness,
-              authentication,
-              reason,
-            }),
-          ),
-          mcp: registry
-            ? {
-                connections: registry.connections.length,
-                grants: registry.grants.length,
-                health: registry.health.map(
-                  ({ connectionId, readiness, errorCode }) => ({
-                    connectionId,
-                    readiness,
-                    errorCode,
-                  }),
-                ),
-              }
-            : null,
-          error,
-        },
-        null,
-        2,
-      ),
+    () => formatDoctorSummary({ error, registry, runtimes }),
     [error, registry, runtimes],
   );
 
@@ -183,7 +157,7 @@ export function DiagnosticsSettings() {
             Recheck
           </Button>
         }
-        description="Body-free application, runtime, continuity, Brain, mobile, and MCP status for troubleshooting."
+        description="The application log, plus body-free runtime, continuity, Brain, mobile, and MCP status for troubleshooting."
         title="Diagnostics"
       />
       <SettingsOptionGroup>
@@ -213,6 +187,7 @@ export function DiagnosticsSettings() {
             <Copy className="mr-1.5 size-3.5" /> Copy diagnostics
           </Button>
         </SettingsOptionRow>
+        <AppLogActions className="border-t border-border/50" />
         <SettingsOptionRow className="border-t border-border/50">
           <div className="flex items-center gap-3">
             <LockKeyhole className="size-4 text-muted-foreground" />

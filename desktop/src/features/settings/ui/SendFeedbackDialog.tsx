@@ -306,8 +306,10 @@ export function SendFeedbackDialog({
               Attach diagnostics
             </label>
             <p className="pl-6 text-xs text-muted-foreground">
-              Includes capture time, app version, platform, user agent, and
-              language. No application log lines are collected.
+              Includes capture time, app version, platform, user agent,
+              language, the Doctor summary, and the last 200 application log
+              lines. Secrets and file paths are removed before anything is
+              attached.
             </p>
           </div>
 

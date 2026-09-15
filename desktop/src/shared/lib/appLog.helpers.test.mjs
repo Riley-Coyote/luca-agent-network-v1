@@ -96,7 +96,8 @@ test("formatCrashReport_carriesTheErrorTheVersionAndTheLog", () => {
     appVersion: "0.5.0-beta.7",
     capturedAt: "2026-09-15T08:12:03.123Z",
     error,
-    logLines: "2026-09-15T08:12:02.000Z info buzz_lib::relay [relay] phase=boot",
+    logLines:
+      "2026-09-15T08:12:02.000Z info buzz_lib::relay [relay] phase=boot",
     screen: "Conversation",
   });
 

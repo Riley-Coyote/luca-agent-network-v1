@@ -949,49 +949,49 @@ export function AppShell() {
                             {/* One broken settings panel must not take the
                                 rail and every conversation with it. */}
                             <AppErrorBoundary screen="Settings">
-                            <React.Suspense
-                              fallback={<SettingsLoadingFallback />}
-                            >
-                              <LazySettingsScreen
-                                currentPubkey={identityQuery.data?.pubkey}
-                                fallbackDisplayName={
-                                  identityQuery.data?.displayName
-                                }
-                                isUpdatingDesktopNotifications={
-                                  notificationSettings.isUpdatingDesktopEnabled
-                                }
-                                notificationErrorMessage={
-                                  notificationSettings.errorMessage
-                                }
-                                notificationPermission={
-                                  notificationSettings.permission
-                                }
-                                notificationSettings={
-                                  notificationSettings.settings
-                                }
-                                onClose={handleCloseSettings}
-                                onSectionChange={handleSettingsSectionChange}
-                                onSetDesktopNotificationsEnabled={
-                                  notificationSettings.setDesktopEnabled
-                                }
-                                onSetHomeBadgeEnabled={
-                                  notificationSettings.setHomeBadgeEnabled
-                                }
-                                onSetSlotAlertsEnabled={
-                                  notificationSettings.setSlotAlertsEnabled
-                                }
-                                onSetNotifyWhileViewing={
-                                  notificationSettings.setNotifyWhileViewing
-                                }
-                                onSetAllSlotAlertsEnabled={
-                                  notificationSettings.setAllSlotAlertsEnabled
-                                }
-                                onSetSoundForSlot={
-                                  notificationSettings.setSoundForSlot
-                                }
-                                section={settingsSection}
-                              />
-                            </React.Suspense>
+                              <React.Suspense
+                                fallback={<SettingsLoadingFallback />}
+                              >
+                                <LazySettingsScreen
+                                  currentPubkey={identityQuery.data?.pubkey}
+                                  fallbackDisplayName={
+                                    identityQuery.data?.displayName
+                                  }
+                                  isUpdatingDesktopNotifications={
+                                    notificationSettings.isUpdatingDesktopEnabled
+                                  }
+                                  notificationErrorMessage={
+                                    notificationSettings.errorMessage
+                                  }
+                                  notificationPermission={
+                                    notificationSettings.permission
+                                  }
+                                  notificationSettings={
+                                    notificationSettings.settings
+                                  }
+                                  onClose={handleCloseSettings}
+                                  onSectionChange={handleSettingsSectionChange}
+                                  onSetDesktopNotificationsEnabled={
+                                    notificationSettings.setDesktopEnabled
+                                  }
+                                  onSetHomeBadgeEnabled={
+                                    notificationSettings.setHomeBadgeEnabled
+                                  }
+                                  onSetSlotAlertsEnabled={
+                                    notificationSettings.setSlotAlertsEnabled
+                                  }
+                                  onSetNotifyWhileViewing={
+                                    notificationSettings.setNotifyWhileViewing
+                                  }
+                                  onSetAllSlotAlertsEnabled={
+                                    notificationSettings.setAllSlotAlertsEnabled
+                                  }
+                                  onSetSoundForSlot={
+                                    notificationSettings.setSoundForSlot
+                                  }
+                                  section={settingsSection}
+                                />
+                              </React.Suspense>
                             </AppErrorBoundary>
                           </div>
                         ) : (
@@ -1164,29 +1164,31 @@ export function AppShell() {
                                           card={!routeOwnsFloor}
                                         >
                                           <AppErrorBoundary screen="This conversation">
-                                          {SUPPORTS_VIEW_TRANSITIONS ? (
-                                            /* The content plane. Route changes
+                                            {SUPPORTS_VIEW_TRANSITIONS ? (
+                                              /* The content plane. Route changes
                                            snapshot exactly this element —
                                            navigation-transitions.css owns
                                            its motion; the frame around it
                                            cannot move. */
-                                            <div className="flex min-h-0 flex-1 flex-col [view-transition-name:luca-content]">
-                                              <Outlet />
-                                            </div>
-                                          ) : (
-                                            <NavigationTransition
-                                              className="flex min-h-0 flex-1 flex-col"
-                                              contentClassName="flex min-h-0 flex-1 flex-col"
-                                              transitionKey={location.pathname}
-                                              variant={
-                                                selectedChannelId
-                                                  ? "conversation"
-                                                  : "route"
-                                              }
-                                            >
-                                              <Outlet />
-                                            </NavigationTransition>
-                                          )}
+                                              <div className="flex min-h-0 flex-1 flex-col [view-transition-name:luca-content]">
+                                                <Outlet />
+                                              </div>
+                                            ) : (
+                                              <NavigationTransition
+                                                className="flex min-h-0 flex-1 flex-col"
+                                                contentClassName="flex min-h-0 flex-1 flex-col"
+                                                transitionKey={
+                                                  location.pathname
+                                                }
+                                                variant={
+                                                  selectedChannelId
+                                                    ? "conversation"
+                                                    : "route"
+                                                }
+                                              >
+                                                <Outlet />
+                                              </NavigationTransition>
+                                            )}
                                           </AppErrorBoundary>
                                         </BuzzTheme.ContentSurface>
                                         <RightCardsSlot />
