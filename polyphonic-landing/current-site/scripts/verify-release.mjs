@@ -64,12 +64,19 @@ await page.evaluate(() => document.fonts.ready);
 
 /* nothing that belongs to the old page is still being served */
 {
+  /* dot-display.js and mnemos-scenes.js came back with the ambient field in WP-19; everything else
+     from the replaced page is still gone. */
   const gone = ['assets/demo.js', 'assets/demo.css', 'assets/effects.js', 'assets/luca-sigil-engine.js',
-                'assets/dot-display.js', 'assets/mnemos-scenes.js', 'assets/brand/polyphonic-solid.svg'];
+                'assets/brand/polyphonic-solid.svg'];
   const still = [];
   for (const f of gone) { const r = await page.request.get(ORIGIN + '/' + f); if (r.status() === 200) still.push(f); }
   assert.deepEqual(still, [], 'files from the replaced page are still in the bundle');
   report.checks.push('None of the replaced page\'s files are served');
+  const field = ['assets/field.js', 'assets/dot-display.js', 'assets/mnemos-scenes.js'];
+  const missing = [];
+  for (const f of field) { const r = await page.request.get(ORIGIN + '/' + f); if (r.status() !== 200) missing.push(f + ' → ' + r.status()); }
+  assert.deepEqual(missing, [], 'the ambient field\'s files are not in the bundle');
+  report.checks.push('The ambient field ships: ' + field.join(', '));
 }
 
 /* signup: a completed request can be edited and sent again */
