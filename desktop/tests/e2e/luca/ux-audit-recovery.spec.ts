@@ -47,7 +47,7 @@ async function begin(page: Page) {
   await page.getByTestId("polyphonic-owner-name").fill("Jamie");
   await page.getByTestId("polyphonic-owner-name").press("Enter");
   await expect(
-    page.getByRole("heading", { name: "Choose what powers Luca" }),
+    page.getByRole("heading", { name: "Who speaks for Luca?" }),
   ).toBeFocused();
 }
 
@@ -162,12 +162,10 @@ for (const size of [
       await footer.click();
       await expect(page).toHaveURL(/#\/channels\//);
       await expect(page.getByTestId("message-input")).toBeFocused();
+      // Luca's own opener, in an ordinary row, with its choices inside it.
       await expect(
-        page.getByText(
-          "Hey Jamie — I’m Luca. Tell me what you’re working on, or choose a place to begin.",
-          { exact: true },
-        ),
-      ).toBeVisible();
+        page.getByTestId("message-row").filter({ hasText: /Hello, I’m Luca/ }),
+      ).toHaveCount(1);
       await expect(page.getByTestId("luca-greeting-choices")).toBeVisible();
       await expect(page.getByTestId("message-input")).toBeInViewport();
       await expect(page.getByTestId("chat-title")).toHaveText("Luca");

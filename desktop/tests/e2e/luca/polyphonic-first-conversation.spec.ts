@@ -31,6 +31,8 @@ const READY_CODEX_RUNTIME = {
 };
 const GREETING = /Hello, I’m Luca/;
 
+/** Two questions and a waking: the whole walk. Nothing is read on the way
+ *  through — Luca asks to look around once the conversation exists. */
 async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await installMockBridge(
     page,
@@ -45,56 +47,99 @@ async function arriveInLucaDm(page: import("@playwright/test").Page) {
   await page.getByTestId("polyphonic-owner-name").fill("Riley");
   await page.getByTestId("polyphonic-setup-continue").click();
   await page.getByRole("radio", { name: /Codex/ }).check();
+  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveText(
+    "Meet Luca",
+  );
   await page.getByTestId("polyphonic-setup-continue").click();
-  // Who else lives here, then what Luca should read, then the reading itself.
-  for (const heading of [
-    "Who else lives here?",
-    "What should Luca read?",
-    "Luca is reading what you brought.",
-  ]) {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      try {
-        await page.getByRole("heading", { name: heading }).waitFor({
-          timeout: attempt === 0 ? 10_000 : 4_000,
-        });
-        break;
-      } catch {
-        // Still on the step before: press again.
-        await page
-          .getByTestId("polyphonic-setup-continue")
-          .click({ timeout: 5_000 })
-          .catch(() => undefined);
-      }
-    }
-  }
+  await page
+    .getByRole("heading", { name: "Luca is waking up." })
+    .waitFor({ timeout: 10_000 });
   await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
   await expect(page.getByTestId("message-input")).toBeVisible({
     timeout: 30_000,
   });
 }
 
-test("setup opens an immediately usable composer with the rail collapsed", async ({
+test("the walk never asks about agents or sources", async ({ page }) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: ONE_NATIVE_AGENT,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await page.goto("/?e2e=mock&machineOnboarding=1");
+  await page.getByTestId("polyphonic-door-begin").click();
+  // Two questions, so two hairlines.
+  await expect(
+    page.getByRole("heading", { name: "What should Luca call you?" }),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByRole("img", { name: "Step 1 of 2" })).toHaveCount(1);
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await page
+    .getByRole("heading", { name: "Luca is waking up." })
+    .waitFor({ timeout: 10_000 });
+  // The two chapters that were cut are never rendered on the way past.
+  await expect(
+    page.getByRole("heading", { name: "Who else lives here?" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "What should Luca read?" }),
+  ).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);
+  await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
+});
+
+test("the waking screen says what it is doing and then hands over", async ({
   page,
 }) => {
+  await installMockBridge(
+    page,
+    {
+      acpRuntimesCatalog: [READY_CODEX_RUNTIME],
+      nativeResidentDiscovery: ONE_NATIVE_AGENT,
+    },
+    { skipCommunitySeed: true, skipOnboardingSeed: true },
+  );
+  await page.goto("/?e2e=mock&machineOnboarding=1");
+  await page.getByTestId("polyphonic-door-begin").click();
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  const phase = page.getByTestId("polyphonic-reading-phase");
+  await expect(phase).toBeVisible({ timeout: 10_000 });
+  // Whichever phase this frame catches, it is one of the two true ones, and
+  // no spinner stands in for either.
+  await expect(phase).toHaveText(/Starting Luca|Luca is writing to you/);
+  await expect(page.getByTestId("polyphonic-walkthrough-ticks")).toBeVisible();
+  await expect(page).toHaveURL(/#\/channels\//, { timeout: 30_000 });
+});
+
+test("setup opens the ordinary conversation, not a stage", async ({ page }) => {
   await arriveInLucaDm(page);
-  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  // The header and the timeline are the first thing the owner sees: this is
+  // a conversation, and it was one before they said anything.
+  await expect(page.getByTestId("chat-header")).toBeVisible();
+  await expect(page.getByTestId("chat-title")).toHaveText("Luca");
+  await expect(page.getByTestId("message-timeline")).toBeVisible();
+  const opener = page.getByTestId("message-row").filter({ hasText: GREETING });
+  await expect(opener).toHaveCount(1);
   await expect(page.getByText(GREETING).filter({ visible: true })).toHaveCount(
     1,
   );
   await expect(page.getByTestId("message-input")).toBeFocused();
+  // The rail is where the owner left it — arrival no longer collapses it.
   await expect(
-    page.locator('[data-state="collapsed"][data-side="left"]'),
+    page.locator('[data-state="expanded"][data-side="left"]'),
   ).toHaveCount(1);
   await expect(
     page.getByRole("button", { name: "Stop", exact: true }),
   ).toHaveCount(0);
-  // The owner can expand the rail without the first-run effect fighting them.
-  await page
-    .getByRole("button", { name: "Toggle Sidebar", exact: true })
-    .click();
-  await expect(
-    page.locator('[data-state="expanded"][data-side="left"]'),
-  ).toHaveCount(1);
 });
 
 test("Luca's opening offer is sent as the owner's words and then retires", async ({
@@ -104,24 +149,33 @@ test("Luca's opening offer is sent as the owner's words and then retires", async
   const choices = page.getByTestId("luca-greeting-choices");
   await expect(choices).toBeVisible({ timeout: 5000 });
   await expect(choices.getByRole("button")).toHaveCount(2);
+  // In the row, not under the composer.
+  await expect(
+    page
+      .getByTestId("message-row")
+      .filter({ hasText: GREETING })
+      .getByTestId("luca-greeting-choices"),
+  ).toHaveCount(1);
   await page.getByTestId("luca-greeting-choice-1").focus();
   await page.getByTestId("luca-greeting-choice-1").press("Enter");
   await expect(page.getByText("Shape an idea", { exact: true })).toHaveCount(1);
   await expect(choices).toHaveCount(0);
 });
 
-test("a typed first message replaces the welcome with the ordinary timeline", async ({
-  page,
-}) => {
+test("a typed first message joins the same timeline", async ({ page }) => {
   await arriveInLucaDm(page);
   const composer = page.getByTestId("message-input");
-  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await expect(page.getByTestId("message-timeline")).toBeVisible();
   await composer.fill("Help me plan a small garden.");
   await composer.press("Enter");
-  await expect(page.getByTestId("luca-first-conversation")).toHaveCount(0);
   await expect(
     page.getByText("Help me plan a small garden.", { exact: true }),
   ).toBeVisible();
+  // The opener stays where it was; only its choices retire.
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
+  await expect(page.getByTestId("chat-header")).toBeVisible();
   await expect(composer).toBeVisible();
   await expect(page.getByTestId("luca-greeting-choices")).toHaveCount(0);
 });
@@ -135,6 +189,7 @@ test("first chat fits compact windows in light and dark appearance", async ({
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await page.setViewportSize({ width: 800, height: 500 });
     await expect(page.getByTestId("message-input")).toBeInViewport();
+    await expect(page.getByTestId("chat-header")).toBeInViewport();
     await expect(page.getByTestId("luca-greeting-choices")).toBeInViewport();
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth > innerWidth,
@@ -157,7 +212,9 @@ test("first-use layout preserves the canonical resident and one durable greeting
   page,
 }) => {
   await arriveInLucaDm(page);
-  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
   const identity = await page.evaluate(async () => {
     const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
     if (!invoke) throw new Error("Mock command boundary is unavailable");

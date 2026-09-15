@@ -288,6 +288,13 @@ const THIS_MAC_OPTIONS: RuntimeTargetOptionV1[] = [
     target: { kind: "native", runtime: "openclaw" },
     label: "OpenClaw",
     readiness: "unavailable",
+    // A fixture, not an assertion: nothing in this file reads this string, and
+    // the runtime step only cares that an unusable runtime stays behind the
+    // toggle. Native's wording for the case where OpenClaw yields no agents at
+    // all is becoming the CLI's own first stderr line; the new "run `openclaw
+    // doctor --fix` … read from openclaw.json instead" sentence belongs to the
+    // *degraded* path, where agents were found after all, which is not the
+    // state this fixture describes. Left as written on purpose.
     reason: "OpenClaw returned an unreadable agent list.",
     recommended: false,
   },

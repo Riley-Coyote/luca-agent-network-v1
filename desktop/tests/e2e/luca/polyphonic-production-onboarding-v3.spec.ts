@@ -14,6 +14,8 @@ const ONE_NATIVE_AGENT: NativeResidentDiscoveryOutcome = {
   })),
 };
 const NATIVE_AGENT_NOTICE_MARKER = "polyphonic-native-agent-notice.v1";
+/** Luca's opener, as the first-meeting kickoff writes it. */
+const GREETING = /Hello, I’m Luca/;
 const READY_CODEX_RUNTIME = {
   id: "codex",
   label: "Codex",
@@ -46,48 +48,36 @@ async function begin(page: import("@playwright/test").Page) {
 }
 
 /**
- * Past the runtime: who else lives here, then what Luca should read. Both
- * steps do real work on Continue, so each press is given as long as it needs
- * and repeated only if the step was still busy when it landed.
+ * Past the runtime and into the waking. There is nothing between them any
+ * more — no agents question, no sources question — so the only press is the
+ * caller's own, repeated once if it landed while the runtime was committing.
  */
-async function pastAgentsAndBrain(page: import("@playwright/test").Page) {
-  const reach = async (name: string | RegExp) => {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      try {
-        await page
-          .getByRole("heading", { name })
-          .waitFor({ timeout: attempt === 0 ? 10_000 : 4_000 });
-        return;
-      } catch {
-        // Still on the step before: the press either has not been made yet or
-        // landed while the step was committing. Press again.
-        await page
-          .getByTestId("polyphonic-setup-continue")
-          .click({ timeout: 5_000 })
-          .catch(() => undefined);
-      }
+async function pastWaking(page: import("@playwright/test").Page) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await page
+        .getByRole("heading", { name: "Luca is waking up." })
+        .waitFor({ timeout: attempt === 0 ? 12_000 : 4_000 });
+      // The card is still the card: the walkthrough plays inside it (or, when
+      // Luca cannot be made ready, the error takes its place), with no footer
+      // and the whole hairline lit.
+      await expect(
+        page
+          .getByTestId("polyphonic-walkthrough-frame")
+          .or(page.getByRole("alert")),
+      ).toBeVisible();
+      await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(
+        0,
+      );
+      return;
+    } catch {
+      await page
+        .getByTestId("polyphonic-setup-continue")
+        .click({ timeout: 5_000 })
+        .catch(() => undefined);
     }
-    throw new Error(`setup never reached ${String(name)}`);
-  };
-  await reach("Who else lives here?");
-  await expect(page.getByTestId("polyphonic-resident-memory")).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await reach("What should Luca read?");
-  await expect(page.getByTestId("polyphonic-setup-continue")).toContainText(
-    "Meet Luca",
-  );
-  await reach("Luca is reading what you brought.");
-  // The card is still the card: the walkthrough plays inside it (or, when
-  // Luca cannot be made ready, the error takes its place), with no footer and
-  // the whole hairline lit.
-  await expect(
-    page
-      .getByTestId("polyphonic-walkthrough-frame")
-      .or(page.getByRole("alert")),
-  ).toBeVisible();
-  await expect(page.getByTestId("polyphonic-setup-continue")).toHaveCount(0);
+  }
+  throw new Error("setup never reached the waking step");
 }
 
 test("the setup card follows the application appearance", async ({ page }) => {
@@ -139,17 +129,14 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await pastAgentsAndBrain(page);
+  await pastWaking(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
+  // An ordinary conversation with an ordinary first row in it.
+  await expect(page.getByTestId("chat-header")).toBeVisible();
   await expect(
-    page
-      .getByTestId("luca-first-conversation")
-      .getByText(
-        "Hi Riley. I’m Luca. We can start with something you’re working on, or bring in your existing work so I have some context.",
-        { exact: true },
-      ),
-  ).toBeVisible();
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
   await expect(page.getByTestId("message-input")).toBeFocused();
 
   const evidence = await page.evaluate(() => ({
@@ -166,20 +153,18 @@ test("a ready runtime enters the real Luca DM with one inert canonical greeting"
     input: { spawnAfterCreate: true, startOnAppLaunch: true },
   });
   expect(
-    evidence.commands.filter(
-      (command) => command === "send_managed_agent_channel_message",
-    ),
-  ).toHaveLength(1);
-  expect(
     evidence.commands.filter((command) => command === "start_managed_agent"),
   ).toHaveLength(0);
-  expect(
-    evidence.payloads.find(
-      (entry) => entry.command === "send_managed_agent_channel_message",
-    )?.payload,
-  ).toMatchObject({
-    marker: "polyphonic-onboarding.luca-greeting.v1",
-    markerScope: "channel",
+  // The opener is Luca's own first meeting, kicked off exactly once for this
+  // conversation — not a greeting the desktop writes on Luca's behalf.
+  const kickoffs = evidence.payloads.filter(
+    (entry) => entry.command === "begin_luca_first_meeting",
+  );
+  expect(kickoffs).toHaveLength(1);
+  expect(kickoffs[0].payload).toMatchObject({
+    channelId: decodeURIComponent(
+      page.url().match(/#\/channels\/([^?]+)/)?.[1] ?? "",
+    ),
   });
 });
 
@@ -242,7 +227,7 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   });
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await pastAgentsAndBrain(page);
+  await pastWaking(page);
   await expect(page.getByRole("alert")).toContainText(
     "Luca's saved setup could not be refreshed",
     { timeout: 15000 },
@@ -274,8 +259,10 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   expect(saved.failedRefreshes).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(page).toHaveURL(/#\/channels\//);
-  // The untouched first-use view intentionally has no conversation header.
-  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await expect(page.getByTestId("message-input")).toBeVisible();
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
   await page.getByTestId("message-input").fill("Hello, Luca.");
   await page.getByTestId("message-input").press("Enter");
   await page
@@ -296,7 +283,7 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
       all: window.__BUZZ_E2E_COMMANDS__ ?? [],
       retried: window.__BUZZ_E2E_COMMANDS__?.slice(before) ?? [],
       greeting: (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).filter(
-        (entry) => entry.command === "send_managed_agent_channel_message",
+        (entry) => entry.command === "begin_luca_first_meeting",
       ),
     }),
     saved.before,
@@ -304,17 +291,15 @@ test("a saved Luca survives a failed managed refresh and retries only the handof
   expect(
     evidence.all.filter((command) => command === "create_luca_resident"),
   ).toHaveLength(1);
+  // The first meeting was kicked off once, before the refresh failed, and the
+  // retry does not start a second one.
   expect(evidence.greeting).toHaveLength(1);
-  expect(evidence.greeting[0].payload).toMatchObject({
-    agentPubkey: saved.pubkey,
-    marker: "polyphonic-onboarding.luca-greeting.v1",
-  });
   expect(evidence.retried).toContain("list_managed_agents");
   for (const command of [
     "create_luca_resident",
     "execute_native_agent_provisioning",
     "open_dm",
-    "send_managed_agent_channel_message",
+    "begin_luca_first_meeting",
     "get_managed_agent_log",
   ]) {
     expect(evidence.retried).not.toContain(command);
@@ -339,7 +324,7 @@ test("the canonical Luca notice is trusted and published only once", async ({
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await pastAgentsAndBrain(page);
+  await pastWaking(page);
 
   await expect(page).toHaveURL(/#\/channels\//);
   const channelId = decodeURIComponent(
@@ -425,11 +410,16 @@ for (const runtime of ["Hermes", "OpenClaw"]) {
     await begin(page);
     await page.getByRole("radio", { name: new RegExp(runtime) }).check();
     await page.getByTestId("polyphonic-setup-continue").click();
-    await pastAgentsAndBrain(page);
+    await pastWaking(page);
     await expect(page).toHaveURL(/#\/channels\//);
+    // The agents question is not asked at all now, so the import surface can
+    // never appear on the way through — empty discovery or otherwise.
     await expect(
       page.getByRole("heading", { name: "Bring in agents you already use" }),
     ).toHaveCount(0);
+    await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(
+      0,
+    );
   });
 }
 
@@ -448,8 +438,10 @@ test("large native inventories never delay first chat or import extra agents", a
   await begin(page);
   await page.getByRole("radio", { name: /Codex/ }).check();
   await page.getByTestId("polyphonic-setup-continue").click();
-  await pastAgentsAndBrain(page);
-  await expect(page.getByTestId("luca-first-conversation")).toBeVisible();
+  await pastWaking(page);
+  await expect(
+    page.getByTestId("message-row").filter({ hasText: GREETING }),
+  ).toHaveCount(1);
   await expect(page.getByTestId("message-input")).toBeVisible();
   await expect(page.getByTestId("onboarding-agent-import-list")).toHaveCount(0);
   const created = await page.evaluate(() =>

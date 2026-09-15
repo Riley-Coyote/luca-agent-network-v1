@@ -13,7 +13,9 @@ import {
   canonicalLucaResidentPubkey,
   hasClientMarker,
   isCanonicalLucaDm,
+  isFirstMeetingTimelineRow,
   LUCA_GREETING_MARKER as GREETING_MARKER,
+  ownerHasSpoken,
 } from "./canonicalLucaResident";
 
 export const NATIVE_AGENT_NOTICE_MARKER = "polyphonic-native-agent-notice.v1";
@@ -26,36 +28,43 @@ function nativeBindingIdentity(binding: RuntimeBinding): string {
     : `openclaw:${binding.gatewayIdentity.trim()}:${binding.agentId.trim()}`;
 }
 
+/**
+ * The cue is offered after Luca has actually done something for the owner —
+ * never off the back of the opener.
+ *
+ * The opener used to be a greeting the desktop published on Luca's behalf,
+ * carrying `GREETING_MARKER`, and this gate looked for that marker. Luca now
+ * opens the conversation itself through the first meeting and signs nothing
+ * special, so the gate is stated the way it was always meant: Luca has
+ * spoken, the owner has answered, and then Luca has spoken again. Older
+ * conversations still carrying the marker read identically — their greeting
+ * is simply the first Luca row.
+ */
 function firstCompletedTaskResponse(
   messages: readonly TimelineMessage[],
   ownerPubkey: string,
   lucaPubkey: string,
 ): TimelineMessage | null {
-  const hasCanonicalGreeting = messages.some(
+  // The opener is a reply to the owner's kickoff row, so it is not depth 0;
+  // `isFirstMeetingTimelineRow` is the same predicate the first-meeting
+  // surfaces use to count it as part of the conversation.
+  const lucaRows = messages.filter(
     (message) =>
-      message.depth === 0 &&
-      normalizePubkey(message.signerPubkey ?? "") === lucaPubkey &&
-      hasClientMarker(message, GREETING_MARKER),
-  );
-  if (!hasCanonicalGreeting) return null;
-
-  const hasOwnerMessage = messages.some(
-    (message) =>
-      message.depth === 0 &&
+      isFirstMeetingTimelineRow(message) &&
       !message.pending &&
-      normalizePubkey(message.pubkey ?? "") === ownerPubkey,
+      normalizePubkey(message.signerPubkey ?? "") === lucaPubkey &&
+      !hasClientMarker(message, NATIVE_AGENT_NOTICE_MARKER),
   );
-  if (!hasOwnerMessage) return null;
+  const opener = lucaRows[0];
+  if (!opener) return null;
+  if (!ownerHasSpoken(messages, ownerPubkey)) return null;
 
   return (
-    messages.find(
+    lucaRows.find(
       (message) =>
-        message.depth === 0 &&
-        !message.pending &&
+        message.id !== opener.id &&
         message.body.trim().length > 0 &&
-        normalizePubkey(message.signerPubkey ?? "") === lucaPubkey &&
-        !hasClientMarker(message, GREETING_MARKER) &&
-        !hasClientMarker(message, NATIVE_AGENT_NOTICE_MARKER),
+        !hasClientMarker(message, GREETING_MARKER),
     ) ?? null
   );
 }
