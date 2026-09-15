@@ -310,6 +310,8 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
         '[data-testid="conversation-workspace-grid"] > [data-luca-card]:first-child',
       );
       if (!card) throw new Error("Leading conversation pane missing");
+      const ground = document.querySelector(".buzz-huddle-app-surface");
+      if (!ground) throw new Error("Shell ground missing");
       const a = el.getBoundingClientRect();
       const b = card.getBoundingClientRect();
       const selectorStyle = getComputedStyle(el);
@@ -330,12 +332,26 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
           paneStyle.borderLeftWidth,
         ],
         shadows: [selectorStyle.boxShadow, paneStyle.boxShadow],
-        divider: getComputedStyle(el, "::after").width,
+        trailingDivider: getComputedStyle(el, "::after").width,
+        railSeam: {
+          width: getComputedStyle(el, "::before").width,
+          image: getComputedStyle(el, "::before").backgroundImage,
+          opacity: getComputedStyle(el, "::before").opacity,
+        },
         surface: selectorStyle.backgroundColor,
         otherSurface: paneStyle.backgroundColor,
+        floor: getComputedStyle(ground).backgroundColor,
       };
     });
-  const assertJoinedSurface = async () => {
+  /**
+   * The column is GROUND, not card: it takes the rail's own tone, so what the
+   * conversation card slides over when the column opens is floor. The two
+   * still meet flush — no gap, no double edge, no second radius — but the
+   * seam between them is the tone step itself, not a painted hairline. The
+   * only line the column draws is on its LEADING edge, against the rail, and
+   * that one is a gradient that fades out at both ends.
+   */
+  const assertColumnOnTheFloor = async (railVisible: boolean) => {
     const geometry = await joinedSurface();
     expect(geometry.top).toBe(0);
     expect(geometry.bottom).toBe(0);
@@ -344,10 +360,15 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
     expect(geometry.innerRadii).toEqual(["0px", "0px", "0px", "0px"]);
     expect(geometry.seamBorders).toEqual(["0px", "0px"]);
     expect(geometry.shadows).toEqual(["none", "none"]);
-    expect(geometry.divider).toBe("1px");
-    expect(geometry.surface).toBe(geometry.otherSurface);
+    expect(geometry.trailingDivider).toBe("auto");
+    expect(geometry.surface).toBe(geometry.floor);
+    expect(geometry.surface).not.toBe(geometry.otherSurface);
+    expect(geometry.railSeam.width).toBe("1px");
+    expect(geometry.railSeam.image).toContain("linear-gradient");
+    // No rail beside it, no seam to draw.
+    expect(geometry.railSeam.opacity).toBe(railVisible ? "1" : "0");
   };
-  await assertJoinedSurface();
+  await assertColumnOnTheFloor(false);
   // The column's header sits below the window-controls strip, as the rail's
   // first row does — nothing of it hides under the traffic lights or the nav.
   const chrome = await page.getByTestId("app-top-chrome").boundingBox();
@@ -369,7 +390,7 @@ test("collapsing the rail keeps the resident's column as the pane", async ({
     .poll(async () => (await column.boundingBox())?.x ?? -1)
     .toBeGreaterThan(100);
   await waitForAnimations(page);
-  await assertJoinedSurface();
+  await assertColumnOnTheFloor(true);
   await column.getByRole("button", { name: "Close chats with Atlas" }).click();
   await expect(column).toHaveCount(0);
   await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();

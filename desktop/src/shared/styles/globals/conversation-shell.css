@@ -341,12 +341,27 @@
   background: hsl(var(--mn-floor));
 }
 
-:root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card],
-:root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
+:root[data-luca-shell] [data-luca-workspace-floor] [data-luca-card] {
   background: hsl(var(--mn-surface));
   border: 1px solid transparent;
   border-radius: var(--radius);
   box-shadow: var(--mn-card-edge);
+}
+
+/* THE SECOND COLUMN IS ON THE FLOOR, NOT ON THE CARD.
+   A rail is a rail at whatever depth: the agent column and the project room
+   navigator occupy the same slot beside the app rail and take the tone the
+   rail takes, so the three read as one continuous ground and the
+   conversation card is the only thing above it — slide the card over and
+   what it uncovers is floor. The column keeps `data-luca-card` for geometry
+   (radius, clipping, the joined seam below), so its surface and card edge
+   are overridden here rather than by dropping the marker and losing the
+   layout with it. */
+:root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
+  background: hsl(var(--mn-floor));
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  box-shadow: none;
 }
 
 /* One floor lip around every conversation card, including the leading edge
@@ -753,6 +768,7 @@
 
 :root[data-luca-shell] [data-testid="agent-chats-column"][data-luca-card] {
   overflow: hidden;
+  position: relative;
 }
 
 :root[data-luca-shell]
@@ -763,23 +779,50 @@
   border-right: 0;
   border-bottom-right-radius: 0;
   border-top-right-radius: 0;
-  box-shadow: none;
-  position: relative;
+}
+
+/* THE RAIL SEAM — see `.luca-project-room-navigator::before`, which draws the
+   same line for the other second column.
+   The column's trailing edge had the hairline, which is the wrong edge now
+   that the column is floor: on that side the conversation card's own tone
+   step already says where the card begins. The line that IS needed is the
+   one between the two ground planes — rail and column — and a hairline run
+   the full height of a window is a wall. This one is only there where the
+   eye is: the border token at the middle, gone at both ends, so the planes
+   part without either being boxed. */
+:root[data-luca-shell]
+  [data-testid="agent-chats-column"][data-luca-card]::before {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    hsl(var(--mn-border)) 50%,
+    transparent
+  );
+  bottom: 0;
+  content: "";
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 1px;
+  z-index: 1;
+}
+
+/* No rail, no seam: with the rail put away the column is itself the leading
+   edge of the window, and the line would be drawn against nothing. It comes
+   back for a companion peek, which slides the column back beside the rail —
+   the same pair of states the mover's transform above is written in. */
+:root[data-luca-shell]
+  [data-testid="agent-column-mover"][data-rail-hidden="true"]
+  [data-testid="agent-chats-column"][data-luca-card]::before {
+  opacity: 0;
 }
 
 :root[data-luca-shell]
-  .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
-    :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
-  )
-  [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"]::after {
-  background: hsl(var(--mn-ink) / 0.09);
-  bottom: 0;
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 1px;
+  [data-peek="companion"]
+  [data-testid="agent-column-mover"][data-rail-hidden="true"]
+  [data-testid="agent-chats-column"][data-luca-card]::before {
+  opacity: 1;
 }
 
 :root[data-luca-shell]
@@ -998,13 +1041,35 @@
 
 :root[data-luca-shell] .luca-project-room-navigator {
   background: hsl(var(--mn-floor));
-  border-right: 1px solid hsl(var(--mn-border));
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
+}
+
+/* The other second column, and the same seam: the navigator already stood on
+   the floor, so the hairline it carried on its trailing edge was doing the
+   card's job for it. The line belongs where the two ground planes meet — the
+   rail and this — and it fades out at both ends the way the agent column's
+   does, so the whole shell parts its planes in one language. */
+:root[data-luca-shell] .luca-project-room-navigator::before {
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    hsl(var(--mn-border)) 50%,
+    transparent
+  );
+  bottom: 0;
+  content: "";
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  width: 1px;
+  z-index: 1;
 }
 
 :root[data-luca-shell] .luca-project-room-navigator__header {
@@ -1221,8 +1286,13 @@
 
 @media (max-width: 767px) {
   :root[data-luca-shell] .luca-project-room-navigator {
-    border-right: 0;
     width: 100%;
+  }
+
+  /* Off canvas the navigator is the whole width and the rail is not beside
+     it, so there is no seam for the divider to be. */
+  :root[data-luca-shell] .luca-project-room-navigator::before {
+    content: none;
   }
 
   /* The production off-canvas toggle remains fixed in the shell's upper-left
