@@ -263,13 +263,12 @@ export function PolyphonicOnboardingFieldLayer() {
                   width: becomingTarget.width,
                   height: becomingTarget.height,
                   borderRadius: 0,
-                  borderColor: "rgba(0,0,0,0)",
                   backgroundColor: palette["--prototype-canvas"],
                   boxShadow: "0 0 0 rgba(0,0,0,0)",
                 }
               : {}
           }
-          className="relative flex overflow-hidden border"
+          className="relative flex overflow-hidden"
           data-testid="polyphonic-onboarding-shell"
           initial={false}
           ref={shellRef}
@@ -280,8 +279,10 @@ export function PolyphonicOnboardingFieldLayer() {
             height: restingShell
               ? restingShell.height
               : polyphonicCardFrameStyle.height,
+            // No stroke around the card. The radius, the glass, the black
+            // field pane and the seam between the halves are the whole of it:
+            // an outline as well is a drawing of a card, not a card.
             borderRadius: 15,
-            borderColor: "var(--prototype-hairline)",
             // Floating, the card is the window and a native blur is installed
             // behind it: the plate is the same surface at 76%, so the desktop
             // reads through without the field's dots losing their ground.

@@ -75,7 +75,7 @@ export const PolyphonicYouStep = React.forwardRef<
               beside the field, no glow behind it. */}
           <input
             autoComplete="name"
-            className="h-11 w-full rounded-[10px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3.5 text-sm text-[var(--prototype-ink)] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none transition-colors duration-150 placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
+            className="h-11 w-full rounded-[10px] text-left border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] px-3.5 text-sm text-[var(--prototype-ink)] shadow-[inset_0_1px_1px_var(--prototype-shadow)] outline-none transition-colors duration-150 placeholder:text-[var(--prototype-muted)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
             data-testid="polyphonic-owner-name"
             id="polyphonic-owner-name"
             maxLength={80}

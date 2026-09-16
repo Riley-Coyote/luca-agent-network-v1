@@ -70,12 +70,9 @@ export function PolyphonicDoor({
       data-testid="polyphonic-door"
       style={{ ...polyphonicDarkPalette, fontFamily: "var(--font-ui)" }}
     >
-      {/* Transparent border so the columns sit exactly where the shell's are;
-          the shell itself is drawn by the layer above the canvas. */}
-      <div
-        className="relative z-[45] grid border border-transparent"
-        style={polyphonicCardFrameStyle}
-      >
+      {/* The card's geometry alone; the shell itself is drawn by the layer
+          above the canvas, and it has no stroke for this to match. */}
+      <div className="relative z-[45] grid" style={polyphonicCardFrameStyle}>
         <div
           aria-hidden
           className="grid place-items-center"
@@ -91,7 +88,7 @@ export function PolyphonicDoor({
           // card must never show. It rests here, quiet and inert, until the
           // question crossfades in over it.
           animate={leaving ? { opacity: 0.24, y: -6 } : { opacity: 1, y: 0 }}
-          className="mx-auto flex w-full flex-col justify-center px-6 text-left"
+          className="mx-auto flex w-full flex-col justify-center px-6 text-center"
           style={{ maxWidth: `calc(${POLYPHONIC_COLUMN_MEASURE} + 3rem)` }}
           initial={reduceMotion ? false : { opacity: 0, y: 6 }}
           transition={
@@ -105,7 +102,7 @@ export function PolyphonicDoor({
           <h1 className="text-4xl font-medium tracking-[-0.04em] text-white">
             Polyphonic
           </h1>
-          <p className="mt-3 max-w-[26rem] text-sm leading-6 text-white/60">
+          <p className="mx-auto mt-3 max-w-[26rem] text-sm leading-6 text-white/60">
             A private home for your agents and the work that makes them useful.
           </p>
           {error ? (
@@ -113,7 +110,7 @@ export function PolyphonicDoor({
               {error}
             </p>
           ) : null}
-          <div className="mt-10 flex flex-col items-start gap-5">
+          <div className="mt-10 flex flex-col items-center gap-5">
             <Button
               className="h-10 rounded-lg bg-white px-5 text-sm font-medium text-black hover:bg-white/90"
               data-testid="polyphonic-door-begin"
@@ -123,7 +120,7 @@ export function PolyphonicDoor({
             >
               {isPending ? "Opening…" : "Begin setup"}
             </Button>
-            <p className="-ml-1 flex items-center gap-2 text-xs text-white/45">
+            <p className="flex items-center justify-center gap-2 text-xs text-white/45">
               <button
                 className="rounded-[5px] border border-transparent px-1 py-0.5 outline-none hover:text-white/80 focus-visible:border-white/50 focus-visible:text-white/80 focus-visible:outline-none disabled:opacity-50"
                 disabled={isPending || leaving}

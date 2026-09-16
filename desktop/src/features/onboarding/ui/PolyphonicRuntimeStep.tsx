@@ -209,7 +209,7 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
   }
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-3">
+    <div className="flex min-w-0 flex-1 flex-col items-center gap-3">
       {adapterOnly && !autoSetupFailed ? (
         <p
           className="flex items-center gap-2"
@@ -220,7 +220,7 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
           Setting up {runtime.label}…
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2">
         {adapterOnly && autoSetupFailed ? (
           <Button
             className="h-8"
@@ -282,7 +282,7 @@ function ManagedRecovery({ runtime }: { runtime: AcpRuntimeCatalogEntry }) {
       ) : null}
       {error && runtime.installInstructionsUrl ? (
         <Button
-          className="h-8 self-start"
+          className="h-8"
           onClick={() =>
             void openUrl(runtime.installInstructionsUrl).catch(() =>
               setActionError(
@@ -436,7 +436,10 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         >
           {!settings.data ? (
             settings.isError ? (
-              <div className="flex flex-col items-start gap-3 p-4" role="alert">
+              <div
+                className="flex flex-col items-center gap-3 p-4"
+                role="alert"
+              >
                 <p className="text-sm text-[var(--prototype-ink)]">
                   Couldn’t check the AI available on this Mac.
                 </p>
@@ -454,7 +457,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
             )
           ) : null}
           {settings.data && options.length === 0 ? (
-            <div className="flex flex-col items-start gap-3 p-4" role="status">
+            <div className="flex flex-col items-center gap-3 p-4" role="status">
               <p className="text-sm text-[var(--prototype-ink)]">
                 No AI connections are available yet. Check again after setting
                 one up.
@@ -550,7 +553,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
         {absentOptions.length > 0 && !revealAllRuntimes ? (
           <button
             aria-expanded="false"
-            className="mt-3 -ml-1 flex w-fit items-center gap-1 rounded-[6px] border border-transparent px-1 py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
+            className="mx-auto mt-3 flex w-fit items-center gap-1 rounded-[6px] border border-transparent px-1 py-1 text-xs text-[var(--prototype-muted-strong)] outline-none hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_50%,transparent)] focus-visible:outline-none"
             onClick={() => setShowOtherRuntimes(true)}
             type="button"
           >
@@ -573,7 +576,7 @@ export const PolyphonicRuntimeStep = React.forwardRef<
       */}
       {selectedOption && selectedOption.readiness !== "ready" ? (
         <div
-          className="mt-4 flex shrink-0 flex-col items-start gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]"
+          className="mt-4 flex shrink-0 flex-col items-center gap-3 text-[length:var(--prototype-support-size)] leading-[1.125rem] text-[var(--prototype-muted-strong)]"
           data-testid="polyphonic-runtime-action"
         >
           <span>

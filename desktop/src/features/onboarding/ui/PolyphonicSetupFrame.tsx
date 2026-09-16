@@ -102,10 +102,12 @@ export function PolyphonicSetupFrame({
       <div className="absolute inset-0 grid place-items-center">
         <section
           aria-labelledby={`polyphonic-${stage}-heading`}
-          // Transparent: the shell, the pane's recess and its hairline are
-          // drawn by the layer beneath this content, so the card is never
-          // built twice and never has to materialise.
-          className="relative z-[45] grid border border-transparent"
+          // The shell, the black field pane and the seam between the halves
+          // are drawn by the layer beneath this content, so the card is never
+          // built twice and never has to materialise. This frame is the
+          // geometry alone — and with no stroke on the shell there is none
+          // here either, so the column's air is the same on both sides.
+          className="relative z-[45] grid"
           data-testid="polyphonic-setup-assistant"
           style={polyphonicCardFrameStyle}
         >
@@ -170,7 +172,7 @@ export function PolyphonicSetupFrame({
               <AnimatePresence initial={false}>
                 <motion.div
                   animate={{ opacity: 1, y: 0 }}
-                  className="absolute inset-x-0 inset-y-4 flex min-h-0 flex-col justify-center"
+                  className="absolute inset-x-0 inset-y-4 flex min-h-0 flex-col justify-center text-center"
                   data-testid="polyphonic-setup-column"
                   exit={{
                     opacity: 0,
@@ -190,13 +192,17 @@ export function PolyphonicSetupFrame({
                 </motion.div>
               </AnimatePresence>
             </div>
-            <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-between gap-4">
+            {/* The primary sits on the column's own centre line — the same
+                axis as the heading above it — on every page. Back is quiet and
+                to its left, taken out of the flow so that a page with a Back
+                and a page without do not put the primary in two places. */}
+            <footer className="polyphonic-onboarding-footer relative z-10 flex items-center justify-center gap-4">
               {showFooter ? (
                 <>
                   {/* Focus is the element's own border coming up, in place:
                       no second ring floating beside the thing it describes. */}
                   <Button
-                    className="h-9 rounded-[7px] border border-transparent px-1 text-[length:var(--prototype-support-size)] font-normal text-[var(--prototype-muted)] outline-none hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)] focus-visible:outline-none"
+                    className="absolute left-0 h-9 rounded-[7px] border border-transparent px-1 text-[length:var(--prototype-support-size)] font-normal text-[var(--prototype-muted)] outline-none hover:bg-[var(--prototype-selection)] hover:text-[var(--prototype-ink)] focus-visible:border-[color-mix(in_srgb,var(--prototype-ink)_40%,transparent)] focus-visible:outline-none"
                     disabled={backDisabled}
                     onClick={onBack}
                     type="button"

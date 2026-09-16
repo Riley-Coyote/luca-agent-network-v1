@@ -545,7 +545,7 @@ export function PolyphonicPreparingStep({
             ))}
           </div>
           <div
-            className="mt-[18px] flex gap-1.5"
+            className="mt-[18px] flex justify-center gap-1.5"
             data-testid="polyphonic-walkthrough-ticks"
           >
             {WALKTHROUGH.map((item, index) => (
@@ -562,9 +562,9 @@ export function PolyphonicPreparingStep({
         </>
       )}
       {visibleError ? (
-        <div className="mt-6 flex flex-col items-start gap-4" role="alert">
+        <div className="mt-6 flex flex-col items-center gap-4" role="alert">
           <p className="break-words text-sm text-destructive">{visibleError}</p>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-2">
             <Button
               disabled={
                 settings.isFetching || personas.isFetching || managed.isFetching

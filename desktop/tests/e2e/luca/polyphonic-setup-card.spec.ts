@@ -399,14 +399,11 @@ test("the card is 1040×584: a pane wide enough for the dendrite to breathe", as
   expect(Math.abs(field.right - fieldBox.right)).toBeLessThan(1.5);
 
   // One column, one measure, centred in the half that is left — and its air
-  // is the dendrite's air, so the two halves breathe the same amount.
-  // (The card's own 1px border is inside these numbers, hence the tolerance.)
+  // is the dendrite's air, so the two halves breathe the same amount. Exactly,
+  // now that the card carries no stroke for the frame to sit inside.
   expect(Math.round(column.width)).toBe(COLUMN_MEASURE);
-  const leftGutter = column.left - pane.right;
-  const rightGutter = card.right - column.right;
-  expect(Math.abs(leftGutter - rightGutter)).toBeLessThanOrEqual(1);
-  expect(Math.abs(leftGutter - COLUMN_GUTTER)).toBeLessThanOrEqual(1);
-  expect(Math.abs(rightGutter - COLUMN_GUTTER)).toBeLessThanOrEqual(1);
+  expect(Math.round(column.left - pane.right)).toBe(COLUMN_GUTTER);
+  expect(Math.round(card.right - column.right)).toBe(COLUMN_GUTTER);
 });
 
 test("the column is centred in the card, and the actions sit on its bottom edge", async ({
@@ -455,9 +452,13 @@ test("the column is centred in the card, and the actions sit on its bottom edge"
   expect(back).not.toBeNull();
   expect(primary).not.toBeNull();
   if (!back || !primary) return;
+  // The primary stands on the column's own centre line — the same axis as the
+  // heading above it — so the page reads as one centred composition.
+  expect(
+    Math.abs(primary.x + primary.width / 2 - (column.left + column.width / 2)),
+  ).toBeLessThan(1.5);
+  // Quiet Back at the column's left edge, on the primary's baseline.
   expect(Math.round(back.x)).toBe(Math.round(column.left));
-  expect(Math.round(primary.x + primary.width)).toBe(Math.round(column.right));
-  // Quiet Back on the left, primary on the right, both on one baseline.
   expect(back.x).toBeLessThan(primary.x);
   expect(
     Math.abs(back.y + back.height / 2 - (primary.y + primary.height / 2)),
@@ -485,6 +486,126 @@ test("the pane is pure black and the glass is the other half's", async ({
   await expect(page.getByTestId("polyphonic-onboarding-shell")).toHaveCSS(
     "background-color",
     "rgba(20, 20, 22, 0.76)",
+  );
+});
+
+test("the card has no stroke around it — only its radius and its seam", async ({
+  page,
+}) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page);
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+
+  // Nothing is drawn around the card. An outline as well as a radius, a
+  // plate and a black field pane is a drawing of a card, not a card.
+  const shell = page.getByTestId("polyphonic-onboarding-shell");
+  const edge = await shell.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      // Tailwind's preflight leaves every element `border-style: solid` at
+      // zero width, so the width is the whole of the question.
+      widths: [
+        style.borderTopWidth,
+        style.borderRightWidth,
+        style.borderBottomWidth,
+        style.borderLeftWidth,
+      ],
+      radius: style.borderTopLeftRadius,
+    };
+  });
+  expect(edge.widths).toEqual(["0px", "0px", "0px", "0px"]);
+  // …and what does stay, stays.
+  expect(edge.radius).toBe("15px");
+
+  // The seam between the halves is the pane's own right edge, still there.
+  const seam = await page
+    .getByTestId("polyphonic-onboarding-shell")
+    .locator("> div")
+    .first()
+    .evaluate((el) => {
+      const style = getComputedStyle(el);
+      return { width: style.borderRightWidth, colour: style.borderRightColor };
+    });
+  expect(seam.width).toBe("1px");
+  expect(seam.colour).not.toBe("rgba(0, 0, 0, 0)");
+
+  // With no stroke, the frame the column sits on has none either, so the
+  // column's air is exactly the dendrite's on both sides.
+  const frame = await page
+    .getByTestId("polyphonic-setup-assistant")
+    .evaluate((el) => getComputedStyle(el).borderTopWidth);
+  expect(frame).toBe("0px");
+});
+
+test("every page reads as one centred composition", async ({ page }) => {
+  await page.setViewportSize(FIRST_RUN_VIEWPORT);
+  await openDoor(page, THREE_NATIVE_AGENTS);
+
+  const centred = (selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((el) => getComputedStyle(el).textAlign);
+
+  // The door.
+  expect(await centred('[data-testid="polyphonic-door"] h1')).toBe("center");
+  const links = await page
+    .getByRole("button", { name: "Use an existing identity" })
+    .evaluate((el) => {
+      const row = el.parentElement as HTMLElement;
+      const rowBox = row.getBoundingClientRect();
+      const column = row.closest<HTMLElement>(".flex-col");
+      const columnBox = (column ?? row).getBoundingClientRect();
+      return {
+        rowCentre: rowBox.left + rowBox.width / 2,
+        columnCentre: columnBox.left + columnBox.width / 2,
+      };
+    });
+  // The two quiet links are a pair, centred under the button.
+  expect(Math.abs(links.rowCentre - links.columnCentre)).toBeLessThan(1.5);
+
+  await page.getByTestId("polyphonic-door-begin").click();
+  await expect(page.getByTestId("polyphonic-owner-name")).toBeVisible();
+  // The name page: heading, line and hint centred…
+  expect(await centred("#polyphonic-welcome-heading")).toBe("center");
+  expect(
+    await centred('[data-testid="polyphonic-setup-column"] p:last-of-type'),
+  ).toBe("center");
+  // …and the field's own text is not, because a centred placeholder reads odd.
+  expect(await centred('[data-testid="polyphonic-owner-name"]')).toBe("left");
+
+  await page.getByTestId("polyphonic-owner-name").fill("Riley");
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(page.getByRole("radio", { name: /Codex/ })).toBeVisible();
+  // The runtime page: heading and the note under the list centred, the rows
+  // themselves still rows.
+  expect(await centred("#polyphonic-runtime-heading")).toBe("center");
+  expect(await centred('[data-testid="polyphonic-runtime-rows"] ~ p')).toBe(
+    "center",
+  );
+  expect(
+    await page
+      .getByRole("radio", { name: /Codex/ })
+      .evaluate(
+        (el) => getComputedStyle(el.closest("label") as HTMLElement).textAlign,
+      ),
+  ).toBe("left");
+
+  await page.getByRole("radio", { name: /Codex/ }).check();
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Bring in your agents" }),
+  ).toBeVisible({ timeout: 10_000 });
+  expect(await centred("#polyphonic-agents-heading")).toBe("center");
+
+  await page.getByTestId("polyphonic-setup-continue").click();
+  await expect(
+    page.getByRole("heading", { name: "Luca is waking up." }),
+  ).toBeVisible({ timeout: 15_000 });
+  expect(await centred("#polyphonic-preparing-heading")).toBe("center");
+  expect(await centred('[data-testid="polyphonic-reading-phase"]')).toBe(
+    "center",
   );
 });
 
@@ -781,8 +902,7 @@ test("the composition survives a smaller window than the card asks for", async (
   if (!card || !pane || !fieldBox || !column) return;
   expect(Math.round(card.width)).toBe(960);
   // The column keeps its whole 35rem reserve; the pane gives way.
-  // (Less the card's own 1px border, which the pane sits inside.)
-  expect(Math.abs(card.right - pane.right - 560)).toBeLessThanOrEqual(1);
+  expect(Math.round(card.right - pane.right)).toBe(560);
   expect(Math.round(pane.width)).toBe(400);
   // And the dendrite keeps exactly the air the wider card gives it.
   expect(Math.round(fieldBox.left - pane.left)).toBe(FIELD_INSET);

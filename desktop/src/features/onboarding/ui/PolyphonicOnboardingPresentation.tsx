@@ -91,7 +91,7 @@ export function PolyphonicPresentationHeading({
         {title}
       </h1>
       {description ? (
-        <p className="mt-2 max-w-[34rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
+        <p className="mx-auto mt-2 max-w-[34rem] text-[length:var(--prototype-body-size)] leading-[1.375rem] text-[var(--prototype-muted-strong)]">
           {description}
         </p>
       ) : null}
@@ -245,7 +245,7 @@ export function PolyphonicPresentationAgentSelector({
           <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--prototype-muted)]" />
           <input
             aria-label="Search agents"
-            className="min-h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] py-2 pl-9 pr-3 text-[length:var(--prototype-support-size)] text-[var(--prototype-ink)] outline-none placeholder:text-[var(--prototype-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
+            className="min-h-9 w-full rounded-[8px] border border-[var(--prototype-hairline)] bg-[var(--prototype-field)] py-2 pl-9 pr-3 text-left text-[length:var(--prototype-support-size)] text-[var(--prototype-ink)] outline-none placeholder:text-[var(--prototype-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--prototype-focus)]"
             disabled={disabled}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search agents"
