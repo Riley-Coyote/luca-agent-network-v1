@@ -344,6 +344,7 @@ impl ManagedPermissionClient {
             mcp_tool: match_fields.mcp_tool,
             command_token: match_fields.command_token,
             command_argv_prefix: match_fields.command_argv_prefix,
+            command_segments: match_fields.command_segments,
             path: match_fields.path,
             domain: match_fields.domain,
             write: match_fields.write,
@@ -3831,6 +3832,10 @@ mod tests {
                     activity_kind: Some(luca_protocol::ManagedPresentationActivityKindV1::Command),
                     command_token: Some("git".into()),
                     command_argv_prefix: vec!["status".into()],
+                    command_segments: vec![luca_protocol::CommandSegmentV1 {
+                        token: "git".into(),
+                        argv_prefix: vec!["status".into()],
+                    }],
                     write: Some(false),
                     ..Default::default()
                 },
@@ -3986,13 +3991,116 @@ mod tests {
     }
 
     #[test]
+    fn compound_commands_are_remembered_one_segment_at_a_time() {
+        fn segments(command: serde_json::Value) -> Vec<(String, Vec<String>)> {
+            crate::managed_presentation::permission_match_fields(&serde_json::json!({
+                "kind": "execute",
+                "rawInput": {"command": command}
+            }))
+            .command_segments
+            .into_iter()
+            .map(|segment| (segment.token, segment.argv_prefix))
+            .collect()
+        }
+        fn expected(pairs: &[(&str, &[&str])]) -> Vec<(String, Vec<String>)> {
+            pairs
+                .iter()
+                .map(|(token, prefix)| {
+                    (
+                        (*token).to_owned(),
+                        prefix.iter().map(|word| (*word).to_owned()).collect(),
+                    )
+                })
+                .collect()
+        }
+
+        // The two commands the first real walk actually ran.
+        assert_eq!(
+            segments(serde_json::json!("ls -la /Users/x/.buzz; echo \"exit=$?\"")),
+            expected(&[("ls", &[]), ("echo", &[])])
+        );
+        assert!(segments(serde_json::json!(
+            "echo hello > /tmp/spike.txt; echo \"exit=$?\""
+        ))
+        .is_empty());
+
+        // Every separator that ends one command and starts another.
+        assert_eq!(
+            segments(serde_json::json!("cd repo && npm test")),
+            expected(&[("cd", &["repo"]), ("npm", &["test"])])
+        );
+        assert_eq!(
+            segments(serde_json::json!("git log | head -5")),
+            expected(&[("git", &["log"]), ("head", &[])])
+        );
+        assert_eq!(
+            segments(serde_json::json!("make check || make fix")),
+            expected(&[("make", &["check"]), ("make", &["fix"])])
+        );
+
+        // A plain `$VAR` or `$?` is an argument, not a substitution: the
+        // segment stands and the prefix stops at that word.
+        assert_eq!(
+            segments(serde_json::json!("echo $SECRET")),
+            expected(&[("echo", &[])])
+        );
+        assert_eq!(
+            segments(serde_json::json!("git log $BRANCH")),
+            expected(&[("git", &["log"])])
+        );
+
+        // A quoted separator is text, not a second command.
+        assert_eq!(
+            segments(serde_json::json!("echo \"a; b\"")),
+            expected(&[("echo", &[])])
+        );
+
+        // A simple command is one segment, and still fills the single-command
+        // fields an older desktop reads.
+        let simple = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "execute",
+            "rawInput": {"command": "git status --short"}
+        }));
+        assert_eq!(simple.command_token.as_deref(), Some("git"));
+        assert_eq!(simple.command_argv_prefix, vec!["status".to_string()]);
+        assert_eq!(
+            simple
+                .command_segments
+                .iter()
+                .map(|segment| (segment.token.clone(), segment.argv_prefix.clone()))
+                .collect::<Vec<_>>(),
+            expected(&[("git", &["status"])])
+        );
+
+        // A compound line leaves the single-command fields empty, so a reader
+        // that knows nothing about segments offers Once and nothing else.
+        let compound = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "execute",
+            "rawInput": {"command": "ls; echo hi"}
+        }));
+        assert!(compound.command_token.is_none());
+        assert!(compound.command_argv_prefix.is_empty());
+        assert_eq!(compound.command_segments.len(), 2);
+
+        // An argv array is one invocation with no shell between the words.
+        assert_eq!(
+            segments(serde_json::json!(["git", "push", "--force"])),
+            expected(&[("git", &["push"])])
+        );
+        assert!(segments(serde_json::json!(["sudo", "ls"])).is_empty());
+
+        // Eight segments is the ceiling; a longer pipeline is once-only.
+        let eight = (0..8).map(|_| "echo hi").collect::<Vec<_>>().join("; ");
+        assert_eq!(segments(serde_json::json!(eight)).len(), 8);
+        let nine = (0..9).map(|_| "echo hi").collect::<Vec<_>>().join("; ");
+        assert!(segments(serde_json::json!(nine)).is_empty());
+    }
+
+    #[test]
     fn compound_commands_and_paths_yield_no_command_token() {
         for command in [
-            // A metacharacter means the line is not one command.
-            "a && b",
-            "a; b",
-            "a | b",
-            "echo $SECRET",
+            // Redirection, substitution, a subshell or a brace group each do
+            // something the token alone does not describe.
             "cat <file",
             "echo hi > /etc/passwd",
             "sh -c (true)",
@@ -4000,17 +4108,33 @@ mod tests {
             "echo ${HOME}",
             "git status\nrm -rf /",
             "git status\\\n rm -rf /",
+            // A backgrounding `&` hides whatever runs after it.
+            "sleep 5 & echo done",
+            "make &",
+            // An unterminated quote is not the line it looks like.
+            "echo \"unclosed ; rm -rf /",
             // A program path is a file, not a comparable command name.
             "/usr/bin/git status",
             "./deploy.sh",
             "../deploy.sh",
             // A leading assignment is the environment, not the program.
             "FOO=1 make",
+            // An escalation is never remembered as the command it wraps.
+            "sudo ls",
+            "sudo -n ls",
             // Nothing at all.
             "",
             "   ",
             // A flag can never be the program.
             "-rf /",
+            // One bad segment refuses the whole line: half a command is
+            // never remembered.
+            "ls; echo hi > /etc/passwd",
+            "a && b > out",
+            "ls; FOO=1 make",
+            "ls; sudo rm",
+            "ls; $(x)",
+            "ls && /usr/bin/git status",
         ] {
             let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
                 "kind": "execute",
@@ -4023,6 +4147,10 @@ mod tests {
             assert!(
                 fields.command_argv_prefix.is_empty(),
                 "{command:?} must yield no argv prefix"
+            );
+            assert!(
+                fields.command_segments.is_empty(),
+                "{command:?} must yield no segments"
             );
         }
 

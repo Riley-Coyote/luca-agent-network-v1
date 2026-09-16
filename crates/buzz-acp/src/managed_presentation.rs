@@ -6,14 +6,14 @@ use std::{collections::HashMap, sync::Arc};
 
 use luca_protocol::{
     CapabilityAuthorityV1, CapabilityConfigurationV1, CapabilityExecutionV1, CapabilitySupportV1,
-    Hex64, ManagedPresentationActivityKindV1, ManagedPresentationActivityStatusV1,
-    ManagedPresentationActivityV1, ManagedPresentationFailureV1, ManagedPresentationFrameV1,
-    ManagedPresentationKindV1, ManagedPresentationPhaseV1, NativeTaskFactsV1, OpaqueId,
-    ResidentCapabilityFactV1, ResidentSessionCapabilityV1, ResidentSessionCommandV1, SafeU53,
-    MANAGED_PRESENTATION_PROTOCOL, MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES,
-    MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES, MAX_MANAGED_PRESENTATION_CHUNK_BYTES,
-    MAX_MANAGED_PRESENTATION_FRAME_BYTES, MAX_RESIDENT_SESSION_COMMANDS,
-    RESIDENT_SESSION_CAPABILITY_PROTOCOL,
+    CommandSegmentV1, Hex64, ManagedPresentationActivityKindV1,
+    ManagedPresentationActivityStatusV1, ManagedPresentationActivityV1,
+    ManagedPresentationFailureV1, ManagedPresentationFrameV1, ManagedPresentationKindV1,
+    ManagedPresentationPhaseV1, NativeTaskFactsV1, OpaqueId, ResidentCapabilityFactV1,
+    ResidentSessionCapabilityV1, ResidentSessionCommandV1, SafeU53, MANAGED_PRESENTATION_PROTOCOL,
+    MAX_MANAGED_PRESENTATION_ACTIVITY_DETAIL_BYTES, MAX_MANAGED_PRESENTATION_ACTIVITY_LABEL_BYTES,
+    MAX_MANAGED_PRESENTATION_CHUNK_BYTES, MAX_MANAGED_PRESENTATION_FRAME_BYTES,
+    MAX_RESIDENT_SESSION_COMMANDS, RESIDENT_SESSION_CAPABILITY_PROTOCOL,
 };
 use tokio::io::AsyncWriteExt;
 
@@ -998,6 +998,7 @@ pub(crate) struct PermissionMatchFields {
     pub(crate) mcp_tool: Option<String>,
     pub(crate) command_token: Option<String>,
     pub(crate) command_argv_prefix: Vec<String>,
+    pub(crate) command_segments: Vec<CommandSegmentV1>,
     pub(crate) path: Option<String>,
     pub(crate) domain: Option<String>,
     pub(crate) write: Option<bool>,
@@ -1015,15 +1016,16 @@ pub(crate) fn permission_match_fields(tool_call: &serde_json::Value) -> Permissi
         Some((server, tool)) => (Some(server), Some(tool)),
         None => (None, None),
     };
-    let (command_token, command_argv_prefix) = command_shape(tool_call);
+    let command = command_shape(tool_call);
     PermissionMatchFields {
         tool_kind: permission_tool_kind(tool_call),
         activity_kind: Some(activity_kind(tool_call)),
         tool_name: permission_tool_name(tool_call),
         mcp_server,
         mcp_tool,
-        command_token,
-        command_argv_prefix,
+        command_token: command.token,
+        command_argv_prefix: command.argv_prefix,
+        command_segments: command.segments,
         path: permission_path(tool_call),
         domain: permission_domain(tool_call),
         write: Some(is_write_token(tool_call)),
@@ -1197,20 +1199,25 @@ fn is_twelve_lowercase_hex(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// The command this call would run, reduced to a token and a short prefix.
+/// The command this call would run, reduced to the plain invocations a rule
+/// can be keyed on.
 ///
-/// A remembered command rule is only ever as safe as the shape it matches, so
-/// this is deliberately narrow. A string carrying any shell metacharacter
-/// yields nothing at all: `git status; rm -rf /` must never be remembered as
-/// `git`. So does a leading environment assignment (`FOO=1 make`) and an
-/// absolute or relative program path (`/usr/bin/git`), because neither says
-/// which program actually runs in a way a rule can compare.
+/// Agents do not run one command at a time. Claude Code's real shell calls
+/// look like `ls -la /x; echo "exit=$?"`, so a rule keyed on a single token
+/// would have covered almost nothing. The line is split into segments
+/// instead, and the owner's "Always here" remembers one rule per segment.
 ///
-/// The prefix stops at the first word that is not a plain argument, so
-/// `git status --short` remembers `git status` and `git push --force`
-/// remembers `git push` — enough to tell a read from a write, and never so
-/// much that a rule silently covers a different command.
-fn command_shape(tool_call: &serde_json::Value) -> (Option<String>, Vec<String>) {
+/// A remembered rule is only ever as safe as the shape it matches, so every
+/// segment must be a plain invocation: no redirection, no substitution, no
+/// brace or subshell, no environment assignment, no `sudo`, no program path.
+/// If any segment fails that test the whole line yields nothing — half a
+/// command is never remembered, and `echo hi > /etc/passwd` stays once-only.
+///
+/// Each segment's prefix stops at the first word that is not a plain
+/// argument, so `git status --short` remembers `git status` and
+/// `echo "exit=$?"` remembers bare `echo` — enough to tell a read from a
+/// write, and never so much that a rule silently covers something else.
+fn command_shape(tool_call: &serde_json::Value) -> CommandShape {
     const POINTERS: [&str; 4] = [
         "/rawInput/command",
         "/rawInput/cmd",
@@ -1221,60 +1228,158 @@ fn command_shape(tool_call: &serde_json::Value) -> (Option<String>, Vec<String>)
         let Some(value) = tool_call.pointer(pointer) else {
             continue;
         };
-        let words: Vec<String> = match value {
-            serde_json::Value::String(line) => match command_words(line) {
-                Some(words) => words,
-                None => return (None, Vec::new()),
-            },
-            serde_json::Value::Array(items) => {
-                let mut words = Vec::with_capacity(items.len());
-                for item in items {
-                    let Some(word) = item.as_str() else {
-                        return (None, Vec::new());
-                    };
-                    words.push(word.to_owned());
-                }
-                words
-            }
+        match value {
+            serde_json::Value::String(line) => return shell_command_shape(line),
+            serde_json::Value::Array(items) => return argv_command_shape(items),
             _ => continue,
+        }
+    }
+    CommandShape::default()
+}
+
+/// What one tool call says about the command it would run.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct CommandShape {
+    /// The single-command fields, kept in step with `segments` exactly as the
+    /// protocol requires: one segment repeats itself here, several leave it
+    /// empty so an older desktop remembers nothing at all.
+    pub(crate) token: Option<String>,
+    pub(crate) argv_prefix: Vec<String>,
+    pub(crate) segments: Vec<CommandSegmentV1>,
+}
+
+impl CommandShape {
+    fn of(segments: Vec<CommandSegmentV1>) -> Self {
+        if segments.is_empty() || segments.len() > luca_protocol::MAX_PERMISSION_COMMAND_SEGMENTS {
+            return Self::default();
+        }
+        let (token, argv_prefix) = match segments.as_slice() {
+            [only] => (Some(only.token.clone()), only.argv_prefix.clone()),
+            _ => (None, Vec::new()),
         };
-        return command_token_and_prefix(&words);
+        Self {
+            token,
+            argv_prefix,
+            segments,
+        }
     }
-    (None, Vec::new())
 }
 
-/// Split a command line into words, or refuse it outright.
-fn command_words(line: &str) -> Option<Vec<String>> {
-    const FORBIDDEN: [char; 15] = [
-        ';', '&', '|', '`', '$', '<', '>', '(', ')', '{', '}', '\n', '\r', '\\', '\u{0}',
+/// An argv array is one invocation with no shell between the words at all.
+fn argv_command_shape(items: &[serde_json::Value]) -> CommandShape {
+    let mut words = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(word) = item.as_str() else {
+            return CommandShape::default();
+        };
+        words.push(word.to_owned());
+    }
+    match command_segment(&words) {
+        Some(segment) => CommandShape::of(vec![segment]),
+        None => CommandShape::default(),
+    }
+}
+
+/// Read a shell line as a sequence of plain invocations, or refuse it whole.
+fn shell_command_shape(line: &str) -> CommandShape {
+    /// What may never appear in a segment. Redirection, substitution, a
+    /// subshell, a brace group, a line break, an escape, or a backgrounding
+    /// `&` left over from the split: each of them means the segment does
+    /// something the token alone does not describe.
+    const FORBIDDEN: [char; 12] = [
+        '`', '<', '>', '(', ')', '{', '}', '&', '\n', '\r', '\\', '\u{0}',
     ];
-    if line.chars().any(|character| FORBIDDEN.contains(&character)) {
-        return None;
+    let Some(parts) = split_command_line(line) else {
+        return CommandShape::default();
+    };
+    let mut segments = Vec::with_capacity(parts.len());
+    for part in parts {
+        if part.chars().any(|character| FORBIDDEN.contains(&character)) {
+            return CommandShape::default();
+        }
+        let words: Vec<String> = part.split_whitespace().map(ToOwned::to_owned).collect();
+        let Some(segment) = command_segment(&words) else {
+            return CommandShape::default();
+        };
+        segments.push(segment);
     }
-    let words: Vec<String> = line.split_whitespace().map(ToOwned::to_owned).collect();
-    // A leading `FOO=1` is an environment assignment, not the program.
-    if words.first()?.contains('=') {
-        return None;
-    }
-    Some(words)
+    CommandShape::of(segments)
 }
 
-fn command_token_and_prefix(words: &[String]) -> (Option<String>, Vec<String>) {
-    let Some(first) = words.first() else {
-        return (None, Vec::new());
-    };
-    // A program path names a file, not a command a rule can compare.
-    if first.contains('/') || !luca_protocol::is_bare_command_token(first) {
-        return (None, Vec::new());
+/// Split a line on the separators that end one command and start another:
+/// `;`, `&&`, `||`, and a single `|`.
+///
+/// Quoting is respected, so `echo "a; b"` is one command rather than two. A
+/// lone `&` backgrounds what came before it and hides what follows, and an
+/// unterminated quote means the line is not the shape it looks like; both
+/// refuse the whole line.
+fn split_command_line(line: &str) -> Option<Vec<String>> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut quote: Option<char> = None;
+    let mut characters = line.chars().peekable();
+    while let Some(character) = characters.next() {
+        match quote {
+            Some(open) => {
+                current.push(character);
+                if character == open {
+                    quote = None;
+                }
+            }
+            None => match character {
+                '\'' | '"' => {
+                    quote = Some(character);
+                    current.push(character);
+                }
+                ';' => parts.push(std::mem::take(&mut current)),
+                '&' | '|' => {
+                    let doubled = characters.peek() == Some(&character);
+                    if doubled {
+                        characters.next();
+                    } else if character == '&' {
+                        return None;
+                    }
+                    parts.push(std::mem::take(&mut current));
+                }
+                other => current.push(other),
+            },
+        }
     }
-    let prefix = words
+    if quote.is_some() {
+        return None;
+    }
+    parts.push(current);
+    let parts: Vec<String> = parts
+        .into_iter()
+        .map(|part| part.trim().to_owned())
+        .filter(|part| !part.is_empty())
+        .collect();
+    (!parts.is_empty()).then_some(parts)
+}
+
+/// One plain invocation, or nothing.
+fn command_segment(words: &[String]) -> Option<CommandSegmentV1> {
+    let first = words.first()?;
+    // `sudo ls` is not `ls`: a rule for it would remember the escalation.
+    if first.eq_ignore_ascii_case("sudo") || first.eq_ignore_ascii_case("doas") {
+        return None;
+    }
+    // A program path names a file and a leading `FOO=1` names the
+    // environment; neither says which program a rule would be comparing.
+    if first.contains('/') || first.contains('=') || !luca_protocol::is_bare_command_token(first) {
+        return None;
+    }
+    let argv_prefix = words
         .iter()
         .skip(1)
         .take_while(|word| !word.starts_with('-') && luca_protocol::is_command_argv_token(word))
         .take(luca_protocol::MAX_PERMISSION_COMMAND_ARGV_PREFIX)
         .cloned()
         .collect();
-    (Some(first.clone()), prefix)
+    Some(CommandSegmentV1 {
+        token: first.clone(),
+        argv_prefix,
+    })
 }
 
 /// Extract only ACP's typed diff paths. Diff bodies and arbitrary content

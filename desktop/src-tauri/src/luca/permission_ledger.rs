@@ -23,7 +23,8 @@ use std::{
 };
 
 use luca_protocol::{
-    mcp_server_family, Hex64, ManagedPermissionRequestV1, OpaqueId, PermissionEffectV1,
+    mcp_server_family, CommandSegmentV1, Hex64, ManagedPermissionRequestV1, OpaqueId,
+    PermissionEffectV1,
     PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS,
     DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES, POLYPHONIC_BROKER_GUARDED_TOOLS,
     POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
@@ -88,7 +89,13 @@ impl ProjectRef {
 pub(crate) struct PermissionSubject {
     pub resident: Hex64,
     pub project: Option<ProjectRef>,
-    pub matcher: Option<PermissionMatcherV1>,
+    /// Everything a rule could be written about here, in order. A simple
+    /// request has one; a compound command has one per segment, and every one
+    /// of them must be answered before the request is allowed without a card.
+    /// Empty means there is nothing to remember, so the card offers Once.
+    pub matchers: Vec<PermissionMatcherV1>,
+    /// The short owner-facing phrase for each matcher, in the same order.
+    pub matcher_names: Vec<String>,
     /// A door onto the machine or the world: allowed once at most, never
     /// remembered.
     pub is_door: bool,
@@ -100,8 +107,18 @@ pub(crate) struct PermissionSubject {
     /// Whether the request's path lies inside the project's root. False
     /// whenever there is no path or no project.
     pub inside_project: bool,
-    /// The short owner-facing phrase for the thing being asked about.
+    /// The short owner-facing phrase for the whole request: one name, or the
+    /// segment names read as a list.
     pub display_name: String,
+}
+
+impl PermissionSubject {
+    /// Each matcher beside the phrase the owner reads for it.
+    pub(crate) fn asks(&self) -> impl Iterator<Item = (&PermissionMatcherV1, &str)> {
+        self.matchers
+            .iter()
+            .zip(self.matcher_names.iter().map(String::as_str))
+    }
 }
 
 /// Why a request was allowed without a card.
@@ -111,7 +128,8 @@ pub(crate) enum AllowReason {
     BrokerGuarded,
     TurnRule,
     Rule {
-        rule_id: String,
+        /// Every remembered rule that had to answer, one per segment.
+        rule_ids: Vec<String>,
         display_name: String,
     },
 }
@@ -129,6 +147,11 @@ pub(crate) struct PermissionOfferV1 {
     pub always_here: bool,
     pub deny: bool,
     pub project_label: Option<String>,
+    /// What "For this task" and "Always here" would write down, one name per
+    /// segment. A compound command remembers several, and the card says so
+    /// rather than letting the owner guess.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub remembers: Vec<String>,
     pub note: Option<String>,
 }
 
@@ -141,6 +164,7 @@ impl PermissionOfferV1 {
             always_here: false,
             deny: true,
             project_label,
+            remembers: Vec::new(),
             note,
         }
     }
