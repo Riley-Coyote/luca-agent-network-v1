@@ -26,6 +26,7 @@ mod managed_presentation;
 mod message_publish;
 mod notebook;
 mod owner_identity;
+mod permission_rule;
 mod relay_auth;
 
 pub use artifact::*;
@@ -57,9 +58,13 @@ pub use ids::{
 };
 pub use managed_audience::{ManagedAudienceIntentV1, MAX_MANAGED_AUDIENCE_RESIDENTS};
 pub use managed_permission::{
-    ManagedPermissionDecisionV1, ManagedPermissionDispositionV1, ManagedPermissionError,
-    ManagedPermissionOptionV1, ManagedPermissionRequestV1, MANAGED_PERMISSION_PROTOCOL,
-    MANAGED_PERMISSION_TIMEOUT_SECS,
+    is_bare_command_token, is_command_argv_token, is_mcp_identifier, is_permission_domain,
+    is_permission_path, ManagedPermissionDecisionV1, ManagedPermissionDispositionV1,
+    ManagedPermissionError, ManagedPermissionOptionV1, ManagedPermissionRequestV1,
+    MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS, MAX_PERMISSION_ARGV_TOKEN_BYTES,
+    MAX_PERMISSION_COMMAND_ARGV_PREFIX, MAX_PERMISSION_COMMAND_TOKEN_BYTES,
+    MAX_PERMISSION_DOMAIN_BYTES, MAX_PERMISSION_MCP_IDENTIFIER_BYTES, MAX_PERMISSION_PATH_BYTES,
+    MAX_PERMISSION_TOOL_KIND_BYTES, MAX_PERMISSION_TOOL_NAME_BYTES,
 };
 pub use managed_presentation::{
     ManagedPresentationActivityKindV1, ManagedPresentationActivityStatusV1,
@@ -81,6 +86,13 @@ pub use notebook::*;
 pub use owner_identity::{
     OwnerIdentityBundleV1, OwnerIdentityError, SecretNsec, OWNER_IDENTITY_CANONICALIZATION,
     OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
+};
+pub use permission_rule::{
+    mcp_server_family, PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1,
+    PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES,
+    MAX_PERMISSION_RULES_PER_OWNER, MAX_PERMISSION_RULE_DISPLAY_BYTES, PERMISSION_RULE_PROTOCOL,
+    POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
+    POLYPHONIC_PROJECT_WRITE_TOOLS,
 };
 pub use relay_auth::{
     NipOaOwnerAttestationV1, RelayAuthError, RelayAuthPurposeV1, RelayAuthSignRequestV1,
