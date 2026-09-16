@@ -256,7 +256,7 @@ impl TraceStore {
                     || row.trace.entries.iter().any(|e| {
                         e.text.len() > MAX_TEXT_BYTES
                             || e.room_text.len() > MAX_TEXT_BYTES
-                            || !matches!(e.kind.as_str(), "activity" | "narration")
+                            || !matches!(e.kind.as_str(), "activity" | "narration" | "permission")
                             || !matches!(e.status.as_str(), "active" | "done" | "failed")
                     })
             }) {
@@ -436,6 +436,59 @@ impl TraceStore {
             ManagedPresentationKindV1::Failed => row.finish(TraceStatus::Failed, now),
             ManagedPresentationKindV1::TurnStarted => {}
         }
+        true
+    }
+
+    /// Record one permission answer on the turn it belongs to.
+    ///
+    /// The row is found the way [`observe`](Self::observe) finds it — scope,
+    /// resident, conversation and dispatch receipt — or, when the harness sent
+    /// no receipt, by the turn it named. `text` is the owner's line and passes
+    /// the same credential redaction as any other work step; `room_text` is
+    /// what everybody else sees and must already be free of commands, paths and
+    /// hosts when it arrives here.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn record_permission(
+        &mut self,
+        scope: &Scope,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        dispatch_receipt_id: Option<&str>,
+        turn_id: &str,
+        text: &str,
+        room_text: &str,
+        allowed: bool,
+    ) -> bool {
+        let Some(row) = self.traces.iter_mut().find(|row| {
+            &row.scope == scope
+                && row.trace.status == TraceStatus::Working
+                && row.trace.resident_pubkey == resident_pubkey
+                && row.trace.conversation_id == conversation_id
+                && match dispatch_receipt_id {
+                    Some(receipt) => row.trace.dispatch_receipt_id == receipt,
+                    None => row.trace.turn_id == turn_id,
+                }
+        }) else {
+            return false;
+        };
+        let (room_text, room_truncated) = bounded(room_text, MAX_TEXT_BYTES);
+        let (text, truncated) = public_text(text, &room_text);
+        row.trace.truncated |= truncated || room_truncated;
+        let ordinal = row
+            .trace
+            .entries
+            .iter()
+            .filter(|entry| entry.kind == "permission")
+            .count()
+            .saturating_add(1);
+        row.append(TraceEntry {
+            id: format!("permission-{ordinal}"),
+            sequence: row.last_sequence,
+            kind: "permission".into(),
+            text,
+            room_text,
+            status: if allowed { "done" } else { "failed" }.into(),
+        });
         true
     }
 

@@ -192,6 +192,49 @@ pub(crate) fn publication_accepted(
     }
 }
 
+/// Write one permission answer into the public work history, after the
+/// decision has already been sent to the runtime. A storage failure can never
+/// change or retry the answer the owner gave.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn record_permission(
+    app: &AppHandle,
+    scope: &Scope,
+    resident_pubkey: &str,
+    conversation_id: &str,
+    dispatch_receipt_id: Option<&str>,
+    turn_id: &str,
+    text: &str,
+    room_text: &str,
+    allowed: bool,
+) {
+    let result = with_store(app, |store| {
+        let changed = store.record_permission(
+            scope,
+            resident_pubkey,
+            conversation_id,
+            dispatch_receipt_id,
+            turn_id,
+            text,
+            room_text,
+            allowed,
+        );
+        if changed {
+            store.save()?;
+        }
+        Ok(changed)
+    });
+    match result {
+        Ok(true) => {
+            let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
+        }
+        Ok(false) => {}
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: permission answer could not be saved"
+        ),
+    }
+}
+
 /// Read only the active native owner's community. Renderer input never chooses
 /// an owner, community or claimed final; association comes from signed dispatch
 /// publication authority. No model output is accepted from the renderer.

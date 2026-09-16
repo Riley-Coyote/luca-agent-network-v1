@@ -327,3 +327,192 @@ fn bounded_details_supply_missing_objects_and_whole_command_is_redacted() {
         .unwrap()
         .contains("protected-value"));
 }
+
+#[test]
+fn permission_entry_lands_on_the_working_trace_by_receipt_or_turn() {
+    let (_dir, mut store) = fixture();
+    begin(&mut store);
+
+    // The harness sent a dispatch receipt: the row is found the way a
+    // presentation frame finds it.
+    assert!(store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-a"),
+        "turn-a",
+        "Allowed by your rule: git status · Always in Luca",
+        "Allowed a command",
+        true,
+    ));
+    // No receipt: the turn it named is enough.
+    assert!(store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        None,
+        "turn-a",
+        "You said no: rm -rf build",
+        "Declined a command",
+        false,
+    ));
+
+    let trace = &store.list(&scope())[0];
+    assert_eq!(trace.entries.len(), 2);
+    assert_eq!(trace.entries[0].id, "permission-1");
+    assert_eq!(trace.entries[0].kind, "permission");
+    assert_eq!(trace.entries[0].status, "done");
+    assert_eq!(trace.entries[1].id, "permission-2");
+    assert_eq!(trace.entries[1].status, "failed");
+
+    // Another conversation, another resident, another receipt, another turn:
+    // none of them reaches this trace.
+    assert!(!store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-b",
+        Some("dispatch-a"),
+        "turn-a",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+    assert!(!store.record_permission(
+        &scope(),
+        &"33".repeat(32),
+        "conversation-a",
+        Some("dispatch-a"),
+        "turn-a",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+    assert!(!store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-b"),
+        "turn-a",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+    assert!(!store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        None,
+        "turn-b",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+    assert!(!store.record_permission(
+        &Scope {
+            owner: "99".repeat(32),
+            relay: "sha256:community-a".into(),
+        },
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-a"),
+        "turn-a",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+
+    // A finished turn takes no more answers.
+    store.observe(
+        &scope(),
+        &frame(2, ManagedPresentationKindV1::Completed),
+        110,
+    );
+    assert!(!store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-a"),
+        "turn-a",
+        "text",
+        "Allowed a tool",
+        true,
+    ));
+    assert_eq!(store.list(&scope())[0].entries.len(), 2);
+}
+
+#[test]
+fn permission_room_text_never_carries_arguments() {
+    let (_dir, mut store) = fixture();
+    begin(&mut store);
+    assert!(store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-a"),
+        "turn-a",
+        "You allowed once: curl --token 'protected-value' https://example.test",
+        "Allowed a command",
+        true,
+    ));
+    let trace = &store.list(&scope())[0];
+    assert_eq!(trace.entries[0].room_text, "Allowed a command");
+    // The owner's own line is redacted wholesale when it looks like a secret,
+    // exactly as a work step is.
+    assert_eq!(trace.entries[0].text, "Allowed a command");
+    let serialized = serde_json::to_string(trace).unwrap();
+    assert!(!serialized.contains("protected-value"));
+    assert!(!serialized.contains("example.test"));
+}
+
+#[test]
+fn legacy_trace_file_without_permission_entries_still_loads() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("traces.json");
+    {
+        let mut store = TraceStore::load(path.clone(), 100).unwrap();
+        begin(&mut store);
+        store.observe(&scope(), &step(2, 1, StepStatus::Done), 101);
+        store.observe(
+            &scope(),
+            &frame(3, ManagedPresentationKindV1::Completed),
+            102,
+        );
+        store.save().unwrap();
+    }
+    let bytes = std::fs::read_to_string(&path).unwrap();
+    assert!(!bytes.contains("permission"), "a pre-beta.11 file has none");
+
+    let restored = TraceStore::load(path.clone(), 110).unwrap();
+    assert_eq!(restored.list(&scope())[0].entries.len(), 1);
+
+    // And a file that does hold permission entries survives the round trip.
+    let mut store = TraceStore::load(path.clone(), 120).unwrap();
+    store.observe(
+        &scope(),
+        &frame(1, ManagedPresentationKindV1::TurnStarted),
+        121,
+    );
+    let mut later = frame(1, ManagedPresentationKindV1::TurnStarted);
+    later.dispatch_receipt_id = OpaqueId::parse("dispatch-b").unwrap();
+    later.turn_id = OpaqueId::parse("turn-b").unwrap();
+    assert!(store.observe(&scope(), &later, 121));
+    assert!(store.record_permission(
+        &scope(),
+        &"22".repeat(32),
+        "conversation-a",
+        Some("dispatch-b"),
+        "turn-b",
+        "You allowed once: git status",
+        "Allowed a command",
+        true,
+    ));
+    store.save().unwrap();
+    let reloaded = TraceStore::load(path, 130).unwrap();
+    let saved = reloaded
+        .list(&scope())
+        .into_iter()
+        .find(|trace| trace.dispatch_receipt_id == "dispatch-b")
+        .unwrap();
+    assert_eq!(saved.entries[0].kind, "permission");
+    assert_eq!(saved.entries[0].text, "You allowed once: git status");
+}
