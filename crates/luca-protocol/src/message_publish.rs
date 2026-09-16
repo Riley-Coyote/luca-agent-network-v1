@@ -72,9 +72,26 @@ fn tag_safe(value: &str, max_bytes: usize) -> bool {
             .any(|c| c.is_control() || c == '\n' || c == '\r')
 }
 
+/// The relay that runs inside the app answers over plain http on the loopback
+/// interface; that is the one place an attachment URL may be http.
+fn is_loopback_http_url(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        v6.split(']').next().unwrap_or("")
+    } else {
+        authority
+            .rsplit_once(':')
+            .map_or(authority, |(host, _)| host)
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
 fn tag_safe_url(value: &str) -> bool {
     tag_safe(value, MAX_ATTACHMENT_URL_BYTES)
-        && value.starts_with("https://")
+        && (value.starts_with("https://") || is_loopback_http_url(value))
         && !value.chars().any(char::is_whitespace)
 }
 
@@ -453,6 +470,38 @@ mod tests {
         ] {
             let mut bad = attachment();
             mutate(&mut bad);
+            assert!(
+                matches!(
+                    request(vec![bad.clone()]).validate(),
+                    Err(MessagePublishError::Attachments)
+                ),
+                "expected refusal for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn attachments_accept_the_local_relay_over_loopback_http() {
+        for url in [
+            "http://127.0.0.1:57550/media/abc.png",
+            "http://localhost:57550/media/abc.png",
+            "http://[::1]:57550/media/abc.png",
+        ] {
+            let mut local = attachment();
+            local.url = url.into();
+            local.thumb = Some(format!("{url}?thumb=1"));
+            assert!(
+                request(vec![local.clone()]).validate().is_ok(),
+                "expected the local relay to be accepted for {local:?}"
+            );
+        }
+        for url in [
+            "http://127.0.0.1.evil.example/media/abc.png",
+            "http://localhost.example/media/abc.png",
+            "http://10.0.0.7:57550/media/abc.png",
+        ] {
+            let mut bad = attachment();
+            bad.url = url.into();
             assert!(
                 matches!(
                     request(vec![bad.clone()]).validate(),

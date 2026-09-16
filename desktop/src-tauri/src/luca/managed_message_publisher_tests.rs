@@ -1189,3 +1189,39 @@ fn a_descriptor_that_is_not_an_image_is_refused() {
         fixture.request
     );
 }
+
+#[test]
+fn a_blob_url_must_sit_on_the_relay_origin_and_may_be_http_only_on_loopback() {
+    // Hosted relay: https on the relay's own origin only.
+    assert!(on_relay_origin(
+        "https://relay.example",
+        "https://relay.example/media/abc.png"
+    ));
+    assert!(!on_relay_origin(
+        "https://relay.example",
+        "http://relay.example/media/abc.png"
+    ));
+    assert!(!on_relay_origin(
+        "https://relay.example",
+        "https://cdn.example/media/abc.png"
+    ));
+    // The relay inside the app answers over plain http on loopback.
+    assert!(on_relay_origin(
+        "http://127.0.0.1:57550",
+        "http://127.0.0.1:57550/media/abc.png"
+    ));
+    assert!(on_relay_origin(
+        "http://localhost:57550",
+        "http://localhost:57550/media/abc.png"
+    ));
+    // Same host, different port: not the relay's origin.
+    assert!(!on_relay_origin(
+        "http://127.0.0.1:57550",
+        "http://127.0.0.1:3000/media/abc.png"
+    ));
+    // Plain http anywhere else is still refused, even if the base is http.
+    assert!(!on_relay_origin(
+        "http://relay.example",
+        "http://relay.example/media/abc.png"
+    ));
+}

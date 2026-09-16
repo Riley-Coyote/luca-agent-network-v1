@@ -275,20 +275,36 @@ impl HttpReplyImageUploader {
         })
     }
 
-    /// A blob URL is usable only if the relay answered on its own origin over
-    /// https. Anything else is a redirect we will not put in a signed event.
+    /// A blob URL is usable only if the relay answered on its own origin, over
+    /// https — or over plain http when the relay is the one running inside the
+    /// app on the loopback interface. Anything else is a redirect we will not
+    /// put in a signed event.
     fn on_relay_origin(&self, url: &str) -> bool {
-        let Ok(base) = url::Url::parse(&self.base_url) else {
-            return false;
-        };
-        let Ok(candidate) = url::Url::parse(url) else {
-            return false;
-        };
-        candidate.scheme() == "https"
-            && candidate.host_str().is_some()
-            && candidate.host_str() == base.host_str()
-            && candidate.port_or_known_default() == base.port_or_known_default()
+        on_relay_origin(&self.base_url, url)
     }
+}
+
+fn on_relay_origin(base_url: &str, url: &str) -> bool {
+    let Ok(base) = url::Url::parse(base_url) else {
+        return false;
+    };
+    let Ok(candidate) = url::Url::parse(url) else {
+        return false;
+    };
+    let base_is_loopback = base.host().is_some_and(|host| match host {
+        url::Host::Domain(domain) => domain.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(ip) => ip.is_loopback(),
+        url::Host::Ipv6(ip) => ip.is_loopback(),
+    });
+    let scheme_ok = match candidate.scheme() {
+        "https" => true,
+        "http" => base.scheme() == "http" && base_is_loopback,
+        _ => false,
+    };
+    scheme_ok
+        && candidate.host_str().is_some()
+        && candidate.host_str() == base.host_str()
+        && candidate.port_or_known_default() == base.port_or_known_default()
 }
 
 impl ReplyImageUploader for HttpReplyImageUploader {
