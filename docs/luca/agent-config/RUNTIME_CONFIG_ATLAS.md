@@ -197,8 +197,10 @@ blocks are the legacy form.)
 1. **Prefer not writing `config.toml` at all for a Polyphonic-spawned resident.** `codex-acp` accepts
    `CODEX_CONFIG` — a JSON object merged into the Codex session config — plus `MODEL_PROVIDER`,
    `INITIAL_AGENT_MODE` (`read-only`|`agent`|`agent-full-access`), `CODEX_PATH`, `CODEX_API_KEY` /
-   `OPENAI_API_KEY`. That gives per-agent model, sandbox and approval without touching a shared file,
-   and the adapter also accepts client-provided MCP servers per session.
+   `OPENAI_API_KEY`. That gives per-agent model and provider without touching a shared file, and the
+   adapter also accepts client-provided MCP servers per session. **Approval and sandbox are the
+   exception: `CODEX_CONFIG` cannot set them on adapter 1.11.0 — only `INITIAL_AGENT_MODE` can.** See
+   "Verified: what actually sets a Codex resident's approval and sandbox" below.
 2. For a **native** Codex agent the owner wants configured globally, edit `config.toml` with a
    comment-preserving TOML editor (`toml_edit`) — read-modify-write, unknown keys untouched.
 3. Honour the **project blocklist**: a project `.codex/config.toml` may not set `model_provider`,
@@ -207,6 +209,67 @@ blocks are the legacy form.)
 4. Handle the documented renames on read: `experimental_instructions_file` → `model_instructions_file`,
    `features.codex_hooks` → `features.hooks`, `agents.max_threads` →
    `agents.max_concurrent_threads_per_session`.
+
+### Verified: what actually sets a Codex resident's approval and sandbox (2026-09-16)
+
+Measured against `@agentclientprotocol/codex-acp` **1.11.0** (bundling `@openai/codex` **0.153.4**),
+driven directly over stdio ACP — `initialize` (protocol 2) → `session/new` with a scratch git repo as
+`cwd` → `session/prompt` — with a client that refuses every `session/request_permission` it receives.
+
+| Lever | Result |
+|---|---|
+| `CODEX_CONFIG` `approval_policy` + `sandbox_mode` | **No effect.** |
+| `CODEX_CONFIG` `sandbox_workspace_write.network_access` | **No effect** (network stayed closed). |
+| `INITIAL_AGENT_MODE` | **Works.** The only lever that binds. |
+
+`CODEX_CONFIG` is still read as a config source — setting `approval_policy = "untrusted"` fails the
+session with *"`approval_policy = "untrusted"` is no longer supported; remove this setting"*, which
+is also how this was first noticed — but for these keys it is overridden. The adapter builds its own
+`AgentMode` and passes that mode's `approvalPolicy`, `approvalsReviewer` and `sandboxPolicy` into
+**every turn** (`CodexAcpClient.runTurn`), so whatever `CODEX_CONFIG` said never reaches the runtime.
+
+The adapter defines exactly three modes, and `INITIAL_AGENT_MODE` picks one:
+
+| `INITIAL_AGENT_MODE` | approval policy | reviewer | sandbox |
+|---|---|---|---|
+| `read-only` ("Ask for approval") | `on-request` | **user** | workspace-write, no network |
+| `agent` ("Approve for me") — **the default** | `on-request` | `auto_review` | workspace-write, no network |
+| `agent-full-access` ("Full access") | `never` | user | danger-full-access |
+
+An unrecognised value silently falls back to `agent`, so only ever send one of the three.
+
+Observed, prompt *"run `git status`, then write `/private/var/tmp/…`, then `curl https://example.com`"*:
+
+* **unset (`agent`)** — `git status` ran; the out-of-workspace write returned
+  `operation not permitted`; `curl` returned `(6) Could not resolve host`. **Zero**
+  `session/request_permission` calls: the adapter's own auto-reviewer answered the escalation and the
+  owner was never asked. *This is the beta.10 "Codex asked nothing" behaviour, and it is the adapter's
+  default, not the owner's `~/.codex`.*
+* **`read-only`** — identical sandbox result, and when the model was told to retry with escalated
+  permissions a real `session/request_permission` arrived for the exact command, with options
+  `allow_once` / `allow_always` (an execpolicy amendment) / `reject_once`. Refusing it left the file
+  unwritten and ended the turn `cancelled`.
+* **`agent-full-access`** — the out-of-workspace write and `curl` both succeeded (`200`), no prompts.
+* **`CODEX_CONFIG` `{"approval_policy":"never","sandbox_mode":"danger-full-access",
+  "sandbox_workspace_write":{"network_access":true}}` with no `INITIAL_AGENT_MODE`** — behaved exactly
+  like the default: write denied, network denied. Confirms the override.
+
+**What Polyphonic does with this (beta.11).** `BUZZ_ACP_CODEX_POLICY` keeps the
+`{"approval_policy", "sandbox_mode"}` contract and is applied twice, both in the forced-overlay class
+so a parent `CODEX_CONFIG` can never lower a resident's tier: as `CODEX_CONFIG` keys after the parent
+merge, and as `INITIAL_AGENT_MODE`, which is what binds today. The `CODEX_CONFIG` half costs nothing
+and is the right contract the day the adapter stops overriding it.
+
+Because the adapter offers three modes and only one of them asks the owner, both asking tiers map to
+`read-only` and only a policy that asks for nothing maps to `agent-full-access`. `agent` is never
+selected: its auto-reviewer would answer on the owner's behalf, which is the whole thing beta.11
+exists to stop.
+
+**Open.** The relay-connectivity invariant (`sandbox_workspace_write.network_access = true`, forced
+since the Codex sandbox work) does **not** reach this adapter version, and both asking tiers run with
+`networkAccess: false`. Whether managed Codex residents still reach the relay by some other route was
+not tested here and needs checking before the beta.11 cut.
+
 
 ### Live vs restart
 
