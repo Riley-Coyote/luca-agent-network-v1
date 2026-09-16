@@ -1170,7 +1170,8 @@ impl ArtifactStore {
 
     /// Images this managed turn created and did not opt out of its reply.
     ///
-    /// Ordered the way the resident made them, bounded by `limit`, and read
+    /// Ordered the way the resident made them (insertion order, which is also
+    /// chronological), bounded by `limit`, and read
     /// from the content-addressed blob store so the caller gets exact bytes.
     /// A single unreadable blob is skipped rather than failing the turn — the
     /// reply must survive a damaged Library.
@@ -1202,7 +1203,11 @@ impl ArtifactStore {
                    AND artifacts.kind = 'image'
                    AND artifacts.deleted_at IS NULL
                    AND versions.blob_hash IS NOT NULL
-                 ORDER BY receipts.created_at ASC, receipts.receipt_id ASC",
+                 -- `created_at` has one-second resolution, so two pictures
+                 -- made in the same second tie. `rowid` is the insertion order
+                 -- and breaks that tie the way the resident made them; a
+                 -- receipt id would break it at random.
+                 ORDER BY receipts.created_at ASC, receipts.rowid ASC",
             )
             .map_err(|_| ArtifactStoreError::Unavailable)?;
         let rows = statement

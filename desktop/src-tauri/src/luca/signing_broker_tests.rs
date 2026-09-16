@@ -563,6 +563,135 @@ fn luca_signing_broker_constructs_exact_buzz_kind9_before_publication_adapter() 
     );
 }
 
+/// An authority that puts one already-uploaded image on the reply, the way the
+/// real publisher does once it has resolved the turn's artifacts.
+struct AttachingPublicationAuthority {
+    inner: AcceptingPublicationAuthority,
+}
+
+const ATTACHED_IMAGE_URL: &str = "https://relay.example.test/media/attached.png";
+
+impl ManagedMessagePublicationAuthority for AttachingPublicationAuthority {
+    fn attach_reply_images(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> ManagedMessagePublishRequestV1 {
+        let attachment = luca_protocol::ManagedFinalAttachmentV1 {
+            url: ATTACHED_IMAGE_URL.to_owned(),
+            sha256: hex('b'),
+            mime_type: "image/png".to_owned(),
+            size: SafeU53::new(4_096).expect("valid size"),
+            dim: Some("512x384".to_owned()),
+            blurhash: None,
+            thumb: None,
+            filename: Some("attached.png".to_owned()),
+        };
+        let mut effective = request.clone();
+        effective.final_draft = format!(
+            "{}{}",
+            request.final_draft,
+            crate::luca::managed_message_event::attachment_body_line(&attachment)
+        );
+        effective.attachments = vec![attachment];
+        effective
+    }
+
+    fn authorize_request(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        now_unix_secs: u64,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        self.inner.authorize_request(request, now_unix_secs)
+    }
+
+    fn publish_prepared(
+        &mut self,
+        request: &ManagedMessagePublishRequestV1,
+        outbox: &mut ManagedMessageOutbox,
+        installation_session_id: &OpaqueId,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        self.inner
+            .publish_prepared(request, outbox, installation_session_id)
+    }
+}
+
+#[test]
+fn an_attached_image_reaches_the_signed_event_the_broker_freezes() {
+    let keys = Keys::parse(&"01".repeat(32)).expect("valid fixture key");
+    let runtime = hex('c');
+    let binding = LocalBrokerSessionBinding {
+        owner_pubkey: hex('a'),
+        resident_pubkey: Hex64::parse(keys.public_key().to_hex()).expect("valid resident pubkey"),
+        acp_pid: 8123,
+        session_epoch: SafeU53::new(4).expect("valid epoch"),
+        runtime_configuration_sha256: runtime.clone(),
+        installation_session_id: OpaqueId::parse("installation-1").expect("valid installation ID"),
+        relay_url: "wss://relay.example.test".to_owned(),
+        relay_query_url: "https://relay.example.test/query".to_owned(),
+        owner_attestation: None,
+    };
+    let captured_event = Arc::new(Mutex::new(None));
+    let authority = AttachingPublicationAuthority {
+        inner: AcceptingPublicationAuthority {
+            captured_event: Arc::clone(&captured_event),
+        },
+    };
+    let mut broker =
+        ResidentSigningBroker::new_with_publication_authority(keys, binding, Box::new(authority))
+            .expect("matching broker");
+    // The harness sends a request with no attachments, exactly as ACP does.
+    let request = publish_request(&broker);
+    assert!(request.attachments.is_empty());
+    let frame = encoded_publish_frame(&broker, &request, 1, "publish-1");
+    let response = broker
+        .handle_frame(
+            &frame,
+            LocalBrokerCaller {
+                acp_pid: 8123,
+                runtime_configuration_sha256: &runtime,
+            },
+            1_700_000_000_000,
+        )
+        .expect("published response");
+    let response = decode_length_prefixed_result_frame::<ManagedMessagePublishResultV1>(&response)
+        .expect("valid response");
+    assert!(matches!(
+        response.result,
+        ManagedMessagePublishResultV1::Published { .. }
+    ));
+
+    let event_json = captured_event
+        .lock()
+        .expect("capture lock")
+        .clone()
+        .expect("captured exact event");
+    let event = nostr::Event::from_json(event_json).expect("valid event");
+    assert_eq!(
+        event.content,
+        format!("A managed final answer.\n![image]({ATTACHED_IMAGE_URL})"),
+        "the body gained exactly the owner's own image line"
+    );
+    let tags: Vec<Vec<String>> = event
+        .tags
+        .iter()
+        .map(|tag| tag.as_slice().to_vec())
+        .collect();
+    assert_eq!(
+        tags.last().expect("a tag"),
+        &vec![
+            "imeta".to_owned(),
+            format!("url {ATTACHED_IMAGE_URL}"),
+            "m image/png".to_owned(),
+            format!("x {}", hex('b').as_str()),
+            "size 4096".to_owned(),
+            "dim 512x384".to_owned(),
+            "filename attached.png".to_owned(),
+        ],
+        "the imeta tag closes the sequence"
+    );
+    assert_eq!(tags.len(), 6, "nothing the final already had was displaced");
+}
+
 struct DenyingCountingAuthority {
     authorize_calls: Arc<Mutex<usize>>,
 }

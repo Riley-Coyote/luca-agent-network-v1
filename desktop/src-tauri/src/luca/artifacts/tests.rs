@@ -913,6 +913,16 @@ fn the_reply_image_limit_reports_what_it_left_behind() {
         .unwrap();
     assert_eq!(found.total, 6);
     assert_eq!(found.images.len(), 4);
+    // Six creates land inside one second, so `created_at` ties for all of them.
+    // The order still has to be the order the resident made them.
+    assert_eq!(
+        found
+            .images
+            .iter()
+            .map(|image| image.filename.as_str())
+            .collect::<Vec<_>>(),
+        vec!["plot-0.png", "plot-1.png", "plot-2.png", "plot-3.png"],
+    );
 }
 
 #[test]
