@@ -13,7 +13,7 @@ use std::{
 use chrono::Utc;
 use luca_protocol::{
     CapabilityKind, CapabilityReceiptV1, CapabilityResourceV1, DurableCapabilityGrantV1, Hex64,
-    OpaqueId, ResidentAccessLevel,
+    OpaqueId, PermissionRuleV1, ResidentAccessLevel, MAX_PERMISSION_RULES_PER_OWNER,
 };
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -38,6 +38,11 @@ struct OwnerCapabilityAuthorityV1 {
     onboarding: Option<OnboardingCapabilityStatusV1>,
     #[serde(default)]
     receipts: Vec<CapabilityReceiptV1>,
+    /// Remembered answers to permission cards. Absent on every store file
+    /// written before beta.11, which is why this is `#[serde(default)]` and the
+    /// schema version is deliberately unchanged: an older file still loads.
+    #[serde(default)]
+    rules: Vec<PermissionRuleV1>,
 }
 
 impl OwnerCapabilityAuthorityV1 {
@@ -49,6 +54,7 @@ impl OwnerCapabilityAuthorityV1 {
             grants: Vec::new(),
             onboarding: None,
             receipts: Vec::new(),
+            rules: Vec::new(),
         }
     }
 }
@@ -77,6 +83,7 @@ pub(crate) struct ResidentCapabilitySettingsV1 {
     pub household_default: ResidentAccessLevel,
     pub resident_access: BTreeMap<String, ResidentAccessLevel>,
     pub grants: Vec<DurableCapabilityGrantV1>,
+    pub rules: Vec<PermissionRuleV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +197,12 @@ fn settings_snapshot(owner: &OwnerCapabilityAuthorityV1) -> ResidentCapabilitySe
             .grants
             .iter()
             .filter(|grant| grant.revoked_at.is_none())
+            .cloned()
+            .collect(),
+        rules: owner
+            .rules
+            .iter()
+            .filter(|rule| rule.revoked_at.is_none())
             .cloned()
             .collect(),
     }
@@ -440,6 +453,142 @@ fn grant_matches(
         && grant.capability == capability
         && grant.resource.kind == resource_kind
         && grant.resource.resource_ref == resource_ref
+}
+
+/// True when two rules say the same thing about the same resident. The rule id,
+/// its display sentence and its usage counters are deliberately not compared:
+/// answering the same card twice must not grow the list.
+fn rule_is_same_answer(existing: &PermissionRuleV1, candidate: &PermissionRuleV1) -> bool {
+    existing.resident_pubkey == candidate.resident_pubkey
+        && existing.scope == candidate.scope
+        && existing.matcher == candidate.matcher
+        && existing.effect == candidate.effect
+}
+
+/// Remember one owner-minted answer. An exact duplicate is un-revoked in place
+/// rather than appended, mirroring [`grant`].
+pub(crate) fn upsert_rule(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    rule: PermissionRuleV1,
+) -> Result<PermissionRuleV1, String> {
+    upsert_rule_at(&store_path(app)?, owner_pubkey, rule)
+}
+
+fn upsert_rule_at(
+    path: &Path,
+    owner_pubkey: &str,
+    rule: PermissionRuleV1,
+) -> Result<PermissionRuleV1, String> {
+    rule.validate().map_err(|error| error.to_string())?;
+    mutate_store(path, |store| {
+        let owner = owner_mut(store, owner_pubkey);
+        if let Some(existing) = owner
+            .rules
+            .iter_mut()
+            .find(|existing| rule_is_same_answer(existing, &rule))
+        {
+            existing.revoked_at = None;
+            return Ok(existing.clone());
+        }
+        if owner.rules.len() >= MAX_PERMISSION_RULES_PER_OWNER {
+            let oldest_revoked = owner
+                .rules
+                .iter()
+                .enumerate()
+                .filter(|(_, existing)| existing.revoked_at.is_some())
+                .min_by(|(_, left), (_, right)| left.created_at.cmp(&right.created_at))
+                .map(|(index, _)| index);
+            let Some(index) = oldest_revoked else {
+                return Err("remembered permissions are full".into());
+            };
+            owner.rules.remove(index);
+        }
+        owner.rules.push(rule.clone());
+        Ok(rule)
+    })
+}
+
+/// Every live rule for one resident, newest answer last.
+pub(crate) fn matching_rules(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+) -> Result<Vec<PermissionRuleV1>, String> {
+    matching_rules_at(&store_path(app)?, owner_pubkey, resident_pubkey)
+}
+
+fn matching_rules_at(
+    path: &Path,
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+) -> Result<Vec<PermissionRuleV1>, String> {
+    let resident_pubkey = validate_pubkey(resident_pubkey)?;
+    read_store(path, |store| {
+        Ok(store
+            .owners
+            .iter()
+            .find(|owner| owner.owner_pubkey == owner_pubkey)
+            .map(|owner| {
+                owner
+                    .rules
+                    .iter()
+                    .filter(|rule| {
+                        rule.revoked_at.is_none()
+                            && rule.resident_pubkey.as_str() == resident_pubkey
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default())
+    })
+}
+
+/// Record that a live rule answered a card. Usage is owner-local bookkeeping
+/// for the permissions list; it never widens what the rule allows.
+pub(crate) fn touch_rule(app: &AppHandle, owner_pubkey: &str, rule_id: &str) -> Result<(), String> {
+    touch_rule_at(&store_path(app)?, owner_pubkey, rule_id)
+}
+
+fn touch_rule_at(path: &Path, owner_pubkey: &str, rule_id: &str) -> Result<(), String> {
+    mutate_store(path, |store| {
+        let owner = owner_mut(store, owner_pubkey);
+        let rule = owner
+            .rules
+            .iter_mut()
+            .find(|rule| rule.rule_id.as_str() == rule_id && rule.revoked_at.is_none())
+            .ok_or_else(|| "remembered permission was not found".to_string())?;
+        rule.last_used_at = Some(Utc::now().to_rfc3339());
+        rule.use_count = rule.use_count.saturating_add(1);
+        Ok(())
+    })
+}
+
+/// Take one remembered answer back. Tombstoned like [`revoke`], never deleted,
+/// so a later identical answer can be recognised as the same rule.
+pub(crate) fn revoke_rule(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    rule_id: &str,
+) -> Result<ResidentCapabilitySettingsV1, String> {
+    revoke_rule_at(&store_path(app)?, owner_pubkey, rule_id)
+}
+
+fn revoke_rule_at(
+    path: &Path,
+    owner_pubkey: &str,
+    rule_id: &str,
+) -> Result<ResidentCapabilitySettingsV1, String> {
+    mutate_store(path, |store| {
+        let owner = owner_mut(store, owner_pubkey);
+        let rule = owner
+            .rules
+            .iter_mut()
+            .find(|rule| rule.rule_id.as_str() == rule_id && rule.revoked_at.is_none())
+            .ok_or_else(|| "remembered permission was not found".to_string())?;
+        rule.revoked_at = Some(Utc::now().to_rfc3339());
+        Ok(settings_snapshot(owner))
+    })
 }
 
 pub(crate) fn revoke(
@@ -746,6 +895,212 @@ mod tests {
             updated_at: Utc::now().to_rfc3339(),
         });
         assert!(store_has_completed_onboarding(&store));
+    }
+
+    fn test_rule(rule_id: &str, matcher: luca_protocol::PermissionMatcherV1) -> PermissionRuleV1 {
+        PermissionRuleV1 {
+            protocol: luca_protocol::PERMISSION_RULE_PROTOCOL.into(),
+            rule_id: OpaqueId::parse(rule_id).unwrap(),
+            resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+            scope: luca_protocol::PermissionRuleScopeV1::Project {
+                source_id: OpaqueId::parse("source-a").unwrap(),
+            },
+            matcher,
+            effect: luca_protocol::PermissionEffectV1::Allow,
+            display_name: "Run git status in Luca".into(),
+            created_at: Utc::now().to_rfc3339(),
+            revoked_at: None,
+            last_used_at: None,
+            use_count: 0,
+        }
+    }
+
+    fn command_matcher() -> luca_protocol::PermissionMatcherV1 {
+        luca_protocol::PermissionMatcherV1::Command {
+            token: "git".into(),
+            argv_prefix: vec!["status".into()],
+        }
+    }
+
+    /// A store file written before beta.11 has no `rules` key at all. It must
+    /// still load, and the owner it holds must come back with no rules rather
+    /// than failing the whole authority.
+    #[test]
+    fn rules_default_empty_on_legacy_store_file() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        std::fs::write(
+            &path,
+            serde_json::to_vec(&serde_json::json!({
+                "schemaVersion": SCHEMA_VERSION,
+                "owners": [{
+                    "ownerPubkey": owner_pubkey,
+                    "householdDefault": "standard",
+                    "residentAccess": {},
+                    "grants": [],
+                    "onboarding": null,
+                    "receipts": [],
+                }],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let store = load_store(&path).expect("a pre-beta.11 file still loads");
+        assert!(store.owners[0].rules.is_empty());
+        assert!(settings_snapshot(&store.owners[0]).rules.is_empty());
+        assert_eq!(
+            matching_rules_at(&path, &owner_pubkey, &"11".repeat(32)),
+            Ok(Vec::new())
+        );
+    }
+
+    #[test]
+    fn upsert_rule_unrevokes_exact_duplicate_instead_of_growing() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+
+        let first = upsert_rule_at(&path, &owner_pubkey, test_rule("rule-1", command_matcher()))
+            .expect("first answer is remembered");
+        assert_eq!(first.rule_id.as_str(), "rule-1");
+        revoke_rule_at(&path, &owner_pubkey, "rule-1").expect("owner takes it back");
+
+        // The same answer, minted fresh by a later card: same resident, scope,
+        // matcher and effect, but a new id and sentence.
+        let mut again = test_rule("rule-2", command_matcher());
+        again.display_name = "Run git status in Luca again".into();
+        let restored =
+            upsert_rule_at(&path, &owner_pubkey, again).expect("the duplicate is recognised");
+        assert_eq!(
+            restored.rule_id.as_str(),
+            "rule-1",
+            "the original rule is un-revoked, not replaced"
+        );
+        assert!(restored.revoked_at.is_none());
+
+        read_store(&path, |store| {
+            assert_eq!(store.owners[0].rules.len(), 1, "the list did not grow");
+            Ok(())
+        })
+        .unwrap();
+
+        // A different matcher is a different answer and does append.
+        upsert_rule_at(
+            &path,
+            &owner_pubkey,
+            test_rule(
+                "rule-3",
+                luca_protocol::PermissionMatcherV1::Path { write: true },
+            ),
+        )
+        .expect("a different answer is its own rule");
+        read_store(&path, |store| {
+            assert_eq!(store.owners[0].rules.len(), 2);
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn revoked_rule_is_not_in_snapshot_or_matching() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        let resident = "11".repeat(32);
+
+        upsert_rule_at(&path, &owner_pubkey, test_rule("rule-1", command_matcher())).unwrap();
+        upsert_rule_at(
+            &path,
+            &owner_pubkey,
+            test_rule(
+                "rule-2",
+                luca_protocol::PermissionMatcherV1::Domain {
+                    host: "docs.rs".into(),
+                },
+            ),
+        )
+        .unwrap();
+        touch_rule_at(&path, &owner_pubkey, "rule-1").expect("a live rule can be touched");
+
+        let settings = revoke_rule_at(&path, &owner_pubkey, "rule-1").expect("revocation");
+        assert_eq!(settings.rules.len(), 1);
+        assert_eq!(settings.rules[0].rule_id.as_str(), "rule-2");
+        let live = matching_rules_at(&path, &owner_pubkey, &resident).unwrap();
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].rule_id.as_str(), "rule-2");
+        assert_eq!(live[0].use_count, 0);
+
+        assert!(
+            touch_rule_at(&path, &owner_pubkey, "rule-1").is_err(),
+            "a revoked rule can no longer be used"
+        );
+        assert!(
+            revoke_rule_at(&path, &owner_pubkey, "rule-1").is_err(),
+            "revoking twice is not a second revocation"
+        );
+        // A rule for another resident never answers this one's cards.
+        assert!(matching_rules_at(&path, &owner_pubkey, &"22".repeat(32))
+            .unwrap()
+            .is_empty());
+        read_store(&path, |store| {
+            assert_eq!(store.owners[0].rules.len(), 2, "revocation tombstones");
+            let touched = store.owners[0]
+                .rules
+                .iter()
+                .find(|rule| rule.rule_id.as_str() == "rule-1")
+                .unwrap();
+            assert_eq!(touched.use_count, 1);
+            assert!(touched.last_used_at.is_some());
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn concurrent_rule_upsert_and_grant_revoke_cannot_overwrite_each_other() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        initialize_owner(&path, &owner_pubkey);
+        let barrier = Arc::new(Barrier::new(3));
+
+        let rule_path = path.clone();
+        let rule_owner = owner_pubkey.clone();
+        let rule_barrier = Arc::clone(&barrier);
+        let rule = std::thread::spawn(move || {
+            rule_barrier.wait();
+            upsert_rule_at(
+                &rule_path,
+                &rule_owner,
+                test_rule("rule-1", command_matcher()),
+            )
+        });
+        let revoke_path = path.clone();
+        let revoke_owner = owner_pubkey.clone();
+        let revoke_barrier = Arc::clone(&barrier);
+        let revoke = std::thread::spawn(move || {
+            revoke_barrier.wait();
+            mutate_store(&revoke_path, |store| {
+                owner_mut(store, &revoke_owner).grants[0].revoked_at =
+                    Some(Utc::now().to_rfc3339());
+                Ok(())
+            })
+        });
+        barrier.wait();
+        rule.join().unwrap().unwrap();
+        revoke.join().unwrap().unwrap();
+
+        read_store(&path, |store| {
+            assert_eq!(store.owners[0].rules.len(), 1);
+            assert!(
+                store.owners[0].grants[0].revoked_at.is_some(),
+                "a rule write must not resurrect a revoked grant"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 
     /// The pre-app probe backs the init script that decides whether a new
