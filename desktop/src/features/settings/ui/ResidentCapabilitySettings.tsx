@@ -325,7 +325,8 @@ export function ResidentAccessControl({
               >
                 <div className="min-w-0">
                   <p className="truncate text-sm">{rule.displayName}</p>
-                  <p className="mt-1 text-2xs uppercase tracking-caps-wide text-ink-faint">
+                  {/* A project carries its own name; this line is not a label. */}
+                  <p className="mt-0.5 truncate text-xs leading-5 text-ink-faint">
                     {ruleScopeLabel(rule, projectName)}
                     {rule.useCount > 0 ? ` · used ${rule.useCount}×` : ""}
                   </p>
