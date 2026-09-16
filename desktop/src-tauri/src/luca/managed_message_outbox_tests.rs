@@ -33,6 +33,7 @@ fn request(keys: &Keys) -> ManagedMessagePublishRequestV1 {
         cancellation_epoch: SafeU53::new(3).expect("valid cancellation epoch"),
         exchange: None,
         bucket_hint: None,
+        attachments: Vec::new(),
     }
 }
 
@@ -863,4 +864,112 @@ fn a_terminal_row_is_never_refrozen() {
         outbox.refreeze_exchange_turn(&second, exchange_frozen_event(&keys, &second), &session),
         Err(ManagedMessageOutboxError::InvalidTransition)
     ));
+}
+
+// ── images riding a reply ───────────────────────────────────────────────────
+
+fn image_attachment(index: u8) -> luca_protocol::ManagedFinalAttachmentV1 {
+    luca_protocol::ManagedFinalAttachmentV1 {
+        url: format!("https://relay.example/blob-{index}.png"),
+        sha256: Hex64::parse(format!("{index:02x}").repeat(32)).expect("valid blob hash"),
+        mime_type: "image/png".to_owned(),
+        size: SafeU53::new(2_048).expect("valid size"),
+        dim: Some("640x480".to_owned()),
+        blurhash: None,
+        thumb: None,
+        filename: Some(format!("plot-{index}.png")),
+    }
+}
+
+/// A request whose body and tags both already carry the resolved images, the
+/// way the publication authority hands it to the outbox.
+fn attached_request(keys: &Keys, indexes: &[u8]) -> ManagedMessagePublishRequestV1 {
+    let mut request = request(keys);
+    request.response_surface = Some(ManagedResponseSurfaceV1::Timeline);
+    for index in indexes {
+        let attachment = image_attachment(*index);
+        request
+            .final_draft
+            .push_str(&crate::luca::managed_message_event::attachment_body_line(
+                &attachment,
+            ));
+        request.attachments.push(attachment);
+    }
+    request
+}
+
+fn attached_frozen_event(
+    keys: &Keys,
+    request: &ManagedMessagePublishRequestV1,
+) -> FrozenManagedMessageEvent {
+    let tags = crate::luca::managed_message_event::managed_message_tags(request)
+        .expect("tags for a final carrying images");
+    let event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
+        .tags(tags)
+        .sign_with_keys(keys)
+        .expect("sign fixture event");
+    let canonical =
+        String::from_utf8(canonicalize(&event).expect("canonical event")).expect("UTF-8 event");
+    FrozenManagedMessageEvent::parse(canonical, request).expect("valid frozen event")
+}
+
+#[test]
+fn replaying_a_final_with_the_same_images_returns_the_same_row() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let session = OpaqueId::parse("installation-1").expect("valid installation ID");
+    let mut outbox = ManagedMessageOutbox::new(session.clone());
+    let request = attached_request(&keys, &[1, 2]);
+    let frozen = attached_frozen_event(&keys, &request);
+    let prepared = outbox
+        .prepare(&request, frozen, &session, 3, false)
+        .expect("prepare a final carrying two images");
+
+    let replay = outbox
+        .preflight_existing(&request)
+        .expect("an identical replay is not a collision")
+        .expect("the frozen row answers the replay");
+    assert_eq!(replay, prepared);
+}
+
+#[test]
+fn replaying_a_final_with_different_images_is_a_collision() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let session = OpaqueId::parse("installation-1").expect("valid installation ID");
+    let mut outbox = ManagedMessageOutbox::new(session.clone());
+    let first = attached_request(&keys, &[1, 2]);
+    outbox
+        .prepare(
+            &first,
+            attached_frozen_event(&keys, &first),
+            &session,
+            3,
+            false,
+        )
+        .expect("prepare");
+
+    for other in [
+        attached_request(&keys, &[1, 3]),
+        attached_request(&keys, &[1]),
+        attached_request(&keys, &[1, 2, 3]),
+        request(&keys),
+    ] {
+        assert!(
+            matches!(
+                outbox.preflight_existing(&other),
+                Err(ManagedMessageOutboxError::IdempotencyCollision)
+            ),
+            "a different image set must never answer from the frozen row"
+        );
+    }
+}
+
+#[test]
+fn the_frozen_body_carries_one_image_line_per_attachment() {
+    let keys = Keys::parse(&"02".repeat(32)).expect("valid fixture key");
+    let request = attached_request(&keys, &[1, 2]);
+    assert!(request.final_draft.ends_with(
+        "\n![image](https://relay.example/blob-1.png)\n![image](https://relay.example/blob-2.png)"
+    ));
+    // The frozen event exists only if content and tags both match the request.
+    attached_frozen_event(&keys, &request);
 }

@@ -109,6 +109,7 @@ fn fixture_with(exchange: Option<luca_protocol::ExchangeTurnTag>) -> Fixture {
         cancellation_epoch: SafeU53::new(7).expect("epoch"),
         exchange,
         bucket_hint: None,
+        attachments: Vec::new(),
     };
     let final_event = EventBuilder::new(Kind::Custom(9), request.final_draft.clone())
         .tags(super::super::managed_message_event::managed_message_tags(&request).expect("tags"))
@@ -921,3 +922,270 @@ fn cancelled_outbox_can_finish_after_safely_compacted_dispatch() {
 
 #[path = "managed_message_publisher_exchange_tests.rs"]
 mod managed_message_publisher_exchange_tests;
+
+// ── a picture riding the reply ──────────────────────────────────────────────
+
+/// A real 1×1 PNG. The store sniffs the bytes and reads their dimensions, so a
+/// placeholder string will not do.
+const ONE_PIXEL_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64, 0xf8, 0xcf, 0x50,
+    0x0f, 0x00, 0x03, 0x86, 0x01, 0x80, 0x5a, 0x34, 0x7d, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+#[derive(Default)]
+struct FakeUploaderState {
+    uploads: Vec<(usize, String)>,
+    /// One entry per call, front first. `None` fails that upload.
+    outcomes: VecDeque<Option<crate::commands::media::BlobDescriptor>>,
+}
+
+struct FakeReplyImageUploader {
+    state: Arc<Mutex<FakeUploaderState>>,
+}
+
+impl ReplyImageUploader for FakeReplyImageUploader {
+    fn upload(
+        &self,
+        bytes: Vec<u8>,
+        media_type: &str,
+    ) -> Result<crate::commands::media::BlobDescriptor, String> {
+        let mut state = self.state.lock().expect("uploader state");
+        state.uploads.push((bytes.len(), media_type.to_owned()));
+        match state.outcomes.pop_front() {
+            Some(Some(descriptor)) => Ok(descriptor),
+            Some(None) => Err("the relay refused this blob".to_owned()),
+            None => Err("no fake outcome was queued".to_owned()),
+        }
+    }
+}
+
+fn fake_descriptor(index: u8) -> crate::commands::media::BlobDescriptor {
+    crate::commands::media::BlobDescriptor {
+        url: format!("https://relay.example/blob-{index}.png"),
+        sha256: format!("{index:02x}").repeat(32),
+        size: 70,
+        mime_type: "image/png".to_owned(),
+        uploaded: 1_700_000_000,
+        dim: Some("1x1".to_owned()),
+        blurhash: Some("L00000fQfQfQfQfQfQfQfQfQfQfQ".to_owned()),
+        thumb: None,
+        duration: None,
+        image: None,
+        filename: None,
+        artifact_handle_id: None,
+    }
+}
+
+/// An artifact store holding `count` image artifacts this turn asked to attach,
+/// plus one it opted out of, plus one non-image.
+fn store_with_turn_images(fixture: &Fixture, count: usize, attach: bool) -> PathBuf {
+    let app_data_dir = tempfile::tempdir().expect("temp").keep();
+    let workspace = tempfile::tempdir().expect("workspace").keep();
+    let mut store =
+        crate::luca::artifacts::ArtifactStore::open(&app_data_dir).expect("open artifact store");
+    let context = crate::luca::artifacts::ArtifactWriteContext {
+        owner_pubkey: fixture.request.owner_pubkey.clone(),
+        author_pubkey: fixture.request.resident_pubkey.clone(),
+        resident_pubkey: fixture.request.resident_pubkey.clone(),
+        conversation_id: Some(fixture.request.conversation_id.clone()),
+        turn_id: Some(fixture.request.turn_id.clone()),
+        dispatch_receipt_id: Some(fixture.request.dispatch_receipt_id.clone()),
+        working_root_id: Some(OpaqueId::parse("root-1").expect("root")),
+        receipt_state: ArtifactReceiptStateV1::Provisional,
+    };
+    for index in 0..count {
+        // Distinct bytes per image, so each is its own blob.
+        let mut bytes = ONE_PIXEL_PNG.to_vec();
+        bytes.extend_from_slice(&[b'\n'; 1]);
+        bytes.extend(std::iter::repeat_n(b' ', index));
+        let name = format!("plot-{index}.png");
+        fs::write(workspace.join(&name), &bytes).expect("write source image");
+        store
+            .create(
+                &context,
+                &ArtifactCreateArgsV1 {
+                    title: format!("Plot {index}"),
+                    kind: ArtifactKindV1::Image,
+                    source: ArtifactSourceV1::WorkspaceFile {
+                        relative_path: name,
+                        declared_media_type: None,
+                    },
+                    idempotency_key: OpaqueId::parse(format!("image-{index}")).expect("idem"),
+                    attach_to_reply: attach,
+                },
+                Some(workspace.as_path()),
+            )
+            .expect("create image artifact");
+    }
+    fs::write(workspace.join("notes.md"), "# not a picture").expect("write note");
+    store
+        .create(
+            &context,
+            &ArtifactCreateArgsV1 {
+                title: "Notes".into(),
+                kind: ArtifactKindV1::Markdown,
+                source: ArtifactSourceV1::WorkspaceFile {
+                    relative_path: "notes.md".into(),
+                    declared_media_type: None,
+                },
+                idempotency_key: OpaqueId::parse("note-1").expect("idem"),
+                attach_to_reply: true,
+            },
+            Some(workspace.as_path()),
+        )
+        .expect("create markdown artifact");
+    app_data_dir
+}
+
+fn publisher_with_images(
+    fixture: &Fixture,
+    app_data_dir: PathBuf,
+    outcomes: Vec<Option<crate::commands::media::BlobDescriptor>>,
+) -> (ManagedMessagePublisher, Arc<Mutex<FakeUploaderState>>) {
+    let state = Arc::new(Mutex::new(FakeUploaderState {
+        uploads: Vec::new(),
+        outcomes: outcomes.into(),
+    }));
+    let publisher = ManagedMessagePublisher::with_transport(
+        fixture.request.resident_pubkey.as_str().to_owned(),
+        fixture.store.clone(),
+        Box::new(FakeRelayTransport {
+            state: Arc::new(Mutex::new(FakeRelayState::default())),
+        }),
+    )
+    .with_artifact_app_data_dir(app_data_dir)
+    .with_reply_image_uploader(Box::new(FakeReplyImageUploader {
+        state: state.clone(),
+    }));
+    (publisher, state)
+}
+
+#[test]
+fn a_picture_this_turn_made_rides_its_reply() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 1, true);
+    let (publisher, uploader) =
+        publisher_with_images(&fixture, app_data_dir, vec![Some(fake_descriptor(1))]);
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective.attachments.len(), 1);
+    let attachment = &effective.attachments[0];
+    assert_eq!(attachment.url, "https://relay.example/blob-1.png");
+    assert_eq!(attachment.mime_type, "image/png");
+    assert_eq!(attachment.size.get(), 70);
+    assert_eq!(attachment.dim.as_deref(), Some("1x1"));
+    assert_eq!(attachment.filename.as_deref(), Some("plot-0.png"));
+    assert_eq!(
+        effective.final_draft,
+        "exact resident final\n![image](https://relay.example/blob-1.png)"
+    );
+    effective
+        .validate()
+        .expect("the effective request is valid");
+    let uploads = &uploader.lock().expect("state").uploads;
+    assert_eq!(uploads.len(), 1, "only the image was uploaded");
+    assert_eq!(uploads[0].1, "image/png");
+}
+
+#[test]
+fn a_picture_the_resident_opted_out_of_stays_out() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 1, false);
+    let (publisher, uploader) =
+        publisher_with_images(&fixture, app_data_dir, vec![Some(fake_descriptor(1))]);
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective, fixture.request);
+    assert!(uploader.lock().expect("state").uploads.is_empty());
+}
+
+#[test]
+fn an_upload_that_fails_costs_that_picture_and_nothing_else() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 2, true);
+    let (publisher, uploader) =
+        publisher_with_images(&fixture, app_data_dir, vec![None, Some(fake_descriptor(2))]);
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective.attachments.len(), 1, "the second image survives");
+    assert_eq!(
+        effective.attachments[0].url,
+        "https://relay.example/blob-2.png"
+    );
+    assert!(effective.final_draft.starts_with("exact resident final"));
+    assert_eq!(
+        effective.final_draft.matches("![image]").count(),
+        1,
+        "the failed upload leaves no line behind"
+    );
+    assert_eq!(uploader.lock().expect("state").uploads.len(), 2);
+}
+
+#[test]
+fn every_upload_failing_publishes_the_text_alone() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 2, true);
+    let (publisher, _) = publisher_with_images(&fixture, app_data_dir, vec![None, None]);
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective, fixture.request);
+}
+
+#[test]
+fn a_fifth_picture_is_dropped_rather_than_refused() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 6, true);
+    let (publisher, uploader) = publisher_with_images(
+        &fixture,
+        app_data_dir,
+        (1..=6).map(|index| Some(fake_descriptor(index))).collect(),
+    );
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective.attachments.len(), 4, "four is the ceiling");
+    effective.validate().expect("the bounded request is valid");
+    assert_eq!(
+        uploader.lock().expect("state").uploads.len(),
+        4,
+        "the images beyond the ceiling are never uploaded"
+    );
+}
+
+#[test]
+fn a_turn_with_no_pictures_is_left_exactly_as_the_resident_wrote_it() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 0, true);
+    let (publisher, uploader) = publisher_with_images(&fixture, app_data_dir, Vec::new());
+
+    let effective = publisher.attach_reply_images(&fixture.request);
+    assert_eq!(effective, fixture.request);
+    assert!(uploader.lock().expect("state").uploads.is_empty());
+}
+
+#[test]
+fn an_already_resolved_request_is_not_resolved_twice() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 1, true);
+    let (publisher, uploader) =
+        publisher_with_images(&fixture, app_data_dir, vec![Some(fake_descriptor(1))]);
+    let once = publisher.attach_reply_images(&fixture.request);
+    let twice = publisher.attach_reply_images(&once);
+    assert_eq!(once, twice, "a re-freeze keeps the images it already has");
+    assert_eq!(uploader.lock().expect("state").uploads.len(), 1);
+}
+
+#[test]
+fn a_descriptor_that_is_not_an_image_is_refused() {
+    let fixture = fixture();
+    let app_data_dir = store_with_turn_images(&fixture, 1, true);
+    let mut descriptor = fake_descriptor(1);
+    descriptor.mime_type = "application/octet-stream".to_owned();
+    let (publisher, _) = publisher_with_images(&fixture, app_data_dir, vec![Some(descriptor)]);
+    assert_eq!(
+        publisher.attach_reply_images(&fixture.request),
+        fixture.request
+    );
+}

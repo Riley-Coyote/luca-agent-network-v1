@@ -110,11 +110,38 @@ PRAGMA user_version = 2;
 
 // Rows written before images could ride a reply default to 0: a picture only
 // attaches when the create call that made it said so.
-const MIGRATE_V2_TO_V3_SQL: &str = r#"
-ALTER TABLE artifact_receipts
-  ADD COLUMN attach_to_reply INTEGER NOT NULL DEFAULT 0 CHECK (attach_to_reply IN (0, 1));
-PRAGMA user_version = 3;
-"#;
+const ADD_ATTACH_TO_REPLY_SQL: &str = "ALTER TABLE artifact_receipts
+  ADD COLUMN attach_to_reply INTEGER NOT NULL DEFAULT 0 CHECK (attach_to_reply IN (0, 1));";
+
+/// Add the reply-attachment column, unless it is already there.
+///
+/// The check makes the step safe to re-run: a database that reached v3 and was
+/// then stamped back, or one whose earlier migration was interrupted after the
+/// ALTER but before the version bump, converges instead of failing to open.
+fn migrate_v2_to_v3(connection: &Connection) -> Result<(), ArtifactStoreError> {
+    let present = column_exists(connection, "artifact_receipts", "attach_to_reply")?;
+    let statements = if present {
+        "PRAGMA user_version = 3;".to_owned()
+    } else {
+        format!("{ADD_ATTACH_TO_REPLY_SQL} PRAGMA user_version = 3;")
+    };
+    connection
+        .execute_batch(&format!("BEGIN IMMEDIATE; {statements} COMMIT;"))
+        .map_err(|_| ArtifactStoreError::SchemaIncompatible)
+}
+
+fn column_exists(
+    connection: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, ArtifactStoreError> {
+    let mut statement = connection
+        .prepare("SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2")
+        .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
+    statement
+        .exists([table, column])
+        .map_err(|_| ArtifactStoreError::SchemaIncompatible)
+}
 
 pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreError> {
     if let Ok(metadata) = fs::symlink_metadata(path) {
@@ -145,18 +172,19 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
 
     if existed {
         validate_application_id(&connection)?;
-        let user_version = user_version(&connection)?;
-        match user_version {
-            1 => connection
-                .execute_batch(&format!(
-                    "BEGIN IMMEDIATE; {MIGRATE_V1_TO_V2_SQL} {MIGRATE_V2_TO_V3_SQL} COMMIT;"
-                ))
-                .map_err(|_| ArtifactStoreError::SchemaIncompatible)?,
-            2 => connection
-                .execute_batch(&format!("BEGIN IMMEDIATE; {MIGRATE_V2_TO_V3_SQL} COMMIT;"))
-                .map_err(|_| ArtifactStoreError::SchemaIncompatible)?,
-            SCHEMA_VERSION => {}
-            _ => return Err(ArtifactStoreError::SchemaIncompatible),
+        let mut user_version = user_version(&connection)?;
+        if user_version == 1 {
+            connection
+                .execute_batch(&format!("BEGIN IMMEDIATE; {MIGRATE_V1_TO_V2_SQL} COMMIT;"))
+                .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
+            user_version = 2;
+        }
+        if user_version == 2 {
+            migrate_v2_to_v3(&connection)?;
+            user_version = 3;
+        }
+        if user_version != SCHEMA_VERSION {
+            return Err(ArtifactStoreError::SchemaIncompatible);
         }
     } else {
         connection

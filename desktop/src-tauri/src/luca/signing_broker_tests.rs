@@ -148,6 +148,7 @@ fn publish_request(broker: &ResidentSigningBroker) -> ManagedMessagePublishReque
         cancellation_epoch: SafeU53::new(3).expect("valid cancellation epoch"),
         exchange: None,
         bucket_hint: None,
+        attachments: Vec::new(),
     }
 }
 

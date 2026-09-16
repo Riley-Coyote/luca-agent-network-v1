@@ -48,6 +48,9 @@ pub(crate) mod managed_dispatch_store;
 #[cfg(unix)]
 pub(crate) mod managed_mcp;
 mod managed_message_event;
+#[cfg(test)]
+#[path = "managed_message_event_tests.rs"]
+mod managed_message_event_tests;
 pub(crate) mod managed_message_outbox;
 mod managed_message_outbox_io;
 pub(crate) mod managed_message_publisher;

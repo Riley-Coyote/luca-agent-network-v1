@@ -2706,6 +2706,7 @@ mod tests {
             cancellation_epoch: SafeU53::new(epoch).expect("epoch"),
             exchange: None,
             bucket_hint: None,
+            attachments: Vec::new(),
         }
     }
 

@@ -791,3 +791,259 @@ fn schema_v1_is_migrated_without_discarding_artifacts() {
 
 #[allow(dead_code)]
 fn assert_relative(_path: &Path) {}
+
+// ── images a turn asked to put in its reply ─────────────────────────────────
+
+const ONE_PIXEL_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0x64, 0xf8, 0xcf, 0x50,
+    0x0f, 0x00, 0x03, 0x86, 0x01, 0x80, 0x5a, 0x34, 0x7d, 0x6b, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
+    0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+fn png_with_suffix(len: usize) -> Vec<u8> {
+    let mut bytes = ONE_PIXEL_PNG.to_vec();
+    bytes.extend(std::iter::repeat_n(b'\n', len));
+    bytes
+}
+
+fn image_args(key: &str, relative_path: &str, attach_to_reply: bool) -> ArtifactCreateArgsV1 {
+    ArtifactCreateArgsV1 {
+        title: "A plot".into(),
+        kind: ArtifactKindV1::Image,
+        source: ArtifactSourceV1::WorkspaceFile {
+            relative_path: relative_path.into(),
+            declared_media_type: None,
+        },
+        idempotency_key: id(key),
+        attach_to_reply,
+    }
+}
+
+#[test]
+fn a_turn_offers_only_the_images_it_asked_to_attach() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(workspace.path().join("first.png"), png_with_suffix(1)).unwrap();
+    fs::write(workspace.path().join("second.png"), png_with_suffix(2)).unwrap();
+    fs::write(workspace.path().join("private.png"), png_with_suffix(3)).unwrap();
+    fs::write(workspace.path().join("note.md"), "# text").unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+
+    store
+        .create(
+            &context('1'),
+            &image_args("img-1", "first.png", true),
+            Some(workspace.path()),
+        )
+        .unwrap();
+    store
+        .create(
+            &context('1'),
+            &image_args("img-2", "second.png", true),
+            Some(workspace.path()),
+        )
+        .unwrap();
+    store
+        .create(
+            &context('1'),
+            &image_args("img-3", "private.png", false),
+            Some(workspace.path()),
+        )
+        .unwrap();
+    let mut markdown = create_args("note-1", "unused");
+    markdown.kind = ArtifactKindV1::Markdown;
+    markdown.source = ArtifactSourceV1::WorkspaceFile {
+        relative_path: "note.md".into(),
+        declared_media_type: None,
+    };
+    store
+        .create(&context('1'), &markdown, Some(workspace.path()))
+        .unwrap();
+    // Another turn's picture must never reach this reply.
+    fs::write(workspace.path().join("other.png"), png_with_suffix(4)).unwrap();
+    store
+        .create(
+            &context_for('1', "conversation-1", "turn-2", "dispatch-2"),
+            &image_args("img-4", "other.png", true),
+            Some(workspace.path()),
+        )
+        .unwrap();
+
+    let found = store
+        .turn_reply_images(&hex('1'), &id("conversation-1"), &id("turn-1"), 4)
+        .unwrap();
+    assert_eq!(found.total, 2);
+    assert_eq!(found.images.len(), 2);
+    assert_eq!(
+        found
+            .images
+            .iter()
+            .map(|image| image.filename.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first.png", "second.png"],
+        "in the order the resident made them"
+    );
+    assert!(found
+        .images
+        .iter()
+        .all(|image| image.media_type == "image/png"));
+    assert_eq!(found.images[0].bytes, png_with_suffix(1));
+}
+
+#[test]
+fn the_reply_image_limit_reports_what_it_left_behind() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    for index in 0..6 {
+        let name = format!("plot-{index}.png");
+        fs::write(workspace.path().join(&name), png_with_suffix(index + 1)).unwrap();
+        store
+            .create(
+                &context('1'),
+                &image_args(&format!("img-{index}"), &name, true),
+                Some(workspace.path()),
+            )
+            .unwrap();
+    }
+    let found = store
+        .turn_reply_images(&hex('1'), &id("conversation-1"), &id("turn-1"), 4)
+        .unwrap();
+    assert_eq!(found.total, 6);
+    assert_eq!(found.images.len(), 4);
+}
+
+#[test]
+fn a_deleted_image_no_longer_rides_the_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(workspace.path().join("gone.png"), png_with_suffix(1)).unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    let created = store
+        .create(
+            &context('1'),
+            &image_args("img-1", "gone.png", true),
+            Some(workspace.path()),
+        )
+        .unwrap();
+    store
+        .soft_delete(&hex('1'), &id(&created.artifact.artifact_id))
+        .unwrap();
+    let found = store
+        .turn_reply_images(&hex('1'), &id("conversation-1"), &id("turn-1"), 4)
+        .unwrap();
+    assert_eq!(found.total, 0);
+}
+
+#[test]
+fn an_owner_import_has_no_reply_to_ride() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(workspace.path().join("owned.png"), png_with_suffix(1)).unwrap();
+    let mut store = ArtifactStore::open(temp.path()).unwrap();
+    store
+        .create(
+            &ArtifactWriteContext {
+                conversation_id: None,
+                turn_id: None,
+                dispatch_receipt_id: None,
+                receipt_state: ArtifactReceiptStateV1::Linked,
+                ..context('1')
+            },
+            &image_args("img-1", "owned.png", true),
+            Some(workspace.path()),
+        )
+        .unwrap();
+    // No conversation and no turn: nothing can ask for it.
+    let found = store
+        .turn_reply_images(&hex('1'), &id("conversation-1"), &id("turn-1"), 4)
+        .unwrap();
+    assert_eq!(found.total, 0);
+}
+
+#[test]
+fn a_v2_library_migrates_without_attaching_anything_retroactively() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = tempfile::tempdir().unwrap();
+    fs::write(workspace.path().join("old.png"), png_with_suffix(1)).unwrap();
+    {
+        let mut store = ArtifactStore::open(temp.path()).unwrap();
+        store
+            .create(
+                &context('1'),
+                &image_args("img-1", "old.png", true),
+                Some(workspace.path()),
+            )
+            .unwrap();
+        // Rebuild the receipts table exactly as a beta.9 install had it:
+        // every column except the one this migration adds.
+        store
+            .connection
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 CREATE TABLE artifact_receipts_v2 (
+                    owner_pubkey TEXT NOT NULL,
+                    receipt_id TEXT NOT NULL,
+                    artifact_id TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    resident_pubkey TEXT NOT NULL,
+                    conversation_id TEXT,
+                    turn_id TEXT,
+                    dispatch_receipt_id TEXT,
+                    message_id TEXT,
+                    state TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    linked_at TEXT,
+                    PRIMARY KEY (owner_pubkey, receipt_id),
+                    FOREIGN KEY (owner_pubkey, artifact_id, version)
+                      REFERENCES artifact_versions(owner_pubkey, artifact_id, version)
+                      ON DELETE CASCADE
+                 ) STRICT;
+                 INSERT INTO artifact_receipts_v2
+                   SELECT owner_pubkey, receipt_id, artifact_id, version, resident_pubkey,
+                          conversation_id, turn_id, dispatch_receipt_id, message_id, state,
+                          created_at, linked_at
+                     FROM artifact_receipts;
+                 DROP TABLE artifact_receipts;
+                 ALTER TABLE artifact_receipts_v2 RENAME TO artifact_receipts;
+                 PRAGMA foreign_keys = ON;
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+    }
+    let store = ArtifactStore::open(temp.path()).expect("a v2 library opens and migrates");
+    let found = store
+        .turn_reply_images(&hex('1'), &id("conversation-1"), &id("turn-1"), 4)
+        .unwrap();
+    assert_eq!(
+        found.total, 0,
+        "a picture made before this existed does not retroactively join a reply"
+    );
+}
+
+#[test]
+fn an_attached_filename_is_safe_for_a_tag_and_a_download() {
+    assert_eq!(
+        reply_image_filename(Some("plots/q3 final.png"), "Ignored", "image/png"),
+        "q3-final.png"
+    );
+    assert_eq!(
+        reply_image_filename(None, "A plot", "image/jpeg"),
+        "A-plot.jpg"
+    );
+    assert_eq!(
+        reply_image_filename(Some("run.agent.png"), "A plot", "image/png"),
+        "image.png",
+        "a name the renderer would treat as a snapshot card is dropped"
+    );
+    assert_eq!(
+        reply_image_filename(Some("..."), "   ", "image/webp"),
+        "image.webp"
+    );
+    assert_eq!(
+        reply_image_filename(Some("a\nb.png"), "t", "image/png"),
+        "a-b.png"
+    );
+}

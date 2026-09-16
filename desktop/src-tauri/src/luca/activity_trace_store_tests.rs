@@ -264,6 +264,7 @@ fn publication_notice_requires_every_frozen_coordinate_and_persists_without_a_vi
         cancellation_epoch: SafeU53::new(0).unwrap(),
         exchange: None,
         bucket_hint: None,
+        attachments: Vec::new(),
     };
     let final_id = "aa".repeat(32);
     assert!(!store.record_published(&scope(), &request, 5, &final_id, 120));

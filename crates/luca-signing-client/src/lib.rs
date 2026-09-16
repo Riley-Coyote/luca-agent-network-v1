@@ -528,6 +528,7 @@ mod unix {
                 cancellation_epoch: SafeU53::new(1).expect("valid cancellation epoch"),
                 exchange: None,
                 bucket_hint: None,
+                attachments: Vec::new(),
             };
             let server_request = request.clone();
             let server_task = tokio::spawn(async move {

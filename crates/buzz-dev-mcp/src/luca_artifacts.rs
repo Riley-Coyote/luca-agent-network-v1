@@ -577,6 +577,28 @@ mod tests {
     }
 
     #[test]
+    fn artifact_create_shows_an_image_in_the_reply_unless_told_otherwise() {
+        let without = serde_json::json!({
+            "title": "A plot",
+            "kind": "image",
+            "source": {"source_type": "workspace_file", "relative_path": "plot.png"},
+            "idempotency_key": "idem-1",
+        });
+        let params: ArtifactCreateParams =
+            serde_json::from_value(without.clone()).expect("the field is optional");
+        assert!(params.attach_to_reply, "a picture is shown by default");
+
+        let mut opted_out = without;
+        opted_out["attach_to_reply"] = serde_json::json!(false);
+        let params: ArtifactCreateParams =
+            serde_json::from_value(opted_out).expect("an explicit opt-out parses");
+        assert!(!params.attach_to_reply);
+        // The desktop reads the same field off the same JSON.
+        let forwarded = serde_json::to_value(&params).expect("serialize");
+        assert_eq!(forwarded["attach_to_reply"], serde_json::json!(false));
+    }
+
+    #[test]
     fn artifact_personality_exposes_only_artifact_highlight_and_place_tools() {
         let mut names = LucaArtifactsMcp::tool_router()
             .list_all()

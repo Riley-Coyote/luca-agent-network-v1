@@ -293,6 +293,7 @@ mod tests {
             cancellation_epoch: SafeU53::new(SESSION_EPOCH).expect("synthetic epoch"),
             exchange: None,
             bucket_hint: None,
+            attachments: Vec::new(),
         }
     }
 

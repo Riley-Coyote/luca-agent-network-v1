@@ -316,6 +316,7 @@ impl Fixture {
             cancellation_epoch: SafeU53::new(7).expect("epoch"),
             exchange,
             bucket_hint,
+            attachments: Vec::new(),
         }
     }
 

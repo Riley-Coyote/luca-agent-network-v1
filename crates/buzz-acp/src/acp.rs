@@ -5418,6 +5418,57 @@ esac"#,
     }
 
     #[tokio::test]
+    async fn a_dropped_content_block_is_named_once_per_turn() {
+        let mut client = spawn_inert_client().await;
+        client.begin_final_message_capture();
+        let image_chunk = serde_json::json!({
+            "params": {"update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "image", "mimeType": "image/png", "data": "AAAA"}
+            }}
+        });
+        let _ = client.handle_session_update(&image_chunk);
+        let _ = client.handle_session_update(&image_chunk);
+        assert_eq!(
+            client.dropped_chunk_block_types.len(),
+            1,
+            "the same block type is named once, not once per chunk"
+        );
+        assert!(client
+            .dropped_chunk_block_types
+            .contains("agent_message_chunk:image"));
+
+        let _ = client.handle_session_update(&serde_json::json!({
+            "params": {"update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "audio", "data": "AAAA"}
+            }}
+        }));
+        assert_eq!(client.dropped_chunk_block_types.len(), 2);
+
+        // Text chunks are what this host forwards; they are never reported.
+        let _ = client.handle_session_update(&serde_json::json!({
+            "params": {"update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "hello"}
+            }}
+        }));
+        assert_eq!(client.dropped_chunk_block_types.len(), 2);
+        assert_eq!(
+            client
+                .take_final_message_draft(true)
+                .expect("a captured final")
+                .expect("a bounded draft"),
+            "hello",
+            "the text still reaches the final"
+        );
+
+        // A new turn starts over.
+        client.begin_final_message_capture();
+        assert!(client.dropped_chunk_block_types.is_empty());
+    }
+
+    #[tokio::test]
     async fn managed_turn_context_bounds_permission_display_cache_lifetime() {
         let mut client = spawn_inert_client().await;
         let tool_call = file_tool_call("session-1", "file-1");
