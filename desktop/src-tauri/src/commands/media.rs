@@ -434,6 +434,12 @@ fn blossom_upload_auth_header(
     ))
 }
 
+/// One blocking upload's own window. Four of them must still finish well
+/// inside a managed turn, and a stalled blob must never hold a reply hostage.
+const BLOCKING_UPLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// A blob descriptor is small; anything larger is not one.
+const MAX_BLOCKING_UPLOAD_RESPONSE_BYTES: u64 = 64 * 1024;
+
 /// The Blossom auth window an upload of this media type gets, matching the
 /// relay's own `process_upload` (600s) / `process_video_upload` (3600s).
 fn blossom_upload_expiry_secs(mime: &str) -> u64 {
@@ -458,8 +464,6 @@ pub(crate) fn upload_blob_blocking(
     keys: &Keys,
     body: Vec<u8>,
     mime: &str,
-    timeout: std::time::Duration,
-    max_response_bytes: u64,
 ) -> Result<BlobDescriptor, String> {
     let sha256 = hex::encode(Sha256::digest(&body));
     let base_url = base_url.trim_end_matches('/');
@@ -469,7 +473,7 @@ pub(crate) fn upload_blob_blocking(
     let attempt = |path: &str| -> Result<reqwest::blocking::Response, String> {
         let mut request = client
             .put(format!("{base_url}{path}"))
-            .timeout(timeout)
+            .timeout(BLOCKING_UPLOAD_TIMEOUT)
             .header("Authorization", auth_header.as_str())
             .header("Content-Type", mime)
             .header("X-SHA-256", sha256.as_str());
@@ -490,10 +494,10 @@ pub(crate) fn upload_blob_blocking(
     let mut bytes = Vec::new();
     response
         .by_ref()
-        .take(max_response_bytes + 1)
+        .take(MAX_BLOCKING_UPLOAD_RESPONSE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| "managed media upload response could not be read".to_owned())?;
-    if bytes.len() as u64 > max_response_bytes {
+    if bytes.len() as u64 > MAX_BLOCKING_UPLOAD_RESPONSE_BYTES {
         return Err("managed media upload response exceeded the size limit".to_owned());
     }
     if !status.is_success() {

@@ -36,9 +36,6 @@ use super::{
 };
 
 const RELAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// One image upload gets its own window; four of them must still finish well
-/// inside a turn, and a stalled blob must never hold the reply hostage.
-const MEDIA_UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const RECONCILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
 
@@ -307,8 +304,6 @@ impl ReplyImageUploader for HttpReplyImageUploader {
             &self.keys,
             bytes,
             media_type,
-            MEDIA_UPLOAD_TIMEOUT,
-            MAX_RELAY_RESPONSE_BYTES,
         )?;
         if !self.on_relay_origin(&descriptor.url) {
             return Err("managed media upload returned an off-origin URL".to_owned());
@@ -355,43 +350,39 @@ fn attachment_from_descriptor(
     attachment.validate().ok()?;
     // Each optional field is then tried on its own. One the tag builder cannot
     // carry safely is dropped rather than costing the whole attachment.
-    let optional: [(
-        Option<String>,
-        fn(&ManagedFinalAttachmentV1, String) -> ManagedFinalAttachmentV1,
-    ); 4] = [
-        (descriptor.dim.clone(), |base, value| {
-            ManagedFinalAttachmentV1 {
-                dim: Some(value),
-                ..base.clone()
-            }
-        }),
-        (descriptor.blurhash.clone(), |base, value| {
-            ManagedFinalAttachmentV1 {
-                blurhash: Some(value),
-                ..base.clone()
-            }
-        }),
-        (descriptor.thumb.clone(), |base, value| {
-            ManagedFinalAttachmentV1 {
-                thumb: Some(value),
-                ..base.clone()
-            }
-        }),
-        (Some(filename.to_owned()), |base, value| {
-            ManagedFinalAttachmentV1 {
-                filename: Some(value),
-                ..base.clone()
-            }
-        }),
-    ];
-    for (value, apply) in optional {
-        let Some(value) = value else {
-            continue;
+    if let Some(dim) = descriptor.dim.clone() {
+        let candidate = ManagedFinalAttachmentV1 {
+            dim: Some(dim),
+            ..attachment.clone()
         };
-        let candidate = apply(&attachment, value);
         if candidate.validate().is_ok() {
             attachment = candidate;
         }
+    }
+    if let Some(blurhash) = descriptor.blurhash.clone() {
+        let candidate = ManagedFinalAttachmentV1 {
+            blurhash: Some(blurhash),
+            ..attachment.clone()
+        };
+        if candidate.validate().is_ok() {
+            attachment = candidate;
+        }
+    }
+    if let Some(thumb) = descriptor.thumb.clone() {
+        let candidate = ManagedFinalAttachmentV1 {
+            thumb: Some(thumb),
+            ..attachment.clone()
+        };
+        if candidate.validate().is_ok() {
+            attachment = candidate;
+        }
+    }
+    let named = ManagedFinalAttachmentV1 {
+        filename: Some(filename.to_owned()),
+        ..attachment.clone()
+    };
+    if named.validate().is_ok() {
+        attachment = named;
     }
     Some(attachment)
 }
