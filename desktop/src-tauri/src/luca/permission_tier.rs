@@ -82,7 +82,10 @@ pub(crate) fn for_family(family: &str, level: ResidentAccessLevel) -> RuntimeTie
 /// Resolved exactly the way the spawn path resolves it, so the tier the owner
 /// is shown and the tier the resident is started with cannot disagree.
 pub(crate) fn resident_runtime_family(app: &AppHandle, resident_pubkey: &str) -> &'static str {
-    let Ok(records) = crate::managed_agents::storage::load_agent_definitions(app) else {
+    // Resident records carry a pubkey; `load_agent_definitions` keeps only the
+    // persona definitions without one, so a lookup there never matches a
+    // running resident (the first walk showed every resident as "Unknown").
+    let Ok(records) = crate::managed_agents::storage::load_managed_agents(app) else {
         return "unknown";
     };
     let Some(record) = records
