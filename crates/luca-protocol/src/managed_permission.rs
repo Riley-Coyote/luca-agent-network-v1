@@ -26,6 +26,12 @@ pub const MAX_PERMISSION_MCP_IDENTIFIER_BYTES: usize = 128;
 pub const MAX_PERMISSION_COMMAND_TOKEN_BYTES: usize = 64;
 /// Maximum leading argv words carried beside a command word.
 pub const MAX_PERMISSION_COMMAND_ARGV_PREFIX: usize = 2;
+/// Maximum segments one compound command may be remembered as.
+///
+/// A real agent command is `ls -la /x; echo "exit=$?"`, not a pipeline of
+/// thirty. Past this bound the whole line is answered once and remembered
+/// nowhere, which is the same failure an unsplittable line already has.
+pub const MAX_PERMISSION_COMMAND_SEGMENTS: usize = 8;
 /// Maximum bytes in one argv prefix word.
 pub const MAX_PERMISSION_ARGV_TOKEN_BYTES: usize = 64;
 /// Maximum bytes in one absolute filesystem path.
@@ -56,6 +62,36 @@ pub struct ManagedPermissionOptionV1 {
     pub name: String,
     /// Runtime-provided semantic kind, retained for display rather than policy inference.
     pub kind: String,
+}
+
+/// One plain executable invocation inside a command line.
+///
+/// A compound command (`ls -la /x; echo "exit=$?"`) is a sequence of these,
+/// and the owner's "Always here" remembers one rule per segment. A segment is
+/// only ever minted for a plain invocation: no redirection, no substitution,
+/// no environment assignment, no `sudo`. When any part of a line fails that
+/// test the whole line yields no segments at all — half a command is never
+/// remembered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandSegmentV1 {
+    /// Bare command word this segment runs.
+    pub token: String,
+    /// At most two leading argv words, under the same rule as
+    /// [`ManagedPermissionRequestV1::command_argv_prefix`].
+    #[serde(default)]
+    pub argv_prefix: Vec<String>,
+}
+
+impl CommandSegmentV1 {
+    /// Whether this segment is the bounded, bare shape a rule can be minted from.
+    pub fn is_bounded(&self) -> bool {
+        is_bare_command_token(&self.token)
+            && self.argv_prefix.len() <= MAX_PERMISSION_COMMAND_ARGV_PREFIX
+            && self
+                .argv_prefix
+                .iter()
+                .all(|value| is_command_argv_token(value))
+    }
 }
 
 /// A permission request received from an ACP runtime. `option_ids` is the
@@ -116,6 +152,15 @@ pub struct ManagedPermissionRequestV1 {
     /// `git push` and nothing like a whole command line.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub command_argv_prefix: Vec<String>,
+    /// Every plain invocation in the command line, in order.
+    ///
+    /// One segment for a simple command; several for a compound one. The two
+    /// legacy fields above stay in step with this: with exactly one segment
+    /// they repeat it, and with several they are absent, so a reader that
+    /// knows nothing about segments sees "nothing to remember here" rather
+    /// than a token that covers only part of what would run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub command_segments: Vec<CommandSegmentV1>,
     /// Absolute path the operation touches, display-safe and bounded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
@@ -211,6 +256,12 @@ impl ManagedPermissionRequestV1 {
                 .command_argv_prefix
                 .iter()
                 .all(|value| is_command_argv_token(value))
+            || self.command_segments.len() > MAX_PERMISSION_COMMAND_SEGMENTS
+            || !self
+                .command_segments
+                .iter()
+                .all(CommandSegmentV1::is_bounded)
+            || !self.legacy_command_fields_agree()
             || self
                 .path
                 .as_ref()
@@ -223,6 +274,27 @@ impl ManagedPermissionRequestV1 {
             return Err(ManagedPermissionError::Protocol);
         }
         Ok(())
+    }
+}
+
+impl ManagedPermissionRequestV1 {
+    /// Whether the legacy single-command fields say the same thing the
+    /// segments do.
+    ///
+    /// This is the compatibility contract in one place: one segment repeats
+    /// itself into `command_token`/`command_argv_prefix`; several leave both
+    /// empty. A frame that claims a single token beside a compound command
+    /// would let an older desktop remember one part of a line that runs
+    /// several, so it is refused outright.
+    fn legacy_command_fields_agree(&self) -> bool {
+        match self.command_segments.as_slice() {
+            [] => true,
+            [only] => {
+                self.command_token.as_deref() == Some(only.token.as_str())
+                    && self.command_argv_prefix == only.argv_prefix
+            }
+            _ => self.command_token.is_none() && self.command_argv_prefix.is_empty(),
+        }
     }
 }
 
@@ -353,6 +425,10 @@ mod tests {
             mcp_tool: Some("repo_apply_patch".into()),
             command_token: Some("git".into()),
             command_argv_prefix: vec!["status".into(), "--short".into()],
+            command_segments: vec![CommandSegmentV1 {
+                token: "git".into(),
+                argv_prefix: vec!["status".into(), "--short".into()],
+            }],
             path: Some("/redacted/project/src/app.ts".into()),
             domain: Some("github.com".into()),
             write: Some(true),
@@ -368,6 +444,7 @@ mod tests {
         "mcp_tool",
         "command_token",
         "command_argv_prefix",
+        "command_segments",
         "path",
         "domain",
         "write",
@@ -447,6 +524,7 @@ mod tests {
         assert_eq!(value.mcp_tool, None);
         assert_eq!(value.command_token, None);
         assert!(value.command_argv_prefix.is_empty());
+        assert!(value.command_segments.is_empty());
         assert_eq!(value.path, None);
         assert_eq!(value.domain, None);
         assert_eq!(value.write, None);
@@ -493,12 +571,15 @@ mod tests {
         });
         over(|value| value.mcp_tool = Some("t".repeat(MAX_PERMISSION_MCP_IDENTIFIER_BYTES + 1)));
         over(|value| {
+            value.command_segments.clear();
             value.command_token = Some("c".repeat(MAX_PERMISSION_COMMAND_TOKEN_BYTES + 1));
         });
         over(|value| {
+            value.command_segments.clear();
             value.command_argv_prefix = vec!["a".into(); MAX_PERMISSION_COMMAND_ARGV_PREFIX + 1];
         });
         over(|value| {
+            value.command_segments.clear();
             value.command_argv_prefix = vec!["a".repeat(MAX_PERMISSION_ARGV_TOKEN_BYTES + 1)];
         });
         over(|value| {
@@ -510,10 +591,135 @@ mod tests {
 
         // Exactly at the bound is still accepted.
         let mut at_bound = request();
+        at_bound.command_token = None;
+        at_bound.command_argv_prefix.clear();
+        at_bound.command_segments = vec![
+            CommandSegmentV1 {
+                token: "echo".into(),
+                argv_prefix: Vec::new(),
+            };
+            MAX_PERMISSION_COMMAND_SEGMENTS
+        ];
         at_bound.tool_kind = Some("k".repeat(MAX_PERMISSION_TOOL_KIND_BYTES));
         at_bound.path = Some(format!("/{}", "p".repeat(MAX_PERMISSION_PATH_BYTES - 1)));
         at_bound.domain = Some("d".repeat(MAX_PERMISSION_DOMAIN_BYTES));
         assert_eq!(at_bound.validate(), Ok(()));
+    }
+
+    fn segment(token: &str, argv_prefix: &[&str]) -> CommandSegmentV1 {
+        CommandSegmentV1 {
+            token: token.into(),
+            argv_prefix: argv_prefix.iter().map(|word| (*word).to_owned()).collect(),
+        }
+    }
+
+    fn compound(segments: Vec<CommandSegmentV1>) -> ManagedPermissionRequestV1 {
+        let mut value = request();
+        value.command_token = None;
+        value.command_argv_prefix = Vec::new();
+        value.command_segments = segments;
+        value
+    }
+
+    #[test]
+    fn legacy_request_without_segments_still_validates() {
+        // A harness that predates compound commands sends a token and no
+        // segments at all. Nothing about that frame changed.
+        let mut json = serde_json::to_value(request()).expect("request json");
+        assert!(json
+            .as_object_mut()
+            .expect("request object")
+            .remove("command_segments")
+            .is_some());
+
+        let value: ManagedPermissionRequestV1 =
+            serde_json::from_value(json).expect("legacy harness request");
+        assert!(value.command_segments.is_empty());
+        assert_eq!(value.command_token.as_deref(), Some("git"));
+        assert_eq!(value.validate(), Ok(()));
+    }
+
+    #[test]
+    fn command_segments_are_bounded() {
+        let over = |value: ManagedPermissionRequestV1| {
+            assert_eq!(value.validate(), Err(ManagedPermissionError::Protocol));
+        };
+
+        over(compound(vec![
+            segment("echo", &[]);
+            MAX_PERMISSION_COMMAND_SEGMENTS + 1
+        ]));
+        over(compound(vec![
+            segment("ls", &[]),
+            segment("/usr/bin/echo", &[]),
+        ]));
+        over(compound(vec![segment("ls", &[]), segment("-rf", &[])]));
+        over(compound(vec![segment("ls", &[]), segment("", &[])]));
+        over(compound(vec![
+            segment("ls", &[]),
+            segment("npm", &["run", "build", "extra"]),
+        ]));
+        over(compound(vec![
+            segment("ls", &[]),
+            CommandSegmentV1 {
+                token: "npm".into(),
+                argv_prefix: vec!["a".repeat(MAX_PERMISSION_ARGV_TOKEN_BYTES + 1)],
+            },
+        ]));
+
+        // The two real shapes from the first walk.
+        assert_eq!(
+            compound(vec![segment("ls", &[]), segment("echo", &[])]).validate(),
+            Ok(())
+        );
+        let mut single = request();
+        single.command_token = Some("npm".into());
+        single.command_argv_prefix = vec!["run".into(), "build".into()];
+        single.command_segments = vec![segment("npm", &["run", "build"])];
+        assert_eq!(single.validate(), Ok(()));
+    }
+
+    #[test]
+    fn legacy_command_fields_must_agree_with_the_segments() {
+        // One segment repeats itself into the legacy pair...
+        let mut mismatched = request();
+        mismatched.command_segments = vec![segment("git", &["push"])];
+        assert_eq!(mismatched.validate(), Err(ManagedPermissionError::Protocol));
+
+        let mut missing = request();
+        missing.command_token = None;
+        missing.command_argv_prefix = Vec::new();
+        missing.command_segments = vec![segment("git", &["status", "--short"])];
+        assert_eq!(missing.validate(), Err(ManagedPermissionError::Protocol));
+
+        // ...and several leave it empty, so a reader that knows nothing about
+        // segments remembers nothing rather than half the line.
+        let mut half = request();
+        half.command_segments = vec![segment("git", &["status", "--short"]), segment("echo", &[])];
+        assert_eq!(half.validate(), Err(ManagedPermissionError::Protocol));
+
+        let mut whole = half.clone();
+        whole.command_token = None;
+        whole.command_argv_prefix = Vec::new();
+        assert_eq!(whole.validate(), Ok(()));
+    }
+
+    #[test]
+    fn command_segments_round_trip() {
+        let value = compound(vec![segment("ls", &[]), segment("echo", &["hello"])]);
+        let json = serde_json::to_value(&value).expect("request json");
+        assert_eq!(
+            json.get("command_segments"),
+            Some(&serde_json::json!([
+                {"token": "ls", "argv_prefix": []},
+                {"token": "echo", "argv_prefix": ["hello"]}
+            ]))
+        );
+        assert!(json.get("command_token").is_none());
+        assert!(json.get("command_argv_prefix").is_none());
+        let back: ManagedPermissionRequestV1 = serde_json::from_value(json).expect("round trip");
+        assert_eq!(back, value);
+        assert_eq!(back.validate(), Ok(()));
     }
 
     #[test]

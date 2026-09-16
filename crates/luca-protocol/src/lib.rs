@@ -59,10 +59,11 @@ pub use ids::{
 pub use managed_audience::{ManagedAudienceIntentV1, MAX_MANAGED_AUDIENCE_RESIDENTS};
 pub use managed_permission::{
     is_bare_command_token, is_command_argv_token, is_mcp_identifier, is_permission_domain,
-    is_permission_path, ManagedPermissionDecisionV1, ManagedPermissionDispositionV1,
-    ManagedPermissionError, ManagedPermissionOptionV1, ManagedPermissionRequestV1,
-    MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS, MAX_PERMISSION_ARGV_TOKEN_BYTES,
-    MAX_PERMISSION_COMMAND_ARGV_PREFIX, MAX_PERMISSION_COMMAND_TOKEN_BYTES,
+    is_permission_path, CommandSegmentV1, ManagedPermissionDecisionV1,
+    ManagedPermissionDispositionV1, ManagedPermissionError, ManagedPermissionOptionV1,
+    ManagedPermissionRequestV1, MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS,
+    MAX_PERMISSION_ARGV_TOKEN_BYTES, MAX_PERMISSION_COMMAND_ARGV_PREFIX,
+    MAX_PERMISSION_COMMAND_SEGMENTS, MAX_PERMISSION_COMMAND_TOKEN_BYTES,
     MAX_PERMISSION_DOMAIN_BYTES, MAX_PERMISSION_MCP_IDENTIFIER_BYTES, MAX_PERMISSION_PATH_BYTES,
     MAX_PERMISSION_TOOL_KIND_BYTES, MAX_PERMISSION_TOOL_NAME_BYTES,
 };
