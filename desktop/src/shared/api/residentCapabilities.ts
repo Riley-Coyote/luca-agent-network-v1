@@ -157,6 +157,34 @@ export function revokeResidentCapabilityGrant(
   ).then(normalizeResidentCapabilitySettings);
 }
 
+export function revokePermissionRule(
+  ruleId: string,
+): Promise<ResidentCapabilitySettings> {
+  return invokeTauri<RawResidentCapabilitySettings>("revoke_permission_rule", {
+    ruleId,
+  }).then(normalizeResidentCapabilitySettings);
+}
+
+/**
+ * How far the app's access level actually reaches into this resident's runtime.
+ * `native_mode` and `native_policy` mean Polyphonic sets the runtime itself;
+ * `advisory` means the runtime keeps its own settings and only the remembered
+ * permissions below apply.
+ */
+export type ResidentRuntimeTier = {
+  family: string;
+  control: "native_mode" | "native_policy" | "advisory";
+  level: ResidentAccessLevel;
+};
+
+export function getResidentRuntimeTier(
+  residentPubkey: string,
+): Promise<ResidentRuntimeTier> {
+  return invokeTauri<ResidentRuntimeTier>("get_resident_runtime_tier", {
+    residentPubkey,
+  });
+}
+
 export function setPolyphonicOnboardingStatus(
   chapter: "welcome" | "runtime" | "agents" | "preparing" | "complete",
   completed: boolean,

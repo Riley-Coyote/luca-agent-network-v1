@@ -4,14 +4,18 @@ import { toast } from "sonner";
 
 import {
   getResidentCapabilitySettings,
+  getResidentRuntimeTier,
+  revokePermissionRule,
   revokeResidentCapabilityGrant,
   setHouseholdAccessLevel,
   setResidentAccessLevel,
 } from "@/shared/api/residentCapabilities";
-import type { ResidentAccessLevel } from "@/shared/api/types";
+import { listConnectedBrainSources } from "@/shared/api/tauriBrain";
+import type { PermissionRule, ResidentAccessLevel } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
 
 const queryKey = ["resident-capability-settings"] as const;
+const projectNamesQueryKey = ["connected-brain-source-names"] as const;
 
 const levels: Array<{
   value: ResidentAccessLevel;
@@ -20,26 +24,80 @@ const levels: Array<{
 }> = [
   {
     value: "restricted",
-    label: "Restricted",
-    description:
-      "Ask before reading files, running commands, or changing anything.",
+    label: "Manual",
+    description: "Asks before it changes anything or runs a command.",
   },
   {
     value: "standard",
-    label: "Standard",
+    label: "Accept edits",
     description:
-      "Inspect granted work freely and ask when new authority is needed.",
+      "Edits and reads inside a project without asking. Commands ask once, then it remembers. Anything outside a project asks.",
   },
   {
     value: "full",
-    label: "Full Access",
+    label: "Full access",
     description:
-      "Run routine Luca-mediated work without prompts; native safeguards stay unchanged and high-impact actions still ask.",
+      "Runs on its own. The doors — messaging, the shell tool, proposals, deletions — still ask.",
   },
 ];
 
+const runtimeFamilyNames: Record<string, string> = {
+  claude_code: "Claude Code",
+  codex: "Codex",
+  hermes: "Hermes",
+  openclaw: "OpenClaw",
+};
+
+function runtimeFamilyName(family: string): string {
+  return (
+    runtimeFamilyNames[family] ??
+    family
+      .split(/[_-]/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
+
+/** What the level actually reaches in this resident's runtime, in plain words. */
+function runtimeTierNote(
+  control: "native_mode" | "native_policy" | "advisory",
+  family: string,
+): string {
+  switch (control) {
+    case "native_mode":
+      return "Claude Code runs at this level.";
+    case "native_policy":
+      return "Codex runs at this level. Polyphonic sets its approval and sandbox for you.";
+    default:
+      return `${runtimeFamilyName(family)} doesn’t take a level from Polyphonic. It keeps its own settings; the remembered permissions below still apply.`;
+  }
+}
+
 function useCapabilitySettings() {
   return useQuery({ queryKey, queryFn: getResidentCapabilitySettings });
+}
+
+/** Source id → the project's own name, so a rule row can say where it applies. */
+function useProjectName() {
+  const sources = useQuery({
+    queryKey: projectNamesQueryKey,
+    queryFn: listConnectedBrainSources,
+    refetchOnWindowFocus: false,
+    retry: false,
+    staleTime: 60_000,
+  });
+  return (sourceId: string): string | null =>
+    sources.data?.sources.find((source) => source.sourceId === sourceId)
+      ?.displayName ?? null;
+}
+
+function ruleScopeLabel(
+  rule: PermissionRule,
+  projectName: (sourceId: string) => string | null,
+): string {
+  if (rule.scope.scope === "everywhere") return "Everywhere";
+  return `Always in ${projectName(rule.scope.sourceId) ?? "this project"}`;
 }
 
 function AccessLevelPicker({
@@ -143,6 +201,13 @@ export function ResidentAccessControl({
   residentPubkey: string;
 }) {
   const settings = useCapabilitySettings();
+  const projectName = useProjectName();
+  const tier = useQuery({
+    queryKey: ["resident-runtime-tier", residentPubkey] as const,
+    queryFn: () => getResidentRuntimeTier(residentPubkey),
+    refetchOnWindowFocus: false,
+    retry: false,
+  });
   const queryClient = useQueryClient();
   const setLevel = useMutation({
     mutationFn: (level: ResidentAccessLevel | null) =>
@@ -153,6 +218,12 @@ export function ResidentAccessControl({
   });
   const revoke = useMutation({
     mutationFn: revokeResidentCapabilityGrant,
+    onSuccess: (next) => queryClient.setQueryData(queryKey, next),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : String(error)),
+  });
+  const forget = useMutation({
+    mutationFn: revokePermissionRule,
     onSuccess: (next) => queryClient.setQueryData(queryKey, next),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : String(error)),
@@ -188,6 +259,9 @@ export function ResidentAccessControl({
   const grants = settings.data.grants.filter(
     (grant) => grant.residentPubkey === residentPubkey,
   );
+  const rules = settings.data.rules.filter(
+    (rule) => rule.residentPubkey === residentPubkey && !rule.revokedAt,
+  );
 
   return (
     <div className="space-y-5" data-testid="resident-access-control">
@@ -217,19 +291,56 @@ export function ResidentAccessControl({
           onChange={(level) => setLevel.mutate(level)}
           value={effective}
         />
+        <p
+          className="text-xs leading-5 text-muted-foreground"
+          data-testid="resident-runtime-tier-note"
+        >
+          {tier.data
+            ? `${runtimeTierNote(tier.data.control, tier.data.family)} `
+            : null}
+          Changes apply the next time this resident starts.
+        </p>
       </section>
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <ShieldCheck className="size-4 text-muted-foreground" />
           <p className="text-sm font-medium">Remembered permissions</p>
         </div>
-        {grants.length === 0 ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Polyphonic remembers these so it doesn’t ask you again. Forget one and
+          it will ask next time.
+        </p>
+        {rules.length === 0 && grants.length === 0 ? (
           <p className="text-xs leading-5 text-muted-foreground">
-            Nothing has been permanently allowed yet. “Always allow” permissions
-            appear here.
+            Nothing remembered yet. “Always here” on a permission card puts it
+            here.
           </p>
         ) : (
           <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+            {rules.map((rule) => (
+              <div
+                className="flex items-center justify-between gap-3 p-3"
+                data-testid={`remembered-permission-rule-${rule.ruleId}`}
+                key={rule.ruleId}
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm">{rule.displayName}</p>
+                  <p className="mt-1 text-2xs uppercase tracking-caps-wide text-ink-faint">
+                    {ruleScopeLabel(rule, projectName)}
+                    {rule.useCount > 0 ? ` · used ${rule.useCount}×` : ""}
+                  </p>
+                </div>
+                <Button
+                  aria-label={`Forget ${rule.displayName}`}
+                  disabled={forget.isPending}
+                  onClick={() => forget.mutate(rule.ruleId)}
+                  size="icon"
+                  variant="ghost"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
             {grants.map((grant) => (
               <div
                 className="flex items-center justify-between gap-3 p-3"
