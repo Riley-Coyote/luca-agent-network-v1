@@ -702,6 +702,16 @@ pub struct CliArgs {
     )]
     pub permission_mode: PermissionMode,
 
+    /// Forced Codex approval/sandbox policy, as a JSON object with exactly the
+    /// keys `approval_policy` and `sandbox_mode`.
+    ///
+    /// This is the app's tier for a Codex resident. It is applied as a forced
+    /// overlay — a `CODEX_CONFIG` in the parent environment can never override
+    /// it — and it also selects the adapter's own session mode. Ignored, with
+    /// a warning, for every non-Codex agent.
+    #[arg(long, env = "BUZZ_ACP_CODEX_POLICY")]
+    pub codex_policy: Option<String>,
+
     /// Inbound author gate: which authors' events the harness forwards.
     /// Modes: owner-only (default), allowlist, anyone, nobody.
     #[arg(
@@ -804,6 +814,12 @@ pub struct Config {
     /// When false (non-Codex agents or rejected relay URL), the helper returns None and
     /// any persona-supplied `CODEX_CONFIG` is handled with ordinary operator-wins semantics.
     pub has_generated_codex_config: bool,
+    /// The forced Codex approval/sandbox tier, parsed from
+    /// `BUZZ_ACP_CODEX_POLICY`. `None` for every non-Codex runtime and when
+    /// the desktop set no tier. Travels to the spawn path inside
+    /// `persona_env_vars` under [`CODEX_POLICY_ENV`], which
+    /// `AcpClient::spawn` consumes and never passes to the child.
+    pub codex_policy_overlay: Option<serde_json::Map<String, serde_json::Value>>,
     /// Whether to publish encrypted observer frames through the relay.
     pub relay_observer: bool,
     /// Agent owner pubkey (hex). Used for `--respond-to=owner-only` gate.
@@ -953,6 +969,118 @@ pub fn codex_network_env(agent_command: &str, relay_url: &str) -> Option<(String
         "CODEX_CONFIG".into(),
         "{\"sandbox_workspace_write\":{\"network_access\":true}}".into(),
     ))
+}
+
+/// The env key the forced Codex tier travels under, from `Config` to the
+/// spawn path. It is a harness-internal key: `AcpClient::spawn` consumes it
+/// and never sets it on the runtime child.
+pub const CODEX_POLICY_ENV: &str = "BUZZ_ACP_CODEX_POLICY";
+
+/// Approval policies Polyphonic is willing to force on a Codex resident.
+const CODEX_APPROVAL_POLICIES: [&str; 3] = ["untrusted", "on-request", "never"];
+
+/// Sandbox modes Polyphonic is willing to force on a Codex resident.
+const CODEX_SANDBOX_MODES: [&str; 3] = ["read-only", "workspace-write", "danger-full-access"];
+
+/// Parse and bound `BUZZ_ACP_CODEX_POLICY`.
+///
+/// Exactly two keys, each from a closed vocabulary. Anything else — a extra
+/// key, a non-object, a value outside the vocabulary, a missing key — is a
+/// configuration error rather than a quietly-dropped setting: a tier that
+/// silently failed to apply would leave the resident running at whatever the
+/// owner's own `~/.codex` said, which is the beta.10 behaviour this replaces.
+pub fn parse_codex_policy_overlay(
+    raw: &str,
+) -> Result<serde_json::Map<String, serde_json::Value>, ConfigError> {
+    let value: serde_json::Value = serde_json::from_str(raw.trim())
+        .map_err(|error| ConfigError::ConfigFile(format!("invalid {CODEX_POLICY_ENV}: {error}")))?;
+    let serde_json::Value::Object(object) = value else {
+        return Err(ConfigError::ConfigFile(format!(
+            "{CODEX_POLICY_ENV} must be a JSON object"
+        )));
+    };
+    for key in object.keys() {
+        if !matches!(key.as_str(), "approval_policy" | "sandbox_mode") {
+            return Err(ConfigError::ConfigFile(format!(
+                "{CODEX_POLICY_ENV} carries an unsupported key `{key}`"
+            )));
+        }
+    }
+    for (key, allowed) in [
+        ("approval_policy", CODEX_APPROVAL_POLICIES.as_slice()),
+        ("sandbox_mode", CODEX_SANDBOX_MODES.as_slice()),
+    ] {
+        let value = object.get(key).ok_or_else(|| {
+            ConfigError::ConfigFile(format!("{CODEX_POLICY_ENV} is missing `{key}`"))
+        })?;
+        let value = value.as_str().ok_or_else(|| {
+            ConfigError::ConfigFile(format!("{CODEX_POLICY_ENV} `{key}` must be a string"))
+        })?;
+        if !allowed.contains(&value) {
+            return Err(ConfigError::ConfigFile(format!(
+                "{CODEX_POLICY_ENV} `{key}` must be one of {}",
+                allowed.join(", ")
+            )));
+        }
+    }
+    Ok(object)
+}
+
+/// The forced Codex tier for this spawn, if there is one.
+///
+/// Non-Codex agents get a warning and nothing else: every other runtime
+/// family is advisory in beta.11 and keeps its own settings.
+pub fn codex_policy_overlay(
+    agent_command: &str,
+    raw: Option<&str>,
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, ConfigError> {
+    let Some(raw) = raw.map(str::trim).filter(|raw| !raw.is_empty()) else {
+        return Ok(None);
+    };
+    match normalize_agent_command_identity(agent_command).as_str() {
+        "codex" | "codex-acp" => Ok(Some(parse_codex_policy_overlay(raw)?)),
+        other => {
+            tracing::warn!(
+                agent = other,
+                "{CODEX_POLICY_ENV} is set but this runtime takes no policy from the app — ignoring"
+            );
+            Ok(None)
+        }
+    }
+}
+
+/// The adapter session mode that carries a forced policy.
+///
+/// Verified against `@agentclientprotocol/codex-acp` 1.11.0: the adapter
+/// passes its own `AgentMode`'s `approvalPolicy` and `sandboxPolicy` into
+/// every turn, so `CODEX_CONFIG`'s `approval_policy` / `sandbox_mode` never
+/// reach the runtime. `INITIAL_AGENT_MODE` selects that `AgentMode`, and is
+/// the lever that actually binds. The adapter offers exactly three:
+///
+/// * `read-only` — approvals go to the client (`session/request_permission`),
+///   sandbox is workspace-write with no network.
+/// * `agent` — the adapter's default, where its own auto-reviewer answers
+///   escalations and the owner is never asked. Polyphonic never selects it.
+/// * `agent-full-access` — no approvals, no sandbox.
+///
+/// So the two asking tiers both land on `read-only`, and only a policy that
+/// asks for nothing lands on `agent-full-access`. An unknown value would fall
+/// back to the adapter's permissive default, so this only ever returns a
+/// value the adapter defines.
+pub fn codex_initial_agent_mode(
+    overlay: &serde_json::Map<String, serde_json::Value>,
+) -> &'static str {
+    let approval = overlay
+        .get("approval_policy")
+        .and_then(serde_json::Value::as_str);
+    let sandbox = overlay
+        .get("sandbox_mode")
+        .and_then(serde_json::Value::as_str);
+    if approval == Some("never") || sandbox == Some("danger-full-access") {
+        "agent-full-access"
+    } else {
+        "read-only"
+    }
 }
 
 pub fn normalize_agent_args(command: &str, agent_args: Vec<String>) -> Vec<String> {
@@ -1297,6 +1425,18 @@ impl Config {
                 false
             };
 
+        // The owner's tier for a Codex resident. Validated here so a bad value
+        // fails the process at startup rather than leaving the resident on the
+        // owner's own `~/.codex` settings without anyone noticing.
+        let codex_policy_overlay =
+            codex_policy_overlay(&agent_command, args.codex_policy.as_deref())?;
+        if let Some(overlay) = codex_policy_overlay.as_ref() {
+            persona_env_vars.push((
+                CODEX_POLICY_ENV.to_owned(),
+                serde_json::Value::Object(overlay.clone()).to_string(),
+            ));
+        }
+
         validate_multiple_event_handling(args.multiple_event_handling, args.dedup)?;
 
         let managed_identity = identity.is_managed();
@@ -1398,6 +1538,7 @@ impl Config {
             allowed_respond_to,
             persona_env_vars,
             has_generated_codex_config,
+            codex_policy_overlay,
             relay_observer: args.relay_observer && !managed_identity,
             agent_owner: args.agent_owner.map(|s| s.trim().to_ascii_lowercase()),
             no_base_prompt: args.no_base_prompt,
@@ -1422,8 +1563,25 @@ impl Config {
             modes.sort();
             format!(" allowed_respond_to=[{}]", modes.join(","))
         };
+        // The Codex tier is a setting, not a secret, and it is the one knob a
+        // resident's behaviour hinges on that has no other diagnostic.
+        let codex_policy_detail = match self.codex_policy_overlay.as_ref() {
+            Some(overlay) => format!(
+                " codex_policy={}/{} codex_mode={}",
+                overlay
+                    .get("approval_policy")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                overlay
+                    .get("sandbox_mode")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("?"),
+                codex_initial_agent_mode(overlay),
+            ),
+            None => String::new(),
+        };
         format!(
-            "relay={} identity={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}",
+            "relay={} identity={} pubkey={} agent_cmd={} {} mcp_cmd={} idle_timeout={}s max_turn={}s agents={} heartbeat={}s subscribe={:?} dedup={:?} meh={:?} ignore_self={} context_limit={} max_turns_per_session={} presence={} typing={} memory={} model={} permission_mode={} {}{}{}",
             self.relay_url,
             self.identity.mode_name(),
             self.identity.public_key().to_hex(),
@@ -1447,6 +1605,7 @@ impl Config {
             self.permission_mode,
             respond_to_detail,
             allowed_respond_to_detail,
+            codex_policy_detail,
         )
     }
 }
@@ -1807,6 +1966,7 @@ mod tests {
             allowed_respond_to: Vec::new(),
             persona_env_vars: vec![],
             has_generated_codex_config: false,
+            codex_policy_overlay: None,
             relay_observer: false,
             agent_owner: None,
             no_base_prompt: false,
@@ -2573,6 +2733,62 @@ channels = "ALL"
         assert!(!PermissionMode::AcceptEdits.is_default());
         assert!(!PermissionMode::DontAsk.is_default());
         assert!(!PermissionMode::Plan.is_default());
+    }
+
+    #[test]
+    fn codex_policy_is_parsed_for_codex_and_ignored_elsewhere() {
+        let raw = r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write"}"#;
+        let overlay = codex_policy_overlay("codex-acp", Some(raw))
+            .expect("valid policy")
+            .expect("codex takes a policy");
+        assert_eq!(overlay["approval_policy"], "on-request");
+        assert_eq!(overlay["sandbox_mode"], "workspace-write");
+        assert_eq!(overlay.len(), 2);
+
+        // Every other family is advisory in beta.11 — the value is dropped,
+        // not enforced, and not an error.
+        for agent in ["claude-agent-acp", "hermes", "goose", "openclaw"] {
+            assert!(codex_policy_overlay(agent, Some(raw))
+                .expect("non-codex never errors")
+                .is_none());
+        }
+        assert!(codex_policy_overlay("codex-acp", None).unwrap().is_none());
+        assert!(codex_policy_overlay("codex-acp", Some("   "))
+            .unwrap()
+            .is_none());
+        assert!(codex_policy_overlay("codex-acp", Some("{}")).is_err());
+    }
+
+    #[test]
+    fn codex_policy_maps_onto_an_adapter_mode_the_adapter_defines() {
+        let mode = |raw: &str| {
+            codex_initial_agent_mode(&parse_codex_policy_overlay(raw).expect("valid policy"))
+        };
+        // The two asking tiers both land on the one adapter mode whose
+        // approvals reach the client.
+        assert_eq!(
+            mode(r#"{"approval_policy":"untrusted","sandbox_mode":"read-only"}"#),
+            "read-only"
+        );
+        assert_eq!(
+            mode(r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write"}"#),
+            "read-only"
+        );
+        assert_eq!(
+            mode(r#"{"approval_policy":"never","sandbox_mode":"danger-full-access"}"#),
+            "agent-full-access"
+        );
+        // Only ever a mode the adapter defines; `agent` (its auto-reviewing
+        // default) is never selected, because the owner would never be asked.
+        for policy in [
+            r#"{"approval_policy":"untrusted","sandbox_mode":"read-only"}"#,
+            r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write"}"#,
+            r#"{"approval_policy":"never","sandbox_mode":"danger-full-access"}"#,
+            r#"{"approval_policy":"on-request","sandbox_mode":"danger-full-access"}"#,
+            r#"{"approval_policy":"never","sandbox_mode":"read-only"}"#,
+        ] {
+            assert!(matches!(mode(policy), "read-only" | "agent-full-access"));
+        }
     }
 
     #[test]

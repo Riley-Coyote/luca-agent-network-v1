@@ -697,8 +697,10 @@ fn deep_merge(
 /// 3. **Parent-env precedence** — if `parent_codex_config` is `Some`, its keys are
 ///    deep-merged into the result (parent wins on colliding keys at every nesting level;
 ///    unrelated keys from either side survive).
-/// 4. **Forced overlay** — `sandbox_workspace_write.network_access = true` is applied
-///    last so relay access is guaranteed regardless of operator / persona config.
+/// 4. **Forced overlay** — the owner's Codex tier (`BUZZ_ACP_CODEX_POLICY`, carried in
+///    `extra_env`) and `sandbox_workspace_write.network_access = true` are applied last,
+///    so neither a persona nor a parent `CODEX_CONFIG` can lower the tier or close the
+///    relay.
 ///
 /// When `has_generated_codex_config` is false, the function returns `None` and the
 /// caller handles any persona-supplied `CODEX_CONFIG` with ordinary operator-wins
@@ -779,6 +781,10 @@ pub(crate) fn build_codex_config_env(
         }
     }
 
+    // The owner's tier is a forced overlay: it lands after the parent merge so
+    // an operator's own CODEX_CONFIG cannot lower it.
+    apply_forced_codex_policy(&mut base, forced_codex_policy(extra_env)?.as_ref());
+
     // Force sandbox_workspace_write.network_access = true (our invariant, always wins).
     let sws_entry = base
         .entry("sandbox_workspace_write")
@@ -804,6 +810,7 @@ pub(crate) fn build_codex_config_env(
 fn merge_final_codex_overlay(
     merged: Option<String>,
     overlay: &serde_json::Value,
+    forced_policy: Option<&serde_json::Map<String, serde_json::Value>>,
 ) -> Result<String, AcpError> {
     let Some(merged) = merged else {
         return Err(AcpError::Protocol(
@@ -818,7 +825,9 @@ fn merge_final_codex_overlay(
     };
     deep_merge(&mut base, overlay.clone());
     // This override is only for a disposable private worker's tools. It must
-    // not undo the original relay-connectivity guarantee.
+    // undo neither the owner's tier nor the original relay-connectivity
+    // guarantee, so both forced overlays are re-applied on top of it.
+    apply_forced_codex_policy(&mut base, forced_policy);
     let Some(sandbox) = base
         .get_mut("sandbox_workspace_write")
         .and_then(serde_json::Value::as_object_mut)
@@ -829,6 +838,38 @@ fn merge_final_codex_overlay(
     };
     sandbox.insert("network_access".into(), serde_json::Value::Bool(true));
     Ok(serde_json::Value::Object(base).to_string())
+}
+
+/// The owner's forced Codex tier, as it travels in `extra_env`.
+///
+/// `Config` has already validated the value; a malformed one here means the
+/// harness's own env was tampered with between config and spawn, which is a
+/// protocol error rather than something to silently drop.
+fn forced_codex_policy(
+    extra_env: &[(String, String)],
+) -> Result<Option<serde_json::Map<String, serde_json::Value>>, AcpError> {
+    let Some((_, raw)) = extra_env
+        .iter()
+        .find(|(key, _)| key == crate::config::CODEX_POLICY_ENV)
+    else {
+        return Ok(None);
+    };
+    crate::config::parse_codex_policy_overlay(raw)
+        .map(Some)
+        .map_err(|error| AcpError::Protocol(error.to_string()))
+}
+
+/// Write the forced tier's keys over whatever the merge produced.
+fn apply_forced_codex_policy(
+    base: &mut serde_json::Map<String, serde_json::Value>,
+    forced_policy: Option<&serde_json::Map<String, serde_json::Value>>,
+) {
+    let Some(policy) = forced_policy else {
+        return;
+    };
+    for (key, value) in policy {
+        base.insert(key.clone(), value.clone());
+    }
 }
 
 fn build_client_capabilities() -> serde_json::Value {
@@ -1035,8 +1076,13 @@ impl AcpClient {
             parent_codex_config.as_deref(),
             has_generated_codex_config,
         )?;
+        let forced_codex_policy = forced_codex_policy(extra_env)?;
         let codex_config_value = match final_codex_overlay {
-            Some(overlay) => Some(merge_final_codex_overlay(codex_config_value, overlay)?),
+            Some(overlay) => Some(merge_final_codex_overlay(
+                codex_config_value,
+                overlay,
+                forced_codex_policy.as_ref(),
+            )?),
             None => codex_config_value,
         };
         // When the merge path was not taken (None returned), any persona CODEX_CONFIG
@@ -1051,12 +1097,28 @@ impl AcpClient {
                 // Handled by build_codex_config_env; skip here to avoid double-setting.
                 continue;
             }
+            if key == crate::config::CODEX_POLICY_ENV {
+                // A harness-internal coordinate. It becomes the forced
+                // CODEX_CONFIG keys and INITIAL_AGENT_MODE below; the runtime
+                // child never sees the key itself.
+                continue;
+            }
             if std::env::var(key).is_err() {
                 cmd.env(key, value);
             }
         }
         if let Some(merged) = codex_config_value {
             cmd.env("CODEX_CONFIG", merged);
+        }
+        // The adapter overrides CODEX_CONFIG's approval_policy and sandbox_mode
+        // with its own session mode on every turn, so the tier has to be set
+        // where the adapter reads it. Forced, not operator-wins: a parent
+        // INITIAL_AGENT_MODE must not be able to raise a resident's tier.
+        if let Some(policy) = forced_codex_policy.as_ref() {
+            cmd.env(
+                "INITIAL_AGENT_MODE",
+                crate::config::codex_initial_agent_mode(policy),
+            );
         }
 
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
@@ -6012,6 +6074,7 @@ esac"#,
         let internal = merge_final_codex_overlay(
             Some(ordinary),
             &serde_json::json!({"mcp_servers":{"playwright":{"enabled":false}}}),
+            None,
         )
         .unwrap();
         let internal_json: serde_json::Value = serde_json::from_str(&internal).unwrap();
@@ -6026,9 +6089,97 @@ esac"#,
     }
 
     #[test]
+    fn forced_policy_beats_parent_and_persona() {
+        let extra = vec![
+            (
+                "CODEX_CONFIG".to_string(),
+                r#"{"approval_policy":"never","sandbox_mode":"danger-full-access","model":"persona"}"#
+                    .to_string(),
+            ),
+            (
+                crate::config::CODEX_POLICY_ENV.to_string(),
+                r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write"}"#.to_string(),
+            ),
+        ];
+        // The parent environment is the last thing an operator controls, and
+        // it still cannot raise the tier.
+        let parent = r#"{"approval_policy":"never","sandbox_mode":"danger-full-access"}"#;
+        let merged = build_codex_config_env(&extra, Some(parent), true)
+            .unwrap()
+            .unwrap();
+        let merged: serde_json::Value = serde_json::from_str(&merged).unwrap();
+        assert_eq!(merged["approval_policy"], "on-request");
+        assert_eq!(merged["sandbox_mode"], "workspace-write");
+        // Unrelated persona keys and the relay invariant both survive.
+        assert_eq!(merged["model"], "persona");
+        assert_eq!(merged["sandbox_workspace_write"]["network_access"], true);
+    }
+
+    #[test]
+    fn forced_policy_survives_internal_worker_overlay() {
+        let extra = vec![
+            (
+                "CODEX_CONFIG".to_string(),
+                r#"{"sandbox_workspace_write":{"network_access":true}}"#.to_string(),
+            ),
+            (
+                crate::config::CODEX_POLICY_ENV.to_string(),
+                r#"{"approval_policy":"untrusted","sandbox_mode":"read-only"}"#.to_string(),
+            ),
+        ];
+        let ordinary = build_codex_config_env(&extra, None, true).unwrap().unwrap();
+        let policy = crate::config::parse_codex_policy_overlay(&extra[1].1).unwrap();
+        let internal = merge_final_codex_overlay(
+            Some(ordinary),
+            &serde_json::json!({
+                "approval_policy": "never",
+                "sandbox_mode": "danger-full-access",
+                "mcp_servers": {"playwright": {"enabled": false}}
+            }),
+            Some(&policy),
+        )
+        .unwrap();
+        let internal: serde_json::Value = serde_json::from_str(&internal).unwrap();
+        assert_eq!(internal["approval_policy"], "untrusted");
+        assert_eq!(internal["sandbox_mode"], "read-only");
+        // The worker's own, non-tier override still applies.
+        assert_eq!(internal["mcp_servers"]["playwright"]["enabled"], false);
+        assert_eq!(internal["sandbox_workspace_write"]["network_access"], true);
+    }
+
+    #[test]
+    fn invalid_policy_json_is_rejected() {
+        for raw in [
+            "not json",
+            "[]",
+            r#""on-request""#,
+            r#"{"approval_policy":"on-request"}"#,
+            r#"{"sandbox_mode":"workspace-write"}"#,
+            r#"{"approval_policy":"yolo","sandbox_mode":"workspace-write"}"#,
+            r#"{"approval_policy":"on-request","sandbox_mode":"everything"}"#,
+            r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write","writable_roots":["/"]}"#,
+            r#"{"approval_policy":true,"sandbox_mode":"workspace-write"}"#,
+        ] {
+            assert!(
+                crate::config::parse_codex_policy_overlay(raw).is_err(),
+                "{raw} must be rejected"
+            );
+            let extra = vec![(crate::config::CODEX_POLICY_ENV.to_string(), raw.to_string())];
+            assert!(
+                forced_codex_policy(&extra).is_err(),
+                "{raw} must be rejected at spawn too"
+            );
+        }
+        let valid = r#"{"approval_policy":"on-request","sandbox_mode":"workspace-write"}"#;
+        assert!(crate::config::parse_codex_policy_overlay(valid).is_ok());
+    }
+
+    #[test]
     fn internal_codex_overlay_requires_object_and_generated_base() {
-        assert!(merge_final_codex_overlay(None, &serde_json::json!({})).is_err());
-        assert!(merge_final_codex_overlay(Some("{}".into()), &serde_json::json!([])).is_err());
+        assert!(merge_final_codex_overlay(None, &serde_json::json!({}), None).is_err());
+        assert!(
+            merge_final_codex_overlay(Some("{}".into()), &serde_json::json!([]), None).is_err()
+        );
     }
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
