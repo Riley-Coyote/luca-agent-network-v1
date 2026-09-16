@@ -291,11 +291,31 @@ impl std::fmt::Display for PermissionMode {
     }
 }
 
-fn effective_permission_mode(managed_identity: bool, requested: PermissionMode) -> PermissionMode {
-    if managed_identity {
+/// The permission mode a managed resident is actually allowed to run at.
+///
+/// beta.11 gives the owner a tier: Manual, Accept edits, Full access. Those
+/// map onto the three native Claude modes the desktop sets through
+/// `BUZZ_ACP_PERMISSION_MODE`, so a managed identity now accepts `Default`,
+/// `AcceptEdits` and `BypassPermissions` rather than being pinned to
+/// `Default`.
+///
+/// `Plan` and `DontAsk` are clamped to `Default`. Neither is a tier the owner
+/// can choose: `Plan` would stop the resident from acting at all, and
+/// `DontAsk` would answer the runtime's own approvals without the desktop's
+/// permission channel ever seeing them — the exact behaviour the managed
+/// channel exists to prevent.
+pub(crate) fn effective_permission_mode(
+    managed_identity: bool,
+    requested: PermissionMode,
+) -> PermissionMode {
+    if !managed_identity {
+        return requested;
+    }
+    match requested {
         PermissionMode::Default
-    } else {
-        requested
+        | PermissionMode::AcceptEdits
+        | PermissionMode::BypassPermissions => requested,
+        PermissionMode::Plan | PermissionMode::DontAsk => PermissionMode::Default,
     }
 }
 
@@ -1368,8 +1388,10 @@ impl Config {
             typing_enabled: !args.no_typing && !managed_identity,
             memory_enabled: args.memory && !args.no_memory && !managed_identity,
             model,
-            // Managed permissions are mediated by the desktop-local channel;
-            // never ask a runtime to bypass that request flow.
+            // Managed permissions are mediated by the desktop-local channel.
+            // The owner's tier picks which native mode the runtime binds; the
+            // two modes that would route approvals past that channel (`plan`,
+            // `dontAsk`) are clamped to `default`.
             permission_mode: effective_permission_mode(managed_identity, args.permission_mode),
             respond_to: args.respond_to,
             respond_to_allowlist,
@@ -2554,14 +2576,29 @@ channels = "ALL"
     }
 
     #[test]
-    fn managed_identity_always_uses_native_permission_mode() {
+    fn managed_identity_accepts_owner_tier_but_never_plan_or_dont_ask() {
+        // The three tiers the owner can pick in Settings reach the runtime.
+        for mode in [
+            PermissionMode::Default,
+            PermissionMode::AcceptEdits,
+            PermissionMode::BypassPermissions,
+        ] {
+            assert_eq!(effective_permission_mode(true, mode), mode);
+        }
+        // Neither of these is an owner tier, and `dontAsk` would answer the
+        // runtime's approvals behind the desktop's back.
         assert_eq!(
-            effective_permission_mode(true, PermissionMode::BypassPermissions),
+            effective_permission_mode(true, PermissionMode::Plan),
             PermissionMode::Default
         );
         assert_eq!(
-            effective_permission_mode(true, PermissionMode::AcceptEdits),
+            effective_permission_mode(true, PermissionMode::DontAsk),
             PermissionMode::Default
+        );
+        // Unmanaged runs are untouched.
+        assert_eq!(
+            effective_permission_mode(false, PermissionMode::DontAsk),
+            PermissionMode::DontAsk
         );
         assert_eq!(
             effective_permission_mode(false, PermissionMode::BypassPermissions),
