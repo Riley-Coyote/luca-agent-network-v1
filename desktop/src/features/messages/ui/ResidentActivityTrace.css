@@ -183,6 +183,15 @@
   white-space: pre-wrap;
 }
 
+/* One decision, marked: an allowed shield, or a declined one. */
+.resident-activity-record-mark {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.3rem;
+  vertical-align: -0.1em;
+}
+
 .resident-activity-record-entry[data-activity-kind="narration"],
 .resident-activity-record-note {
   color: rgb(255 255 255 / 38%);

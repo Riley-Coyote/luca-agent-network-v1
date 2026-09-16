@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ShieldCheck, ShieldX } from "lucide-react";
 
 import type {
   ActivityTrace,
@@ -187,7 +188,10 @@ export function ResidentActivityTrace({
     () =>
       trace.entries
         .filter(
-          (entry) => entry.kind === "activity" || entry.kind === "narration",
+          (entry) =>
+            entry.kind === "activity" ||
+            entry.kind === "narration" ||
+            entry.kind === "permission",
         )
         .slice()
         .sort((left, right) => left.sequence - right.sequence),
@@ -324,14 +328,27 @@ export function ResidentActivityTrace({
               {entries.map((entry) => {
                 const text = entryText(entry, privateConversation);
                 if (!text) return null;
+                const permission = entry.kind === "permission";
+                const declined = entry.status === "failed";
+                const Mark = declined ? ShieldX : ShieldCheck;
                 return (
                   <li
                     className="resident-activity-record-entry text-xs"
                     data-activity-kind={entry.kind}
                     key={entry.id}
                   >
+                    {permission ? (
+                      <Mark
+                        aria-hidden="true"
+                        className="resident-activity-record-mark"
+                      />
+                    ) : null}
                     {text}
-                    {entry.status === "failed" ? " · failed" : null}
+                    {declined
+                      ? permission
+                        ? " · declined"
+                        : " · failed"
+                      : null}
                   </li>
                 );
               })}

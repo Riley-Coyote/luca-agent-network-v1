@@ -271,3 +271,41 @@ test("only a mounted live dispatch gets the terminal settle", () => {
   );
   assert.doesNotMatch(render(), /data-activity-settling="true"/);
 });
+
+test("a permission decision joins the record with its own mark and never becomes the phrase", () => {
+  const allowed = entry(
+    "permission-1",
+    5,
+    "permission",
+    "You allowed once: git status",
+    "Allowed a command",
+  );
+  const declined = {
+    ...entry(
+      "permission-2",
+      6,
+      "permission",
+      "You said no: git push",
+      "Declined a command",
+    ),
+    status: "failed",
+  };
+  const html = render({ entries: [firstActivity, allowed, declined] });
+  assert.equal(
+    (html.match(/data-activity-kind="permission"/g) ?? []).length,
+    2,
+  );
+  assert.match(html, /You allowed once: git status/);
+  assert.match(html, /You said no: git push · declined/);
+  assert.doesNotMatch(html, /You said no: git push · failed/);
+  assert.equal((html.match(/resident-activity-record-mark/g) ?? []).length, 2);
+  // Decisions are not steps: the count and the live phrase both ignore them.
+  assert.match(html, /· 1 step/);
+  const live = render({
+    status: "working",
+    endedAt: null,
+    entries: [firstActivity, allowed],
+  });
+  assert.match(live, /Reading private-notes\.md/);
+  assert.doesNotMatch(live, /You allowed once/);
+});

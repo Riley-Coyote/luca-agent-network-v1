@@ -132,3 +132,31 @@ test("deduplicates only exact public narration prefixes of provisional text", ()
     "Answer containing Checking. ",
   );
 });
+test("a permission decision between two narrations changes nothing about the reply", () => {
+  const withDecision = trace({
+    entries: [
+      { kind: "narration", text: "Checking. " },
+      { kind: "permission", text: "You allowed once: git status" },
+      { kind: "narration", text: "Found it. " },
+    ],
+  });
+  assert.equal(
+    provisionalReplyAfterNarration(
+      "Checking. Found it. Answer",
+      withDecision,
+      true,
+    ),
+    "Answer",
+  );
+  // A decision is never narration, so its own text is never stripped either.
+  assert.equal(
+    provisionalReplyAfterNarration(
+      "You allowed once: git status",
+      trace({
+        entries: [{ kind: "permission", text: "You allowed once: git status" }],
+      }),
+      true,
+    ),
+    "You allowed once: git status",
+  );
+});
