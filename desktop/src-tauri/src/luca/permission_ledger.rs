@@ -1,0 +1,717 @@
+//! The desktop's memory of permission answers.
+//!
+//! Every managed runtime permission request passes through here before a card
+//! is ever shown. The ledger answers three questions in order: what exactly is
+//! being asked (the [`PermissionSubject`]), has the owner already answered it
+//! (a turn-scoped or durable [`PermissionRuleV1`]), and if not, what may the
+//! card offer (the [`PermissionOfferV1`]).
+//!
+//! Three invariants hold throughout:
+//!
+//! - **Deny wins.** An explicit deny rule beats every allowance, including
+//!   Polyphonic's own pre-allowed reads.
+//! - **A door always asks.** Shells, browsing, speaking to other people and
+//!   deletions can be allowed once, never remembered.
+//! - **A remembered answer never travels.** A rule stores an opaque project
+//!   id, never a path, and a project rule cannot answer a card raised in a
+//!   different project.
+
+use std::{
+    collections::{HashMap, VecDeque},
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
+
+use luca_protocol::{
+    mcp_server_family, Hex64, ManagedPermissionRequestV1, OpaqueId, PermissionEffectV1,
+    PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS,
+    DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES, POLYPHONIC_BROKER_GUARDED_TOOLS,
+    POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
+};
+use tauri::{AppHandle, Manager};
+
+/// Matchers remembered for one turn, and turns remembered at once. Both are
+/// process-local ceilings; nothing here survives a restart.
+const MAX_TURN_MATCHERS: usize = 64;
+const MAX_REMEMBERED_TURNS: usize = 256;
+
+/// The server family of Polyphonic's own communications tools. Any tool of
+/// this family that is not pre-allowed is a door: speaking to somebody else is
+/// always the owner's decision.
+const COMMUNICATIONS_FAMILY: &str = "luca-communications";
+
+/// Which project a request belongs to.
+///
+/// `Source` is a folder the owner connected to their Brain; `WorkingRoot` is
+/// the resident's own working folder, used when a turn carries no frozen
+/// context. Both carry a canonical root for path containment only — the root
+/// never leaves this process, and never enters a rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ProjectRef {
+    Source {
+        source_id: OpaqueId,
+        canonical_root: PathBuf,
+        label: String,
+    },
+    WorkingRoot {
+        root_id: OpaqueId,
+        canonical_root: PathBuf,
+        label: String,
+    },
+}
+
+impl ProjectRef {
+    /// The opaque id a `Project`-scoped rule is anchored to.
+    pub(crate) fn scope_id(&self) -> &OpaqueId {
+        match self {
+            ProjectRef::Source { source_id, .. } => source_id,
+            ProjectRef::WorkingRoot { root_id, .. } => root_id,
+        }
+    }
+
+    pub(crate) fn canonical_root(&self) -> &Path {
+        match self {
+            ProjectRef::Source { canonical_root, .. }
+            | ProjectRef::WorkingRoot { canonical_root, .. } => canonical_root,
+        }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        match self {
+            ProjectRef::Source { label, .. } | ProjectRef::WorkingRoot { label, .. } => label,
+        }
+    }
+}
+
+/// Exactly what one permission request is asking for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PermissionSubject {
+    pub resident: Hex64,
+    pub project: Option<ProjectRef>,
+    pub matcher: Option<PermissionMatcherV1>,
+    /// A door onto the machine or the world: allowed once at most, never
+    /// remembered.
+    pub is_door: bool,
+    /// One of Polyphonic's own read-only tools.
+    pub is_pre_allowed: bool,
+    /// A tool whose side effect already goes through the desktop authority
+    /// broker, which owns its own confirmation.
+    pub is_broker_guarded: bool,
+    /// Whether the request's path lies inside the project's root. False
+    /// whenever there is no path or no project.
+    pub inside_project: bool,
+    /// The short owner-facing phrase for the thing being asked about.
+    pub display_name: String,
+}
+
+/// Why a request was allowed without a card.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AllowReason {
+    PreAllowed,
+    BrokerGuarded,
+    TurnRule,
+    Rule {
+        rule_id: String,
+        display_name: String,
+    },
+}
+
+/// What the offer on the card may contain.
+///
+/// Serialised camelCase straight into the pending event the card reads. It
+/// carries no path, no command and no host — only which answers are on offer,
+/// the project's name, and an optional one-line note.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PermissionOfferV1 {
+    pub once: bool,
+    pub task: bool,
+    pub always_here: bool,
+    pub deny: bool,
+    pub project_label: Option<String>,
+    pub note: Option<String>,
+}
+
+impl PermissionOfferV1 {
+    /// The narrowest offer there is: answer this one, or say no.
+    fn once_or_deny(project_label: Option<String>, note: Option<String>) -> Self {
+        Self {
+            once: true,
+            task: false,
+            always_here: false,
+            deny: true,
+            project_label,
+            note,
+        }
+    }
+}
+
+/// The ledger's answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Verdict {
+    Deny { reason: String },
+    Allow(AllowReason),
+    Ask { offer: PermissionOfferV1 },
+}
+
+/// Which answer the owner gave on a card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ManagedPermissionTense {
+    Once,
+    Task,
+    AlwaysHere,
+    Deny,
+}
+
+// ── Subject ──────────────────────────────────────────────────────────────────
+
+fn mcp_identity(request: &ManagedPermissionRequestV1) -> Option<(String, String)> {
+    let server = request.mcp_server.as_deref()?;
+    let tool = request.mcp_tool.as_deref()?;
+    Some((mcp_server_family(server).to_owned(), tool.to_owned()))
+}
+
+fn inventory_contains(inventory: &[(&str, &str)], family: &str, tool: &str) -> bool {
+    inventory.iter().any(|(candidate_family, candidate_tool)| {
+        *candidate_family == family && *candidate_tool == tool
+    })
+}
+
+/// A door is a way onto the machine or out into the world. Doors are answered
+/// one at a time, forever.
+///
+/// Runtime-native shells are deliberately not doors. A `Bash` tool call the
+/// runtime raises itself has no MCP identity, so it falls through to the
+/// ordinary "ask once per new command, then remembered" rung; only Polyphonic's
+/// own `buzz` `shell` tool is a door.
+fn is_door(request: &ManagedPermissionRequestV1, identity: Option<&(String, String)>) -> bool {
+    if request.tool_kind.as_deref() == Some("delete") {
+        return true;
+    }
+    if request
+        .command_token
+        .as_deref()
+        .is_some_and(|token| DESTRUCTIVE_COMMAND_TOKENS.contains(&token))
+    {
+        return true;
+    }
+    let Some((family, tool)) = identity else {
+        return false;
+    };
+    if DOOR_SERVER_FAMILIES.contains(&family.as_str())
+        || inventory_contains(POLYPHONIC_DOOR_TOOLS, family, tool)
+    {
+        return true;
+    }
+    if family == COMMUNICATIONS_FAMILY
+        && !inventory_contains(POLYPHONIC_PRE_ALLOWED_TOOLS, family, tool)
+    {
+        return true;
+    }
+    // Viewing an image off the network is browsing, not reading a file.
+    family == "buzz" && tool == "view_image" && request.domain.is_some()
+}
+
+/// Derive the one matcher a rule could be written from, first hit wins:
+/// MCP tool, then command, then host, then path.
+fn derive_matcher(
+    request: &ManagedPermissionRequestV1,
+    identity: Option<&(String, String)>,
+) -> Option<PermissionMatcherV1> {
+    if let Some((server_family, tool)) = identity {
+        return Some(PermissionMatcherV1::McpTool {
+            server_family: server_family.clone(),
+            tool: tool.clone(),
+        });
+    }
+    if let Some(token) = request.command_token.as_deref() {
+        return Some(PermissionMatcherV1::Command {
+            token: token.to_owned(),
+            argv_prefix: request.command_argv_prefix.clone(),
+        });
+    }
+    if let Some(host) = request.domain.as_deref() {
+        return Some(PermissionMatcherV1::Domain {
+            host: host.to_owned(),
+        });
+    }
+    request.path.as_deref().map(|_| PermissionMatcherV1::Path {
+        write: request.write.unwrap_or(false),
+    })
+}
+
+/// Whether `path` is the project root or lies under it, on a component
+/// boundary. `/luca-secrets` is never inside `/luca`.
+///
+/// Both sides are canonicalised when they exist; a file the resident is about
+/// to create does not yet, so an absent path falls back to its lexical form
+/// with `.` and `..` removed. A path that still tries to climb out is refused.
+fn is_inside(root: &Path, path: &Path) -> bool {
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let candidate = std::fs::canonicalize(path).unwrap_or_else(|_| lexical_path(path));
+    candidate == root || candidate.starts_with(&root)
+}
+
+fn lexical_path(path: &Path) -> PathBuf {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !resolved.pop() {
+                    // A path that climbs above its own root is not a path we
+                    // can reason about; leave it unresolvable.
+                    return PathBuf::from("/\u{0}unresolvable");
+                }
+            }
+            other => resolved.push(other.as_os_str()),
+        }
+    }
+    resolved
+}
+
+fn bounded_display(value: &str) -> String {
+    let clean: String = value
+        .chars()
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(
+                    character,
+                    '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                )
+        })
+        .collect();
+    let mut end = clean.len().min(MAX_PERMISSION_RULE_DISPLAY_BYTES);
+    while end > 0 && !clean.is_char_boundary(end) {
+        end -= 1;
+    }
+    clean[..end].to_owned()
+}
+
+/// The short owner-facing phrase for this request: a command with its first
+/// words, a tool name, a host, a file name, or the runtime's own title.
+fn subject_display_name(
+    request: &ManagedPermissionRequestV1,
+    matcher: Option<&PermissionMatcherV1>,
+    is_pre_allowed: bool,
+) -> String {
+    let phrase = match matcher {
+        Some(PermissionMatcherV1::Command { token, argv_prefix }) => {
+            let mut words = vec![token.as_str()];
+            words.extend(argv_prefix.iter().map(String::as_str));
+            words.join(" ")
+        }
+        Some(PermissionMatcherV1::McpTool { tool, .. }) if is_pre_allowed => {
+            format!("{tool} (Polyphonic tool)")
+        }
+        Some(PermissionMatcherV1::McpTool { tool, .. }) => tool.clone(),
+        Some(PermissionMatcherV1::Domain { host }) => host.clone(),
+        Some(PermissionMatcherV1::Path { .. }) => request
+            .path
+            .as_deref()
+            .and_then(|path| path.rsplit('/').next())
+            .filter(|name| !name.is_empty())
+            .unwrap_or(request.title.as_str())
+            .to_owned(),
+        None => request
+            .tool_name
+            .clone()
+            .unwrap_or_else(|| request.title.clone()),
+    };
+    let phrase = bounded_display(&phrase);
+    if phrase.is_empty() {
+        bounded_display(&request.title)
+    } else {
+        phrase
+    }
+}
+
+/// The sentence the permissions list shows for a remembered answer.
+pub(crate) fn rule_display_name(subject: &PermissionSubject) -> String {
+    let verb = match subject.matcher.as_ref() {
+        Some(PermissionMatcherV1::Command { .. }) => "Run",
+        Some(PermissionMatcherV1::Domain { .. }) => "Visit",
+        Some(PermissionMatcherV1::Path { write: true }) => "Edit",
+        Some(PermissionMatcherV1::Path { write: false }) => "Read",
+        _ => "Use",
+    };
+    let sentence = match subject.project.as_ref() {
+        Some(project) => format!("{verb} {} in {}", subject.display_name, project.label()),
+        None => format!("{verb} {}", subject.display_name),
+    };
+    let sentence = bounded_display(&sentence);
+    if sentence.is_empty() {
+        "Remembered permission".to_owned()
+    } else {
+        sentence
+    }
+}
+
+/// Read one request and say exactly what it is asking for.
+pub(crate) fn subject(
+    app: &AppHandle,
+    owner: &Hex64,
+    request: &ManagedPermissionRequestV1,
+    working_root: &Path,
+) -> PermissionSubject {
+    let identity = mcp_identity(request);
+    let is_pre_allowed = identity.as_ref().is_some_and(|(family, tool)| {
+        inventory_contains(POLYPHONIC_PRE_ALLOWED_TOOLS, family, tool)
+    });
+    let is_broker_guarded = identity.as_ref().is_some_and(|(family, tool)| {
+        inventory_contains(POLYPHONIC_BROKER_GUARDED_TOOLS, family, tool)
+    });
+    let is_door = is_door(request, identity.as_ref());
+    let matcher = derive_matcher(request, identity.as_ref());
+    let project = resolve_project(app, owner, request, working_root);
+    let inside_project = match (project.as_ref(), request.path.as_deref()) {
+        (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
+        _ => false,
+    };
+    PermissionSubject {
+        resident: request.resident_pubkey.clone(),
+        project,
+        display_name: subject_display_name(request, matcher.as_ref(), is_pre_allowed),
+        matcher,
+        is_door,
+        is_pre_allowed,
+        is_broker_guarded,
+        inside_project,
+    }
+}
+
+/// Resolve the project this turn belongs to.
+///
+/// The harness sends the dispatch receipt, which names the owner's dispatch
+/// row; the row names the frozen context snapshot; the snapshot names the
+/// working-folder source; the owner's own Brain candidate turns that into a
+/// root. Every step is checked against this owner and this conversation, and a
+/// failure anywhere falls back to the resident's own working folder.
+fn resolve_project(
+    app: &AppHandle,
+    owner: &Hex64,
+    request: &ManagedPermissionRequestV1,
+    working_root: &Path,
+) -> Option<ProjectRef> {
+    source_project(app, owner, request).or_else(|| working_root_project(working_root))
+}
+
+fn source_project(
+    app: &AppHandle,
+    owner: &Hex64,
+    request: &ManagedPermissionRequestV1,
+) -> Option<ProjectRef> {
+    let receipt = request.dispatch_receipt_id.as_ref()?;
+    let binding = super::managed_dispatch_store::global_dispatch_store(app)
+        .ok()?
+        .lock()
+        .ok()?
+        .dispatch_context_binding(
+            owner.as_str(),
+            request.resident_pubkey.as_str(),
+            request.conversation_id.as_str(),
+            receipt.as_str(),
+        )?;
+    let source_id = super::conversation_context::primary_source_for_dispatch(
+        app,
+        owner,
+        &request.conversation_id,
+        &binding,
+    )
+    .ok()
+    .flatten()?;
+    let state = app.state::<crate::app_state::AppState>();
+    let canonical_root = state
+        .read_connected_brain_candidate(owner, &source_id)
+        .ok()?
+        .canonical_root;
+    let label = root_label(&canonical_root)?;
+    Some(ProjectRef::Source {
+        source_id,
+        canonical_root,
+        label,
+    })
+}
+
+fn working_root_project(working_root: &Path) -> Option<ProjectRef> {
+    let root_id = super::artifact_bridge::working_root_id(working_root).ok()?;
+    let canonical_root =
+        std::fs::canonicalize(working_root).unwrap_or_else(|_| working_root.to_path_buf());
+    let label = root_label(&canonical_root)?;
+    Some(ProjectRef::WorkingRoot {
+        root_id,
+        canonical_root,
+        label,
+    })
+}
+
+/// A project's name is the last component of its root, and nothing else. The
+/// rest of the path never reaches an event, a rule or the trace.
+fn root_label(root: &Path) -> Option<String> {
+    let label = bounded_display(&root.file_name()?.to_string_lossy());
+    (!label.is_empty()).then_some(label)
+}
+
+// ── Turn memory ──────────────────────────────────────────────────────────────
+
+type TurnKey = (String, u64, String);
+
+#[derive(Default)]
+struct TurnMemory {
+    matchers: HashMap<TurnKey, Vec<PermissionMatcherV1>>,
+    order: VecDeque<TurnKey>,
+}
+
+fn turn_memory() -> &'static Mutex<TurnMemory> {
+    static MEMORY: OnceLock<Mutex<TurnMemory>> = OnceLock::new();
+    MEMORY.get_or_init(|| Mutex::new(TurnMemory::default()))
+}
+
+/// Remember one matcher for the rest of this turn only. Nothing here is
+/// written to disk and nothing survives the session that raised it.
+pub(crate) fn remember_for_turn(
+    resident_pubkey: &str,
+    session_epoch: u64,
+    turn_id: &str,
+    matcher: PermissionMatcherV1,
+) {
+    let key = (
+        resident_pubkey.to_owned(),
+        session_epoch,
+        turn_id.to_owned(),
+    );
+    let Ok(mut memory) = turn_memory().lock() else {
+        return;
+    };
+    if !memory.matchers.contains_key(&key) {
+        if memory.order.len() >= MAX_REMEMBERED_TURNS {
+            if let Some(oldest) = memory.order.pop_front() {
+                memory.matchers.remove(&oldest);
+            }
+        }
+        memory.order.push_back(key.clone());
+    }
+    let matchers = memory.matchers.entry(key).or_default();
+    if matchers.len() < MAX_TURN_MATCHERS && !matchers.contains(&matcher) {
+        matchers.push(matcher);
+    }
+}
+
+pub(crate) fn turn_hits(
+    resident_pubkey: &str,
+    session_epoch: u64,
+    turn_id: &str,
+) -> Vec<PermissionMatcherV1> {
+    let key = (
+        resident_pubkey.to_owned(),
+        session_epoch,
+        turn_id.to_owned(),
+    );
+    turn_memory()
+        .lock()
+        .ok()
+        .and_then(|memory| memory.matchers.get(&key).cloned())
+        .unwrap_or_default()
+}
+
+/// A turn's answers die with the turn.
+pub(crate) fn end_turn(resident_pubkey: &str, session_epoch: u64, turn_id: &str) {
+    let key = (
+        resident_pubkey.to_owned(),
+        session_epoch,
+        turn_id.to_owned(),
+    );
+    if let Ok(mut memory) = turn_memory().lock() {
+        memory.matchers.remove(&key);
+        memory.order.retain(|candidate| candidate != &key);
+    }
+}
+
+/// A session's answers die with the session, replaced or exited.
+pub(crate) fn clear_session(resident_pubkey: &str, session_epoch: u64) {
+    if let Ok(mut memory) = turn_memory().lock() {
+        memory.matchers.retain(|(resident, epoch, _), _| {
+            resident != resident_pubkey || *epoch != session_epoch
+        });
+        memory
+            .order
+            .retain(|(resident, epoch, _)| resident != resident_pubkey || *epoch != session_epoch);
+    }
+}
+
+pub(crate) fn clear_all() {
+    if let Ok(mut memory) = turn_memory().lock() {
+        memory.matchers.clear();
+        memory.order.clear();
+    }
+}
+
+// ── Decision ─────────────────────────────────────────────────────────────────
+
+fn matcher_answers(rule: &PermissionMatcherV1, subject: &PermissionSubject) -> bool {
+    let Some(asked) = subject.matcher.as_ref() else {
+        return false;
+    };
+    match (rule, asked) {
+        (
+            PermissionMatcherV1::Command {
+                token: remembered,
+                argv_prefix: remembered_prefix,
+            },
+            PermissionMatcherV1::Command {
+                token: asked_token,
+                argv_prefix: asked_prefix,
+            },
+        ) => {
+            remembered == asked_token
+                && remembered_prefix.len() <= asked_prefix.len()
+                && remembered_prefix
+                    .iter()
+                    .zip(asked_prefix.iter())
+                    .all(|(remembered, asked)| remembered == asked)
+        }
+        (
+            PermissionMatcherV1::McpTool {
+                server_family: remembered_family,
+                tool: remembered_tool,
+            },
+            PermissionMatcherV1::McpTool {
+                server_family: asked_family,
+                tool: asked_tool,
+            },
+        ) => remembered_family == asked_family && remembered_tool == asked_tool,
+        (
+            PermissionMatcherV1::Domain { host: remembered },
+            PermissionMatcherV1::Domain { host: asked },
+        ) => remembered == asked,
+        (
+            PermissionMatcherV1::Path { write: remembered },
+            PermissionMatcherV1::Path { write: asked },
+        ) => subject.inside_project && (*remembered || !*asked),
+        _ => false,
+    }
+}
+
+fn rule_answers(rule: &PermissionRuleV1, subject: &PermissionSubject) -> bool {
+    if rule.revoked_at.is_some() || rule.resident_pubkey != subject.resident {
+        return false;
+    }
+    let in_scope = match &rule.scope {
+        PermissionRuleScopeV1::Project { source_id } => subject
+            .project
+            .as_ref()
+            .is_some_and(|project| project.scope_id() == source_id),
+        // A rule that travels may only ever describe reading.
+        PermissionRuleScopeV1::Everywhere => rule.matcher.is_read_only(),
+    };
+    in_scope && matcher_answers(&rule.matcher, subject)
+}
+
+/// The whole decision, as a pure function of what is remembered.
+///
+/// Order is the contract: an explicit deny beats everything; Polyphonic's own
+/// reads never ask; a broker-guarded tool has its own gate; a door always
+/// asks; then this turn's answers; then the owner's durable rules; then a
+/// card.
+pub(crate) fn decide_with(
+    rules: &[PermissionRuleV1],
+    turn_hits: &[PermissionMatcherV1],
+    subject: &PermissionSubject,
+) -> Verdict {
+    if let Some(denied) = rules
+        .iter()
+        .find(|rule| rule.effect == PermissionEffectV1::Deny && rule_answers(rule, subject))
+    {
+        return Verdict::Deny {
+            reason: denied.display_name.clone(),
+        };
+    }
+    if subject.is_pre_allowed {
+        return Verdict::Allow(AllowReason::PreAllowed);
+    }
+    if subject.is_broker_guarded {
+        return Verdict::Allow(AllowReason::BrokerGuarded);
+    }
+    let project_label = subject
+        .project
+        .as_ref()
+        .map(|project| project.label().to_owned());
+    if subject.is_door {
+        return Verdict::Ask {
+            offer: PermissionOfferV1::once_or_deny(
+                project_label,
+                Some("This one always asks.".into()),
+            ),
+        };
+    }
+    if turn_hits
+        .iter()
+        .any(|remembered| matcher_answers(remembered, subject))
+    {
+        return Verdict::Allow(AllowReason::TurnRule);
+    }
+    if let Some(allowed) = rules
+        .iter()
+        .find(|rule| rule.effect == PermissionEffectV1::Allow && rule_answers(rule, subject))
+    {
+        return Verdict::Allow(AllowReason::Rule {
+            rule_id: allowed.rule_id.as_str().to_owned(),
+            display_name: allowed.display_name.clone(),
+        });
+    }
+    let remembrable = subject.matcher.is_some();
+    let path_outside = matches!(subject.matcher, Some(PermissionMatcherV1::Path { .. }))
+        && !subject.inside_project;
+    let always_here = remembrable && subject.project.is_some() && !path_outside;
+    Verdict::Ask {
+        offer: PermissionOfferV1 {
+            once: true,
+            task: remembrable,
+            always_here,
+            deny: true,
+            project_label,
+            note: (!remembrable).then(|| "Polyphonic can only answer this one once.".to_owned()),
+        },
+    }
+}
+
+/// The same decision, reading this owner's remembered answers. A durable rule
+/// that answers the card is touched so the permissions list can show when it
+/// was last used.
+pub(crate) fn decide(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: &ManagedPermissionRequestV1,
+    subject: &PermissionSubject,
+) -> Verdict {
+    let rules = super::resident_capability_authority::matching_rules(
+        app,
+        owner_pubkey,
+        subject.resident.as_str(),
+    )
+    .unwrap_or_default();
+    let hits = turn_hits(
+        request.resident_pubkey.as_str(),
+        request.session_epoch.get(),
+        request.turn_id.as_str(),
+    );
+    let verdict = decide_with(&rules, &hits, subject);
+    if let Verdict::Allow(AllowReason::Rule { rule_id, .. }) = &verdict {
+        let _ = super::resident_capability_authority::touch_rule(app, owner_pubkey, rule_id);
+    }
+    verdict
+}
+
+/// Serialises the tests that reach the process-global permission state — this
+/// module's turn memory and the pending registry next door. Both are one map
+/// per process, so two tests draining them at once would race.
+#[cfg(test)]
+pub(crate) fn test_global_state_guard() -> std::sync::MutexGuard<'static, ()> {
+    static GUARD: Mutex<()> = Mutex::new(());
+    GUARD.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+#[cfg(test)]
+#[path = "permission_ledger_tests.rs"]
+mod tests;

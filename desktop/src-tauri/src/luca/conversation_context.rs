@@ -1428,6 +1428,21 @@ fn snapshot_for_dispatch(
         )
 }
 
+/// The working-folder source the owner had selected for one exact dispatch.
+///
+/// A thin read over the frozen snapshot: it answers "which project was this
+/// turn in", never "where is that project on disk". The caller resolves the
+/// root, if it needs one, through the owner's own Brain candidate.
+pub(crate) fn primary_source_for_dispatch(
+    app: &AppHandle,
+    owner: &Hex64,
+    conversation_id: &OpaqueId,
+    binding: &DispatchContextBindingV1,
+) -> Result<Option<OpaqueId>, String> {
+    snapshot_for_dispatch(app, owner, conversation_id, binding)
+        .map(|snapshot| snapshot.primary_source_id)
+}
+
 /// Resolve the selected Brain source set without exposing native roots.
 pub(crate) fn selected_sources_for_dispatch(
     app: &AppHandle,

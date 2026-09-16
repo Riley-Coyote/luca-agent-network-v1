@@ -397,6 +397,27 @@ impl ManagedDispatchStore {
             .then(|| (row.state, row.published_event_id.clone(), row.session_epoch))
     }
 
+    /// Read the frozen context binding of one exact owner-authorized dispatch.
+    ///
+    /// Observation only. The binding is a snapshot reference, not a path and
+    /// not a capability; resolving it still requires the owner's own context
+    /// store and Brain catalog.
+    pub(crate) fn dispatch_context_binding(
+        &self,
+        owner_pubkey: &str,
+        resident_pubkey: &str,
+        conversation_id: &str,
+        dispatch_receipt_id: &str,
+    ) -> Option<super::conversation_context::DispatchContextBindingV1> {
+        let row = self.dispatches.get(&(
+            dispatch_receipt_id.to_ascii_lowercase(),
+            resident_pubkey.to_ascii_lowercase(),
+        ))?;
+        (row.owner_pubkey == owner_pubkey && row.conversation_id == conversation_id)
+            .then(|| row.context_binding.clone())
+            .flatten()
+    }
+
     /// Read immutable causal placement from an owner-authorized dispatch.
     pub(crate) fn presentation_placement(
         &self,

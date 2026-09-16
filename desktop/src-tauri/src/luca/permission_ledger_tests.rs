@@ -1,0 +1,637 @@
+use luca_protocol::{
+    ManagedPermissionOptionV1, SafeU53, MANAGED_PERMISSION_PROTOCOL, PERMISSION_RULE_PROTOCOL,
+};
+
+use super::*;
+
+fn resident() -> Hex64 {
+    Hex64::parse("11".repeat(32)).unwrap()
+}
+
+fn request() -> ManagedPermissionRequestV1 {
+    ManagedPermissionRequestV1 {
+        protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+        resident_pubkey: resident(),
+        session_epoch: SafeU53::new(4).unwrap(),
+        turn_id: OpaqueId::parse("turn-a").unwrap(),
+        conversation_id: OpaqueId::parse("conversation-a").unwrap(),
+        acp_request_id: "acp-1".into(),
+        title: "Synthetic permission".into(),
+        tool_call_id: None,
+        action_preview: None,
+        options: vec![ManagedPermissionOptionV1 {
+            option_id: "runtime-allow".into(),
+            name: "Allow".into(),
+            kind: "allow_once".into(),
+        }],
+        dispatch_receipt_id: None,
+        tool_kind: None,
+        activity_kind: None,
+        tool_name: None,
+        mcp_server: None,
+        mcp_tool: None,
+        command_token: None,
+        command_argv_prefix: Vec::new(),
+        path: None,
+        domain: None,
+        write: None,
+    }
+}
+
+fn project(id: &str, root: &str) -> ProjectRef {
+    ProjectRef::Source {
+        source_id: OpaqueId::parse(id).unwrap(),
+        canonical_root: PathBuf::from(root),
+        label: root.rsplit('/').next().unwrap_or(root).to_owned(),
+    }
+}
+
+/// Build a subject the way [`subject`] does, without the `AppHandle` the
+/// project resolution needs: the classification and matcher derivation under
+/// test are exactly the ones the real call uses.
+fn subject_for(
+    request: &ManagedPermissionRequestV1,
+    project: Option<ProjectRef>,
+) -> PermissionSubject {
+    let identity = mcp_identity(request);
+    let is_pre_allowed = identity.as_ref().is_some_and(|(family, tool)| {
+        inventory_contains(POLYPHONIC_PRE_ALLOWED_TOOLS, family, tool)
+    });
+    let is_broker_guarded = identity.as_ref().is_some_and(|(family, tool)| {
+        inventory_contains(POLYPHONIC_BROKER_GUARDED_TOOLS, family, tool)
+    });
+    let matcher = derive_matcher(request, identity.as_ref());
+    let inside_project = match (project.as_ref(), request.path.as_deref()) {
+        (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
+        _ => false,
+    };
+    PermissionSubject {
+        resident: request.resident_pubkey.clone(),
+        project,
+        display_name: subject_display_name(request, matcher.as_ref(), is_pre_allowed),
+        matcher,
+        is_door: is_door(request, identity.as_ref()),
+        is_pre_allowed,
+        is_broker_guarded,
+        inside_project,
+    }
+}
+
+fn mcp_request(server: &str, tool: &str) -> ManagedPermissionRequestV1 {
+    let mut request = request();
+    request.mcp_server = Some(server.into());
+    request.mcp_tool = Some(tool.into());
+    request.tool_name = Some(tool.into());
+    request
+}
+
+fn command_request(token: &str, argv_prefix: &[&str]) -> ManagedPermissionRequestV1 {
+    let mut request = request();
+    request.tool_name = Some("Bash".into());
+    request.tool_kind = Some("execute".into());
+    request.command_token = Some(token.into());
+    request.command_argv_prefix = argv_prefix.iter().map(|word| (*word).to_owned()).collect();
+    request
+}
+
+fn path_request(path: &str, write: bool) -> ManagedPermissionRequestV1 {
+    let mut request = request();
+    request.tool_name = Some("Edit".into());
+    request.path = Some(path.into());
+    request.write = Some(write);
+    request
+}
+
+fn rule(
+    rule_id: &str,
+    scope: PermissionRuleScopeV1,
+    matcher: PermissionMatcherV1,
+    effect: PermissionEffectV1,
+) -> PermissionRuleV1 {
+    PermissionRuleV1 {
+        protocol: PERMISSION_RULE_PROTOCOL.into(),
+        rule_id: OpaqueId::parse(rule_id).unwrap(),
+        resident_pubkey: resident(),
+        scope,
+        matcher,
+        effect,
+        display_name: "Remembered answer".into(),
+        created_at: "2026-09-16T00:00:00Z".into(),
+        revoked_at: None,
+        last_used_at: None,
+        use_count: 0,
+    }
+}
+
+fn here() -> PermissionRuleScopeV1 {
+    PermissionRuleScopeV1::Project {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+    }
+}
+
+fn ask(verdict: &Verdict) -> &PermissionOfferV1 {
+    match verdict {
+        Verdict::Ask { offer } => offer,
+        other => panic!("expected a card, got {other:?}"),
+    }
+}
+
+#[test]
+fn pre_allowed_polyphonic_reads_never_ask() {
+    for (family, tool) in POLYPHONIC_PRE_ALLOWED_TOOLS {
+        let request = mcp_request(family, tool);
+        let subject = subject_for(&request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_pre_allowed, "{family} {tool}");
+        assert_eq!(
+            decide_with(&[], &[], &subject),
+            Verdict::Allow(AllowReason::PreAllowed),
+            "{family} {tool} must never raise a card"
+        );
+    }
+    // The per-install suffix does not change the answer.
+    let suffixed = mcp_request("luca-artifacts-0123abcdef45", "artifact_read");
+    assert_eq!(
+        decide_with(&[], &[], &subject_for(&suffixed, None)),
+        Verdict::Allow(AllowReason::PreAllowed)
+    );
+}
+
+#[test]
+fn broker_guarded_tools_never_raise_a_runtime_card() {
+    for (family, tool) in POLYPHONIC_BROKER_GUARDED_TOOLS {
+        let request = mcp_request(family, tool);
+        let subject = subject_for(&request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_broker_guarded, "{family} {tool}");
+        assert!(
+            !subject.is_pre_allowed,
+            "{family} {tool} is not a free read"
+        );
+        assert_eq!(
+            decide_with(&[], &[], &subject),
+            Verdict::Allow(AllowReason::BrokerGuarded),
+            "{family} {tool} is gated by the broker's own confirmation"
+        );
+    }
+}
+
+#[test]
+fn doors_offer_only_once_and_deny() {
+    let mut doors = vec![
+        mcp_request("buzz", "shell"),
+        mcp_request("polyphonic-browser", "browse"),
+        mcp_request("luca-communications", "communications_send"),
+    ];
+    let mut view_image = mcp_request("buzz", "view_image");
+    view_image.domain = Some("example.com".into());
+    doors.push(view_image);
+    let mut deleting = request();
+    deleting.tool_kind = Some("delete".into());
+    deleting.tool_name = Some("Delete".into());
+    doors.push(deleting);
+    for token in DESTRUCTIVE_COMMAND_TOKENS {
+        doors.push(command_request(token, &[]));
+    }
+
+    for request in &doors {
+        let subject = subject_for(request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_door, "{:?} is a door", request.tool_name);
+        let verdict = decide_with(&[], &[], &subject);
+        let offer = ask(&verdict);
+        assert!(offer.once && offer.deny);
+        assert!(
+            !offer.task && !offer.always_here,
+            "a door is never remembered"
+        );
+        assert_eq!(offer.note.as_deref(), Some("This one always asks."));
+    }
+
+    // A door is not remembered even when the owner already answered its
+    // matcher for this turn, or wrote a rule for it.
+    let shell = mcp_request("buzz", "shell");
+    let subject = subject_for(&shell, Some(project("source-a", "/tmp/luca")));
+    let remembered = subject.matcher.clone().expect("a door still has a matcher");
+    let rules = vec![rule(
+        "rule-1",
+        here(),
+        remembered.clone(),
+        PermissionEffectV1::Allow,
+    )];
+    assert!(matches!(
+        decide_with(&rules, &[remembered], &subject),
+        Verdict::Ask { .. }
+    ));
+
+    // A runtime's own shell is not a door: it is the ask-once-then-remembered
+    // rung, which is the whole point of the ledger.
+    let native = command_request("git", &["status"]);
+    let native = subject_for(&native, Some(project("source-a", "/tmp/luca")));
+    assert!(!native.is_door);
+    let verdict = decide_with(&[], &[], &native);
+    let offer = ask(&verdict);
+    assert!(offer.task && offer.always_here);
+}
+
+#[test]
+fn command_rule_matches_token_and_argv_prefix_only() {
+    let asked = command_request("git", &["status"]);
+    let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    let allow = |matcher| {
+        decide_with(
+            &[rule("rule-1", here(), matcher, PermissionEffectV1::Allow)],
+            &[],
+            &subject,
+        )
+    };
+
+    // The bare token, and a prefix of the words asked for, both answer.
+    for argv_prefix in [Vec::new(), vec!["status".to_owned()]] {
+        assert!(matches!(
+            allow(PermissionMatcherV1::Command {
+                token: "git".into(),
+                argv_prefix,
+            }),
+            Verdict::Allow(AllowReason::Rule { .. })
+        ));
+    }
+    // A different word, a longer prefix, or a different command do not.
+    for matcher in [
+        PermissionMatcherV1::Command {
+            token: "git".into(),
+            argv_prefix: vec!["push".into()],
+        },
+        PermissionMatcherV1::Command {
+            token: "git".into(),
+            argv_prefix: vec!["status".into(), "--short".into()],
+        },
+        PermissionMatcherV1::Command {
+            token: "gitk".into(),
+            argv_prefix: Vec::new(),
+        },
+        PermissionMatcherV1::Path { write: false },
+    ] {
+        assert!(
+            matches!(allow(matcher.clone()), Verdict::Ask { .. }),
+            "{matcher:?} must not answer `git status`"
+        );
+    }
+}
+
+#[test]
+fn project_rule_does_not_cross_projects() {
+    let asked = command_request("git", &["status"]);
+    let matcher = PermissionMatcherV1::Command {
+        token: "git".into(),
+        argv_prefix: vec!["status".into()],
+    };
+    let rules = vec![rule("rule-1", here(), matcher, PermissionEffectV1::Allow)];
+
+    let inside = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    assert!(matches!(
+        decide_with(&rules, &[], &inside),
+        Verdict::Allow(AllowReason::Rule { .. })
+    ));
+
+    let elsewhere = subject_for(&asked, Some(project("source-b", "/tmp/other")));
+    assert!(
+        matches!(decide_with(&rules, &[], &elsewhere), Verdict::Ask { .. }),
+        "a rule minted in one project cannot answer a card in another"
+    );
+
+    let nowhere = subject_for(&asked, None);
+    let verdict = decide_with(&rules, &[], &nowhere);
+    assert!(matches!(verdict, Verdict::Ask { .. }));
+    let offer = ask(&verdict);
+    assert!(
+        !offer.always_here,
+        "with no project there is no here to remember"
+    );
+    assert!(offer.task, "a matcher can still be remembered for the turn");
+}
+
+#[test]
+fn everywhere_never_allows_commands_or_writes() {
+    let everywhere = PermissionRuleScopeV1::Everywhere;
+
+    let running = command_request("git", &["status"]);
+    let running = subject_for(&running, Some(project("source-a", "/tmp/luca")));
+    assert!(matches!(
+        decide_with(
+            &[rule(
+                "rule-1",
+                everywhere.clone(),
+                PermissionMatcherV1::Command {
+                    token: "git".into(),
+                    argv_prefix: Vec::new(),
+                },
+                PermissionEffectV1::Allow,
+            )],
+            &[],
+            &running,
+        ),
+        Verdict::Ask { .. }
+    ));
+
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temporary.path()).unwrap();
+    let file = root.join("notes.md");
+    let writing = path_request(&file.to_string_lossy(), true);
+    let inside = ProjectRef::Source {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+        canonical_root: root.clone(),
+        label: "project".into(),
+    };
+    let writing = subject_for(&writing, Some(inside.clone()));
+    assert!(writing.inside_project);
+    assert!(
+        matches!(
+            decide_with(
+                &[rule(
+                    "rule-2",
+                    everywhere.clone(),
+                    PermissionMatcherV1::Path { write: true },
+                    PermissionEffectV1::Allow,
+                )],
+                &[],
+                &writing,
+            ),
+            Verdict::Ask { .. }
+        ),
+        "a write may never be remembered everywhere"
+    );
+
+    // Reading is the one thing an everywhere rule may say.
+    let reading = path_request(&file.to_string_lossy(), false);
+    let reading = subject_for(&reading, Some(inside));
+    assert!(matches!(
+        decide_with(
+            &[rule(
+                "rule-3",
+                everywhere,
+                PermissionMatcherV1::Path { write: false },
+                PermissionEffectV1::Allow,
+            )],
+            &[],
+            &reading,
+        ),
+        Verdict::Allow(AllowReason::Rule { .. })
+    ));
+}
+
+#[test]
+fn deny_rule_beats_pre_allow() {
+    let request = mcp_request("luca-repositories", "repo_read");
+    let subject = subject_for(&request, Some(project("source-a", "/tmp/luca")));
+    assert!(subject.is_pre_allowed);
+    let deny = rule(
+        "rule-1",
+        here(),
+        PermissionMatcherV1::McpTool {
+            server_family: "luca-repositories".into(),
+            tool: "repo_read".into(),
+        },
+        PermissionEffectV1::Deny,
+    );
+    assert_eq!(
+        decide_with(std::slice::from_ref(&deny), &[], &subject),
+        Verdict::Deny {
+            reason: "Remembered answer".into()
+        }
+    );
+
+    // It also beats the turn map and an allow rule for the same matcher.
+    let allow = rule(
+        "rule-2",
+        here(),
+        deny.matcher.clone(),
+        PermissionEffectV1::Allow,
+    );
+    let turn = vec![deny.matcher.clone()];
+    assert!(matches!(
+        decide_with(&[allow, deny.clone()], &turn, &subject),
+        Verdict::Deny { .. }
+    ));
+
+    // A revoked deny is not a deny.
+    let mut revoked = deny;
+    revoked.revoked_at = Some("2026-09-16T01:00:00Z".into());
+    assert_eq!(
+        decide_with(&[revoked], &[], &subject),
+        Verdict::Allow(AllowReason::PreAllowed)
+    );
+}
+
+#[test]
+fn path_rule_requires_inside_project_on_component_boundary() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temporary.path()).unwrap();
+    let inside_root = root.join("luca");
+    let sibling_root = root.join("luca-secrets");
+    std::fs::create_dir_all(&inside_root).unwrap();
+    std::fs::create_dir_all(&sibling_root).unwrap();
+
+    let project = ProjectRef::Source {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+        canonical_root: inside_root.clone(),
+        label: "luca".into(),
+    };
+    let rules = vec![rule(
+        "rule-1",
+        here(),
+        PermissionMatcherV1::Path { write: true },
+        PermissionEffectV1::Allow,
+    )];
+
+    // A file that does not exist yet still resolves lexically.
+    let inside = path_request(&inside_root.join("new/notes.md").to_string_lossy(), true);
+    let inside = subject_for(&inside, Some(project.clone()));
+    assert!(inside.inside_project);
+    assert!(matches!(
+        decide_with(&rules, &[], &inside),
+        Verdict::Allow(AllowReason::Rule { .. })
+    ));
+
+    // A sibling folder whose name merely starts with the project's does not.
+    let sibling = path_request(&sibling_root.join("keys.txt").to_string_lossy(), true);
+    let sibling = subject_for(&sibling, Some(project.clone()));
+    assert!(
+        !sibling.inside_project,
+        "containment is measured on component boundaries"
+    );
+    let verdict = decide_with(&rules, &[], &sibling);
+    assert!(matches!(verdict, Verdict::Ask { .. }));
+    assert!(
+        !ask(&verdict).always_here,
+        "a path outside the project cannot be remembered here"
+    );
+
+    // A path that climbs back out is outside, whatever it spells.
+    let climbing = path_request(
+        &inside_root
+            .join("../luca-secrets/keys.txt")
+            .to_string_lossy(),
+        true,
+    );
+    assert!(!subject_for(&climbing, Some(project.clone())).inside_project);
+
+    // A rule that remembers writing also answers reading; the reverse is not
+    // true.
+    let reading = path_request(&inside_root.join("notes.md").to_string_lossy(), false);
+    let reading = subject_for(&reading, Some(project.clone()));
+    assert!(matches!(
+        decide_with(&rules, &[], &reading),
+        Verdict::Allow(AllowReason::Rule { .. })
+    ));
+    let read_only = vec![rule(
+        "rule-2",
+        here(),
+        PermissionMatcherV1::Path { write: false },
+        PermissionEffectV1::Allow,
+    )];
+    assert!(matches!(
+        decide_with(&read_only, &[], &inside),
+        Verdict::Ask { .. }
+    ));
+}
+
+#[test]
+fn mcp_family_matches_across_suffixes() {
+    let plain = mcp_request("luca-artifacts", "artifact_update");
+    let suffixed = mcp_request("luca-artifacts-0123abcdef45", "artifact_update");
+    let reprovisioned = mcp_request("luca-artifacts-ffffffffffff", "artifact_update");
+    let expected = PermissionMatcherV1::McpTool {
+        server_family: "luca-artifacts".into(),
+        tool: "artifact_update".into(),
+    };
+    for request in [&plain, &suffixed, &reprovisioned] {
+        assert_eq!(
+            subject_for(request, None).matcher.as_ref(),
+            Some(&expected),
+            "the per-install suffix is not part of the family"
+        );
+    }
+
+    let rules = vec![rule("rule-1", here(), expected, PermissionEffectV1::Allow)];
+    let subject = subject_for(&reprovisioned, Some(project("source-a", "/tmp/luca")));
+    assert!(matches!(
+        decide_with(&rules, &[], &subject),
+        Verdict::Allow(AllowReason::Rule { .. })
+    ));
+
+    // A suffix that is not twelve lowercase hex characters is part of the name.
+    let other = mcp_request("luca-artifacts-prod", "artifact_update");
+    assert!(matches!(
+        decide_with(
+            &rules,
+            &[],
+            &subject_for(&other, Some(project("source-a", "/tmp/luca")))
+        ),
+        Verdict::Ask { .. }
+    ));
+}
+
+#[test]
+fn turn_rule_dies_with_session() {
+    let _guard = test_global_state_guard();
+    let resident = "aa".repeat(32);
+    let matcher = PermissionMatcherV1::Command {
+        token: "cargo".into(),
+        argv_prefix: vec!["test".into()],
+    };
+    clear_all();
+
+    remember_for_turn(&resident, 4, "turn-a", matcher.clone());
+    assert_eq!(turn_hits(&resident, 4, "turn-a"), vec![matcher.clone()]);
+    // A different turn, epoch or resident never inherits the answer.
+    assert!(turn_hits(&resident, 4, "turn-b").is_empty());
+    assert!(turn_hits(&resident, 5, "turn-a").is_empty());
+    assert!(turn_hits(&"bb".repeat(32), 4, "turn-a").is_empty());
+
+    let asked = command_request("cargo", &["test"]);
+    let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    assert_eq!(
+        decide_with(&[], &turn_hits(&resident, 4, "turn-a"), &subject),
+        Verdict::Allow(AllowReason::TurnRule)
+    );
+
+    end_turn(&resident, 4, "turn-a");
+    assert!(turn_hits(&resident, 4, "turn-a").is_empty());
+
+    remember_for_turn(&resident, 4, "turn-c", matcher.clone());
+    clear_session(&resident, 4);
+    assert!(
+        turn_hits(&resident, 4, "turn-c").is_empty(),
+        "a replaced session forgets every turn it answered"
+    );
+
+    remember_for_turn(&resident, 6, "turn-d", matcher);
+    clear_all();
+    assert!(turn_hits(&resident, 6, "turn-d").is_empty());
+}
+
+#[test]
+fn no_matcher_means_once_or_deny_only() {
+    let bare = request();
+    let subject = subject_for(&bare, Some(project("source-a", "/tmp/luca")));
+    assert!(subject.matcher.is_none());
+    let verdict = decide_with(&[], &[], &subject);
+    let offer = ask(&verdict);
+    assert!(offer.once && offer.deny);
+    assert!(!offer.task && !offer.always_here);
+    assert_eq!(offer.project_label.as_deref(), Some("luca"));
+    assert_eq!(
+        offer.note.as_deref(),
+        Some("Polyphonic can only answer this one once.")
+    );
+
+    // A rule can never answer a request with nothing to match on.
+    let rules = vec![rule(
+        "rule-1",
+        here(),
+        PermissionMatcherV1::Path { write: false },
+        PermissionEffectV1::Allow,
+    )];
+    assert!(matches!(
+        decide_with(&rules, &[], &subject),
+        Verdict::Ask { .. }
+    ));
+    // The offer is camelCase on the wire and carries no path, command or host.
+    let wire = serde_json::to_value(offer).unwrap();
+    assert_eq!(
+        wire,
+        serde_json::json!({
+            "once": true,
+            "task": false,
+            "alwaysHere": false,
+            "deny": true,
+            "projectLabel": "luca",
+            "note": "Polyphonic can only answer this one once.",
+        })
+    );
+}
+
+#[test]
+fn a_remembered_answer_reads_as_a_sentence() {
+    let running = command_request("git", &["status"]);
+    let running = subject_for(&running, Some(project("source-a", "/tmp/luca")));
+    assert_eq!(running.display_name, "git status");
+    assert_eq!(rule_display_name(&running), "Run git status in luca");
+
+    let browsing = {
+        let mut request = request();
+        request.domain = Some("docs.rs".into());
+        subject_for(&request, None)
+    };
+    assert_eq!(rule_display_name(&browsing), "Visit docs.rs");
+
+    let writing = path_request("/tmp/luca/src/main.rs", true);
+    let writing = subject_for(&writing, Some(project("source-a", "/tmp/luca")));
+    assert_eq!(writing.display_name, "main.rs");
+    assert_eq!(rule_display_name(&writing), "Edit main.rs in luca");
+
+    // Nothing display-unsafe survives into a sentence a rule would store.
+    let mut smuggled = request();
+    smuggled.title = "Line\u{202e}one".into();
+    let smuggled = subject_for(&smuggled, None);
+    assert!(!rule_display_name(&smuggled).contains('\u{202e}'));
+    assert!(rule_display_name(&smuggled).len() <= MAX_PERMISSION_RULE_DISPLAY_BYTES);
+}

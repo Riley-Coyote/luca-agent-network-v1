@@ -62,6 +62,7 @@ pub(crate) mod operator_forge;
 pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
+pub(crate) mod permission_ledger;
 #[cfg(test)]
 mod reliability_f10;
 #[cfg(unix)]
