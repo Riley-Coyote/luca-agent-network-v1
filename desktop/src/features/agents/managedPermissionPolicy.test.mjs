@@ -50,6 +50,7 @@ test("runtime_offer_defaults_to_once_and_deny_when_backend_sent_none", () => {
       alwaysHere: false,
       deny: true,
       projectLabel: null,
+      remembers: [],
       note: null,
     });
   }

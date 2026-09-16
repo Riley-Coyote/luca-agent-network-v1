@@ -513,11 +513,22 @@ Shapes, on the wire (`luca-protocol`):
 - `ManagedPermissionRequestV1` carries optional match fields beside the
   runtime options: `dispatch_receipt_id`, `tool_kind`, `activity_kind`,
   `tool_name`, `mcp_server`, `mcp_tool`, `command_token`,
-  `command_argv_prefix` (≤ 2), `path`, `domain`, `write`. Every one is
-  optional and bounded; a harness frame without them validates unchanged.
+  `command_argv_prefix` (≤ 2), `command_segments` (≤ 8), `path`, `domain`,
+  `write`. Every one is optional and bounded; a harness frame without them
+  validates unchanged.
+- Compound commands are remembered per segment: a line is split on `;`,
+  `&&`, `||` and `|` into `command_segments`, "Always here" saves one rule
+  per segment, and a later line is allowed without a card only when every
+  segment is covered. A segment with redirection, substitution, environment
+  assignment or `sudo` makes the whole command once-only, and a single
+  segment repeats itself into `command_token`/`command_argv_prefix` while
+  several leave both absent, so an older reader remembers nothing rather
+  than half a line.
 - The offer is desktop-owned, never runtime-supplied:
-  `{ once, task, always_here, deny, project_label, note }`. A card that
-  arrives without one gets the fail-closed offer — `once` and `deny` only.
+  `{ once, task, always_here, deny, project_label, remembers, note }`.
+  `remembers` names each rule the answer would write down. A card that
+  arrives without an offer gets the fail-closed one — `once` and `deny`
+  only.
 - A rule is `luca.permission.rule.v1`:
   `{ protocol, rule_id, resident_pubkey, scope, matcher, effect,
   display_name, created_at, revoked_at?, last_used_at?, use_count }`.

@@ -29,6 +29,10 @@ type RawRuntimeManagedPermissionRequest = {
   mcp_tool?: string | null;
   command_token?: string | null;
   command_argv_prefix?: string[] | null;
+  command_segments?: Array<{
+    token: string;
+    argv_prefix?: string[] | null;
+  }> | null;
   path?: string | null;
   domain?: string | null;
   write?: boolean | null;
@@ -47,6 +51,7 @@ type RawPermissionOffer = {
   deny: boolean;
   project_label?: string | null;
   projectLabel?: string | null;
+  remembers?: string[] | null;
   note?: string | null;
 };
 
@@ -60,6 +65,7 @@ const FAIL_CLOSED_OFFER: PermissionOffer = {
   alwaysHere: false,
   deny: true,
   projectLabel: null,
+  remembers: [],
   note: null,
 };
 
@@ -137,6 +143,10 @@ export function normalizeManagedPermissionRequest(
     mcpTool: request.mcp_tool ?? null,
     commandToken: request.command_token ?? null,
     commandArgvPrefix: request.command_argv_prefix ?? [],
+    commandSegments: (request.command_segments ?? []).map((segment) => ({
+      token: segment.token,
+      argvPrefix: segment.argv_prefix ?? [],
+    })),
     path: request.path ?? null,
     domain: request.domain ?? null,
     write: request.write ?? null,
@@ -153,6 +163,7 @@ function normalizeOffer(offer: RawPermissionOffer | null | undefined) {
     alwaysHere: offer.alwaysHere ?? offer.always_here ?? false,
     deny: offer.deny,
     projectLabel: offer.projectLabel ?? offer.project_label ?? null,
+    remembers: offer.remembers ?? [],
     note: offer.note ?? null,
   };
 }

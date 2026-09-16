@@ -26,6 +26,28 @@ function busyLabel(tense: ManagedPermissionTense): string {
   return tense === "always_here" ? "Saving…" : "Sending…";
 }
 
+/** Read a list the way a person would: "ls and echo", "ls, echo and cat". */
+function readAsList(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * What "Always here" will write down. A compound command is remembered a
+ * segment at a time, so the card names every one rather than letting the
+ * owner discover them in Settings afterwards.
+ */
+function rememberHint(
+  remembers: string[],
+  projectLabel: string | null,
+): string {
+  const where = projectLabel ?? "this project";
+  const tail = "Take it back any time in Settings › Agents › Capabilities.";
+  return remembers.length > 1
+    ? `Remembers ${readAsList(remembers)} for ${where}. ${tail}`
+    : `Remembered for ${where}. ${tail}`;
+}
+
 export function ManagedPermissionCard({
   pending,
   compact = false,
@@ -238,7 +260,7 @@ export function ManagedPermissionCard({
             className="mt-2 text-right text-xs leading-5 text-ink-faint"
             data-testid="managed-permission-remember-hint"
           >
-            {`Remembered for ${projectLabel ?? "this project"}. Take it back any time in Settings › Agents › Capabilities.`}
+            {rememberHint(offer.remembers ?? [], projectLabel)}
           </p>
         ) : null}
       </div>

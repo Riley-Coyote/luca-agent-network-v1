@@ -262,6 +262,7 @@ test("attachment and permission failures stay sanitized while text remains avail
           always_here: true,
           deny: true,
           project_label: "polyphonic",
+          remembers: ["git status"],
           note: null,
         },
       };
@@ -359,6 +360,54 @@ test("attachment and permission failures stay sanitized while text remains avail
       optionId: null,
       tense: "always_here",
     });
+  await expect(permissionCard).toHaveCount(0);
+
+  // A compound command is remembered a segment at a time, and the card names
+  // every rule "Always here" would write down.
+  await page.evaluate(
+    ({ conversationId, residentPubkey }) => {
+      window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([
+        {
+          pendingId: "compound-permission",
+          request: {
+            protocol: "luca.managed.permission.v1",
+            resident_pubkey: residentPubkey,
+            conversation_id: conversationId,
+            session_epoch: 7,
+            turn_id: "compound-turn",
+            acp_request_id: "acp-compound",
+            title: 'Running ls -la /x; echo "exit=$?"',
+            options: [
+              { option_id: "allow", name: "Allow", kind: "allow_once" },
+              { option_id: "reject", name: "Reject", kind: "reject_once" },
+            ],
+            command_segments: [{ token: "ls" }, { token: "echo" }],
+          },
+          offer: {
+            once: true,
+            task: true,
+            always_here: true,
+            deny: true,
+            project_label: "polyphonic",
+            remembers: ["ls", "echo"],
+            note: null,
+          },
+        },
+      ]);
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-pending", {});
+    },
+    { conversationId: CHANNEL_ID, residentPubkey: CLAUDE },
+  );
+  await expect(permissionCard).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-remember-hint"),
+  ).toHaveText(
+    "Remembers ls and echo for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
+  );
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-always_here"),
+  ).toBeVisible();
+  await permissionCard.getByTestId("managed-permission-tense-once").click();
   await expect(permissionCard).toHaveCount(0);
 
   // A door offers only Once and Deny, and says so in one sentence.

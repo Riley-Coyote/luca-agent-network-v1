@@ -534,6 +534,12 @@ export type ManagedPermissionActivityKind =
   | "delegation"
   | "other";
 
+/** One plain executable invocation inside a command line. */
+export type CommandSegment = {
+  token: string;
+  argvPrefix: string[];
+};
+
 export type RuntimeManagedPermissionRequest = {
   protocol: "luca.managed.permission.v1";
   residentPubkey: string;
@@ -558,6 +564,11 @@ export type RuntimeManagedPermissionRequest = {
   commandToken: string | null;
   /** At most two leading argv words. */
   commandArgvPrefix: string[];
+  /**
+   * Every plain invocation in a compound command line, in order. One entry
+   * for a simple command; empty when nothing in the line could be remembered.
+   */
+  commandSegments: CommandSegment[];
   path: string | null;
   domain: string | null;
   write: boolean | null;
@@ -575,6 +586,11 @@ export type PermissionOffer = {
   deny: boolean;
   /** Name of the source "always here" would remember the answer in. */
   projectLabel: string | null;
+  /**
+   * What "For this task" and "Always here" would write down, one name per
+   * segment. A compound command remembers several, and the card says which.
+   */
+  remembers?: string[];
   /** One sentence explaining why a tense is missing, when one is. */
   note: string | null;
 };

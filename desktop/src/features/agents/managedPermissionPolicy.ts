@@ -29,6 +29,7 @@ const FAIL_CLOSED_OFFER: PermissionOffer = {
   alwaysHere: false,
   deny: true,
   projectLabel: null,
+  remembers: [],
   note: null,
 };
 

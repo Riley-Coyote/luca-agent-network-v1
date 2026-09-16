@@ -64,6 +64,7 @@ test("carries the beta.11 match fields when the harness sends them", () => {
     mcp_tool: "repo_status",
     command_token: "git",
     command_argv_prefix: ["status", "--short"],
+    command_segments: [{ token: "git", argv_prefix: ["status", "--short"] }],
     path: "/redacted/project",
     domain: "github.com",
     write: false,
@@ -77,6 +78,9 @@ test("carries the beta.11 match fields when the harness sends them", () => {
   assert.equal(request.mcpTool, "repo_status");
   assert.equal(request.commandToken, "git");
   assert.deepEqual(request.commandArgvPrefix, ["status", "--short"]);
+  assert.deepEqual(request.commandSegments, [
+    { token: "git", argvPrefix: ["status", "--short"] },
+  ]);
   assert.equal(request.path, "/redacted/project");
   assert.equal(request.domain, "github.com");
   assert.equal(request.write, false);
@@ -105,6 +109,7 @@ test("a legacy payload normalises to nulls and the fail-closed offer", () => {
   assert.equal(pending.request.mcpTool, null);
   assert.equal(pending.request.commandToken, null);
   assert.deepEqual(pending.request.commandArgvPrefix, []);
+  assert.deepEqual(pending.request.commandSegments, []);
   assert.equal(pending.request.path, null);
   assert.equal(pending.request.domain, null);
   assert.equal(pending.request.write, null);
@@ -115,6 +120,7 @@ test("a legacy payload normalises to nulls and the fail-closed offer", () => {
     alwaysHere: false,
     deny: true,
     projectLabel: null,
+    remembers: [],
     note: null,
   });
 });
@@ -148,6 +154,7 @@ test("keeps the offer the desktop actually sent", () => {
     alwaysHere: true,
     deny: true,
     projectLabel: "Luca",
+    remembers: [],
     note: null,
   });
 });
@@ -184,6 +191,45 @@ test("reads the offer the way the native side serialises it (camelCase)", () => 
     alwaysHere: true,
     deny: true,
     projectLabel: ".buzz",
+    remembers: [],
     note: null,
   });
+});
+
+test("carries the names a compound command would write down", () => {
+  // `ls -la /x; echo "exit=$?"` is two segments and two remembered rules; the
+  // card has to be able to say so before the owner presses Always here.
+  const pending = normalizePending({
+    pendingId: "pending-4",
+    request: {
+      protocol: "luca.managed.permission.v1",
+      resident_pubkey: "11".repeat(32),
+      conversation_id: "conversation-1",
+      session_epoch: 7,
+      turn_id: "turn-1",
+      acp_request_id: "10",
+      title: 'Running ls -la /x; echo "exit=$?"',
+      options: [{ option_id: "allow", name: "Allow", kind: "allow_once" }],
+      command_segments: [
+        { token: "ls" },
+        { token: "echo", argv_prefix: ["hello"] },
+      ],
+    },
+    offer: {
+      once: true,
+      task: true,
+      alwaysHere: true,
+      deny: true,
+      projectLabel: ".buzz",
+      remembers: ["ls", "echo"],
+      note: null,
+    },
+  });
+
+  assert.equal(pending.request.commandToken, null);
+  assert.deepEqual(pending.request.commandSegments, [
+    { token: "ls", argvPrefix: [] },
+    { token: "echo", argvPrefix: ["hello"] },
+  ]);
+  assert.deepEqual(pending.offer.remembers, ["ls", "echo"]);
 });
