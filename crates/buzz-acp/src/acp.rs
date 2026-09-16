@@ -621,6 +621,11 @@ pub struct AcpClient {
     final_message_capture: Option<FinalChunkAccumulator>,
     /// Private Codex continuity captures only explicitly typed final-answer chunks.
     private_codex_final_only: bool,
+    /// Block types this turn already reported as dropped. ACP message and
+    /// thought chunks carry only text through this host, and an image or audio
+    /// block used to vanish without a word; now each kind says so once per
+    /// turn, by type only — never a body.
+    dropped_chunk_block_types: std::collections::BTreeSet<String>,
     /// Exact provider commands advertised by the current ACP session.
     /// Values include their canonical `/` or `$` prefix.
     available_commands: std::collections::BTreeSet<String>,
@@ -1081,6 +1086,7 @@ impl AcpClient {
             steer_rx: None,
             goose_usage: UsageTracker::default(),
             final_message_capture: None,
+            dropped_chunk_block_types: std::collections::BTreeSet::new(),
             private_codex_final_only: false,
             available_commands: std::collections::BTreeSet::new(),
             requested_protocol_version: requested_protocol_version(command),
@@ -1530,6 +1536,40 @@ impl AcpClient {
     pub fn begin_final_message_capture(&mut self) {
         self.final_message_capture = Some(FinalChunkAccumulator::default());
         self.private_codex_final_only = false;
+        self.dropped_chunk_block_types.clear();
+    }
+
+    /// Say once per turn that a non-text content block went nowhere.
+    ///
+    /// Message and thought chunks are read for `content.text` and nothing else,
+    /// so an image, audio or resource block is silently dropped. The type is
+    /// named; the block itself never is, because its body is model output.
+    fn note_dropped_chunk_block(&mut self, update_kind: &str, content: &serde_json::Value) {
+        if content
+            .get("text")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        {
+            return;
+        }
+        let block_type = content
+            .get("type")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        if !block_type
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            || block_type.len() > 32
+        {
+            return;
+        }
+        let key = format!("{update_kind}:{block_type}");
+        if self.dropped_chunk_block_types.insert(key) {
+            tracing::warn!(
+                target: "acp::stream",
+                "{update_kind} carried a {block_type} content block this host does not forward; it was dropped"
+            );
+        }
     }
 
     /// Capture only Codex chunks explicitly marked as final answers for a private turn.
@@ -2305,6 +2345,7 @@ impl AcpClient {
 
         match update_type {
             "agent_message_chunk" => {
+                self.note_dropped_chunk_block("agent_message_chunk", &update["content"]);
                 if let Some(text) = update["content"]["text"].as_str() {
                     tracing::debug!(target: "acp::stream", bytes = text.len(), "public response chunk received");
                     if self.private_codex_final_only
@@ -2352,6 +2393,7 @@ impl AcpClient {
                 false
             }
             "agent_thought_chunk" => {
+                self.note_dropped_chunk_block("agent_thought_chunk", &update["content"]);
                 if let Some(text) = update["content"]["text"].as_str() {
                     tracing::debug!(target: "acp::thought", "{text}");
                 }

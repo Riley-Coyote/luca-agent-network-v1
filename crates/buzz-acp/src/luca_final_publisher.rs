@@ -398,6 +398,11 @@ impl ManagedFinalTurn {
             // "spend 5 turns" out of a trigger, and guessing one would be
             // inventing authority. The desktop mints at the default bucket.
             bucket_hint: None,
+            // The harness never resolves attachments. The desktop owns the
+            // artifact store and the media upload, so it is the only side that
+            // can turn a picture this turn made into a URL a signed event can
+            // name; it fills this in before it freezes the event.
+            attachments: Vec::new(),
         };
         request
             .validate()

@@ -69,6 +69,14 @@ struct ArtifactCreateParams {
     kind: ArtifactKind,
     source: ArtifactSource,
     idempotency_key: String,
+    /// An `image` artifact is shown in this turn's reply unless this is false.
+    /// Ignored for every other kind.
+    #[serde(default = "default_attach_to_reply")]
+    attach_to_reply: bool,
+}
+
+fn default_attach_to_reply() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -416,7 +424,7 @@ impl LucaArtifactsMcp {
 
     #[tool(
         name = "artifact_create",
-        description = "Create a durable Luca artifact from bounded inline text or a relative source path in the active project."
+        description = "Create a durable Luca artifact from bounded inline text or a relative source path in the active project. An artifact with kind \"image\" is shown inside this turn's reply; pass attach_to_reply false to keep it out."
     )]
     async fn artifact_create(
         &self,

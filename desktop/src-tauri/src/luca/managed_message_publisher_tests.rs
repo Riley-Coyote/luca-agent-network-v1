@@ -731,6 +731,7 @@ fn accepted_outbox_restart_links_provisional_artifact_receipt_exactly_once() {
                     },
                     idempotency_key: OpaqueId::parse("accepted-artifact-once")
                         .expect("artifact idempotency"),
+                    attach_to_reply: true,
                 },
                 None,
             )
@@ -826,6 +827,7 @@ fn accepted_receipt_settlement_survives_transient_store_failure_and_recovers() {
                     },
                     idempotency_key: OpaqueId::parse("accepted-artifact-retry")
                         .expect("artifact idempotency"),
+                    attach_to_reply: true,
                 },
                 None,
             )

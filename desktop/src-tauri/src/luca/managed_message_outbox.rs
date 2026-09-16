@@ -360,6 +360,21 @@ pub(crate) trait ManagedMessagePublicationAuthority: Send {
         Ok(super::exchange_plan::ExchangePlan::unchanged())
     }
 
+    /// Put this turn's pictures in this turn's reply, resolving each into an
+    /// uploaded blob the signed event can name.
+    ///
+    /// This runs alongside `resolve_exchange` and for the same reason: the
+    /// request the outbox freezes must already be the effective one.
+    ///
+    /// The default answer leaves the final untouched, which is correct for the
+    /// authorities that have no artifact store or media uploader attached.
+    fn attach_reply_images(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> ManagedMessagePublishRequestV1 {
+        request.clone()
+    }
+
     /// Choose the next unspoken turn after the relay refused the frozen bytes
     /// with `exchange turn already spoken`, and release the dispatch's binding
     /// to the refused event so identical bytes can be re-signed on that turn.

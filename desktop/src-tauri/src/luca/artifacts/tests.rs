@@ -65,6 +65,7 @@ fn create_args(key: &str, content: &str) -> ArtifactCreateArgsV1 {
             declared_media_type: Some("text/html".into()),
         },
         idempotency_key: id(key),
+        attach_to_reply: true,
     }
 }
 
@@ -427,6 +428,7 @@ fn workspace_capture_rejects_traversal_symlinks_and_mime_mismatch() {
             declared_media_type: Some("image/png".into()),
         },
         idempotency_key: id("mime"),
+        attach_to_reply: true,
     };
     assert_eq!(
         store.create(&context('1'), &binary, None),
@@ -458,6 +460,7 @@ fn app_binding_persists_only_root_handle_and_relative_path() {
             relative_path: "app".into(),
         },
         idempotency_key: id("app-create"),
+        attach_to_reply: true,
     };
     let commit = store
         .create(&context('1'), &args, Some(workspace.path()))

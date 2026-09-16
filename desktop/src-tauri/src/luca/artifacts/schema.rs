@@ -5,7 +5,7 @@ use rusqlite::{Connection, OpenFlags};
 use super::ArtifactStoreError;
 
 pub(super) const APPLICATION_ID: i32 = 0x4c_55_43_41;
-pub(super) const SCHEMA_VERSION: i64 = 2;
+pub(super) const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA_SQL: &str = r#"
 CREATE TABLE artifacts (
@@ -65,6 +65,9 @@ CREATE TABLE artifact_receipts (
     state TEXT NOT NULL,
     created_at TEXT NOT NULL,
     linked_at TEXT,
+    -- Appended last so a fresh database and a v2 database migrated with
+    -- ALTER TABLE ADD COLUMN have the same column order.
+    attach_to_reply INTEGER NOT NULL DEFAULT 0 CHECK (attach_to_reply IN (0, 1)),
     PRIMARY KEY (owner_pubkey, receipt_id),
     FOREIGN KEY (owner_pubkey, artifact_id, version)
       REFERENCES artifact_versions(owner_pubkey, artifact_id, version) ON DELETE CASCADE
@@ -105,6 +108,14 @@ CREATE TABLE artifact_preview_history (
 PRAGMA user_version = 2;
 "#;
 
+// Rows written before images could ride a reply default to 0: a picture only
+// attaches when the create call that made it said so.
+const MIGRATE_V2_TO_V3_SQL: &str = r#"
+ALTER TABLE artifact_receipts
+  ADD COLUMN attach_to_reply INTEGER NOT NULL DEFAULT 0 CHECK (attach_to_reply IN (0, 1));
+PRAGMA user_version = 3;
+"#;
+
 pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreError> {
     if let Ok(metadata) = fs::symlink_metadata(path) {
         if metadata.file_type().is_symlink() || !metadata.is_file() {
@@ -137,7 +148,12 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, ArtifactStoreErro
         let user_version = user_version(&connection)?;
         match user_version {
             1 => connection
-                .execute_batch(&format!("BEGIN IMMEDIATE; {MIGRATE_V1_TO_V2_SQL} COMMIT;"))
+                .execute_batch(&format!(
+                    "BEGIN IMMEDIATE; {MIGRATE_V1_TO_V2_SQL} {MIGRATE_V2_TO_V3_SQL} COMMIT;"
+                ))
+                .map_err(|_| ArtifactStoreError::SchemaIncompatible)?,
+            2 => connection
+                .execute_batch(&format!("BEGIN IMMEDIATE; {MIGRATE_V2_TO_V3_SQL} COMMIT;"))
                 .map_err(|_| ArtifactStoreError::SchemaIncompatible)?,
             SCHEMA_VERSION => {}
             _ => return Err(ArtifactStoreError::SchemaIncompatible),

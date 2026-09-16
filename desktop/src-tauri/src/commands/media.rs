@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
+    io::Read as _,
     sync::{Mutex, OnceLock},
 };
 use tauri::State;
@@ -416,6 +417,92 @@ fn sign_blossom_upload_auth(
         .map_err(|e| e.to_string())
 }
 
+/// The exact `Authorization` header value a Blossom upload needs.
+///
+/// Shared by the owner's async upload path and by the managed publisher's
+/// blocking one so both prove the same thing to the relay with the same bytes.
+fn blossom_upload_auth_header(
+    keys: &Keys,
+    sha256: &str,
+    expiry_secs: u64,
+    base_url: &str,
+) -> Result<String, String> {
+    let auth_event = sign_blossom_upload_auth(keys, sha256, expiry_secs, base_url)?;
+    Ok(format!(
+        "Nostr {}",
+        URL_SAFE_NO_PAD.encode(auth_event.as_json().as_bytes())
+    ))
+}
+
+/// The Blossom auth window an upload of this media type gets, matching the
+/// relay's own `process_upload` (600s) / `process_video_upload` (3600s).
+fn blossom_upload_expiry_secs(mime: &str) -> u64 {
+    if mime.starts_with("video/") {
+        3600
+    } else {
+        300
+    }
+}
+
+/// Upload one already-buffered blob from a blocking context.
+///
+/// This is `do_upload`'s sibling: same Blossom auth event, same `/upload` then
+/// legacy `/media/upload` fallback, same `BlobDescriptor` parse — differing
+/// only in that it runs on a blocking client and is handed its keys and relay
+/// base explicitly, because the managed publication authority has no Tauri
+/// `State` and no async runtime.
+pub(crate) fn upload_blob_blocking(
+    client: &reqwest::blocking::Client,
+    base_url: &str,
+    auth_tag: Option<&str>,
+    keys: &Keys,
+    body: Vec<u8>,
+    mime: &str,
+    timeout: std::time::Duration,
+    max_response_bytes: u64,
+) -> Result<BlobDescriptor, String> {
+    let sha256 = hex::encode(Sha256::digest(&body));
+    let base_url = base_url.trim_end_matches('/');
+    let auth_header =
+        blossom_upload_auth_header(keys, &sha256, blossom_upload_expiry_secs(mime), base_url)?;
+
+    let attempt = |path: &str| -> Result<reqwest::blocking::Response, String> {
+        let mut request = client
+            .put(format!("{base_url}{path}"))
+            .timeout(timeout)
+            .header("Authorization", auth_header.as_str())
+            .header("Content-Type", mime)
+            .header("X-SHA-256", sha256.as_str());
+        if let Some(auth_tag) = auth_tag {
+            request = request.header("x-auth-tag", auth_tag);
+        }
+        request
+            .body(body.clone())
+            .send()
+            .map_err(|error| format!("managed media upload failed: {error}"))
+    };
+
+    let mut response = attempt("/upload")?;
+    if should_retry_legacy_upload(response.status()) {
+        response = attempt("/media/upload")?;
+    }
+    let status = response.status();
+    let mut bytes = Vec::new();
+    response
+        .by_ref()
+        .take(max_response_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "managed media upload response could not be read".to_owned())?;
+    if bytes.len() as u64 > max_response_bytes {
+        return Err("managed media upload response exceeded the size limit".to_owned());
+    }
+    if !status.is_success() {
+        return Err(format!("managed media upload rejected with {status}"));
+    }
+    serde_json::from_slice::<BlobDescriptor>(&bytes)
+        .map_err(|_| "managed media upload returned an unreadable descriptor".to_owned())
+}
+
 /// Execute the upload HTTP request. Shared by all upload entry points.
 // TODO(v2): Stream large video files to the relay instead of buffering in RAM.
 // Current approach works for videos up to ~100MB but will OOM on 500MB files.
@@ -484,21 +571,12 @@ async fn do_upload(
     // Video uploads get a 1-hour auth window to survive slow connections;
     // images use 5 minutes. Must match the server-side max_age_secs values
     // in process_upload (600s) and process_video_upload (3600s).
-    let expiry_secs = if mime.starts_with("video/") {
-        3600
-    } else {
-        300
-    };
+    let expiry_secs = blossom_upload_expiry_secs(mime);
     let base_url = relay_api_base_url_with_override(state);
-    let auth_event = {
+    let auth_header = {
         let keys = state.signing_keys()?;
-        sign_blossom_upload_auth(&keys, &sha256, expiry_secs, &base_url)?
+        blossom_upload_auth_header(&keys, &sha256, expiry_secs, &base_url)?
     };
-
-    let auth_header = format!(
-        "Nostr {}",
-        URL_SAFE_NO_PAD.encode(auth_event.as_json().as_bytes())
-    );
     let body = bytes::Bytes::from(body);
     let mut resp = send_upload_attempt(
         state,

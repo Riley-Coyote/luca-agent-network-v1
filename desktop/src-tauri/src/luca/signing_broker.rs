@@ -534,6 +534,9 @@ impl ResidentSigningBroker {
             Ok(effective) => effective,
             Err(_) => return ManagedPublicationAuthorityError::Invalid.into_protocol_result(),
         };
+        // Pictures join the final here, for the same reason the exchange does:
+        // the request the outbox freezes must already be the effective one.
+        let effective = self.publication_authority.attach_reply_images(&effective);
         self.prepare_and_publish_effective(&effective, now_unix_secs)
     }
 

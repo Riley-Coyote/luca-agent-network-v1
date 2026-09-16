@@ -771,6 +771,9 @@ fn import_selected_path(
         source,
         idempotency_key: OpaqueId::parse(format!("owner-import-{}", uuid::Uuid::new_v4()))
             .map_err(|_| "artifact-invalid".to_owned())?,
+        // An owner import belongs to no managed turn, so there is no reply for
+        // it to ride; the store would refuse the intent anyway.
+        attach_to_reply: false,
     };
     let mut store = open_store(app)?;
     let commit = store

@@ -202,6 +202,25 @@ pub(crate) struct ArtifactCommit {
     pub duplicate: bool,
 }
 
+/// One image a managed turn created and asked to put in its own reply.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArtifactReplyImage {
+    pub artifact_id: String,
+    pub version: u64,
+    pub media_type: String,
+    /// Display filename, carried into `imeta` for download integrity.
+    pub filename: String,
+    pub bytes: Vec<u8>,
+}
+
+/// What a turn asked to attach: the images that fit, and how many there were.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ArtifactReplyImages {
+    pub images: Vec<ArtifactReplyImage>,
+    /// Total matching receipts, including any beyond the caller's limit.
+    pub total: usize,
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ArtifactWriteContext {
     pub owner_pubkey: Hex64,
@@ -363,7 +382,21 @@ impl ArtifactStore {
             &captured,
             &now,
         )?;
-        insert_receipt(&transaction, context, &receipt_id, &artifact_id, 1, &now)?;
+        // Only a picture a resident made inside a managed turn can ride that
+        // turn's reply, and only when the create call did not opt out.
+        let attach_to_reply = args.attach_to_reply
+            && args.kind == ArtifactKindV1::Image
+            && context.turn_id.is_some()
+            && context.conversation_id.is_some();
+        insert_receipt(
+            &transaction,
+            context,
+            &receipt_id,
+            &artifact_id,
+            1,
+            &now,
+            attach_to_reply,
+        )?;
         let commit = load_commit(
             &transaction,
             context.owner_pubkey.as_str(),
@@ -477,6 +510,8 @@ impl ArtifactStore {
             &captured,
             &now,
         )?;
+        // A later version never re-attaches: the reply carries what the turn
+        // created, and `artifact_update` has no attach intent to express.
         insert_receipt(
             &transaction,
             context,
@@ -484,6 +519,7 @@ impl ArtifactStore {
             args.artifact_id.as_str(),
             next_version,
             &now,
+            false,
         )?;
         let commit = load_commit(
             &transaction,
@@ -1078,6 +1114,7 @@ impl ArtifactStore {
             artifact_id.as_str(),
             next_version,
             &now,
+            false,
         )?;
         let commit = load_commit(
             &transaction,
@@ -1129,6 +1166,89 @@ impl ArtifactStore {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
         Ok(records)
+    }
+
+    /// Images this managed turn created and did not opt out of its reply.
+    ///
+    /// Ordered the way the resident made them, bounded by `limit`, and read
+    /// from the content-addressed blob store so the caller gets exact bytes.
+    /// A single unreadable blob is skipped rather than failing the turn — the
+    /// reply must survive a damaged Library.
+    pub(crate) fn turn_reply_images(
+        &self,
+        owner_pubkey: &Hex64,
+        conversation_id: &OpaqueId,
+        turn_id: &OpaqueId,
+        limit: usize,
+    ) -> Result<ArtifactReplyImages, ArtifactStoreError> {
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT receipts.artifact_id, receipts.version, versions.media_type,
+                        versions.size_bytes, versions.blob_hash,
+                        versions.source_relative_path, artifacts.title
+                 FROM artifact_receipts AS receipts
+                 JOIN artifact_versions AS versions
+                   ON versions.owner_pubkey = receipts.owner_pubkey
+                  AND versions.artifact_id = receipts.artifact_id
+                  AND versions.version = receipts.version
+                 JOIN artifacts
+                   ON artifacts.owner_pubkey = receipts.owner_pubkey
+                  AND artifacts.artifact_id = receipts.artifact_id
+                 WHERE receipts.owner_pubkey = ?1
+                   AND receipts.conversation_id = ?2
+                   AND receipts.turn_id = ?3
+                   AND receipts.attach_to_reply = 1
+                   AND artifacts.kind = 'image'
+                   AND artifacts.deleted_at IS NULL
+                   AND versions.blob_hash IS NOT NULL
+                 ORDER BY receipts.created_at ASC, receipts.receipt_id ASC",
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?;
+        let rows = statement
+            .query_map(
+                params![
+                    owner_pubkey.as_str(),
+                    conversation_id.as_str(),
+                    turn_id.as_str(),
+                ],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, u64>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, u64>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, String>(6)?,
+                    ))
+                },
+            )
+            .map_err(|_| ArtifactStoreError::Unavailable)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
+        let total = rows.len();
+        let mut images = Vec::new();
+        for (artifact_id, version, media_type, size_bytes, blob_hash, relative_path, title) in rows
+        {
+            if images.len() >= limit {
+                break;
+            }
+            let Ok(bytes) = read_blob(&self.root.join("blobs"), &blob_hash) else {
+                continue;
+            };
+            if bytes.len() as u64 != size_bytes {
+                continue;
+            }
+            images.push(ArtifactReplyImage {
+                filename: reply_image_filename(relative_path.as_deref(), &title, &media_type),
+                artifact_id,
+                version,
+                media_type,
+                bytes,
+            });
+        }
+        Ok(ArtifactReplyImages { images, total })
     }
 
     pub(crate) fn link_turn_receipts(
@@ -1567,6 +1687,48 @@ fn reject_symlink(path: &Path) -> Result<(), ArtifactStoreError> {
     }
 }
 
+/// A safe display filename for an attached image.
+///
+/// The source path's basename when there is one, otherwise the artifact title,
+/// with anything that could break a NIP-92 tag value or a filesystem path
+/// removed. Names that would send the renderer down the agent-snapshot card
+/// path are dropped back to a generic one so the picture still renders inline.
+fn reply_image_filename(relative_path: Option<&str>, title: &str, media_type: &str) -> String {
+    let extension = match media_type {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        "image/webp" => "webp",
+        "image/avif" => "avif",
+        _ => "img",
+    };
+    let raw = relative_path
+        .and_then(|path| path.rsplit(['/', '\\']).next())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(title);
+    let cleaned: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '/' | '\\' | '"' | '\'' | ' ' | '\t') {
+                '-'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim_matches(['-', '.']).to_owned();
+    let lower = cleaned.to_ascii_lowercase();
+    if cleaned.is_empty() || lower.ends_with(".agent.png") || lower.ends_with(".team.png") {
+        return format!("image.{extension}");
+    }
+    let bounded: String = cleaned.chars().take(120).collect();
+    if bounded.contains('.') {
+        bounded
+    } else {
+        format!("{bounded}.{extension}")
+    }
+}
+
 fn kind_value(kind: ArtifactKindV1) -> &'static str {
     match kind {
         ArtifactKindV1::Html => "html",
@@ -1923,13 +2085,15 @@ fn insert_receipt(
     artifact_id: &str,
     version: u64,
     created_at: &str,
+    attach_to_reply: bool,
 ) -> Result<(), ArtifactStoreError> {
     transaction
         .execute(
             "INSERT INTO artifact_receipts (
                 owner_pubkey, receipt_id, artifact_id, version, resident_pubkey,
-                conversation_id, turn_id, dispatch_receipt_id, state, created_at
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                conversation_id, turn_id, dispatch_receipt_id, state, created_at,
+                attach_to_reply
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 context.owner_pubkey.as_str(),
                 receipt_id,
@@ -1941,6 +2105,7 @@ fn insert_receipt(
                 context.dispatch_receipt_id.as_ref().map(OpaqueId::as_str),
                 receipt_state_value(context.receipt_state),
                 created_at,
+                i64::from(attach_to_reply),
             ],
         )
         .map_err(|_| ArtifactStoreError::Unavailable)?;

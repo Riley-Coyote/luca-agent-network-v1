@@ -13,8 +13,9 @@ use std::{
 };
 
 use luca_protocol::{
-    ArtifactReceiptStateV1, ExchangeTurnTag, Hex64, ManagedMessagePublishRequestV1, OpaqueId,
-    Sha256Ref,
+    ArtifactReceiptStateV1, ExchangeTurnTag, Hex64, ManagedFinalAttachmentV1,
+    ManagedMessagePublishRequestV1, OpaqueId, SafeU53, Sha256Ref, MAX_FINAL_ATTACHMENTS,
+    MAX_FINAL_DRAFT_BYTES,
 };
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
@@ -35,6 +36,9 @@ use super::{
 };
 
 const RELAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// One image upload gets its own window; four of them must still finish well
+/// inside a turn, and a stalled blob must never hold the reply hostage.
+const MEDIA_UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const RECONCILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
 
@@ -240,6 +244,79 @@ impl ManagedRelayTransport for HttpManagedRelayTransport {
     }
 }
 
+/// Puts one image where a chat message can reach it.
+///
+/// The only implementation is the relay's own media store, reached with the
+/// same Blossom upload the owner's attachments use.
+trait ReplyImageUploader: Send {
+    fn upload(
+        &self,
+        bytes: Vec<u8>,
+        media_type: &str,
+    ) -> Result<crate::commands::media::BlobDescriptor, String>;
+}
+
+struct HttpReplyImageUploader {
+    client: reqwest::blocking::Client,
+    /// The relay's HTTP base. Also the only origin a returned blob URL may have.
+    base_url: String,
+    auth_tag: Option<String>,
+    keys: Keys,
+}
+
+impl HttpReplyImageUploader {
+    fn new(keys: Keys, relay_url: &str, auth_tag: Option<String>) -> Result<Self, String> {
+        Ok(Self {
+            client: reqwest::blocking::Client::builder()
+                .build()
+                .map_err(|error| format!("build managed media client: {error}"))?,
+            base_url: crate::relay::relay_http_base_url(relay_url)
+                .trim_end_matches('/')
+                .to_owned(),
+            auth_tag,
+            keys,
+        })
+    }
+
+    /// A blob URL is usable only if the relay answered on its own origin over
+    /// https. Anything else is a redirect we will not put in a signed event.
+    fn on_relay_origin(&self, url: &str) -> bool {
+        let Ok(base) = url::Url::parse(&self.base_url) else {
+            return false;
+        };
+        let Ok(candidate) = url::Url::parse(url) else {
+            return false;
+        };
+        candidate.scheme() == "https"
+            && candidate.host_str().is_some()
+            && candidate.host_str() == base.host_str()
+            && candidate.port_or_known_default() == base.port_or_known_default()
+    }
+}
+
+impl ReplyImageUploader for HttpReplyImageUploader {
+    fn upload(
+        &self,
+        bytes: Vec<u8>,
+        media_type: &str,
+    ) -> Result<crate::commands::media::BlobDescriptor, String> {
+        let descriptor = crate::commands::media::upload_blob_blocking(
+            &self.client,
+            &self.base_url,
+            self.auth_tag.as_deref(),
+            &self.keys,
+            bytes,
+            media_type,
+            MEDIA_UPLOAD_TIMEOUT,
+            MAX_RELAY_RESPONSE_BYTES,
+        )?;
+        if !self.on_relay_origin(&descriptor.url) {
+            return Err("managed media upload returned an off-origin URL".to_owned());
+        }
+        Ok(descriptor)
+    }
+}
+
 /// Desktop publication authority for one resident identity and relay.
 pub(crate) struct ManagedMessagePublisher {
     resident_pubkey: String,
@@ -249,6 +326,74 @@ pub(crate) struct ManagedMessagePublisher {
     artifact_app_data_dir: Option<PathBuf>,
     presentation_scope: Option<super::activity_trace::Scope>,
     exchange: Option<ExchangeAuthority>,
+    reply_image_uploader: Option<Box<dyn ReplyImageUploader>>,
+}
+
+/// Turn one relay blob descriptor into a signed-event attachment.
+///
+/// Anything the descriptor cannot prove is dropped rather than guessed: a
+/// non-image media type, a zero size, an unparseable hash, or an optional field
+/// the tag builder could not carry safely all fail the whole attachment.
+fn attachment_from_descriptor(
+    descriptor: &crate::commands::media::BlobDescriptor,
+    filename: &str,
+) -> Option<ManagedFinalAttachmentV1> {
+    if !descriptor.mime_type.starts_with("image/") {
+        return None;
+    }
+    let mut attachment = ManagedFinalAttachmentV1 {
+        url: descriptor.url.clone(),
+        sha256: Hex64::parse(descriptor.sha256.clone()).ok()?,
+        mime_type: descriptor.mime_type.clone(),
+        size: SafeU53::new(descriptor.size).ok()?,
+        dim: None,
+        blurhash: None,
+        thumb: None,
+        filename: None,
+    };
+    // The required fields decide whether there is a picture at all.
+    attachment.validate().ok()?;
+    // Each optional field is then tried on its own. One the tag builder cannot
+    // carry safely is dropped rather than costing the whole attachment.
+    let optional: [(
+        Option<String>,
+        fn(&ManagedFinalAttachmentV1, String) -> ManagedFinalAttachmentV1,
+    ); 4] = [
+        (descriptor.dim.clone(), |base, value| {
+            ManagedFinalAttachmentV1 {
+                dim: Some(value),
+                ..base.clone()
+            }
+        }),
+        (descriptor.blurhash.clone(), |base, value| {
+            ManagedFinalAttachmentV1 {
+                blurhash: Some(value),
+                ..base.clone()
+            }
+        }),
+        (descriptor.thumb.clone(), |base, value| {
+            ManagedFinalAttachmentV1 {
+                thumb: Some(value),
+                ..base.clone()
+            }
+        }),
+        (Some(filename.to_owned()), |base, value| {
+            ManagedFinalAttachmentV1 {
+                filename: Some(value),
+                ..base.clone()
+            }
+        }),
+    ];
+    for (value, apply) in optional {
+        let Some(value) = value else {
+            continue;
+        };
+        let candidate = apply(&attachment, value);
+        if candidate.validate().is_ok() {
+            attachment = candidate;
+        }
+    }
+    Some(attachment)
 }
 
 #[derive(Clone)]
@@ -326,6 +471,13 @@ impl ManagedMessagePublisher {
         binding_ref: Sha256Ref,
     ) -> Result<Self, String> {
         let resident_pubkey = resident_keys.public_key().to_hex();
+        // The resident signs its own uploads, exactly as it signs its own
+        // events: the relay's media door admits the same Nostr keys its WS door
+        // admits (`crates/buzz-relay/src/api/media.rs`, step 5).
+        let reply_image_uploader =
+            HttpReplyImageUploader::new(resident_keys.clone(), relay_url, auth_tag.clone())
+                .map(|uploader| Box::new(uploader) as Box<dyn ReplyImageUploader>)
+                .ok();
         let transport = HttpManagedRelayTransport::new(resident_keys, relay_url, auth_tag)?;
         let exchange = ExchangeAuthority {
             relay: Box::new(AppExchangeRelay::new(app.clone())),
@@ -341,6 +493,7 @@ impl ManagedMessagePublisher {
             artifact_app_data_dir,
             presentation_scope,
             exchange: Some(exchange),
+            reply_image_uploader,
         })
     }
 
@@ -358,7 +511,14 @@ impl ManagedMessagePublisher {
             artifact_app_data_dir: None,
             presentation_scope: None,
             exchange: None,
+            reply_image_uploader: None,
         }
+    }
+
+    #[cfg(test)]
+    fn with_reply_image_uploader(mut self, uploader: Box<dyn ReplyImageUploader>) -> Self {
+        self.reply_image_uploader = Some(uploader);
+        self
     }
 
     #[cfg(test)]
@@ -1004,6 +1164,108 @@ impl ManagedMessagePublisher {
 }
 
 impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
+    /// Put this turn's pictures in this turn's reply.
+    ///
+    /// Everything here is best-effort by design: a resident that made an image
+    /// and also said something must never lose the sentence because the blob
+    /// could not be uploaded. Every failure drops that one attachment, logs,
+    /// and leaves the rest of the final exactly as the resident wrote it.
+    ///
+    /// The returned request is the *effective* one — it must be resolved before
+    /// the outbox freezes anything, because the outbox compares whole requests
+    /// and a final that gained tags afterwards would read as a collision.
+    fn attach_reply_images(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> ManagedMessagePublishRequestV1 {
+        if !request.attachments.is_empty() {
+            // Already resolved (a re-freeze onto a different exchange turn).
+            return request.clone();
+        }
+        let (Some(app_data_dir), Some(uploader)) = (
+            self.artifact_app_data_dir.as_ref(),
+            self.reply_image_uploader.as_ref(),
+        ) else {
+            return request.clone();
+        };
+        let found = match super::artifacts::ArtifactStore::open(app_data_dir).and_then(|store| {
+            store.turn_reply_images(
+                &request.owner_pubkey,
+                &request.conversation_id,
+                &request.turn_id,
+                MAX_FINAL_ATTACHMENTS,
+            )
+        }) {
+            Ok(found) => found,
+            Err(error) => {
+                luca_log!(
+                    info,
+                    "luca-artifacts: reply images unavailable for this turn — {error}"
+                );
+                return request.clone();
+            }
+        };
+        if found.images.is_empty() {
+            return request.clone();
+        }
+        if found.total > found.images.len() {
+            luca_log!(
+                warn,
+                "luca-artifacts: {} images asked to ride one reply; keeping the first {}",
+                found.total,
+                found.images.len()
+            );
+        }
+
+        let mut attachments = Vec::new();
+        let mut final_draft = request.final_draft.clone();
+        for image in found.images {
+            let media_type = image.media_type.clone();
+            let descriptor = match uploader.upload(image.bytes, &media_type) {
+                Ok(descriptor) => descriptor,
+                Err(error) => {
+                    luca_log!(
+                        warn,
+                        "luca-artifacts: an image could not be attached to this reply — {error}"
+                    );
+                    continue;
+                }
+            };
+            let Some(attachment) = attachment_from_descriptor(&descriptor, &image.filename) else {
+                luca_log!(
+                    warn,
+                    "luca-artifacts: the relay returned an unusable descriptor for an attachment"
+                );
+                continue;
+            };
+            let line = super::managed_message_event::attachment_body_line(&attachment);
+            if final_draft.len().saturating_add(line.len()) > MAX_FINAL_DRAFT_BYTES {
+                luca_log!(
+                    warn,
+                    "luca-artifacts: the final has no room left for another image line"
+                );
+                break;
+            }
+            final_draft.push_str(&line);
+            attachments.push(attachment);
+        }
+        if attachments.is_empty() {
+            return request.clone();
+        }
+
+        let mut effective = request.clone();
+        effective.final_draft = final_draft;
+        effective.attachments = attachments;
+        if effective.validate().is_err() {
+            luca_log!(
+                warn,
+                "luca-artifacts: resolved attachments did not validate; publishing the text alone"
+            );
+            return request.clone();
+        }
+        effective
+    }
+
     fn resolve_exchange(
         &mut self,
         request: &ManagedMessagePublishRequestV1,

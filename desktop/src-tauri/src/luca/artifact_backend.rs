@@ -346,6 +346,7 @@ mod tests {
                         declared_media_type: Some("text/html".into()),
                     },
                     idempotency_key: OpaqueId::parse("scope-create").unwrap(),
+                    attach_to_reply: true,
                 },
                 None,
             )

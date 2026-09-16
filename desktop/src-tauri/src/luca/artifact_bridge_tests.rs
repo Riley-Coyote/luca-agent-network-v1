@@ -69,6 +69,7 @@ fn workspace_sources_cannot_escape_through_symlinks() {
             declared_media_type: None,
         },
         idempotency_key: OpaqueId::parse("idem-1").unwrap(),
+        attach_to_reply: true,
     });
     assert!(validate_workspace_source(&operation, root.path()).is_err());
 }
@@ -84,6 +85,7 @@ fn inline_artifacts_never_require_source_path_access() {
             declared_media_type: Some("text/markdown".into()),
         },
         idempotency_key: OpaqueId::parse("idem-2").unwrap(),
+        attach_to_reply: true,
     });
     assert!(validate_workspace_source(&operation, root.path()).is_ok());
 }
