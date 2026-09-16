@@ -1188,13 +1188,18 @@ async fn create_session_and_apply_model(
     // because an unacknowledged mode is an unknown mode, and a managed resident
     // never runs at one.
     let mut acknowledged_mode_config_options = None;
-    let managed_claude_mode = ctx.permission_mode.as_wire_str();
-    if ctx.managed_final_publisher.is_some()
+    let requested_claude_mode = ctx.permission_mode.as_wire_str();
+    let is_managed_claude = ctx.managed_final_publisher.is_some()
         && matches!(
             agent.agent_name.as_str(),
             "claude-agent-acp" | "@agentclientprotocol/claude-agent-acp"
-        )
-    {
+        );
+    let managed_claude_mode = if is_managed_claude {
+        managed_claude_mode_to_bind(&resp.raw, requested_claude_mode)
+    } else {
+        requested_claude_mode
+    };
+    if is_managed_claude {
         managed_claude_advertised_mode(&resp.raw, managed_claude_mode)?;
         let mode_response = tokio::time::timeout(
             PERMISSION_MODE_TIMEOUT,
@@ -1448,6 +1453,28 @@ async fn apply_model_switch(
 /// session at whatever mode the adapter inherited from native user settings,
 /// which is exactly the shadowing this binding exists to prevent. The error
 /// names the tier so the desktop can say which one the runtime refused.
+/// The mode to bind for a managed Claude session: the owner's tier when the
+/// adapter advertises it; otherwise `default` (ask everything) when that is
+/// advertised, with a warning, because a stricter mode is a safe fallback
+/// while a refused session is not. Only a session that advertises neither
+/// reaches the hard error in `managed_claude_advertised_mode`.
+fn managed_claude_mode_to_bind<'a>(
+    session_new_result: &serde_json::Value,
+    requested: &'a str,
+) -> &'a str {
+    if agent_supports_mode(session_new_result, requested) {
+        return requested;
+    }
+    if requested != "default" && agent_supports_mode(session_new_result, "default") {
+        tracing::warn!(
+            requested,
+            "managed Claude session did not advertise the requested permission mode; binding default (ask everything) instead"
+        );
+        return "default";
+    }
+    requested
+}
+
 fn managed_claude_advertised_mode<'a>(
     session_new_result: &serde_json::Value,
     mode_wire: &'a str,
@@ -8830,6 +8857,41 @@ while read -r _; do :; done
             super::managed_claude_advertised_mode(&response, "bypassPermissions").is_err(),
             "Full access is refused when the adapter never offered it"
         );
+    }
+
+    #[test]
+    fn managed_claude_falls_back_to_default_when_the_tier_is_not_advertised() {
+        let only_default = serde_json::json!({
+            "modes": { "currentModeId": "default", "availableModes": [{"id": "default"}] }
+        });
+        assert_eq!(
+            super::managed_claude_mode_to_bind(&only_default, "acceptEdits"),
+            "default",
+            "an unadvertised tier binds the stricter default instead of refusing the session"
+        );
+        assert_eq!(
+            super::managed_claude_mode_to_bind(&only_default, "default"),
+            "default"
+        );
+
+        let full = serde_json::json!({
+            "modes": { "currentModeId": "default", "availableModes": [
+                {"id": "default"}, {"id": "acceptEdits"}, {"id": "bypassPermissions"}
+            ] }
+        });
+        assert_eq!(
+            super::managed_claude_mode_to_bind(&full, "acceptEdits"),
+            "acceptEdits",
+            "an advertised tier binds as requested"
+        );
+
+        let nothing = serde_json::json!({ "modes": { "availableModes": [] } });
+        assert_eq!(
+            super::managed_claude_mode_to_bind(&nothing, "acceptEdits"),
+            "acceptEdits",
+            "with no default advertised the requested mode is kept so the hard check errors"
+        );
+        assert!(super::managed_claude_advertised_mode(&nothing, "acceptEdits").is_err());
     }
 
     #[test]
