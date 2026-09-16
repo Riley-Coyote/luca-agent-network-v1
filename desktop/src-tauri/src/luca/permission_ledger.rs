@@ -24,10 +24,9 @@ use std::{
 
 use luca_protocol::{
     mcp_server_family, CommandSegmentV1, Hex64, ManagedPermissionRequestV1, OpaqueId,
-    PermissionEffectV1,
-    PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS,
-    DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES, POLYPHONIC_BROKER_GUARDED_TOOLS,
-    POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
+    PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1,
+    DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES,
+    POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
 };
 use tauri::{AppHandle, Manager};
 
@@ -213,11 +212,7 @@ fn is_door(request: &ManagedPermissionRequestV1, identity: Option<&(String, Stri
     if request.tool_kind.as_deref() == Some("delete") {
         return true;
     }
-    if request
-        .command_token
-        .as_deref()
-        .is_some_and(|token| DESTRUCTIVE_COMMAND_TOKENS.contains(&token))
-    {
+    if command_tokens(request).any(|token| DESTRUCTIVE_COMMAND_TOKENS.contains(&token)) {
         return true;
     }
     let Some((family, tool)) = identity else {
@@ -237,32 +232,78 @@ fn is_door(request: &ManagedPermissionRequestV1, identity: Option<&(String, Stri
     family == "buzz" && tool == "view_image" && request.domain.is_some()
 }
 
-/// Derive the one matcher a rule could be written from, first hit wins:
-/// MCP tool, then command, then host, then path.
-fn derive_matcher(
+/// Every command word this request would run, whether it came as one command
+/// or as the segments of a compound line.
+fn command_tokens(request: &ManagedPermissionRequestV1) -> impl Iterator<Item = &str> {
+    let single = request
+        .command_segments
+        .is_empty()
+        .then(|| request.command_token.as_deref())
+        .flatten();
+    single.into_iter().chain(
+        request
+            .command_segments
+            .iter()
+            .map(|segment| segment.token.as_str()),
+    )
+}
+
+/// Derive every matcher a rule could be written from, first kind wins: MCP
+/// tool, then command, then host, then path.
+///
+/// A compound command yields one `Command` matcher per segment, and the
+/// owner's answer has to cover all of them. Everything else yields exactly
+/// one matcher, as it always did. An empty result means there is nothing here
+/// a rule could be keyed on.
+fn derive_matchers(
     request: &ManagedPermissionRequestV1,
     identity: Option<&(String, String)>,
-) -> Option<PermissionMatcherV1> {
+) -> Vec<PermissionMatcherV1> {
     if let Some((server_family, tool)) = identity {
-        return Some(PermissionMatcherV1::McpTool {
+        return vec![PermissionMatcherV1::McpTool {
             server_family: server_family.clone(),
             tool: tool.clone(),
-        });
+        }];
     }
+    if !request.command_segments.is_empty() {
+        let mut matchers: Vec<PermissionMatcherV1> = Vec::new();
+        for segment in &request.command_segments {
+            let matcher = command_matcher(segment);
+            // `echo a; echo b` is one thing to remember, not two.
+            if !matchers.contains(&matcher) {
+                matchers.push(matcher);
+            }
+        }
+        return matchers;
+    }
+    // A harness that predates segments still sends one command word.
     if let Some(token) = request.command_token.as_deref() {
-        return Some(PermissionMatcherV1::Command {
+        return vec![PermissionMatcherV1::Command {
             token: token.to_owned(),
             argv_prefix: request.command_argv_prefix.clone(),
-        });
+        }];
     }
     if let Some(host) = request.domain.as_deref() {
-        return Some(PermissionMatcherV1::Domain {
+        return vec![PermissionMatcherV1::Domain {
             host: host.to_owned(),
-        });
+        }];
     }
-    request.path.as_deref().map(|_| PermissionMatcherV1::Path {
-        write: request.write.unwrap_or(false),
-    })
+    request
+        .path
+        .as_deref()
+        .map(|_| {
+            vec![PermissionMatcherV1::Path {
+                write: request.write.unwrap_or(false),
+            }]
+        })
+        .unwrap_or_default()
+}
+
+fn command_matcher(segment: &CommandSegmentV1) -> PermissionMatcherV1 {
+    PermissionMatcherV1::Command {
+        token: segment.token.clone(),
+        argv_prefix: segment.argv_prefix.clone(),
+    }
 }
 
 /// Whether `path` is the project root or lies under it, on a component
@@ -313,35 +354,31 @@ fn bounded_display(value: &str) -> String {
     clean[..end].to_owned()
 }
 
-/// The short owner-facing phrase for this request: a command with its first
-/// words, a tool name, a host, a file name, or the runtime's own title.
-fn subject_display_name(
+/// The short owner-facing phrase for one matcher: a command with its first
+/// words, a tool name, a host, or a file name.
+fn matcher_display_name(
     request: &ManagedPermissionRequestV1,
-    matcher: Option<&PermissionMatcherV1>,
+    matcher: &PermissionMatcherV1,
     is_pre_allowed: bool,
 ) -> String {
     let phrase = match matcher {
-        Some(PermissionMatcherV1::Command { token, argv_prefix }) => {
+        PermissionMatcherV1::Command { token, argv_prefix } => {
             let mut words = vec![token.as_str()];
             words.extend(argv_prefix.iter().map(String::as_str));
             words.join(" ")
         }
-        Some(PermissionMatcherV1::McpTool { tool, .. }) if is_pre_allowed => {
+        PermissionMatcherV1::McpTool { tool, .. } if is_pre_allowed => {
             format!("{tool} (Polyphonic tool)")
         }
-        Some(PermissionMatcherV1::McpTool { tool, .. }) => tool.clone(),
-        Some(PermissionMatcherV1::Domain { host }) => host.clone(),
-        Some(PermissionMatcherV1::Path { .. }) => request
+        PermissionMatcherV1::McpTool { tool, .. } => tool.clone(),
+        PermissionMatcherV1::Domain { host } => host.clone(),
+        PermissionMatcherV1::Path { .. } => request
             .path
             .as_deref()
             .and_then(|path| path.rsplit('/').next())
             .filter(|name| !name.is_empty())
             .unwrap_or(request.title.as_str())
             .to_owned(),
-        None => request
-            .tool_name
-            .clone()
-            .unwrap_or_else(|| request.title.clone()),
     };
     let phrase = bounded_display(&phrase);
     if phrase.is_empty() {
@@ -351,18 +388,52 @@ fn subject_display_name(
     }
 }
 
-/// The sentence the permissions list shows for a remembered answer.
-pub(crate) fn rule_display_name(subject: &PermissionSubject) -> String {
-    let verb = match subject.matcher.as_ref() {
-        Some(PermissionMatcherV1::Command { .. }) => "Run",
-        Some(PermissionMatcherV1::Domain { .. }) => "Visit",
-        Some(PermissionMatcherV1::Path { write: true }) => "Edit",
-        Some(PermissionMatcherV1::Path { write: false }) => "Read",
-        _ => "Use",
+/// Read a list of names the way a person would: "ls", "ls and echo",
+/// "ls, echo and cat".
+fn read_as_list(names: &[String]) -> String {
+    match names {
+        [] => String::new(),
+        [only] => only.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    }
+}
+
+/// The short owner-facing phrase for the whole request.
+fn subject_display_name(request: &ManagedPermissionRequestV1, names: &[String]) -> String {
+    let phrase = if names.is_empty() {
+        request
+            .tool_name
+            .clone()
+            .unwrap_or_else(|| request.title.clone())
+    } else {
+        read_as_list(names)
+    };
+    let phrase = bounded_display(&phrase);
+    if phrase.is_empty() {
+        bounded_display(&request.title)
+    } else {
+        phrase
+    }
+}
+
+/// The sentence the permissions list shows for one remembered answer. A
+/// compound command mints one of these per segment, so each rule reads as the
+/// one thing it actually allows.
+pub(crate) fn rule_display_name(
+    subject: &PermissionSubject,
+    matcher: &PermissionMatcherV1,
+    display_name: &str,
+) -> String {
+    let verb = match matcher {
+        PermissionMatcherV1::Command { .. } => "Run",
+        PermissionMatcherV1::Domain { .. } => "Visit",
+        PermissionMatcherV1::Path { write: true } => "Edit",
+        PermissionMatcherV1::Path { write: false } => "Read",
+        PermissionMatcherV1::McpTool { .. } => "Use",
     };
     let sentence = match subject.project.as_ref() {
-        Some(project) => format!("{verb} {} in {}", subject.display_name, project.label()),
-        None => format!("{verb} {}", subject.display_name),
+        Some(project) => format!("{verb} {display_name} in {}", project.label()),
+        None => format!("{verb} {display_name}"),
     };
     let sentence = bounded_display(&sentence);
     if sentence.is_empty() {
@@ -387,7 +458,11 @@ pub(crate) fn subject(
         inventory_contains(POLYPHONIC_BROKER_GUARDED_TOOLS, family, tool)
     });
     let is_door = is_door(request, identity.as_ref());
-    let matcher = derive_matcher(request, identity.as_ref());
+    let matchers = derive_matchers(request, identity.as_ref());
+    let matcher_names: Vec<String> = matchers
+        .iter()
+        .map(|matcher| matcher_display_name(request, matcher, is_pre_allowed))
+        .collect();
     let project = resolve_project(app, owner, request, working_root);
     let inside_project = match (project.as_ref(), request.path.as_deref()) {
         (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
@@ -396,8 +471,9 @@ pub(crate) fn subject(
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
-        display_name: subject_display_name(request, matcher.as_ref(), is_pre_allowed),
-        matcher,
+        display_name: subject_display_name(request, &matcher_names),
+        matchers,
+        matcher_names,
         is_door,
         is_pre_allowed,
         is_broker_guarded,
@@ -573,10 +649,11 @@ pub(crate) fn clear_all() {
 
 // ── Decision ─────────────────────────────────────────────────────────────────
 
-fn matcher_answers(rule: &PermissionMatcherV1, subject: &PermissionSubject) -> bool {
-    let Some(asked) = subject.matcher.as_ref() else {
-        return false;
-    };
+fn matcher_answers(
+    rule: &PermissionMatcherV1,
+    asked: &PermissionMatcherV1,
+    inside_project: bool,
+) -> bool {
     match (rule, asked) {
         (
             PermissionMatcherV1::Command {
@@ -612,12 +689,18 @@ fn matcher_answers(rule: &PermissionMatcherV1, subject: &PermissionSubject) -> b
         (
             PermissionMatcherV1::Path { write: remembered },
             PermissionMatcherV1::Path { write: asked },
-        ) => subject.inside_project && (*remembered || !*asked),
+        ) => inside_project && (*remembered || !*asked),
         _ => false,
     }
 }
 
-fn rule_answers(rule: &PermissionRuleV1, subject: &PermissionSubject) -> bool {
+/// Whether one remembered rule answers one of the things this request asks
+/// for.
+fn rule_answers(
+    rule: &PermissionRuleV1,
+    subject: &PermissionSubject,
+    asked: &PermissionMatcherV1,
+) -> bool {
     if rule.revoked_at.is_some() || rule.resident_pubkey != subject.resident {
         return false;
     }
@@ -629,24 +712,31 @@ fn rule_answers(rule: &PermissionRuleV1, subject: &PermissionSubject) -> bool {
         // A rule that travels may only ever describe reading.
         PermissionRuleScopeV1::Everywhere => rule.matcher.is_read_only(),
     };
-    in_scope && matcher_answers(&rule.matcher, subject)
+    in_scope && matcher_answers(&rule.matcher, asked, subject.inside_project)
 }
 
 /// The whole decision, as a pure function of what is remembered.
 ///
 /// Order is the contract: an explicit deny beats everything; Polyphonic's own
 /// reads never ask; a broker-guarded tool has its own gate; a door always
-/// asks; then this turn's answers; then the owner's durable rules; then a
-/// card.
+/// asks; then this turn's answers and the owner's durable rules together;
+/// then a card.
+///
+/// A compound command is allowed without a card only when EVERY segment is
+/// already answered. One remembered `ls` never lets an unseen `echo` through,
+/// and a deny on any one segment refuses the whole line.
 pub(crate) fn decide_with(
     rules: &[PermissionRuleV1],
     turn_hits: &[PermissionMatcherV1],
     subject: &PermissionSubject,
 ) -> Verdict {
-    if let Some(denied) = rules
-        .iter()
-        .find(|rule| rule.effect == PermissionEffectV1::Deny && rule_answers(rule, subject))
-    {
+    if let Some(denied) = rules.iter().find(|rule| {
+        rule.effect == PermissionEffectV1::Deny
+            && subject
+                .matchers
+                .iter()
+                .any(|asked| rule_answers(rule, subject, asked))
+    }) {
         return Verdict::Deny {
             reason: denied.display_name.clone(),
         };
@@ -669,23 +759,14 @@ pub(crate) fn decide_with(
             ),
         };
     }
-    if turn_hits
-        .iter()
-        .any(|remembered| matcher_answers(remembered, subject))
-    {
-        return Verdict::Allow(AllowReason::TurnRule);
+    if let Some(answered) = every_matcher_answered(rules, turn_hits, subject) {
+        return Verdict::Allow(answered);
     }
-    if let Some(allowed) = rules
+    let remembrable = !subject.matchers.is_empty();
+    let path_outside = subject
+        .matchers
         .iter()
-        .find(|rule| rule.effect == PermissionEffectV1::Allow && rule_answers(rule, subject))
-    {
-        return Verdict::Allow(AllowReason::Rule {
-            rule_id: allowed.rule_id.as_str().to_owned(),
-            display_name: allowed.display_name.clone(),
-        });
-    }
-    let remembrable = subject.matcher.is_some();
-    let path_outside = matches!(subject.matcher, Some(PermissionMatcherV1::Path { .. }))
+        .any(|matcher| matches!(matcher, PermissionMatcherV1::Path { .. }))
         && !subject.inside_project;
     let always_here = remembrable && subject.project.is_some() && !path_outside;
     Verdict::Ask {
@@ -695,9 +776,54 @@ pub(crate) fn decide_with(
             always_here,
             deny: true,
             project_label,
+            remembers: remembrable
+                .then(|| subject.matcher_names.clone())
+                .unwrap_or_default(),
             note: (!remembrable).then(|| "Polyphonic can only answer this one once.".to_owned()),
         },
     }
+}
+
+/// Why this request needs no card, when every one of its matchers is already
+/// answered by this turn's memory or by a durable rule. `None` as soon as one
+/// is not.
+fn every_matcher_answered(
+    rules: &[PermissionRuleV1],
+    turn_hits: &[PermissionMatcherV1],
+    subject: &PermissionSubject,
+) -> Option<AllowReason> {
+    if subject.matchers.is_empty() {
+        return None;
+    }
+    let mut hit_rules: Vec<&PermissionRuleV1> = Vec::new();
+    for asked in &subject.matchers {
+        if turn_hits
+            .iter()
+            .any(|remembered| matcher_answers(remembered, asked, subject.inside_project))
+        {
+            continue;
+        }
+        let allowed = rules.iter().find(|rule| {
+            rule.effect == PermissionEffectV1::Allow && rule_answers(rule, subject, asked)
+        })?;
+        hit_rules.push(allowed);
+    }
+    if hit_rules.is_empty() {
+        return Some(AllowReason::TurnRule);
+    }
+    // One rule answering one thing reads as that rule; several rules
+    // answering the segments of one line read as the line.
+    let display_name = match hit_rules.as_slice() {
+        [only] if subject.matchers.len() == 1 => only.display_name.clone(),
+        _ => subject.display_name.clone(),
+    };
+    Some(AllowReason::Rule {
+        rule_ids: hit_rules
+            .iter()
+            .map(|rule| rule.rule_id.as_str().to_owned())
+            .collect(),
+        display_name,
+    })
 }
 
 /// The same decision, reading this owner's remembered answers. A durable rule
@@ -721,8 +847,10 @@ pub(crate) fn decide(
         request.turn_id.as_str(),
     );
     let verdict = decide_with(&rules, &hits, subject);
-    if let Verdict::Allow(AllowReason::Rule { rule_id, .. }) = &verdict {
-        let _ = super::resident_capability_authority::touch_rule(app, owner_pubkey, rule_id);
+    if let Verdict::Allow(AllowReason::Rule { rule_ids, .. }) = &verdict {
+        for rule_id in rule_ids {
+            let _ = super::resident_capability_authority::touch_rule(app, owner_pubkey, rule_id);
+        }
     }
     verdict
 }

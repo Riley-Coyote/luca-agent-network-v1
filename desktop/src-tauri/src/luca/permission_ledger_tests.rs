@@ -32,6 +32,7 @@ fn request() -> ManagedPermissionRequestV1 {
         mcp_tool: None,
         command_token: None,
         command_argv_prefix: Vec::new(),
+        command_segments: Vec::new(),
         path: None,
         domain: None,
         write: None,
@@ -60,7 +61,11 @@ fn subject_for(
     let is_broker_guarded = identity.as_ref().is_some_and(|(family, tool)| {
         inventory_contains(POLYPHONIC_BROKER_GUARDED_TOOLS, family, tool)
     });
-    let matcher = derive_matcher(request, identity.as_ref());
+    let matchers = derive_matchers(request, identity.as_ref());
+    let matcher_names: Vec<String> = matchers
+        .iter()
+        .map(|matcher| matcher_display_name(request, matcher, is_pre_allowed))
+        .collect();
     let inside_project = match (project.as_ref(), request.path.as_deref()) {
         (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
         _ => false,
@@ -68,8 +73,9 @@ fn subject_for(
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
-        display_name: subject_display_name(request, matcher.as_ref(), is_pre_allowed),
-        matcher,
+        display_name: subject_display_name(request, &matcher_names),
+        matchers,
+        matcher_names,
         is_door: is_door(request, identity.as_ref()),
         is_pre_allowed,
         is_broker_guarded,
@@ -92,6 +98,36 @@ fn command_request(token: &str, argv_prefix: &[&str]) -> ManagedPermissionReques
     request.command_token = Some(token.into());
     request.command_argv_prefix = argv_prefix.iter().map(|word| (*word).to_owned()).collect();
     request
+}
+
+/// The shape the harness sends for `ls -la /x; echo "exit=$?"`: several
+/// segments and, by the protocol's own rule, no single command token.
+fn compound_request(segments: &[(&str, &[&str])]) -> ManagedPermissionRequestV1 {
+    let mut request = request();
+    request.tool_name = Some("Bash".into());
+    request.tool_kind = Some("execute".into());
+    request.command_segments = segments
+        .iter()
+        .map(|(token, argv_prefix)| luca_protocol::CommandSegmentV1 {
+            token: (*token).to_owned(),
+            argv_prefix: argv_prefix.iter().map(|word| (*word).to_owned()).collect(),
+        })
+        .collect();
+    // The protocol keeps the single-command fields in step with the segments:
+    // one segment repeats itself, several leave them empty.
+    if let [only] = request.command_segments.as_slice() {
+        request.command_token = Some(only.token.clone());
+        request.command_argv_prefix = only.argv_prefix.clone();
+    }
+    request.validate().expect("a bounded compound request");
+    request
+}
+
+fn command_matcher_of(token: &str, argv_prefix: &[&str]) -> PermissionMatcherV1 {
+    PermissionMatcherV1::Command {
+        token: token.to_owned(),
+        argv_prefix: argv_prefix.iter().map(|word| (*word).to_owned()).collect(),
+    }
 }
 
 fn path_request(path: &str, write: bool) -> ManagedPermissionRequestV1 {
@@ -209,7 +245,11 @@ fn doors_offer_only_once_and_deny() {
     // matcher for this turn, or wrote a rule for it.
     let shell = mcp_request("buzz", "shell");
     let subject = subject_for(&shell, Some(project("source-a", "/tmp/luca")));
-    let remembered = subject.matcher.clone().expect("a door still has a matcher");
+    let remembered = subject
+        .matchers
+        .first()
+        .cloned()
+        .expect("a door still has a matcher");
     let rules = vec![rule(
         "rule-1",
         here(),
@@ -504,8 +544,8 @@ fn mcp_family_matches_across_suffixes() {
     };
     for request in [&plain, &suffixed, &reprovisioned] {
         assert_eq!(
-            subject_for(request, None).matcher.as_ref(),
-            Some(&expected),
+            subject_for(request, None).matchers.as_slice(),
+            std::slice::from_ref(&expected),
             "the per-install suffix is not part of the family"
         );
     }
@@ -572,7 +612,7 @@ fn turn_rule_dies_with_session() {
 fn no_matcher_means_once_or_deny_only() {
     let bare = request();
     let subject = subject_for(&bare, Some(project("source-a", "/tmp/luca")));
-    assert!(subject.matcher.is_none());
+    assert!(subject.matchers.is_empty());
     let verdict = decide_with(&[], &[], &subject);
     let offer = ask(&verdict);
     assert!(offer.once && offer.deny);
@@ -610,28 +650,235 @@ fn no_matcher_means_once_or_deny_only() {
 }
 
 #[test]
+fn compound_command_needs_every_segment_remembered() {
+    let asked = compound_request(&[("ls", &[]), ("echo", &[])]);
+    let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    assert_eq!(
+        subject.matchers,
+        vec![
+            command_matcher_of("ls", &[]),
+            command_matcher_of("echo", &[]),
+        ]
+    );
+
+    // One segment remembered is not the line remembered.
+    let only_ls = vec![rule(
+        "rule-1",
+        here(),
+        command_matcher_of("ls", &[]),
+        PermissionEffectV1::Allow,
+    )];
+    let verdict = decide_with(&only_ls, &[], &subject);
+    assert!(
+        matches!(verdict, Verdict::Ask { .. }),
+        "a remembered `ls` may not carry an unseen `echo`"
+    );
+    let offer = ask(&verdict);
+    assert!(offer.task && offer.always_here);
+    assert_eq!(offer.remembers, vec!["ls".to_string(), "echo".to_string()]);
+
+    // Both remembered, and the line goes through with no card at all.
+    let mut both = only_ls.clone();
+    both.push(rule(
+        "rule-2",
+        here(),
+        command_matcher_of("echo", &[]),
+        PermissionEffectV1::Allow,
+    ));
+    match decide_with(&both, &[], &subject) {
+        Verdict::Allow(AllowReason::Rule {
+            rule_ids,
+            display_name,
+        }) => {
+            assert_eq!(rule_ids, vec!["rule-1".to_string(), "rule-2".to_string()]);
+            assert_eq!(display_name, "ls and echo");
+        }
+        other => panic!("expected both rules to answer, got {other:?}"),
+    }
+
+    // A turn answer covers one segment and a durable rule the other.
+    match decide_with(&only_ls, &[command_matcher_of("echo", &[])], &subject) {
+        Verdict::Allow(AllowReason::Rule { rule_ids, .. }) => {
+            assert_eq!(rule_ids, vec!["rule-1".to_string()]);
+        }
+        other => panic!("expected a mixed answer, got {other:?}"),
+    }
+    assert_eq!(
+        decide_with(
+            &[],
+            &[
+                command_matcher_of("ls", &[]),
+                command_matcher_of("echo", &[]),
+            ],
+            &subject,
+        ),
+        Verdict::Allow(AllowReason::TurnRule)
+    );
+
+    // A remembered `git status` still does not answer `git push` in a line.
+    let pushing = compound_request(&[("git", &["status"]), ("git", &["push"])]);
+    let pushing = subject_for(&pushing, Some(project("source-a", "/tmp/luca")));
+    assert!(matches!(
+        decide_with(
+            &[rule(
+                "rule-3",
+                here(),
+                command_matcher_of("git", &["status"]),
+                PermissionEffectV1::Allow,
+            )],
+            &[],
+            &pushing,
+        ),
+        Verdict::Ask { .. }
+    ));
+}
+
+#[test]
+fn deny_on_any_segment_wins() {
+    let asked = compound_request(&[("ls", &[]), ("curl", &[])]);
+    let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    let rules = vec![
+        rule(
+            "rule-1",
+            here(),
+            command_matcher_of("ls", &[]),
+            PermissionEffectV1::Allow,
+        ),
+        rule(
+            "rule-2",
+            here(),
+            command_matcher_of("echo", &[]),
+            PermissionEffectV1::Allow,
+        ),
+        rule(
+            "rule-3",
+            here(),
+            command_matcher_of("curl", &[]),
+            PermissionEffectV1::Deny,
+        ),
+    ];
+    assert_eq!(
+        decide_with(&rules, &[], &subject),
+        Verdict::Deny {
+            reason: "Remembered answer".into()
+        }
+    );
+    // Even with every segment answered for this turn.
+    assert_eq!(
+        decide_with(
+            &rules,
+            &[
+                command_matcher_of("ls", &[]),
+                command_matcher_of("curl", &[]),
+            ],
+            &subject,
+        ),
+        Verdict::Deny {
+            reason: "Remembered answer".into()
+        }
+    );
+}
+
+#[test]
+fn single_segment_unchanged() {
+    // One segment is exactly the beta.11 single command: same matcher, same
+    // offer, same sentence, and the legacy fields still answer on their own.
+    let segmented = compound_request(&[("git", &["status"])]);
+    let mut legacy = command_request("git", &["status"]);
+    legacy.command_segments.clear();
+
+    for asked in [&segmented, &legacy] {
+        let subject = subject_for(asked, Some(project("source-a", "/tmp/luca")));
+        assert_eq!(
+            subject.matchers,
+            vec![command_matcher_of("git", &["status"])]
+        );
+        assert_eq!(subject.display_name, "git status");
+
+        let verdict = decide_with(&[], &[], &subject);
+        let offer = ask(&verdict);
+        assert!(offer.once && offer.deny && offer.task && offer.always_here);
+        assert_eq!(offer.remembers, vec!["git status".to_string()]);
+        assert_eq!(offer.note, None);
+
+        let rules = vec![rule(
+            "rule-1",
+            here(),
+            command_matcher_of("git", &[]),
+            PermissionEffectV1::Allow,
+        )];
+        assert_eq!(
+            decide_with(&rules, &[], &subject),
+            Verdict::Allow(AllowReason::Rule {
+                rule_ids: vec!["rule-1".into()],
+                display_name: "Remembered answer".into(),
+            }),
+            "one rule answering one thing still reads as that rule"
+        );
+    }
+
+    // A destructive word anywhere in a line is still a door.
+    for asked in [
+        compound_request(&[("rm", &[])]),
+        compound_request(&[("ls", &[]), ("rm", &[])]),
+    ] {
+        let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_door);
+        let verdict = decide_with(&[], &[], &subject);
+        let offer = ask(&verdict);
+        assert!(!offer.task && !offer.always_here);
+        assert!(offer.remembers.is_empty());
+    }
+}
+
+#[test]
 fn a_remembered_answer_reads_as_a_sentence() {
+    /// Every sentence this subject would store, one per thing remembered.
+    fn sentences(subject: &PermissionSubject) -> Vec<String> {
+        subject
+            .asks()
+            .map(|(matcher, name)| rule_display_name(subject, matcher, name))
+            .collect()
+    }
+
     let running = command_request("git", &["status"]);
     let running = subject_for(&running, Some(project("source-a", "/tmp/luca")));
     assert_eq!(running.display_name, "git status");
-    assert_eq!(rule_display_name(&running), "Run git status in luca");
+    assert_eq!(sentences(&running), vec!["Run git status in luca"]);
 
     let browsing = {
         let mut request = request();
         request.domain = Some("docs.rs".into());
         subject_for(&request, None)
     };
-    assert_eq!(rule_display_name(&browsing), "Visit docs.rs");
+    assert_eq!(sentences(&browsing), vec!["Visit docs.rs"]);
 
     let writing = path_request("/tmp/luca/src/main.rs", true);
     let writing = subject_for(&writing, Some(project("source-a", "/tmp/luca")));
     assert_eq!(writing.display_name, "main.rs");
-    assert_eq!(rule_display_name(&writing), "Edit main.rs in luca");
+    assert_eq!(sentences(&writing), vec!["Edit main.rs in luca"]);
+
+    // A compound command reads as a list, and stores one plain sentence per
+    // segment rather than one sentence naming the whole line.
+    let compound = compound_request(&[("ls", &[]), ("echo", &[]), ("cat", &["notes.md"])]);
+    let compound = subject_for(&compound, Some(project("source-a", "/tmp/luca")));
+    assert_eq!(compound.display_name, "ls, echo and cat notes.md");
+    assert_eq!(
+        sentences(&compound),
+        vec![
+            "Run ls in luca",
+            "Run echo in luca",
+            "Run cat notes.md in luca",
+        ]
+    );
 
     // Nothing display-unsafe survives into a sentence a rule would store.
     let mut smuggled = request();
     smuggled.title = "Line\u{202e}one".into();
+    smuggled.domain = Some("docs.rs".into());
     let smuggled = subject_for(&smuggled, None);
-    assert!(!rule_display_name(&smuggled).contains('\u{202e}'));
-    assert!(rule_display_name(&smuggled).len() <= MAX_PERMISSION_RULE_DISPLAY_BYTES);
+    for sentence in sentences(&smuggled) {
+        assert!(!sentence.contains('\u{202e}'));
+        assert!(sentence.len() <= MAX_PERMISSION_RULE_DISPLAY_BYTES);
+    }
 }

@@ -281,7 +281,7 @@ fn serve(
 /// The noun the room sees. It never names a command, a path or a host: the
 /// people in the conversation learn that something was allowed, not what.
 fn room_noun(subject: &PermissionSubject) -> &'static str {
-    match subject.matcher.as_ref() {
+    match subject.matchers.first() {
         Some(luca_protocol::PermissionMatcherV1::Command { .. }) => "a command",
         Some(luca_protocol::PermissionMatcherV1::Path { .. }) => "a file",
         Some(luca_protocol::PermissionMatcherV1::Domain { .. }) => "a website",
@@ -547,24 +547,38 @@ fn offer_allows(offer: &PermissionOfferV1, tense: ManagedPermissionTense) -> boo
     }
 }
 
-/// Mint the durable rule for an "Always here" answer.
-fn rule_for(subject: &PermissionSubject) -> Option<PermissionRuleV1> {
-    let matcher = subject.matcher.clone()?;
+/// Mint the durable rules for an "Always here" answer: one per thing the
+/// request asks for, so a compound command is remembered a segment at a time
+/// and the permissions list shows each on its own line.
+///
+/// All of them or none: a line the owner said yes to must never end up half
+/// remembered, so a single matcher that will not mint refuses the lot.
+fn rules_for(subject: &PermissionSubject) -> Option<Vec<PermissionRuleV1>> {
     let source_id = subject.project.as_ref().map(ProjectRef::scope_id)?.clone();
-    let rule = PermissionRuleV1 {
-        protocol: PERMISSION_RULE_PROTOCOL.into(),
-        rule_id: luca_protocol::OpaqueId::parse(uuid::Uuid::new_v4().to_string()).ok()?,
-        resident_pubkey: subject.resident.clone(),
-        scope: luca_protocol::PermissionRuleScopeV1::Project { source_id },
-        matcher,
-        effect: PermissionEffectV1::Allow,
-        display_name: permission_ledger::rule_display_name(subject),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        revoked_at: None,
-        last_used_at: None,
-        use_count: 0,
-    };
-    rule.validate().ok().map(|()| rule)
+    if subject.matchers.is_empty() {
+        return None;
+    }
+    let mut rules = Vec::with_capacity(subject.matchers.len());
+    for (matcher, display_name) in subject.asks() {
+        let rule = PermissionRuleV1 {
+            protocol: PERMISSION_RULE_PROTOCOL.into(),
+            rule_id: luca_protocol::OpaqueId::parse(uuid::Uuid::new_v4().to_string()).ok()?,
+            resident_pubkey: subject.resident.clone(),
+            scope: luca_protocol::PermissionRuleScopeV1::Project {
+                source_id: source_id.clone(),
+            },
+            matcher: matcher.clone(),
+            effect: PermissionEffectV1::Allow,
+            display_name: permission_ledger::rule_display_name(subject, matcher, display_name),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            revoked_at: None,
+            last_used_at: None,
+            use_count: 0,
+        };
+        rule.validate().ok()?;
+        rules.push(rule);
+    }
+    Some(rules)
 }
 
 pub(crate) fn resolve(
@@ -651,20 +665,29 @@ fn answer_option(
         }
         ManagedPermissionTense::Once => {}
         ManagedPermissionTense::Task => {
-            if let Some(matcher) = pending.subject.matcher.clone() {
+            for matcher in &pending.subject.matchers {
                 permission_ledger::remember_for_turn(
                     pending.request.resident_pubkey.as_str(),
                     pending.request.session_epoch.get(),
                     pending.request.turn_id.as_str(),
-                    matcher,
+                    matcher.clone(),
                 );
             }
         }
         ManagedPermissionTense::AlwaysHere => {
             let remembered = app.and_then(|app| {
-                let rule = rule_for(&pending.subject)?;
-                super::resident_capability_authority::upsert_rule(app, &pending.owner_pubkey, rule)
-                    .ok()
+                let rules = rules_for(&pending.subject)?;
+                // Every segment or none: a half-remembered line would allow
+                // the part the owner saw and keep asking about the rest.
+                for rule in rules {
+                    super::resident_capability_authority::upsert_rule(
+                        app,
+                        &pending.owner_pubkey,
+                        rule,
+                    )
+                    .ok()?;
+                }
+                Some(())
             });
             // Only once the answer is durably ours may the runtime be told to
             // stop asking inside its own session.
@@ -998,6 +1021,7 @@ mod tests {
             mcp_tool: None,
             command_token: None,
             command_argv_prefix: Vec::new(),
+            command_segments: Vec::new(),
             path: None,
             domain: None,
             write: None,
@@ -1012,10 +1036,11 @@ mod tests {
                 canonical_root: std::path::PathBuf::from("/tmp/luca"),
                 label: "Luca".into(),
             }),
-            matcher: Some(luca_protocol::PermissionMatcherV1::Command {
+            matchers: vec![luca_protocol::PermissionMatcherV1::Command {
                 token: "git".into(),
                 argv_prefix: vec!["status".into()],
-            }),
+            }],
+            matcher_names: vec!["git status".into()],
             is_door: false,
             is_pre_allowed: false,
             is_broker_guarded: false,
@@ -1031,6 +1056,7 @@ mod tests {
             always_here: true,
             deny: true,
             project_label: Some("Luca".into()),
+            remembers: vec!["git status".into()],
             note: None,
         }
     }
@@ -1045,9 +1071,17 @@ mod tests {
         request: ManagedPermissionRequestV1,
         offer: PermissionOfferV1,
     ) -> (String, mpsc::Receiver<ResolvedManagedPermission>) {
+        let subject = test_subject(&request);
+        insert_pending_with_subject(request, offer, subject)
+    }
+
+    fn insert_pending_with_subject(
+        request: ManagedPermissionRequestV1,
+        offer: PermissionOfferV1,
+        subject: PermissionSubject,
+    ) -> (String, mpsc::Receiver<ResolvedManagedPermission>) {
         let id = pending_id(&request);
         let (tx, rx) = mpsc::channel();
-        let subject = test_subject(&request);
         pending().lock().expect("pending registry").insert(
             id.clone(),
             Pending {
@@ -1267,6 +1301,98 @@ mod tests {
             .all(|entry| entry.pending_id != pending_id(&request)));
     }
 
+    /// The subject for `ls -la /x; echo "exit=$?"` — two segments, one card.
+    fn compound_subject(request: &ManagedPermissionRequestV1) -> PermissionSubject {
+        let mut subject = test_subject(request);
+        subject.matchers = vec![
+            luca_protocol::PermissionMatcherV1::Command {
+                token: "ls".into(),
+                argv_prefix: Vec::new(),
+            },
+            luca_protocol::PermissionMatcherV1::Command {
+                token: "echo".into(),
+                argv_prefix: Vec::new(),
+            },
+        ];
+        subject.matcher_names = vec!["ls".into(), "echo".into()];
+        subject.display_name = "ls and echo".into();
+        subject
+    }
+
+    #[test]
+    fn always_here_saves_one_rule_per_segment() {
+        let request = request("compound", 20);
+        let subject = compound_subject(&request);
+        let rules = rules_for(&subject).expect("a rule per segment");
+
+        assert_eq!(rules.len(), 2);
+        assert_eq!(
+            rules
+                .iter()
+                .map(|rule| rule.display_name.clone())
+                .collect::<Vec<_>>(),
+            vec!["Run ls in Luca", "Run echo in Luca"]
+        );
+        assert_eq!(
+            rules
+                .iter()
+                .map(|rule| rule.matcher.clone())
+                .collect::<Vec<_>>(),
+            subject.matchers
+        );
+        for rule in &rules {
+            assert_eq!(rule.validate(), Ok(()));
+            assert_eq!(rule.effect, PermissionEffectV1::Allow);
+            assert_eq!(rule.resident_pubkey, subject.resident);
+            assert!(matches!(
+                rule.scope,
+                luca_protocol::PermissionRuleScopeV1::Project { .. }
+            ));
+        }
+        // Each rule is its own row in the permissions list, revocable alone.
+        assert_ne!(rules[0].rule_id, rules[1].rule_id);
+
+        // A single segment still mints exactly the one rule it always did.
+        let single = rules_for(&test_subject(&request)).expect("one rule");
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].display_name, "Run git status in Luca");
+
+        // With no project there is no "here", so nothing is written at all.
+        let mut nowhere = compound_subject(&request);
+        nowhere.project = None;
+        assert!(rules_for(&nowhere).is_none());
+
+        // Nothing to remember writes nothing.
+        let mut bare = compound_subject(&request);
+        bare.matchers.clear();
+        bare.matcher_names.clear();
+        assert!(rules_for(&bare).is_none());
+    }
+
+    #[test]
+    fn task_remembers_every_segment_for_the_turn() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let task_request = request("compound-task", 21);
+        let resident = task_request.resident_pubkey.as_str().to_owned();
+        let turn = task_request.turn_id.as_str().to_owned();
+        let subject = compound_subject(&task_request);
+        let expected = subject.matchers.clone();
+        let (id, rx) = insert_pending_with_subject(task_request, full_offer(), subject);
+
+        resolve(&id, None, Some(ManagedPermissionTense::Task)).expect("task resolves");
+        assert_eq!(
+            rx.recv().expect("decision").decision.option_id.as_deref(),
+            Some("runtime-allow")
+        );
+        assert_eq!(
+            permission_ledger::turn_hits(&resident, 21, &turn),
+            expected,
+            "a compound line is remembered a segment at a time"
+        );
+        permission_ledger::end_turn(&resident, 21, &turn);
+    }
+
     #[test]
     fn tense_always_here_selects_allow_always_only_when_advertised() {
         let _guard = permission_ledger::test_global_state_guard();
@@ -1331,6 +1457,7 @@ mod tests {
             always_here: false,
             deny: true,
             project_label: Some("Luca".into()),
+            remembers: Vec::new(),
             note: Some("This one always asks.".into()),
         };
         let (id, rx) = insert_pending_with(request("door", 13), door);
@@ -1414,7 +1541,7 @@ mod tests {
             ),
             (
                 Verdict::Allow(AllowReason::Rule {
-                    rule_id: "rule-1".into(),
+                    rule_ids: vec!["rule-1".into()],
                     display_name: "git status".into(),
                 }),
                 "Allowed by your rule: git status · Always in Luca",
@@ -1512,7 +1639,29 @@ mod tests {
             .expect("offer object");
         assert_eq!(offer.get("alwaysHere"), Some(&serde_json::json!(true)));
         assert_eq!(offer.get("projectLabel"), Some(&serde_json::json!("Luca")));
-        assert_eq!(offer.len(), 6);
+        assert_eq!(
+            offer.get("remembers"),
+            Some(&serde_json::json!(["git status"])),
+            "the card needs the names it would write down"
+        );
+        assert_eq!(offer.len(), 7);
+
+        // An offer that remembers nothing says so by omission.
+        let door = serde_json::to_value(PendingManagedPermission {
+            pending_id: "pending-door".into(),
+            request: PendingManagedPermissionRequest::Runtime(request("door-offer", 16)),
+            offer: Some(PermissionOfferV1 {
+                once: true,
+                task: false,
+                always_here: false,
+                deny: true,
+                project_label: None,
+                remembers: Vec::new(),
+                note: Some("This one always asks.".into()),
+            }),
+        })
+        .expect("serialize door event");
+        assert!(door.pointer("/offer/remembers").is_none());
 
         // A structured capability request has no offer at all.
         let event = serde_json::to_value(PendingManagedPermission {
