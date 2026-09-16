@@ -4,6 +4,7 @@ import { invokeTauri } from "@/shared/api/tauri";
 import type {
   ManagedPermissionActivityKind,
   ManagedPermissionRequest,
+  ManagedPermissionTense,
   ManagedPermissionResolvedEvent,
   PendingManagedPermission,
   PermissionOffer,
@@ -169,13 +170,19 @@ export async function listPendingManagedPermissions(): Promise<
   return pending.map(normalizePending);
 }
 
+/**
+ * Answer one permission card. A V1 card sends the tense the owner chose and no
+ * option id; the older capability card still names the exact runtime option.
+ */
 export async function resolveManagedPermission(
   pendingId: string,
   optionId?: string,
+  tense?: ManagedPermissionTense,
 ): Promise<void> {
   await invokeTauri("resolve_managed_permission", {
     pendingId,
     optionId: optionId ?? null,
+    tense: tense ?? null,
   });
 }
 

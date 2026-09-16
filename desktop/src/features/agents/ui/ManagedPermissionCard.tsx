@@ -5,9 +5,13 @@ import { toast } from "sonner";
 
 import { resolveManagedPermission } from "@/shared/api/managedPermissions";
 import { managedPermissionOutcomeCopy } from "@/features/messages/lib/managedOperationalStatus";
-import { canRememberCapabilityPermission } from "@/features/agents/managedPermissionPolicy";
+import {
+  canRememberCapabilityPermission,
+  runtimePermissionOffer,
+} from "@/features/agents/managedPermissionPolicy";
 import type {
   ManagedPermissionResolvedEvent,
+  ManagedPermissionTense,
   PendingManagedPermission,
 } from "@/shared/api/types";
 import { Button } from "@/shared/ui/button";
@@ -17,6 +21,11 @@ type ManagedPermissionCardProps = {
   compact?: boolean;
 };
 
+/** "Saving…" only where the answer is written down; everything else is sent. */
+function busyLabel(tense: ManagedPermissionTense): string {
+  return tense === "always_here" ? "Saving…" : "Sending…";
+}
+
 export function ManagedPermissionCard({
   pending,
   compact = false,
@@ -25,6 +34,8 @@ export function ManagedPermissionCard({
   const request = pending.request;
   const structured = request.protocol === "luca.managed.permission.v2";
   const canRemember = structured && canRememberCapabilityPermission(request);
+  const offer = runtimePermissionOffer(pending);
+  const projectLabel = offer.projectLabel;
 
   React.useEffect(() => {
     let dispose: (() => void) | null = null;
@@ -47,10 +58,14 @@ export function ManagedPermissionCard({
     };
   }, [pending.pendingId]);
 
-  async function decide(optionId?: string) {
-    setResolving(optionId ?? "cancel");
+  async function resolve(
+    key: string,
+    optionId?: string,
+    tense?: ManagedPermissionTense,
+  ) {
+    setResolving(key);
     try {
-      await resolveManagedPermission(pending.pendingId, optionId);
+      await resolveManagedPermission(pending.pendingId, optionId, tense);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -60,6 +75,12 @@ export function ManagedPermissionCard({
       setResolving(null);
     }
   }
+
+  /** V1: the owner answers in a tense, and the desktop picks the option. */
+  const decide = (tense: ManagedPermissionTense) =>
+    resolve(tense, undefined, tense);
+  /** V2: the capability card still names the exact option it advertised. */
+  const choose = (optionId: string) => resolve(optionId, optionId);
 
   return (
     <section
@@ -87,72 +108,139 @@ export function ManagedPermissionCard({
               <p className="mt-2 truncate font-mono text-badge uppercase tracking-caps-wide text-ink-faint">
                 {request.resource.displayName}
               </p>
-            ) : request.actionPreview ? (
-              <div
-                className="mt-3"
-                data-testid="managed-permission-action-preview"
-              >
-                <p className="text-badge font-medium uppercase tracking-caps-wide text-ink-faint">
-                  Action preview
+            ) : (
+              <>
+                <p
+                  className="mt-1 text-xs leading-5 text-muted-foreground"
+                  data-testid="managed-permission-where"
+                >
+                  {projectLabel
+                    ? `In ${projectLabel}`
+                    : "Outside your projects"}
                 </p>
-                <p className="mt-1 whitespace-pre-wrap wrap-anywhere font-mono text-xs leading-5 text-foreground">
-                  {request.actionPreview}
-                </p>
-              </div>
-            ) : request.toolCallId ? (
-              <p className="mt-2 truncate font-mono text-badge uppercase tracking-caps-wide text-ink-faint">
-                {request.toolCallId}
-              </p>
-            ) : null}
+                {offer.note ? (
+                  <p
+                    className="mt-1 text-xs leading-5 text-muted-foreground"
+                    data-testid="managed-permission-note"
+                  >
+                    {offer.note}
+                  </p>
+                ) : null}
+                {request.actionPreview ? (
+                  <div
+                    className="mt-3"
+                    data-testid="managed-permission-action-preview"
+                  >
+                    <p className="text-badge font-medium uppercase tracking-caps-wide text-ink-faint">
+                      Action preview
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap wrap-anywhere font-mono text-xs leading-5 text-foreground">
+                      {request.actionPreview}
+                    </p>
+                  </div>
+                ) : request.toolCallId ? (
+                  <p className="mt-2 truncate font-mono text-badge uppercase tracking-caps-wide text-ink-faint">
+                    {request.toolCallId}
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-          <Button
-            disabled={resolving !== null}
-            onClick={() => void decide()}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Cancel
-          </Button>
           {structured ? (
             <>
               <Button
                 disabled={resolving !== null}
-                onClick={() => void decide("allow_once")}
+                onClick={() => void resolve("cancel")}
+                size="sm"
+                type="button"
+                variant="ghost"
+              >
+                Deny
+              </Button>
+              <Button
+                disabled={resolving !== null}
+                onClick={() => void choose("allow_once")}
                 size="sm"
                 type="button"
                 variant="outline"
               >
-                {resolving === "allow_once" ? "Sending…" : "Allow once"}
+                {resolving === "allow_once" ? "Sending…" : "Once"}
               </Button>
               {canRemember ? (
                 <Button
                   disabled={resolving !== null}
-                  onClick={() => void decide("always_allow")}
+                  onClick={() => void choose("always_allow")}
                   size="sm"
                   type="button"
                 >
-                  {resolving === "always_allow" ? "Saving…" : "Always allow"}
+                  {resolving === "always_allow" ? "Saving…" : "Always here"}
                 </Button>
               ) : null}
             </>
           ) : (
-            request.options.map((option) => (
-              <Button
-                disabled={resolving !== null}
-                key={option.optionId}
-                onClick={() => void decide(option.optionId)}
-                size="sm"
-                type="button"
-                variant="outline"
-              >
-                {resolving === option.optionId ? "Sending…" : option.name}
-              </Button>
-            ))
+            <>
+              {offer.deny ? (
+                <Button
+                  data-testid="managed-permission-tense-deny"
+                  disabled={resolving !== null}
+                  onClick={() => void decide("deny")}
+                  size="sm"
+                  type="button"
+                  variant="ghost"
+                >
+                  {resolving === "deny" ? busyLabel("deny") : "Deny"}
+                </Button>
+              ) : null}
+              {offer.once ? (
+                <Button
+                  data-testid="managed-permission-tense-once"
+                  disabled={resolving !== null}
+                  onClick={() => void decide("once")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {resolving === "once" ? busyLabel("once") : "Once"}
+                </Button>
+              ) : null}
+              {offer.task ? (
+                <Button
+                  data-testid="managed-permission-tense-task"
+                  disabled={resolving !== null}
+                  onClick={() => void decide("task")}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                >
+                  {resolving === "task" ? busyLabel("task") : "For this task"}
+                </Button>
+              ) : null}
+              {offer.alwaysHere ? (
+                <Button
+                  data-testid="managed-permission-tense-always_here"
+                  disabled={resolving !== null}
+                  onClick={() => void decide("always_here")}
+                  size="sm"
+                  type="button"
+                >
+                  {resolving === "always_here"
+                    ? busyLabel("always_here")
+                    : "Always here"}
+                </Button>
+              ) : null}
+            </>
           )}
         </div>
+        {!structured && offer.alwaysHere ? (
+          <p
+            className="mt-2 text-right text-xs leading-5 text-ink-faint"
+            data-testid="managed-permission-remember-hint"
+          >
+            {`Remembered for ${projectLabel ?? "this project"}. Take it back any time in Settings › Agents › Capabilities.`}
+          </p>
+        ) : null}
       </div>
     </section>
   );
