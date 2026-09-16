@@ -461,12 +461,18 @@ excluded from Polyphonic catalogues where required.
 ## 8. Permission and authority contract
 
 1. Change the managed runtime default from `bypassPermissions` to the
-   runtime's normal permission mode.
+   runtime's normal permission mode. **Done (beta.11).** The mode now comes
+   from the owner's access level, `Accept edits` by default.
 2. Remove the build-velocity branch that silently chooses `allow_once`.
+   **Done (beta.11).** Nothing is auto-allowed except what the ledger allows,
+   and every one of those is written to the Activity trace.
 3. An explicitly selected Full Access mode remains allowed only when the user
    chose it in resident/runtime settings. The active mode is visible in the
    task confirmation and Work Tray.
-4. Runtime-owned tool requests remain governed by the runtime's native policy.
+4. Runtime-owned tool requests are governed by the runtime's native policy
+   where the runtime accepts one from the app (Claude Code's permission mode,
+   Codex's approval policy and sandbox), and by the app's remembered rules
+   before any card is raised.
 5. Polyphonic-managed MCP availability requires an exact resident grant, but a
    connection grant does not authorize destructive or external side effects.
 6. High-impact, destructive, external-communication, and credential actions
@@ -474,6 +480,9 @@ excluded from Polyphonic catalogues where required.
 7. Denial, timeout, app close, resident restart, or stale request identity
    produces no side effect and a distinct visible outcome.
 8. Permission cards contain display-safe metadata only.
+9. Every permission decision — allowed on its own, allowed by a rule, allowed
+   once, declined, or closed without an answer — is recorded in the Activity
+   trace, with the shared-room projection carrying no command, path or host.
 
 ### beta.11 contract
 

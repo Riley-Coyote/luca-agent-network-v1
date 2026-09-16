@@ -19,9 +19,13 @@ Restoring any of them is the one way to fail this task.
    well-formed ids, non-empty valid recipient set), not causal pedigree. The old strict rules refused
    the store's own file after an exchange widened a row and bricked every send. Do not tighten the
    validator. Do not remove the self-staging. Do not re-add per-depth causal invariants.
-2. **In-house tool permissions auto-approve** (`79e1fa94`). `await_local_decision` selects the
-   runtime's own allow-flavoured option without raising a card. `LUCA_ASK_TOOL_PERMISSIONS=1`
-   restores the cards. This is the intended default while building. Do not remove the auto-approve.
+2. **In-house tool permissions auto-approve** (`79e1fa94`). **Superseded by beta.11.** This was the
+   intended default while building, and it is gone. `await_local_decision` now asks the permission
+   ledger first: Polyphonic's own read-only tools and broker-guarded tools are allowed without a
+   card, a remembered rule answers for what the owner already said yes to, the doors always ask, and
+   every one of those outcomes is written to the Activity trace. Nothing is blanket-approved any
+   more, and `LUCA_ASK_TOOL_PERMISSIONS` no longer has anything to restore. Do not re-add a
+   build-velocity auto-approve.
 3. **The resident's shell carries no relay credential** (`69438bf3`). The `buzz` MCP a managed
    resident gets receives only `BUZZ_RELAY_URL` — no private key, no auth tag, no owner pubkey. The
    old behavior (key in the shell env) let a model sign as the resident from a shell; a live test

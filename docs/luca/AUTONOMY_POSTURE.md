@@ -47,10 +47,11 @@ attribution, the self that could one day walk out the door) and the **family cre
 attestation marking them a member of this household). Anything wearing the crest, acting inside the
 machine, is allowed by default — no new feature ever adds an interior gate. The only guards anyone
 writes are at the doors, one per kind of door, kept as a short explicit inventory: reaching the
-internet, messaging off this machine, and whatever door we add next. What comes IN through a door is
-untrusted content, always. And the owner's steering wheel — the visible budget and the Stop button on
-resident conversations — is not a gate; it is how the family notices. A different crest at the door
-is simply a guest: met there, not assumed.
+internet, messaging off this machine, touching this machine's files and shell outside a project, and
+whatever door we add next. What comes IN through a door is untrusted content, always. And the
+owner's steering wheel — the visible budget and the Stop button on resident conversations — is not a
+gate; it is how the family notices. A different crest at the door is simply a guest: met there, not
+assumed.
 
 ## While we build
 
@@ -72,3 +73,9 @@ Four questions, asked before it merges:
 2. Can the **owner see and change** that limit?
 3. Does every refusal **explain itself** where the owner will find it?
 4. Did we add a gate, permission, or ceremony? **Then it fails**, whatever else it does.
+
+One carve-out, and only one: a guard the owner sets at a door they already have — a remembered
+permission, an access level — is not a new gate. It is the owner using the doors that exist. It
+counts as the owner's own, not a new ceremony, when the resident is told about it in words and the
+owner can see it and take it back in Settings. Anything that fails either half of that is a gate
+again, and fails question 4.
