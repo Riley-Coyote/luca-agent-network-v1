@@ -475,6 +475,50 @@ excluded from Polyphonic catalogues where required.
    produces no side effect and a distinct visible outcome.
 8. Permission cards contain display-safe metadata only.
 
+### beta.11 contract
+
+Environment, in the harness:
+
+- `BUZZ_ACP_PERMISSION_MODE` — `default` | `accept-edits` |
+  `bypass-permissions`. `default` is the beta.11 setting; the other two are
+  only reachable from an explicit owner choice in resident/runtime settings.
+- `BUZZ_ACP_CODEX_POLICY` — a JSON object with exactly two keys,
+  `approval_policy` and `sandbox_mode`. Any other key, or a value outside the
+  runtime's own vocabulary, is a configuration error rather than a silent
+  fallback.
+
+Tauri commands, in the desktop:
+
+- `resolve_managed_permission(pending_id, option_id?, tense?)` — `tense` is
+  `once` | `task` | `always_here` | `deny`. Absent, it means `once`: the
+  answer applies to this request and nothing is remembered. Any tense other
+  than `once`/`deny` may only be sent for an option the offer marked
+  available.
+- `revoke_permission_rule(rule_id)` — retires one remembered rule. Revocation
+  is durable and never retroactively undoes a side effect already taken.
+- `get_resident_runtime_tier(resident_pubkey)` — the resident's current
+  runtime tier, used to decide which tenses a card may offer.
+
+Shapes, on the wire (`luca-protocol`):
+
+- `ManagedPermissionRequestV1` carries optional match fields beside the
+  runtime options: `dispatch_receipt_id`, `tool_kind`, `activity_kind`,
+  `tool_name`, `mcp_server`, `mcp_tool`, `command_token`,
+  `command_argv_prefix` (≤ 2), `path`, `domain`, `write`. Every one is
+  optional and bounded; a harness frame without them validates unchanged.
+- The offer is desktop-owned, never runtime-supplied:
+  `{ once, task, always_here, deny, project_label, note }`. A card that
+  arrives without one gets the fail-closed offer — `once` and `deny` only.
+- A rule is `luca.permission.rule.v1`:
+  `{ protocol, rule_id, resident_pubkey, scope, matcher, effect,
+  display_name, created_at, revoked_at?, last_used_at?, use_count }`.
+  `scope` is `{ scope: "project", source_id }` or `{ scope: "everywhere" }`;
+  `matcher` is one of `command` (token plus ≤ 2 argv words), `path` (write
+  flag), `mcp_tool` (server family plus tool), or `domain` (host); `effect`
+  is `allow` or `deny`. `everywhere` is accepted only for a read-only
+  matcher — never a command, never a write, never an MCP tool outside the
+  pre-allowed inventory.
+
 ## 9. Failure, retry, cancellation, and restart rules
 
 - Capability unknown: keep Checking until handshake completes; offer Retry
