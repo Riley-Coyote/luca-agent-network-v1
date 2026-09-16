@@ -1,5 +1,32 @@
 # Luca fork instructions
 
+## Where the work is (verified 2026-09-16)
+
+Two separate lines of work live in this repo. **They never merge into each
+other.**
+
+| Line | Branch | Checkout |
+|------|--------|----------|
+| The app — Polyphonic desktop | `codex/first-meeting-finish` (ships the releases; tagged `v0.5.0-beta.N`) | `~/Documents/Repositories/.codex-workspaces/luca-first-meeting-finish` |
+| The website — beta landing page | `codex/quickchat` (only `polyphonic-landing/`) | `~/Documents/Repositories/luca-agent-network-v1` |
+
+Start new app work from the shipped release tag, in its own worktree:
+
+```bash
+git worktree add -b <short-name> <path> "$(git describe --tags --abbrev=0 codex/first-meeting-finish)"
+```
+
+**Do not branch from, merge into, or treat as current** — every one of these is
+strictly behind the shipped app and has no commits of its own:
+
+- `luca/v1` — 1057 commits behind. This is still GitHub's default branch, so
+  tooling will call it "main". It is history, not the product.
+- `luca/v1.1` — 428 commits behind.
+- `agent/runtime-reliability`, `agent/vision-demo` — reference coordinates only.
+
+`HANDOFF.md`, `docs/luca/G1_CHECKLIST.md` and the `.codex/luca-v1/` kit are
+historical planning records. Read them for intent, never for where the code is.
+
 This checkout is the Luca personal-agent application, derived from Buzz. Before
 changing code, read [HANDOFF.md](HANDOFF.md) and
 [docs/luca/G1_CHECKLIST.md](docs/luca/G1_CHECKLIST.md). Those files override
@@ -15,9 +42,10 @@ Buzz product assumptions in the upstream guide below. In particular:
   through each runtime's own supported store. Credentials are never displayed,
   retained, or copied into Luca; a credential may only be set directly into the
   runtime-owned store. See `docs/luca/agent-config/RUNTIME_CONFIG_ATLAS.md`.
-- `luca/v1.1` is the integrated release branch. Historical feature branches,
-  including `agent/runtime-reliability` and `agent/vision-demo`, are reference
-  coordinates and must not be merged wholesale.
+- The shipped app line is `codex/first-meeting-finish` (see "Where the work is"
+  above). Historical branches, including `luca/v1`, `luca/v1.1`,
+  `agent/runtime-reliability` and `agent/vision-demo`, are reference coordinates
+  and must not be merged wholesale.
 - Do not claim G1 from unit tests alone. Use the repository checklist.
 
 # AGENTS.md — Upstream AI Agent Contributor Guide

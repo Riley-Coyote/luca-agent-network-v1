@@ -1,5 +1,10 @@
 # Luca V1 continuation handoff
 
+> **Historical record — read for intent, not for current state (2026-09-16).**
+> Where the code actually lives, which branch ships, and what must never be
+> merged is in [CLAUDE.md](CLAUDE.md) under "Where the work is". The branch
+> names below are older than the shipped app.
+
 > **Product direction — reaffirmed by Riley, 2026-09-14:** Polyphonic is
 > conductor-first. A user can collaborate with one primary resident who handles
 > communication, delegation, and synthesis with other digital minds. The human
