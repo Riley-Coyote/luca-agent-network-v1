@@ -147,7 +147,6 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
 /// decision on a runtime it has not been taught about.
 // The ledger (WP-B) is the only caller; keep the allowance local rather than
 // weakening the desktop crate's lint gate, and drop it once that lands.
-#[allow(dead_code)]
 pub(crate) fn forwards_native_always(family: &str) -> bool {
     manifest(family)
         .map(|manifest| manifest.forwards_native_always)
