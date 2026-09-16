@@ -314,6 +314,7 @@ async fn start_runtime_task_internal(
         app.clone(),
         resident_pubkey.clone(),
         session_epoch,
+        working_folder.clone(),
     )?;
     #[cfg(unix)]
     let managed_mcp_fd =

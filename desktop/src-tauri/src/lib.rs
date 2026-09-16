@@ -1162,6 +1162,8 @@ pub fn run() {
             set_household_access_level,
             set_resident_access_level,
             revoke_resident_capability_grant,
+            revoke_permission_rule,
+            get_resident_runtime_tier,
             get_resident_continuity,
             get_resident_continuity_activity,
             get_managed_turn_context_receipt,

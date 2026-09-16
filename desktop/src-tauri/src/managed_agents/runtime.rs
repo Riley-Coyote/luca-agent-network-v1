@@ -2496,6 +2496,7 @@ fn spawn_agent_child_unix(
         app.clone(),
         resident_pubkey.clone(),
         session_epoch,
+        managed_working_root.clone(),
     )?;
     #[cfg(unix)]
     let managed_presentation_fd = crate::luca::managed_presentation::create_endpoint(
@@ -2592,6 +2593,14 @@ fn spawn_agent_child_unix(
         "{}/query",
         crate::relay::relay_http_base_url(&effective_relay_url).trim_end_matches('/')
     );
+    // Resolved before the environment is built: the permission tier is written
+    // into it, and the tier depends on which runtime family this resident is.
+    let runtime_meta = known_acp_runtime(&effective_command);
+    let runtime_family = match runtime_meta.map(|runtime| runtime.id) {
+        Some("claude") => "claude_code",
+        Some(runtime) => runtime,
+        None => "unknown",
+    };
     let mut command = std::process::Command::new(&resolved_acp_command);
     command.current_dir(&managed_working_root);
     #[cfg(unix)]
@@ -2626,6 +2635,35 @@ fn spawn_agent_child_unix(
         command.env_remove("LUCA_MANAGED_MCP_FD");
     }
     command.env("LUCA_MANAGED_BINDING_REF", runtime_binding_ref.as_str());
+    // The owner's access rung, translated into this runtime's own policy. It is
+    // read once, at spawn: changing the level applies the next time the
+    // resident starts.
+    {
+        let level = crate::luca::resident_capability_authority::effective_access(
+            app,
+            owner_pubkey.as_str(),
+            resident_pubkey.as_str(),
+        )
+        .unwrap_or_default();
+        let tier = crate::luca::permission_tier::for_family(runtime_family, level);
+        command.env("BUZZ_ACP_PERMISSION_MODE", tier.buzz_acp_mode);
+        match tier
+            .codex_policy
+            .as_ref()
+            .and_then(|policy| serde_json::to_string(policy).ok())
+        {
+            Some(policy) => {
+                command.env("BUZZ_ACP_CODEX_POLICY", policy);
+            }
+            None => {
+                command.env_remove("BUZZ_ACP_CODEX_POLICY");
+            }
+        }
+        luca_log!(
+            info,
+            "luca-permission-tier: resident starting at its owner's access level"
+        );
+    }
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
     } else {
@@ -2642,12 +2680,6 @@ fn spawn_agent_child_unix(
             command.env("BUZZ_ACP_MCP_COMMAND", "");
         }
     }
-    let runtime_meta = known_acp_runtime(&effective_command);
-    let runtime_family = match runtime_meta.map(|runtime| runtime.id) {
-        Some("claude") => "claude_code",
-        Some(runtime) => runtime,
-        None => "unknown",
-    };
     command.env(
         crate::luca::runtime_session_purpose::SESSION_PURPOSE_STORE_ENV,
         &runtime_session_purpose_store,

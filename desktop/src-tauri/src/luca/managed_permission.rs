@@ -3,22 +3,32 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
+    path::{Path, PathBuf},
     sync::{mpsc, Mutex, OnceLock},
     time::Duration,
 };
 
 use luca_protocol::{
     CapabilityKind, CapabilityRisk, ManagedPermissionDecisionV1, ManagedPermissionDispositionV1,
-    ManagedPermissionRequestV1, ManagedPermissionRequestV2, ResidentAccessLevel,
-    MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS,
+    ManagedPermissionRequestV1, ManagedPermissionRequestV2, PermissionEffectV1, PermissionRuleV1,
+    ResidentAccessLevel, MANAGED_PERMISSION_PROTOCOL, MANAGED_PERMISSION_TIMEOUT_SECS,
+    PERMISSION_RULE_PROTOCOL,
 };
 use tauri::{AppHandle, Emitter};
+
+use super::permission_ledger::{
+    self, AllowReason, ManagedPermissionTense, PermissionOfferV1, PermissionSubject, ProjectRef,
+    Verdict,
+};
 
 const PENDING_EVENT: &str = "managed-permission-pending";
 const RESOLVED_EVENT: &str = "managed-permission-resolved";
 
 struct Pending {
     request: ManagedPermissionRequestV1,
+    owner_pubkey: String,
+    subject: PermissionSubject,
+    offer: PermissionOfferV1,
     decision_tx: mpsc::Sender<ResolvedManagedPermission>,
 }
 
@@ -50,6 +60,10 @@ pub(crate) enum ManagedPermissionResolutionOutcome {
 struct ResolvedManagedPermission {
     decision: ManagedPermissionDecisionV1,
     outcome: ManagedPermissionResolutionOutcome,
+    /// The answer the owner actually pressed, when they pressed one. Absent on
+    /// a cancellation and on the legacy path where the card echoed a runtime
+    /// option directly.
+    tense: Option<ManagedPermissionTense>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -64,6 +78,10 @@ struct ManagedPermissionResolvedEvent {
 pub(crate) struct PendingManagedPermission {
     pub pending_id: String,
     pub request: PendingManagedPermissionRequest,
+    /// Which answers this card may offer. Absent on a structured capability
+    /// request, which has its own fixed options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offer: Option<PermissionOfferV1>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -108,7 +126,62 @@ fn cancelled_resolution(
     ResolvedManagedPermission {
         decision: cancelled(request),
         outcome,
+        tense: None,
     }
+}
+
+/// The runtime's option for one semantic kind.
+///
+/// The kind is the only thing the desktop may reason about: an option id is the
+/// runtime's private token for this one request and is never guessed, cached or
+/// carried across requests. Spelling is normalised so an adapter that writes
+/// `allowOnce` is understood exactly like one that writes `allow_once`.
+fn option_by_kind<'a>(request: &'a ManagedPermissionRequestV1, kind: &str) -> Option<&'a str> {
+    let wanted = kind.to_ascii_lowercase().replace('_', "");
+    request
+        .options
+        .iter()
+        .find(|option| option.kind.to_ascii_lowercase().replace('_', "") == wanted)
+        .map(|option| option.option_id.as_str())
+}
+
+fn selected_decision(
+    request: &ManagedPermissionRequestV1,
+    option_id: Option<String>,
+) -> ManagedPermissionDecisionV1 {
+    ManagedPermissionDecisionV1 {
+        protocol: MANAGED_PERMISSION_PROTOCOL.into(),
+        resident_pubkey: request.resident_pubkey.clone(),
+        session_epoch: request.session_epoch,
+        turn_id: request.turn_id.clone(),
+        conversation_id: request.conversation_id.clone(),
+        acp_request_id: request.acp_request_id.clone(),
+        disposition: if option_id.is_some() {
+            ManagedPermissionDispositionV1::Selected
+        } else {
+            ManagedPermissionDispositionV1::Cancelled
+        },
+        option_id,
+    }
+}
+
+/// Turn a verdict the ledger settled on its own into the exact decision the
+/// runtime is told. `None` means there is nothing truthful to send — either the
+/// verdict is a card, or the runtime advertised no option of the needed kind —
+/// and the caller cancels instead of guessing.
+fn decide_and_select(
+    request: &ManagedPermissionRequestV1,
+    verdict: &Verdict,
+) -> Option<ManagedPermissionDecisionV1> {
+    let kind = match verdict {
+        Verdict::Allow(_) => "allow_once",
+        Verdict::Deny { .. } => "reject_once",
+        Verdict::Ask { .. } => return None,
+    };
+    let option_id = option_by_kind(request, kind)?.to_owned();
+    let decision = selected_decision(request, Some(option_id));
+    decision.validate_for(request).ok()?;
+    Some(decision)
 }
 
 fn selected_outcome(
@@ -145,13 +218,14 @@ pub(crate) fn create_endpoint(
     app: AppHandle,
     resident_pubkey: luca_protocol::Hex64,
     session_epoch: luca_protocol::SafeU53,
+    working_root: PathBuf,
 ) -> Result<ManagedPermissionChildFd, String> {
     use std::os::fd::{FromRawFd, IntoRawFd};
     let (desktop, child) = std::os::unix::net::UnixStream::pair()
         .map_err(|error| format!("create managed permission socketpair: {error}"))?;
     std::thread::Builder::new()
         .name("luca-managed-permission".into())
-        .spawn(move || serve(app, desktop, resident_pubkey, session_epoch))
+        .spawn(move || serve(app, desktop, resident_pubkey, session_epoch, working_root))
         .map_err(|error| format!("start managed permission server: {error}"))?;
     // The raw fd is immediately re-owned, avoiding a path/token/env secret.
     let owned = unsafe { std::os::fd::OwnedFd::from_raw_fd(child.into_raw_fd()) };
@@ -164,6 +238,7 @@ fn serve(
     stream: std::os::unix::net::UnixStream,
     resident_pubkey: luca_protocol::Hex64,
     session_epoch: luca_protocol::SafeU53,
+    working_root: PathBuf,
 ) {
     let writer = match stream.try_clone() {
         Ok(writer) => writer,
@@ -187,7 +262,7 @@ fn serve(
         {
             break;
         }
-        let decision = await_local_decision(&app, request.clone());
+        let decision = await_local_decision(&app, request.clone(), &working_root);
         let Ok(bytes) = serde_json::to_vec(&decision) else {
             break;
         };
@@ -203,16 +278,177 @@ fn serve(
     }
 }
 
-/// Present one desktop-owned permission request through the existing local UI.
+/// The noun the room sees. It never names a command, a path or a host: the
+/// people in the conversation learn that something was allowed, not what.
+fn room_noun(subject: &PermissionSubject) -> &'static str {
+    match subject.matcher.as_ref() {
+        Some(luca_protocol::PermissionMatcherV1::Command { .. }) => "a command",
+        Some(luca_protocol::PermissionMatcherV1::Path { .. }) => "a file",
+        Some(luca_protocol::PermissionMatcherV1::Domain { .. }) => "a website",
+        _ => "a tool",
+    }
+}
+
+/// One audited line: what the owner reads, what the room reads, and whether it
+/// counts as done or refused.
+struct AuditLine {
+    text: String,
+    room_text: String,
+    allowed: bool,
+}
+
+fn audit_allowed(subject: &PermissionSubject, text: String) -> AuditLine {
+    AuditLine {
+        text,
+        room_text: format!("Allowed {}", room_noun(subject)),
+        allowed: true,
+    }
+}
+
+fn audit_declined(subject: &PermissionSubject, text: String) -> AuditLine {
+    AuditLine {
+        text,
+        room_text: format!("Declined {}", room_noun(subject)),
+        allowed: false,
+    }
+}
+
+fn automatic_audit_line(subject: &PermissionSubject, verdict: &Verdict) -> Option<AuditLine> {
+    let name = subject.display_name.as_str();
+    Some(match verdict {
+        Verdict::Allow(AllowReason::PreAllowed) => {
+            audit_allowed(subject, format!("Allowed on its own: {name}"))
+        }
+        Verdict::Allow(AllowReason::BrokerGuarded) => {
+            audit_allowed(subject, format!("Handled by Polyphonic: {name}"))
+        }
+        Verdict::Allow(AllowReason::TurnRule) => {
+            audit_allowed(subject, format!("Allowed for this task: {name}"))
+        }
+        Verdict::Allow(AllowReason::Rule { display_name, .. }) => audit_allowed(
+            subject,
+            match subject.project.as_ref() {
+                Some(project) => format!(
+                    "Allowed by your rule: {display_name} · Always in {}",
+                    project.label()
+                ),
+                None => format!("Allowed by your rule: {display_name}"),
+            },
+        ),
+        Verdict::Deny { reason } => {
+            audit_declined(subject, format!("Declined by your rule: {reason}"))
+        }
+        Verdict::Ask { .. } => return None,
+    })
+}
+
+fn answered_audit_line(
+    subject: &PermissionSubject,
+    outcome: ManagedPermissionResolutionOutcome,
+    tense: Option<ManagedPermissionTense>,
+) -> AuditLine {
+    let name = subject.display_name.as_str();
+    match outcome {
+        ManagedPermissionResolutionOutcome::Approved => match tense {
+            Some(ManagedPermissionTense::Task) => {
+                audit_allowed(subject, format!("Allowed for this task: {name}"))
+            }
+            Some(ManagedPermissionTense::AlwaysHere) => audit_allowed(
+                subject,
+                match subject.project.as_ref() {
+                    Some(project) => {
+                        format!(
+                            "Allowed by your rule: {name} · Always in {}",
+                            project.label()
+                        )
+                    }
+                    None => format!("Allowed by your rule: {name}"),
+                },
+            ),
+            _ => audit_allowed(subject, format!("You allowed once: {name}")),
+        },
+        ManagedPermissionResolutionOutcome::Rejected => {
+            audit_declined(subject, format!("You said no: {name}"))
+        }
+        ManagedPermissionResolutionOutcome::Expired => AuditLine {
+            text: "No answer in time".into(),
+            room_text: "No answer in time".into(),
+            allowed: false,
+        },
+        ManagedPermissionResolutionOutcome::SessionReplaced => AuditLine {
+            text: "Closed when the resident restarted".into(),
+            room_text: "Closed when the resident restarted".into(),
+            allowed: false,
+        },
+        ManagedPermissionResolutionOutcome::Cancelled
+        | ManagedPermissionResolutionOutcome::ApplicationClosed => AuditLine {
+            text: "Closed with Polyphonic".into(),
+            room_text: "Closed with Polyphonic".into(),
+            allowed: false,
+        },
+    }
+}
+
+fn audit(app: &AppHandle, request: &ManagedPermissionRequestV1, line: AuditLine) {
+    let Ok(scope) = super::activity_trace::host_scope(app) else {
+        return;
+    };
+    super::activity_trace::record_permission(
+        app,
+        &scope,
+        request.resident_pubkey.as_str(),
+        request.conversation_id.as_str(),
+        request
+            .dispatch_receipt_id
+            .as_ref()
+            .map(luca_protocol::OpaqueId::as_str),
+        request.turn_id.as_str(),
+        &line.text,
+        &line.room_text,
+        line.allowed,
+    );
+}
+
+/// Present one desktop-owned permission request, after asking the ledger
+/// whether it needs presenting at all.
+///
 /// The caller supplies only display-safe metadata and receives one exact,
-/// request-bound decision; no capability or payload enters the event.
+/// request-bound decision; no capability or payload enters the event. A request
+/// the ledger can answer never reaches the renderer: no pending event, no
+/// resolution event, one audited line.
 pub(crate) fn await_local_decision(
     app: &AppHandle,
     request: ManagedPermissionRequestV1,
+    working_root: &Path,
 ) -> ManagedPermissionDecisionV1 {
     if request.validate().is_err() {
         return cancelled(&request);
     }
+    // Without an active owner there is no ledger to consult and no authority to
+    // answer on their behalf. Fail closed rather than guess.
+    let owner = {
+        use tauri::Manager;
+        let state = app.state::<crate::app_state::AppState>();
+        match super::conversation_context::active_scope(&state) {
+            Ok((owner, _)) => owner,
+            Err(_) => return cancelled(&request),
+        }
+    };
+    let subject = permission_ledger::subject(app, &owner, &request, working_root);
+    let verdict = permission_ledger::decide(app, owner.as_str(), &request, &subject);
+    if !matches!(verdict, Verdict::Ask { .. }) {
+        let settled = decide_and_select(&request, &verdict);
+        if let (Some(decision), Some(line)) = (settled, automatic_audit_line(&subject, &verdict)) {
+            audit(app, &request, line);
+            return decision;
+        }
+        // The runtime advertised no option of the kind this verdict needs.
+        return cancelled(&request);
+    }
+    let Verdict::Ask { offer } = verdict else {
+        return cancelled(&request);
+    };
+
     let id = pending_id(&request);
     let (tx, rx) = mpsc::channel();
     let inserted = pending().lock().ok().and_then(|mut entries| {
@@ -223,6 +459,9 @@ pub(crate) fn await_local_decision(
                 id.clone(),
                 Pending {
                     request: request.clone(),
+                    owner_pubkey: owner.as_str().to_owned(),
+                    subject: subject.clone(),
+                    offer: offer.clone(),
                     decision_tx: tx,
                 },
             );
@@ -235,6 +474,7 @@ pub(crate) fn await_local_decision(
             PendingManagedPermission {
                 pending_id: id.clone(),
                 request: PendingManagedPermissionRequest::Runtime(request.clone()),
+                offer: Some(offer),
             },
         );
         match rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS)) {
@@ -252,6 +492,11 @@ pub(crate) fn await_local_decision(
     if let Ok(mut entries) = pending().lock() {
         entries.remove(&id);
     }
+    audit(
+        app,
+        &request,
+        answered_audit_line(&subject, decision.outcome, decision.tense),
+    );
     let _ = app.emit(
         RESOLVED_EVENT,
         ManagedPermissionResolvedEvent {
@@ -271,6 +516,7 @@ pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
         .map(|(id, pending)| PendingManagedPermission {
             pending_id: id.clone(),
             request: PendingManagedPermissionRequest::Runtime(pending.request.clone()),
+            offer: Some(pending.offer.clone()),
         })
         .collect::<Vec<_>>();
     drop(entries);
@@ -283,37 +529,100 @@ pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
             .map(|(id, pending)| PendingManagedPermission {
                 pending_id: id.clone(),
                 request: PendingManagedPermissionRequest::Capability(pending.request.clone()),
+                offer: None,
             }),
     );
     Ok(result)
 }
 
-pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(), String> {
+/// Whether the offer on this card actually contains the answer the owner sent.
+/// A renderer that asks for an answer the card never offered is refused rather
+/// than obeyed.
+fn offer_allows(offer: &PermissionOfferV1, tense: ManagedPermissionTense) -> bool {
+    match tense {
+        ManagedPermissionTense::Once => offer.once,
+        ManagedPermissionTense::Task => offer.task,
+        ManagedPermissionTense::AlwaysHere => offer.always_here,
+        ManagedPermissionTense::Deny => offer.deny,
+    }
+}
+
+/// Mint the durable rule for an "Always here" answer.
+fn rule_for(subject: &PermissionSubject) -> Option<PermissionRuleV1> {
+    let matcher = subject.matcher.clone()?;
+    let source_id = subject.project.as_ref().map(ProjectRef::scope_id)?.clone();
+    let rule = PermissionRuleV1 {
+        protocol: PERMISSION_RULE_PROTOCOL.into(),
+        rule_id: luca_protocol::OpaqueId::parse(uuid::Uuid::new_v4().to_string()).ok()?,
+        resident_pubkey: subject.resident.clone(),
+        scope: luca_protocol::PermissionRuleScopeV1::Project { source_id },
+        matcher,
+        effect: PermissionEffectV1::Allow,
+        display_name: permission_ledger::rule_display_name(subject),
+        created_at: chrono::Utc::now().to_rfc3339(),
+        revoked_at: None,
+        last_used_at: None,
+        use_count: 0,
+    };
+    rule.validate().ok().map(|()| rule)
+}
+
+pub(crate) fn resolve(
+    pending_id: &str,
+    option_id: Option<String>,
+    tense: Option<ManagedPermissionTense>,
+) -> Result<(), String> {
+    resolve_runtime(None, pending_id, option_id, tense)
+}
+
+/// Resolve one pending runtime card.
+///
+/// `tense` is the beta.11 card's answer and decides everything; `option_id` is
+/// the legacy path where the card echoed one of the runtime's own options. When
+/// a tense is given the option is chosen BY KIND, never by id.
+///
+/// Remembering "Always here" needs the owner's authority, so it is only
+/// possible with an `AppHandle`. Without one the answer degrades to allowing
+/// this request alone, which is strictly narrower.
+fn resolve_runtime(
+    app: Option<&AppHandle>,
+    pending_id: &str,
+    option_id: Option<String>,
+    tense: Option<ManagedPermissionTense>,
+) -> Result<(), String> {
     let mut entries = pending()
         .lock()
         .map_err(|_| "managed permission registry unavailable".to_string())?;
     let pending = entries.get(pending_id).ok_or_else(|| {
         "managed permission request is unknown, expired, or already resolved".to_string()
     })?;
-    let outcome = option_id
-        .as_deref()
-        .map_or(ManagedPermissionResolutionOutcome::Cancelled, |option_id| {
-            selected_outcome(&pending.request, option_id)
-        });
-    let decision = ManagedPermissionDecisionV1 {
-        protocol: MANAGED_PERMISSION_PROTOCOL.into(),
-        resident_pubkey: pending.request.resident_pubkey.clone(),
-        session_epoch: pending.request.session_epoch,
-        turn_id: pending.request.turn_id.clone(),
-        conversation_id: pending.request.conversation_id.clone(),
-        acp_request_id: pending.request.acp_request_id.clone(),
-        disposition: if option_id.is_some() {
-            ManagedPermissionDispositionV1::Selected
-        } else {
-            ManagedPermissionDispositionV1::Cancelled
-        },
-        option_id,
+    let (option_id, outcome) = match tense {
+        Some(tense) => {
+            if !offer_allows(&pending.offer, tense) {
+                return Err("this permission cannot be answered that way".into());
+            }
+            let chosen = answer_option(app, pending, tense);
+            let outcome = match tense {
+                ManagedPermissionTense::Deny => ManagedPermissionResolutionOutcome::Rejected,
+                _ => ManagedPermissionResolutionOutcome::Approved,
+            };
+            match chosen {
+                Some(option_id) => (Some(option_id), outcome),
+                // The runtime advertised nothing that means this answer. Say
+                // nothing rather than something else.
+                None => (None, ManagedPermissionResolutionOutcome::Cancelled),
+            }
+        }
+        None => {
+            let outcome = option_id
+                .as_deref()
+                .map_or(ManagedPermissionResolutionOutcome::Cancelled, |option_id| {
+                    selected_outcome(&pending.request, option_id)
+                });
+            (option_id, outcome)
+        }
     };
+    let decision = selected_decision(&pending.request, option_id);
     decision
         .validate_for(&pending.request)
         .map_err(|error| error.to_string())?;
@@ -322,8 +631,59 @@ pub(crate) fn resolve(pending_id: &str, option_id: Option<String>) -> Result<(),
         .ok_or_else(|| "managed permission request disappeared".to_string())?;
     pending
         .decision_tx
-        .send(ResolvedManagedPermission { decision, outcome })
+        .send(ResolvedManagedPermission {
+            decision,
+            outcome,
+            tense,
+        })
         .map_err(|_| "managed permission request is no longer waiting".to_string())
+}
+
+/// Apply one answer's memory and return the runtime option that carries it.
+fn answer_option(
+    app: Option<&AppHandle>,
+    pending: &Pending,
+    tense: ManagedPermissionTense,
+) -> Option<String> {
+    match tense {
+        ManagedPermissionTense::Deny => {
+            return option_by_kind(&pending.request, "reject_once").map(str::to_owned)
+        }
+        ManagedPermissionTense::Once => {}
+        ManagedPermissionTense::Task => {
+            if let Some(matcher) = pending.subject.matcher.clone() {
+                permission_ledger::remember_for_turn(
+                    pending.request.resident_pubkey.as_str(),
+                    pending.request.session_epoch.get(),
+                    pending.request.turn_id.as_str(),
+                    matcher,
+                );
+            }
+        }
+        ManagedPermissionTense::AlwaysHere => {
+            let remembered = app.and_then(|app| {
+                let rule = rule_for(&pending.subject)?;
+                super::resident_capability_authority::upsert_rule(app, &pending.owner_pubkey, rule)
+                    .ok()
+            });
+            // Only once the answer is durably ours may the runtime be told to
+            // stop asking inside its own session.
+            if remembered.is_some() {
+                if let Some(app) = app {
+                    let family = super::permission_tier::resident_runtime_family(
+                        app,
+                        pending.request.resident_pubkey.as_str(),
+                    );
+                    if super::runtime_capabilities::forwards_native_always(family) {
+                        if let Some(option_id) = option_by_kind(&pending.request, "allow_always") {
+                            return Some(option_id.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    option_by_kind(&pending.request, "allow_once").map(str::to_owned)
 }
 
 fn must_confirm_every_time(capability: CapabilityKind, risk: CapabilityRisk) -> bool {
@@ -344,13 +704,20 @@ pub(crate) fn resolve_with_app(
     app: &AppHandle,
     pending_id: &str,
     option_id: Option<String>,
+    tense: Option<ManagedPermissionTense>,
 ) -> Result<(), String> {
     if pending()
         .lock()
         .map_err(|_| "managed permission registry unavailable".to_string())?
         .contains_key(pending_id)
     {
-        return resolve(pending_id, option_id);
+        // Only "Always here" needs the owner's authority, to write the rule.
+        // Every other answer is settled entirely inside this process.
+        return if matches!(tense, Some(ManagedPermissionTense::AlwaysHere)) {
+            resolve_runtime(Some(app), pending_id, option_id, tense)
+        } else {
+            resolve(pending_id, option_id, tense)
+        };
     }
     let mut entries = capability_pending()
         .lock()
@@ -358,6 +725,18 @@ pub(crate) fn resolve_with_app(
     let pending = entries.remove(pending_id).ok_or_else(|| {
         "managed permission request is unknown, expired, or already resolved".to_string()
     })?;
+    // A structured capability request keeps its own two option ids. The card's
+    // tense is translated onto them so one renderer can drive both surfaces.
+    let option_id = option_id.or_else(|| {
+        tense.map(|tense| {
+            match tense {
+                ManagedPermissionTense::Once | ManagedPermissionTense::Task => "allow_once",
+                ManagedPermissionTense::AlwaysHere => "always_allow",
+                ManagedPermissionTense::Deny => "deny",
+            }
+            .to_owned()
+        })
+    });
     let decision = match option_id.as_deref() {
         Some("allow_once") => CapabilityPermissionDecision::AllowOnce,
         Some("always_allow")
@@ -453,6 +832,7 @@ pub(crate) fn await_capability_decision(
         PendingManagedPermission {
             pending_id: id.clone(),
             request: PendingManagedPermissionRequest::Capability(request),
+            offer: None,
         },
     );
     let decision = rx
@@ -465,6 +845,7 @@ pub(crate) fn await_capability_decision(
 }
 
 pub(crate) fn cancel_all() {
+    permission_ledger::clear_all();
     if let Ok(mut entries) = pending().lock() {
         for (_, pending) in entries.drain() {
             let _ = pending.decision_tx.send(cancelled_resolution(
@@ -482,6 +863,7 @@ pub(crate) fn cancel_all() {
 
 /// Cancel pending prompts owned by an ACP session that exited or was replaced.
 pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64) {
+    permission_ledger::clear_session(resident_pubkey, session_epoch);
     if let Ok(mut entries) = pending().lock() {
         let doomed: Vec<String> = entries
             .iter()
@@ -622,15 +1004,57 @@ mod tests {
         }
     }
 
+    fn test_subject(request: &ManagedPermissionRequestV1) -> PermissionSubject {
+        PermissionSubject {
+            resident: request.resident_pubkey.clone(),
+            project: Some(ProjectRef::Source {
+                source_id: OpaqueId::parse("source-a").expect("synthetic source"),
+                canonical_root: std::path::PathBuf::from("/tmp/luca"),
+                label: "Luca".into(),
+            }),
+            matcher: Some(luca_protocol::PermissionMatcherV1::Command {
+                token: "git".into(),
+                argv_prefix: vec!["status".into()],
+            }),
+            is_door: false,
+            is_pre_allowed: false,
+            is_broker_guarded: false,
+            inside_project: true,
+            display_name: "git status".into(),
+        }
+    }
+
+    fn full_offer() -> PermissionOfferV1 {
+        PermissionOfferV1 {
+            once: true,
+            task: true,
+            always_here: true,
+            deny: true,
+            project_label: Some("Luca".into()),
+            note: None,
+        }
+    }
+
     fn insert_pending(
         request: ManagedPermissionRequestV1,
     ) -> (String, mpsc::Receiver<ResolvedManagedPermission>) {
+        insert_pending_with(request, full_offer())
+    }
+
+    fn insert_pending_with(
+        request: ManagedPermissionRequestV1,
+        offer: PermissionOfferV1,
+    ) -> (String, mpsc::Receiver<ResolvedManagedPermission>) {
         let id = pending_id(&request);
         let (tx, rx) = mpsc::channel();
+        let subject = test_subject(&request);
         pending().lock().expect("pending registry").insert(
             id.clone(),
             Pending {
                 request,
+                owner_pubkey: "aa".repeat(32),
+                subject,
+                offer,
                 decision_tx: tx,
             },
         );
@@ -656,10 +1080,11 @@ mod tests {
             std::collections::BTreeSet::from(["hermes", "openclaw"])
         );
 
+        let _guard = permission_ledger::test_global_state_guard();
         cancel_all();
         let allow_request = request("allow", 7);
         let (allow_id, allow_rx) = insert_pending(allow_request.clone());
-        resolve(&allow_id, Some("runtime-allow".into())).expect("advertised allow resolves");
+        resolve(&allow_id, Some("runtime-allow".into()), None).expect("advertised allow resolves");
         let allow = allow_rx.recv().expect("allow decision delivered");
         assert_eq!(allow.outcome, ManagedPermissionResolutionOutcome::Approved);
         assert_eq!(
@@ -672,13 +1097,14 @@ mod tests {
             .validate_for(&allow_request)
             .expect("allow binds exact request");
         assert!(
-            resolve(&allow_id, Some("runtime-allow".into())).is_err(),
+            resolve(&allow_id, Some("runtime-allow".into()), None).is_err(),
             "resolved ID is stale"
         );
 
         let reject_request = request("reject", 7);
         let (reject_id, reject_rx) = insert_pending(reject_request.clone());
-        resolve(&reject_id, Some("runtime-reject".into())).expect("advertised reject resolves");
+        resolve(&reject_id, Some("runtime-reject".into()), None)
+            .expect("advertised reject resolves");
         let reject = reject_rx.recv().expect("reject decision delivered");
         assert_eq!(reject.outcome, ManagedPermissionResolutionOutcome::Rejected);
         assert_eq!(
@@ -693,7 +1119,7 @@ mod tests {
 
         let cancel_request = request("cancel", 7);
         let (cancel_id, cancel_rx) = insert_pending(cancel_request.clone());
-        resolve(&cancel_id, None).expect("explicit cancellation resolves");
+        resolve(&cancel_id, None, None).expect("explicit cancellation resolves");
         let cancellation = cancel_rx.recv().expect("cancellation delivered");
         assert_eq!(
             cancellation.outcome,
@@ -735,7 +1161,7 @@ mod tests {
             .validate_for(&session_request)
             .expect("session cancellation binds request");
         assert!(
-            resolve(&session_id, None).is_err(),
+            resolve(&session_id, None, None).is_err(),
             "cancelled ID is stale or unknown"
         );
         assert!(list_pending().expect("pending list").is_empty());
@@ -780,5 +1206,321 @@ mod tests {
         );
         // This test reaches only the private desktop registry and local decisions;
         // it neither creates a relay event nor calls publication/signing authority.
+    }
+
+    /// A request the ledger settles is answered straight to the runtime: it
+    /// never enters the pending registry, so no card and no pending event can
+    /// exist for it.
+    #[test]
+    fn auto_allowed_requests_never_enter_pending_or_emit_pending_event() {
+        let _guard = permission_ledger::test_global_state_guard();
+        let request = request("auto", 11);
+        let allowed = decide_and_select(&request, &Verdict::Allow(AllowReason::PreAllowed))
+            .expect("an advertised allow_once carries the verdict");
+        assert_eq!(allowed.option_id.as_deref(), Some("runtime-allow"));
+        assert_eq!(
+            allowed.disposition,
+            ManagedPermissionDispositionV1::Selected
+        );
+        allowed
+            .validate_for(&request)
+            .expect("the automatic decision binds the exact request");
+
+        let denied = decide_and_select(
+            &request,
+            &Verdict::Deny {
+                reason: "Remembered answer".into(),
+            },
+        )
+        .expect("an advertised reject_once carries the verdict");
+        assert_eq!(denied.option_id.as_deref(), Some("runtime-reject"));
+
+        // A card is never settled here.
+        assert!(decide_and_select(
+            &request,
+            &Verdict::Ask {
+                offer: full_offer()
+            }
+        )
+        .is_none());
+
+        // A runtime that advertises no matching kind is cancelled, never
+        // answered with some other option.
+        let mut bare = request.clone();
+        bare.options.retain(|option| option.kind != "allow_once");
+        assert!(decide_and_select(&bare, &Verdict::Allow(AllowReason::TurnRule)).is_none());
+
+        // The option is chosen by kind, whatever the id happens to be.
+        let mut renamed = request.clone();
+        renamed.options[0].option_id = "opt-93f2".into();
+        assert_eq!(
+            decide_and_select(&renamed, &Verdict::Allow(AllowReason::PreAllowed))
+                .and_then(|decision| decision.option_id)
+                .as_deref(),
+            Some("opt-93f2")
+        );
+
+        // And nothing above ever touched the pending registry.
+        assert!(list_pending()
+            .expect("pending list")
+            .iter()
+            .all(|entry| entry.pending_id != pending_id(&request)));
+    }
+
+    #[test]
+    fn tense_always_here_selects_allow_always_only_when_advertised() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        // Without an AppHandle the answer cannot be remembered durably, so it
+        // degrades to allowing this one request — never to a native "always".
+        let mut advertised = request("always-unremembered", 12);
+        advertised.options.push(ManagedPermissionOptionV1 {
+            option_id: "runtime-always".into(),
+            name: "Always".into(),
+            kind: "allow_always".into(),
+        });
+        let (id, rx) = insert_pending(advertised);
+        resolve(&id, None, Some(ManagedPermissionTense::AlwaysHere)).expect("always here resolves");
+        let resolution = rx.recv().expect("decision delivered");
+        assert_eq!(
+            resolution.decision.option_id.as_deref(),
+            Some("runtime-allow"),
+            "a rule that was not written cannot forward a native always"
+        );
+        assert_eq!(
+            resolution.outcome,
+            ManagedPermissionResolutionOutcome::Approved
+        );
+        assert_eq!(resolution.tense, Some(ManagedPermissionTense::AlwaysHere));
+
+        // A runtime that advertises no always at all still answers once.
+        let (id, rx) = insert_pending(request("always-unadvertised", 12));
+        resolve(&id, None, Some(ManagedPermissionTense::AlwaysHere)).expect("always here resolves");
+        assert_eq!(
+            rx.recv().expect("decision").decision.option_id.as_deref(),
+            Some("runtime-allow")
+        );
+
+        // "For this task" remembers the matcher for exactly this turn.
+        let task_request = request("task", 12);
+        let resident = task_request.resident_pubkey.as_str().to_owned();
+        let turn = task_request.turn_id.as_str().to_owned();
+        let (id, rx) = insert_pending(task_request);
+        resolve(&id, None, Some(ManagedPermissionTense::Task)).expect("task resolves");
+        assert_eq!(
+            rx.recv().expect("decision").decision.option_id.as_deref(),
+            Some("runtime-allow")
+        );
+        assert_eq!(
+            permission_ledger::turn_hits(&resident, 12, &turn),
+            vec![luca_protocol::PermissionMatcherV1::Command {
+                token: "git".into(),
+                argv_prefix: vec!["status".into()],
+            }]
+        );
+        permission_ledger::end_turn(&resident, 12, &turn);
+    }
+
+    #[test]
+    fn tense_refused_when_offer_forbids_it() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let door = PermissionOfferV1 {
+            once: true,
+            task: false,
+            always_here: false,
+            deny: true,
+            project_label: Some("Luca".into()),
+            note: Some("This one always asks.".into()),
+        };
+        let (id, rx) = insert_pending_with(request("door", 13), door);
+        for refused in [
+            ManagedPermissionTense::Task,
+            ManagedPermissionTense::AlwaysHere,
+        ] {
+            assert!(
+                resolve(&id, None, Some(refused)).is_err(),
+                "a door may not be remembered"
+            );
+        }
+        assert!(
+            rx.try_recv().is_err(),
+            "a refused answer leaves the request waiting"
+        );
+        resolve(&id, None, Some(ManagedPermissionTense::Once)).expect("once is on offer");
+        assert_eq!(
+            rx.recv().expect("decision").decision.option_id.as_deref(),
+            Some("runtime-allow")
+        );
+    }
+
+    #[test]
+    fn deny_without_reject_option_is_cancelled() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let mut unadvertised = request("deny-unadvertised", 14);
+        unadvertised
+            .options
+            .retain(|option| option.kind != "reject_once");
+        let (id, rx) = insert_pending(unadvertised.clone());
+        resolve(&id, None, Some(ManagedPermissionTense::Deny)).expect("deny resolves");
+        let resolution = rx.recv().expect("decision delivered");
+        assert_eq!(
+            resolution.decision.disposition,
+            ManagedPermissionDispositionV1::Cancelled
+        );
+        assert_eq!(resolution.decision.option_id, None);
+        assert_eq!(
+            resolution.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled,
+            "saying no with nothing to say it with is a cancellation, not an allow"
+        );
+        resolution
+            .decision
+            .validate_for(&unadvertised)
+            .expect("cancellation binds the exact request");
+
+        // With the option advertised, deny is a rejection.
+        let (id, rx) = insert_pending(request("deny", 14));
+        resolve(&id, None, Some(ManagedPermissionTense::Deny)).expect("deny resolves");
+        let resolution = rx.recv().expect("decision delivered");
+        assert_eq!(
+            resolution.decision.option_id.as_deref(),
+            Some("runtime-reject")
+        );
+        assert_eq!(
+            resolution.outcome,
+            ManagedPermissionResolutionOutcome::Rejected
+        );
+    }
+
+    /// The owner's line may name the command; the room's line may not.
+    #[test]
+    fn audit_copy_keeps_arguments_out_of_the_room() {
+        let request = request("audit", 15);
+        let subject = test_subject(&request);
+        let cases = [
+            (
+                Verdict::Allow(AllowReason::PreAllowed),
+                "Allowed on its own: git status",
+            ),
+            (
+                Verdict::Allow(AllowReason::BrokerGuarded),
+                "Handled by Polyphonic: git status",
+            ),
+            (
+                Verdict::Allow(AllowReason::TurnRule),
+                "Allowed for this task: git status",
+            ),
+            (
+                Verdict::Allow(AllowReason::Rule {
+                    rule_id: "rule-1".into(),
+                    display_name: "git status".into(),
+                }),
+                "Allowed by your rule: git status · Always in Luca",
+            ),
+        ];
+        for (verdict, expected) in cases {
+            let line = automatic_audit_line(&subject, &verdict).expect("an automatic line");
+            assert_eq!(line.text, expected);
+            assert_eq!(line.room_text, "Allowed a command");
+            assert!(line.allowed);
+        }
+        let refused = automatic_audit_line(
+            &subject,
+            &Verdict::Deny {
+                reason: "git status".into(),
+            },
+        )
+        .expect("a refusal line");
+        assert_eq!(refused.text, "Declined by your rule: git status");
+        assert_eq!(refused.room_text, "Declined a command");
+        assert!(!refused.allowed);
+        assert!(automatic_audit_line(
+            &subject,
+            &Verdict::Ask {
+                offer: full_offer()
+            }
+        )
+        .is_none());
+
+        let answered = [
+            (
+                ManagedPermissionResolutionOutcome::Approved,
+                Some(ManagedPermissionTense::Once),
+                "You allowed once: git status",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::Approved,
+                Some(ManagedPermissionTense::Task),
+                "Allowed for this task: git status",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::Approved,
+                Some(ManagedPermissionTense::AlwaysHere),
+                "Allowed by your rule: git status · Always in Luca",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::Rejected,
+                Some(ManagedPermissionTense::Deny),
+                "You said no: git status",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::Expired,
+                None,
+                "No answer in time",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::SessionReplaced,
+                None,
+                "Closed when the resident restarted",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::ApplicationClosed,
+                None,
+                "Closed with Polyphonic",
+            ),
+            (
+                ManagedPermissionResolutionOutcome::Cancelled,
+                None,
+                "Closed with Polyphonic",
+            ),
+        ];
+        for (outcome, tense, expected) in answered {
+            let line = answered_audit_line(&subject, outcome, tense);
+            assert_eq!(line.text, expected, "{outcome:?}");
+            assert!(
+                !line.room_text.contains("git"),
+                "the room never learns the command"
+            );
+        }
+    }
+
+    /// The offer the card reads travels camelCase and carries no path, command
+    /// or host.
+    #[test]
+    fn the_pending_event_carries_the_offer_and_nothing_more() {
+        let event = serde_json::to_value(PendingManagedPermission {
+            pending_id: "pending-1".into(),
+            request: PendingManagedPermissionRequest::Runtime(request("offer", 16)),
+            offer: Some(full_offer()),
+        })
+        .expect("serialize pending event");
+        let offer = event
+            .get("offer")
+            .and_then(serde_json::Value::as_object)
+            .expect("offer object");
+        assert_eq!(offer.get("alwaysHere"), Some(&serde_json::json!(true)));
+        assert_eq!(offer.get("projectLabel"), Some(&serde_json::json!("Luca")));
+        assert_eq!(offer.len(), 6);
+
+        // A structured capability request has no offer at all.
+        let event = serde_json::to_value(PendingManagedPermission {
+            pending_id: "pending-2".into(),
+            request: PendingManagedPermissionRequest::Runtime(request("no-offer", 16)),
+            offer: None,
+        })
+        .expect("serialize pending event");
+        assert!(event.get("offer").is_none());
     }
 }

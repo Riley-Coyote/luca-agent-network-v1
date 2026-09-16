@@ -365,6 +365,20 @@ fn serve(
             }
         }
         gate = candidate_gate;
+        if matches!(
+            frame.kind,
+            ManagedPresentationKindV1::Completed
+                | ManagedPresentationKindV1::Cancelled
+                | ManagedPresentationKindV1::Failed
+        ) {
+            // "For this task" means this task. The turn's remembered answers go
+            // with it.
+            super::permission_ledger::end_turn(
+                frame.resident_pubkey.as_str(),
+                frame.session_epoch.get(),
+                frame.turn_id.as_str(),
+            );
+        }
         if frame.kind != ManagedPresentationKindV1::Liveness {
             if let Some(trace_scope) = trace_scope.as_ref() {
                 if let Ok(dispatches) = dispatch_store.lock() {
