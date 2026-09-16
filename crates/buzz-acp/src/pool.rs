@@ -1967,6 +1967,21 @@ fn managed_communications_turn(
     }
 }
 
+/// The dispatch receipt for this turn, when the batch carries one.
+///
+/// Derived from exactly the trigger the continuity intent and the artifact
+/// turn binding already use — the last eligible owner event in the batch —
+/// because a permission has to resolve to the same dispatch row those do or
+/// the desktop would anchor a remembered rule to the wrong project. Heartbeat
+/// and continuity turns have no trigger and so carry no receipt.
+fn managed_dispatch_receipt_id(ctx: &PromptContext, batch: Option<&FlushBatch>) -> Option<String> {
+    let managed = ctx.managed_final_publisher.as_ref()?;
+    let trigger = last_eligible_managed_trigger(batch?, &managed.owner_pubkey)?;
+    let receipt = trigger.id.to_hex();
+    luca_protocol::OpaqueId::parse(&receipt).ok()?;
+    Some(receipt)
+}
+
 fn managed_artifact_turn(
     ctx: &PromptContext,
     batch: Option<&FlushBatch>,
@@ -2660,9 +2675,12 @@ async fn run_prompt_task_inner(
         PromptSource::Channel(channel_id) => Some(channel_id.to_string()),
         PromptSource::Heartbeat | PromptSource::Continuity(_) => None,
     };
-    agent
-        .acp
-        .set_managed_turn_context(&turn_id, managed_conversation_id.as_deref());
+    let managed_dispatch_receipt_id = managed_dispatch_receipt_id(&ctx, batch.as_ref());
+    agent.acp.set_managed_turn_context(
+        &turn_id,
+        managed_conversation_id.as_deref(),
+        managed_dispatch_receipt_id.as_deref(),
+    );
     let observer_channel_id = match &source {
         PromptSource::Channel(channel_id) => Some(*channel_id),
         PromptSource::Heartbeat | PromptSource::Continuity(_) => None,

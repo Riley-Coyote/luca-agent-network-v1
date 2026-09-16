@@ -101,6 +101,11 @@ struct ManagedPermissionDisplayFields {
     title: String,
     tool_call_id: Option<String>,
     action_preview: Option<String>,
+    /// What the desktop's ledger matches a remembered rule against. Derived
+    /// from the same tool call as the title, under the same bounds, and
+    /// cached beside it so a request that arrives with only a tool-call id
+    /// still carries the facts the earlier update named.
+    match_fields: crate::managed_presentation::PermissionMatchFields,
 }
 
 const MAX_PERMISSION_DISPLAY_CACHE_ENTRIES: usize = 64;
@@ -186,6 +191,7 @@ impl PermissionDisplayCache {
             self.entries.remove(tool_call_id);
             return;
         };
+        let match_fields = crate::managed_presentation::permission_match_fields(update);
         if !self.entries.contains_key(tool_call_id)
             && self.entries.len() >= MAX_PERMISSION_DISPLAY_CACHE_ENTRIES
         {
@@ -199,6 +205,7 @@ impl PermissionDisplayCache {
                     title,
                     tool_call_id: Some(tool_call_id.to_owned()),
                     action_preview,
+                    match_fields,
                 },
             },
         );
@@ -300,15 +307,18 @@ impl ManagedPermissionClient {
         )))
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn decide(
         &self,
         turn_id: &str,
         conversation_id: &str,
+        dispatch_receipt_id: Option<&str>,
         acp_request_id: &serde_json::Value,
         display: ManagedPermissionDisplayFields,
         options: Vec<luca_protocol::ManagedPermissionOptionV1>,
     ) -> Result<luca_protocol::ManagedPermissionDecisionV1, AcpError> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let match_fields = display.match_fields;
         let request = luca_protocol::ManagedPermissionRequestV1 {
             protocol: luca_protocol::MANAGED_PERMISSION_PROTOCOL.into(),
             resident_pubkey: self.resident_pubkey.clone(),
@@ -322,20 +332,21 @@ impl ManagedPermissionClient {
             tool_call_id: display.tool_call_id,
             action_preview: display.action_preview,
             options,
-            // The beta.11 match fields arrive with the package that parses
-            // them out of the ACP tool call; an absent field is the same
-            // request an older harness already sent.
-            dispatch_receipt_id: None,
-            tool_kind: None,
-            activity_kind: None,
-            tool_name: None,
-            mcp_server: None,
-            mcp_tool: None,
-            command_token: None,
-            command_argv_prefix: Vec::new(),
-            path: None,
-            domain: None,
-            write: None,
+            // An absent field is the same request an older harness sent: the
+            // desktop reads it as "nothing here a rule could be keyed on" and
+            // offers only Once.
+            dispatch_receipt_id: dispatch_receipt_id
+                .and_then(|value| luca_protocol::OpaqueId::parse(value).ok()),
+            tool_kind: match_fields.tool_kind,
+            activity_kind: match_fields.activity_kind,
+            tool_name: match_fields.tool_name,
+            mcp_server: match_fields.mcp_server,
+            mcp_tool: match_fields.mcp_tool,
+            command_token: match_fields.command_token,
+            command_argv_prefix: match_fields.command_argv_prefix,
+            path: match_fields.path,
+            domain: match_fields.domain,
+            write: match_fields.write,
         };
         request
             .validate()
@@ -582,6 +593,11 @@ pub struct AcpClient {
     deny_unmanaged_permissions: bool,
     managed_turn_id: Option<String>,
     managed_conversation_id: Option<String>,
+    /// The dispatch receipt for the turn, when it has one. This is how the
+    /// desktop finds the dispatch row — and from it the project a remembered
+    /// permission is anchored to; the harness turn id is a fresh UUID that
+    /// means nothing outside this process.
+    managed_dispatch_receipt_id: Option<String>,
     permission_display_cache: PermissionDisplayCache,
     /// The JSON-RPC id of the most recently sent `session/prompt` request.
     /// Used by [`cancel_with_cleanup`] to drain the correct response.
@@ -1151,6 +1167,7 @@ impl AcpClient {
             deny_unmanaged_permissions: false,
             managed_turn_id: None,
             managed_conversation_id: None,
+            managed_dispatch_receipt_id: None,
             permission_display_cache: PermissionDisplayCache::default(),
             last_prompt_id: None,
             current_hard_deadline: None,
@@ -1672,11 +1689,24 @@ impl AcpClient {
 
     /// Bind permission prompts observed during this ACP prompt to the exact
     /// harness turn. Cleared on every prompt return path.
-    pub fn set_managed_turn_context(&mut self, turn_id: &str, conversation_id: Option<&str>) {
+    ///
+    /// The harness turn id is a fresh UUID with no meaning outside this
+    /// process, so the desktop cannot find the dispatch row — and therefore
+    /// the project — from it. The dispatch receipt is the coordinate that
+    /// can, so it travels with the turn and dies with it. Turns that have no
+    /// receipt (heartbeat, continuity) simply carry none, and the desktop
+    /// falls back to the working root.
+    pub fn set_managed_turn_context(
+        &mut self,
+        turn_id: &str,
+        conversation_id: Option<&str>,
+        dispatch_receipt_id: Option<&str>,
+    ) {
         self.artifact_observer.clear_tool_calls();
         self.permission_display_cache.clear();
         self.managed_turn_id = Some(turn_id.to_owned());
         self.managed_conversation_id = conversation_id.map(str::to_owned);
+        self.managed_dispatch_receipt_id = dispatch_receipt_id.map(str::to_owned);
     }
 
     pub fn clear_managed_turn_id(&mut self) {
@@ -1684,6 +1714,7 @@ impl AcpClient {
         self.permission_display_cache.clear();
         self.managed_turn_id = None;
         self.managed_conversation_id = None;
+        self.managed_dispatch_receipt_id = None;
     }
 
     /// Consume the final draft only after an ACP EndTurn response.
@@ -2664,7 +2695,14 @@ impl AcpClient {
                 &self.permission_display_cache,
             );
             let decision = match permission
-                .decide(turn_id, conversation_id, &id, display, runtime_options)
+                .decide(
+                    turn_id,
+                    conversation_id,
+                    self.managed_dispatch_receipt_id.as_deref(),
+                    &id,
+                    display,
+                    runtime_options,
+                )
                 .await
             {
                 Ok(decision) => decision,
@@ -3036,27 +3074,19 @@ fn artifact_leaf_tool_name(value: &str) -> Option<&'static str> {
         .find(|name| value == *name)
 }
 
+/// The artifact tool behind a flattened MCP name, in any adapter's spelling.
+///
+/// The three spellings are read by the shared
+/// [`qualified_mcp_tool_identity`](crate::managed_presentation::qualified_mcp_tool_identity),
+/// which the permission match fields use too — one parser, so the sidecar
+/// guard here and a remembered rule can never disagree about which server a
+/// name names. This adds only the artifact-specific half: the server must be
+/// one of ours and the tool must be one we ship.
 fn qualified_artifact_tool_name(value: &str) -> Option<&'static str> {
-    if let Some(qualified) = value.strip_prefix("mcp.") {
-        let (server, tool) = qualified.rsplit_once('.')?;
-        return is_artifact_server_name(server)
-            .then(|| artifact_leaf_tool_name(tool))
-            .flatten();
-    }
-    if let Some(qualified) = value.strip_prefix("mcp__") {
-        let (server, tool) = qualified.rsplit_once("__")?;
-        return is_artifact_server_name(server)
-            .then(|| artifact_leaf_tool_name(tool))
-            .flatten();
-    }
-    let qualified = value.strip_prefix("mcp_luca_artifacts_")?;
-    let (server_suffix, tool) = qualified.split_once('_')?;
-    (server_suffix.len() == 12
-        && server_suffix
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
-    .then(|| artifact_leaf_tool_name(tool))
-    .flatten()
+    let (server, tool) = crate::managed_presentation::qualified_mcp_tool_identity(value)?;
+    is_artifact_server_name(&server)
+        .then(|| artifact_leaf_tool_name(&tool))
+        .flatten()
 }
 
 fn observer_payload_for_write(value: &serde_json::Value) -> serde_json::Value {
@@ -3215,6 +3245,7 @@ fn managed_permission_display_fields(
             title,
             tool_call_id,
             action_preview,
+            match_fields: crate::managed_presentation::permission_match_fields(tool_call),
         };
     }
     let title = params
@@ -3226,10 +3257,16 @@ fn managed_permission_display_fields(
         .get("toolCallId")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned);
+    // The flattened shape older adapters send: the same projection reads it,
+    // because every pointer it follows is relative to the call object either
+    // way.
     ManagedPermissionDisplayFields {
         title,
         tool_call_id,
         action_preview: None,
+        match_fields: crate::managed_presentation::permission_match_fields(
+            &serde_json::Value::Object(params.clone()),
+        ),
     }
 }
 
@@ -3789,8 +3826,245 @@ mod tests {
                 title: "Running git status --short".into(),
                 tool_call_id: Some("codex-call-1".into()),
                 action_preview: Some("git status --short".into()),
+                match_fields: crate::managed_presentation::PermissionMatchFields {
+                    tool_kind: Some("execute".into()),
+                    activity_kind: Some(luca_protocol::ManagedPresentationActivityKindV1::Command),
+                    command_token: Some("git".into()),
+                    command_argv_prefix: vec!["status".into()],
+                    write: Some(false),
+                    ..Default::default()
+                },
             }
         );
+    }
+
+    #[test]
+    fn managed_permission_carries_match_fields_for_claude_bash() {
+        let params = serde_json::json!({
+            "toolCall": {
+                "toolCallId": "claude-call-1",
+                "kind": "execute",
+                "status": "pending",
+                "rawInput": {"command": "git status --short"},
+                "_meta": {"claudeCode": {"toolName": "Bash"}}
+            }
+        });
+        let fields =
+            managed_permission_display_fields(Some(&params), &PermissionDisplayCache::default())
+                .match_fields;
+        assert_eq!(fields.tool_name.as_deref(), Some("Bash"));
+        assert_eq!(fields.tool_kind.as_deref(), Some("execute"));
+        assert_eq!(
+            fields.activity_kind,
+            Some(luca_protocol::ManagedPresentationActivityKindV1::Command)
+        );
+        assert_eq!(fields.command_token.as_deref(), Some("git"));
+        assert_eq!(fields.command_argv_prefix, vec!["status".to_string()]);
+        // A command names no path, no host and nothing written.
+        assert!(fields.path.is_none());
+        assert!(fields.domain.is_none());
+        assert_eq!(fields.write, Some(false));
+
+        // The prefix stops at the cap, so `git` and `npm` stay tellable apart
+        // by the two words that matter and never by more.
+        let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "execute",
+            "rawInput": {"command": "npm run build --silent"}
+        }));
+        assert_eq!(fields.command_token.as_deref(), Some("npm"));
+        assert_eq!(
+            fields.command_argv_prefix,
+            vec!["run".to_string(), "build".to_string()]
+        );
+
+        // An argv array says the same thing without a shell at all.
+        let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "execute",
+            "rawInput": {"command": ["git", "push", "--force"]}
+        }));
+        assert_eq!(fields.command_token.as_deref(), Some("git"));
+        assert_eq!(fields.command_argv_prefix, vec!["push".to_string()]);
+    }
+
+    #[test]
+    fn managed_permission_carries_mcp_identity_for_all_three_adapter_shapes() {
+        // Codex: typed envelope in `_meta`, pair in `rawInput`.
+        let codex = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "other",
+            "_meta": {"is_mcp_tool_call": true},
+            "rawInput": {
+                "server": "luca-artifacts-0a1b2c3d4e5f",
+                "tool": "artifact_create",
+                "arguments": {"body": "PRIVATE"}
+            }
+        }));
+        assert_eq!(
+            codex.mcp_server.as_deref(),
+            Some("luca-artifacts-0a1b2c3d4e5f")
+        );
+        assert_eq!(codex.mcp_tool.as_deref(), Some("artifact_create"));
+
+        // Claude: flattened into the tool name, both spellings.
+        for name in [
+            "mcp__luca-artifacts-0a1b2c3d4e5f__artifact_create",
+            "mcp.luca-artifacts-0a1b2c3d4e5f.artifact_create",
+        ] {
+            let claude = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+                "kind": "other",
+                "_meta": {"claudeCode": {"toolName": name}}
+            }));
+            assert_eq!(
+                claude.mcp_server.as_deref(),
+                Some("luca-artifacts-0a1b2c3d4e5f"),
+                "{name}"
+            );
+            assert_eq!(
+                claude.mcp_tool.as_deref(),
+                Some("artifact_create"),
+                "{name}"
+            );
+        }
+
+        // Hermes: underscores all the way down, so only the families this app
+        // ships can be read back — anything else is ambiguous and yields none.
+        for (name, server, tool) in [
+            (
+                "mcp_luca_artifacts_0a1b2c3d4e5f_artifact_read",
+                "luca-artifacts-0a1b2c3d4e5f",
+                "artifact_read",
+            ),
+            (
+                "mcp_luca_communications_0a1b2c3d4e5f_communications_send",
+                "luca-communications-0a1b2c3d4e5f",
+                "communications_send",
+            ),
+            (
+                "mcp_luca_repositories_repo_read",
+                "luca-repositories",
+                "repo_read",
+            ),
+            ("mcp_buzz_shell", "buzz", "shell"),
+            (
+                "mcp_polyphonic_browser_browser_navigate",
+                "polyphonic-browser",
+                "browser_navigate",
+            ),
+        ] {
+            let hermes = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+                "kind": "other",
+                "toolName": name
+            }));
+            assert_eq!(hermes.mcp_server.as_deref(), Some(server), "{name}");
+            assert_eq!(hermes.mcp_tool.as_deref(), Some(tool), "{name}");
+        }
+        for name in [
+            "mcp_brave_search_web_search",
+            "mcp_luca_artifacts_notahexsuffix_artifact_read",
+            "mcp_luca_artifacts_0a1b2c3d4e5f",
+            "read_file",
+        ] {
+            let unknown =
+                crate::managed_presentation::permission_match_fields(&serde_json::json!({
+                    "kind": "other",
+                    "toolName": name
+                }));
+            assert!(unknown.mcp_server.is_none(), "{name}");
+            assert!(unknown.mcp_tool.is_none(), "{name}");
+        }
+
+        // The sidecar guard reads the same parser, so it and a remembered rule
+        // can never disagree about which server a name names.
+        assert_eq!(
+            qualified_artifact_tool_name("mcp_luca_artifacts_0a1b2c3d4e5f_artifact_read"),
+            Some("artifact_read")
+        );
+        assert_eq!(
+            qualified_artifact_tool_name("mcp__luca-artifacts-0a1b2c3d4e5f__artifact_read"),
+            Some("artifact_read")
+        );
+        assert_eq!(qualified_artifact_tool_name("mcp_buzz_shell"), None);
+    }
+
+    #[test]
+    fn compound_commands_and_paths_yield_no_command_token() {
+        for command in [
+            // A metacharacter means the line is not one command.
+            "a && b",
+            "a; b",
+            "a | b",
+            "echo $SECRET",
+            "cat <file",
+            "echo hi > /etc/passwd",
+            "sh -c (true)",
+            "echo `id`",
+            "echo ${HOME}",
+            "git status\nrm -rf /",
+            "git status\\\n rm -rf /",
+            // A program path is a file, not a comparable command name.
+            "/usr/bin/git status",
+            "./deploy.sh",
+            "../deploy.sh",
+            // A leading assignment is the environment, not the program.
+            "FOO=1 make",
+            // Nothing at all.
+            "",
+            "   ",
+            // A flag can never be the program.
+            "-rf /",
+        ] {
+            let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+                "kind": "execute",
+                "rawInput": {"command": command}
+            }));
+            assert!(
+                fields.command_token.is_none(),
+                "{command:?} must yield no command token"
+            );
+            assert!(
+                fields.command_argv_prefix.is_empty(),
+                "{command:?} must yield no argv prefix"
+            );
+        }
+
+        // An argv array with a non-string element is not an argv at all.
+        let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "execute",
+            "rawInput": {"command": ["git", 7]}
+        }));
+        assert!(fields.command_token.is_none());
+
+        // Relative paths and bare hosts are dropped for the same reason: a
+        // rule keyed on either would match far more than the owner agreed to.
+        let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "edit",
+            "toolName": "write_file",
+            "rawInput": {"path": "src/main.rs", "url": "not a url"}
+        }));
+        assert!(fields.path.is_none());
+        assert!(fields.domain.is_none());
+        assert_eq!(fields.write, Some(true));
+
+        // The ones that are plain enough to remember.
+        let fields = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "fetch",
+            "toolName": "web_fetch",
+            "rawInput": {"url": "https://user:secret@Example.COM:443/path?token=x"}
+        }));
+        assert_eq!(fields.domain.as_deref(), Some("example.com"));
+        assert!(fields.path.is_none());
+        assert_eq!(fields.write, Some(false));
+
+        // A title is a sentence, not a tool name — unless it is a single word.
+        let sentence = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "read",
+            "title": "Reading desktop/src/main.ts"
+        }));
+        assert!(sentence.tool_name.is_none());
+        let one_word = crate::managed_presentation::permission_match_fields(&serde_json::json!({
+            "kind": "read",
+            "title": "read_file"
+        }));
+        assert_eq!(one_word.tool_name.as_deref(), Some("read_file"));
     }
 
     #[test]
@@ -3818,6 +4092,14 @@ mod tests {
                 title: "Legacy permission".into(),
                 tool_call_id: Some("legacy-call".into()),
                 action_preview: None,
+                // A flat request names no tool, no command and no path, so
+                // there is nothing for a rule to be keyed on — exactly the
+                // "Once only" case.
+                match_fields: crate::managed_presentation::PermissionMatchFields {
+                    activity_kind: Some(luca_protocol::ManagedPresentationActivityKindV1::Other),
+                    write: Some(false),
+                    ..Default::default()
+                },
             }
         );
     }
@@ -3875,6 +4157,16 @@ mod tests {
                 title: "Editing files".into(),
                 tool_call_id: Some("file-1".into()),
                 action_preview: Some("desktop/src/first.ts (+1 file)".into()),
+                // The cached match fields come from the earlier full update,
+                // not from the partial request — and a relative diff path is
+                // dropped, because a rule keyed on it would follow the
+                // resident into every other project.
+                match_fields: crate::managed_presentation::PermissionMatchFields {
+                    tool_kind: Some("edit".into()),
+                    activity_kind: Some(luca_protocol::ManagedPresentationActivityKindV1::File),
+                    write: Some(true),
+                    ..Default::default()
+                },
             }
         );
         let cached = format!("{cache:?}");
@@ -4025,6 +4317,28 @@ mod tests {
             cache.entries["file-1"].display.action_preview.as_deref(),
             Some("desktop/src/replacement.ts")
         );
+        // The match fields are replaced with the preview, never left behind
+        // from the superseded call.
+        let replaced = &cache.entries["file-1"].display.match_fields;
+        assert_eq!(replaced.tool_kind.as_deref(), Some("edit"));
+        assert_eq!(replaced.tool_name.as_deref(), None);
+        assert_eq!(replaced.write, Some(true));
+
+        // An absolute path is worth remembering; the relative one above was
+        // not, and neither survives into a rule by accident.
+        cache.observe(&serde_json::json!({
+            "params": {"sessionId": "session-1", "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
+                "status": "in_progress", "title": "Editing files", "kind": "edit",
+                "locations": [{"path": "/Users/o/project/src/main.rs"}],
+                "content": [{"type": "diff", "path": "src/main.rs"}]
+            }}
+        }));
+        assert_eq!(
+            cache.entries["file-1"].display.match_fields.path.as_deref(),
+            Some("/Users/o/project/src/main.rs")
+        );
+
         cache.observe(&serde_json::json!({
             "params": {"sessionId": "session-1", "update": {
                 "sessionUpdate": "tool_call_update", "toolCallId": "file-1",
@@ -5553,23 +5867,38 @@ esac"#,
         let _ = client.handle_session_update(&tool_call);
         assert!(client.permission_display_cache.entries.is_empty());
 
-        client.set_managed_turn_context("turn-1", Some("conversation-1"));
-        let _ = client.handle_session_update(&tool_call);
+        client.set_managed_turn_context("turn-1", Some("conversation-1"), Some("receipt-1"));
         assert_eq!(
-            managed_permission_display_fields(Some(&permission), &client.permission_display_cache)
-                .action_preview
-                .as_deref(),
+            client.managed_dispatch_receipt_id.as_deref(),
+            Some("receipt-1")
+        );
+        let _ = client.handle_session_update(&tool_call);
+        let cached =
+            managed_permission_display_fields(Some(&permission), &client.permission_display_cache);
+        assert_eq!(
+            cached.action_preview.as_deref(),
             Some("desktop/src/first.ts (+1 file)")
         );
+        // The match fields live the same life as the preview.
+        assert_eq!(cached.match_fields.tool_kind.as_deref(), Some("edit"));
+        assert_eq!(cached.match_fields.write, Some(true));
 
         client.clear_managed_turn_id();
-        client.set_managed_turn_context("turn-2", Some("conversation-1"));
-        assert!(managed_permission_display_fields(
-            Some(&permission),
-            &client.permission_display_cache
-        )
-        .action_preview
-        .is_none());
+        // The receipt dies with the turn — it must never be attached to the
+        // next one, or the desktop would anchor a rule to the wrong project.
+        assert!(client.managed_dispatch_receipt_id.is_none());
+        client.set_managed_turn_context("turn-2", Some("conversation-1"), None);
+        assert!(client.managed_dispatch_receipt_id.is_none());
+        let stale =
+            managed_permission_display_fields(Some(&permission), &client.permission_display_cache);
+        assert!(stale.action_preview.is_none());
+        // The new turn's fields are read from the request itself and nothing
+        // else: the partial call still states its own kind, and the write flag
+        // it implies, but carries none of the previous turn's detail.
+        assert_eq!(stale.match_fields.tool_kind.as_deref(), Some("edit"));
+        assert_eq!(stale.match_fields.write, Some(true));
+        assert!(stale.match_fields.path.is_none());
+        assert!(stale.match_fields.tool_name.is_none());
     }
 
     #[tokio::test]

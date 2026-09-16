@@ -899,19 +899,14 @@ pub(crate) fn permission_action_presentation(
     Some((title, detail))
 }
 
-const MAX_PERMISSION_MCP_IDENTIFIER_BYTES: usize = 128;
-
 /// Project the typed MCP envelope used by Codex tool approvals without
 /// carrying the argument object into the permission channel.
 fn permission_mcp_action_presentation(
     tool_call: &serde_json::Value,
 ) -> Option<(String, Option<String>)> {
-    if !tool_call.pointer("/_meta/is_mcp_tool_call")?.as_bool()? {
-        return None;
-    }
+    let (server, tool) = typed_mcp_tool_identity(tool_call)?;
+    let (server, tool) = (server.as_str(), tool.as_str());
     let raw_input = tool_call.get("rawInput")?.as_object()?;
-    let server = permission_mcp_identifier(raw_input.get("server")?)?;
-    let tool = permission_mcp_identifier(raw_input.get("tool")?)?;
     let arguments = raw_input.get("arguments")?.as_object()?;
     let identity = bounded_text(
         &format!("{server}.{tool}"),
@@ -950,14 +945,14 @@ fn permission_mcp_action_presentation(
     Some(("Use MCP tool".to_owned(), Some(identity)))
 }
 
+/// One MCP server or tool identifier, by the shared protocol rule.
+///
+/// The byte rule now lives in `luca_protocol` so the harness, the desktop's
+/// ledger and a remembered rule all agree on what an identifier is; this stays
+/// as the JSON-shaped wrapper the presentation code already calls.
 fn permission_mcp_identifier(value: &serde_json::Value) -> Option<&str> {
     let value = value.as_str()?;
-    (!value.is_empty()
-        && value.len() <= MAX_PERMISSION_MCP_IDENTIFIER_BYTES
-        && value.bytes().enumerate().all(|(index, byte)| {
-            byte.is_ascii_alphanumeric() || (index > 0 && matches!(byte, b'-' | b'_' | b'.'))
-        }))
-    .then_some(value)
+    luca_protocol::is_mcp_identifier(value).then_some(value)
 }
 
 fn valid_resident_runtime_family(value: &serde_json::Value) -> Option<&str> {
@@ -984,16 +979,328 @@ fn valid_native_profile_slug(value: &serde_json::Value) -> Option<&str> {
     .then_some(value)
 }
 
+/// The facts about one permission request an owner's remembered rule can be
+/// matched against.
+///
+/// Every field is a projection of the same ACP tool call the presentation feed
+/// already reads, under the same display bounds — never a raw payload, a diff
+/// body, or an argument object. A field is absent whenever the tool call did
+/// not say it plainly: a compound shell line yields no command token, a
+/// relative path yields no path, an unrecognised MCP name yields no pair. The
+/// desktop's ledger treats an absent field as "nothing to remember here",
+/// which degrades to asking once rather than to a rule that matches too much.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct PermissionMatchFields {
+    pub(crate) tool_kind: Option<String>,
+    pub(crate) activity_kind: Option<ManagedPresentationActivityKindV1>,
+    pub(crate) tool_name: Option<String>,
+    pub(crate) mcp_server: Option<String>,
+    pub(crate) mcp_tool: Option<String>,
+    pub(crate) command_token: Option<String>,
+    pub(crate) command_argv_prefix: Vec<String>,
+    pub(crate) path: Option<String>,
+    pub(crate) domain: Option<String>,
+    pub(crate) write: Option<bool>,
+}
+
+/// Project the match fields out of one ACP tool call.
+///
+/// Every value this returns already satisfies the protocol's own bound for its
+/// field, so the request it fills always validates. A value that would not is
+/// dropped here rather than failing the whole request downstream — an owner
+/// losing the chance to remember one permission is a far smaller failure than
+/// a permission card that never arrives.
+pub(crate) fn permission_match_fields(tool_call: &serde_json::Value) -> PermissionMatchFields {
+    let (mcp_server, mcp_tool) = match mcp_tool_identity(tool_call) {
+        Some((server, tool)) => (Some(server), Some(tool)),
+        None => (None, None),
+    };
+    let (command_token, command_argv_prefix) = command_shape(tool_call);
+    PermissionMatchFields {
+        tool_kind: permission_tool_kind(tool_call),
+        activity_kind: Some(activity_kind(tool_call)),
+        tool_name: permission_tool_name(tool_call),
+        mcp_server,
+        mcp_tool,
+        command_token,
+        command_argv_prefix,
+        path: permission_path(tool_call),
+        domain: permission_domain(tool_call),
+        write: Some(is_write_token(tool_call)),
+    }
+}
+
+/// The ACP `kind` of the call, as the adapter named it.
+fn permission_tool_kind(tool_call: &serde_json::Value) -> Option<String> {
+    let value = tool_call.get("kind")?.as_str()?;
+    (!value.is_empty()
+        && value.len() <= luca_protocol::MAX_PERMISSION_TOOL_KIND_BYTES
+        && !value.chars().any(char::is_control))
+    .then(|| value.to_owned())
+}
+
+/// The runtime's own name for the tool.
+///
+/// Claude reports it in `_meta`, other adapters in `toolName`. A `title` is a
+/// sentence, not a name, so it is only accepted when it is a single word —
+/// which is exactly the case where an adapter used the title *as* the name.
+fn permission_tool_name(tool_call: &serde_json::Value) -> Option<String> {
+    let named = [
+        tool_call
+            .pointer("/_meta/claudeCode/toolName")
+            .and_then(serde_json::Value::as_str),
+        tool_call
+            .get("toolName")
+            .and_then(serde_json::Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    .next();
+    let value = match named {
+        Some(value) => value,
+        None => {
+            let title = tool_call.get("title")?.as_str()?;
+            if title.split_whitespace().count() != 1 {
+                return None;
+            }
+            title
+        }
+    };
+    let value = value.trim();
+    (!value.is_empty()
+        && value.len() <= luca_protocol::MAX_PERMISSION_TOOL_NAME_BYTES
+        && !value.chars().any(char::is_control))
+    .then(|| value.to_owned())
+}
+
+/// The absolute path the call is about, if it named one plainly.
+///
+/// Relative paths are dropped: a rule keyed on `src/main.rs` would match that
+/// file in every project the resident ever opens.
+fn permission_path(tool_call: &serde_json::Value) -> Option<String> {
+    let raw = location_path(tool_call)
+        .or_else(|| {
+            first_string(
+                tool_call,
+                &[
+                    "/rawInput/path",
+                    "/rawInput/file_path",
+                    "/rawInput/filePath",
+                    "/rawInput/relative_path",
+                    "/rawInput/abs_path",
+                    "/rawInput/notebook_path",
+                ],
+            )
+        })
+        .or_else(|| typed_diff_first_path(tool_call).map(ToOwned::to_owned))?;
+    let raw = raw.trim();
+    luca_protocol::is_permission_path(raw).then(|| raw.to_owned())
+}
+
+/// The bare host the call is about.
+fn permission_domain(tool_call: &serde_json::Value) -> Option<String> {
+    let domain = first_string(tool_call, &["/rawInput/url", "/rawInput/uri"])
+        .as_deref()
+        .and_then(bare_domain)?;
+    luca_protocol::is_permission_domain(&domain).then_some(domain)
+}
+
+/// The `(server, tool)` pair behind an MCP call, across every adapter shape in
+/// this tree.
+///
+/// Three shapes, three adapters: Codex declares the call typed in `_meta` and
+/// carries the pair in `rawInput`; Claude flattens it into the tool name as
+/// `mcp__server__tool` (or `mcp.server.tool`); Hermes flattens it further into
+/// `mcp_<server_with_underscores>_<tool>`, which is ambiguous on its own — an
+/// underscore could be either separator — so that last shape is only read for
+/// the server families this app ships.
+pub(crate) fn mcp_tool_identity(tool_call: &serde_json::Value) -> Option<(String, String)> {
+    if let Some(identity) = typed_mcp_tool_identity(tool_call) {
+        return Some(identity);
+    }
+    for field in ["toolName", "title"] {
+        if let Some(identity) = tool_call
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .and_then(qualified_mcp_tool_identity)
+        {
+            return Some(identity);
+        }
+    }
+    tool_call
+        .pointer("/_meta/claudeCode/toolName")
+        .and_then(serde_json::Value::as_str)
+        .and_then(qualified_mcp_tool_identity)
+}
+
+/// Codex's typed MCP envelope: `_meta.is_mcp_tool_call` plus the pair.
+fn typed_mcp_tool_identity(tool_call: &serde_json::Value) -> Option<(String, String)> {
+    if !tool_call.pointer("/_meta/is_mcp_tool_call")?.as_bool()? {
+        return None;
+    }
+    let raw_input = tool_call.get("rawInput")?.as_object()?;
+    let server = permission_mcp_identifier(raw_input.get("server")?)?.to_owned();
+    let tool = permission_mcp_identifier(raw_input.get("tool")?)?.to_owned();
+    Some((server, tool))
+}
+
+/// The server families this app names with underscores in a flattened tool
+/// name, and the hyphenated server name each maps back to. `*` marks the two
+/// whose real name carries a twelve-hex conversation suffix.
+const FLATTENED_MCP_SERVER_FAMILIES: [(&str, &str, bool); 5] = [
+    ("luca_artifacts", "luca-artifacts", true),
+    ("luca_communications", "luca-communications", true),
+    ("luca_repositories", "luca-repositories", false),
+    ("polyphonic_browser", "polyphonic-browser", false),
+    ("buzz", "buzz", false),
+];
+
+/// Read a `(server, tool)` pair out of a flattened tool name.
+pub(crate) fn qualified_mcp_tool_identity(value: &str) -> Option<(String, String)> {
+    let value = value.trim();
+    for (prefix, separator) in [("mcp.", "."), ("mcp__", "__")] {
+        if let Some(qualified) = value.strip_prefix(prefix) {
+            let (server, tool) = qualified.rsplit_once(separator)?;
+            return (luca_protocol::is_mcp_identifier(server)
+                && luca_protocol::is_mcp_identifier(tool))
+            .then(|| (server.to_owned(), tool.to_owned()));
+        }
+    }
+    let rest = value.strip_prefix("mcp_")?;
+    for (snake, hyphenated, hex_suffixed) in FLATTENED_MCP_SERVER_FAMILIES {
+        let Some(tail) = rest
+            .strip_prefix(snake)
+            .and_then(|tail| tail.strip_prefix('_'))
+        else {
+            continue;
+        };
+        let (server, tool) = if hex_suffixed {
+            let (suffix, tool) = tail.split_once('_')?;
+            if !is_twelve_lowercase_hex(suffix) {
+                return None;
+            }
+            (format!("{hyphenated}-{suffix}"), tool)
+        } else {
+            (hyphenated.to_owned(), tail)
+        };
+        return (luca_protocol::is_mcp_identifier(&server)
+            && luca_protocol::is_mcp_identifier(tool))
+        .then(|| (server, tool.to_owned()));
+    }
+    None
+}
+
+fn is_twelve_lowercase_hex(value: &str) -> bool {
+    value.len() == 12
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// The command this call would run, reduced to a token and a short prefix.
+///
+/// A remembered command rule is only ever as safe as the shape it matches, so
+/// this is deliberately narrow. A string carrying any shell metacharacter
+/// yields nothing at all: `git status; rm -rf /` must never be remembered as
+/// `git`. So does a leading environment assignment (`FOO=1 make`) and an
+/// absolute or relative program path (`/usr/bin/git`), because neither says
+/// which program actually runs in a way a rule can compare.
+///
+/// The prefix stops at the first word that is not a plain argument, so
+/// `git status --short` remembers `git status` and `git push --force`
+/// remembers `git push` — enough to tell a read from a write, and never so
+/// much that a rule silently covers a different command.
+fn command_shape(tool_call: &serde_json::Value) -> (Option<String>, Vec<String>) {
+    const POINTERS: [&str; 4] = [
+        "/rawInput/command",
+        "/rawInput/cmd",
+        "/rawInput/script",
+        "/rawInput/argv",
+    ];
+    for pointer in POINTERS {
+        let Some(value) = tool_call.pointer(pointer) else {
+            continue;
+        };
+        let words: Vec<String> = match value {
+            serde_json::Value::String(line) => match command_words(line) {
+                Some(words) => words,
+                None => return (None, Vec::new()),
+            },
+            serde_json::Value::Array(items) => {
+                let mut words = Vec::with_capacity(items.len());
+                for item in items {
+                    let Some(word) = item.as_str() else {
+                        return (None, Vec::new());
+                    };
+                    words.push(word.to_owned());
+                }
+                words
+            }
+            _ => continue,
+        };
+        return command_token_and_prefix(&words);
+    }
+    (None, Vec::new())
+}
+
+/// Split a command line into words, or refuse it outright.
+fn command_words(line: &str) -> Option<Vec<String>> {
+    const FORBIDDEN: [char; 15] = [
+        ';', '&', '|', '`', '$', '<', '>', '(', ')', '{', '}', '\n', '\r', '\\', '\u{0}',
+    ];
+    if line.chars().any(|character| FORBIDDEN.contains(&character)) {
+        return None;
+    }
+    let words: Vec<String> = line.split_whitespace().map(ToOwned::to_owned).collect();
+    // A leading `FOO=1` is an environment assignment, not the program.
+    if words.first()?.contains('=') {
+        return None;
+    }
+    Some(words)
+}
+
+fn command_token_and_prefix(words: &[String]) -> (Option<String>, Vec<String>) {
+    let Some(first) = words.first() else {
+        return (None, Vec::new());
+    };
+    // A program path names a file, not a command a rule can compare.
+    if first.contains('/') || !luca_protocol::is_bare_command_token(first) {
+        return (None, Vec::new());
+    }
+    let prefix = words
+        .iter()
+        .skip(1)
+        .take_while(|word| !word.starts_with('-') && luca_protocol::is_command_argv_token(word))
+        .take(luca_protocol::MAX_PERMISSION_COMMAND_ARGV_PREFIX)
+        .cloned()
+        .collect();
+    (Some(first.clone()), prefix)
+}
+
 /// Extract only ACP's typed diff paths. Diff bodies and arbitrary content
 /// blocks are deliberately ignored by the permission surface.
+fn typed_diff_paths(tool_call: &serde_json::Value) -> impl Iterator<Item = &str> {
+    tool_call
+        .get("content")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|content| {
+            if content.get("type").and_then(serde_json::Value::as_str) != Some("diff") {
+                return None;
+            }
+            content.get("path")?.as_str()
+        })
+}
+
+/// The first typed diff path, undecorated — what a rule is keyed on, as
+/// opposed to the `(+n files)` sentence an owner reads.
+fn typed_diff_first_path(tool_call: &serde_json::Value) -> Option<&str> {
+    typed_diff_paths(tool_call).next()
+}
+
 fn typed_diff_path_detail(tool_call: &serde_json::Value) -> Option<String> {
-    let diffs = tool_call.get("content")?.as_array()?;
-    let mut paths = diffs.iter().filter_map(|content| {
-        if content.get("type").and_then(serde_json::Value::as_str) != Some("diff") {
-            return None;
-        }
-        content.get("path")?.as_str()
-    });
+    let mut paths = typed_diff_paths(tool_call);
     let first = paths.next()?;
     let additional = paths.count();
     if additional == 0 {
@@ -1572,7 +1879,10 @@ mod tests {
         }
         for (field, value) in [
             ("server", ".bad-server".to_owned()),
-            ("tool", "x".repeat(MAX_PERMISSION_MCP_IDENTIFIER_BYTES + 1)),
+            (
+                "tool",
+                "x".repeat(luca_protocol::MAX_PERMISSION_MCP_IDENTIFIER_BYTES + 1),
+            ),
         ] {
             let mut malformed = base.clone();
             malformed["rawInput"][field] = serde_json::json!(value);

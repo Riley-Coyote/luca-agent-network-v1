@@ -63,7 +63,9 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         .await
         .context("runtime adapter could not start")?;
     client.set_observer(Some(observer), 0);
-    client.set_managed_turn_context(&input.task_id, Some(&input.conversation_id));
+    // A runtime task is not a conversation dispatch; it has no receipt, so a
+    // permission raised inside one can only ever be answered Once.
+    client.set_managed_turn_context(&input.task_id, Some(&input.conversation_id), None);
     client.set_observer_context(ObserverContext {
         channel_id: Some(input.conversation_id.clone()),
         session_id: None,
