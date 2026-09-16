@@ -398,6 +398,49 @@ function collectToolNameCandidates(update: Record<string, unknown>): string[] {
   });
 }
 
+/** Roughly 3 MB of image bytes; anything larger is left out of the transcript. */
+const MAX_RESULT_IMAGE_BASE64_CHARS = 4 * 1024 * 1024;
+const MAX_RESULT_IMAGES = 4;
+
+function imageDataUri(value: unknown): string | null {
+  const record = asRecord(value);
+  if (record.type !== "image") return null;
+  const data = asString(record.data);
+  const mimeType = asString(record.mimeType) ?? asString(record.mime_type);
+  if (!data || !mimeType) return null;
+  if (!mimeType.startsWith("image/") || mimeType.includes(";")) return null;
+  if (data.length > MAX_RESULT_IMAGE_BASE64_CHARS) return null;
+  if (!/^[A-Za-z0-9+/=\s]+$/.test(data)) return null;
+  return `data:${mimeType};base64,${data.replace(/\s/g, "")}`;
+}
+
+/**
+ * Image blocks a tool returned, as data URIs.
+ *
+ * `extractToolResult` reads text and nothing else, so an image block used to
+ * vanish between the agent and the working panel. These are bounded in count
+ * and size because they live in memory for the length of the session.
+ */
+export function extractToolResultImages(
+  update: Record<string, unknown>,
+): string[] {
+  const blocks = Array.isArray(update.content)
+    ? update.content
+    : Array.isArray(asRecord(update.rawOutput).content)
+      ? (asRecord(update.rawOutput).content as unknown[])
+      : [];
+  const images: string[] = [];
+  for (const block of blocks) {
+    if (images.length >= MAX_RESULT_IMAGES) break;
+    const record = asRecord(block);
+    const uri =
+      imageDataUri(record) ??
+      (record.content ? imageDataUri(record.content) : null);
+    if (uri) images.push(uri);
+  }
+  return images;
+}
+
 export function extractToolResult(update: Record<string, unknown>): string {
   const contentText = extractContentText(update.content);
   if (contentText) return contentText;

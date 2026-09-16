@@ -133,6 +133,13 @@ export type TranscriptItem =
       status: ToolStatus;
       args: Record<string, unknown>;
       result: string;
+      /**
+       * Data URIs for image blocks the tool returned. ACP sends these as
+       * `{ type: "image", data, mimeType }` content blocks, which the text
+       * extraction cannot represent; keeping them here lets the row show the
+       * picture while the turn is still running.
+       */
+      resultImages?: string[];
       isError: boolean;
       timestamp: string;
       startedAt: string;

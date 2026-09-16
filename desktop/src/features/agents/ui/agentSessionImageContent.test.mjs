@@ -69,3 +69,50 @@ test("buildImageContent rejects local filesystem paths", () => {
     null,
   );
 });
+
+test("buildImageContent shows an image a tool returned", () => {
+  const content = buildImageContent(
+    makeTool({
+      toolName: "make_chart",
+      resultImages: ["data:image/png;base64,AAAA"],
+    }),
+    { ...imageDescriptor, renderClass: "generic", preview: "chart.png" },
+  );
+  assert.deepEqual(content, {
+    src: "data:image/png;base64,AAAA",
+    title: "chart.png",
+  });
+});
+
+test("buildImageContent prefers the viewed source over a returned image", () => {
+  const content = buildImageContent(
+    makeTool({
+      args: { source: "https://example.com/looked-at.png" },
+      resultImages: ["data:image/png;base64,AAAA"],
+    }),
+    imageDescriptor,
+  );
+  assert.equal(content?.src, "https://example.com/looked-at.png");
+});
+
+test("buildImageContent falls back to the result when the source is unusable", () => {
+  const content = buildImageContent(
+    makeTool({
+      args: { source: "desktop/assets/screenshot.png" },
+      resultImages: ["data:image/png;base64,AAAA"],
+    }),
+    imageDescriptor,
+  );
+  assert.equal(content?.src, "data:image/png;base64,AAAA");
+});
+
+test("buildImageContent drops an oversized returned image", () => {
+  const huge = `data:image/png;base64,${"A".repeat(4 * 1024 * 1024 + 1)}`;
+  assert.equal(
+    buildImageContent(makeTool({ resultImages: [huge] }), {
+      ...imageDescriptor,
+      renderClass: "generic",
+    }),
+    null,
+  );
+});

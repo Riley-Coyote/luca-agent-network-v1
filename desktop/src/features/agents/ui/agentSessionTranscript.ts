@@ -24,6 +24,7 @@ import {
   extractToolArgs,
   extractToolIdentity,
   extractToolResult,
+  extractToolResultImages,
   parsePromptText,
   parseSystemPromptSections,
 } from "./agentSessionTranscriptHelpers";
@@ -619,6 +620,7 @@ function upsertTool(
   timestamp: string,
   ctx: TranscriptItemContext,
   acpSource?: string,
+  resultImages: string[] = [],
 ) {
   const existing = d.itemsById.get(id);
   const canonicalBuzzToolName =
@@ -636,6 +638,9 @@ function upsertTool(
     const mergedStatus = mergeToolStatus(existing.status, status);
     const updatedArgs = Object.keys(args).length > 0 ? args : existing.args;
     const updatedResult = result || existing.result;
+    // A later update without image blocks never erases the ones already shown.
+    const updatedResultImages =
+      resultImages.length > 0 ? resultImages : existing.resultImages;
     const updatedIsError = isError || existing.isError;
     const descriptor = classifyTool({
       title: updatedTitle,
@@ -655,6 +660,7 @@ function upsertTool(
       status: mergedStatus,
       args: updatedArgs,
       result: updatedResult,
+      resultImages: updatedResultImages,
       isError: updatedIsError,
       completedAt:
         isTerminalToolStatus(mergedStatus) && existing.completedAt == null
@@ -688,6 +694,7 @@ function upsertTool(
     status,
     args,
     result,
+    resultImages: resultImages.length > 0 ? resultImages : undefined,
     isError,
     timestamp,
     startedAt: timestamp,
@@ -995,6 +1002,7 @@ export function processTranscriptEvent(
           event.timestamp,
           ctx,
           updateType,
+          extractToolResultImages(update),
         );
       } else if (updateType === "tool_call_update") {
         const toolId = asString(update.toolCallId) ?? `tool:${event.seq}`;
@@ -1015,6 +1023,7 @@ export function processTranscriptEvent(
           event.timestamp,
           ctx,
           updateType,
+          extractToolResultImages(update),
         );
       } else if (updateType === "plan") {
         upsertPlan(
