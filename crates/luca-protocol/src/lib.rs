@@ -70,9 +70,11 @@ pub use managed_presentation::{
     MAX_MANAGED_PRESENTATION_FRAME_BYTES,
 };
 pub use message_publish::{
-    derive_message_publish_idempotency_key, ManagedMessagePublishRequestV1,
-    ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, MessagePublishError,
-    MANAGED_DISPATCH_RECEIPT_TAG, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
+    derive_message_publish_idempotency_key, ManagedFinalAttachmentV1,
+    ManagedMessagePublishRequestV1, ManagedMessagePublishResultV1, ManagedResponseSurfaceV1,
+    MessagePublishError, MANAGED_DISPATCH_RECEIPT_TAG, MAX_ATTACHMENT_BLURHASH_BYTES,
+    MAX_ATTACHMENT_DIM_BYTES, MAX_ATTACHMENT_FILENAME_BYTES, MAX_ATTACHMENT_MIME_BYTES,
+    MAX_ATTACHMENT_URL_BYTES, MAX_FINAL_ATTACHMENTS, MAX_FINAL_DRAFT_BYTES, MAX_RESOLVED_P_TAGS,
     MESSAGE_PUBLISH_PROTOCOL,
 };
 pub use notebook::*;

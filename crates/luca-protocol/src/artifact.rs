@@ -65,12 +65,22 @@ pub enum ArtifactSourceV1 {
     },
 }
 
+/// Images ride the turn's reply unless the resident opts out.
+pub fn default_attach_to_reply() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtifactCreateArgsV1 {
     pub title: String,
     pub kind: ArtifactKindV1,
     pub source: ArtifactSourceV1,
     pub idempotency_key: OpaqueId,
+    /// Whether an `image` artifact created inside a managed turn is attached to
+    /// that turn's published reply. Ignored for every other kind. Defaults to
+    /// true so a resident that simply saves a picture shows it.
+    #[serde(default = "default_attach_to_reply")]
+    pub attach_to_reply: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -361,6 +371,7 @@ mod tests {
                     declared_media_type: None,
                 },
                 idempotency_key: OpaqueId::parse("idem-1").unwrap(),
+                attach_to_reply: true,
             },
         ));
         assert_eq!(value.validate(), Err(ArtifactProtocolError::AppSource));
@@ -377,6 +388,7 @@ mod tests {
                     declared_media_type: None,
                 },
                 idempotency_key: OpaqueId::parse("idem-2").unwrap(),
+                attach_to_reply: true,
             },
         ));
         assert_eq!(value.validate(), Err(ArtifactProtocolError::Source));

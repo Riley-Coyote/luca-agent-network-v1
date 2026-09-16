@@ -18,6 +18,103 @@ pub const MANAGED_DISPATCH_RECEIPT_TAG: &str = "luca-managed-dispatch";
 pub const MAX_FINAL_DRAFT_BYTES: usize = 65_536;
 /// Maximum number of exact resolved `p` tags.
 pub const MAX_RESOLVED_P_TAGS: usize = 64;
+/// Maximum number of resolved image attachments carried by one final.
+pub const MAX_FINAL_ATTACHMENTS: usize = 4;
+/// Maximum UTF-8 byte length of an attachment URL (`url` and `thumb`).
+pub const MAX_ATTACHMENT_URL_BYTES: usize = 2_048;
+/// Maximum UTF-8 byte length of an attachment media type.
+pub const MAX_ATTACHMENT_MIME_BYTES: usize = 128;
+/// Maximum UTF-8 byte length of an attachment `dim` value (`"1024x768"`).
+pub const MAX_ATTACHMENT_DIM_BYTES: usize = 32;
+/// Maximum UTF-8 byte length of an attachment blurhash.
+pub const MAX_ATTACHMENT_BLURHASH_BYTES: usize = 256;
+/// Maximum UTF-8 byte length of an attachment filename.
+pub const MAX_ATTACHMENT_FILENAME_BYTES: usize = 256;
+
+/// One resolved image already uploaded to the managed relay, ready to ride the
+/// resident's final as a NIP-92 `imeta` tag plus a markdown body line.
+///
+/// The desktop resolves these itself from the turn's artifact receipts; the
+/// field exists on the request so the outbox pins the exact set it froze.
+/// Nothing here is bytes — only the content-addressed URL the relay returned.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManagedFinalAttachmentV1 {
+    /// Relay blob URL returned by the media upload.
+    pub url: String,
+    /// SHA-256 of the exact uploaded bytes.
+    pub sha256: Hex64,
+    /// Concrete `image/*` media type.
+    #[serde(rename = "type")]
+    pub mime_type: String,
+    /// Exact uploaded byte length.
+    pub size: SafeU53,
+    /// Relay-computed `"<width>x<height>"`, when the relay returned one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dim: Option<String>,
+    /// Relay-computed blurhash, when the relay returned one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blurhash: Option<String>,
+    /// Relay-computed thumbnail URL, when the relay returned one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thumb: Option<String>,
+    /// Display filename, carried for download integrity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+}
+
+/// A tag field may not carry whitespace that would split or wrap the tag.
+fn tag_safe(value: &str, max_bytes: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max_bytes
+        && !value
+            .chars()
+            .any(|c| c.is_control() || c == '\n' || c == '\r')
+}
+
+fn tag_safe_url(value: &str) -> bool {
+    tag_safe(value, MAX_ATTACHMENT_URL_BYTES)
+        && value.starts_with("https://")
+        && !value.chars().any(char::is_whitespace)
+}
+
+impl ManagedFinalAttachmentV1 {
+    /// Validate one attachment against the frozen tag-safety bounds.
+    pub fn validate(&self) -> Result<(), MessagePublishError> {
+        if !tag_safe_url(&self.url) {
+            return Err(MessagePublishError::Attachments);
+        }
+        if !self.mime_type.starts_with("image/")
+            || !tag_safe(&self.mime_type, MAX_ATTACHMENT_MIME_BYTES)
+            || self.mime_type.chars().any(char::is_whitespace)
+        {
+            return Err(MessagePublishError::Attachments);
+        }
+        if self.size.get() == 0 {
+            return Err(MessagePublishError::Attachments);
+        }
+        if self
+            .dim
+            .as_ref()
+            .is_some_and(|value| !tag_safe(value, MAX_ATTACHMENT_DIM_BYTES))
+            || self
+                .blurhash
+                .as_ref()
+                .is_some_and(|value| !tag_safe(value, MAX_ATTACHMENT_BLURHASH_BYTES))
+            || self
+                .thumb
+                .as_ref()
+                .is_some_and(|value| !tag_safe_url(value))
+            || self
+                .filename
+                .as_ref()
+                .is_some_and(|value| !tag_safe(value, MAX_ATTACHMENT_FILENAME_BYTES))
+        {
+            return Err(MessagePublishError::Attachments);
+        }
+        Ok(())
+    }
+}
 
 /// App-authorized presentation surface for one managed final response.
 ///
@@ -54,6 +151,9 @@ pub enum MessagePublishError {
     /// `bucket_hint` was outside 1..=10.
     #[error("bucket_hint must be 1..=10")]
     BucketHint,
+    /// The resolved attachment set was too large or carried an unusable value.
+    #[error("attachments must contain at most 4 bounded https image blobs")]
+    Attachments,
 }
 
 /// A policy-checked request to publish one accepted final agent message.
@@ -102,6 +202,13 @@ pub struct ManagedMessagePublishRequestV1 {
     /// this final *mints* an exchange; clamped to the ceiling by the desktop.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bucket_hint: Option<u8>,
+    /// Images this final carries, already uploaded and resolved by the desktop.
+    ///
+    /// Empty for every request the ACP harness sends and for every final
+    /// published before images could ride a reply, so the field never changes
+    /// the canonical bytes of a request that has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ManagedFinalAttachmentV1>,
 }
 
 impl sealed::Sealed for ManagedMessagePublishRequestV1 {}
@@ -131,6 +238,8 @@ struct RawManagedMessagePublishRequestV1 {
     exchange: Option<ExchangeTurnTag>,
     #[serde(default)]
     bucket_hint: Option<u8>,
+    #[serde(default)]
+    attachments: Vec<ManagedFinalAttachmentV1>,
 }
 
 impl ManagedMessagePublishRequestV1 {
@@ -163,6 +272,12 @@ impl ManagedMessagePublishRequestV1 {
                 return Err(MessagePublishError::BucketHint);
             }
         }
+        if self.attachments.len() > MAX_FINAL_ATTACHMENTS {
+            return Err(MessagePublishError::Attachments);
+        }
+        for attachment in &self.attachments {
+            attachment.validate()?;
+        }
         Ok(())
     }
 }
@@ -187,6 +302,7 @@ impl<'de> Deserialize<'de> for ManagedMessagePublishRequestV1 {
             cancellation_epoch: raw.cancellation_epoch,
             exchange: raw.exchange,
             bucket_hint: raw.bucket_hint,
+            attachments: raw.attachments,
         };
         request.validate().map_err(serde::de::Error::custom)?;
         Ok(request)
@@ -247,4 +363,120 @@ impl sealed::Sealed for ManagedMessagePublishResultV1 {}
 
 impl BrokerOperationV1 for ManagedMessagePublishResultV1 {
     const OPERATION: OperationV1 = OperationV1::MessagePublish;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attachment() -> ManagedFinalAttachmentV1 {
+        ManagedFinalAttachmentV1 {
+            url: "https://relay.example/abc.png".into(),
+            sha256: Hex64::parse("ab".repeat(32)).unwrap(),
+            mime_type: "image/png".into(),
+            size: SafeU53::new(1024).unwrap(),
+            dim: Some("1024x768".into()),
+            blurhash: Some("LEHV6nWB2yk8".into()),
+            thumb: Some("https://relay.example/abc-thumb.png".into()),
+            filename: Some("chart.png".into()),
+        }
+    }
+
+    fn request(attachments: Vec<ManagedFinalAttachmentV1>) -> ManagedMessagePublishRequestV1 {
+        let dispatch_receipt_id = OpaqueId::parse("dispatch-1").unwrap();
+        let resident_pubkey = Hex64::parse("22".repeat(32)).unwrap();
+        let idempotency_key =
+            derive_message_publish_idempotency_key(&dispatch_receipt_id, &resident_pubkey).unwrap();
+        ManagedMessagePublishRequestV1 {
+            protocol: MESSAGE_PUBLISH_PROTOCOL.into(),
+            turn_id: OpaqueId::parse("turn-1").unwrap(),
+            idempotency_key,
+            owner_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+            resident_pubkey,
+            conversation_id: OpaqueId::parse("conversation-1").unwrap(),
+            thread_id: None,
+            root_event_id: None,
+            reply_event_id: None,
+            response_surface: Some(ManagedResponseSurfaceV1::Timeline),
+            resolved_p_tags: Vec::new(),
+            final_draft: "here it is".into(),
+            dispatch_receipt_id,
+            cancellation_epoch: SafeU53::new(3).unwrap(),
+            exchange: None,
+            bucket_hint: None,
+            attachments,
+        }
+    }
+
+    #[test]
+    fn a_final_without_attachments_serializes_exactly_as_before() {
+        let value = serde_json::to_value(request(Vec::new())).expect("serialize");
+        assert!(value.get("attachments").is_none());
+    }
+
+    #[test]
+    fn four_bounded_image_attachments_are_accepted() {
+        let attachments = vec![attachment(), attachment(), attachment(), attachment()];
+        request(attachments)
+            .validate()
+            .expect("four is the ceiling");
+    }
+
+    #[test]
+    fn a_fifth_attachment_is_refused() {
+        let attachments = vec![
+            attachment(),
+            attachment(),
+            attachment(),
+            attachment(),
+            attachment(),
+        ];
+        assert!(matches!(
+            request(attachments).validate(),
+            Err(MessagePublishError::Attachments)
+        ));
+    }
+
+    #[test]
+    fn attachments_must_be_https_images_with_bytes() {
+        for mutate in [
+            (|a: &mut ManagedFinalAttachmentV1| a.url = "http://relay.example/a.png".into())
+                as fn(&mut ManagedFinalAttachmentV1),
+            |a| a.url = "buzz-media://a.png".into(),
+            |a| a.url = String::new(),
+            |a| a.mime_type = "text/plain".into(),
+            |a| a.mime_type = "image/svg+xml\nx".into(),
+            |a| a.size = SafeU53::new(0).unwrap(),
+            |a| a.thumb = Some("http://relay.example/t.png".into()),
+            |a| a.dim = Some("1024x768\nurl evil".into()),
+            |a| a.filename = Some("a\rb.png".into()),
+        ] {
+            let mut bad = attachment();
+            mutate(&mut bad);
+            assert!(
+                matches!(
+                    request(vec![bad.clone()]).validate(),
+                    Err(MessagePublishError::Attachments)
+                ),
+                "expected refusal for {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_raw_struct_round_trips_attachments() {
+        let original = request(vec![attachment()]);
+        let json = serde_json::to_string(&original).expect("serialize");
+        let parsed: ManagedMessagePublishRequestV1 =
+            serde_json::from_str(&json).expect("round trip");
+        assert_eq!(parsed, original);
+        assert_eq!(parsed.attachments.len(), 1);
+    }
+
+    #[test]
+    fn an_unknown_attachment_field_is_refused() {
+        let mut value = serde_json::to_value(request(vec![attachment()])).expect("serialize");
+        value["attachments"][0]["luca_handle"] = serde_json::json!("nope");
+        assert!(serde_json::from_value::<ManagedMessagePublishRequestV1>(value).is_err());
+    }
 }
