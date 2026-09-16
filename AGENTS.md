@@ -1,5 +1,39 @@
 # Luca fork instructions
 
+## You are in the website checkout, not the app (verified 2026-09-16)
+
+Two separate lines of work live in this repo. **They never merge into each
+other.**
+
+| Line | Branch | Checkout |
+|------|--------|----------|
+| The app — Polyphonic desktop | `codex/first-meeting-finish` (ships the releases; tagged `v0.5.0-beta.N`) | `~/Documents/Repositories/.codex-workspaces/luca-first-meeting-finish` |
+| The website — beta landing page | `codex/quickchat` — **this folder**; only `polyphonic-landing/` | `~/Documents/Repositories/luca-agent-network-v1` |
+
+This branch left the app line on 2026-08-04. Everything below in this file is
+the app's guide and is months out of date here. **Do not change app code in
+this checkout**, and never merge this branch into the app line — it would drag
+the whole landing site in with it.
+
+App work starts from the shipped release tag, in its own worktree:
+
+```bash
+git worktree add -b <short-name> <path> "$(git describe --tags --abbrev=0 codex/first-meeting-finish)"
+```
+
+**Do not branch from, merge into, or treat as current** — each is strictly
+behind the shipped app with no commits of its own: `luca/v1` (1057 behind, and
+still GitHub's default branch, so tooling will wrongly call it "main"),
+`luca/v1.1` (428 behind), `agent/runtime-reliability`, `agent/vision-demo`.
+
+`HANDOFF.md`, `docs/luca/G1_CHECKLIST.md` and `.codex/luca-v1/` are historical
+planning records. Read them for intent, never for where the code is.
+
+Loose files in this folder: ~190 MB of untracked work (landing research, design
+artifacts, evidence runs, the mobile prototype archive) is parked out of
+`git status` via `.git/info/exclude`. Nothing was deleted; the inventory is at
+`~/Documents/Luca-Backups/2026-09-16-quickchat/`.
+
 This checkout is the Luca personal-agent application, derived from Buzz. Before
 changing code, read [HANDOFF.md](HANDOFF.md) and
 [docs/luca/G1_CHECKLIST.md](docs/luca/G1_CHECKLIST.md). Those files override
