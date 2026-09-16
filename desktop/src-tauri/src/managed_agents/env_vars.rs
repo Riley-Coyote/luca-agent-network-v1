@@ -97,6 +97,11 @@ pub(crate) const RESERVED_ENV_KEYS: &[&str] = &[
     // ambient env var must not be able to forge setup mode (NotReady) on a
     // Ready agent or suppress it (empty/stale payload) on a NotReady one.
     "BUZZ_ACP_SETUP_PAYLOAD",
+    // Permission tier: the owner's access rung, translated for this runtime at
+    // spawn. Overriding either would hand the resident a wider permission mode
+    // or sandbox than the owner chose in Settings.
+    "BUZZ_ACP_PERMISSION_MODE",
+    "BUZZ_ACP_CODEX_POLICY",
 ];
 
 pub(crate) fn is_reserved_env_key(key: &str) -> bool {

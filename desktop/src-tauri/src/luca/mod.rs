@@ -63,6 +63,7 @@ pub(crate) mod owner_brain;
 pub(crate) mod owner_brain_store;
 pub(crate) mod owner_identity_recovery;
 pub(crate) mod permission_ledger;
+pub(crate) mod permission_tier;
 #[cfg(test)]
 mod reliability_f10;
 #[cfg(unix)]
