@@ -188,6 +188,25 @@ type MockExchangeSeed = {
   phase?: "open" | "paused" | "closed" | "expired";
 };
 
+/** One remembered permission rule, in the wire shape the desktop sends. */
+type MockPermissionRuleSeed = {
+  protocol?: "luca.permission.rule.v1";
+  rule_id: string;
+  resident_pubkey: string;
+  scope: { scope: "project"; source_id: string } | { scope: "everywhere" };
+  matcher:
+    | { kind: "command"; token: string; argv_prefix?: string[] }
+    | { kind: "path"; write: boolean }
+    | { kind: "mcp_tool"; server_family: string; tool: string }
+    | { kind: "domain"; host: string };
+  effect?: "allow" | "deny";
+  display_name: string;
+  created_at?: string;
+  revoked_at?: string | null;
+  last_used_at?: string | null;
+  use_count?: number;
+};
+
 type E2eConfig = {
   mode?: "mock" | "relay";
   /** Arm the render-error probe so the crash boundary can be exercised. */
@@ -285,9 +304,21 @@ type E2eConfig = {
         acp_request_id: string;
         title: string;
         tool_call_id?: string | null;
+        action_preview?: string | null;
         options: Array<{ option_id: string; name: string; kind: string }>;
       };
+      /** Which answers this card may offer. Absent means the fail-closed one. */
+      offer?: {
+        once: boolean;
+        task: boolean;
+        always_here: boolean;
+        deny: boolean;
+        project_label?: string | null;
+        note?: string | null;
+      } | null;
     }>;
+    /** Remembered permission rules seeded into the capability settings store. */
+    permissionRules?: MockPermissionRuleSeed[];
     uploadError?: string;
     nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
     nativeResidentDiscoveryError?: string;
@@ -8207,7 +8238,35 @@ let mockResidentCapabilitySettings = {
     createdAt: string;
     revokedAt: string | null;
   }>,
+  rules: [] as MockPermissionRuleSeed[],
 };
+
+/** The same family names `known_acp_runtime` reports on the native side. */
+function mockRuntimeFamily(agentCommand: string | null): string {
+  const command = (agentCommand ?? "").toLowerCase();
+  if (command.includes("claude")) return "claude_code";
+  if (command.includes("codex")) return "codex";
+  if (command.includes("openclaw")) return "openclaw";
+  if (command.includes("hermes")) return "hermes";
+  return "unknown";
+}
+
+function resetMockResidentCapabilitySettings(config?: E2eConfig) {
+  mockResidentCapabilitySettings = {
+    householdDefault: "standard",
+    residentAccess: {},
+    grants: [],
+    rules: (config?.mock?.permissionRules ?? []).map((rule) => ({
+      protocol: "luca.permission.rule.v1" as const,
+      effect: "allow" as const,
+      created_at: "2026-09-16T04:00:00Z",
+      revoked_at: null,
+      last_used_at: null,
+      use_count: 0,
+      ...rule,
+    })),
+  };
+}
 type MockNativeProvisioningTransaction = {
   schemaVersion: 1;
   transactionId: string;
@@ -10424,6 +10483,7 @@ export function maybeInstallE2eTauriMocks() {
   resetMockMesh();
   resetMockUserStatuses();
   resetMockSaveSubscriptions(config);
+  resetMockResidentCapabilitySettings(config);
   resetMockPendingCommunityDeepLinks(config);
   mockWebsocketSendMutexWedged = false;
   mockPreviewSessionStatus = "ready";
@@ -13347,6 +13407,36 @@ export function maybeInstallE2eTauriMocks() {
         };
         return mockResidentCapabilitySettings;
       }
+      case "revoke_permission_rule": {
+        const ruleId = (payload as { ruleId: string }).ruleId;
+        mockResidentCapabilitySettings = {
+          ...mockResidentCapabilitySettings,
+          rules: mockResidentCapabilitySettings.rules.filter(
+            (rule) => rule.rule_id !== ruleId,
+          ),
+        };
+        return mockResidentCapabilitySettings;
+      }
+      case "get_resident_runtime_tier": {
+        const residentPubkey = (payload as { residentPubkey: string })
+          .residentPubkey;
+        const agent = mockManagedAgents.find(
+          (candidate) => candidate.pubkey === residentPubkey,
+        );
+        const family = mockRuntimeFamily(agent?.agent_command ?? null);
+        return {
+          family,
+          control:
+            family === "claude_code"
+              ? "native_mode"
+              : family === "codex"
+                ? "native_policy"
+                : "advisory",
+          level:
+            mockResidentCapabilitySettings.residentAccess[residentPubkey] ??
+            mockResidentCapabilitySettings.householdDefault,
+        };
+      }
       case "list_repository_connection_proposals":
         return [];
       case "authorize_repository_connection_proposal":
@@ -13733,6 +13823,7 @@ export function maybeInstallE2eTauriMocks() {
         const input = payload as {
           pendingId: string;
           optionId: string | null;
+          tense?: string | null;
         };
         const pending = activeConfig?.mock?.managedPermissions?.find(
           (candidate) => candidate.pendingId === input.pendingId,
@@ -13740,11 +13831,17 @@ export function maybeInstallE2eTauriMocks() {
         const selected = pending?.request.options.find(
           (option) => option.option_id === input.optionId,
         );
-        const outcome = selected?.kind.startsWith("reject")
-          ? "rejected"
-          : selected
-            ? "approved"
-            : "cancelled";
+        // A V1 card answers in a tense and the desktop picks the option; the
+        // older capability card still names the option it advertised.
+        const outcome = input.tense
+          ? input.tense === "deny"
+            ? "rejected"
+            : "approved"
+          : selected?.kind.startsWith("reject")
+            ? "rejected"
+            : selected
+              ? "approved"
+              : "cancelled";
         if (activeConfig?.mock?.managedPermissions) {
           activeConfig.mock.managedPermissions =
             activeConfig.mock.managedPermissions.filter(

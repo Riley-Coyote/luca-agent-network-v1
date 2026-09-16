@@ -236,10 +236,7 @@ test("attachment and permission failures stay sanitized while text remains avail
       type BaseFixture = Parameters<
         NonNullable<typeof window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__>
       >[0][number];
-      type PreviewFixture = BaseFixture & {
-        request: BaseFixture["request"] & { action_preview: string };
-      };
-      const permission: PreviewFixture = {
+      const permission: BaseFixture = {
         pendingId: "safe-permission",
         request: {
           protocol: "luca.managed.permission.v1",
@@ -258,6 +255,14 @@ test("attachment and permission failures stay sanitized while text remains avail
             },
             { option_id: "reject", name: "Reject", kind: "reject_once" },
           ],
+        },
+        offer: {
+          once: true,
+          task: true,
+          always_here: true,
+          deny: true,
+          project_label: "polyphonic",
+          note: null,
         },
       };
       window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([permission]);
@@ -323,7 +328,23 @@ test("attachment and permission failures stay sanitized while text remains avail
   await permissionCard.screenshot({
     path: testInfo.outputPath("managed-permission-action-preview.png"),
   });
-  await permissionCard.getByRole("button", { name: "Allow" }).click();
+  // The card says where the answer lands, and offers all four tenses.
+  await expect(permissionCard).toContainText("In polyphonic");
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-once"),
+  ).toHaveText("Once");
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-task"),
+  ).toHaveText("For this task");
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-deny"),
+  ).toHaveText("Deny");
+  await expect(permissionCard).toContainText(
+    "Remembered for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
+  );
+  await permissionCard
+    .getByTestId("managed-permission-tense-always_here")
+    .click();
   await expect
     .poll(() =>
       page.evaluate(
@@ -333,9 +354,76 @@ test("attachment and permission failures stay sanitized while text remains avail
           )?.payload,
       ),
     )
-    .toMatchObject({
+    .toEqual({
       pendingId: "safe-permission",
-      optionId: "allow-exact-runtime-option",
+      optionId: null,
+      tense: "always_here",
+    });
+  await expect(permissionCard).toHaveCount(0);
+
+  // A door offers only Once and Deny, and says so in one sentence.
+  await page.evaluate(
+    ({ conversationId, residentPubkey }) => {
+      window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([
+        {
+          pendingId: "door-permission",
+          request: {
+            protocol: "luca.managed.permission.v1",
+            resident_pubkey: residentPubkey,
+            conversation_id: conversationId,
+            session_epoch: 7,
+            turn_id: "door-turn",
+            acp_request_id: "acp-door",
+            title: "Send a message off this machine",
+            options: [
+              { option_id: "allow", name: "Allow", kind: "allow_once" },
+              { option_id: "reject", name: "Reject", kind: "reject_once" },
+            ],
+          },
+          offer: {
+            once: true,
+            task: false,
+            always_here: false,
+            deny: true,
+            project_label: null,
+            note: "This one always asks.",
+          },
+        },
+      ]);
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-pending", {});
+    },
+    { conversationId: CHANNEL_ID, residentPubkey: CLAUDE },
+  );
+  await expect(permissionCard).toBeVisible();
+  await expect(permissionCard).toContainText("This one always asks.");
+  await expect(permissionCard).toContainText("Outside your projects");
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-once"),
+  ).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-deny"),
+  ).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-task"),
+  ).toHaveCount(0);
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-always_here"),
+  ).toHaveCount(0);
+  await expect(permissionCard).not.toContainText("Remembered for");
+  await permissionCard.getByTestId("managed-permission-tense-deny").click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).findLast(
+            (entry) => entry.command === "resolve_managed_permission",
+          )?.payload,
+      ),
+    )
+    .toEqual({
+      pendingId: "door-permission",
+      optionId: null,
+      tense: "deny",
     });
   await expect(permissionCard).toHaveCount(0);
   await page.evaluate(

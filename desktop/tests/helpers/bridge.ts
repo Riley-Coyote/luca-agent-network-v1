@@ -179,6 +179,20 @@ export type MockAgentMemoryListing = {
   fetchedAt: number;
 };
 
+/** One remembered permission rule seeded into the capability settings store. */
+export type MockPermissionRuleSeed = {
+  rule_id: string;
+  resident_pubkey: string;
+  scope: { scope: "project"; source_id: string } | { scope: "everywhere" };
+  matcher:
+    | { kind: "command"; token: string; argv_prefix?: string[] }
+    | { kind: "path"; write: boolean }
+    | { kind: "mcp_tool"; server_family: string; tool: string }
+    | { kind: "domain"; host: string };
+  display_name: string;
+  use_count?: number;
+};
+
 type MockBridgeOptions = {
   /** Advertised HEAD for the first mock project without adding that branch. */
   projectHeadBranch?: string;
@@ -270,6 +284,8 @@ type MockBridgeOptions = {
     mcp?: MockCommandAvailability;
   };
   managedAgents?: MockManagedAgentSeed[];
+  /** Remembered permission rules, in the wire shape the desktop sends. */
+  permissionRules?: MockPermissionRuleSeed[];
   /**
    * Seeded exchange heads (kind 30178). The mock relay serves them to the
    * exchange sync's backfill/live REQ and answers `get_exchange` /

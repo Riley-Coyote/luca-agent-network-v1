@@ -53,6 +53,16 @@ const ENTRIES: ActivityTraceEntry[] = [
     text: "I am checking the first section.",
     roomText: "Work update",
   },
+  // One owner decision, written down where the work is. Never a step, and
+  // never the live headline.
+  {
+    id: "permission",
+    sequence: 7,
+    kind: "permission",
+    status: "done",
+    text: "Allowed by your rule: git status · Always in polyphonic",
+    roomText: "Allowed a command",
+  },
 ];
 
 // A working turn always has one open step. The settled tests keep ENTRIES as
@@ -222,6 +232,9 @@ test("live native activity replaces narration in place and stops the exact resid
   await expect(trace.locator("[data-activity-status]")).toHaveText(
     "Reading task-notes.md",
   );
+  // A permission decision is in this turn's entries and is never the headline.
+  await expect(trace).not.toContainText("Allowed by your rule");
+  await expect(trace).not.toContainText("Allowed a command");
   // No narration line, no bracketed commentary, no record while working.
   await expect(trace.locator("[data-activity-narration]")).toHaveCount(0);
   await expect(trace.locator("[data-activity-trace-list]")).toHaveCount(0);
@@ -331,8 +344,14 @@ test("a settled record stays above its signed reply and hydrates again after rel
     "Work update",
     "Searching files",
     "Work update",
+    "Allowed a command",
   ];
   await expect(record.locator("li")).toHaveText(expected);
+  // The decision renders as its own kind, and never counts as a step.
+  await expect(
+    record.locator('li[data-activity-kind="permission"]'),
+  ).toHaveCount(1);
+  await expect(trace).not.toContainText("git status");
   await expect(trace).not.toContainText("task-notes.md");
   await expect(page.locator("body")).not.toContainText(
     "PRIVATE THOUGHT MUST NOT RENDER",

@@ -40,6 +40,16 @@ test.beforeEach(async ({ page }) => {
   await seedActiveIdentity(page, TEST_IDENTITIES.tyler);
   await installMockBridge(page, {
     acpRuntimesCatalog: [CODEX_RUNTIME],
+    permissionRules: [
+      {
+        rule_id: "rule-git-status",
+        resident_pubkey: HERMES_PUBKEY,
+        scope: { scope: "project", source_id: "connected-repository-luca" },
+        matcher: { kind: "command", token: "git", argv_prefix: ["status"] },
+        display_name: "git status",
+        use_count: 3,
+      },
+    ],
     managedAgents: [
       {
         agentCommand: "codex",
@@ -146,8 +156,24 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
 
   await page.getByRole("button", { name: "Capabilities" }).click();
   await expect(page.getByTestId("resident-access-control")).toBeVisible();
-  await expect(page.getByRole("radio", { name: /Standard/ })).toBeChecked();
-  await expect(page.getByText("Remembered permissions")).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Accept edits/ })).toBeChecked();
+  await expect(
+    page.getByText("Remembered permissions", { exact: true }),
+  ).toBeVisible();
+  // Hermes takes no level from Polyphonic; the rules below still apply.
+  await expect(page.getByTestId("resident-runtime-tier-note")).toContainText(
+    "Hermes doesn’t take a level from Polyphonic.",
+  );
+  await expect(page.getByTestId("resident-runtime-tier-note")).toContainText(
+    "Changes apply the next time this resident starts.",
+  );
+  const rememberedRule = page.getByTestId(
+    "remembered-permission-rule-rule-git-status",
+  );
+  await expect(rememberedRule).toContainText("git status");
+  // The project's own name, resolved from the connected source id.
+  await expect(rememberedRule).toContainText("Always in luca-agent-network");
+  await expect(rememberedRule).toContainText("used 3×");
   await expect(
     page.getByTestId("agent-artifact-mcp-capability"),
   ).toHaveAttribute("data-capability-state", "not_reported");
@@ -158,6 +184,20 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
   await page.screenshot({
     path: testInfo.outputPath("capability-settings.png"),
   });
+  await rememberedRule
+    .getByRole("button", { name: "Forget git status" })
+    .click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).findLast(
+            (entry) => entry.command === "revoke_permission_rule",
+          )?.payload,
+      ),
+    )
+    .toEqual({ ruleId: "rule-git-status" });
+  await expect(rememberedRule).toHaveCount(0);
   await page.getByRole("button", { name: "Manage MCP access" }).click();
   await expect(page).toHaveURL(/section=connections/);
   await expect(page.getByTestId("runtime-owned-mcp-hermes")).toContainText(
