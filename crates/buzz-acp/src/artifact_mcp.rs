@@ -410,13 +410,22 @@ impl ArtifactMcpConfig {
     }
 }
 
+/// The sidecar's MCP server name, stable for the life of a conversation.
+///
+/// A permission an owner remembers is keyed on the server family, so a name
+/// that changed every turn could never be matched by a remembered rule. The
+/// name is a coordinate, not an authority: the only thing that admits a call
+/// is the per-turn HMAC capability in [`derive_turn_capability`], which still
+/// binds the turn, the dispatch receipt and the cancellation epoch. Dropping
+/// the turn and receipt from the *name* therefore changes no access at all.
+///
+/// The shape is unchanged — `luca-artifacts-` plus twelve lowercase hex — so
+/// `is_artifact_server_name`, the `starts_with` filter in the pool and the
+/// agent-side `valid_artifact_server_name` all keep working untouched.
 fn artifact_server_name(turn: &ArtifactTurnBindingV1) -> String {
     let mut material = Vec::with_capacity(256);
+    material.extend_from_slice(b"luca.artifact.server-name.v2\0");
     material.extend_from_slice(turn.conversation_id.as_str().as_bytes());
-    material.push(0);
-    material.extend_from_slice(turn.turn_id.as_str().as_bytes());
-    material.push(0);
-    material.extend_from_slice(turn.dispatch_receipt_id.as_str().as_bytes());
     let digest = Sha256::digest(material);
     format!("luca-artifacts-{}", &hex::encode(digest)[..12])
 }
@@ -523,6 +532,28 @@ mod tests {
         assert!(!serialized.contains(&"a".repeat(64)));
         assert!(!serialized.contains("LUCA_MANAGED"));
         assert!(!serialized.contains("PRIVATE_KEY"));
+
+        // The name is stable for the conversation — a remembered permission
+        // keyed on the server family has to survive the next turn — and still
+        // separates one conversation from another.
+        let suffix = server.name.strip_prefix("luca-artifacts-").unwrap();
+        assert_eq!(suffix.len(), 12);
+        assert!(suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+
+        let mut next_turn = turn();
+        next_turn.turn_id = OpaqueId::parse("turn-2").unwrap();
+        next_turn.dispatch_receipt_id = OpaqueId::parse("dispatch-2").unwrap();
+        next_turn.cancellation_epoch = SafeU53::new(8).unwrap();
+        assert_eq!(server.name, config.server_for_turn(&next_turn).name);
+
+        let mut other_conversation = turn();
+        other_conversation.conversation_id = OpaqueId::parse("conversation-2").unwrap();
+        assert_ne!(
+            server.name,
+            config.server_for_turn(&other_conversation).name
+        );
     }
 
     #[test]

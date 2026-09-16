@@ -180,13 +180,15 @@ impl CommunicationsMcpConfig {
     }
 }
 
+/// The communications sidecar's MCP server name, stable per conversation.
+///
+/// Same reasoning as `artifact_mcp::artifact_server_name`: the name is a
+/// coordinate a remembered permission can be keyed on, while the authority
+/// stays in the per-turn HMAC capability below. Shape unchanged.
 fn communications_server_name(turn: &CommunicationsTurnBindingV1) -> String {
     let mut material = Vec::with_capacity(256);
+    material.extend_from_slice(b"luca.communications.server-name.v2\0");
     material.extend_from_slice(turn.conversation_id.as_str().as_bytes());
-    material.push(0);
-    material.extend_from_slice(turn.turn_id.as_str().as_bytes());
-    material.push(0);
-    material.extend_from_slice(turn.dispatch_receipt_id.as_str().as_bytes());
     let digest = Sha256::digest(material);
     format!("luca-communications-{}", &hex::encode(digest)[..12])
 }
@@ -300,7 +302,16 @@ mod tests {
         let first = config.server_for_turn(&first_turn);
         let second = config.server_for_turn(&second_turn);
         assert!(first.name.starts_with("luca-communications-"));
-        assert_ne!(first.name, second.name);
+        // The server name is a per-conversation coordinate, so a remembered
+        // permission keyed on it survives the next turn. The authority is the
+        // per-turn capability below, which still differs turn by turn.
+        assert_eq!(first.name, second.name);
+        assert_ne!(
+            first.name,
+            config
+                .server_for_turn(&turn(Uuid::new_v4(), "turn-1", "dispatch-1"))
+                .name
+        );
         assert!(!first.env.iter().any(|entry| entry.value == master));
         assert_ne!(
             env_value(&first, "LUCA_COMMUNICATIONS_CAPABILITY"),
