@@ -20,6 +20,15 @@ pub(crate) struct RuntimeCapabilityManifestV1 {
     pub file_edit_fallback: &'static str,
     pub full_access_translation: &'static str,
     pub surface_navigation: &'static str,
+    /// How far the owner's access level reaches into this runtime:
+    /// `app_sets_native_mode` (Claude Code's permission mode),
+    /// `app_sets_native_policy` (Codex's approval policy and sandbox), or
+    /// `advisory_only` (the runtime keeps its own settings).
+    pub permission_tier_control: &'static str,
+    /// Whether an "always" answered inside the runtime is forwarded to the
+    /// runtime's own memory as well as written to Polyphonic's ledger. True
+    /// for every family in beta.11.
+    pub forwards_native_always: bool,
 }
 
 pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
@@ -44,8 +53,10 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             general_command_fallback: false,
             validates_native_mutations: false,
             file_edit_fallback: "unavailable",
-            full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
+            full_access_translation: "app_sets_native_permission_mode",
             surface_navigation: "scoped_desktop_broker",
+            permission_tier_control: "app_sets_native_mode",
+            forwards_native_always: true,
         }),
         "hermes" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -71,6 +82,8 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             file_edit_fallback: "unavailable",
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
             surface_navigation: "unavailable_in_native_session",
+            permission_tier_control: "advisory_only",
+            forwards_native_always: true,
         }),
         "openclaw" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -95,6 +108,8 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             file_edit_fallback: "unavailable",
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
             surface_navigation: "unavailable_in_native_session",
+            permission_tier_control: "advisory_only",
+            forwards_native_always: true,
         }),
         "codex" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -118,11 +133,25 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             general_command_fallback: false,
             validates_native_mutations: false,
             file_edit_fallback: "unavailable",
-            full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
+            full_access_translation: "app_sets_native_approval_and_sandbox",
             surface_navigation: "scoped_desktop_broker",
+            permission_tier_control: "app_sets_native_policy",
+            forwards_native_always: true,
         }),
         _ => None,
     }
+}
+
+/// Whether a runtime remembers an "always" of its own. Unknown families are
+/// treated as if they do, so Polyphonic never silently double-remembers a
+/// decision on a runtime it has not been taught about.
+// The ledger (WP-B) is the only caller; keep the allowance local rather than
+// weakening the desktop crate's lint gate, and drop it once that lands.
+#[allow(dead_code)]
+pub(crate) fn forwards_native_always(family: &str) -> bool {
+    manifest(family)
+        .map(|manifest| manifest.forwards_native_always)
+        .unwrap_or(true)
 }
 
 #[cfg(test)]
@@ -131,7 +160,32 @@ mod tests {
 
     #[test]
     fn supported_adapters_report_only_implemented_operator_operations() {
-        for family in ["codex", "claude_code", "hermes", "openclaw"] {
+        // What a level means is no longer uniform: Polyphonic sets Claude
+        // Code's permission mode and Codex's approval and sandbox, and says
+        // nothing to the native families.
+        let expected = [
+            (
+                "codex",
+                "app_sets_native_policy",
+                "app_sets_native_approval_and_sandbox",
+            ),
+            (
+                "claude_code",
+                "app_sets_native_mode",
+                "app_sets_native_permission_mode",
+            ),
+            (
+                "hermes",
+                "advisory_only",
+                "luca_scoped_operations_only_native_policy_unchanged",
+            ),
+            (
+                "openclaw",
+                "advisory_only",
+                "luca_scoped_operations_only_native_policy_unchanged",
+            ),
+        ];
+        for (family, control, translation) in expected {
             let manifest = manifest(family).expect("known adapter manifest");
             assert_eq!(manifest.family, family);
             assert!(!manifest.native_capabilities.is_empty());
@@ -139,9 +193,32 @@ mod tests {
             assert!(manifest
                 .typed_harness_operations
                 .contains(&"runtime_status"));
+            assert_eq!(manifest.permission_tier_control, control);
+            assert_eq!(manifest.full_access_translation, translation);
+            // Every beta.11 family keeps its own "always" as well as ours.
+            assert!(manifest.forwards_native_always);
+            assert!(forwards_native_always(family));
+        }
+        // An unknown family is assumed to remember its own answer.
+        assert!(forwards_native_always("custom"));
+    }
+
+    #[test]
+    fn advisory_families_never_claim_native_control() {
+        for family in ["hermes", "openclaw"] {
+            let manifest = manifest(family).expect("known adapter");
+            assert_eq!(manifest.permission_tier_control, "advisory_only");
             assert_eq!(
                 manifest.full_access_translation,
                 "luca_scoped_operations_only_native_policy_unchanged"
+            );
+        }
+        for family in ["claude_code", "codex"] {
+            assert_ne!(
+                manifest(family)
+                    .expect("known adapter")
+                    .permission_tier_control,
+                "advisory_only"
             );
         }
     }
