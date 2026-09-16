@@ -520,6 +520,20 @@ export type ManagedPermissionOption = {
   kind: string;
 };
 
+/**
+ * Mirror of `luca_protocol::ManagedPresentationActivityKindV1`. Structurally
+ * the same union the presentation surface already speaks, kept here so the
+ * shared API layer never reaches into a feature for a wire type.
+ */
+export type ManagedPermissionActivityKind =
+  | "web"
+  | "file"
+  | "command"
+  | "search"
+  | "thinking"
+  | "delegation"
+  | "other";
+
 export type RuntimeManagedPermissionRequest = {
   protocol: "luca.managed.permission.v1";
   residentPubkey: string;
@@ -531,7 +545,42 @@ export type RuntimeManagedPermissionRequest = {
   toolCallId: string | null;
   actionPreview: string | null;
   options: ManagedPermissionOption[];
+  /** Owner trigger for this turn; null on heartbeat and continuity turns. */
+  dispatchReceiptId: string | null;
+  /** ACP `ToolKind` exactly as the runtime reported it. */
+  toolKind: string | null;
+  activityKind: ManagedPermissionActivityKind | null;
+  /** `Bash`, `mcp__luca-repositories__repo_read`, and the like. */
+  toolName: string | null;
+  mcpServer: string | null;
+  mcpTool: string | null;
+  /** Bare command word — `git`, never `/usr/bin/git`. */
+  commandToken: string | null;
+  /** At most two leading argv words. */
+  commandArgvPrefix: string[];
+  path: string | null;
+  domain: string | null;
+  write: boolean | null;
 };
+
+/**
+ * Which answers a permission card may offer for one request. The desktop
+ * decides this, never the runtime: a card that arrives without an offer gets
+ * the fail-closed one (Once and Deny only).
+ */
+export type PermissionOffer = {
+  once: boolean;
+  task: boolean;
+  alwaysHere: boolean;
+  deny: boolean;
+  /** Name of the source "always here" would remember the answer in. */
+  projectLabel: string | null;
+  /** One sentence explaining why a tense is missing, when one is. */
+  note: string | null;
+};
+
+/** Which tense of "yes" the owner chose on a permission card. */
+export type ManagedPermissionTense = "once" | "task" | "always_here" | "deny";
 
 export type CapabilityRisk = "routine" | "elevated" | "high_impact";
 
@@ -562,6 +611,7 @@ export type ManagedPermissionRequest =
 export type PendingManagedPermission = {
   pendingId: string;
   request: ManagedPermissionRequest;
+  offer?: PermissionOffer;
 };
 
 export type ManagedPermissionResolutionOutcome =
@@ -603,10 +653,43 @@ export type DurableCapabilityGrant = {
   revokedAt?: string | null;
 };
 
+/** Where a remembered permission answer applies. */
+export type PermissionRuleScope =
+  | { scope: "project"; sourceId: string }
+  | { scope: "everywhere" };
+
+/** What a remembered permission answer matches. */
+export type PermissionMatcher =
+  | { kind: "command"; token: string; argvPrefix: string[] }
+  | { kind: "path"; write: boolean }
+  | { kind: "mcp_tool"; serverFamily: string; tool: string }
+  | { kind: "domain"; host: string };
+
+export type PermissionEffect = "allow" | "deny";
+
+/**
+ * One durable, revocable permission rule, mirror of
+ * `luca_protocol::PermissionRuleV1` (`luca.permission.rule.v1`).
+ */
+export type PermissionRule = {
+  protocol: "luca.permission.rule.v1";
+  ruleId: string;
+  residentPubkey: string;
+  scope: PermissionRuleScope;
+  matcher: PermissionMatcher;
+  effect: PermissionEffect;
+  displayName: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+  useCount: number;
+};
+
 export type ResidentCapabilitySettings = {
   householdDefault: ResidentAccessLevel;
   residentAccess: Record<string, ResidentAccessLevel>;
   grants: DurableCapabilityGrant[];
+  rules: PermissionRule[];
 };
 
 /**

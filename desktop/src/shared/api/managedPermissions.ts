@@ -2,9 +2,11 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import { invokeTauri } from "@/shared/api/tauri";
 import type {
+  ManagedPermissionActivityKind,
   ManagedPermissionRequest,
   ManagedPermissionResolvedEvent,
   PendingManagedPermission,
+  PermissionOffer,
 } from "@/shared/api/types";
 
 type RawRuntimeManagedPermissionRequest = {
@@ -18,6 +20,39 @@ type RawRuntimeManagedPermissionRequest = {
   tool_call_id?: string | null;
   action_preview?: string | null;
   options: Array<{ option_id: string; name: string; kind: string }>;
+  dispatch_receipt_id?: string | null;
+  tool_kind?: string | null;
+  activity_kind?: ManagedPermissionActivityKind | null;
+  tool_name?: string | null;
+  mcp_server?: string | null;
+  mcp_tool?: string | null;
+  command_token?: string | null;
+  command_argv_prefix?: string[] | null;
+  path?: string | null;
+  domain?: string | null;
+  write?: boolean | null;
+};
+
+type RawPermissionOffer = {
+  once: boolean;
+  task: boolean;
+  always_here: boolean;
+  deny: boolean;
+  project_label?: string | null;
+  note?: string | null;
+};
+
+/**
+ * What a card offers when the native side said nothing: the owner may answer
+ * for this one request or decline, and nothing is remembered.
+ */
+const FAIL_CLOSED_OFFER: PermissionOffer = {
+  once: true,
+  task: false,
+  alwaysHere: false,
+  deny: true,
+  projectLabel: null,
+  note: null,
 };
 
 type RawCapabilityManagedPermissionRequest = {
@@ -45,6 +80,7 @@ type RawManagedPermissionRequest =
 type RawPendingManagedPermission = {
   pendingId: string;
   request: RawManagedPermissionRequest;
+  offer?: RawPermissionOffer | null;
 };
 
 /** Convert the local broker wire shape into the desktop permission model. */
@@ -85,15 +121,42 @@ export function normalizeManagedPermissionRequest(
       name: option.name,
       kind: option.kind,
     })),
+    dispatchReceiptId: request.dispatch_receipt_id ?? null,
+    toolKind: request.tool_kind ?? null,
+    activityKind: request.activity_kind ?? null,
+    toolName: request.tool_name ?? null,
+    mcpServer: request.mcp_server ?? null,
+    mcpTool: request.mcp_tool ?? null,
+    commandToken: request.command_token ?? null,
+    commandArgvPrefix: request.command_argv_prefix ?? [],
+    path: request.path ?? null,
+    domain: request.domain ?? null,
+    write: request.write ?? null,
   };
 }
 
-function normalizePending(
+function normalizeOffer(offer: RawPermissionOffer | null | undefined) {
+  if (!offer) {
+    return FAIL_CLOSED_OFFER;
+  }
+  return {
+    once: offer.once,
+    task: offer.task,
+    alwaysHere: offer.always_here,
+    deny: offer.deny,
+    projectLabel: offer.project_label ?? null,
+    note: offer.note ?? null,
+  };
+}
+
+/** Exported for tests: the pending shape the desktop hands the permission card. */
+export function normalizePending(
   pending: RawPendingManagedPermission,
 ): PendingManagedPermission {
   return {
     pendingId: pending.pendingId,
     request: normalizeManagedPermissionRequest(pending.request),
+    offer: normalizeOffer(pending.offer),
   };
 }
 
