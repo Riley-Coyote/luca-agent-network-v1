@@ -151,3 +151,39 @@ test("keeps the offer the desktop actually sent", () => {
     note: null,
   });
 });
+
+test("reads the offer the way the native side serialises it (camelCase)", () => {
+  // Beta.11's first walk: the desktop sent `alwaysHere` / `projectLabel` and
+  // the reader looked for `always_here` / `project_label`, so every card fell
+  // back to Once-or-Deny with no project. Both spellings must work.
+  const pending = normalizePending({
+    pendingId: "pending-3",
+    request: {
+      protocol: "luca.managed.permission.v1",
+      resident_pubkey: "11".repeat(32),
+      conversation_id: "conversation-1",
+      session_epoch: 7,
+      turn_id: "turn-1",
+      acp_request_id: "9",
+      title: "Run ls",
+      options: [{ option_id: "allow", name: "Allow", kind: "allow_once" }],
+    },
+    offer: {
+      once: true,
+      task: true,
+      alwaysHere: true,
+      deny: true,
+      projectLabel: ".buzz",
+      note: null,
+    },
+  });
+
+  assert.deepEqual(pending.offer, {
+    once: true,
+    task: true,
+    alwaysHere: true,
+    deny: true,
+    projectLabel: ".buzz",
+    note: null,
+  });
+});

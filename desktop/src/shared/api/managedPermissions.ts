@@ -34,12 +34,19 @@ type RawRuntimeManagedPermissionRequest = {
   write?: boolean | null;
 };
 
+/**
+ * The native side serialises the offer camelCase; the beta.11 contract was
+ * written snake_case. Accept both so a field name never silently turns a
+ * remembered answer into "once only".
+ */
 type RawPermissionOffer = {
   once: boolean;
   task: boolean;
-  always_here: boolean;
+  always_here?: boolean;
+  alwaysHere?: boolean;
   deny: boolean;
   project_label?: string | null;
+  projectLabel?: string | null;
   note?: string | null;
 };
 
@@ -143,9 +150,9 @@ function normalizeOffer(offer: RawPermissionOffer | null | undefined) {
   return {
     once: offer.once,
     task: offer.task,
-    alwaysHere: offer.always_here,
+    alwaysHere: offer.alwaysHere ?? offer.always_here ?? false,
     deny: offer.deny,
-    projectLabel: offer.project_label ?? null,
+    projectLabel: offer.projectLabel ?? offer.project_label ?? null,
     note: offer.note ?? null,
   };
 }
