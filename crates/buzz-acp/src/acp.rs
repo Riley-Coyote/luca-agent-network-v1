@@ -322,6 +322,20 @@ impl ManagedPermissionClient {
             tool_call_id: display.tool_call_id,
             action_preview: display.action_preview,
             options,
+            // The beta.11 match fields arrive with the package that parses
+            // them out of the ACP tool call; an absent field is the same
+            // request an older harness already sent.
+            dispatch_receipt_id: None,
+            tool_kind: None,
+            activity_kind: None,
+            tool_name: None,
+            mcp_server: None,
+            mcp_tool: None,
+            command_token: None,
+            command_argv_prefix: Vec::new(),
+            path: None,
+            domain: None,
+            write: None,
         };
         request
             .validate()

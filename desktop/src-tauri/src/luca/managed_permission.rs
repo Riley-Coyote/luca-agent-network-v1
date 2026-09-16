@@ -608,6 +608,17 @@ mod tests {
                     kind: "reject_once".into(),
                 },
             ],
+            dispatch_receipt_id: None,
+            tool_kind: None,
+            activity_kind: None,
+            tool_name: None,
+            mcp_server: None,
+            mcp_tool: None,
+            command_token: None,
+            command_argv_prefix: Vec::new(),
+            path: None,
+            domain: None,
+            write: None,
         }
     }
 
