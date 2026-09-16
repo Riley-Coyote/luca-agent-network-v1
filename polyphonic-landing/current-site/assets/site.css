@@ -146,3 +146,38 @@ button,input{font-family:inherit}
   *,*::before,*::after{animation:none!important;transition:none!important}
   [data-rv-ready] [data-rv]{opacity:1;transform:none}
 }
+
+/* ─ WP-20 · the cast ──────────────────────────────────────────────────────
+   The three residents that ship, with the marks their keys grow, and the
+   line each one wrote about itself. Surfaces and ink are the page's own
+   tokens; the only colour is the mark, which comes from the key (first byte
+   of the public key indexes the six-colour palette) and is passed in as
+   --mk. Flat like every other card here: no borders, lift from shadow. */
+.cast{max-width:1240px;margin:clamp(80px,11vh,128px) auto 0;padding:0 var(--pad)}
+.cast-head{max-width:34ch}
+.cast-eyebrow{margin:0;font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--t2)}
+.cast h2{margin:14px 0 0;font-size:clamp(1.9rem,3.9vw,3.1rem);font-weight:500;letter-spacing:-.034em;line-height:1.04;color:var(--t0);text-wrap:balance}
+.cast-sub{margin:18px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty}
+
+.cast-grid{list-style:none;margin:clamp(36px,5vh,56px) 0 0;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(16px,2vw,24px)}
+.cast-card{display:flex;flex-direction:column;border-radius:10px;background:var(--s1);padding:clamp(20px,2vw,28px);box-shadow:0 32px 80px -24px rgba(0,0,0,.95),0 12px 28px -14px rgba(0,0,0,.8)}
+.cast-plate{display:flex;align-items:center;justify-content:center;padding:clamp(22px,3vw,34px) 0;border-radius:8px;background:var(--bg);color:var(--mk)}
+.cast-mk{width:auto;height:clamp(92px,9.5vw,124px);display:block}
+.cast-name{margin:22px 0 0;font-size:1.35rem;font-weight:500;letter-spacing:-.022em;line-height:1.1;color:var(--t0)}
+.cast-role{margin:7px 0 0;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--t2)}
+.cast-quote{margin:16px 0 0;font-size:15.5px;line-height:1.6;color:var(--t1);text-wrap:pretty}
+
+.cast-rest{margin:clamp(44px,6vh,72px) 0 0}
+.cast-rest-line,.cast-rest-sub{max-width:52ch}
+.cast-rest-line{margin:0;font-size:clamp(1.3rem,2.1vw,1.7rem);font-weight:500;letter-spacing:-.026em;line-height:1.2;color:var(--t0)}
+.cast-rest-sub{margin:14px 0 0;font-size:16.5px;line-height:1.62;color:var(--t1);text-wrap:pretty}
+.cast-strip{list-style:none;margin:clamp(26px,3.4vh,38px) 0 0;padding:0;display:flex;flex-wrap:wrap;gap:clamp(18px,3.4vw,52px);align-items:flex-end}
+.cast-strip li{color:var(--mk);line-height:0}
+.cast-mk-sm{width:auto;height:32px;display:block;opacity:.92}
+
+@media (max-width:1000px){.cast-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:640px){
+  .cast-grid{grid-template-columns:minmax(0,1fr)}
+  .cast-mk{height:86px}
+  .cast-mk-sm{height:26px}
+}

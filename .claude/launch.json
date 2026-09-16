@@ -2,6 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "landing",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "start",
+        "--prefix",
+        "polyphonic-landing/current-site"
+      ],
+      "port": 8744
+    },
+    {
       "name": "shell-lab",
       "runtimeExecutable": "python3",
       "runtimeArgs": [
