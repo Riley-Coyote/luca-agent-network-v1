@@ -8,7 +8,9 @@ export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
   retries: process.env.CI ? 2 : 0,
-  workers: 1,
+  // 4 locally: measured 2.9 min vs 4.0 min at 2 workers for the 125-spec luca set on a 14-core Mac; 6 starts
+  // failing timing-sensitive specs. CI stays serial.
+  workers: process.env.CI ? 1 : 4,
   reporter: [
     ["list"],
     ["html", { open: "never", outputFolder: "playwright-report" }],
