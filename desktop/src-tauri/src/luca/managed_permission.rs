@@ -84,11 +84,15 @@ pub(crate) struct PendingManagedPermission {
     pub offer: Option<PermissionOfferV1>,
 }
 
+/// Both variants are boxed: a runtime request carries every match field the
+/// ledger reads and is far larger than the capability one, and an untagged
+/// enum is only ever moved around by the pending event. Boxing keeps the two
+/// the same size and serialises identically.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(untagged)]
 pub(crate) enum PendingManagedPermissionRequest {
-    Runtime(ManagedPermissionRequestV1),
-    Capability(ManagedPermissionRequestV2),
+    Runtime(Box<ManagedPermissionRequestV1>),
+    Capability(Box<ManagedPermissionRequestV2>),
 }
 
 static PENDING: OnceLock<Mutex<HashMap<String, Pending>>> = OnceLock::new();
@@ -473,7 +477,7 @@ pub(crate) fn await_local_decision(
             PENDING_EVENT,
             PendingManagedPermission {
                 pending_id: id.clone(),
-                request: PendingManagedPermissionRequest::Runtime(request.clone()),
+                request: PendingManagedPermissionRequest::Runtime(Box::new(request.clone())),
                 offer: Some(offer),
             },
         );
@@ -515,7 +519,7 @@ pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
         .iter()
         .map(|(id, pending)| PendingManagedPermission {
             pending_id: id.clone(),
-            request: PendingManagedPermissionRequest::Runtime(pending.request.clone()),
+            request: PendingManagedPermissionRequest::Runtime(Box::new(pending.request.clone())),
             offer: Some(pending.offer.clone()),
         })
         .collect::<Vec<_>>();
@@ -528,7 +532,9 @@ pub(crate) fn list_pending() -> Result<Vec<PendingManagedPermission>, String> {
             .iter()
             .map(|(id, pending)| PendingManagedPermission {
                 pending_id: id.clone(),
-                request: PendingManagedPermissionRequest::Capability(pending.request.clone()),
+                request: PendingManagedPermissionRequest::Capability(Box::new(
+                    pending.request.clone(),
+                )),
                 offer: None,
             }),
     );
@@ -854,7 +860,7 @@ pub(crate) fn await_capability_decision(
         PENDING_EVENT,
         PendingManagedPermission {
             pending_id: id.clone(),
-            request: PendingManagedPermissionRequest::Capability(request),
+            request: PendingManagedPermissionRequest::Capability(Box::new(request)),
             offer: None,
         },
     );
@@ -1629,7 +1635,7 @@ mod tests {
     fn the_pending_event_carries_the_offer_and_nothing_more() {
         let event = serde_json::to_value(PendingManagedPermission {
             pending_id: "pending-1".into(),
-            request: PendingManagedPermissionRequest::Runtime(request("offer", 16)),
+            request: PendingManagedPermissionRequest::Runtime(Box::new(request("offer", 16))),
             offer: Some(full_offer()),
         })
         .expect("serialize pending event");
@@ -1649,7 +1655,7 @@ mod tests {
         // An offer that remembers nothing says so by omission.
         let door = serde_json::to_value(PendingManagedPermission {
             pending_id: "pending-door".into(),
-            request: PendingManagedPermissionRequest::Runtime(request("door-offer", 16)),
+            request: PendingManagedPermissionRequest::Runtime(Box::new(request("door-offer", 16))),
             offer: Some(PermissionOfferV1 {
                 once: true,
                 task: false,
@@ -1666,7 +1672,7 @@ mod tests {
         // A structured capability request has no offer at all.
         let event = serde_json::to_value(PendingManagedPermission {
             pending_id: "pending-2".into(),
-            request: PendingManagedPermissionRequest::Runtime(request("no-offer", 16)),
+            request: PendingManagedPermissionRequest::Runtime(Box::new(request("no-offer", 16))),
             offer: None,
         })
         .expect("serialize pending event");

@@ -235,11 +235,11 @@ fn is_door(request: &ManagedPermissionRequestV1, identity: Option<&(String, Stri
 /// Every command word this request would run, whether it came as one command
 /// or as the segments of a compound line.
 fn command_tokens(request: &ManagedPermissionRequestV1) -> impl Iterator<Item = &str> {
-    let single = request
-        .command_segments
-        .is_empty()
-        .then(|| request.command_token.as_deref())
-        .flatten();
+    let single = if request.command_segments.is_empty() {
+        request.command_token.as_deref()
+    } else {
+        None
+    };
     single.into_iter().chain(
         request
             .command_segments
@@ -776,9 +776,11 @@ pub(crate) fn decide_with(
             always_here,
             deny: true,
             project_label,
-            remembers: remembrable
-                .then(|| subject.matcher_names.clone())
-                .unwrap_or_default(),
+            remembers: if remembrable {
+                subject.matcher_names.clone()
+            } else {
+                Vec::new()
+            },
             note: (!remembrable).then(|| "Polyphonic can only answer this one once.".to_owned()),
         },
     }
