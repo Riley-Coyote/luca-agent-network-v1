@@ -115,6 +115,7 @@ impl PermissionMatcherV1 {
         let bounded = match self {
             PermissionMatcherV1::Command { token, argv_prefix } => {
                 is_bare_command_token(token)
+                    && !is_wrapper_command_token(token)
                     && argv_prefix.len() <= MAX_PERMISSION_COMMAND_ARGV_PREFIX
                     && argv_prefix.iter().all(|value| is_command_argv_token(value))
             }
@@ -241,6 +242,60 @@ pub const DOOR_SERVER_FAMILIES: &[&str] = &["polyphonic-browser", "polyphonic_br
 /// Command words that are never remembered, whatever the owner answered once.
 pub const DESTRUCTIVE_COMMAND_TOKENS: &[&str] = &["rm", "rmdir", "shred", "unlink"];
 
+/// Programs that run whatever follows them. A rule for `bash` would cover
+/// `bash -c "rm -rf /"`, so a segment that starts with one of these is never
+/// remembered and a rule naming one never validates.
+pub const WRAPPER_COMMAND_TOKENS: &[&str] = &[
+    "sh",
+    "bash",
+    "zsh",
+    "fish",
+    "dash",
+    "ksh",
+    "csh",
+    "tcsh",
+    "eval",
+    "exec",
+    "source",
+    "command",
+    "xargs",
+    "env",
+    "nohup",
+    "time",
+    "nice",
+    "ionice",
+    "caffeinate",
+    "script",
+    "expect",
+    "su",
+    "sudo",
+    "doas",
+    "python",
+    "python3",
+    "python2",
+    "node",
+    "nodejs",
+    "deno",
+    "bun",
+    "ruby",
+    "perl",
+    "php",
+    "osascript",
+    "swift",
+    "lua",
+    "tclsh",
+    "awk",
+    "gawk",
+];
+
+/// True when `token` names a shell, interpreter or wrapper that would execute
+/// an arbitrary argument.
+pub fn is_wrapper_command_token(token: &str) -> bool {
+    WRAPPER_COMMAND_TOKENS
+        .iter()
+        .any(|wrapper| wrapper.eq_ignore_ascii_case(token))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,6 +314,30 @@ mod tests {
             last_used_at: None,
             use_count: 0,
         }
+    }
+
+    #[test]
+    fn wrapper_commands_never_become_rules() {
+        for token in [
+            "bash", "sh", "python3", "node", "env", "xargs", "sudo", "eval",
+        ] {
+            let wrapper = rule(
+                PermissionRuleScopeV1::Project {
+                    source_id: OpaqueId::parse("src-1").unwrap(),
+                },
+                PermissionMatcherV1::Command {
+                    token: token.into(),
+                    argv_prefix: vec![],
+                },
+            );
+            assert!(
+                wrapper.validate().is_err(),
+                "a rule for `{token}` would cover whatever it runs"
+            );
+            assert!(is_wrapper_command_token(token));
+        }
+        assert!(!is_wrapper_command_token("git"));
+        assert!(!is_wrapper_command_token("ls"));
     }
 
     #[test]

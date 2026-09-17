@@ -1360,8 +1360,9 @@ fn split_command_line(line: &str) -> Option<Vec<String>> {
 /// One plain invocation, or nothing.
 fn command_segment(words: &[String]) -> Option<CommandSegmentV1> {
     let first = words.first()?;
-    // `sudo ls` is not `ls`: a rule for it would remember the escalation.
-    if first.eq_ignore_ascii_case("sudo") || first.eq_ignore_ascii_case("doas") {
+    // `sudo ls` is not `ls`, and `bash -c …` is not `bash`: a rule for the
+    // wrapper would remember whatever it runs next time.
+    if luca_protocol::is_wrapper_command_token(first) {
         return None;
     }
     // A program path names a file and a leading `FOO=1` names the

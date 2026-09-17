@@ -89,11 +89,11 @@ pub use owner_identity::{
     OWNER_IDENTITY_FORMAT, OWNER_IDENTITY_VERSION,
 };
 pub use permission_rule::{
-    mcp_server_family, PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1,
-    PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES,
+    is_wrapper_command_token, mcp_server_family, PermissionEffectV1, PermissionMatcherV1,
+    PermissionRuleScopeV1, PermissionRuleV1, DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES,
     MAX_PERMISSION_RULES_PER_OWNER, MAX_PERMISSION_RULE_DISPLAY_BYTES, PERMISSION_RULE_PROTOCOL,
     POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
-    POLYPHONIC_PROJECT_WRITE_TOOLS,
+    POLYPHONIC_PROJECT_WRITE_TOOLS, WRAPPER_COMMAND_TOKENS,
 };
 pub use relay_auth::{
     NipOaOwnerAttestationV1, RelayAuthError, RelayAuthPurposeV1, RelayAuthSignRequestV1,
