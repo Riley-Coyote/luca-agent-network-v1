@@ -1208,6 +1208,7 @@ pub(crate) fn classify_runtime(
 /// Stdout is redirected to a temporary file rather than a pipe, so forked
 /// descendants cannot hold EOF open. Reads from a regular file return EOF at its
 /// current write position regardless of inherited file descriptors, cross-platform.
+#[cfg(test)]
 pub(crate) fn probe_codex_acp_major_version(binary_path: &Path) -> Option<u64> {
     probe_codex_acp_major_version_with_path(
         binary_path,
@@ -1232,6 +1233,7 @@ fn parse_codex_acp_version_output(stdout: &str) -> Option<(u64, u64, u64)> {
     );
     (parts.next().is_none()).then_some(parsed)
 }
+#[cfg(test)]
 pub(crate) fn probe_codex_acp_major_version_with_path(
     binary_path: &Path,
     augmented_path: Option<&str>,

@@ -51,21 +51,19 @@ pub struct ContinuityRuntimePolicy {
 /// object at every extension boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContinuityRuntimePolicyError {
-    MetadataMustBeObject,
-    ClaudeCodeMetadataMustBeObject,
-    ClaudeCodeOptionsMustBeObject,
+    InvalidMetadata,
+    ClaudeCodeMetadata,
+    ClaudeCodeOptions,
 }
 
 impl std::fmt::Display for ContinuityRuntimePolicyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MetadataMustBeObject => {
-                f.write_str("continuity session metadata must be an object")
-            }
-            Self::ClaudeCodeMetadataMustBeObject => {
+            Self::InvalidMetadata => f.write_str("continuity session metadata must be an object"),
+            Self::ClaudeCodeMetadata => {
                 f.write_str("continuity Claude Code metadata must be an object")
             }
-            Self::ClaudeCodeOptionsMustBeObject => {
+            Self::ClaudeCodeOptions => {
                 f.write_str("continuity Claude Code options must be an object")
             }
         }
@@ -121,7 +119,7 @@ fn validate_metadata(
     existing_metadata: Option<&Value>,
 ) -> Result<(), ContinuityRuntimePolicyError> {
     if existing_metadata.is_some_and(|metadata| !metadata.is_object()) {
-        return Err(ContinuityRuntimePolicyError::MetadataMustBeObject);
+        return Err(ContinuityRuntimePolicyError::InvalidMetadata);
     }
     Ok(())
 }
@@ -147,17 +145,17 @@ fn with_claude_isolated_settings(
         .unwrap_or_else(|| Value::Object(Map::new()));
     let metadata = metadata
         .as_object_mut()
-        .ok_or(ContinuityRuntimePolicyError::MetadataMustBeObject)?;
+        .ok_or(ContinuityRuntimePolicyError::InvalidMetadata)?;
     let claude_code = metadata
         .entry("claudeCode")
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
-        .ok_or(ContinuityRuntimePolicyError::ClaudeCodeMetadataMustBeObject)?;
+        .ok_or(ContinuityRuntimePolicyError::ClaudeCodeMetadata)?;
     let options = claude_code
         .entry("options")
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
-        .ok_or(ContinuityRuntimePolicyError::ClaudeCodeOptionsMustBeObject)?;
+        .ok_or(ContinuityRuntimePolicyError::ClaudeCodeOptions)?;
     options.insert("strictMcpConfig".to_owned(), Value::Bool(true));
     options.insert("settingSources".to_owned(), Value::Array(Vec::new()));
     if private_capture {
@@ -197,7 +195,7 @@ pub fn codex_disabled_tool_overlay(
     if !plugins.is_empty() {
         overlay.insert("plugins".to_owned(), Value::Object(plugins));
     }
-    (!overlay.is_empty()).then(|| Value::Object(overlay))
+    (!overlay.is_empty()).then_some(Value::Object(overlay))
 }
 
 #[cfg(test)]
@@ -306,7 +304,7 @@ mod tests {
         let error = private_continuity_runtime_policy(CLAUDE, Some(&json!("not-an-object")), &[])
             .unwrap_err();
 
-        assert_eq!(error, ContinuityRuntimePolicyError::MetadataMustBeObject);
+        assert_eq!(error, ContinuityRuntimePolicyError::InvalidMetadata);
     }
 
     #[test]

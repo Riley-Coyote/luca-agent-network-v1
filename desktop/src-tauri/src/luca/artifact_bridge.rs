@@ -428,10 +428,12 @@ impl ArtifactBridgeCore {
             };
             let result = tauri::async_runtime::block_on(super::resident_place::agent_operation(
                 &self.app,
-                self.context.owner_pubkey.as_str(),
-                relay_scope,
-                self.context.resident_pubkey.as_str(),
-                coordinates.conversation_id.as_str(),
+                super::resident_place::AgentOperationScope {
+                    owner: self.context.owner_pubkey.as_str(),
+                    relay: relay_scope,
+                    resident: self.context.resident_pubkey.as_str(),
+                    conversation: coordinates.conversation_id.as_str(),
+                },
                 &frame.operation,
                 frame.arguments.clone(),
                 &authorize,

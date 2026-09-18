@@ -98,11 +98,7 @@ pub(crate) fn stock_soul_upgrade(persona_id: &str, stored: &str) -> Option<&'sta
     if entry.current == stored {
         return None;
     }
-    entry
-        .previous
-        .iter()
-        .any(|previous| *previous == stored)
-        .then_some(entry.current)
+    entry.previous.contains(&stored).then_some(entry.current)
 }
 
 /// The small product-approved self-model seed for a bundled resident.

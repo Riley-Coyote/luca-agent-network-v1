@@ -92,6 +92,9 @@ pub struct AgentModelCapabilities {
 pub struct SessionState {
     /// channel_id → session_id
     pub sessions: HashMap<Uuid, String>,
+    /// Provider-owned session pointers and delivered-event checkpoints.
+    pub(crate) session_entries: HashMap<Uuid, crate::runtime_session_map::RuntimeSessionEntry>,
+    restored_channels: HashSet<Uuid>,
     /// The private or authority-scoped session owned by the current prompt task.
     /// It is retired after that task's final capture and publication have settled.
     retiring_sessions: Vec<String>,
@@ -139,6 +142,8 @@ impl SessionState {
     /// Invalidate a single channel's session and turn counter.
     /// Returns `true` if the channel had an active session.
     pub fn invalidate_channel(&mut self, channel_id: &Uuid) -> bool {
+        self.session_entries.remove(channel_id);
+        self.restored_channels.remove(channel_id);
         self.turn_counts.remove(channel_id);
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
@@ -150,6 +155,8 @@ impl SessionState {
     pub fn invalidate_all(&mut self) {
         self.recently_closed_scoped_channels.clear();
         self.sessions.clear();
+        self.session_entries.clear();
+        self.restored_channels.clear();
         self.turn_counts.clear();
         self.heartbeat_session = None;
         self.heartbeat_turn_count = 0;
@@ -268,6 +275,9 @@ pub struct AgentPool {
     result_rx: mpsc::UnboundedReceiver<PromptResult>,
     pub join_set: JoinSet<()>,
     task_map: HashMap<tokio::task::Id, TaskMeta>,
+    /// A busy worker may hold an idle conversation as well as its current turn.
+    /// Keep that ownership visible so another worker cannot fork its history.
+    session_holders: HashMap<Uuid, usize>,
 }
 
 /// Result returned by a completed prompt task.
@@ -568,6 +578,7 @@ pub struct PromptContext {
     /// out of Polyphonic's runtime-session catalogue.
     pub runtime_session_purpose_store:
         Option<crate::runtime_session_purpose::RuntimeSessionPurposeStore>,
+    pub(crate) runtime_session_map: Option<crate::runtime_session_map::RuntimeSessionMap>,
     /// Managed-only typed final-publication client. Ordinary legacy Buzz keeps
     /// this unset and retains its existing key-backed behavior.
     pub managed_final_publisher: Option<crate::luca_final_publisher::ManagedFinalPublisherContext>,
@@ -582,42 +593,56 @@ impl AgentPool {
     /// the index invariant.
     pub fn from_slots(slots: Vec<Option<OwnedAgent>>) -> Self {
         let (result_tx, result_rx) = mpsc::unbounded_channel();
+        let mut session_holders = HashMap::new();
+        for agent in slots.iter().flatten() {
+            for channel in agent.state.sessions.keys() {
+                session_holders.entry(*channel).or_insert(agent.index);
+            }
+        }
         Self {
             agents: slots,
             result_tx,
             result_rx,
             join_set: JoinSet::new(),
             task_map: HashMap::new(),
+            session_holders,
         }
     }
 
-    /// Try to claim an idle agent for the given channel (or heartbeat if `None`).
-    ///
-    /// Pass 1: prefer an agent that already has a session for `channel_id`.
-    /// Pass 2: any idle agent.
-    ///
-    /// Returns `None` if all agents are checked out.
+    /// Claim a conversation's existing worker, waiting when it is busy on
+    /// another conversation. Only unowned sessions may select any idle worker.
     pub fn try_claim(&mut self, channel_id: Option<Uuid>) -> Option<OwnedAgent> {
-        // Pass 1: prefer agent with existing session for this channel.
-        if let Some(cid) = channel_id {
-            let idx = self.agents.iter().position(|slot| {
+        if let Some(channel) = channel_id {
+            if let Some(owner) = self.session_holders.get(&channel).copied() {
+                if self.agents.get(owner).is_some_and(Option::is_some) {
+                    return self.agents[owner].take();
+                }
+                if self.task_map.values().any(|task| task.agent_index == owner) {
+                    return None;
+                }
+                // The old worker has actually left, not merely been borrowed.
+                // A new worker may restore its durable provider-session pointer.
+                self.session_holders.remove(&channel);
+            }
+            if let Some(index) = self.agents.iter().position(|slot| {
                 slot.as_ref()
-                    .map(|a| a.state.sessions.contains_key(&cid))
-                    .unwrap_or(false)
-            });
-            if let Some(i) = idx {
-                return self.agents[i].take();
+                    .is_some_and(|agent| agent.state.sessions.contains_key(&channel))
+            }) {
+                self.session_holders.insert(channel, index);
+                return self.agents[index].take();
             }
         }
-
-        // Pass 2: first idle agent.
-        let idx = self.agents.iter().position(|slot| slot.is_some());
-        idx.map(|i| self.agents[i].take().unwrap())
+        let index = self.agents.iter().position(Option::is_some)?;
+        if let Some(channel) = channel_id {
+            self.session_holders.insert(channel, index);
+        }
+        self.agents[index].take()
     }
 
     /// Return an agent to its slot after a task completes.
     pub fn return_agent(&mut self, agent: OwnedAgent) {
         let idx = agent.index;
+        self.session_holders.retain(|_, owner| *owner != idx);
         if agent.state.retire_worker {
             // Maintenance refills empty slots through the existing bounded
             // respawn path; never return a knowingly stopped worker to use.
@@ -636,6 +661,9 @@ impl AgentPool {
                 idx,
                 "BUG: return_agent called for slot {idx} which is already occupied — overwriting"
             );
+        }
+        for channel in agent.state.sessions.keys() {
+            self.session_holders.insert(*channel, idx);
         }
         self.agents[idx] = Some(agent);
     }
@@ -1016,50 +1044,116 @@ async fn create_session_and_apply_model(
             .cloned()
             .collect::<Vec<_>>()
     });
-    let resp = match agent
-        .acp
-        .session_new_full_with_context(
-            session_cwd,
-            &additional_directories,
-            mcp_servers,
-            session_new_system_prompt(
-                is_goose,
-                agent.protocol_version,
-                combined_system_prompt.as_deref(),
-            ),
-            session_meta.clone(),
-        )
-        .await
-    {
-        Ok(response) => response,
-        Err(_) if artifact_projected => {
-            if let Some(artifact_mcp) = ctx.artifact_mcp.as_ref() {
-                artifact_mcp.record_probe(crate::artifact_mcp::ArtifactMcpSupport::Unavailable);
-            }
-            tracing::warn!(
-                target: "luca::artifacts",
-                "runtime rejected the artifact MCP projection; retrying conversation without artifacts"
-            );
-            agent.acp.observe(
-                "artifact_mcp_unavailable",
-                serde_json::json!({"reason": "session_projection_rejected"}),
-            );
-            agent
-                .acp
-                .session_new_full_with_context(
-                    session_cwd,
-                    &additional_directories,
-                    fallback_servers.unwrap_or_default(),
-                    session_new_system_prompt(
-                        is_goose,
-                        agent.protocol_version,
-                        combined_system_prompt.as_deref(),
-                    ),
-                    session_meta,
-                )
-                .await?
+    let (saved_entry, map_revision) = match (source, ctx.runtime_session_map.as_ref()) {
+        (PromptSource::Channel(channel), Some(store)) => store
+            .snapshot(&channel.to_string())
+            .map_err(AcpError::Protocol)?,
+        _ => (None, 0),
+    };
+    let load_only = ctx
+        .runtime_session_map
+        .as_ref()
+        .is_some_and(|store| store.family() == "hermes");
+    let restore_supported = agent.acp.supports_session_restore(load_only);
+    let mut restored_entry = None;
+    let resp = if let Some(mut entry) = saved_entry {
+        if !restore_supported {
+            return Err(AcpError::Protocol(
+                "This runtime cannot restore the saved conversation. Update the runtime or explicitly start a new session; the previous session was not replaced.".into()
+            ));
         }
-        Err(error) => return Err(error),
+        // Refresh the exact turn-scoped MCP credentials through the adapter's
+        // native restore method, while keeping its existing conversation ID.
+        let restored = agent
+            .acp
+            .session_restore_full_with_context(
+                &entry.provider_session_id,
+                session_cwd,
+                &additional_directories,
+                mcp_servers,
+                session_new_system_prompt(
+                    is_goose,
+                    agent.protocol_version,
+                    combined_system_prompt.as_deref(),
+                ),
+                session_meta.clone(),
+                load_only,
+            )
+            .await;
+        let (response, replayed) = match restored {
+            Ok(result) => result,
+            Err(error) => {
+                agent.state.retire_worker = true;
+                return Err(error);
+            }
+        };
+        if load_only && replayed == 0 {
+            // Hermes may resolve an unknown ID to an empty session. Do not
+            // deduplicate history that this empty native session never received.
+            entry.delivered_ids.clear();
+            entry.context_hashes.clear();
+            entry.turn_count = 0;
+            agent.acp.observe(
+                "session_restore_empty",
+                serde_json::json!({"sessionId": entry.provider_session_id}),
+            );
+        }
+        agent.acp.observe(
+            "session_restored",
+            serde_json::json!({
+                "sessionId": entry.provider_session_id, "replayedMessages": replayed,
+                "workspaceChanged": entry.cwd != session_cwd,
+            }),
+        );
+        entry.cwd = session_cwd.to_owned();
+        restored_entry = Some(entry);
+        response
+    } else {
+        match agent
+            .acp
+            .session_new_full_with_context(
+                session_cwd,
+                &additional_directories,
+                mcp_servers,
+                session_new_system_prompt(
+                    is_goose,
+                    agent.protocol_version,
+                    combined_system_prompt.as_deref(),
+                ),
+                session_meta.clone(),
+            )
+            .await
+        {
+            Ok(response) => response,
+            Err(_) if artifact_projected => {
+                if let Some(artifact_mcp) = ctx.artifact_mcp.as_ref() {
+                    artifact_mcp.record_probe(crate::artifact_mcp::ArtifactMcpSupport::Unavailable);
+                }
+                tracing::warn!(
+                    target: "luca::artifacts",
+                    "runtime rejected the artifact MCP projection; retrying conversation without artifacts"
+                );
+                agent.acp.observe(
+                    "artifact_mcp_unavailable",
+                    serde_json::json!({"reason": "session_projection_rejected"}),
+                );
+                agent
+                    .acp
+                    .session_new_full_with_context(
+                        session_cwd,
+                        &additional_directories,
+                        fallback_servers.unwrap_or_default(),
+                        session_new_system_prompt(
+                            is_goose,
+                            agent.protocol_version,
+                            combined_system_prompt.as_deref(),
+                        ),
+                        session_meta,
+                    )
+                    .await?
+            }
+            Err(error) => return Err(error),
+        }
     };
 
     // Track as soon as session/new succeeds: model or permission setup can
@@ -1268,6 +1362,43 @@ async fn create_session_and_apply_model(
             .retain(|session_id| session_id != &resp.session_id);
     }
 
+    if let PromptSource::Channel(channel) = source {
+        let was_restored = restored_entry.is_some();
+        let family = ctx
+            .runtime_session_map
+            .as_ref()
+            .map(|store| store.family())
+            .unwrap_or(&agent.agent_name);
+        let mut entry = restored_entry.unwrap_or_else(|| {
+            crate::runtime_session_map::RuntimeSessionEntry::new(
+                resp.session_id.clone(),
+                family.to_owned(),
+                session_cwd.to_owned(),
+            )
+        });
+        entry.native_roots_ref = session_context
+            .managed_context
+            .and_then(|context| context.native_roots_ref.as_ref())
+            .map(|value| value.as_str().to_owned());
+        if restore_supported {
+            if let Some(store) = ctx.runtime_session_map.as_ref() {
+                store
+                    .save_at_revision(&channel.to_string(), entry.clone(), map_revision)
+                    .map_err(AcpError::Protocol)?;
+            }
+        } else if ctx.runtime_session_map.is_some() {
+            agent.acp.observe(
+                "session_restore_unsupported",
+                serde_json::json!({"runtimeFamily": family}),
+            );
+        }
+        agent.state.session_entries.insert(*channel, entry);
+        if was_restored {
+            agent.state.restored_channels.insert(*channel);
+        } else {
+            agent.state.restored_channels.remove(channel);
+        }
+    }
     Ok(resp.session_id)
 }
 
@@ -3013,9 +3144,11 @@ async fn run_prompt_task_inner(
                                 agent.state.retiring_sessions.push(previous.clone());
                             }
                         }
+                        let was_restored = agent.state.restored_channels.contains(cid);
                         let first_channel_session = policy.first_channel_session
                             && !agent.state.recently_closed_scoped_channels.remove(cid)
-                            && !context_rotated_session;
+                            && !context_rotated_session
+                            && !was_restored;
                         agent.state.sessions.insert(*cid, sid.clone());
                         let native_ref = resolved_managed_context
                             .as_ref()
@@ -3028,7 +3161,7 @@ async fn run_prompt_task_inner(
                         if let Some((pending_cid, section)) = pending_canvas.take() {
                             agent.state.canvas_sections.insert(pending_cid, section);
                         }
-                        (sid, true, first_channel_session)
+                        (sid, !was_restored, first_channel_session)
                     }
                     Err(AcpError::AgentExited) => {
                         agent.state.invalidate_all();
@@ -5739,20 +5872,26 @@ mod tests {
             "@agentclientprotocol/codex-acp",
             true,
             true,
-            &[server.clone()],
+            std::slice::from_ref(&server),
         )
         .expect("ordinary Codex turn guidance");
         assert!(guidance.contains("functions.ALL_TOOLS"));
         assert!(guidance.contains("The CUA browser surface inventory does not list MCP tools"));
         assert!(guidance.contains(crate::browser_isolation::PROMPT));
-        assert!(
-            super::codex_browser_turn_guidance("codex-acp", false, true, &[server.clone()])
-                .is_none()
-        );
-        assert!(
-            super::codex_browser_turn_guidance("codex-acp", true, false, &[server.clone()])
-                .is_none()
-        );
+        assert!(super::codex_browser_turn_guidance(
+            "codex-acp",
+            false,
+            true,
+            std::slice::from_ref(&server)
+        )
+        .is_none());
+        assert!(super::codex_browser_turn_guidance(
+            "codex-acp",
+            true,
+            false,
+            std::slice::from_ref(&server)
+        )
+        .is_none());
         assert!(
             super::codex_browser_turn_guidance("claude-code-acp", true, true, &[server]).is_none()
         );
@@ -8766,6 +8905,7 @@ while read -r _; do :; done
             harness_name: "goose".to_string(),
             openclaw_agent_id: None,
             runtime_session_purpose_store: None,
+            runtime_session_map: None,
             managed_final_publisher: None,
         }
     }
@@ -9258,5 +9398,212 @@ while read -r _; do :; done
             !section.contains("+00:00"),
             "timestamp must not use +00:00 offset"
         );
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_restore_factory_preserves_identity_and_refreshes_exact_turn_tools() {
+        let root = std::env::temp_dir().join(format!("native-factory-test-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let store = crate::runtime_session_map::RuntimeSessionMap::test_fixture(
+            root.join("sessions.json"),
+            "factory-scope",
+        );
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = root.to_string_lossy().into_owned();
+        ctx.runtime_session_map = Some(store.clone());
+        ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
+            crate::artifact_mcp::ArtifactMcpSupport::Supported,
+            'a',
+        ));
+        let script = r#"
+            read -t 5 INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{},"close":{}}}}}'
+            read -t 5 NEW
+            echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"native-same-conversation"}}'
+            read -t 5 CLOSE
+            echo '{"jsonrpc":"2.0","id":2,"result":{}}'
+            read -t 5 RESUME
+            echo '{"jsonrpc":"2.0","id":3,"result":{"sessionId":"native-same-conversation","received":'"$RESUME"'}}'
+            sleep 1
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let conversation = Uuid::new_v4();
+        let source = PromptSource::Channel(conversation);
+        let mut first_turn = artifact_turn();
+        first_turn.conversation_id =
+            luca_protocol::OpaqueId::parse(conversation.to_string()).unwrap();
+        let first = create_session_and_apply_model(
+            &mut agent,
+            &ctx,
+            &source,
+            SessionCreationContext {
+                artifact_turn: Some(&first_turn),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(first, "native-same-conversation");
+        assert_eq!(
+            store
+                .get(&conversation.to_string())
+                .unwrap()
+                .unwrap()
+                .provider_session_id,
+            first
+        );
+        // Real production retirement closes the first projection, not its saved native identity.
+        agent.state.sessions.insert(conversation, first.clone());
+        let mut result = PromptResult {
+            agent,
+            source: source.clone(),
+            turn_id: "turn-first".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        retire_finished_sessions(&mut result).await;
+        assert!(!result.agent.state.retire_worker);
+        let observer = crate::observer::ObserverHandle::in_process();
+        result.agent.acp.set_observer(Some(observer.clone()), 0);
+        let mut second_turn = first_turn.clone();
+        second_turn.turn_id = luca_protocol::OpaqueId::parse("new-owner-turn").unwrap();
+        second_turn.dispatch_receipt_id = luca_protocol::OpaqueId::parse("new-dispatch").unwrap();
+        let second = create_session_and_apply_model(
+            &mut result.agent,
+            &ctx,
+            &source,
+            SessionCreationContext {
+                artifact_turn: Some(&second_turn),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(first, second);
+        let frames = observer.snapshot();
+        let request = frames
+            .iter()
+            .find_map(|event| event.payload.pointer("/result/received"))
+            .unwrap();
+        assert_eq!(request["method"], "session/resume");
+        assert_eq!(request["params"]["sessionId"], first);
+        let servers = request["params"]["mcpServers"].as_array().unwrap();
+        let server = servers
+            .iter()
+            .find(|server| {
+                server["name"]
+                    .as_str()
+                    .is_some_and(|name| name.starts_with("luca-artifacts-"))
+            })
+            .unwrap();
+        let environment = server["env"].as_array().unwrap();
+        let turn = environment
+            .iter()
+            .find(|item| item["name"] == "LUCA_ARTIFACT_TURN_ID")
+            .unwrap();
+        assert_eq!(turn["value"], "new-owner-turn");
+        let receipt = environment
+            .iter()
+            .find(|item| item["name"] == "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID")
+            .unwrap();
+        assert_eq!(receipt["value"], "new-dispatch");
+        result.agent.acp.shutdown().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_restore_factory_reopens_saved_session_on_a_fresh_worker() {
+        let root = std::env::temp_dir().join(format!("native-worker-test-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let store = crate::runtime_session_map::RuntimeSessionMap::test_fixture(
+            root.join("sessions.json"),
+            "restart-scope",
+        );
+        let conversation = Uuid::new_v4();
+        store
+            .save(
+                &conversation.to_string(),
+                crate::runtime_session_map::RuntimeSessionEntry::new(
+                    "provider-history-survived".into(),
+                    "fixture".into(),
+                    root.to_string_lossy().into_owned(),
+                ),
+            )
+            .unwrap();
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = root.to_string_lossy().into_owned();
+        ctx.runtime_session_map = Some(store.clone());
+        let script = r#"
+            read -t 5 INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{}}}}}'
+            read -t 5 REQUEST
+            case "$REQUEST" in *'"method":"session/resume"'*) echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"provider-history-survived"}}';;
+              *) echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"unexpected session/new"}}';; esac
+            sleep 1
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let restored = create_session_and_apply_model(
+            &mut agent,
+            &ctx,
+            &PromptSource::Channel(conversation),
+            SessionCreationContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored, "provider-history-survived");
+        assert!(agent.state.restored_channels.contains(&conversation));
+        agent.acp.shutdown().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn busy_conversation_holder_never_forks_on_another_idle_worker() {
+        let mut first = artifact_test_agent("sleep 30").await;
+        let mut second = artifact_test_agent("sleep 30").await;
+        second.index = 1;
+        let conversation = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        first
+            .state
+            .sessions
+            .insert(conversation, "native-history".into());
+        let mut pool = AgentPool::from_slots(vec![Some(first), Some(second)]);
+        let borrowed = pool.try_claim(Some(other)).unwrap();
+        assert_eq!(borrowed.index, 0);
+        let task = pool.join_set.spawn(async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        pool.task_map.insert(
+            task.id(),
+            TaskMeta {
+                agent_index: 0,
+                channel_id: Some(other),
+                turn_id: "holder-test".into(),
+                recoverable_batch: None,
+                control_tx: None,
+                steer_tx: None,
+            },
+        );
+        assert!(
+            pool.try_claim(Some(conversation)).is_none(),
+            "must not start a second provider view while its holder is busy"
+        );
+        assert!(
+            pool.agents[1].is_some(),
+            "the second worker remains available for unrelated conversations"
+        );
+        task.abort();
+        pool.task_map.remove(&task.id());
+        pool.return_agent(borrowed);
+        let mut original = pool.try_claim(Some(conversation)).unwrap();
+        assert_eq!(original.index, 0);
+        original.acp.shutdown().await;
+        for agent in pool.agents.iter_mut().flatten() {
+            agent.acp.shutdown().await;
+        }
     }
 }

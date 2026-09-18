@@ -53,8 +53,10 @@ pub(crate) fn for_family(family: &str, level: ResidentAccessLevel) -> RuntimeTie
             // call, so the neutral mode is the honest value here.
             buzz_acp_mode: "default",
             codex_policy: Some(match level {
+                // Current Codex rejects the retired `untrusted` policy at startup.
+                // Keep the restricted filesystem sandbox; ask the user for escalation.
                 ResidentAccessLevel::Restricted => json!({
-                    "approval_policy": "untrusted",
+                    "approval_policy": "on-request",
                     "sandbox_mode": "read-only",
                 }),
                 ResidentAccessLevel::Standard => json!({
@@ -75,6 +77,19 @@ pub(crate) fn for_family(family: &str, level: ResidentAccessLevel) -> RuntimeTie
             control: RuntimeTierControl::Advisory,
         },
     }
+}
+
+/// Refuse a preset the supported native adapter cannot actually enforce.
+/// codex-acp 1.11's preset named read-only uses a workspace-write sandbox.
+/// Never start a Manual resident at that weaker level merely to make it run.
+pub(crate) fn validate_runtime_level(
+    family: &str,
+    level: ResidentAccessLevel,
+) -> Result<(), String> {
+    if family == "codex" && level == ResidentAccessLevel::Restricted {
+        return Err("Manual access is unavailable with this Codex connection. The adapter permits project writes even in its read-only preset. No work was started. Choose Accept edits explicitly, or use a runtime that supports Manual access.".to_owned());
+    }
+    Ok(())
 }
 
 /// The runtime family behind one stable resident identity.
@@ -117,6 +132,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn codex_manual_is_refused_instead_of_relaxed_to_workspace_write() {
+        assert!(validate_runtime_level("codex", ResidentAccessLevel::Restricted).is_err());
+        assert!(validate_runtime_level("codex", ResidentAccessLevel::Standard).is_ok());
+        assert!(validate_runtime_level("codex", ResidentAccessLevel::Full).is_ok());
+        assert!(validate_runtime_level("claude_code", ResidentAccessLevel::Restricted).is_ok());
+    }
+
+    #[test]
     fn standard_is_accept_edits_on_claude_and_on_request_workspace_write_on_codex() {
         let claude = for_family("claude_code", ResidentAccessLevel::Standard);
         assert_eq!(claude.buzz_acp_mode, "accept-edits");
@@ -148,7 +171,7 @@ mod tests {
         assert_eq!(
             for_family("codex", ResidentAccessLevel::Restricted).codex_policy,
             Some(json!({
-                "approval_policy": "untrusted",
+                "approval_policy": "on-request",
                 "sandbox_mode": "read-only",
             }))
         );

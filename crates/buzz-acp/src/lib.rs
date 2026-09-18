@@ -20,6 +20,7 @@ mod pool;
 mod queue;
 mod relay;
 mod repository_mcp;
+mod runtime_session_map;
 mod runtime_session_purpose;
 mod runtime_task_runner;
 mod setup_mode;
@@ -1880,6 +1881,10 @@ async fn tokio_main() -> Result<()> {
         runtime_session_purpose_store:
             runtime_session_purpose::RuntimeSessionPurposeStore::from_environment()
                 .map_err(anyhow::Error::msg)?,
+        runtime_session_map: runtime_session_map::RuntimeSessionMap::from_environment(
+            &config.relay_url,
+        )
+        .map_err(anyhow::Error::msg)?,
         managed_final_publisher,
     });
 
@@ -2255,6 +2260,11 @@ async fn tokio_main() -> Result<()> {
                                     // complete normally (the relay may reject actions if
                                     // the agent lost access).
                                     let drained_ids = queue.drain_channel(ch);
+                                    if let Some(store) = &ctx.runtime_session_map {
+                                        if let Err(error) = store.forget(&ch.to_string()) {
+                                            tracing::warn!("could not forget removed channel's native session: {error}");
+                                        }
+                                    }
                                     let invalidated = pool.invalidate_channel_sessions(ch);
                                     // Track removed channels so checked-out agents get
                                     // their sessions stripped when they return to the pool.
@@ -2371,6 +2381,12 @@ async fn tokio_main() -> Result<()> {
                             if is_rotate {
                                 if let Some(owner) = owner_cache.get() {
                                     if buzz_event.event.pubkey.to_hex() == *owner {
+                                        if let Some(store) = &ctx.runtime_session_map {
+                                            if let Err(error) = store.forget(&buzz_event.channel_id.to_string()) {
+                                                tracing::error!("native session reset failed; saved conversation was not replaced: {error}");
+                                                continue;
+                                            }
+                                        }
                                         let fired = signal_in_flight_task(
                                             &mut pool,
                                             buzz_event.channel_id,
@@ -5974,6 +5990,7 @@ mod error_outcome_emission_tests {
             harness_name: "test".into(),
             openclaw_agent_id: None,
             runtime_session_purpose_store: None,
+            runtime_session_map: None,
             managed_final_publisher: None,
         })
     }

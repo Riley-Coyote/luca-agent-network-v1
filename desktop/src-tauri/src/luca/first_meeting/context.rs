@@ -170,8 +170,8 @@ fn from_relay_history(
     let deadline = Instant::now() + Duration::from_millis(remaining);
     let mut history = tauri::async_runtime::block_on(async {
         tokio::time::timeout(Duration::from_millis(remaining), async {
-            verify_dm(&state, owner.as_str(), resident, conversation).await?;
-            relay::query_relay(&state, &[
+            verify_dm(state, owner.as_str(), resident, conversation).await?;
+            relay::query_relay(state, &[
                 serde_json::json!({"kinds":[9], "authors":[owner.as_str()], "#h":[conversation], "limit":32}),
                 serde_json::json!({"kinds":[0], "authors":[owner.as_str()], "limit":1}),
             ]).await
@@ -187,14 +187,13 @@ fn from_relay_history(
     let mut context = brief(phase);
     context.push_str(&record::setup_name_line(name.as_deref()));
     if super::includes_recent_references(phase) && Instant::now() < deadline {
-        if let Some(references) =
-            references(app, &state, owner, resident, binding, egress, deadline)
+        if let Some(references) = references(app, state, owner, resident, binding, egress, deadline)
         {
             context.push_str("\n[Permission-checked recent session references; metadata only]\n");
             context.push_str(&references);
         }
     }
-    if active_scope(&state).ok()? != scope || context.len() > 16384 {
+    if active_scope(state).ok()? != scope || context.len() > 16384 {
         return None;
     }
     Some(context)

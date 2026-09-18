@@ -30,8 +30,9 @@ function agent(name, personaId, pubkey) {
 }
 
 const fizz = agent("Fizz", "builtin:fizz", "f".repeat(64));
-const honey = agent("Honey", "builtin:honey", "h".repeat(64));
-const bumble = agent("Bumble", "builtin:bumble", "b".repeat(64));
+// Names are deliberately customized: lookup must follow the current stock persona IDs.
+const honey = agent("Honey", "builtin:fifty", "h".repeat(64));
+const bumble = agent("Bumble", "builtin:trinity", "b".repeat(64));
 
 test("resolveWelcomeAgentSet orders agents by stable persona identity", () => {
   assert.deepEqual(resolveWelcomeAgentSet([bumble, fizz, honey]), {

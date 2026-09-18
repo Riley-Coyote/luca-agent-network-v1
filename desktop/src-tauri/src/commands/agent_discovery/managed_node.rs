@@ -430,7 +430,7 @@ mod tests {
                 "npm install -g @agentclientprotocol/codex-acp@1.11.0",
                 "'/tmp/Buzz Node'"
             ),
-            "npm install --global --prefix '/tmp/Buzz Node' @agentclientprotocol/codex-acp"
+            "npm install --global --prefix '/tmp/Buzz Node' @agentclientprotocol/codex-acp@1.11.0"
         );
     }
 

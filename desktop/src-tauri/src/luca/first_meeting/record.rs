@@ -179,7 +179,7 @@ pub(super) fn note_trigger(state: &mut FirstMeetingStateV1, trigger: &str, now: 
     if trigger == state.trigger_event_id || state.reply_trigger_ids.iter().any(|id| id == trigger) {
         return false;
     }
-    if state.reply_trigger_ids.len() >= MAX_OWNER_REPLIES + 1 {
+    if state.reply_trigger_ids.len() > MAX_OWNER_REPLIES {
         return false;
     }
     state.reply_trigger_ids.push(trigger.to_owned());
@@ -745,11 +745,11 @@ mod tests {
                 .sign_with_keys(&keys)
                 .unwrap();
         assert_eq!(
-            setup_name(&[event.clone()], &owner).as_deref(),
+            setup_name(std::slice::from_ref(&event), &owner).as_deref(),
             Some("Meeting Final")
         );
         assert!(setup_name(
-            &[event.clone()],
+            std::slice::from_ref(&event),
             &nostr::Keys::generate().public_key().to_hex()
         )
         .is_none());

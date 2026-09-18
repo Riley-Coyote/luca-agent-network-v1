@@ -16,6 +16,9 @@ use serde::Deserialize;
 
 pub(crate) const SESSION_PURPOSE_STORE_ENV: &str = "LUCA_RUNTIME_SESSION_PURPOSE_STORE";
 pub(crate) const SESSION_RUNTIME_FAMILY_ENV: &str = "LUCA_MANAGED_RUNTIME_FAMILY";
+pub(crate) const SESSION_MAP_ENV: &str = "LUCA_RUNTIME_SESSION_MAP";
+pub(crate) const SESSION_IDENTITY_ENV: &str = "LUCA_RUNTIME_SESSION_IDENTITY_REF";
+pub(crate) const SESSION_RELAY_SCOPE_ENV: &str = "LUCA_RUNTIME_SESSION_RELAY_SCOPE";
 
 const STORE_DIRECTORY: &str = "runtime-session-purposes";
 const STORE_PROTOCOL: &str = "polyphonic.runtime-session-purpose.v1";
@@ -68,6 +71,101 @@ pub(crate) fn prepare_resident_store(
             .map_err(|_| "secure runtime session purpose store".to_owned())?;
     }
     Ok(path)
+}
+
+/// The app-owned relay's loopback port changes on restart; its conversation
+/// namespace does not. Arbitrary loopback servers must remain distinct.
+pub(crate) fn native_session_relay_scope(
+    effective_url: &str,
+    supervised_local_url: Option<&str>,
+    owner_pubkey: &str,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let logical_url = if supervised_local_url == Some(effective_url) {
+        crate::local_relay::LOCAL_RELAY_SENTINEL
+    } else {
+        effective_url
+    };
+    let material = format!("polyphonic.native-relay-scope.v1\0{owner_pubkey}\0{logical_url}");
+    format!(
+        "sha256:{}",
+        hex::encode(Sha256::digest(material.as_bytes()))
+    )
+}
+
+/// Identify the provider-owned transcript store independently of mutable model,
+/// permission, prompt, and build settings. This is a history locator, not a grant.
+pub(crate) fn native_session_identity_ref(
+    family: &str,
+    runtime_identifier: &str,
+    native_semantic_key: Option<&str>,
+    command: &std::process::Command,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    let mut add = |value: &[u8]| {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value);
+    };
+    add(b"polyphonic.native-session-identity.v1");
+    add(family.as_bytes());
+    if family == "unknown" {
+        add(runtime_identifier.as_bytes());
+    }
+    add(native_semantic_key.unwrap_or("").as_bytes());
+    // These are locations/profile names, never credentials. A native account or
+    // profile change must select different history; a model or access-tier edit must not.
+    for key in [
+        "HOME",
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "HERMES_HOME",
+        "OPENCLAW_STATE_DIR",
+        "OPENCLAW_CONFIG_PATH",
+        "OPENCLAW_PROFILE",
+        "XDG_CONFIG_HOME",
+    ] {
+        let explicit = command
+            .get_envs()
+            .find(|(name, _)| *name == std::ffi::OsStr::new(key));
+        let value = match explicit {
+            Some((_, value)) => value.map(std::ffi::OsStr::to_os_string),
+            None => std::env::var_os(key),
+        };
+        add(key.as_bytes());
+        if let Some(value) = value {
+            add(value.as_encoded_bytes());
+        } else {
+            add(b"");
+        }
+    }
+    format!("sha256:{}", hex::encode(digest.finalize()))
+}
+
+/// Prepare a private directory for native-session pointers, without touching transcripts.
+pub(crate) fn prepare_resident_session_map(
+    app_data_dir: &Path,
+    resident_pubkey: &str,
+) -> Result<PathBuf, String> {
+    if resident_pubkey.len() != 64
+        || !resident_pubkey
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("invalid native session map resident".into());
+    }
+    let directory = app_data_dir.join("luca").join("runtime-sessions");
+    fs::create_dir_all(&directory).map_err(|_| "create native session map directory")?;
+    if !fs::symlink_metadata(&directory).is_ok_and(|m| m.is_dir()) {
+        return Err("native session map directory must not be a symlink".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700))
+            .map_err(|_| "secure native session map directory")?;
+    }
+    Ok(directory.join(format!("{resident_pubkey}.json")))
 }
 
 pub(crate) fn excluded_provider_session_ids(
@@ -209,6 +307,71 @@ mod tests {
         assert_eq!(
             excluded,
             HashSet::from(["conversation-id".to_owned(), "continuity-id".to_owned()])
+        );
+    }
+    #[test]
+    fn native_session_identity_survives_model_permission_and_build_edits() {
+        let mut first = std::process::Command::new("test-runtime");
+        first
+            .env("CODEX_HOME", "/test/profile-a")
+            .env("MODEL", "before");
+        let mut next = std::process::Command::new("new-test-runtime-build");
+        next.env("CODEX_HOME", "/test/profile-a")
+            .env("MODEL", "after")
+            .env("BUZZ_ACP_PERMISSION_MODE", "acceptEdits")
+            .env("LUCA_MANAGED_BINDING_REF", "different-execution-binding");
+        assert_eq!(
+            native_session_identity_ref("codex", "codex-acp", None, &first),
+            native_session_identity_ref("codex", "codex-acp", None, &next)
+        );
+        next.env("CODEX_HOME", "/test/profile-b");
+        assert_ne!(
+            native_session_identity_ref("codex", "codex-acp", None, &first),
+            native_session_identity_ref("codex", "codex-acp", None, &next)
+        );
+    }
+
+    #[test]
+    fn native_session_identity_isolates_imported_profiles_and_runtime_families() {
+        let command = std::process::Command::new("test-runtime");
+        assert_ne!(
+            native_session_identity_ref("hermes", "hermes", Some("profile-a"), &command),
+            native_session_identity_ref("hermes", "hermes", Some("profile-b"), &command)
+        );
+        assert_ne!(
+            native_session_identity_ref("codex", "codex-acp", None, &command),
+            native_session_identity_ref("claude_code", "claude-agent-acp", None, &command)
+        );
+    }
+
+    #[test]
+    fn native_session_scope_survives_owned_relay_port_changes_only() {
+        let first = native_session_relay_scope(
+            "ws://127.0.0.1:42001",
+            Some("ws://127.0.0.1:42001"),
+            "owner",
+        );
+        let restarted = native_session_relay_scope(
+            "ws://127.0.0.1:42099",
+            Some("ws://127.0.0.1:42099"),
+            "owner",
+        );
+        assert_eq!(first, restarted);
+        assert_ne!(
+            first,
+            native_session_relay_scope("ws://127.0.0.1:42001", None, "owner")
+        );
+        assert_ne!(
+            first,
+            native_session_relay_scope(
+                "ws://127.0.0.1:42001",
+                Some("ws://127.0.0.1:42001"),
+                "different-owner"
+            )
+        );
+        assert_ne!(
+            native_session_relay_scope("wss://relay-a.test", None, "owner"),
+            native_session_relay_scope("wss://relay-b.test", None, "owner")
         );
     }
 }

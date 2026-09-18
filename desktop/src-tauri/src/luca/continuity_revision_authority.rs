@@ -468,12 +468,12 @@ impl ContinuityStore {
             return Err(ContinuityStoreError::InvalidRecord);
         }
         self.with_validated_revision_read(owner_pubkey, |transaction, generation| {
-            reject_rotation(&transaction, owner_pubkey)?;
+            reject_rotation(transaction, owner_pubkey)?;
             let Some(generation) = generation else {
                 return Ok(None);
             };
             let active_heads = load_exact_active_heads(
-                &transaction,
+                transaction,
                 requested,
                 &generation.token,
                 &generation.snapshot,
@@ -492,7 +492,7 @@ impl ContinuityStore {
                 .collect::<Vec<_>>();
             pinned_owner_correction_heads.sort();
             pinned_owner_correction_heads.dedup();
-            reject_rotation(&transaction, owner_pubkey)?;
+            reject_rotation(transaction, owner_pubkey)?;
             // Every read above shares one immutable SQLite snapshot. Another
             // connection cannot change this transaction's generation, so loading
             // and validating the entire ledger a second time adds no protection.
@@ -514,7 +514,7 @@ impl ContinuityStore {
         expected: &RevisionAuthorityTokenV1,
     ) -> Result<bool, ContinuityStoreError> {
         self.with_validated_revision_read(&expected.owner_pubkey, |transaction, current| {
-            reject_rotation(&transaction, &expected.owner_pubkey)?;
+            reject_rotation(transaction, &expected.owner_pubkey)?;
             let matches = current.is_some_and(|generation| generation.token == *expected);
             Ok(matches)
         })

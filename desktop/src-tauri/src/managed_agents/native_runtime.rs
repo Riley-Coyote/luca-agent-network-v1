@@ -1047,15 +1047,11 @@ fn strip_ansi(text: &str) -> String {
 /// output carried no agent list at all.
 fn parse_openclaw_agent_rows(stdout: &[u8]) -> Option<Vec<OpenclawAgentRow>> {
     let text = strip_ansi(&String::from_utf8_lossy(stdout));
-    let mut attempts = 0;
     for (offset, _) in text
         .char_indices()
         .filter(|(_, character)| *character == '[' || *character == '{')
+        .take(MAX_JSON_START_ATTEMPTS)
     {
-        if attempts >= MAX_JSON_START_ATTEMPTS {
-            break;
-        }
-        attempts += 1;
         if let Ok(payload) = serde_json::from_str::<OpenclawAgentListPayload>(text[offset..].trim())
         {
             return Some(payload.into_rows());

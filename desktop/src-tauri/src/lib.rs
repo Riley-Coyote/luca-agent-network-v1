@@ -124,50 +124,6 @@ fn allows_shell_navigation<R: tauri::Runtime>(webview: &tauri::Webview<R>, url: 
     allows_shell_navigation_for(url, dev_url)
 }
 
-#[cfg(test)]
-mod shell_navigation_tests {
-    use super::*;
-
-    #[test]
-    fn shell_policy_allows_only_packaged_and_exact_dev_origins() {
-        let dev = Url::parse("http://localhost:1420").unwrap();
-        assert!(allows_shell_navigation_for(
-            &Url::parse("tauri://localhost/#/artifacts").unwrap(),
-            None,
-        ));
-        assert!(allows_shell_navigation_for(
-            &Url::parse("about:blank").unwrap(),
-            None
-        ));
-        assert!(allows_shell_navigation_for(
-            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
-            Some(&dev),
-        ));
-        assert!(!allows_shell_navigation_for(
-            &Url::parse("http://localhost:4173/#/artifacts").unwrap(),
-            Some(&dev),
-        ));
-        assert!(!allows_shell_navigation_for(
-            &Url::parse("https://example.com/").unwrap(),
-            None,
-        ));
-        for value in [
-            "file:///tmp/escape.html",
-            "data:text/html,escape",
-            "javascript:alert(1)",
-        ] {
-            assert!(!allows_shell_navigation_for(
-                &Url::parse(value).unwrap(),
-                None
-            ));
-        }
-        assert!(!allows_shell_navigation_for(
-            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
-            None,
-        ));
-    }
-}
-
 fn reveal_initial_window<R: tauri::Runtime>(window: &tauri::Window<R>) {
     if let Err(error) = window.show() {
         luca_log!(warn, "buzz-desktop: failed to reveal main window: {error}");
@@ -327,7 +283,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(
             tauri::plugin::Builder::<_, ()>::new("shell-navigation-policy")
-                .on_navigation(|webview, url| allows_shell_navigation(webview, url))
+                .on_navigation(allows_shell_navigation)
                 .build(),
         )
         // Before the document is parsed, so `index.html`'s pre-paint seed can
@@ -1433,4 +1389,48 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod shell_navigation_tests {
+    use super::*;
+
+    #[test]
+    fn shell_policy_allows_only_packaged_and_exact_dev_origins() {
+        let dev = Url::parse("http://localhost:1420").unwrap();
+        assert!(allows_shell_navigation_for(
+            &Url::parse("tauri://localhost/#/artifacts").unwrap(),
+            None,
+        ));
+        assert!(allows_shell_navigation_for(
+            &Url::parse("about:blank").unwrap(),
+            None
+        ));
+        assert!(allows_shell_navigation_for(
+            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
+            Some(&dev),
+        ));
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("http://localhost:4173/#/artifacts").unwrap(),
+            Some(&dev),
+        ));
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("https://example.com/").unwrap(),
+            None,
+        ));
+        for value in [
+            "file:///tmp/escape.html",
+            "data:text/html,escape",
+            "javascript:alert(1)",
+        ] {
+            assert!(!allows_shell_navigation_for(
+                &Url::parse(value).unwrap(),
+                None
+            ));
+        }
+        assert!(!allows_shell_navigation_for(
+            &Url::parse("http://localhost:1420/#/artifacts").unwrap(),
+            None,
+        ));
+    }
 }

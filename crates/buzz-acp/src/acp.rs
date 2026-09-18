@@ -19,6 +19,9 @@ use crate::observer::{ObserverContext, ObserverHandle};
 use crate::usage::{TurnUsage, UsageTracker};
 
 const LUCA_DESCENDANT_FORBIDDEN_ENV: &[&str] = &[
+    "LUCA_RUNTIME_SESSION_MAP",
+    "LUCA_RUNTIME_SESSION_IDENTITY_REF",
+    "LUCA_RUNTIME_SESSION_RELAY_SCOPE",
     "BUZZ_PRIVATE_KEY",
     "NOSTR_PRIVATE_KEY",
     "BUZZ_AUTH_TAG",
@@ -665,6 +668,11 @@ pub struct AcpClient {
     requested_protocol_version: u32,
     /// `session/close` is optional in ACP; only use it when advertised at initialize.
     session_close_supported: bool,
+    session_load_supported: bool,
+    session_resume_supported: bool,
+    /// History emitted while restoring a provider session is not a new reply.
+    restoring_session: Option<(String, usize)>,
+    active_session_ids: std::collections::HashSet<String>,
 }
 
 fn requested_protocol_version(command: &str) -> u32 {
@@ -1185,6 +1193,10 @@ impl AcpClient {
             available_commands: std::collections::BTreeSet::new(),
             requested_protocol_version: requested_protocol_version(command),
             session_close_supported: false,
+            session_load_supported: false,
+            session_resume_supported: false,
+            restoring_session: None,
+            active_session_ids: std::collections::HashSet::new(),
         })
     }
 
@@ -1285,6 +1297,13 @@ impl AcpClient {
         self.session_close_supported = result
             .pointer("/agentCapabilities/sessionCapabilities/close")
             .is_some_and(serde_json::Value::is_object);
+        self.session_load_supported = result
+            .pointer("/agentCapabilities/loadSession")
+            .and_then(|v| v.as_bool())
+            == Some(true);
+        self.session_resume_supported = result
+            .pointer("/agentCapabilities/sessionCapabilities/resume")
+            .is_some_and(serde_json::Value::is_object);
         tracing::debug!(target: "acp::init", "initialize response: {result}");
         Ok(result)
     }
@@ -1300,6 +1319,7 @@ impl AcpClient {
             serde_json::json!({ "sessionId": session_id }),
         )
         .await?;
+        self.active_session_ids.remove(session_id);
         Ok(true)
     }
 
@@ -1388,11 +1408,178 @@ impl AcpClient {
             .as_str()
             .ok_or_else(|| AcpError::Protocol("session/new response missing sessionId".into()))?
             .to_owned();
+        self.active_session_ids.insert(session_id.clone());
         tracing::info!(target: "acp::session", "session created: {session_id}");
         Ok(SessionNewResponse {
             session_id,
             raw: result,
         })
+    }
+
+    /// Whether this adapter can restore a provider-owned conversation.
+    pub(crate) fn supports_session_restore(&self, load_only: bool) -> bool {
+        self.session_load_supported || (!load_only && self.session_resume_supported)
+    }
+
+    /// Reconnect to the same provider session with a freshly supplied tool projection.
+    /// History replay is suppressed from live presentation and cannot request permission.
+    /// `load_only` is used for adapters whose resume operation silently creates on a miss.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn session_restore_full_with_context(
+        &mut self,
+        session_id: &str,
+        cwd: &str,
+        additional_directories: &[String],
+        mcp_servers: Vec<McpServer>,
+        system_prompt: Option<&str>,
+        meta: Option<serde_json::Value>,
+        load_only: bool,
+    ) -> Result<(SessionNewResponse, usize), AcpError> {
+        if session_id.is_empty()
+            || session_id.len() > 512
+            || session_id.chars().any(char::is_control)
+        {
+            return Err(AcpError::Protocol(
+                "invalid stored provider session identifier".into(),
+            ));
+        }
+        let method = if !load_only && self.session_resume_supported {
+            "session/resume"
+        } else if self.session_load_supported {
+            "session/load"
+        } else {
+            return Err(AcpError::Protocol(
+                "runtime does not advertise session restoration".into(),
+            ));
+        };
+        if self.active_session_ids.contains(session_id) && !self.session_close(session_id).await? {
+            self.shutdown().await;
+            return Err(AcpError::Protocol(
+                "runtime must restart before rebinding this saved session".into(),
+            ));
+        }
+        self.permission_display_cache.clear();
+        if self.managed_identity && mcp_servers.iter().any(|s| is_artifact_server_name(&s.name)) {
+            self.artifact_observer.guard_active = true;
+        }
+        let mut params = serde_json::json!({
+            "sessionId": session_id, "cwd": cwd, "mcpServers": mcp_servers,
+        });
+        if !additional_directories.is_empty() {
+            params["additionalDirectories"] = serde_json::json!(additional_directories);
+        }
+        if let Some(prompt) = system_prompt {
+            params["systemPrompt"] = serde_json::json!(prompt);
+        }
+        if let Some(meta) = meta {
+            if !meta.is_object() {
+                return Err(AcpError::Protocol(
+                    "session metadata must be a JSON object".into(),
+                ));
+            }
+            params["_meta"] = meta;
+        }
+        self.restoring_session = Some((session_id.to_owned(), 0));
+        let result = self.send_request(method, params).await;
+        // Keep replay suppression active through the bounded post-response drain.
+        let result = match result {
+            Ok(raw) => self.drain_restoration_frames().await.map(|_| raw),
+            Err(error) => Err(error),
+        };
+        let replayed = self.restoring_session.take().map_or(0, |(_, count)| count);
+        let raw = match result {
+            Ok(raw) => raw,
+            Err(error) => {
+                // A late replay must never become the next turn's live output.
+                self.shutdown().await;
+                return Err(error);
+            }
+        };
+        if raw
+            .get("sessionId")
+            .and_then(|v| v.as_str())
+            .is_some_and(|id| id != session_id)
+        {
+            self.shutdown().await;
+            return Err(AcpError::Protocol(
+                "runtime replaced the requested session during restoration".into(),
+            ));
+        }
+        self.active_session_ids.insert(session_id.to_owned());
+        Ok((
+            SessionNewResponse {
+                session_id: session_id.to_owned(),
+                raw,
+            },
+            replayed,
+        ))
+    }
+
+    async fn consume_restoration_frame(
+        &mut self,
+        msg: &serde_json::Value,
+    ) -> Result<bool, AcpError> {
+        let Some((session_id, count)) = self.restoring_session.as_mut() else {
+            return Ok(false);
+        };
+        if msg.get("method").and_then(|v| v.as_str()) == Some("session/request_permission") {
+            if let Some(id) = msg.get("id") {
+                self.write_ndjson(&serde_json::json!({
+                    "jsonrpc":"2.0", "id":id, "result":{"outcome":{"outcome":"cancelled"}}
+                }))
+                .await?;
+            }
+            return Ok(true);
+        }
+        if msg.get("method").and_then(|v| v.as_str()) != Some("session/update") {
+            return Ok(false);
+        }
+        if msg.pointer("/params/sessionId").and_then(|v| v.as_str()) != Some(session_id.as_str()) {
+            return Ok(true);
+        }
+        let update = msg
+            .pointer("/params/update/sessionUpdate")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if matches!(update, "agent_message_chunk" | "user_message_chunk") {
+            *count = count.saturating_add(1);
+        }
+        // Configuration notifications still update the client; transcript/tool bodies do not.
+        Ok(!matches!(
+            update,
+            "available_commands_update"
+                | "config_option_update"
+                | "current_mode_update"
+                | "session_info_update"
+        ))
+    }
+
+    async fn drain_restoration_frames(&mut self) -> Result<(), AcpError> {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(100);
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                return Ok(());
+            }
+            let line = match tokio::time::timeout(
+                remaining.min(std::time::Duration::from_millis(20)),
+                self.reader.next(),
+            )
+            .await
+            {
+                Ok(Some(Ok(line))) => line,
+                Ok(Some(Err(_))) => {
+                    return Err(AcpError::Protocol("invalid restoration frame".into()))
+                }
+                _ => return Ok(()),
+            };
+            let Ok(msg) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            if !self.consume_restoration_frame(&msg).await? && msg["method"] == "session/update" {
+                let _ = self.handle_session_update(&msg);
+            }
+        }
     }
 
     /// Send `session/new` and return only the `sessionId` string.
@@ -1921,7 +2108,11 @@ impl AcpClient {
         // Wrap write + read in a single timeout so a hung agent can't block forever.
         // We cannot use an async block that borrows `self` mutably across two awaits
         // inside timeout(), so we sequence them with early-return on timeout.
-        let timeout = Self::REQUEST_TIMEOUT;
+        let timeout = if matches!(method, "session/load" | "session/resume") {
+            std::time::Duration::from_secs(180)
+        } else {
+            Self::REQUEST_TIMEOUT
+        };
         match tokio::time::timeout(timeout, self.write_ndjson(&msg)).await {
             Ok(result) => result?,
             Err(_) => return Err(AcpError::Timeout(timeout)),
@@ -2039,6 +2230,9 @@ impl AcpClient {
                     continue;
                 }
             };
+            if self.consume_restoration_frame(&msg).await? {
+                continue;
+            }
             self.trace_inbound_metadata(&msg);
             self.observe_inbound(&msg);
 
@@ -6889,3 +7083,7 @@ esac"#,
         );
     }
 }
+
+#[cfg(test)]
+#[path = "acp_session_restore_tests.rs"]
+mod session_restore_tests;

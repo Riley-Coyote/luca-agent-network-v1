@@ -43,6 +43,9 @@ function resolveSourcePath(basePath) {
 // under node ESM even though the bundler handles it). Tests never exercise
 // the picker, so serve inert stubs for the emoji-mart entrypoints.
 const stubModules = new Map([
+  // Pure Node component tests have no custom-element registry or WebGL.
+  // The browser renderer is exercised by the packaged-app walkthrough.
+  ["@/shared/ui/mote3d.js", "export {};\n"],
   [
     "emoji-mart",
     "export const init = () => {};\n" +
@@ -126,6 +129,19 @@ export async function load(url, context, nextLoad) {
       format: "module",
       shortCircuit: true,
       source: "",
+    };
+  }
+
+  // Vite resolves imported image assets to URLs. Keep that contract in Node
+  // without pretending to decode pixels; missing assets must still fail.
+  if (/\.(png|jpe?g|webp|gif|svg|avif)$/.test(url)) {
+    if (!fs.statSync(fileURLToPath(url)).isFile()) {
+      throw new Error("Imported test asset is not a file");
+    }
+    return {
+      format: "module",
+      shortCircuit: true,
+      source: `export default ${JSON.stringify(url)};`,
     };
   }
 

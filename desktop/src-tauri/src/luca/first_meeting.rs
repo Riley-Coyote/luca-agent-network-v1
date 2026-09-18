@@ -165,7 +165,13 @@ mod tests {
         let reply = message(&owner, &resident, 101, "Help me", false);
         let trigger = reply.id.to_hex();
         assert_eq!(
-            phase_from_history(&[reply.clone()], &pubkey, &resident, "room", &trigger),
+            phase_from_history(
+                std::slice::from_ref(&reply),
+                &pubkey,
+                &resident,
+                "room",
+                &trigger
+            ),
             None
         );
         assert_eq!(

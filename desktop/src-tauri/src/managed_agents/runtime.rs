@@ -2643,8 +2643,8 @@ fn spawn_agent_child_unix(
             app,
             owner_pubkey.as_str(),
             resident_pubkey.as_str(),
-        )
-        .unwrap_or_default();
+        )?;
+        crate::luca::permission_tier::validate_runtime_level(runtime_family, level)?;
         let tier = crate::luca::permission_tier::for_family(runtime_family, level);
         command.env("BUZZ_ACP_PERMISSION_MODE", tier.buzz_acp_mode);
         match tier
@@ -2680,6 +2680,26 @@ fn spawn_agent_child_unix(
             command.env("BUZZ_ACP_MCP_COMMAND", "");
         }
     }
+    let runtime_session_map = crate::luca::runtime_session_purpose::prepare_resident_session_map(
+        &app_data_dir,
+        resident_pubkey.as_str(),
+    )?;
+    command.env(
+        crate::luca::runtime_session_purpose::SESSION_MAP_ENV,
+        runtime_session_map,
+    );
+    let supervised_local_relay = tauri::Manager::try_state::<crate::local_relay::RuntimeState>(app)
+        .and_then(|runtime| crate::local_relay::relay_url(&runtime));
+    let native_relay_scope = crate::luca::runtime_session_purpose::native_session_relay_scope(
+        &effective_relay_url,
+        supervised_local_relay.as_deref(),
+        owner_pubkey.as_str(),
+    );
+    command.env(
+        crate::luca::runtime_session_purpose::SESSION_RELAY_SCOPE_ENV,
+        native_relay_scope,
+    );
+
     command.env(
         crate::luca::runtime_session_purpose::SESSION_PURPOSE_STORE_ENV,
         &runtime_session_purpose_store,
@@ -3037,6 +3057,20 @@ fn spawn_agent_child_unix(
     } else {
         command.env_remove("LUCA_PLAYWRIGHT_ISOLATED");
     }
+    let native_session_semantic_key = record
+        .native_runtime_binding
+        .as_ref()
+        .map(super::native_runtime_semantic_key);
+    let native_session_identity = crate::luca::runtime_session_purpose::native_session_identity_ref(
+        runtime_family,
+        &effective_command,
+        native_session_semantic_key.as_deref(),
+        &command,
+    );
+    command.env(
+        crate::luca::runtime_session_purpose::SESSION_IDENTITY_ENV,
+        native_session_identity,
+    );
     configure_runtime_cli(&mut command, runtime_meta);
     super::claude_model_bridge::configure_claude_model_bridge(
         &mut command,

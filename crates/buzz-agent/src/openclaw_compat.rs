@@ -628,6 +628,8 @@ async fn dispatch(
         Inbound::Request { id, method, params } => match method.as_str() {
             "initialize" => initialize(id, wire_tx).await,
             "session/new" => session_new(&app, id, params, wire_tx).await,
+            "session/resume" => session_resume(&app, id, params, wire_tx).await,
+            "session/close" => session_close(&app, id, params, wire_tx).await,
             "session/prompt" => match acquire_turn(&app, params).await {
                 Ok(turn) => {
                     turns.spawn(session_prompt(app, id, turn, wire_tx.clone()));
@@ -665,6 +667,7 @@ async fn initialize(id: Value, wire_tx: &wire::WireSender) {
                 "protocolVersion": 1,
                 "agentCapabilities": {
                     "loadSession": false,
+                    "sessionCapabilities": { "resume": {}, "close": {} },
                     "promptCapabilities": {
                         "audio": false,
                         "embeddedContext": false,
@@ -685,20 +688,74 @@ async fn initialize(id: Value, wire_tx: &wire::WireSender) {
 }
 
 async fn session_new(app: &Arc<CompatApp>, id: Value, params: Value, wire_tx: &wire::WireSender) {
-    let parsed = serde_json::from_value::<SessionNewParams>(params);
-    let Ok(params) = parsed else {
-        return reject(wire_tx, id, "session/new parameters are invalid").await;
-    };
-    let cwd = PathBuf::from(&params.cwd);
-    if !cwd.is_absolute() || !cwd.is_dir() || validate_mcp_servers(&params.mcp_servers).is_err() {
-        return reject(wire_tx, id, "session/new parameters are invalid").await;
-    }
     let Ok(token) = random_token() else {
         return reject(wire_tx, id, "session/new could not allocate a session").await;
     };
-    let session_id = format!("luca-openclaw-{token}");
+    open_session_projection(app, id, params, format!("luca-openclaw-{token}"), wire_tx).await;
+}
+
+fn valid_compat_session_id(value: &str) -> bool {
+    value.strip_prefix("luca-openclaw-").is_some_and(|token| {
+        token.len() == 32
+            && token
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    })
+}
+
+/// Reopen the same OpenClaw native session key with this turn's fresh tool
+/// projection. Native conversation history remains owned by OpenClaw.
+async fn session_resume(
+    app: &Arc<CompatApp>,
+    id: Value,
+    params: Value,
+    wire_tx: &wire::WireSender,
+) {
+    let Some(session_id) = params
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .filter(|value| valid_compat_session_id(value))
+        .map(str::to_owned)
+    else {
+        return reject(
+            wire_tx,
+            id,
+            "session/resume requires a valid compatibility session",
+        )
+        .await;
+    };
+    open_session_projection(app, id, params, session_id, wire_tx).await;
+}
+
+async fn open_session_projection(
+    app: &Arc<CompatApp>,
+    id: Value,
+    params: Value,
+    session_id: String,
+    wire_tx: &wire::WireSender,
+) {
+    let Ok(params) = serde_json::from_value::<SessionNewParams>(params) else {
+        return reject(wire_tx, id, "session parameters are invalid").await;
+    };
+    let cwd = PathBuf::from(&params.cwd);
+    if !cwd.is_absolute() || !cwd.is_dir() || validate_mcp_servers(&params.mcp_servers).is_err() {
+        return reject(wire_tx, id, "session parameters are invalid").await;
+    }
+    let mut sessions = app.sessions.lock().await;
+    if sessions
+        .get(&session_id)
+        .is_some_and(|session| session.busy)
+    {
+        drop(sessions);
+        return reject(
+            wire_tx,
+            id,
+            "session is busy; cancel and await completion before reopening",
+        )
+        .await;
+    }
     let (cancel_tx, _) = watch::channel(false);
-    app.sessions.lock().await.insert(
+    sessions.insert(
         session_id.clone(),
         CompatSession {
             cwd,
@@ -708,7 +765,27 @@ async fn session_new(app: &Arc<CompatApp>, id: Value, params: Value, wire_tx: &w
             busy: false,
         },
     );
+    drop(sessions);
     wire::send(wire_tx, wire::ok(id, json!({ "sessionId": session_id }))).await;
+}
+
+/// Close only the idle ACP projection. Never delete the native transcript.
+async fn session_close(app: &Arc<CompatApp>, id: Value, params: Value, wire_tx: &wire::WireSender) {
+    let Some(session_id) = params.get("sessionId").and_then(Value::as_str) else {
+        return reject(wire_tx, id, "session/close requires a session identifier").await;
+    };
+    let mut sessions = app.sessions.lock().await;
+    match sessions.get(session_id) {
+        Some(session) if !session.busy => {
+            sessions.remove(session_id);
+        }
+        _ => {
+            drop(sessions);
+            return reject(wire_tx, id, "session is absent or busy").await;
+        }
+    }
+    drop(sessions);
+    wire::send(wire_tx, wire::ok(id, json!({}))).await;
 }
 
 fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
@@ -2709,5 +2786,89 @@ printf '%s\n' '{"payloads":[{"text":"fixture-ok"}]}'
             std::fs::read(&workspace.overlay_path).expect("read turn overlay"),
             expected_overlay
         );
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resume_reuses_native_session_key_and_refreshes_workspace() {
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (tx, mut rx) = mpsc::channel(4);
+        session_new(
+            &app,
+            json!(1),
+            json!({"cwd": fixture.root.path(), "mcpServers":[]}),
+            &tx,
+        )
+        .await;
+        let WireMsg::Notify(created) = rx.recv().await.unwrap();
+        let session_id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+        let native_key = openclaw_session_key(&app.config.agent_id, &session_id);
+        session_close(&app, json!(2), json!({"sessionId":session_id}), &tx).await;
+        let WireMsg::Notify(closed) = rx.recv().await.unwrap();
+        assert!(closed.get("error").is_none());
+        assert!(!app.sessions.lock().await.contains_key(&session_id));
+        let changed_root = fixture.root.path().join("new-project");
+        fs::create_dir(&changed_root).unwrap();
+        session_resume(
+            &app,
+            json!(3),
+            json!({"sessionId":session_id,"cwd":changed_root,"mcpServers":[]}),
+            &tx,
+        )
+        .await;
+        let WireMsg::Notify(resumed) = rx.recv().await.unwrap();
+        assert_eq!(resumed["result"]["sessionId"], session_id);
+        assert_eq!(
+            openclaw_session_key(&app.config.agent_id, &session_id),
+            native_key
+        );
+        assert_eq!(app.sessions.lock().await[&session_id].cwd, changed_root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn resume_rejects_foreign_ids_invalid_projection_and_busy_session() {
+        let fixture = ProcessTreeFixture::new(false);
+        let app = fixture.app();
+        let (tx, mut rx) = mpsc::channel(4);
+        for bad in [
+            "native-user-conversation",
+            "luca-openclaw-../escape",
+            "luca-openclaw-short",
+        ] {
+            session_resume(
+                &app,
+                json!(1),
+                json!({"sessionId":bad,"cwd":fixture.root.path(),"mcpServers":[]}),
+                &tx,
+            )
+            .await;
+            let WireMsg::Notify(response) = rx.recv().await.unwrap();
+            assert!(response.get("error").is_some());
+        }
+        let session_id = format!("luca-openclaw-{}", "a".repeat(32));
+        session_resume(
+            &app,
+            json!(2),
+            json!({"sessionId":session_id,"cwd":fixture.root.path(),"mcpServers":[]}),
+            &tx,
+        )
+        .await;
+        let _ = rx.recv().await.unwrap();
+        app.sessions.lock().await.get_mut(&session_id).unwrap().busy = true;
+        session_resume(
+            &app,
+            json!(3),
+            json!({"sessionId":session_id,"cwd":fixture.root.path(),"mcpServers":[]}),
+            &tx,
+        )
+        .await;
+        let WireMsg::Notify(response) = rx.recv().await.unwrap();
+        assert!(response.get("error").is_some());
+        assert!(app.sessions.lock().await[&session_id].busy);
+        session_close(&app, json!(4), json!({"sessionId":session_id}), &tx).await;
+        let WireMsg::Notify(response) = rx.recv().await.unwrap();
+        assert!(response.get("error").is_some());
+        app.sessions.lock().await.get_mut(&session_id).unwrap().busy = false;
     }
 }

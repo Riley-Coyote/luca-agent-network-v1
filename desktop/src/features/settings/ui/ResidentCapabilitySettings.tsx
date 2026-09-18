@@ -25,13 +25,14 @@ const levels: Array<{
   {
     value: "restricted",
     label: "Manual",
-    description: "Asks before it changes anything or runs a command.",
+    description:
+      "Reads without asking. Requests approval for changes and additional access.",
   },
   {
     value: "standard",
     label: "Accept edits",
     description:
-      "Edits and reads inside a project without asking. Commands ask once, then it remembers. Anything outside a project asks.",
+      "Works inside a project without asking. Extra access asks; supported permission requests can be remembered.",
   },
   {
     value: "full",
@@ -68,7 +69,7 @@ function runtimeTierNote(
     case "native_mode":
       return "Claude Code runs at this level.";
     case "native_policy":
-      return "Codex runs at this level. Polyphonic sets its approval and sandbox for you.";
+      return "Codex supports Accept edits and Full access. Manual is unavailable because this connection cannot enforce a read-only workspace; it will not silently run at a higher level.";
     default:
       return `${runtimeFamilyName(family)} doesn’t take a level from Polyphonic. It keeps its own settings; the remembered permissions below still apply.`;
   }
@@ -100,12 +101,14 @@ function ruleScopeLabel(
   return `Always in ${projectName(rule.scope.sourceId) ?? "this project"}`;
 }
 
-function AccessLevelPicker({
+export function AccessLevelPicker({
   disabled,
   onChange,
   value,
+  restrictedUnavailable = false,
 }: {
   disabled: boolean;
+  restrictedUnavailable?: boolean;
   onChange: (value: ResidentAccessLevel) => void;
   value: ResidentAccessLevel;
 }) {
@@ -124,7 +127,10 @@ function AccessLevelPicker({
           <input
             checked={value === level.value}
             className="sr-only"
-            disabled={disabled}
+            disabled={
+              disabled ||
+              (restrictedUnavailable && level.value === "restricted")
+            }
             name="resident-access-level"
             onChange={() => onChange(level.value)}
             type="radio"
@@ -132,7 +138,9 @@ function AccessLevelPicker({
           />
           <span className="block text-sm font-medium">{level.label}</span>
           <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-            {level.description}
+            {restrictedUnavailable && level.value === "restricted"
+              ? "Unavailable with this Codex connection."
+              : level.description}
           </span>
         </label>
       ))}
@@ -184,6 +192,7 @@ export function HouseholdAccessLevelControl() {
         <p className="text-sm font-medium">Default resident access</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
           New residents inherit this level. Per-resident choices take priority.
+          Codex residents cannot start with Manual on the current connection.
         </p>
       </div>
       <AccessLevelPicker
@@ -289,6 +298,7 @@ export function ResidentAccessControl({
         <AccessLevelPicker
           disabled={setLevel.isPending}
           onChange={(level) => setLevel.mutate(level)}
+          restrictedUnavailable={tier.data?.family === "codex"}
           value={effective}
         />
         <p

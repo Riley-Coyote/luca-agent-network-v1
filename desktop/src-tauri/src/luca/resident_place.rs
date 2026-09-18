@@ -798,16 +798,26 @@ pub(crate) async fn list_resident_place_work(
 /// exact-turn capability validator and frozen owner/relay scope; this module
 /// owns only the Place data checks and never accepts authority fields from the
 /// agent payload.
+pub(crate) struct AgentOperationScope<'a> {
+    pub(crate) owner: &'a str,
+    pub(crate) relay: &'a str,
+    pub(crate) resident: &'a str,
+    pub(crate) conversation: &'a str,
+}
+
 pub(crate) async fn agent_operation(
     app: &AppHandle,
-    expected_owner: &str,
-    expected_relay_scope: &str,
-    resident_pubkey: &str,
-    conversation_id: &str,
+    expected: AgentOperationScope<'_>,
     operation: &str,
     arguments: serde_json::Value,
     authorize: &dyn Fn() -> Result<(), String>,
 ) -> Result<serde_json::Value, String> {
+    let AgentOperationScope {
+        owner: expected_owner,
+        relay: expected_relay_scope,
+        resident: resident_pubkey,
+        conversation: conversation_id,
+    } = expected;
     let scope = scope_for_resident(app, resident_pubkey)?;
     if scope.owner.as_str() != expected_owner || scope.relay_scope != expected_relay_scope {
         return Err("resident-place-scope-changed".into());

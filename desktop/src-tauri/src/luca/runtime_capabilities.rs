@@ -56,7 +56,7 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             full_access_translation: "app_sets_native_permission_mode",
             surface_navigation: "scoped_desktop_broker",
             permission_tier_control: "app_sets_native_mode",
-            forwards_native_always: true,
+            forwards_native_always: false,
         }),
         "hermes" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -83,7 +83,7 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
             surface_navigation: "unavailable_in_native_session",
             permission_tier_control: "advisory_only",
-            forwards_native_always: true,
+            forwards_native_always: false,
         }),
         "openclaw" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -109,7 +109,7 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             full_access_translation: "luca_scoped_operations_only_native_policy_unchanged",
             surface_navigation: "unavailable_in_native_session",
             permission_tier_control: "advisory_only",
-            forwards_native_always: true,
+            forwards_native_always: false,
         }),
         "codex" => Some(RuntimeCapabilityManifestV1 {
             schema_version: 1,
@@ -136,21 +136,21 @@ pub(crate) fn manifest(family: &str) -> Option<RuntimeCapabilityManifestV1> {
             full_access_translation: "app_sets_native_approval_and_sandbox",
             surface_navigation: "scoped_desktop_broker",
             permission_tier_control: "app_sets_native_policy",
-            forwards_native_always: true,
+            forwards_native_always: false,
         }),
         _ => None,
     }
 }
 
-/// Whether a runtime remembers an "always" of its own. Unknown families are
-/// treated as if they do, so Polyphonic never silently double-remembers a
-/// decision on a runtime it has not been taught about.
+/// Whether a remembered desktop rule may be copied into a native session.
+/// Always false: the desktop must retain revocation authority, including
+/// Forget while the provider session remains alive or is later resumed.
 // The ledger (WP-B) is the only caller; keep the allowance local rather than
 // weakening the desktop crate's lint gate, and drop it once that lands.
 pub(crate) fn forwards_native_always(family: &str) -> bool {
     manifest(family)
         .map(|manifest| manifest.forwards_native_always)
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -194,12 +194,12 @@ mod tests {
                 .contains(&"runtime_status"));
             assert_eq!(manifest.permission_tier_control, control);
             assert_eq!(manifest.full_access_translation, translation);
-            // Every beta.11 family keeps its own "always" as well as ours.
-            assert!(manifest.forwards_native_always);
-            assert!(forwards_native_always(family));
+            // A provider may persist a session; revocable rules stay in the desktop.
+            assert!(!manifest.forwards_native_always);
+            assert!(!forwards_native_always(family));
         }
-        // An unknown family is assumed to remember its own answer.
-        assert!(forwards_native_always("custom"));
+        // Unknown families must not receive irreversible native grants either.
+        assert!(!forwards_native_always("custom"));
     }
 
     #[test]

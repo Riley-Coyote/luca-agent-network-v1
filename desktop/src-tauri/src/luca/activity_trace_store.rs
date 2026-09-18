@@ -2,6 +2,10 @@
 //! Like the local effort store, the on-disk file is atomic and mode 0600, not
 //! encrypted. Scope is the owner and hashed relay captured by the native host.
 
+type DispatchKey = (String, String, String);
+type DispatchOutcome = (ManagedDispatchState, Option<String>, Option<u64>);
+type DispatchOutcomes = HashMap<DispatchKey, DispatchOutcome>;
+
 use std::{collections::HashMap, path::PathBuf};
 
 use luca_protocol::{
@@ -579,10 +583,7 @@ impl TraceStore {
     pub(super) fn reconcile(
         &mut self,
         scope: &Scope,
-        outcomes: &HashMap<
-            (String, String, String),
-            (ManagedDispatchState, Option<String>, Option<u64>),
-        >,
+        outcomes: &DispatchOutcomes,
         now: u64,
     ) -> bool {
         let mut changed = false;
