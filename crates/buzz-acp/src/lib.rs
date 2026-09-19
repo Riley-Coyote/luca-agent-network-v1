@@ -52,8 +52,8 @@ use filter::SubscriptionRule;
 use futures_util::FutureExt;
 use nostr::{PublicKey, ToBech32};
 use pool::{
-    AgentPool, ControlSignal, IdleSwitchResult, OwnedAgent, PromptContext, PromptOutcome,
-    PromptResult, PromptSource, SessionState, TimeoutKind,
+    AgentPool, ControlSignal, IdleSwitchResult, OwnedAgent, PermissionModeSetOutcome,
+    PromptContext, PromptOutcome, PromptResult, PromptSource, SessionState, TimeoutKind,
 };
 use queue::{CancelReason, EventQueue, FlushBatch, QueuedEvent, ThreadTags};
 use relay::{HarnessRelay, RelayEventPublisher};
@@ -917,9 +917,64 @@ fn handle_relay_observer_control_event(
         Some("switch_model") => {
             handle_switch_model_control(&payload, pool, observer);
         }
+        Some("set_permission_mode") => {
+            handle_set_permission_mode_control(&payload, pool, observer);
+        }
         _ => {
             tracing::debug!(payload = %payload, "ignoring unknown observer control frame");
         }
+    }
+}
+
+/// Handle a `set_permission_mode` control frame (beta.13 P1): a live switch
+/// of the owner's access level for this whole resident, applied without a
+/// restart.
+///
+/// Unlike `switch_model` this never touches an in-flight turn's oneshot —
+/// there is no cancel/requeue dance, because a permission mode is a plain
+/// `session/set_config_option` call that does not require a fresh session.
+/// `AgentPool::set_permission_mode` records the override for the whole pool
+/// and stamps it onto every currently-idle worker directly; a worker that is
+/// mid-turn right now picks it up the moment it returns to the pool (see
+/// `AgentPool::return_agent`). Either way this call itself never blocks on
+/// the network — it only sets in-memory state that the next turn consults.
+fn handle_set_permission_mode_control(
+    payload: &serde_json::Value,
+    pool: &mut AgentPool,
+    observer: Option<&observer::ObserverHandle>,
+) {
+    let Some(mode_wire) = payload.get("mode").and_then(|value| value.as_str()) else {
+        tracing::warn!("observer set_permission_mode control frame missing mode");
+        return;
+    };
+    let Some(mode) = config::PermissionMode::from_control_wire(mode_wire) else {
+        tracing::warn!(
+            mode_wire,
+            "observer set_permission_mode control frame had an unrecognized mode"
+        );
+        return;
+    };
+    let outcome = pool.set_permission_mode(mode);
+    let status = match outcome {
+        PermissionModeSetOutcome::Live => "applied",
+        PermissionModeSetOutcome::QueuedForNextTurn => "queued_for_next_turn",
+    };
+    if let Some(observer) = observer {
+        observer.emit(
+            "control_result",
+            None,
+            &observer::ObserverContext {
+                channel_id: None,
+                session_id: None,
+                turn_id: None,
+                started_at: None,
+            },
+            serde_json::json!({
+                "type": "set_permission_mode",
+                "status": status,
+                "mode": mode_wire,
+            }),
+        );
     }
 }
 
@@ -1197,6 +1252,7 @@ fn collect_respawn_result(
                 state: SessionState::default(),
                 model_capabilities: None,
                 desired_model: configured_model.map(str::to_owned),
+                desired_permission_mode: None,
                 model_overridden: false,
                 agent_name,
                 goose_system_prompt_supported: None,
@@ -1510,6 +1566,7 @@ async fn tokio_main() -> Result<()> {
                             state: SessionState::default(),
                             model_capabilities: None,
                             desired_model: config.model.clone(),
+                            desired_permission_mode: None,
                             model_overridden: false,
                             agent_name,
                             goose_system_prompt_supported: None,
@@ -4220,6 +4277,7 @@ async fn spawn_isolated_codex_continuity_agent(
         state: SessionState::default(),
         model_capabilities: None,
         desired_model: original_agent.desired_model.clone(),
+        desired_permission_mode: original_agent.desired_permission_mode,
         model_overridden: original_agent.model_overridden,
         agent_name: normalized_agent_name(&init),
         goose_system_prompt_supported: None,
@@ -5962,6 +6020,7 @@ mod error_outcome_emission_tests {
             state: Default::default(),
             model_capabilities: None,
             desired_model: None,
+            desired_permission_mode: None,
             model_overridden: false,
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,

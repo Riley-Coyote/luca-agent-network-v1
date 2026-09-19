@@ -283,6 +283,16 @@ impl PermissionMode {
     pub fn is_default(&self) -> bool {
         matches!(self, Self::Default)
     }
+
+    /// Parse the wire-format string used both by `BUZZ_ACP_PERMISSION_MODE`
+    /// (this CLI arg's own kebab-case name, e.g. `accept-edits`) and by a
+    /// live `set_permission_mode` observer control frame (the ACP wire alias,
+    /// e.g. `acceptEdits` — see [`Self::as_wire_str`]). `clap::ValueEnum`
+    /// already knows both spellings via `#[value(alias = ...)]`, so this is
+    /// the one place either string turns into a mode.
+    pub fn from_control_wire(value: &str) -> Option<Self> {
+        <Self as ValueEnum>::from_str(value, true).ok()
+    }
 }
 
 impl std::fmt::Display for PermissionMode {
@@ -2724,6 +2734,36 @@ channels = "ALL"
         );
         assert_eq!(PermissionMode::DontAsk.as_wire_str(), "dontAsk");
         assert_eq!(PermissionMode::Plan.as_wire_str(), "plan");
+    }
+
+    /// A live `set_permission_mode` observer control frame carries the ACP
+    /// wire alias (camelCase); `BUZZ_ACP_PERMISSION_MODE` carries the CLI's
+    /// own kebab-case name. Both must parse through the one function beta.13
+    /// P1 uses for a live switch.
+    #[test]
+    fn test_permission_mode_from_control_wire_accepts_both_spellings() {
+        assert_eq!(
+            PermissionMode::from_control_wire("acceptEdits"),
+            Some(PermissionMode::AcceptEdits)
+        );
+        assert_eq!(
+            PermissionMode::from_control_wire("accept-edits"),
+            Some(PermissionMode::AcceptEdits)
+        );
+        assert_eq!(
+            PermissionMode::from_control_wire("bypassPermissions"),
+            Some(PermissionMode::BypassPermissions)
+        );
+        assert_eq!(
+            PermissionMode::from_control_wire("bypass-permissions"),
+            Some(PermissionMode::BypassPermissions)
+        );
+        assert_eq!(
+            PermissionMode::from_control_wire("default"),
+            Some(PermissionMode::Default)
+        );
+        assert_eq!(PermissionMode::from_control_wire("not-a-real-mode"), None);
+        assert_eq!(PermissionMode::from_control_wire(""), None);
     }
 
     #[test]

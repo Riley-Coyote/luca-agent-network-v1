@@ -132,6 +132,11 @@ pub struct SessionState {
     /// entry means "never explicitly switched" — the session is on whatever
     /// model it started with.
     pub(crate) applied_model: HashMap<Uuid, String>,
+    /// channel_id → the permission mode actually applied to that channel's
+    /// live session, mirroring `applied_model` — a reused warm session only
+    /// re-sends `session/set_config_option` when
+    /// `OwnedAgent::desired_permission_mode` has actually moved on from it.
+    pub(crate) applied_permission_mode: HashMap<Uuid, PermissionMode>,
     /// channel_id → (config_id, currentValue) the session's thought-level
     /// config option was on before the first Quick Chat effort override for
     /// that channel. Captured once, on first override; consulted to reset
@@ -169,6 +174,7 @@ impl SessionState {
         self.native_context_refs.remove(channel_id);
         self.session_last_used.remove(channel_id);
         self.applied_model.remove(channel_id);
+        self.applied_permission_mode.remove(channel_id);
         self.quick_chat_baseline.remove(channel_id);
         self.quick_chat_active.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
@@ -188,6 +194,7 @@ impl SessionState {
         self.native_context_refs.clear();
         self.session_last_used.clear();
         self.applied_model.clear();
+        self.applied_permission_mode.clear();
         self.quick_chat_baseline.clear();
         self.quick_chat_active.clear();
     }
@@ -245,6 +252,18 @@ pub struct OwnedAgent {
     /// desktop reader to distinguish a genuine runtime override from a stale
     /// session whose persona model was edited. Reset on spawn/restart.
     pub model_overridden: bool,
+    /// Live permission-mode override from a `set_permission_mode` observer
+    /// control frame (beta.13 P1: the owner's access-level picker, applied
+    /// without a resident restart). `None` means "use `PromptContext::permission_mode`,
+    /// the value this process was spawned with." Set on every idle agent by
+    /// [`AgentPool::set_permission_mode`], and stamped onto a checked-out
+    /// agent by [`AgentPool::return_agent`] via `AgentPool::pending_permission_mode`
+    /// when the request arrived mid-turn. Applied at the next session/new
+    /// (see the Claude mode-binding block in `create_session_and_apply_model`)
+    /// or the next warm-session reuse (`apply_desired_permission_mode_in_place`).
+    /// Runtime-only — never persisted, gone on restart/respawn, exactly like
+    /// `desired_model`.
+    pub desired_permission_mode: Option<PermissionMode>,
     /// Normalized agent name from initialize (`agentInfo.name`/`serverInfo.name`).
     pub agent_name: String,
     /// Whether Goose accepted its custom system-prompt method. `None` probes on
@@ -305,6 +324,15 @@ pub struct AgentPool {
     /// A busy worker may hold an idle conversation as well as its current turn.
     /// Keep that ownership visible so another worker cannot fork its history.
     session_holders: HashMap<Uuid, usize>,
+    /// The resident's live permission-mode override, once
+    /// `set_permission_mode` has been called at least once this process.
+    /// Every agent in this pool — idle now, or returning later from a turn
+    /// that was in flight when the request arrived — is stamped with this
+    /// value on `return_agent`, so a worker that was busy at request time
+    /// still picks it up for its very next turn instead of the change being
+    /// lost. Deliberately a standing value, not one-shot: it holds until the
+    /// next `set_permission_mode` call or this resident's process restarts.
+    pending_permission_mode: Option<PermissionMode>,
 }
 
 /// Result returned by a completed prompt task.
@@ -653,6 +681,7 @@ impl AgentPool {
             join_set: JoinSet::new(),
             task_map: HashMap::new(),
             session_holders,
+            pending_permission_mode: None,
         }
     }
 
@@ -745,7 +774,7 @@ impl AgentPool {
     }
 
     /// Return an agent to its slot after a task completes.
-    pub fn return_agent(&mut self, agent: OwnedAgent) {
+    pub fn return_agent(&mut self, mut agent: OwnedAgent) {
         let idx = agent.index;
         self.session_holders.retain(|_, owner| *owner != idx);
         if agent.state.retire_worker {
@@ -756,6 +785,13 @@ impl AgentPool {
                 "retired ACP worker left pool slot empty for refill"
             );
             return;
+        }
+        // A live permission-mode override applies to every worker in this
+        // resident's pool, including one that was checked out mid-turn when
+        // the request arrived and so could not be set directly then — land it
+        // now, so this agent's very next turn applies it.
+        if let Some(mode) = self.pending_permission_mode {
+            agent.desired_permission_mode = Some(mode);
         }
         if self.agents[idx].is_some() {
             // This is a bug: two tasks returned the same agent index. Log it
@@ -945,6 +981,39 @@ impl AgentPool {
         agent.model_overridden = true;
         IdleSwitchResult::Switched
     }
+
+    /// Live permission-mode switch for this whole resident pool (beta.13 P1:
+    /// the owner's access-level picker, applied without a restart).
+    ///
+    /// Unlike [`Self::switch_idle_agent_model`] this is not scoped to one
+    /// channel: the owner's access level is a per-resident setting (the same
+    /// one Settings writes), so it is stamped onto every currently-idle
+    /// worker in the pool — each of which may be quietly holding several
+    /// warm channel sessions — and recorded as `pending_permission_mode` so a
+    /// worker that is mid-turn right now picks it up too, the moment
+    /// `return_agent` gets it back. No session is invalidated: the mode is a
+    /// live `session/set_config_option`, not a model bind that needs a fresh
+    /// session.
+    ///
+    /// Returns [`PermissionModeSetOutcome::Live`] when at least one worker
+    /// was idle and so has the mode as of right now (it still only takes
+    /// visible effect on that worker's next turn — see
+    /// `apply_desired_permission_mode_in_place`); [`PermissionModeSetOutcome::QueuedForNextTurn`]
+    /// when every worker was checked out, so the change waits for
+    /// `return_agent`; the pending value is recorded either way.
+    pub fn set_permission_mode(&mut self, mode: PermissionMode) -> PermissionModeSetOutcome {
+        self.pending_permission_mode = Some(mode);
+        let mut touched_idle_agent = false;
+        for agent in self.agents.iter_mut().flatten() {
+            agent.desired_permission_mode = Some(mode);
+            touched_idle_agent = true;
+        }
+        if touched_idle_agent {
+            PermissionModeSetOutcome::Live
+        } else {
+            PermissionModeSetOutcome::QueuedForNextTurn
+        }
+    }
 }
 
 /// Outcome of [`AgentPool::switch_idle_agent_model`].
@@ -957,6 +1026,17 @@ pub enum IdleSwitchResult {
     UnsupportedModel,
     /// No idle agent available (all checked out / none spawned).
     NoIdleAgent,
+}
+
+/// Outcome of [`AgentPool::set_permission_mode`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionModeSetOutcome {
+    /// At least one worker was idle and has the override right now; it takes
+    /// visible effect on that worker's next turn.
+    Live,
+    /// Every worker in the pool was checked out mid-turn; the override is
+    /// recorded and lands the moment each one returns.
+    QueuedForNextTurn,
 }
 
 /// Timeout for a single pre-prompt context fetch attempt (thread/DM history).
@@ -1406,7 +1486,13 @@ async fn create_session_and_apply_model(
     // because an unacknowledged mode is an unknown mode, and a managed resident
     // never runs at one.
     let mut acknowledged_mode_config_options = None;
-    let requested_claude_mode = ctx.permission_mode.as_wire_str();
+    // A live `set_permission_mode` control frame (beta.13 P1) takes priority
+    // over `PromptContext::permission_mode` — the value this process was
+    // spawned with — exactly as `desired_model` already takes priority over
+    // the spawn-time model. This is what lets an already-running resident
+    // pick up a new owner access level on its very next session, no restart.
+    let effective_permission_mode = agent.desired_permission_mode.unwrap_or(ctx.permission_mode);
+    let requested_claude_mode = effective_permission_mode.as_wire_str();
     let is_managed_claude = ctx.managed_final_publisher.is_some()
         && matches!(
             agent.agent_name.as_str(),
@@ -1438,10 +1524,16 @@ async fn create_session_and_apply_model(
                 ))
             })?,
         );
-    } else if !ctx.permission_mode.is_default()
-        && agent_supports_mode(&resp.raw, ctx.permission_mode.as_wire_str())
+    } else if !effective_permission_mode.is_default()
+        && agent_supports_mode(&resp.raw, effective_permission_mode.as_wire_str())
     {
-        apply_permission_mode(&mut agent.acp, &resp.session_id, &ctx.permission_mode).await?;
+        apply_permission_mode(&mut agent.acp, &resp.session_id, &effective_permission_mode).await?;
+    }
+    if let PromptSource::Channel(cid) = source {
+        agent
+            .state
+            .applied_permission_mode
+            .insert(*cid, effective_permission_mode);
     }
 
     // Report the acknowledged state, not the adapter's inherited pre-switch
@@ -1767,6 +1859,39 @@ async fn apply_desired_model_in_place(agent: &mut OwnedAgent, channel_id: &Uuid,
             "modelOverridden": agent.model_overridden,
         }),
     );
+}
+
+/// Apply `agent.desired_permission_mode` directly to a warm, reused channel
+/// session instead of invalidating it — the beta.13 P1 counterpart to
+/// `apply_desired_model_in_place` for a live owner access-level switch (see
+/// `AgentPool::set_permission_mode`). A no-op when there is no override, or
+/// it already matches [`SessionState::applied_permission_mode`] for this
+/// channel. A transport-class failure is logged and swallowed rather than
+/// propagated: the reused session's own next prompt call surfaces the same
+/// failure if this was a genuinely dead connection, exactly as
+/// `apply_desired_model_in_place` already relies on for its own RPC.
+async fn apply_desired_permission_mode_in_place(
+    agent: &mut OwnedAgent,
+    channel_id: &Uuid,
+    session_id: &str,
+) {
+    let Some(desired) = agent.desired_permission_mode else {
+        return;
+    };
+    if agent.state.applied_permission_mode.get(channel_id) == Some(&desired) {
+        return;
+    }
+    if let Err(error) = apply_permission_mode(&mut agent.acp, session_id, &desired).await {
+        tracing::warn!(
+            target: "pool::permission",
+            "in-place permission mode switch to {desired} failed for channel {channel_id}: {error} — the reused session's own next prompt call will surface a transport failure if this was one"
+        );
+        return;
+    }
+    agent
+        .state
+        .applied_permission_mode
+        .insert(*channel_id, desired);
 }
 
 /// Set the session permission mode via `session/set_config_option`.
@@ -3596,6 +3721,10 @@ async fn run_prompt_task_inner(
                 // pending model switch directly to this warm session instead
                 // of leaving it stuck until something else rotates it.
                 apply_desired_model_in_place(&mut agent, cid, &session_id).await;
+                // Same idea for a live owner access-level switch (beta.13
+                // P1): land it on this warm session now rather than waiting
+                // for a rotation that may never come.
+                apply_desired_permission_mode_in_place(&mut agent, cid, &session_id).await;
                 (session_id, false, false)
             } else {
                 // Create new session with model application.
@@ -7067,6 +7196,7 @@ mod tests {
             state: SessionState::default(),
             model_capabilities: None,
             desired_model: None,
+            desired_permission_mode: None,
             model_overridden: false,
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
@@ -9502,6 +9632,7 @@ while read -r _; do :; done
             state: SessionState::default(),
             model_capabilities: None,
             desired_model: None,
+            desired_permission_mode: None,
             model_overridden: false,
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
@@ -9561,6 +9692,7 @@ while read -r _; do :; done
             state: SessionState::default(),
             model_capabilities: None,
             desired_model: None,
+            desired_permission_mode: None,
             model_overridden: false,
             agent_name: "unknown".into(),
             goose_system_prompt_supported: None,
@@ -10683,6 +10815,120 @@ read -t 5 UNEXPECTED"#;
         // further — the script has nothing left configured to answer.
         apply_desired_model_in_place(&mut agent, &channel, "warm-session").await;
         agent.acp.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn permission_mode_switch_applies_in_place_and_keeps_the_session_id() {
+        // beta.13 P1's live access-level switch, mirroring the model-switch
+        // test above: the idle path only sets `desired_permission_mode`; the
+        // switch then applies directly to the SAME session id the next time
+        // this channel picks up a turn — no session/new round trip, no
+        // restart, no new session id.
+        let script = r#"read -t 5 INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+read -t 5 SWITCH
+if [[ "$SWITCH" != *'"method":"session/set_config_option"'* ]]; then exit 7; fi
+if [[ "$SWITCH" != *'"sessionId":"warm-session"'* ]]; then exit 8; fi
+if [[ "$SWITCH" != *'"configId":"mode"'* ]]; then exit 9; fi
+if [[ "$SWITCH" != *'"value":"bypassPermissions"'* ]]; then exit 10; fi
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'
+read -t 5 UNEXPECTED"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let channel = Uuid::new_v4();
+        agent.state.sessions.insert(channel, "warm-session".into());
+        let mut pool = AgentPool::from_slots(vec![Some(agent)]);
+
+        assert_eq!(
+            pool.set_permission_mode(PermissionMode::BypassPermissions),
+            PermissionModeSetOutcome::Live
+        );
+        assert_eq!(
+            pool.agents[0].as_ref().unwrap().desired_permission_mode,
+            Some(PermissionMode::BypassPermissions)
+        );
+        // Not invalidated — the session id is exactly where it was.
+        assert_eq!(
+            pool.agents[0]
+                .as_ref()
+                .unwrap()
+                .state
+                .sessions
+                .get(&channel)
+                .map(String::as_str),
+            Some("warm-session")
+        );
+
+        let mut agent = pool.agents[0].take().unwrap();
+        apply_desired_permission_mode_in_place(&mut agent, &channel, "warm-session").await;
+        assert_eq!(
+            agent.state.applied_permission_mode.get(&channel),
+            Some(&PermissionMode::BypassPermissions),
+            "the switch must be recorded as applied for this channel"
+        );
+        assert_eq!(
+            agent.state.sessions.get(&channel).map(String::as_str),
+            Some("warm-session"),
+            "the session id must survive the in-place permission mode switch"
+        );
+        // A second call for the same already-applied mode sends nothing
+        // further — the script has nothing left configured to answer.
+        apply_desired_permission_mode_in_place(&mut agent, &channel, "warm-session").await;
+        agent.acp.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn permission_mode_switch_touches_every_idle_worker_and_every_channel_it_holds() {
+        // The owner's access level is per-resident, not per-conversation
+        // (`set_resident_access_level` has no channel parameter), so a switch
+        // must reach every idle worker in this resident's pool — each of
+        // which may itself be quietly holding several warm channel sessions.
+        let mut first = artifact_test_agent("sleep 30").await;
+        first.state.sessions.insert(Uuid::new_v4(), "s1".into());
+        first.state.sessions.insert(Uuid::new_v4(), "s2".into());
+        let mut second = artifact_test_agent("sleep 30").await;
+        second.index = 1;
+        second.state.sessions.insert(Uuid::new_v4(), "s3".into());
+        let mut pool = AgentPool::from_slots(vec![Some(first), Some(second)]);
+
+        assert_eq!(
+            pool.set_permission_mode(PermissionMode::AcceptEdits),
+            PermissionModeSetOutcome::Live
+        );
+        for slot in &pool.agents {
+            assert_eq!(
+                slot.as_ref().unwrap().desired_permission_mode,
+                Some(PermissionMode::AcceptEdits)
+            );
+        }
+        for mut slot in pool.agents.drain(..).flatten() {
+            slot.acp.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn permission_mode_switch_with_every_worker_busy_lands_on_return_agent() {
+        // No idle agent in the pool — simulates every worker of this
+        // resident's pool being checked out mid-turn. The override cannot be
+        // set on any live `OwnedAgent` right now, but it must not be lost:
+        // `return_agent` has to stamp it on whichever worker comes back next.
+        let mut pool = AgentPool::from_slots(vec![None]);
+        assert_eq!(
+            pool.set_permission_mode(PermissionMode::AcceptEdits),
+            PermissionModeSetOutcome::QueuedForNextTurn
+        );
+
+        let mut agent = artifact_test_agent("sleep 30").await;
+        agent.index = 0;
+        assert_eq!(agent.desired_permission_mode, None);
+        pool.return_agent(agent);
+
+        assert_eq!(
+            pool.agents[0].as_ref().unwrap().desired_permission_mode,
+            Some(PermissionMode::AcceptEdits),
+            "a mode requested while every worker was busy must land on whichever worker returns"
+        );
+        pool.agents[0].take().unwrap().acp.shutdown().await;
     }
 
     #[tokio::test]
