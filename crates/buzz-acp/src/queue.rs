@@ -1561,9 +1561,30 @@ pub struct FormatPromptArgs<'a> {
     ///
     /// For modern agents (protocol_version >= 2) the section is delivered via
     /// the system role in session/new; omit here to avoid duplication.
-    /// For legacy agents it rides in the user message on every turn of the
-    /// session, alongside `[Base]`/`[System]`/`[Agent Memory — core]`.
+    /// For legacy agents it rides in the user message on `First`-cadence
+    /// turns, alongside `[Base]`/`[System]`/`[Agent Memory — core]`.
     pub agent_canvas: Option<&'a str>,
+    /// Whether this turn resends the legacy (`!has_system_prompt_support`)
+    /// `[Base]`/`[System]`/`[Team Instructions]`/core/canvas sections.
+    ///
+    /// A protocol-1 runtime has no system role, so those sections used to
+    /// ride in the user message on *every* turn — cheap when a session was
+    /// rebuilt every turn anyway, wasteful now that a warm session already
+    /// holds them from an earlier turn. `First` sends them; `Continuing`
+    /// omits them. The caller picks `First` for a session's actual first
+    /// turn and then periodically (every 20th) as a compaction guard, so a
+    /// long-lived session is never more than 20 turns out of date on them.
+    pub prompt_cadence: PromptCadence,
+}
+
+/// See [`FormatPromptArgs::prompt_cadence`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PromptCadence {
+    /// Resend `[Base]`/`[System]`/`[Team Instructions]`/core/canvas.
+    #[default]
+    First,
+    /// A protocol-1 session that already has them from an earlier turn.
+    Continuing,
 }
 
 /// Format the `[Base]` section for the base prompt.
@@ -1617,8 +1638,12 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
 
     // For legacy agents (protocol_version < 2), inject base_prompt and
     // system_prompt as user-message sections. Modern agents receive these
-    // via the system role in session/new.
-    if !args.has_system_prompt_support {
+    // via the system role in session/new. A warm legacy session already has
+    // them from an earlier turn, so `Continuing` skips resending them —
+    // see `FormatPromptArgs::prompt_cadence`.
+    let resend_legacy_sections =
+        !args.has_system_prompt_support && args.prompt_cadence == PromptCadence::First;
+    if resend_legacy_sections {
         if let Some(bp) = args.base_prompt {
             sections.push(base_section(bp));
         }
@@ -1638,8 +1663,8 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
     // For modern agents (protocol_version >= 2), core is delivered via the
     // system role in session/new, so it is omitted here to avoid duplication.
     // Legacy agents have no system role, so core rides in the user message
-    // alongside `[Base]`/`[System]`.
-    if !args.has_system_prompt_support {
+    // alongside `[Base]`/`[System]`, same First/Continuing cadence.
+    if resend_legacy_sections {
         if let Some(core) = args.agent_core {
             sections.push(core.to_string());
         }
@@ -2659,6 +2684,71 @@ mod tests {
             "modern agents must not get core in the user message; got: {prompt}"
         );
         assert!(prompt.starts_with("[Context]"));
+    }
+
+    #[test]
+    fn continuing_cadence_omits_legacy_sections_first_cadence_sends_them() {
+        // A protocol-1 (no systemPrompt support) runtime used to get
+        // [Base]/[System]/team/core/canvas on every single turn — cheap when
+        // the session was rebuilt every turn anyway. `Continuing` cadence
+        // must omit them all; `First` must still send every one.
+        let ch = Uuid::new_v4();
+        let event = make_event("hi");
+        let batch = FlushBatch {
+            channel_id: ch,
+            events: vec![BatchEvent {
+                event,
+                prompt_tag: "test".into(),
+                exchange: None,
+                received_at: Instant::now(),
+            }],
+            cancelled_events: vec![],
+            cancel_reason: None,
+        };
+        let args = FormatPromptArgs {
+            has_system_prompt_support: false,
+            base_prompt: Some("base"),
+            system_prompt: Some("system"),
+            team_instructions: Some("team"),
+            agent_core: Some("[Agent Memory — core]\ncore"),
+            agent_canvas: Some("[Channel Canvas]\ncanvas"),
+            prompt_cadence: PromptCadence::Continuing,
+            ..Default::default()
+        };
+        let continuing = format_prompt(&batch, &args).join("\n\n");
+        for missing in [
+            "[Base]",
+            "[System]",
+            "[Team Instructions]",
+            "[Agent Memory — core]",
+            "[Channel Canvas]",
+        ] {
+            assert!(
+                !continuing.contains(missing),
+                "Continuing cadence must omit {missing}; got: {continuing}"
+            );
+        }
+
+        let first = format_prompt(
+            &batch,
+            &FormatPromptArgs {
+                prompt_cadence: PromptCadence::First,
+                ..args
+            },
+        )
+        .join("\n\n");
+        for present in [
+            "[Base]",
+            "[System]",
+            "[Team Instructions]",
+            "[Agent Memory — core]",
+            "[Channel Canvas]",
+        ] {
+            assert!(
+                first.contains(present),
+                "First cadence must include {present}; got: {first}"
+            );
+        }
     }
 
     #[test]

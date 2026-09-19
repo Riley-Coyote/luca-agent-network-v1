@@ -46,7 +46,13 @@ impl RuntimeSessionEntry {
         }
     }
 
-    #[cfg(test)]
+    /// Record what this turn actually delivered to the provider session:
+    /// the (sha256-digest) ids of every conversation-context message
+    /// included in the prompt, and a digest of each rendered context block
+    /// (Wake, Owner Brain, attached session context, ...). Bounded and
+    /// deduplicated by `append_bounded` — a value already present does not
+    /// move or repeat. Called once per successful channel turn, right
+    /// before the entry is persisted via `RuntimeSessionMap::save_at_revision`.
     pub(crate) fn record_delivery(
         &mut self,
         ids: impl IntoIterator<Item = String>,
@@ -56,6 +62,22 @@ impl RuntimeSessionEntry {
         append_bounded(&mut self.context_hashes, hashes);
         self.turn_count = self.turn_count.saturating_add(1);
         self.last_used_ms = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Whether `event_id_digest` (sha256 hex of a conversation-context
+    /// message's event id) was already delivered to this provider session
+    /// on some earlier turn.
+    pub(crate) fn has_delivered_id(&self, event_id_digest: &str) -> bool {
+        self.delivered_ids.iter().any(|id| id == event_id_digest)
+    }
+
+    /// Whether `content_digest` (sha256 hex of a rendered context block —
+    /// Wake, Owner Brain, attached session context) was already sent to this
+    /// provider session on some earlier turn.
+    pub(crate) fn has_delivered_context_hash(&self, content_digest: &str) -> bool {
+        self.context_hashes
+            .iter()
+            .any(|hash| hash == content_digest)
     }
 
     fn valid(&self) -> bool {
@@ -77,7 +99,6 @@ impl RuntimeSessionEntry {
     }
 }
 
-#[cfg(test)]
 fn append_bounded(target: &mut VecDeque<String>, values: impl IntoIterator<Item = String>) {
     for value in values {
         if valid_digest(&value) && !target.contains(&value) {

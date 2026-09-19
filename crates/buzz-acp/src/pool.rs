@@ -132,6 +132,14 @@ pub struct SessionState {
     /// entry means "never explicitly switched" — the session is on whatever
     /// model it started with.
     pub(crate) applied_model: HashMap<Uuid, String>,
+    /// channel_id → (config_id, currentValue) the session's thought-level
+    /// config option was on before the first Quick Chat effort override for
+    /// that channel. Captured once, on first override; consulted to reset
+    /// the session when a later turn requests no effort of its own.
+    pub(crate) quick_chat_baseline: HashMap<Uuid, (String, String)>,
+    /// channel_id → (config_id, value) of the Quick Chat effort override
+    /// currently applied to that channel's live session, if any.
+    pub(crate) quick_chat_active: HashMap<Uuid, (String, String)>,
 }
 
 impl SessionState {
@@ -161,6 +169,8 @@ impl SessionState {
         self.native_context_refs.remove(channel_id);
         self.session_last_used.remove(channel_id);
         self.applied_model.remove(channel_id);
+        self.quick_chat_baseline.remove(channel_id);
+        self.quick_chat_active.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -178,6 +188,8 @@ impl SessionState {
         self.native_context_refs.clear();
         self.session_last_used.clear();
         self.applied_model.clear();
+        self.quick_chat_baseline.clear();
+        self.quick_chat_active.clear();
     }
 
     #[cfg(test)]
@@ -2591,6 +2603,179 @@ async fn managed_continuity_prompt_blocks(
     Some(crate::continuity_provider::continuity_prompt_blocks(result))
 }
 
+/// sha256 hex digest of `value` — the same digest shape
+/// `RuntimeSessionEntry` stores in `delivered_ids`/`context_hashes` (see
+/// `runtime_session_map::valid_digest`), computed here for an event id or a
+/// rendered context block's content.
+fn content_digest(value: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(value.as_bytes()))
+}
+
+fn conversation_context_messages(context: &ConversationContext) -> &[crate::queue::ContextMessage] {
+    match context {
+        ConversationContext::Thread { messages, .. }
+        | ConversationContext::Dm { messages, .. }
+        | ConversationContext::Room { messages, .. } => messages,
+    }
+}
+
+/// Drop conversation-context messages a warm session has already been
+/// shown: any message already delivered on an earlier turn (by event-id
+/// digest), and — once the session is genuinely continuing, not its first
+/// turn — any message the resident itself authored, since the live session
+/// already remembers what it said.
+///
+/// Returns the filtered context and whether the *original* window shared
+/// any message at all with `entry`'s delivered ids — the signal
+/// `gap_marker_needed` uses to decide whether this window may have skipped
+/// content the session never saw.
+fn filter_replayed_context(
+    context: ConversationContext,
+    entry: Option<&crate::runtime_session_map::RuntimeSessionEntry>,
+    resident_pubkey: Option<&str>,
+    is_continuing: bool,
+) -> (ConversationContext, bool) {
+    fn filter(
+        messages: Vec<crate::queue::ContextMessage>,
+        entry: Option<&crate::runtime_session_map::RuntimeSessionEntry>,
+        resident_pubkey: Option<&str>,
+        is_continuing: bool,
+    ) -> (Vec<crate::queue::ContextMessage>, bool) {
+        let mut had_overlap = false;
+        let filtered = messages
+            .into_iter()
+            .filter(|message| {
+                let already_delivered = entry.is_some_and(|entry| {
+                    entry.has_delivered_id(&content_digest(&message.event_id))
+                });
+                if already_delivered {
+                    had_overlap = true;
+                    return false;
+                }
+                let is_own_message = is_continuing
+                    && resident_pubkey.is_some_and(|pk| pk.eq_ignore_ascii_case(&message.pubkey));
+                !is_own_message
+            })
+            .collect();
+        (filtered, had_overlap)
+    }
+    match context {
+        ConversationContext::Thread {
+            messages,
+            total,
+            truncated,
+        } => {
+            let (messages, had_overlap) = filter(messages, entry, resident_pubkey, is_continuing);
+            (
+                ConversationContext::Thread {
+                    messages,
+                    total,
+                    truncated,
+                },
+                had_overlap,
+            )
+        }
+        ConversationContext::Dm {
+            messages,
+            total,
+            truncated,
+        } => {
+            let (messages, had_overlap) = filter(messages, entry, resident_pubkey, is_continuing);
+            (
+                ConversationContext::Dm {
+                    messages,
+                    total,
+                    truncated,
+                },
+                had_overlap,
+            )
+        }
+        ConversationContext::Room {
+            messages,
+            total,
+            truncated,
+        } => {
+            let (messages, had_overlap) = filter(messages, entry, resident_pubkey, is_continuing);
+            (
+                ConversationContext::Room {
+                    messages,
+                    total,
+                    truncated,
+                },
+                had_overlap,
+            )
+        }
+    }
+}
+
+/// Whether the context window fetched for a continuing session shares
+/// nothing at all with what this session was already shown — a sign the
+/// fixed-size window may have skipped a burst of messages the session never
+/// saw, rather than genuinely being the session's first look at this
+/// content. `had_overlap` is `filter_replayed_context`'s second return.
+fn gap_marker_needed(
+    entry: Option<&crate::runtime_session_map::RuntimeSessionEntry>,
+    is_continuing: bool,
+    had_overlap: bool,
+) -> bool {
+    is_continuing && !had_overlap && entry.is_some_and(|entry| !entry.delivered_ids.is_empty())
+}
+
+/// Prose note appended when `gap_marker_needed` — told to the model rather
+/// than silently assumed. No fetched content is discarded; this only names
+/// the possibility that some was.
+const GAP_MARKER: &str = "[Context note]\nSome messages between what this session last saw and the ones shown below may not be included — the window did not overlap with anything already delivered here. Treat any assumption about exactly what happened in between with appropriate uncertainty.";
+
+/// Drop a continuity block (Wake, Owner Brain, attached session context)
+/// that is byte-identical to one already delivered to this warm session.
+/// A first-turn session always gets the full block — there is nothing to
+/// have already seen yet.
+fn dedupe_delivered_block(
+    block: String,
+    entry: Option<&crate::runtime_session_map::RuntimeSessionEntry>,
+    is_continuing: bool,
+) -> Option<String> {
+    if !is_continuing {
+        return Some(block);
+    }
+    let already_delivered =
+        entry.is_some_and(|entry| entry.has_delivered_context_hash(&content_digest(&block)));
+    (!already_delivered).then_some(block)
+}
+
+/// Record after this turn's flush what it actually put on the wire: every
+/// conversation-context message digest, the triggering event digest(s), and
+/// a digest of each continuity block sent — so a later turn's
+/// `filter_replayed_context`/`dedupe_delivered_block` can skip resending
+/// them. Best-effort: a revision conflict or missing entry is a silent
+/// no-op, exactly like the session-creation path's own `save_at_revision`
+/// call — recording delivery is an optimization, never a correctness
+/// requirement, so losing a race here costs a resend, not a correctness bug.
+async fn record_delivered_content(
+    ctx: &PromptContext,
+    channel_id: &Uuid,
+    delivered_event_ids: impl IntoIterator<Item = String>,
+    delivered_content: impl IntoIterator<Item = String>,
+) {
+    let Some(store) = ctx.runtime_session_map.as_ref() else {
+        return;
+    };
+    let conversation = channel_id.to_string();
+    let Ok((Some(mut entry), revision)) = store.snapshot(&conversation) else {
+        return;
+    };
+    entry.record_delivery(
+        delivered_event_ids
+            .into_iter()
+            .map(|id| content_digest(&id)),
+        delivered_content
+            .into_iter()
+            .map(|value| content_digest(&value)),
+    );
+    let _ = store.save_at_revision(&conversation, entry, revision);
+}
+
 fn quickchat_effort_advertised(
     options: &[serde_json::Value],
     config_id: &str,
@@ -2607,6 +2792,24 @@ fn quickchat_effort_advertised(
                     .iter()
                     .any(|option| option["value"].as_str() == Some(value))
             })
+    })
+}
+
+/// The `thought_level` config option's own `currentValue` for `config_id` —
+/// the value the session was actually on before any Quick Chat override,
+/// captured the first time a turn applies one so a later turn with no
+/// effort request of its own can reset back to it instead of leaving a
+/// one-off pick stuck on a session that now stays warm across turns.
+fn thought_level_current_value(options: &[serde_json::Value], config_id: &str) -> Option<String> {
+    options.iter().find_map(|option| {
+        let is_this_config = option["id"]
+            .as_str()
+            .or_else(|| option["configId"].as_str())
+            == Some(config_id);
+        is_this_config
+            .then(|| option["currentValue"].as_str())
+            .flatten()
+            .map(str::to_owned)
     })
 }
 
@@ -3731,12 +3934,35 @@ async fn run_prompt_task_inner(
         }
     }
 
+    let quick_chat_channel = match &source {
+        PromptSource::Channel(cid) => Some(*cid),
+        _ => None,
+    };
+
     // A trusted exact-event request affects this room's ACP session only.
     // Refuse the turn if the runtime cannot acknowledge the selected setting.
     if let Some(effort) = resolved_managed_context
         .as_ref()
         .and_then(|context| context.quick_chat_effort.as_ref())
     {
+        // Capture the session's own value for this config before overriding
+        // it — the first time only for this channel — so a later turn with
+        // no effort request of its own can reset back to it instead of
+        // leaving a one-off pick stuck on a session that now stays warm.
+        if let Some(cid) = quick_chat_channel {
+            if !agent.state.quick_chat_baseline.contains_key(&cid) {
+                if let Some(current) = agent.model_capabilities.as_ref().and_then(|caps| {
+                    caps.effort_options_raw
+                        .get(&session_id)
+                        .and_then(|options| thought_level_current_value(options, &effort.config_id))
+                }) {
+                    agent
+                        .state
+                        .quick_chat_baseline
+                        .insert(cid, (effort.config_id.clone(), current));
+                }
+            }
+        }
         let advertised = agent.model_capabilities.as_ref().is_some_and(|caps| {
             caps.effort_options_raw
                 .get(&session_id)
@@ -3764,6 +3990,14 @@ async fn run_prompt_task_inner(
             ))
         };
         tracing::debug!(session_id = %session_id, config_id = %effort.config_id, value = %effort.value, applied = result.is_ok(), "Quick Chat effort runtime result");
+        if result.is_ok() {
+            if let Some(cid) = quick_chat_channel {
+                agent
+                    .state
+                    .quick_chat_active
+                    .insert(cid, (effort.config_id.clone(), effort.value.clone()));
+            }
+        }
         if let Some(batch) = batch.as_ref() {
             let report = serde_json::json!({"sessionId":session_id,"configOptions":agent.model_capabilities.as_ref().and_then(|caps|caps.effort_options_raw.get(&session_id)).cloned().unwrap_or_default(),"effortResult":{"configId":effort.config_id,"value":effort.value,"status":if result.is_ok(){"applied"}else{"failed"}}});
             let _ = managed_session_context(&ctx, batch, Some(report)).await;
@@ -3778,6 +4012,38 @@ async fn run_prompt_task_inner(
                 None,
             );
             return;
+        }
+    } else if let Some(cid) = quick_chat_channel {
+        // No effort request this turn. A warm session may still be sitting
+        // on an earlier turn's override — reset it to the baseline captured
+        // before that override. Best-effort and non-blocking: unlike the
+        // branch above, this is a background correction rather than a
+        // trusted exact-event request, so a failure here must never refuse
+        // the turn.
+        if let Some((config_id, value)) = agent.state.quick_chat_active.remove(&cid) {
+            if let Some((baseline_config_id, baseline_value)) =
+                agent.state.quick_chat_baseline.get(&cid).cloned()
+            {
+                if baseline_config_id == config_id {
+                    match tokio::time::timeout(
+                        Duration::from_secs(10),
+                        agent.acp.session_set_config_option(
+                            &session_id,
+                            &config_id,
+                            &baseline_value,
+                        ),
+                    )
+                    .await
+                    {
+                        Ok(Ok(_)) => {
+                            tracing::debug!(session_id = %session_id, config_id = %config_id, value = %baseline_value, "Quick Chat effort reset to baseline");
+                        }
+                        _ => {
+                            tracing::warn!(session_id = %session_id, config_id = %config_id, previous_value = %value, "Quick Chat effort reset failed — leaving the session on its prior override");
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -3838,25 +4104,76 @@ async fn run_prompt_task_inner(
             None => fetch_channel_info(b.channel_id, &ctx.rest_client).await,
         };
 
+        // A warm session already holds whatever this channel delivered to it
+        // on an earlier turn — this is that durable receipt, read once and
+        // used below to filter the replay and dedupe continuity blocks, then
+        // refreshed with whatever this turn actually sends
+        // (`record_delivered_content`, after the prompt is fully assembled).
+        let delivered_entry = ctx
+            .runtime_session_map
+            .as_ref()
+            .and_then(|store| store.snapshot(&b.channel_id.to_string()).ok())
+            .and_then(|(entry, _)| entry);
+        let is_continuing_session = !first_channel_session;
+        let resident_pubkey = ctx
+            .managed_final_publisher
+            .as_ref()
+            .map(|managed| managed.resident_pubkey.as_str().to_owned())
+            .or_else(|| {
+                ctx.agent_keys
+                    .as_ref()
+                    .map(|keys| keys.public_key().to_hex())
+            });
+
         let conversation_context = if ctx.context_message_limit > 0 {
             fetch_conversation_context(b, &channel_info, &ctx).await
         } else {
             None
         };
+        let (conversation_context, gap_marker) = match conversation_context {
+            Some(context) => {
+                let (filtered, had_overlap) = filter_replayed_context(
+                    context,
+                    delivered_entry.as_ref(),
+                    resident_pubkey.as_deref(),
+                    is_continuing_session,
+                );
+                let gap =
+                    gap_marker_needed(delivered_entry.as_ref(), is_continuing_session, had_overlap);
+                (Some(filtered), gap)
+            }
+            None => (None, false),
+        };
 
         // Managed owner turns get at most one bounded, fail-soft read from the
         // dedicated desktop continuity channel. Legacy, heartbeat, invalid,
         // sibling, and otherwise ineligible work never invokes the provider.
-        let mut continuity_context =
+        let mut continuity_context: Vec<String> =
             managed_continuity_prompt_blocks(&ctx, b, conversation_context.as_ref(), &turn_id)
                 .await
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|block| {
+                    dedupe_delivered_block(block, delivered_entry.as_ref(), is_continuing_session)
+                })
+                .collect();
+
+        if gap_marker {
+            continuity_context.push(GAP_MARKER.to_owned());
+        }
 
         if let Some(reference) = resolved_managed_context
             .as_ref()
             .and_then(|context| context.attached_session_context.as_ref())
+            .and_then(|reference| {
+                dedupe_delivered_block(
+                    reference.clone(),
+                    delivered_entry.as_ref(),
+                    is_continuing_session,
+                )
+            })
         {
-            continuity_context.push(reference.clone());
+            continuity_context.push(reference);
         }
 
         if let Some(context) = resolved_managed_context
@@ -3893,6 +4210,45 @@ async fn run_prompt_task_inner(
             );
         }
 
+        // First turn (fresh or restored session) always resends the legacy
+        // [Base]/[System]/team/core/canvas sections; a warm session then
+        // goes quiet on them until the next compaction point — every 20th
+        // completed turn — so a long-lived session is never more than 20
+        // turns out of date on them.
+        let prompt_cadence = if first_channel_session
+            || agent
+                .state
+                .turn_counts
+                .get(&b.channel_id)
+                .copied()
+                .unwrap_or(0)
+                % 20
+                == 0
+        {
+            crate::queue::PromptCadence::First
+        } else {
+            crate::queue::PromptCadence::Continuing
+        };
+
+        // Record exactly what this turn is about to put on the wire, so a
+        // later turn's replay filter and continuity-block dedupe can skip
+        // resending it. Delivery ≠ success — this records what was sent
+        // regardless of how the turn's own outcome later resolves, because
+        // the content physically reaches the provider either way.
+        record_delivered_content(
+            &ctx,
+            &b.channel_id,
+            conversation_context
+                .as_ref()
+                .map(conversation_context_messages)
+                .unwrap_or_default()
+                .iter()
+                .map(|message| message.event_id.clone())
+                .chain(b.events.iter().map(|be| be.event.id.to_hex())),
+            continuity_context.iter().cloned(),
+        )
+        .await;
+
         crate::queue::format_prompt(
             b,
             &crate::queue::FormatPromptArgs {
@@ -3911,6 +4267,7 @@ async fn run_prompt_task_inner(
                 system_prompt: ctx.system_prompt.as_deref(),
                 team_instructions: ctx.team_instructions.as_deref(),
                 agent_canvas: agent_canvas.as_deref(),
+                prompt_cadence,
             },
         )
     } else {
@@ -6457,6 +6814,139 @@ mod tests {
         // At or under the cap, nothing is evictable.
         state.sessions.remove(&channels[0]);
         assert!(sessions_over_cap(&state, "claude-agent-acp", &channels[4]).is_empty());
+    }
+
+    fn make_context_message(event_id: &str, pubkey: &str) -> crate::queue::ContextMessage {
+        crate::queue::ContextMessage {
+            event_id: event_id.to_owned(),
+            pubkey: pubkey.to_owned(),
+            timestamp: "2026-01-01T00:00:00Z".into(),
+            content: "hi".into(),
+        }
+    }
+
+    fn entry_with_delivered(
+        ids: &[&str],
+        hashes: &[&str],
+    ) -> crate::runtime_session_map::RuntimeSessionEntry {
+        let mut entry = crate::runtime_session_map::RuntimeSessionEntry::new(
+            "sess".into(),
+            "test-family".into(),
+            "/tmp".into(),
+        );
+        entry.record_delivery(
+            ids.iter().map(|id| content_digest(id)),
+            hashes.iter().map(|value| content_digest(value)),
+        );
+        entry
+    }
+
+    #[test]
+    fn filter_replayed_context_drops_delivered_and_own_messages_on_continuing_sessions() {
+        let owner_msg = make_context_message("event-owner", "owner-pubkey");
+        let resident_msg = make_context_message("event-resident", "resident-pubkey");
+        let already_delivered_msg = make_context_message("event-old", "owner-pubkey");
+        let context = ConversationContext::Room {
+            messages: vec![
+                already_delivered_msg.clone(),
+                owner_msg.clone(),
+                resident_msg.clone(),
+            ],
+            total: 3,
+            truncated: false,
+        };
+        let entry = entry_with_delivered(&["event-old"], &[]);
+
+        // First turn: nothing dropped except what was already delivered —
+        // the resident's own prior messages are not filtered yet, because
+        // there is no live session memory to assume they duplicate.
+        let (first_turn, had_overlap) = filter_replayed_context(
+            context.clone(),
+            Some(&entry),
+            Some("resident-pubkey"),
+            false,
+        );
+        assert!(had_overlap);
+        assert_eq!(
+            conversation_context_messages(&first_turn)
+                .iter()
+                .map(|m| m.event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["event-owner", "event-resident"]
+        );
+
+        // Continuing: also drops the resident's own message.
+        let (continuing, had_overlap) =
+            filter_replayed_context(context, Some(&entry), Some("resident-pubkey"), true);
+        assert!(had_overlap);
+        assert_eq!(
+            conversation_context_messages(&continuing)
+                .iter()
+                .map(|m| m.event_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["event-owner"]
+        );
+    }
+
+    #[test]
+    fn gap_marker_needed_only_on_a_continuing_session_with_history_and_no_overlap() {
+        let entry = entry_with_delivered(&["event-old"], &[]);
+        let empty_entry = crate::runtime_session_map::RuntimeSessionEntry::new(
+            "sess".into(),
+            "test-family".into(),
+            "/tmp".into(),
+        );
+        assert!(gap_marker_needed(Some(&entry), true, false));
+        assert!(
+            !gap_marker_needed(Some(&entry), true, true),
+            "no gap once there is overlap"
+        );
+        assert!(
+            !gap_marker_needed(Some(&entry), false, false),
+            "no gap on a first turn"
+        );
+        assert!(
+            !gap_marker_needed(Some(&empty_entry), true, false),
+            "no gap when this session has no delivery history to compare against"
+        );
+        assert!(
+            !gap_marker_needed(None, true, false),
+            "no gap with no entry at all"
+        );
+    }
+
+    #[test]
+    fn dedupe_delivered_block_drops_only_on_a_continuing_session_with_a_matching_hash() {
+        let entry = entry_with_delivered(&[], &["[Luca Wake]\nsame content"]);
+        assert_eq!(
+            dedupe_delivered_block("[Luca Wake]\nsame content".into(), Some(&entry), false),
+            Some("[Luca Wake]\nsame content".into()),
+            "a first-turn session always gets the full block"
+        );
+        assert_eq!(
+            dedupe_delivered_block("[Luca Wake]\nsame content".into(), Some(&entry), true),
+            None,
+            "a continuing session must not resend a byte-identical block"
+        );
+        assert_eq!(
+            dedupe_delivered_block("[Luca Wake]\nchanged content".into(), Some(&entry), true),
+            Some("[Luca Wake]\nchanged content".into()),
+            "changed content is never deduped away"
+        );
+    }
+
+    #[test]
+    fn thought_level_current_value_finds_the_matching_config_id() {
+        let options = vec![serde_json::json!({
+            "id": "effort",
+            "category": "thought_level",
+            "currentValue": "medium",
+        })];
+        assert_eq!(
+            thought_level_current_value(&options, "effort").as_deref(),
+            Some("medium")
+        );
+        assert_eq!(thought_level_current_value(&options, "other"), None);
     }
 
     #[test]
@@ -10076,6 +10566,49 @@ read -t 5 UNEXPECTED"#;
         assert_eq!(restored, "idle-then-restored");
         assert!(agent.state.restored_channels.contains(&conversation));
         agent.acp.shutdown().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn record_delivered_content_persists_to_the_session_map() {
+        // This is the write half of the replay filter: what a turn actually
+        // sends is durably recorded, so filter_replayed_context and
+        // dedupe_delivered_block on a later turn — even on a fresh worker
+        // after a restart — see it via the persisted entry, not in-memory
+        // state that a restart would lose.
+        let root = std::env::temp_dir().join(format!("record-delivered-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let store = crate::runtime_session_map::RuntimeSessionMap::test_fixture(
+            root.join("sessions.json"),
+            "record-delivered-scope",
+        );
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.runtime_session_map = Some(store.clone());
+        let channel = Uuid::new_v4();
+        store
+            .save(
+                &channel.to_string(),
+                crate::runtime_session_map::RuntimeSessionEntry::new(
+                    "sess".into(),
+                    "fixture".into(),
+                    root.to_string_lossy().into_owned(),
+                ),
+            )
+            .unwrap();
+
+        record_delivered_content(
+            &ctx,
+            &channel,
+            vec!["event-1".to_string(), "event-2".to_string()],
+            vec!["[Luca Wake]\nsome content".to_string()],
+        )
+        .await;
+
+        let entry = store.get(&channel.to_string()).unwrap().unwrap();
+        assert!(entry.has_delivered_id(&content_digest("event-1")));
+        assert!(entry.has_delivered_id(&content_digest("event-2")));
+        assert!(entry.has_delivered_context_hash(&content_digest("[Luca Wake]\nsome content")));
+        assert_eq!(entry.turn_count, 1);
         std::fs::remove_dir_all(root).unwrap();
     }
 
