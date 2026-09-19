@@ -108,6 +108,10 @@ pub(crate) struct PermissionSubject {
     /// A read-only path request outside the secrets list: allowed anywhere
     /// without a card at all.
     pub is_free_read: bool,
+    /// A read the secrets list holds back: it would have been free, but the
+    /// path looks like a credential. It asks every time, and the card says so
+    /// rather than leaving the owner to guess why the button is missing.
+    pub is_secret_read: bool,
     /// One of Polyphonic's own read-only tools.
     pub is_pre_allowed: bool,
     /// A tool whose side effect already goes through the desktop authority
@@ -385,6 +389,17 @@ fn is_free_read_path(path: &Path, app_data_dir: Option<&Path>) -> bool {
     !is_secret_path(&resolved)
 }
 
+/// Whether a read of `path` is held back by the secrets list — the same
+/// resolution `is_free_read_path` does, asking the opposite question, so the
+/// card can say why it is asking rather than only why it cannot remember.
+fn is_secret_read_path(path: &Path, app_data_dir: Option<&Path>) -> bool {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| lexical_path(path));
+    if resolved == Path::new("/\u{0}unresolvable") {
+        return false;
+    }
+    app_data_dir.is_some_and(|dir| is_inside(dir, path)) || is_secret_path(&resolved)
+}
+
 fn bounded_display(value: &str) -> String {
     let clean: String = value
         .chars()
@@ -528,6 +543,13 @@ pub(crate) fn subject(
         .path
         .as_deref()
         .is_some_and(|raw| is_free_read_path(Path::new(raw), app_data_dir(app).as_deref()));
+    let is_secret_read = matches!(
+        matchers.as_slice(),
+        [PermissionMatcherV1::Path { write: false }]
+    ) && request
+        .path
+        .as_deref()
+        .is_some_and(|raw| is_secret_read_path(Path::new(raw), app_data_dir(app).as_deref()));
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
@@ -537,6 +559,7 @@ pub(crate) fn subject(
         is_door,
         is_destructive,
         is_free_read,
+        is_secret_read,
         is_pre_allowed,
         is_broker_guarded,
         inside_project,
@@ -852,9 +875,13 @@ pub(crate) fn decide_with(
             .matchers
             .iter()
             .all(PermissionMatcherV1::is_read_only);
-    let always_here =
-        remembrable && !path_outside && (subject.project.is_some() || scope_without_project);
-    let note = if !remembrable {
+    let always_here = remembrable
+        && !path_outside
+        && !subject.is_secret_read
+        && (subject.project.is_some() || scope_without_project);
+    let note = if subject.is_secret_read {
+        Some("This looks like a secrets file, so Polyphonic always asks.".to_owned())
+    } else if !remembrable {
         Some("Polyphonic can only answer this one once.".to_owned())
     } else if always_here {
         None

@@ -1087,6 +1087,7 @@ mod tests {
             is_door: false,
             is_destructive: false,
             is_free_read: false,
+            is_secret_read: false,
             is_pre_allowed: false,
             is_broker_guarded: false,
             inside_project: true,

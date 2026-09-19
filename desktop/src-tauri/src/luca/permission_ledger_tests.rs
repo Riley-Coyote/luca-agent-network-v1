@@ -79,6 +79,13 @@ fn subject_for(
         .path
         .as_deref()
         .is_some_and(|raw| is_free_read_path(Path::new(raw), None));
+    let is_secret_read = matches!(
+        matchers.as_slice(),
+        [PermissionMatcherV1::Path { write: false }]
+    ) && request
+        .path
+        .as_deref()
+        .is_some_and(|raw| is_secret_read_path(Path::new(raw), None));
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
@@ -88,6 +95,7 @@ fn subject_for(
         is_door: is_door(request, identity.as_ref()),
         is_destructive: is_destructive(request),
         is_free_read,
+        is_secret_read,
         is_pre_allowed,
         is_broker_guarded,
         inside_project,
@@ -1094,7 +1102,7 @@ fn an_ordinary_read_outside_the_project_never_raises_a_card() {
 }
 
 #[test]
-fn secret_reads_still_raise_a_card_with_once_and_always() {
+fn secret_reads_always_ask_and_never_become_a_rule() {
     let temporary = tempfile::tempdir().unwrap();
     let root = std::fs::canonicalize(temporary.path()).unwrap();
     let ssh_dir = root.join(".ssh");
@@ -1133,8 +1141,9 @@ fn secret_reads_still_raise_a_card_with_once_and_always() {
         );
     }
 
-    // With a project in view, a secret read can still offer Once and Always
-    // like any other card — it just is not free.
+    // Even inside the project, a secret is never remembered: it asks every
+    // time, and the card says that is why, rather than leaving the owner to
+    // wonder where Always went.
     let project_ref = ProjectRef::Source {
         source_id: OpaqueId::parse("source-a").unwrap(),
         canonical_root: root.clone(),
@@ -1145,8 +1154,12 @@ fn secret_reads_still_raise_a_card_with_once_and_always() {
     assert!(subject.inside_project);
     let verdict = decide_with(&[], &[], &subject, false);
     let offer = ask(&verdict);
-    assert!(offer.once && offer.deny && offer.always_here);
-    assert_eq!(offer.note, None);
+    assert!(offer.once && offer.deny);
+    assert!(!offer.always_here);
+    assert_eq!(
+        offer.note.as_deref(),
+        Some("This looks like a secrets file, so Polyphonic always asks.")
+    );
 }
 
 #[test]
@@ -1175,4 +1188,40 @@ fn browsing_with_no_project_can_be_remembered_everywhere() {
         "a read-only, project-less request may still be remembered everywhere"
     );
     assert_eq!(offer.note, None);
+}
+
+/// A read the secrets list holds back says why it is asking, not merely why
+/// it cannot be remembered — the owner should never have to guess that the
+/// missing Always is about the file being a credential.
+#[test]
+fn a_secret_read_asks_every_time_and_says_why() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temporary.path()).unwrap();
+    let file = root.join(".env");
+    std::fs::write(&file, "API_KEY=x").unwrap();
+    let project = ProjectRef::Source {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+        canonical_root: root.clone(),
+        label: "project".into(),
+    };
+
+    let reading = path_request(&file.to_string_lossy(), false);
+    let subject = subject_for(&reading, Some(project));
+    assert!(subject.is_secret_read);
+    assert!(!subject.is_free_read);
+    match decide_with(&[], &[], &subject, false) {
+        Verdict::Ask { offer } => {
+            assert!(offer.once);
+            assert!(offer.deny);
+            assert!(
+                !offer.always_here,
+                "a secrets file is never remembered, even inside the project"
+            );
+            assert_eq!(
+                offer.note.as_deref(),
+                Some("This looks like a secrets file, so Polyphonic always asks.")
+            );
+        }
+        other => panic!("a secrets read must ask: {other:?}"),
+    }
 }
