@@ -327,6 +327,20 @@ fn completed_control_allows_end_turn_handoff(control_signal: &ControlSignal) -> 
     !matches!(control_signal, ControlSignal::Cancel)
 }
 
+/// Whether a channel session survives a *clean* cancellation of a genuinely
+/// in-flight prompt (`cancel_with_cleanup_grace` returned `Ok`).
+///
+/// A plain Cancel, Steer or Interrupt only stops generation — the
+/// conversation continues, so the warm session stays. An explicit Rotate is
+/// a deliberate reset and still drops it. A model switch is not yet applied
+/// in place on a live session, so it still rotates too (a beta.12 follow-up).
+fn session_survives_in_flight_cancel(control_signal: &ControlSignal) -> bool {
+    !matches!(
+        control_signal,
+        ControlSignal::Rotate | ControlSignal::SwitchModel(_)
+    )
+}
+
 /// Control signal for an in-flight channel turn.
 ///
 /// Not `Copy`: `SwitchModel` carries an owned `String`. Callers must clone when
@@ -527,6 +541,12 @@ pub struct PromptContext {
     pub(crate) repository_mcp: Option<crate::repository_mcp::RepositoryMcpConfig>,
     pub(crate) communications_mcp: Option<crate::communications_mcp::CommunicationsMcpConfig>,
     pub(crate) artifact_mcp: Option<crate::artifact_mcp::ArtifactMcpConfig>,
+    /// One long-lived turn-authority gate for this resident process — started
+    /// once at startup when `artifact_mcp` is configured, and shared (via its
+    /// own internal `Arc`) by every channel session's sidecar for the life of
+    /// the process. `None` for legacy (non-managed) residents, which never
+    /// configure `artifact_mcp` either.
+    pub(crate) artifact_turn_gate: Option<crate::artifact_turn_gate::ArtifactTurnGate>,
     pub initial_message: Option<String>,
     pub idle_timeout: Duration,
     pub max_turn_duration: Duration,
@@ -636,6 +656,24 @@ impl AgentPool {
         if let Some(channel) = channel_id {
             self.session_holders.insert(channel, index);
         }
+        self.agents[index].take()
+    }
+
+    /// Claim an idle worker holding no live channel session, for continuity
+    /// (private cognition) jobs. Warm channel sessions are now kept for the
+    /// life of the conversation (see [`channel_session_policy`]), so a
+    /// worker's `state.sessions` map is no longer empty just because it is
+    /// momentarily idle between owner turns. A continuity job that landed on
+    /// such a worker and then hit a close failure or an `AgentExited` would
+    /// call `invalidate_all`/kill the process and destroy every warm
+    /// conversation it was holding — never acceptable for background,
+    /// resident-initiated work. This returns `None` rather than falling back
+    /// to a busy worker's conversation.
+    pub fn try_claim_idle_worker_with_no_live_channels(&mut self) -> Option<OwnedAgent> {
+        let index = self.agents.iter().position(|slot| {
+            slot.as_ref()
+                .is_some_and(|agent| agent.state.sessions.is_empty())
+        })?;
         self.agents[index].take()
     }
 
@@ -890,7 +928,6 @@ struct SessionCreationContext<'a> {
     agent_core: Option<&'a str>,
     agent_canvas: Option<&'a str>,
     communications_turn: Option<&'a crate::communications_mcp::CommunicationsTurnBindingV1>,
-    artifact_turn: Option<&'a crate::artifact_mcp::ArtifactTurnBindingV1>,
     managed_context: Option<&'a crate::continuity_provider::ManagedSessionContextResultV1>,
 }
 
@@ -1011,7 +1048,13 @@ async fn create_session_and_apply_model(
         source,
         ctx.repository_mcp.is_some(),
         session_context.communications_turn.is_some(),
-        session_context.artifact_turn.is_some(),
+        // Whether this resident has artifact projection configured at all —
+        // not whether *this* request happens to carry a resolved owner turn.
+        // The sidecar is now conversation-scoped (one per warm session, not
+        // one per turn), so it belongs on every ordinary channel session,
+        // sibling-created ones included; the turn gate resolves which owner
+        // turn, if any, is allowed to call it at the moment of each call.
+        ctx.artifact_mcp.is_some(),
     );
     let artifact_projection_allowed =
         privileged_policy.artifact && resolve_artifact_mcp_support(agent, ctx).await;
@@ -1029,12 +1072,19 @@ async fn create_session_and_apply_model(
     ) {
         mcp_servers.push(communications_mcp.server_for_turn(turn));
     }
-    if let (true, Some(artifact_mcp), Some(turn)) = (
+    if let (true, Some(artifact_mcp), Some(gate), PromptSource::Channel(channel_id)) = (
         artifact_projection_allowed,
         ctx.artifact_mcp.as_ref(),
-        session_context.artifact_turn,
+        ctx.artifact_turn_gate.as_ref(),
+        source,
     ) {
-        mcp_servers.push(artifact_mcp.server_for_turn(turn));
+        // Registers (or re-registers) this conversation with the gate and
+        // mints its token — see `ArtifactMcpConfig::server_for_conversation`.
+        // No turn, receipt or cancellation epoch is baked in here; the gate
+        // resolves the exact open owner turn per call instead.
+        if let Ok(conversation_id) = luca_protocol::OpaqueId::parse(channel_id.to_string()) {
+            mcp_servers.push(artifact_mcp.server_for_conversation(gate, &conversation_id));
+        }
     }
     let artifact_projected = artifact_projection_allowed;
     let fallback_servers = artifact_projected.then(|| {
@@ -1352,10 +1402,11 @@ async fn create_session_and_apply_model(
         }),
     );
 
-    if !matches!(source, PromptSource::Continuity(_))
-        && session_context.communications_turn.is_none()
-        && session_context.artifact_turn.is_none()
-    {
+    // Only continuity/private sessions are single-use by design. A channel
+    // (or heartbeat) session is kept warm for the life of the conversation —
+    // an artifact or communications turn on this exact request is no longer
+    // a reason to retire it once setup below succeeds.
+    if !matches!(source, PromptSource::Continuity(_)) {
         agent
             .state
             .retiring_sessions
@@ -2172,6 +2223,37 @@ fn managed_artifact_turn(
     }
 }
 
+/// Open `turn` as this conversation's active owner turn on the resident
+/// process's turn gate, if both a gate and a resolved turn exist. Returns
+/// the generation the caller must present again to [`close_artifact_turn_gate`]
+/// — never a value it makes up itself, so a stale retry can tell it has been
+/// superseded rather than silently binding whatever turn is open next.
+fn open_artifact_turn_gate(
+    ctx: &PromptContext,
+    turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
+) -> Option<u64> {
+    let gate = ctx.artifact_turn_gate.as_ref()?;
+    let turn = turn?;
+    let generation = gate.next_generation();
+    gate.open(&turn.conversation_id, turn.clone(), generation);
+    Some(generation)
+}
+
+/// Close the turn opened by a matching [`open_artifact_turn_gate`] call, if
+/// any. A no-op when there was no gate, no resolved turn, or `open` was never
+/// called (e.g. a sibling-created session with no owner turn this round).
+fn close_artifact_turn_gate(
+    ctx: &PromptContext,
+    turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
+    generation: Option<u64>,
+) {
+    if let (Some(gate), Some(turn), Some(generation)) =
+        (ctx.artifact_turn_gate.as_ref(), turn, generation)
+    {
+        gate.close(&turn.conversation_id, generation);
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ChannelSessionPolicy {
     create_session: bool,
@@ -2185,24 +2267,33 @@ struct PrivilegedSessionMcpPolicy {
     artifact: bool,
 }
 
+/// `artifact_configured` is whether this resident has artifact projection
+/// configured at all (`ctx.artifact_mcp.is_some()`) — the sidecar is now
+/// conversation-scoped rather than turn-scoped, so its eligibility no longer
+/// depends on the current request carrying a resolved owner turn.
 fn privileged_session_mcp_policy(
     source: &PromptSource,
     repository_configured: bool,
     communications_turn: bool,
-    artifact_turn: bool,
+    artifact_configured: bool,
 ) -> PrivilegedSessionMcpPolicy {
     let ordinary_channel = matches!(source, PromptSource::Channel(_));
     let communications = ordinary_channel && communications_turn;
     PrivilegedSessionMcpPolicy {
         repository: ordinary_channel && repository_configured && !communications,
         communications,
-        artifact: ordinary_channel && artifact_turn,
+        artifact: ordinary_channel && artifact_configured,
     }
 }
 
-fn channel_session_policy(has_cached_session: bool, turn_scoped_mcp: bool) -> ChannelSessionPolicy {
+/// A cached channel session is now reused across turns even when this turn
+/// carries an artifact turn — the artifact sidecar is conversation-scoped
+/// (see `ArtifactTurnGate`) and no longer needs a fresh `session/new` to
+/// carry a turn-specific capability. Only the absence of a cached session
+/// forces creation.
+fn channel_session_policy(has_cached_session: bool) -> ChannelSessionPolicy {
     ChannelSessionPolicy {
-        create_session: !has_cached_session || turn_scoped_mcp,
+        create_session: !has_cached_session,
         first_channel_session: !has_cached_session,
     }
 }
@@ -2729,15 +2820,14 @@ async fn retire_finished_sessions(result: &mut PromptResult) {
                     .insert(*channel_id);
             }
         }
-        if is_codex_acp_worker(&result.agent) {
-            // For this adapter, session/close only unsubscribes the thread and
-            // may start more process-scoped MCP work. Terminating the completed
-            // scoped worker supersedes closing any of its individual sessions.
-            shutdown_retired_worker(&mut result.agent).await;
-            result.agent.state.invalidate_all();
-            result.agent.state.retire_worker = true;
-            break;
-        }
+        // Codex used to get a special case here: kill the whole worker on
+        // every retiring session rather than send `session/close`, because
+        // that close only unsubscribes the thread rather than truly ending
+        // it. That was also the mechanism behind killing+respawning Codex on
+        // every single owner turn — exactly the churn this plan removes now
+        // that sessions stay warm. Codex is recycled the same way as any
+        // other adapter below: only on a close failure, or on idle eviction.
+        //
         // A failed or hung close can leave an unread response on the ACP wire.
         // Retire the worker in that case; keeping it would accumulate sessions
         // or corrupt the next request. The already captured turn result remains
@@ -3097,10 +3187,7 @@ async fn run_prompt_task_inner(
 
     let (session_id, is_new_session, first_channel_session) = match &source {
         PromptSource::Channel(cid) => {
-            let policy = channel_session_policy(
-                agent.state.sessions.contains_key(cid),
-                communications_turn.is_some() || artifact_turn.is_some(),
-            );
+            let policy = channel_session_policy(agent.state.sessions.contains_key(cid));
             if !policy.create_session {
                 let Some(session_id) = agent.state.sessions.get(cid).cloned() else {
                     send_prompt_result(
@@ -3126,7 +3213,6 @@ async fn run_prompt_task_inner(
                         agent_core: agent_core.as_deref(),
                         agent_canvas: agent_canvas.as_deref(),
                         communications_turn: communications_turn.as_ref(),
-                        artifact_turn: artifact_turn.as_ref(),
                         managed_context: resolved_managed_context.as_ref(),
                     },
                 )
@@ -3137,13 +3223,6 @@ async fn run_prompt_task_inner(
                             target: "pool::session",
                             "created session {sid} for channel {cid}"
                         );
-                        if policy.create_session
-                            && (communications_turn.is_some() || artifact_turn.is_some())
-                        {
-                            if let Some(previous) = agent.state.sessions.get(cid) {
-                                agent.state.retiring_sessions.push(previous.clone());
-                            }
-                        }
                         let was_restored = agent.state.restored_channels.contains(cid);
                         let first_channel_session = policy.first_channel_session
                             && !agent.state.recently_closed_scoped_channels.remove(cid)
@@ -3681,6 +3760,16 @@ async fn run_prompt_task_inner(
         agent.acp.begin_final_message_capture();
     }
 
+    // Open this owner turn's artifact authority immediately before the prompt
+    // that may call it goes on the wire — owner-triggered channel turns only.
+    // `artifact_gate_generation` travels with this turn to every close site
+    // below so a stale retry can never bind the next one.
+    let artifact_gate_generation = if matches!(source, PromptSource::Channel(_)) {
+        open_artifact_turn_gate(&ctx, artifact_turn.as_ref())
+    } else {
+        None
+    };
+
     // When control_rx is Some (channel tasks), wrap the prompt in select! so
     // the main loop can cancel, interrupt, or rotate it. Heartbeats
     // (control_rx=None) take the simple await path — they are not controllable.
@@ -3720,6 +3809,10 @@ async fn run_prompt_task_inner(
                     // Control signal received. Guard against Race 1: the turn may
                     // have completed naturally just as cancel fired.
                     if agent.acp.has_in_flight_prompt() {
+                        // Close this turn's artifact authority before cancelling
+                        // it — a call that arrives after this point must never
+                        // be authorized against a turn we are about to end.
+                        close_artifact_turn_gate(&ctx, artifact_turn.as_ref(), artifact_gate_generation);
                         // Prompt is genuinely in-flight — cancel it.
                         match agent
                             .acp
@@ -3728,7 +3821,9 @@ async fn run_prompt_task_inner(
                         {
                             Ok(stop_reason) => {
                                 log_stop_reason(&source, &stop_reason);
-                                agent.state.invalidate(&source);
+                                if !session_survives_in_flight_cancel(&control_signal) {
+                                    agent.state.invalidate(&source);
+                                }
                                 let retry_batch =
                                     requeue_cancelled_batch(&ctx, control_signal, batch);
 
@@ -3762,10 +3857,12 @@ async fn run_prompt_task_inner(
                                     control_signal,
                                     batch,
                                 );
+                                // Only a genuine `AgentExited` drops the
+                                // session here — an idle timeout, a bounded
+                                // cancel-drain timeout, or any other
+                                // non-fatal error mid-cancel keeps it warm.
                                 if failure.invalidate_all {
                                     agent.state.invalidate_all();
-                                } else {
-                                    agent.state.invalidate(&source);
                                 }
 
                                 let usage = agent.acp.take_turn_usage();
@@ -3849,6 +3946,15 @@ async fn run_prompt_task_inner(
                             &control_signal,
                         );
                         if matches!(source, PromptSource::Channel(_)) {
+                            // The model's own generation is done; close this
+                            // turn's artifact authority before the final
+                            // hand-off so a late tool call from this ended
+                            // generation can never still be authorized.
+                            close_artifact_turn_gate(
+                                &ctx,
+                                artifact_turn.as_ref(),
+                                artifact_gate_generation,
+                            );
                             handoff_managed_final_after_end_turn(
                                 &mut agent,
                                 &ctx,
@@ -3889,14 +3995,18 @@ async fn run_prompt_task_inner(
             if matches!(stop_reason, StopReason::EndTurn)
                 && matches!(source, PromptSource::Channel(_))
             {
+                close_artifact_turn_gate(&ctx, artifact_turn.as_ref(), artifact_gate_generation);
                 handoff_managed_final_after_end_turn(&mut agent, &ctx, batch.as_ref(), &turn_id)
                     .await;
             }
 
-            let should_rotate = matches!(
-                stop_reason,
-                StopReason::MaxTokens | StopReason::MaxTurnRequests
-            );
+            // MaxTokens no longer rotates the session — the model's response
+            // was merely cut off at its own length budget; that carries no
+            // implication about the session's own health, and losing the
+            // conversation's memory over it defeats the point of a warm
+            // session. MaxTurnRequests (a provider-side hard cap on tool-call
+            // turns within one exchange) still forces a fresh session.
+            let should_rotate = matches!(stop_reason, StopReason::MaxTurnRequests);
 
             let should_rotate = should_rotate || {
                 let limit = ctx.max_turns_per_session;
@@ -4085,12 +4195,13 @@ async fn run_prompt_task_inner(
         }
         Err(e) => {
             tracing::error!(target: "pool::prompt", "session_prompt error: {e}");
-            // AgentError means the agent caught a problem before mutating
-            // session state (e.g. bad LLM response). The session is healthy —
-            // don't invalidate it. Other errors may have corrupted state.
-            if !matches!(e, AcpError::AgentError { .. }) {
-                agent.state.invalidate(&source);
-            }
+            // Keep the session warm through a protocol/IO error too — only
+            // `AgentExited` and a hard timeout (handled in their own arms
+            // above) mean the process itself is unrecoverable. Anything else,
+            // AgentError included, leaves a healthy session behind; losing
+            // the conversation's memory over a transient error defeats the
+            // point of a warm session, and the durable pointer map would
+            // restore the same provider conversation on the next turn anyway.
             let usage = agent.acp.take_turn_usage();
             publish_agent_turn_metric(
                 &ctx,
@@ -6091,23 +6202,21 @@ mod tests {
     }
 
     #[test]
-    fn exact_turn_communications_rotates_channel_session_without_repeating_initial_message() {
+    fn owner_turns_reuse_one_session() {
+        // A cached channel session is reused for every subsequent owner
+        // turn — an artifact or communications turn on the request used to
+        // force a fresh `session/new` every time (the per-turn session
+        // rotation this plan removes); it is no longer even a parameter.
+        // Only the absence of a cached session forces creation.
         assert_eq!(
-            channel_session_policy(false, true),
+            channel_session_policy(false),
             ChannelSessionPolicy {
                 create_session: true,
                 first_channel_session: true,
             }
         );
         assert_eq!(
-            channel_session_policy(true, true),
-            ChannelSessionPolicy {
-                create_session: true,
-                first_channel_session: false,
-            }
-        );
-        assert_eq!(
-            channel_session_policy(true, false),
+            channel_session_policy(true),
             ChannelSessionPolicy {
                 create_session: false,
                 first_channel_session: false,
@@ -6331,11 +6440,19 @@ echo '{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"close failed"}}'
     }
 
     #[tokio::test]
-    async fn completed_codex_scoped_session_retires_worker_without_close_request() {
+    async fn completed_codex_scoped_session_now_sends_a_real_close_request() {
+        // Codex no longer gets a special "kill the whole worker, skip
+        // session/close" treatment on a retiring session — that unconditional
+        // per-turn respawn is exactly what this plan removes. It now behaves
+        // like any other adapter: retirement sends a real `session/close`,
+        // and only falls back to killing the worker if that request fails
+        // (see the `Ok(Ok(false)) | Ok(Err(_)) | Err(_)` arms below it).
         let marker = std::env::temp_dir().join(format!("codex-close-{}", Uuid::new_v4()));
         let script = r#"read -r INIT
 echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
-if read -r CLOSE; then touch '__MARKER__'; fi"#
+read -r CLOSE
+touch '__MARKER__'
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'"#
             .replace("__MARKER__", &marker.to_string_lossy());
         let mut agent = artifact_test_agent(&script).await;
         agent.agent_name = "@agentclientprotocol/codex-acp".into();
@@ -6359,24 +6476,66 @@ if read -r CLOSE; then touch '__MARKER__'; fi"#
         )
         .await
         .unwrap();
-        assert!(result.agent.state.retire_worker);
+        assert!(!result.agent.state.retire_worker);
         assert!(
-            !marker.exists(),
-            "Codex worker should receive EOF without session/close"
+            marker.exists(),
+            "Codex should now receive a real session/close like any other adapter"
         );
         assert!(matches!(
             result.outcome,
             PromptOutcome::Ok(StopReason::EndTurn)
         ));
+        result.agent.acp.shutdown().await;
     }
 
-    fn artifact_turn() -> crate::artifact_mcp::ArtifactTurnBindingV1 {
-        crate::artifact_mcp::ArtifactTurnBindingV1 {
-            conversation_id: luca_protocol::OpaqueId::parse("conversation-1").unwrap(),
-            turn_id: luca_protocol::OpaqueId::parse("turn-1").unwrap(),
-            dispatch_receipt_id: luca_protocol::OpaqueId::parse("dispatch-1").unwrap(),
-            cancellation_epoch: luca_protocol::SafeU53::new(7).unwrap(),
-        }
+    #[tokio::test]
+    async fn codex_worker_survives_turns() {
+        // An ordinary channel-turn completion (no communications turn, no
+        // continuity) must never enter `retiring_sessions` at all for a
+        // Codex worker either — the old unconditional "kill this Codex
+        // worker on any retiring session" branch is gone, and channel
+        // sessions are no longer pushed onto that list to begin with. The
+        // script only ever answers `initialize`; any second request (a
+        // `session/close`, or Codex's old close-then-respawn EOF handling)
+        // has nothing to read and the fixture times out rather than
+        // silently succeeding.
+        let script = r#"read -t 5 INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -t 5 UNEXPECTED"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.agent_name = "@agentclientprotocol/codex-acp".into();
+        agent.acp.initialize().await.unwrap();
+        let channel = Uuid::new_v4();
+        agent
+            .state
+            .sessions
+            .insert(channel, "codex-warm-session".into());
+        let mut result = PromptResult {
+            agent,
+            source: PromptSource::Channel(channel),
+            turn_id: "codex-turn".into(),
+            outcome: PromptOutcome::Ok(StopReason::EndTurn),
+            private_output: None,
+            batch: None,
+        };
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            retire_finished_sessions(&mut result),
+        )
+        .await
+        .unwrap();
+        assert!(!result.agent.state.retire_worker);
+        assert_eq!(
+            result
+                .agent
+                .state
+                .sessions
+                .get(&channel)
+                .map(String::as_str),
+            Some("codex-warm-session"),
+            "a channel-turn-only completion must keep the warm Codex worker and its session"
+        );
+        result.agent.acp.shutdown().await;
     }
 
     #[tokio::test]
@@ -6511,12 +6670,19 @@ while read -r _; do :; done
 
     #[tokio::test]
     async fn rejected_authoritative_projection_retries_without_artifacts() {
+        // `SessionCreationContext::default()` below carries no artifact turn
+        // at all — this also doubles as the "sibling-created session still
+        // gets the sidecar projected" proof: the projection now depends only
+        // on `ctx.artifact_mcp` being configured for an ordinary channel
+        // session, not on this exact request resolving an owner turn.
         let mut ctx = make_prompt_context_no_owner();
         ctx.cwd = "/tmp".into();
         ctx.artifact_mcp = Some(crate::artifact_mcp::ArtifactMcpConfig::test_fixture(
             crate::artifact_mcp::ArtifactMcpSupport::Supported,
             'e',
         ));
+        ctx.artifact_turn_gate =
+            Some(crate::artifact_turn_gate::ArtifactTurnGate::start_for_test().unwrap());
         let script = r#"
             read -r FIRST
             if [[ "$FIRST" != *"LUCA_ARTIFACT_CAPABILITY"* ]]; then exit 8; fi
@@ -6531,10 +6697,7 @@ while read -r _; do :; done
             &mut agent,
             &ctx,
             &PromptSource::Channel(Uuid::new_v4()),
-            SessionCreationContext {
-                artifact_turn: Some(&artifact_turn()),
-                ..SessionCreationContext::default()
-            },
+            SessionCreationContext::default(),
         )
         .await
         .expect("conversation session survives rejected artifact projection");
@@ -7616,6 +7779,30 @@ while read -r _; do :; done
         assert_eq!(*s.turn_counts.get(&ch_a).unwrap(), 5);
         assert_eq!(s.core_sections.get(&ch_a).unwrap(), "core-a");
         assert_eq!(s.sessions.get(&ch_b).unwrap(), "sess-b");
+    }
+
+    #[test]
+    fn cancel_and_protocol_error_keep_session() {
+        // A genuinely in-flight prompt that is cleanly cancelled (Cancel,
+        // Steer or Interrupt) must keep the warm session — only an explicit
+        // Rotate, or a model switch not yet applied in place, still drops
+        // it. This is the counterpart to `apply_completed_before_control_signal`'s
+        // own "already completed" race — this one covers the ordinary case
+        // where the cancel genuinely won.
+        for signal in [
+            ControlSignal::Cancel,
+            ControlSignal::Steer,
+            ControlSignal::Interrupt,
+        ] {
+            assert!(
+                session_survives_in_flight_cancel(&signal),
+                "{signal:?} must keep the warm session"
+            );
+        }
+        assert!(!session_survives_in_flight_cancel(&ControlSignal::Rotate));
+        assert!(!session_survives_in_flight_cancel(
+            &ControlSignal::SwitchModel("gpt-5".into())
+        ));
     }
 
     #[test]
@@ -8876,6 +9063,7 @@ while read -r _; do :; done
             repository_mcp: None,
             communications_mcp: None,
             artifact_mcp: None,
+            artifact_turn_gate: None,
             initial_message: None,
             idle_timeout: Duration::from_secs(60),
             max_turn_duration: Duration::from_secs(120),
@@ -9401,7 +9589,14 @@ while read -r _; do :; done
     }
     #[cfg(unix)]
     #[tokio::test]
-    async fn native_restore_factory_preserves_identity_and_refreshes_exact_turn_tools() {
+    async fn native_restore_factory_preserves_identity_and_reuses_the_warm_session() {
+        // Warm reuse, restore only on a cold worker: an artifact-turn-only
+        // completion must no longer retire the channel session (that used to
+        // force a `session/resume` round trip on every single turn — the
+        // whole per-turn-session-setup cost this plan removes). A second
+        // owner turn on the same worker reuses the cached session id
+        // directly; `native_restore_factory_reopens_saved_session_on_a_fresh_worker`
+        // (below) is what still covers the genuine cold-restart restore path.
         let root = std::env::temp_dir().join(format!("native-factory-test-{}", Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
         let store = crate::runtime_session_map::RuntimeSessionMap::test_fixture(
@@ -9415,32 +9610,30 @@ while read -r _; do :; done
             crate::artifact_mcp::ArtifactMcpSupport::Supported,
             'a',
         ));
+        ctx.artifact_turn_gate =
+            Some(crate::artifact_turn_gate::ArtifactTurnGate::start_for_test().unwrap());
+        // Only ever answers `initialize` then one `session/new` — a second
+        // request of any kind (a `session/close` from retirement, or a
+        // `session/resume` from an unwarranted restore) has nothing to read
+        // and the fixture hangs/fails rather than silently succeeding.
         let script = r#"
             read -t 5 INIT
             echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{},"close":{}}}}}'
             read -t 5 NEW
             echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"native-same-conversation"}}'
-            read -t 5 CLOSE
-            echo '{"jsonrpc":"2.0","id":2,"result":{}}'
-            read -t 5 RESUME
-            echo '{"jsonrpc":"2.0","id":3,"result":{"sessionId":"native-same-conversation","received":'"$RESUME"'}}'
+            read -t 5 UNEXPECTED
+            echo '{"jsonrpc":"2.0","id":2,"error":{"code":-32000,"message":"a warm session must not be closed or restored after one artifact-turn-only completion"}}'
             sleep 1
         "#;
         let mut agent = artifact_test_agent(script).await;
         agent.acp.initialize().await.unwrap();
         let conversation = Uuid::new_v4();
         let source = PromptSource::Channel(conversation);
-        let mut first_turn = artifact_turn();
-        first_turn.conversation_id =
-            luca_protocol::OpaqueId::parse(conversation.to_string()).unwrap();
         let first = create_session_and_apply_model(
             &mut agent,
             &ctx,
             &source,
-            SessionCreationContext {
-                artifact_turn: Some(&first_turn),
-                ..Default::default()
-            },
+            SessionCreationContext::default(),
         )
         .await
         .unwrap();
@@ -9453,7 +9646,6 @@ while read -r _; do :; done
                 .provider_session_id,
             first
         );
-        // Real production retirement closes the first projection, not its saved native identity.
         agent.state.sessions.insert(conversation, first.clone());
         let mut result = PromptResult {
             agent,
@@ -9463,52 +9655,25 @@ while read -r _; do :; done
             private_output: None,
             batch: None,
         };
+        // An owner turn with only an artifact turn (no communications turn,
+        // no continuity) must leave the channel session exactly as it found
+        // it — no close, no rotation.
         retire_finished_sessions(&mut result).await;
         assert!(!result.agent.state.retire_worker);
-        let observer = crate::observer::ObserverHandle::in_process();
-        result.agent.acp.set_observer(Some(observer.clone()), 0);
-        let mut second_turn = first_turn.clone();
-        second_turn.turn_id = luca_protocol::OpaqueId::parse("new-owner-turn").unwrap();
-        second_turn.dispatch_receipt_id = luca_protocol::OpaqueId::parse("new-dispatch").unwrap();
-        let second = create_session_and_apply_model(
-            &mut result.agent,
-            &ctx,
-            &source,
-            SessionCreationContext {
-                artifact_turn: Some(&second_turn),
-                ..Default::default()
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(first, second);
-        let frames = observer.snapshot();
-        let request = frames
-            .iter()
-            .find_map(|event| event.payload.pointer("/result/received"))
-            .unwrap();
-        assert_eq!(request["method"], "session/resume");
-        assert_eq!(request["params"]["sessionId"], first);
-        let servers = request["params"]["mcpServers"].as_array().unwrap();
-        let server = servers
-            .iter()
-            .find(|server| {
-                server["name"]
-                    .as_str()
-                    .is_some_and(|name| name.starts_with("luca-artifacts-"))
-            })
-            .unwrap();
-        let environment = server["env"].as_array().unwrap();
-        let turn = environment
-            .iter()
-            .find(|item| item["name"] == "LUCA_ARTIFACT_TURN_ID")
-            .unwrap();
-        assert_eq!(turn["value"], "new-owner-turn");
-        let receipt = environment
-            .iter()
-            .find(|item| item["name"] == "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID")
-            .unwrap();
-        assert_eq!(receipt["value"], "new-dispatch");
+        assert_eq!(
+            result.agent.state.sessions.get(&conversation),
+            Some(&first),
+            "an artifact-turn-only completion must keep the warm channel session"
+        );
+        // The policy a real second owner turn on this worker would consult:
+        // a cached session with no communications turn is reused as-is,
+        // never recreated — an artifact turn is no longer a reason to force
+        // a fresh `session/new` or `session/resume`.
+        let policy = channel_session_policy(true);
+        assert!(
+            !policy.create_session,
+            "a warm channel session must be reused, not recreated, on the next owner turn"
+        );
         result.agent.acp.shutdown().await;
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -9602,6 +9767,36 @@ while read -r _; do :; done
         let mut original = pool.try_claim(Some(conversation)).unwrap();
         assert_eq!(original.index, 0);
         original.acp.shutdown().await;
+        for agent in pool.agents.iter_mut().flatten() {
+            agent.acp.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn continuity_never_claims_a_worker_holding_a_live_channel() {
+        // A continuity (private cognition) job must never land on a worker
+        // that is holding a live warm channel session — that worker's
+        // conversation would be destroyed if the continuity job later hit a
+        // close failure or `AgentExited` (invalidate_all / worker kill).
+        let mut busy = artifact_test_agent("sleep 30").await;
+        let mut idle = artifact_test_agent("sleep 30").await;
+        idle.index = 1;
+        busy.state
+            .sessions
+            .insert(Uuid::new_v4(), "warm-channel-session".into());
+        let mut pool = AgentPool::from_slots(vec![Some(busy), Some(idle)]);
+        let mut claimed = pool
+            .try_claim_idle_worker_with_no_live_channels()
+            .expect("the worker with no live channels is claimable");
+        assert_eq!(
+            claimed.index, 1,
+            "must skip the worker holding a live channel session"
+        );
+        claimed.acp.shutdown().await;
+        // With every remaining worker holding a live channel, there is
+        // nothing safe to claim — this must return None, never fall back to
+        // a busy worker's conversation.
+        assert!(pool.try_claim_idle_worker_with_no_live_channels().is_none());
         for agent in pool.agents.iter_mut().flatten() {
             agent.acp.shutdown().await;
         }

@@ -1835,12 +1835,23 @@ async fn tokio_main() -> Result<()> {
     };
 
     let base_prompt_content = config.base_prompt_content.take();
+    // One turn-authority gate for this resident process, started once here —
+    // inside the tokio runtime `run()` executes under — and shared by every
+    // channel session's sidecar it registers for the life of the process.
+    let artifact_turn_gate = match config.artifact_mcp.as_ref() {
+        Some(artifact_mcp) => Some(
+            artifact_turn_gate::ArtifactTurnGate::start(&artifact_mcp.broker_socket_root())
+                .map_err(|error| anyhow::anyhow!(error))?,
+        ),
+        None => None,
+    };
     let ctx = Arc::new(PromptContext {
         mcp_servers: build_mcp_servers(&config),
         direct_buzz_mcp: build_direct_buzz_mcp_server(&config),
         repository_mcp: config.repository_mcp.clone(),
         communications_mcp: config.communications_mcp.clone(),
         artifact_mcp: config.artifact_mcp.clone(),
+        artifact_turn_gate,
         initial_message: config.initial_message.clone(),
         idle_timeout: Duration::from_secs(config.idle_timeout_secs),
         max_turn_duration: Duration::from_secs(config.max_turn_duration_secs),
@@ -3969,7 +3980,9 @@ fn dispatch_private_cognition(
             ));
         return;
     }
-    let Some(mut agent) = pool.try_claim(None) else {
+    // Never hand a continuity job a worker that is holding a live warm
+    // channel session — see `try_claim_idle_worker_with_no_live_channels`.
+    let Some(mut agent) = pool.try_claim_idle_worker_with_no_live_channels() else {
         let _ = envelope
             .reply_tx
             .send(local_cognition::CognitionReply::Unavailable("runtime_busy"));
@@ -5962,6 +5975,7 @@ mod error_outcome_emission_tests {
             repository_mcp: None,
             communications_mcp: None,
             artifact_mcp: None,
+            artifact_turn_gate: None,
             initial_message: None,
             idle_timeout: std::time::Duration::from_secs(60),
             max_turn_duration: std::time::Duration::from_secs(120),
