@@ -2644,6 +2644,17 @@ fn spawn_agent_child_unix(
             owner_pubkey.as_str(),
             resident_pubkey.as_str(),
         )?;
+        // A Codex resident left on Manual cannot actually run there — the
+        // adapter's read-only preset still permits project writes — so it is
+        // moved to Accept edits here rather than refused. The move is
+        // written durably, so this only ever happens once per resident.
+        let (level, migrated_off_manual) = crate::luca::permission_tier::migrate_unsupported_level(
+            app,
+            owner_pubkey.as_str(),
+            resident_pubkey.as_str(),
+            runtime_family,
+            level,
+        );
         crate::luca::permission_tier::validate_runtime_level(runtime_family, level)?;
         let tier = crate::luca::permission_tier::for_family(runtime_family, level);
         command.env("BUZZ_ACP_PERMISSION_MODE", tier.buzz_acp_mode);
@@ -2659,10 +2670,27 @@ fn spawn_agent_child_unix(
                 command.env_remove("BUZZ_ACP_CODEX_POLICY");
             }
         }
-        luca_log!(
-            info,
-            "luca-permission-tier: resident starting at its owner's access level"
-        );
+        if migrated_off_manual {
+            luca_log!(
+                info,
+                "luca-permission-tier: {} moved off an unsupported Manual rung to Accept edits",
+                record.name
+            );
+            if let Ok(scope) = crate::luca::activity_trace::host_scope(app) {
+                crate::luca::activity_trace::record_capability_migration(
+                    app,
+                    &scope,
+                    resident_pubkey.as_str(),
+                    crate::luca::permission_tier::CODEX_MANUAL_MIGRATION_NOTE,
+                    crate::luca::permission_tier::CODEX_MANUAL_MIGRATION_NOTE,
+                );
+            }
+        } else {
+            luca_log!(
+                info,
+                "luca-permission-tier: resident starting at its owner's access level"
+            );
+        }
     }
     if let Some((_, attestation_json)) = &owner_attestation {
         command.env("LUCA_MANAGED_OWNER_ATTESTATION", attestation_json);
