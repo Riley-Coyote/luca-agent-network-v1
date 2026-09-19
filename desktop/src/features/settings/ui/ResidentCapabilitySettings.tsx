@@ -322,7 +322,7 @@ export function ResidentAccessControl({
         </p>
         {rules.length === 0 && grants.length === 0 ? (
           <p className="text-xs leading-5 text-muted-foreground">
-            Nothing remembered yet. “Always here” on a permission card puts it
+            Nothing remembered yet. “Always” on a permission card puts it
             here.
           </p>
         ) : (

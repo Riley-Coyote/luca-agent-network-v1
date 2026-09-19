@@ -258,7 +258,7 @@ test("attachment and permission failures stay sanitized while text remains avail
         },
         offer: {
           once: true,
-          task: true,
+          task: false,
           always_here: true,
           deny: true,
           project_label: "polyphonic",
@@ -329,14 +329,15 @@ test("attachment and permission failures stay sanitized while text remains avail
   await permissionCard.screenshot({
     path: testInfo.outputPath("managed-permission-action-preview.png"),
   });
-  // The card says where the answer lands, and offers all four tenses.
+  // The card says where the answer lands, and offers exactly three tenses —
+  // "for this task" is retired everywhere.
   await expect(permissionCard).toContainText("In polyphonic");
   await expect(
     permissionCard.getByTestId("managed-permission-tense-once"),
   ).toHaveText("Once");
   await expect(
     permissionCard.getByTestId("managed-permission-tense-task"),
-  ).toHaveText("For this task");
+  ).toHaveCount(0);
   await expect(
     permissionCard.getByTestId("managed-permission-tense-deny"),
   ).toHaveText("Deny");
@@ -344,7 +345,7 @@ test("attachment and permission failures stay sanitized while text remains avail
     "Remembered for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
   );
   await permissionCard
-    .getByTestId("managed-permission-tense-always_here")
+    .getByTestId("managed-permission-tense-always")
     .click();
   await expect
     .poll(() =>
@@ -385,7 +386,7 @@ test("attachment and permission failures stay sanitized while text remains avail
           },
           offer: {
             once: true,
-            task: true,
+            task: false,
             always_here: true,
             deny: true,
             project_label: "polyphonic",
@@ -405,12 +406,13 @@ test("attachment and permission failures stay sanitized while text remains avail
     "Remembers ls and echo for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
   );
   await expect(
-    permissionCard.getByTestId("managed-permission-tense-always_here"),
+    permissionCard.getByTestId("managed-permission-tense-always"),
   ).toBeVisible();
   await permissionCard.getByTestId("managed-permission-tense-once").click();
   await expect(permissionCard).toHaveCount(0);
 
-  // A door offers only Once and Deny, and says so in one sentence.
+  // A destructive or unmatchable door still offers only Once and Deny, and
+  // says so in one sentence.
   await page.evaluate(
     ({ conversationId, residentPubkey }) => {
       window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([
@@ -456,7 +458,7 @@ test("attachment and permission failures stay sanitized while text remains avail
     permissionCard.getByTestId("managed-permission-tense-task"),
   ).toHaveCount(0);
   await expect(
-    permissionCard.getByTestId("managed-permission-tense-always_here"),
+    permissionCard.getByTestId("managed-permission-tense-always"),
   ).toHaveCount(0);
   await expect(permissionCard).not.toContainText("Remembered for");
   await permissionCard.getByTestId("managed-permission-tense-deny").click();
@@ -475,6 +477,75 @@ test("attachment and permission failures stay sanitized while text remains avail
       tense: "deny",
     });
   await expect(permissionCard).toHaveCount(0);
+
+  // Since beta.13, a door that is not destructive — messaging someone on the
+  // owner's behalf, here — still asks the first time, but can be answered
+  // "Always" and then stops asking, the same three buttons as everything
+  // else.
+  await page.evaluate(
+    ({ conversationId, residentPubkey }) => {
+      window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([
+        {
+          pendingId: "messaging-door-permission",
+          request: {
+            protocol: "luca.managed.permission.v1",
+            resident_pubkey: residentPubkey,
+            conversation_id: conversationId,
+            session_epoch: 7,
+            turn_id: "messaging-door-turn",
+            acp_request_id: "acp-messaging-door",
+            title: "Message another resident on your behalf",
+            options: [
+              { option_id: "allow", name: "Allow", kind: "allow_once" },
+              { option_id: "reject", name: "Reject", kind: "reject_once" },
+              { option_id: "allow-always", name: "Allow", kind: "allow_always" },
+            ],
+          },
+          offer: {
+            once: true,
+            task: false,
+            always_here: true,
+            deny: true,
+            project_label: "polyphonic",
+            remembers: ["communications_send"],
+            note: null,
+          },
+        },
+      ]);
+      window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("managed-permission-pending", {});
+    },
+    { conversationId: CHANNEL_ID, residentPubkey: CLAUDE },
+  );
+  await expect(permissionCard).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-deny"),
+  ).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-once"),
+  ).toBeVisible();
+  await expect(
+    permissionCard.getByTestId("managed-permission-tense-always"),
+  ).toHaveText("Always");
+  await expect(permissionCard).toContainText(
+    "Remembers communications_send for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
+  );
+  await permissionCard.getByTestId("managed-permission-tense-always").click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window.__BUZZ_E2E_COMMAND_PAYLOADS__ ?? []).findLast(
+            (entry) => entry.command === "resolve_managed_permission",
+          )?.payload,
+      ),
+    )
+    .toEqual({
+      pendingId: "messaging-door-permission",
+      optionId: null,
+      tense: "always_here",
+    });
+  await expect(permissionCard).toHaveCount(0);
+
   await page.evaluate(
     ({ conversationId, residentPubkey }) => {
       window.__BUZZ_E2E_SET_MANAGED_PERMISSIONS__?.([

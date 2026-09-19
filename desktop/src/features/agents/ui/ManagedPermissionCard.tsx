@@ -7,18 +7,36 @@ import { resolveManagedPermission } from "@/shared/api/managedPermissions";
 import { managedPermissionOutcomeCopy } from "@/features/messages/lib/managedOperationalStatus";
 import {
   canRememberCapabilityPermission,
+  PERMISSION_TENSE_WIRE_VALUE,
   runtimePermissionOffer,
+  visiblePermissionTenses,
+  type VisiblePermissionTense,
 } from "@/features/agents/managedPermissionPolicy";
 import type {
   ManagedPermissionResolvedEvent,
   ManagedPermissionTense,
   PendingManagedPermission,
 } from "@/shared/api/types";
-import { Button } from "@/shared/ui/button";
+import { Button, type ButtonProps } from "@/shared/ui/button";
 
 type ManagedPermissionCardProps = {
   pending: PendingManagedPermission;
   compact?: boolean;
+};
+
+/**
+ * Label and styling for each of the three buttons an unstructured card can
+ * show, in their fixed visual order (Deny · Once · Always — see
+ * `visiblePermissionTenses`). Always is the one filled/primary button, so it
+ * takes no `variant` at all, same as before this was table-driven.
+ */
+const TENSE_BUTTON_CONFIG: Record<
+  VisiblePermissionTense,
+  { label: string; variant?: ButtonProps["variant"] }
+> = {
+  deny: { label: "Deny", variant: "ghost" },
+  once: { label: "Once", variant: "outline" },
+  always: { label: "Always" },
 };
 
 /** "Saving…" only where the answer is written down; everything else is sent. */
@@ -33,9 +51,9 @@ function readAsList(names: string[]): string {
 }
 
 /**
- * What "Always here" will write down. A compound command is remembered a
- * segment at a time, so the card names every one rather than letting the
- * owner discover them in Settings afterwards.
+ * What "Always" will write down. A compound command is remembered a segment
+ * at a time, so the card names every one rather than letting the owner
+ * discover them in Settings afterwards.
  */
 function rememberHint(
   remembers: string[],
@@ -140,14 +158,6 @@ export function ManagedPermissionCard({
                     ? `In ${projectLabel}`
                     : "Outside your projects"}
                 </p>
-                {offer.note ? (
-                  <p
-                    className="mt-1 text-xs leading-5 text-muted-foreground"
-                    data-testid="managed-permission-note"
-                  >
-                    {offer.note}
-                  </p>
-                ) : null}
                 {request.actionPreview ? (
                   <div
                     className="mt-3"
@@ -203,65 +213,44 @@ export function ManagedPermissionCard({
             </>
           ) : (
             <>
-              {offer.deny ? (
-                <Button
-                  data-testid="managed-permission-tense-deny"
-                  disabled={resolving !== null}
-                  onClick={() => void decide("deny")}
-                  size="sm"
-                  type="button"
-                  variant="ghost"
-                >
-                  {resolving === "deny" ? busyLabel("deny") : "Deny"}
-                </Button>
-              ) : null}
-              {offer.once ? (
-                <Button
-                  data-testid="managed-permission-tense-once"
-                  disabled={resolving !== null}
-                  onClick={() => void decide("once")}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {resolving === "once" ? busyLabel("once") : "Once"}
-                </Button>
-              ) : null}
-              {offer.task ? (
-                <Button
-                  data-testid="managed-permission-tense-task"
-                  disabled={resolving !== null}
-                  onClick={() => void decide("task")}
-                  size="sm"
-                  type="button"
-                  variant="outline"
-                >
-                  {resolving === "task" ? busyLabel("task") : "For this task"}
-                </Button>
-              ) : null}
-              {offer.alwaysHere ? (
-                <Button
-                  data-testid="managed-permission-tense-always_here"
-                  disabled={resolving !== null}
-                  onClick={() => void decide("always_here")}
-                  size="sm"
-                  type="button"
-                >
-                  {resolving === "always_here"
-                    ? busyLabel("always_here")
-                    : "Always here"}
-                </Button>
-              ) : null}
+              {visiblePermissionTenses(offer).map((tense) => {
+                const wireTense = PERMISSION_TENSE_WIRE_VALUE[tense];
+                const config = TENSE_BUTTON_CONFIG[tense];
+                return (
+                  <Button
+                    data-testid={`managed-permission-tense-${tense}`}
+                    disabled={resolving !== null}
+                    key={tense}
+                    onClick={() => void decide(wireTense)}
+                    size="sm"
+                    type="button"
+                    variant={config.variant}
+                  >
+                    {resolving === wireTense
+                      ? busyLabel(wireTense)
+                      : config.label}
+                  </Button>
+                );
+              })}
             </>
           )}
         </div>
-        {!structured && offer.alwaysHere ? (
-          <p
-            className="mt-2 text-right text-xs leading-5 text-ink-faint"
-            data-testid="managed-permission-remember-hint"
-          >
-            {rememberHint(offer.remembers ?? [], projectLabel)}
-          </p>
+        {!structured ? (
+          offer.alwaysHere ? (
+            <p
+              className="mt-2 text-right text-xs leading-5 text-ink-faint"
+              data-testid="managed-permission-remember-hint"
+            >
+              {rememberHint(offer.remembers ?? [], projectLabel)}
+            </p>
+          ) : offer.note ? (
+            <p
+              className="mt-2 text-right text-xs leading-5 text-ink-faint"
+              data-testid="managed-permission-note"
+            >
+              {offer.note}
+            </p>
+          ) : null
         ) : null}
       </div>
     </section>
