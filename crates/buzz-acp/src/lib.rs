@@ -2042,6 +2042,11 @@ async fn tokio_main() -> Result<()> {
             last_maintenance = std::time::Instant::now();
             queue.compact_expired_state();
 
+            // Close any channel session idle past the warm-session timeout.
+            // Only reaches into currently-idle workers — a worker mid-turn
+            // is skipped and caught on a later tick once it's idle again.
+            pool.evict_idle_channel_sessions().await;
+
             // Slot refill: spawn background tasks for empty slots whose
             // circuit breaker allows it. spawn_and_init runs off the main
             // loop so it never blocks event processing.

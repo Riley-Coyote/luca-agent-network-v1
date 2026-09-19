@@ -121,6 +121,11 @@ pub struct SessionState {
     /// Hash-only native root binding applied to each cached channel session.
     /// Filesystem paths are intentionally absent from reusable harness state.
     pub native_context_refs: HashMap<Uuid, String>,
+    /// channel_id → when that channel's session was last used for a turn.
+    /// Drives both the per-worker warm-session cap (evict the
+    /// least-recently-used) and the idle-close timeout — see
+    /// `sessions_over_cap` and `AgentPool::evict_idle_channel_sessions`.
+    pub(crate) session_last_used: HashMap<Uuid, std::time::Instant>,
 }
 
 impl SessionState {
@@ -148,6 +153,7 @@ impl SessionState {
         self.core_sections.remove(channel_id);
         self.canvas_sections.remove(channel_id);
         self.native_context_refs.remove(channel_id);
+        self.session_last_used.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -163,6 +169,7 @@ impl SessionState {
         self.core_sections.clear();
         self.canvas_sections.clear();
         self.native_context_refs.clear();
+        self.session_last_used.clear();
     }
 
     #[cfg(test)]
@@ -675,6 +682,46 @@ impl AgentPool {
                 .is_some_and(|agent| agent.state.sessions.is_empty())
         })?;
         self.agents[index].take()
+    }
+
+    /// Close and drop any channel session idle for longer than
+    /// `IDLE_CHANNEL_SESSION_TIMEOUT`, for any family, on every worker
+    /// currently idle in the pool. A worker checked out for a running turn is
+    /// skipped entirely — never reached into mid-turn — the next maintenance
+    /// tick catches its idle sessions once it is idle again.
+    ///
+    /// `session_holders` is left untouched: the conversation keeps its
+    /// affinity to this worker and comes back through the existing restore
+    /// path (the runtime session map still has its durable provider pointer)
+    /// on its next turn, exactly as if this worker had just restarted cold.
+    pub async fn evict_idle_channel_sessions(&mut self) {
+        let now = std::time::Instant::now();
+        for slot in self.agents.iter_mut() {
+            let Some(agent) = slot.as_mut() else {
+                continue;
+            };
+            let idle: Vec<Uuid> = agent
+                .state
+                .session_last_used
+                .iter()
+                .filter(|(_, last_used)| {
+                    now.saturating_duration_since(**last_used) >= IDLE_CHANNEL_SESSION_TIMEOUT
+                })
+                .map(|(cid, _)| *cid)
+                .collect();
+            for cid in idle {
+                let Some(session_id) = agent.state.sessions.get(&cid).cloned() else {
+                    continue;
+                };
+                tracing::info!(
+                    target: "pool::session",
+                    "evicting idle warm session {session_id} for channel {cid} (no turn for {}m)",
+                    IDLE_CHANNEL_SESSION_TIMEOUT.as_secs() / 60
+                );
+                let _ = agent.acp.session_close(&session_id).await;
+                agent.state.invalidate_channel(&cid);
+            }
+        }
     }
 
     /// Return an agent to its slot after a task completes.
@@ -2296,6 +2343,60 @@ fn channel_session_policy(has_cached_session: bool) -> ChannelSessionPolicy {
     }
 }
 
+/// Claude runs a CLI subprocess per session — unlike the other adapters,
+/// an idle warm session there is not merely a cache entry, it is a live
+/// process. Capped per worker; other families have no cap of their own yet
+/// (only the idle-close timeout in `AgentPool::evict_idle_channel_sessions`
+/// applies to them).
+const CLAUDE_WARM_SESSION_CAP: usize = 4;
+
+/// A channel session idle this long (no turn) is closed by
+/// `AgentPool::evict_idle_channel_sessions`, for any family. The
+/// conversation restores on its next turn via the runtime session map.
+#[cfg(not(test))]
+const IDLE_CHANNEL_SESSION_TIMEOUT: Duration = Duration::from_secs(20 * 60);
+#[cfg(test)]
+const IDLE_CHANNEL_SESSION_TIMEOUT: Duration = Duration::from_millis(50);
+
+fn is_claude_worker(agent_name: &str) -> bool {
+    matches!(
+        agent_name,
+        "claude-agent-acp" | "@agentclientprotocol/claude-agent-acp"
+    )
+}
+
+/// Channels whose session is over this worker's warm-session cap, oldest-used
+/// first, excluding `just_used` (the channel this turn belongs to — it must
+/// never evict itself). Empty for a non-Claude worker or a worker at or under
+/// the cap.
+fn sessions_over_cap(state: &SessionState, agent_name: &str, just_used: &Uuid) -> Vec<Uuid> {
+    if !is_claude_worker(agent_name) || state.sessions.len() <= CLAUDE_WARM_SESSION_CAP {
+        return Vec::new();
+    }
+    let mut candidates: Vec<(Uuid, std::time::Instant)> = state
+        .sessions
+        .keys()
+        .filter(|cid| *cid != just_used)
+        .map(|cid| {
+            (
+                *cid,
+                state
+                    .session_last_used
+                    .get(cid)
+                    .copied()
+                    .unwrap_or_else(std::time::Instant::now),
+            )
+        })
+        .collect();
+    candidates.sort_by_key(|(_, last_used)| *last_used);
+    let overflow = state.sessions.len() - CLAUDE_WARM_SESSION_CAP;
+    candidates
+        .into_iter()
+        .take(overflow)
+        .map(|(cid, _)| cid)
+        .collect()
+}
+
 fn continuity_history_event_ids(
     conversation_context: Option<&ConversationContext>,
     batch: &FlushBatch,
@@ -3358,6 +3459,27 @@ async fn run_prompt_task_inner(
             }
         }
     };
+    // Stamp this channel's session as just-used, then evict anything this
+    // worker's warm-session cap no longer has room for (Claude only — see
+    // `sessions_over_cap`). Placed here rather than only on creation because
+    // it must also cover the reused-cached-session branch above.
+    if let PromptSource::Channel(cid) = &source {
+        agent
+            .state
+            .session_last_used
+            .insert(*cid, std::time::Instant::now());
+        let evictable = sessions_over_cap(&agent.state, &agent.agent_name, cid);
+        for evict_cid in evictable {
+            if let Some(evict_session_id) = agent.state.sessions.get(&evict_cid).cloned() {
+                tracing::info!(
+                    target: "pool::session",
+                    "evicting least-recently-used warm session {evict_session_id} for channel {evict_cid} (over the per-worker cap)"
+                );
+                let _ = agent.acp.session_close(&evict_session_id).await;
+                agent.state.invalidate_channel(&evict_cid);
+            }
+        }
+    }
     agent.acp.set_observer_context(observer::context_for_turn(
         observer_channel_id,
         Some(session_id.clone()),
@@ -6218,6 +6340,31 @@ mod tests {
                 first_channel_session: false,
             }
         );
+    }
+
+    #[test]
+    fn sessions_over_cap_evicts_the_least_recently_used_claude_sessions() {
+        let mut state = SessionState::default();
+        let now = std::time::Instant::now();
+        let channels: Vec<Uuid> = (0..5).map(|_| Uuid::new_v4()).collect();
+        for (i, cid) in channels.iter().enumerate() {
+            state.sessions.insert(*cid, format!("session-{i}"));
+            // channels[0] is the oldest-used, channels[4] the most recent.
+            state
+                .session_last_used
+                .insert(*cid, now - Duration::from_millis((5 - i) as u64 * 10));
+        }
+        // 5 cached sessions, cap 4, one turn over: only the single oldest
+        // one is evictable, and the just-used channel is never a candidate.
+        let evictable = sessions_over_cap(&state, "claude-agent-acp", &channels[4]);
+        assert_eq!(evictable, vec![channels[0]]);
+
+        // A non-Claude worker has no cap of its own here.
+        assert!(sessions_over_cap(&state, "codex-acp", &channels[4]).is_empty());
+
+        // At or under the cap, nothing is evictable.
+        state.sessions.remove(&channels[0]);
+        assert!(sessions_over_cap(&state, "claude-agent-acp", &channels[4]).is_empty());
     }
 
     #[test]
@@ -9716,6 +9863,125 @@ while read -r _; do :; done
         .await
         .unwrap();
         assert_eq!(restored, "provider-history-survived");
+        assert!(agent.state.restored_channels.contains(&conversation));
+        agent.acp.shutdown().await;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn idle_eviction_closes_the_session_and_drops_the_cache_entry() {
+        // A second request the script doesn't expect (no reply configured
+        // for it) leaves nothing to read and the fixture times out rather
+        // than silently succeeding — proof no more than the one expected
+        // `session/close` is ever sent.
+        let script = r#"read -t 5 INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"agentCapabilities":{"sessionCapabilities":{"close":{}}}}}'
+read -t 5 CLOSE
+echo '{"jsonrpc":"2.0","id":1,"result":{}}'
+read -t 5 UNEXPECTED"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let channel = Uuid::new_v4();
+        agent.state.sessions.insert(channel, "idle-session".into());
+        agent
+            .state
+            .session_last_used
+            .insert(channel, std::time::Instant::now());
+        let mut pool = AgentPool::from_slots(vec![Some(agent)]);
+
+        // Well under the idle timeout — nothing evicted yet.
+        pool.evict_idle_channel_sessions().await;
+        assert_eq!(
+            pool.agents[0]
+                .as_ref()
+                .unwrap()
+                .state
+                .sessions
+                .get(&channel)
+                .map(String::as_str),
+            Some("idle-session")
+        );
+
+        tokio::time::sleep(IDLE_CHANNEL_SESSION_TIMEOUT + Duration::from_millis(20)).await;
+        pool.evict_idle_channel_sessions().await;
+        let agent = pool.agents[0].as_mut().unwrap();
+        assert!(
+            !agent.state.sessions.contains_key(&channel),
+            "an idle session must be dropped from the cache"
+        );
+        assert!(
+            !agent.state.session_last_used.contains_key(&channel),
+            "eviction must clear the last-used stamp too"
+        );
+        agent.acp.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn evicted_conversation_restores_on_its_next_turn() {
+        let root = std::env::temp_dir().join(format!("idle-evict-restore-{}", Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let store = crate::runtime_session_map::RuntimeSessionMap::test_fixture(
+            root.join("sessions.json"),
+            "idle-evict-scope",
+        );
+        let mut ctx = make_prompt_context_no_owner();
+        ctx.cwd = root.to_string_lossy().into_owned();
+        ctx.runtime_session_map = Some(store.clone());
+        let script = r#"
+            read -t 5 INIT
+            echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{"loadSession":true,"sessionCapabilities":{"resume":{},"close":{}}}}}'
+            read -t 5 NEW
+            echo '{"jsonrpc":"2.0","id":1,"result":{"sessionId":"idle-then-restored"}}'
+            read -t 5 CLOSE
+            echo '{"jsonrpc":"2.0","id":2,"result":{}}'
+            read -t 5 RESUME
+            echo '{"jsonrpc":"2.0","id":3,"result":{"sessionId":"idle-then-restored"}}'
+            sleep 1
+        "#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let conversation = Uuid::new_v4();
+        let source = PromptSource::Channel(conversation);
+        let first = create_session_and_apply_model(
+            &mut agent,
+            &ctx,
+            &source,
+            SessionCreationContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(first, "idle-then-restored");
+        agent.state.sessions.insert(conversation, first.clone());
+        // Backdate its last-used stamp past the idle timeout, standing in
+        // for 20 real minutes of silence on this conversation.
+        agent.state.session_last_used.insert(
+            conversation,
+            std::time::Instant::now() - IDLE_CHANNEL_SESSION_TIMEOUT - Duration::from_millis(20),
+        );
+        let mut pool = AgentPool::from_slots(vec![Some(agent)]);
+        pool.evict_idle_channel_sessions().await;
+        assert!(
+            !pool.agents[0]
+                .as_ref()
+                .unwrap()
+                .state
+                .sessions
+                .contains_key(&conversation),
+            "eviction must have dropped the cache entry first"
+        );
+
+        // Its next turn restores the same provider session via the
+        // untouched runtime session map — nothing was lost.
+        let mut agent = pool.agents[0].take().unwrap();
+        let restored = create_session_and_apply_model(
+            &mut agent,
+            &ctx,
+            &source,
+            SessionCreationContext::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(restored, "idle-then-restored");
         assert!(agent.state.restored_channels.contains(&conversation));
         agent.acp.shutdown().await;
         std::fs::remove_dir_all(root).unwrap();
