@@ -369,7 +369,7 @@ fn app_data_dir(app: &AppHandle) -> Option<PathBuf> {
 /// still gets a card rather than being silently allowed.
 fn is_free_read_path(path: &Path, app_data_dir: Option<&Path>) -> bool {
     let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| lexical_path(path));
-    if resolved == PathBuf::from("/\u{0}unresolvable") {
+    if resolved == Path::new("/\u{0}unresolvable") {
         return false;
     }
     if app_data_dir.is_some_and(|dir| is_inside(dir, path)) {
