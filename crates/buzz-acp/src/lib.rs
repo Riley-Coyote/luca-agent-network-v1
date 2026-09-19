@@ -2,6 +2,7 @@
 
 mod acp;
 mod artifact_mcp;
+mod artifact_turn_gate;
 mod assay_runner;
 mod browser_isolation;
 mod communications_mcp;

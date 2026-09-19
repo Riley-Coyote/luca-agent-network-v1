@@ -8,7 +8,7 @@
 use std::{
     collections::HashMap,
     fmt,
-    path::Path,
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{Mutex, OnceLock},
 };
@@ -190,7 +190,7 @@ impl ArtifactMcpConfig {
     pub(crate) fn server_for_turn(&self, turn: &ArtifactTurnBindingV1) -> McpServer {
         let capability = derive_turn_capability(&self.bootstrap, turn);
         McpServer {
-            name: artifact_server_name(turn),
+            name: artifact_server_name(&turn.conversation_id),
             command: self.command.clone(),
             args: Vec::new(),
             env: vec![
@@ -227,6 +227,58 @@ impl ArtifactMcpConfig {
                     value: turn.cancellation_epoch.get().to_string(),
                 },
             ],
+        }
+    }
+
+    /// Build the sidecar's MCP server projection for the new turn-gate shape:
+    /// one sidecar per conversation, authenticated with a conversation-scoped
+    /// token instead of a turn baked into `session/new`. The gate resolves the
+    /// exact open owner turn (and its per-turn HMAC capability) at call time,
+    /// so no turn, receipt or cancellation epoch is ever written into this
+    /// process's environment.
+    pub(crate) fn server_for_conversation(
+        &self,
+        gate: &crate::artifact_turn_gate::ArtifactTurnGate,
+        conversation_id: &OpaqueId,
+    ) -> McpServer {
+        let token = gate.register_conversation(conversation_id.clone(), self.gate_broker_binding());
+        McpServer {
+            name: artifact_server_name(conversation_id),
+            command: self.command.clone(),
+            args: Vec::new(),
+            env: vec![
+                EnvVar {
+                    name: "LUCA_ARTIFACT_MODE".into(),
+                    value: "1".into(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_ENDPOINT".into(),
+                    value: gate.socket_path_string(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CAPABILITY".into(),
+                    value: token,
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CAPABILITY_GENERATION".into(),
+                    value: self.bootstrap.capability_generation.get().to_string(),
+                },
+                EnvVar {
+                    name: "LUCA_ARTIFACT_CONVERSATION_ID".into(),
+                    value: conversation_id.as_str().to_owned(),
+                },
+            ],
+        }
+    }
+
+    /// Opaque handle the gate uses to authenticate a call and hand it to the
+    /// desktop broker on the owner's behalf. Keeps the bootstrap's private
+    /// fields and the per-turn HMAC derivation inside this module — the gate
+    /// only ever calls [`GateBrokerBinding::frame`].
+    fn gate_broker_binding(&self) -> GateBrokerBinding {
+        GateBrokerBinding {
+            endpoint: PathBuf::from(&self.bootstrap.endpoint),
+            bootstrap: self.bootstrap.clone(),
         }
     }
 
@@ -422,12 +474,81 @@ impl ArtifactMcpConfig {
 /// The shape is unchanged — `luca-artifacts-` plus twelve lowercase hex — so
 /// `is_artifact_server_name`, the `starts_with` filter in the pool and the
 /// agent-side `valid_artifact_server_name` all keep working untouched.
-fn artifact_server_name(turn: &ArtifactTurnBindingV1) -> String {
+fn artifact_server_name(conversation_id: &OpaqueId) -> String {
     let mut material = Vec::with_capacity(256);
     material.extend_from_slice(b"luca.artifact.server-name.v2\0");
-    material.extend_from_slice(turn.conversation_id.as_str().as_bytes());
+    material.extend_from_slice(conversation_id.as_str().as_bytes());
     let digest = Sha256::digest(material);
     format!("luca-artifacts-{}", &hex::encode(digest)[..12])
+}
+
+/// Everything [`crate::artifact_turn_gate::ArtifactTurnGate`] needs to
+/// authenticate one sidecar call and hand it to the desktop broker on the
+/// owner's behalf, without exposing [`ArtifactMcpBootstrapV1`]'s private
+/// fields or [`derive_turn_capability`] outside this module.
+#[derive(Clone)]
+pub(crate) struct GateBrokerBinding {
+    endpoint: PathBuf,
+    bootstrap: ArtifactMcpBootstrapV1,
+}
+
+impl GateBrokerBinding {
+    /// The desktop artifact broker's Unix socket — where the gate forwards a
+    /// call once it has resolved the exact open owner turn.
+    pub(crate) fn endpoint(&self) -> &Path {
+        &self.endpoint
+    }
+
+    /// Build the exact legacy-shape frame the desktop broker expects, binding
+    /// `operation`/`arguments` to `turn` with a freshly derived per-turn HMAC.
+    /// `turn` must be the gate's own snapshot of the currently open owner
+    /// turn — this function performs no authority decision of its own.
+    pub(crate) fn frame(
+        &self,
+        turn: &ArtifactTurnBindingV1,
+        operation_request_id: &str,
+        operation: &str,
+        arguments: serde_json::Value,
+    ) -> serde_json::Value {
+        let capability = derive_turn_capability(&self.bootstrap, turn);
+        serde_json::json!({
+            "protocol": BROKER_PROTOCOL,
+            "capability": capability,
+            "capability_generation": self.bootstrap.capability_generation.get(),
+            "conversation_id": turn.conversation_id.as_str(),
+            "turn_id": turn.turn_id.as_str(),
+            "dispatch_receipt_id": turn.dispatch_receipt_id.as_str(),
+            "cancellation_epoch": turn.cancellation_epoch.get(),
+            "operation_request_id": operation_request_id,
+            "operation": operation,
+            "arguments": arguments,
+        })
+    }
+}
+
+/// Test-only bootstrap fixture, shared by this module's own tests and by
+/// [`crate::artifact_turn_gate`]'s tests (which need a [`GateBrokerBinding`]
+/// pointed at a stub desktop socket rather than the fixed fixture path).
+#[cfg(test)]
+pub(crate) fn test_bootstrap() -> ArtifactMcpBootstrapV1 {
+    ArtifactMcpBootstrapV1 {
+        protocol: BROKER_PROTOCOL.into(),
+        endpoint: "/tmp/luca-ab-fixture/e7-0123456789abcdef.sock".into(),
+        master_capability: Sha256Ref::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
+        capability_generation: SafeU53::new(9).unwrap(),
+        resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
+        session_epoch: SafeU53::new(7).unwrap(),
+        binding_ref: Sha256Ref::parse(format!("sha256:{}", "b".repeat(64))).unwrap(),
+        working_root_id: OpaqueId::parse("root-fixture").unwrap(),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_gate_broker_binding(endpoint: PathBuf) -> GateBrokerBinding {
+    GateBrokerBinding {
+        endpoint,
+        bootstrap: test_bootstrap(),
+    }
 }
 
 fn derive_turn_capability(
@@ -494,16 +615,7 @@ mod tests {
     use super::*;
 
     fn bootstrap() -> ArtifactMcpBootstrapV1 {
-        ArtifactMcpBootstrapV1 {
-            protocol: BROKER_PROTOCOL.into(),
-            endpoint: "/tmp/luca-ab-fixture/e7-0123456789abcdef.sock".into(),
-            master_capability: Sha256Ref::parse(format!("sha256:{}", "a".repeat(64))).unwrap(),
-            capability_generation: SafeU53::new(9).unwrap(),
-            resident_pubkey: Hex64::parse("11".repeat(32)).unwrap(),
-            session_epoch: SafeU53::new(7).unwrap(),
-            binding_ref: Sha256Ref::parse(format!("sha256:{}", "b".repeat(64))).unwrap(),
-            working_root_id: OpaqueId::parse("root-fixture").unwrap(),
-        }
+        super::test_bootstrap()
     }
 
     fn turn() -> ArtifactTurnBindingV1 {
@@ -566,6 +678,58 @@ mod tests {
         changed = turn();
         changed.cancellation_epoch = SafeU53::new(8).unwrap();
         assert_ne!(original, derive_turn_capability(&bootstrap, &changed));
+    }
+
+    #[test]
+    fn sidecar_env_has_no_turn_fields() {
+        use crate::artifact_turn_gate::ArtifactTurnGate;
+
+        let config = ArtifactMcpConfig {
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            bootstrap: bootstrap(),
+            declared_support: ArtifactMcpSupport::Supported,
+            probe_key: None,
+            probe_adapter: None,
+        };
+        let gate = ArtifactTurnGate::start_for_test().unwrap();
+        let conversation_id = OpaqueId::parse("conversation-1").unwrap();
+        let server = config.server_for_conversation(&gate, &conversation_id);
+
+        // Exactly the conversation-scoped shape: mode, endpoint, capability,
+        // capability generation, conversation id. No turn, receipt or epoch —
+        // the gate resolves those per call from the open owner turn.
+        assert_eq!(server.env.len(), 5);
+        let names: Vec<&str> = server.env.iter().map(|var| var.name.as_str()).collect();
+        assert!(names.contains(&"LUCA_ARTIFACT_MODE"));
+        assert!(names.contains(&"LUCA_ARTIFACT_ENDPOINT"));
+        assert!(names.contains(&"LUCA_ARTIFACT_CAPABILITY"));
+        assert!(names.contains(&"LUCA_ARTIFACT_CAPABILITY_GENERATION"));
+        assert!(names.contains(&"LUCA_ARTIFACT_CONVERSATION_ID"));
+        assert!(!names.contains(&"LUCA_ARTIFACT_TURN_ID"));
+        assert!(!names.contains(&"LUCA_ARTIFACT_DISPATCH_RECEIPT_ID"));
+        assert!(!names.contains(&"LUCA_ARTIFACT_CANCELLATION_EPOCH"));
+
+        // The name is still the stable, conversation-only coordinate.
+        assert_eq!(server.name, artifact_server_name(&conversation_id));
+    }
+
+    #[test]
+    fn forwarded_capability_matches_per_turn_hmac() {
+        let config = ArtifactMcpConfig {
+            command: "/opt/luca/buzz-dev-mcp".into(),
+            bootstrap: bootstrap(),
+            declared_support: ArtifactMcpSupport::Supported,
+            probe_key: None,
+            probe_adapter: None,
+        };
+        let binding = config.gate_broker_binding();
+        let turn = turn();
+        let frame = binding.frame(&turn, "req-1", "resident_place_get", serde_json::json!({}));
+        let expected = derive_turn_capability(&bootstrap(), &turn);
+        assert_eq!(frame["capability"].as_str().unwrap(), expected);
+        assert_eq!(frame["turn_id"].as_str().unwrap(), "turn-1");
+        assert_eq!(frame["dispatch_receipt_id"].as_str().unwrap(), "dispatch-1");
+        assert_eq!(frame["cancellation_epoch"].as_u64().unwrap(), 7);
     }
 
     #[tokio::test]
