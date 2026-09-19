@@ -574,6 +574,76 @@ impl TraceStore {
         true
     }
 
+    /// Record a resident-lifecycle event that CAN recur — unlike
+    /// [`record_capability_migration`](Self::record_capability_migration),
+    /// which fires at most once per resident ever, this gets a fresh row
+    /// every call. Used for beta.13 P4: Full access ("Don't ask me") can be
+    /// turned on and off any number of times, and each toggle is its own
+    /// line in the Activity trail, not a single deduplicated note.
+    ///
+    /// `marker_id` must be unique per occurrence (the caller mixes in a
+    /// timestamp) — it is the row's `dispatch_receipt_id`, so two calls with
+    /// the same id would otherwise collide with `record_permission`'s own
+    /// receipt-keyed rows. `text` and `room_text` pass the same credential
+    /// redaction as any other entry.
+    pub(super) fn record_lifecycle_marker(
+        &mut self,
+        scope: &Scope,
+        resident_pubkey: &str,
+        marker_id: &str,
+        text: &str,
+        room_text: &str,
+        now: u64,
+    ) -> bool {
+        if self.traces.len() >= MAX_TRACES {
+            let oldest = self
+                .traces
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.trace.status != TraceStatus::Working)
+                .min_by_key(|(_, r)| r.trace.started_at)
+                .map(|(i, _)| i);
+            let Some(oldest) = oldest else {
+                return false;
+            };
+            self.traces.remove(oldest);
+        }
+        let (room_text, room_truncated) = bounded(room_text, MAX_TEXT_BYTES);
+        let (text, truncated) = public_text(text, &room_text);
+        let mut row = StoredTrace {
+            scope: scope.clone(),
+            session_epoch: 0,
+            pending: String::new(),
+            pending_truncated: false,
+            last_sequence: 0,
+            trace: ActivityTrace {
+                conversation_id: "system".into(),
+                resident_pubkey: resident_pubkey.into(),
+                dispatch_receipt_id: marker_id.into(),
+                turn_id: marker_id.into(),
+                final_message_id: None,
+                anchor_message_id: None,
+                response_surface: None,
+                thread_root_id: None,
+                started_at: now,
+                ended_at: Some(now),
+                status: TraceStatus::Completed,
+                entries: Vec::new(),
+                truncated: truncated || room_truncated,
+            },
+        };
+        row.append(TraceEntry {
+            id: "lifecycle-marker".into(),
+            sequence: 0,
+            kind: "permission".into(),
+            text,
+            room_text,
+            status: "done".into(),
+        });
+        self.traces.push(row);
+        true
+    }
+
     pub(super) fn set_placement(
         &mut self,
         scope: &Scope,

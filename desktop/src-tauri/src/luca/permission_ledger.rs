@@ -25,8 +25,9 @@ use std::{
 use luca_protocol::{
     is_secret_path, mcp_server_family, CommandSegmentV1, Hex64, ManagedPermissionRequestV1,
     OpaqueId, PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1,
-    DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES,
-    POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
+    ResidentAccessLevel, DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES,
+    MAX_PERMISSION_RULE_DISPLAY_BYTES, POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS,
+    POLYPHONIC_PRE_ALLOWED_TOOLS,
 };
 use tauri::{AppHandle, Manager};
 
@@ -143,6 +144,12 @@ pub(crate) enum AllowReason {
         rule_ids: Vec<String>,
         display_name: String,
     },
+    /// This resident is at Full access ("Don't ask me") — beta.13 P4. Every
+    /// request that would otherwise ask, doors included, is allowed without
+    /// a card. An explicit `Deny` rule still wins over this (checked first
+    /// in `decide_with`), and this is always audited exactly like any other
+    /// automatic allow — silence never means unaudited.
+    FullAccess,
 }
 
 /// What the offer on the card may contain.
@@ -785,6 +792,7 @@ pub(crate) fn decide_with(
     rules: &[PermissionRuleV1],
     turn_hits: &[PermissionMatcherV1],
     subject: &PermissionSubject,
+    full_access: bool,
 ) -> Verdict {
     if let Some(denied) = rules.iter().find(|rule| {
         rule.effect == PermissionEffectV1::Deny
@@ -805,6 +813,13 @@ pub(crate) fn decide_with(
     }
     if subject.is_free_read {
         return Verdict::Allow(AllowReason::FreeRead);
+    }
+    // beta.13 P4: "Don't ask me" means it — including doors, including a
+    // destructive one, including a compound command with nothing a rule
+    // could be written from. Only an explicit `Deny` rule (checked above)
+    // still stops something at Full access.
+    if full_access {
+        return Verdict::Allow(AllowReason::FullAccess);
     }
     let project_label = subject
         .project
@@ -930,7 +945,17 @@ pub(crate) fn decide(
         request.session_epoch.get(),
         request.turn_id.as_str(),
     );
-    let verdict = decide_with(&rules, &hits, subject);
+    // Fails closed: a lookup error (no store, corrupt file) is never read as
+    // "Don't ask me" — only a resident actually recorded at Full access
+    // silences a door.
+    let full_access = super::resident_capability_authority::effective_access(
+        app,
+        owner_pubkey,
+        subject.resident.as_str(),
+    )
+    .map(|level| level == ResidentAccessLevel::Full)
+    .unwrap_or(false);
+    let verdict = decide_with(&rules, &hits, subject, full_access);
     if let Verdict::Allow(AllowReason::Rule { rule_ids, .. }) = &verdict {
         for rule_id in rule_ids {
             let _ = super::resident_capability_authority::touch_rule(app, owner_pubkey, rule_id);

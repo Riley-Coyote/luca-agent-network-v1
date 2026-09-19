@@ -2644,10 +2644,12 @@ fn spawn_agent_child_unix(
             owner_pubkey.as_str(),
             resident_pubkey.as_str(),
         )?;
-        // A Codex resident left on Manual cannot actually run there — the
-        // adapter's read-only preset still permits project writes — so it is
-        // moved to Accept edits here rather than refused. The move is
-        // written durably, so this only ever happens once per resident.
+        // beta.13 retired the three-rung picker: Restricted ("Manual") is
+        // legacy on every family now, not only a Codex adapter that cannot
+        // actually enforce it. A resident still stored at Restricted is
+        // moved to Standard ("Work in my project") here rather than
+        // refused. The move is written durably, so this only ever happens
+        // once per resident.
         let (level, migrated_off_manual) = crate::luca::permission_tier::migrate_unsupported_level(
             app,
             owner_pubkey.as_str(),
@@ -2673,7 +2675,7 @@ fn spawn_agent_child_unix(
         if migrated_off_manual {
             luca_log!(
                 info,
-                "luca-permission-tier: {} moved off an unsupported Manual rung to Accept edits",
+                "luca-permission-tier: {} moved off the retired Restricted rung to Work in my project",
                 record.name
             );
             if let Ok(scope) = crate::luca::activity_trace::host_scope(app) {
@@ -2681,8 +2683,8 @@ fn spawn_agent_child_unix(
                     app,
                     &scope,
                     resident_pubkey.as_str(),
-                    crate::luca::permission_tier::CODEX_MANUAL_MIGRATION_NOTE,
-                    crate::luca::permission_tier::CODEX_MANUAL_MIGRATION_NOTE,
+                    crate::luca::permission_tier::RESTRICTED_LEVEL_MIGRATION_NOTE,
+                    crate::luca::permission_tier::RESTRICTED_LEVEL_MIGRATION_NOTE,
                 );
             }
         } else {

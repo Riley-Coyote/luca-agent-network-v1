@@ -267,6 +267,54 @@ pub(crate) fn record_capability_migration(
     }
 }
 
+/// Beta.13 P4: mark a Full access ("Don't ask me") toggle in the Activity
+/// trail. Unlike [`record_capability_migration`], this is expected to fire
+/// more than once for the same resident over its lifetime — each on/off
+/// flip gets its own row, so the marker id mixes in the current time.
+pub(crate) fn record_full_access_toggle(
+    app: &AppHandle,
+    scope: &Scope,
+    resident_pubkey: &str,
+    turned_on: bool,
+) {
+    let now = now_ms();
+    let marker_id = format!("full-access-toggle:{resident_pubkey}:{now}");
+    let sentence = if turned_on {
+        "Don't ask me turned on. Every door — messaging, deleting, the shell tool — is now allowed without asking, and still recorded here."
+    } else {
+        "Don't ask me turned off. Doors ask again."
+    };
+    let room_text = if turned_on {
+        "Don't ask me turned on"
+    } else {
+        "Don't ask me turned off"
+    };
+    let result = with_store(app, |store| {
+        let changed = store.record_lifecycle_marker(
+            scope,
+            resident_pubkey,
+            &marker_id,
+            sentence,
+            room_text,
+            now,
+        );
+        if changed {
+            store.save()?;
+        }
+        Ok(changed)
+    });
+    match result {
+        Ok(true) => {
+            let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
+        }
+        Ok(false) => {}
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: full-access toggle note could not be saved"
+        ),
+    }
+}
+
 /// Read only the active native owner's community. Renderer input never chooses
 /// an owner, community or claimed final; association comes from signed dispatch
 /// publication authority. No model output is accepted from the renderer.

@@ -341,6 +341,12 @@ fn automatic_audit_line(subject: &PermissionSubject, verdict: &Verdict) -> Optio
                 None => format!("Allowed by your rule: {display_name}"),
             },
         ),
+        // beta.13 P4: "Don't ask me" silences even a door, but never
+        // silently — this is the audit line that makes the auto-allow
+        // visible in the Activity trail regardless.
+        Verdict::Allow(AllowReason::FullAccess) => {
+            audit_allowed(subject, format!("Allowed without asking: {name}"))
+        }
         Verdict::Deny { reason } => {
             audit_declined(subject, format!("Declined by your rule: {reason}"))
         }

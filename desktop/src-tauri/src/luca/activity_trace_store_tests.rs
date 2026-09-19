@@ -467,6 +467,55 @@ fn capability_migration_note_needs_no_turn_and_is_recorded_once() {
     assert_eq!(trace.entries[0].room_text, note);
 }
 
+/// beta.13 P4: unlike a capability migration (at most once, ever, per
+/// resident), a lifecycle marker recurs — Full access can be turned on and
+/// off any number of times, and each toggle needs its own row so the
+/// Activity trail shows the whole history, not just the first flip.
+#[test]
+fn lifecycle_marker_records_every_occurrence_not_only_the_first() {
+    let (_dir, mut store) = fixture();
+    let resident = "33".repeat(32);
+
+    assert!(store.record_lifecycle_marker(
+        &scope(),
+        &resident,
+        "full-access-toggle:on:1",
+        "Don't ask me turned on.",
+        "Don't ask me turned on",
+        200,
+    ));
+    // A second, distinct marker id for the SAME resident is its own row —
+    // this is the behavior that differs from record_capability_migration.
+    assert!(store.record_lifecycle_marker(
+        &scope(),
+        &resident,
+        "full-access-toggle:off:2",
+        "Don't ask me turned off.",
+        "Don't ask me turned off",
+        300,
+    ));
+
+    let traces = store.list(&scope());
+    let markers: Vec<_> = traces
+        .iter()
+        .filter(|trace| trace.resident_pubkey == resident)
+        .collect();
+    assert_eq!(markers.len(), 2, "both toggles must be recorded");
+    for trace in &markers {
+        assert_eq!(trace.conversation_id, "system");
+        assert_eq!(trace.status, TraceStatus::Completed);
+        assert_eq!(trace.entries.len(), 1);
+        assert_eq!(trace.entries[0].kind, "permission");
+        assert_eq!(trace.entries[0].status, "done");
+    }
+    assert!(markers
+        .iter()
+        .any(|trace| trace.entries[0].text == "Don't ask me turned on."));
+    assert!(markers
+        .iter()
+        .any(|trace| trace.entries[0].text == "Don't ask me turned off."));
+}
+
 #[test]
 fn permission_room_text_never_carries_arguments() {
     let (_dir, mut store) = fixture();

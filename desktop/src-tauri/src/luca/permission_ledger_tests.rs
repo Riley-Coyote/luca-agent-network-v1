@@ -190,7 +190,7 @@ fn pre_allowed_polyphonic_reads_never_ask() {
         let subject = subject_for(&request, Some(project("source-a", "/tmp/luca")));
         assert!(subject.is_pre_allowed, "{family} {tool}");
         assert_eq!(
-            decide_with(&[], &[], &subject),
+            decide_with(&[], &[], &subject, false),
             Verdict::Allow(AllowReason::PreAllowed),
             "{family} {tool} must never raise a card"
         );
@@ -198,7 +198,7 @@ fn pre_allowed_polyphonic_reads_never_ask() {
     // The per-install suffix does not change the answer.
     let suffixed = mcp_request("luca-artifacts-0123abcdef45", "artifact_read");
     assert_eq!(
-        decide_with(&[], &[], &subject_for(&suffixed, None)),
+        decide_with(&[], &[], &subject_for(&suffixed, None), false),
         Verdict::Allow(AllowReason::PreAllowed)
     );
 }
@@ -214,7 +214,7 @@ fn broker_guarded_tools_never_raise_a_runtime_card() {
             "{family} {tool} is not a free read"
         );
         assert_eq!(
-            decide_with(&[], &[], &subject),
+            decide_with(&[], &[], &subject, false),
             Verdict::Allow(AllowReason::BrokerGuarded),
             "{family} {tool} is gated by the broker's own confirmation"
         );
@@ -240,7 +240,7 @@ fn destructive_doors_offer_only_once_and_deny() {
             "{:?} is destructive",
             request.tool_name
         );
-        let verdict = decide_with(&[], &[], &subject);
+        let verdict = decide_with(&[], &[], &subject, false);
         let offer = ask(&verdict);
         assert!(offer.once && offer.deny);
         assert!(
@@ -267,7 +267,7 @@ fn destructive_doors_offer_only_once_and_deny() {
         PermissionEffectV1::Allow,
     )];
     assert!(matches!(
-        decide_with(&rules, &[remembered], &subject),
+        decide_with(&rules, &[remembered], &subject, false),
         Verdict::Ask { .. }
     ));
 }
@@ -295,7 +295,7 @@ fn non_destructive_doors_ask_first_but_can_be_remembered() {
             "{:?} is not destructive",
             request.tool_name
         );
-        let verdict = decide_with(&[], &[], &subject);
+        let verdict = decide_with(&[], &[], &subject, false);
         let offer = ask(&verdict);
         assert!(offer.once && offer.deny);
         assert!(!offer.task, "\"for this task\" is retired everywhere");
@@ -319,13 +319,89 @@ fn non_destructive_doors_ask_first_but_can_be_remembered() {
         )];
         assert!(
             matches!(
-                decide_with(&rules, &[], &subject),
+                decide_with(&rules, &[], &subject, false),
                 Verdict::Allow(AllowReason::Rule { .. })
             ),
             "{:?} should stop asking once remembered",
             request.tool_name
         );
     }
+}
+
+/// beta.13 P4: "Don't ask me" means every door stops asking too — a
+/// destructive one, and one with no matcher a rule could ever be written
+/// from — not only the non-destructive, rememberable ones above.
+#[test]
+fn full_access_silences_even_a_destructive_door() {
+    let mut doors = vec![];
+    let mut deleting = request();
+    deleting.tool_kind = Some("delete".into());
+    deleting.tool_name = Some("Delete".into());
+    doors.push(deleting);
+    for token in DESTRUCTIVE_COMMAND_TOKENS {
+        doors.push(command_request(token, &[]));
+    }
+
+    for request in &doors {
+        let subject = subject_for(request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_door, "{:?} is a door", request.tool_name);
+        assert!(
+            subject.is_destructive,
+            "{:?} is destructive",
+            request.tool_name
+        );
+        assert_eq!(
+            decide_with(&[], &[], &subject, true),
+            Verdict::Allow(AllowReason::FullAccess),
+            "{:?} should be silent at Full access",
+            request.tool_name
+        );
+    }
+}
+
+/// The non-destructive, rememberable doors are silenced by Full access too —
+/// without needing an "Always" rule at all.
+#[test]
+fn full_access_silences_a_non_destructive_door_without_a_remembered_rule() {
+    let doors = vec![
+        mcp_request("buzz", "shell"),
+        mcp_request("polyphonic-browser", "browse"),
+        mcp_request("luca-communications", "communications_send"),
+    ];
+
+    for request in &doors {
+        let subject = subject_for(request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_door, "{:?} is a door", request.tool_name);
+        assert_eq!(
+            decide_with(&[], &[], &subject, true),
+            Verdict::Allow(AllowReason::FullAccess),
+            "{:?} should be silent at Full access with no rule remembered",
+            request.tool_name
+        );
+    }
+}
+
+/// The one thing Full access does not override: an explicit `Deny` rule.
+/// "Don't ask me" silences the asking, never a standing refusal.
+#[test]
+fn full_access_never_overrides_an_explicit_deny_rule() {
+    let asked = mcp_request("buzz", "shell");
+    let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
+    let denied_matcher = subject
+        .matchers
+        .first()
+        .cloned()
+        .expect("shell has a matcher");
+    let rules = vec![rule(
+        "rule-1",
+        here(),
+        denied_matcher,
+        PermissionEffectV1::Deny,
+    )];
+    assert!(matches!(
+        decide_with(&rules, &[], &subject, true),
+        Verdict::Deny { .. }
+    ));
 }
 
 #[test]
@@ -335,7 +411,7 @@ fn native_shell_is_not_a_door_and_never_offers_task() {
     let native = command_request("git", &["status"]);
     let native = subject_for(&native, Some(project("source-a", "/tmp/luca")));
     assert!(!native.is_door);
-    let verdict = decide_with(&[], &[], &native);
+    let verdict = decide_with(&[], &[], &native, false);
     let offer = ask(&verdict);
     assert!(!offer.task && offer.always_here);
 }
@@ -349,6 +425,7 @@ fn command_rule_matches_token_and_argv_prefix_only() {
             &[rule("rule-1", here(), matcher, PermissionEffectV1::Allow)],
             &[],
             &subject,
+            false,
         )
     };
 
@@ -396,18 +473,21 @@ fn project_rule_does_not_cross_projects() {
 
     let inside = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
     assert!(matches!(
-        decide_with(&rules, &[], &inside),
+        decide_with(&rules, &[], &inside, false),
         Verdict::Allow(AllowReason::Rule { .. })
     ));
 
     let elsewhere = subject_for(&asked, Some(project("source-b", "/tmp/other")));
     assert!(
-        matches!(decide_with(&rules, &[], &elsewhere), Verdict::Ask { .. }),
+        matches!(
+            decide_with(&rules, &[], &elsewhere, false),
+            Verdict::Ask { .. }
+        ),
         "a rule minted in one project cannot answer a card in another"
     );
 
     let nowhere = subject_for(&asked, None);
-    let verdict = decide_with(&rules, &[], &nowhere);
+    let verdict = decide_with(&rules, &[], &nowhere, false);
     assert!(matches!(verdict, Verdict::Ask { .. }));
     let offer = ask(&verdict);
     assert!(
@@ -440,6 +520,7 @@ fn everywhere_never_allows_commands_or_writes() {
             )],
             &[],
             &running,
+            false,
         ),
         Verdict::Ask { .. }
     ));
@@ -466,6 +547,7 @@ fn everywhere_never_allows_commands_or_writes() {
                 )],
                 &[],
                 &writing,
+                false,
             ),
             Verdict::Ask { .. }
         ),
@@ -489,6 +571,7 @@ fn everywhere_never_allows_commands_or_writes() {
             )],
             &[],
             &reading,
+            false,
         ),
         Verdict::Allow(AllowReason::Rule { .. })
     ));
@@ -509,7 +592,7 @@ fn deny_rule_beats_pre_allow() {
         PermissionEffectV1::Deny,
     );
     assert_eq!(
-        decide_with(std::slice::from_ref(&deny), &[], &subject),
+        decide_with(std::slice::from_ref(&deny), &[], &subject, false),
         Verdict::Deny {
             reason: "Remembered answer".into()
         }
@@ -524,7 +607,7 @@ fn deny_rule_beats_pre_allow() {
     );
     let turn = vec![deny.matcher.clone()];
     assert!(matches!(
-        decide_with(&[allow, deny.clone()], &turn, &subject),
+        decide_with(&[allow, deny.clone()], &turn, &subject, false),
         Verdict::Deny { .. }
     ));
 
@@ -532,7 +615,7 @@ fn deny_rule_beats_pre_allow() {
     let mut revoked = deny;
     revoked.revoked_at = Some("2026-09-16T01:00:00Z".into());
     assert_eq!(
-        decide_with(&[revoked], &[], &subject),
+        decide_with(&[revoked], &[], &subject, false),
         Verdict::Allow(AllowReason::PreAllowed)
     );
 }
@@ -563,7 +646,7 @@ fn path_rule_requires_inside_project_on_component_boundary() {
     let inside = subject_for(&inside, Some(project.clone()));
     assert!(inside.inside_project);
     assert!(matches!(
-        decide_with(&rules, &[], &inside),
+        decide_with(&rules, &[], &inside, false),
         Verdict::Allow(AllowReason::Rule { .. })
     ));
 
@@ -574,7 +657,7 @@ fn path_rule_requires_inside_project_on_component_boundary() {
         !sibling.inside_project,
         "containment is measured on component boundaries"
     );
-    let verdict = decide_with(&rules, &[], &sibling);
+    let verdict = decide_with(&rules, &[], &sibling, false);
     assert!(matches!(verdict, Verdict::Ask { .. }));
     assert!(
         !ask(&verdict).always_here,
@@ -596,7 +679,7 @@ fn path_rule_requires_inside_project_on_component_boundary() {
     let reading = path_request(&inside_root.join(".env").to_string_lossy(), false);
     let reading = subject_for(&reading, Some(project.clone()));
     assert!(matches!(
-        decide_with(&rules, &[], &reading),
+        decide_with(&rules, &[], &reading, false),
         Verdict::Allow(AllowReason::Rule { .. })
     ));
     let read_only = vec![rule(
@@ -606,7 +689,7 @@ fn path_rule_requires_inside_project_on_component_boundary() {
         PermissionEffectV1::Allow,
     )];
     assert!(matches!(
-        decide_with(&read_only, &[], &inside),
+        decide_with(&read_only, &[], &inside, false),
         Verdict::Ask { .. }
     ));
 }
@@ -631,7 +714,7 @@ fn mcp_family_matches_across_suffixes() {
     let rules = vec![rule("rule-1", here(), expected, PermissionEffectV1::Allow)];
     let subject = subject_for(&reprovisioned, Some(project("source-a", "/tmp/luca")));
     assert!(matches!(
-        decide_with(&rules, &[], &subject),
+        decide_with(&rules, &[], &subject, false),
         Verdict::Allow(AllowReason::Rule { .. })
     ));
 
@@ -641,7 +724,8 @@ fn mcp_family_matches_across_suffixes() {
         decide_with(
             &rules,
             &[],
-            &subject_for(&other, Some(project("source-a", "/tmp/luca")))
+            &subject_for(&other, Some(project("source-a", "/tmp/luca"))),
+            false
         ),
         Verdict::Ask { .. }
     ));
@@ -667,7 +751,7 @@ fn turn_rule_dies_with_session() {
     let asked = command_request("cargo", &["test"]);
     let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
     assert_eq!(
-        decide_with(&[], &turn_hits(&resident, 4, "turn-a"), &subject),
+        decide_with(&[], &turn_hits(&resident, 4, "turn-a"), &subject, false),
         Verdict::Allow(AllowReason::TurnRule)
     );
 
@@ -691,7 +775,7 @@ fn no_matcher_means_once_or_deny_only() {
     let bare = request();
     let subject = subject_for(&bare, Some(project("source-a", "/tmp/luca")));
     assert!(subject.matchers.is_empty());
-    let verdict = decide_with(&[], &[], &subject);
+    let verdict = decide_with(&[], &[], &subject, false);
     let offer = ask(&verdict);
     assert!(offer.once && offer.deny);
     assert!(!offer.task && !offer.always_here);
@@ -709,7 +793,7 @@ fn no_matcher_means_once_or_deny_only() {
         PermissionEffectV1::Allow,
     )];
     assert!(matches!(
-        decide_with(&rules, &[], &subject),
+        decide_with(&rules, &[], &subject, false),
         Verdict::Ask { .. }
     ));
     // The offer is camelCase on the wire and carries no path, command or host.
@@ -746,7 +830,7 @@ fn compound_command_needs_every_segment_remembered() {
         command_matcher_of("ls", &[]),
         PermissionEffectV1::Allow,
     )];
-    let verdict = decide_with(&only_ls, &[], &subject);
+    let verdict = decide_with(&only_ls, &[], &subject, false);
     assert!(
         matches!(verdict, Verdict::Ask { .. }),
         "a remembered `ls` may not carry an unseen `echo`"
@@ -763,7 +847,7 @@ fn compound_command_needs_every_segment_remembered() {
         command_matcher_of("echo", &[]),
         PermissionEffectV1::Allow,
     ));
-    match decide_with(&both, &[], &subject) {
+    match decide_with(&both, &[], &subject, false) {
         Verdict::Allow(AllowReason::Rule {
             rule_ids,
             display_name,
@@ -775,7 +859,12 @@ fn compound_command_needs_every_segment_remembered() {
     }
 
     // A turn answer covers one segment and a durable rule the other.
-    match decide_with(&only_ls, &[command_matcher_of("echo", &[])], &subject) {
+    match decide_with(
+        &only_ls,
+        &[command_matcher_of("echo", &[])],
+        &subject,
+        false,
+    ) {
         Verdict::Allow(AllowReason::Rule { rule_ids, .. }) => {
             assert_eq!(rule_ids, vec!["rule-1".to_string()]);
         }
@@ -789,6 +878,7 @@ fn compound_command_needs_every_segment_remembered() {
                 command_matcher_of("echo", &[]),
             ],
             &subject,
+            false,
         ),
         Verdict::Allow(AllowReason::TurnRule)
     );
@@ -806,6 +896,7 @@ fn compound_command_needs_every_segment_remembered() {
             )],
             &[],
             &pushing,
+            false,
         ),
         Verdict::Ask { .. }
     ));
@@ -836,7 +927,7 @@ fn deny_on_any_segment_wins() {
         ),
     ];
     assert_eq!(
-        decide_with(&rules, &[], &subject),
+        decide_with(&rules, &[], &subject, false),
         Verdict::Deny {
             reason: "Remembered answer".into()
         }
@@ -850,6 +941,7 @@ fn deny_on_any_segment_wins() {
                 command_matcher_of("curl", &[]),
             ],
             &subject,
+            false,
         ),
         Verdict::Deny {
             reason: "Remembered answer".into()
@@ -873,7 +965,7 @@ fn single_segment_unchanged() {
         );
         assert_eq!(subject.display_name, "git status");
 
-        let verdict = decide_with(&[], &[], &subject);
+        let verdict = decide_with(&[], &[], &subject, false);
         let offer = ask(&verdict);
         assert!(offer.once && offer.deny && !offer.task && offer.always_here);
         assert_eq!(offer.remembers, vec!["git status".to_string()]);
@@ -886,7 +978,7 @@ fn single_segment_unchanged() {
             PermissionEffectV1::Allow,
         )];
         assert_eq!(
-            decide_with(&rules, &[], &subject),
+            decide_with(&rules, &[], &subject, false),
             Verdict::Allow(AllowReason::Rule {
                 rule_ids: vec!["rule-1".into()],
                 display_name: "Remembered answer".into(),
@@ -902,7 +994,7 @@ fn single_segment_unchanged() {
     ] {
         let subject = subject_for(&asked, Some(project("source-a", "/tmp/luca")));
         assert!(subject.is_door);
-        let verdict = decide_with(&[], &[], &subject);
+        let verdict = decide_with(&[], &[], &subject, false);
         let offer = ask(&verdict);
         assert!(!offer.task && !offer.always_here);
         assert!(offer.remembers.is_empty());
@@ -974,7 +1066,7 @@ fn an_ordinary_read_outside_the_project_never_raises_a_card() {
     let subject = subject_for(&reading, None);
     assert!(subject.is_free_read);
     assert_eq!(
-        decide_with(&[], &[], &subject),
+        decide_with(&[], &[], &subject, false),
         Verdict::Allow(AllowReason::FreeRead)
     );
 
@@ -987,7 +1079,7 @@ fn an_ordinary_read_outside_the_project_never_raises_a_card() {
     let subject = subject_for(&reading, Some(elsewhere));
     assert!(subject.is_free_read);
     assert_eq!(
-        decide_with(&[], &[], &subject),
+        decide_with(&[], &[], &subject, false),
         Verdict::Allow(AllowReason::FreeRead)
     );
 
@@ -996,7 +1088,7 @@ fn an_ordinary_read_outside_the_project_never_raises_a_card() {
     let subject = subject_for(&writing, None);
     assert!(!subject.is_free_read);
     assert!(matches!(
-        decide_with(&[], &[], &subject),
+        decide_with(&[], &[], &subject, false),
         Verdict::Ask { .. }
     ));
 }
@@ -1023,7 +1115,7 @@ fn secret_reads_still_raise_a_card_with_once_and_always() {
             secret.display()
         );
         assert!(matches!(
-            decide_with(&[], &[], &subject),
+            decide_with(&[], &[], &subject, false),
             Verdict::Ask { .. }
         ));
     }
@@ -1051,7 +1143,7 @@ fn secret_reads_still_raise_a_card_with_once_and_always() {
     let reading = path_request(&root.join(".env").to_string_lossy(), false);
     let subject = subject_for(&reading, Some(project_ref));
     assert!(subject.inside_project);
-    let verdict = decide_with(&[], &[], &subject);
+    let verdict = decide_with(&[], &[], &subject, false);
     let offer = ask(&verdict);
     assert!(offer.once && offer.deny && offer.always_here);
     assert_eq!(offer.note, None);
@@ -1076,7 +1168,7 @@ fn browsing_with_no_project_can_be_remembered_everywhere() {
     let mut browsing = request();
     browsing.domain = Some("docs.rs".into());
     let subject = subject_for(&browsing, None);
-    let verdict = decide_with(&[], &[], &subject);
+    let verdict = decide_with(&[], &[], &subject, false);
     let offer = ask(&verdict);
     assert!(
         offer.always_here,
