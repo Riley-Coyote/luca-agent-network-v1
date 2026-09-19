@@ -3616,6 +3616,53 @@ pub fn model_in_catalog(
         })
 }
 
+/// [`resolve_model_switch_method`]'s match, from the same pre-extracted
+/// catalog halves [`model_in_catalog`] uses instead of a fresh `session/new`
+/// response. Lets a warm, already-cached session apply a later model switch
+/// in place — the cached catalog is process-wide and does not change across
+/// sessions for a given agent, so it is exactly as authoritative here as it
+/// was at the session that first populated it.
+pub fn resolve_model_switch_method_from_catalog(
+    config_options: &[serde_json::Value],
+    available_models: Option<&serde_json::Value>,
+    desired_model: &str,
+) -> Option<ModelSwitchMethod> {
+    for config_opt in config_options {
+        let Some(config_id) = config_opt
+            .get("id")
+            .or_else(|| config_opt.get("configId"))
+            .and_then(|v| v.as_str())
+        else {
+            continue;
+        };
+        if let Some(options) = config_opt.get("options").and_then(|v| v.as_array()) {
+            for opt in options {
+                if opt.get("value").and_then(|v| v.as_str()) == Some(desired_model) {
+                    return Some(ModelSwitchMethod::ConfigOption {
+                        config_id: config_id.to_string(),
+                        option_value: desired_model.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    if let Some(available) = available_models
+        .and_then(|models| models.get("availableModels"))
+        .and_then(|v| v.as_array())
+    {
+        for model in available {
+            if model.get("modelId").and_then(|v| v.as_str()) == Some(desired_model) {
+                return Some(ModelSwitchMethod::SetModel {
+                    model_id: desired_model.to_string(),
+                });
+            }
+        }
+    }
+
+    None
+}
+
 // ─── Drop: kill child process ─────────────────────────────────────────────────
 
 impl Drop for AcpClient {

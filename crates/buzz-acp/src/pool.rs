@@ -126,6 +126,12 @@ pub struct SessionState {
     /// least-recently-used) and the idle-close timeout — see
     /// `sessions_over_cap` and `AgentPool::evict_idle_channel_sessions`.
     pub(crate) session_last_used: HashMap<Uuid, std::time::Instant>,
+    /// channel_id → the model ID actually applied to that channel's live
+    /// session, so a reused warm session only re-sends the switch RPC when
+    /// `OwnedAgent::desired_model` has actually moved on from it. Absent
+    /// entry means "never explicitly switched" — the session is on whatever
+    /// model it started with.
+    pub(crate) applied_model: HashMap<Uuid, String>,
 }
 
 impl SessionState {
@@ -154,6 +160,7 @@ impl SessionState {
         self.canvas_sections.remove(channel_id);
         self.native_context_refs.remove(channel_id);
         self.session_last_used.remove(channel_id);
+        self.applied_model.remove(channel_id);
         self.sessions.remove(channel_id).is_some()
     }
 
@@ -170,6 +177,7 @@ impl SessionState {
         self.canvas_sections.clear();
         self.native_context_refs.clear();
         self.session_last_used.clear();
+        self.applied_model.clear();
     }
 
     #[cfg(test)]
@@ -881,18 +889,20 @@ impl AgentPool {
     }
 
     /// Idle-path model switch: set `desired_model` on the idle agent for
-    /// `channel_id` and invalidate its session so the next turn re-creates the
-    /// session under the new model.
+    /// `channel_id`. The warm session is no longer invalidated — it keeps
+    /// its identity, and `apply_desired_model_in_place` applies the switch
+    /// directly to it the next time this channel picks up a turn.
     ///
     /// Pre-cancel guard: the desired model is validated against the agent's
-    /// cached catalog *before* the session is invalidated, so an unsupported
-    /// pick is rejected without disturbing the existing session.
+    /// cached catalog before anything is set, so an unsupported pick is
+    /// rejected without disturbing `desired_model` or the existing session.
     ///
-    /// Returns [`IdleSwitchResult`] describing what happened. The model does not
-    /// take effect — and the panel does not reflect it — until the agent next
-    /// runs a turn (no live session exists to re-emit `session_config_captured`
-    /// from an idle agent). This lag is intentional: faking the emit would
-    /// surface an override the session has not actually applied.
+    /// Returns [`IdleSwitchResult`] describing what happened. The model does
+    /// not take effect — and the panel does not reflect it — until the agent
+    /// next runs a turn for this channel (no turn is in flight right now to
+    /// carry the RPC and re-emit `session_config_captured`). This lag is
+    /// intentional: faking the emit would surface an override the session
+    /// has not actually applied yet.
     pub fn switch_idle_agent_model(
         &mut self,
         channel_id: Uuid,
@@ -921,7 +931,6 @@ impl AgentPool {
 
         agent.desired_model = Some(model_id.to_string());
         agent.model_overridden = true;
-        agent.state.invalidate_channel(&channel_id);
         IdleSwitchResult::Switched
     }
 }
@@ -1366,6 +1375,12 @@ async fn create_session_and_apply_model(
     } else {
         false
     };
+    if switch_succeeded {
+        if let (PromptSource::Channel(cid), Some(desired)) = (source, agent.desired_model.as_ref())
+        {
+            agent.state.applied_model.insert(*cid, desired.clone());
+        }
+    }
 
     // The Claude adapter resolves its initial mode from native user settings
     // even when the SDK query excludes those settings. A managed resident must
@@ -1667,6 +1682,79 @@ async fn apply_model_switch(
             Err(AcpError::Timeout(MODEL_SWITCH_TIMEOUT))
         }
     }
+}
+
+/// Apply `agent.desired_model` directly to a warm, reused channel session
+/// instead of invalidating it — the counterpart to `create_session_and_apply_model`'s
+/// own switch-on-creation for the case where this turn never calls it at
+/// all. A no-op when there is no desired model, or it is already the one
+/// [`SessionState::applied_model`] has for this channel. Errors are
+/// swallowed exactly as `create_session_and_apply_model` treats them for a
+/// non-strict switch: log and proceed with whatever model the session is
+/// already on — a stale response on the wire from a timed-out request is
+/// safely ignored by `read_until_response`, and this same reused session
+/// carries the actual prompt right after, so a transport-class failure here
+/// surfaces there instead.
+async fn apply_desired_model_in_place(agent: &mut OwnedAgent, channel_id: &Uuid, session_id: &str) {
+    let Some(desired) = agent.desired_model.clone() else {
+        return;
+    };
+    if agent.state.applied_model.get(channel_id) == Some(&desired) {
+        return;
+    }
+    let method = agent.model_capabilities.as_ref().and_then(|caps| {
+        crate::acp::resolve_model_switch_method_from_catalog(
+            &caps.config_options_raw,
+            caps.available_models_raw.as_ref(),
+            &desired,
+        )
+    });
+    let Some(method) = method else {
+        tracing::warn!(
+            target: "pool::model",
+            "desired model {desired} not found in the cached catalog for channel {channel_id} — leaving its warm session on its current model"
+        );
+        return;
+    };
+    let applied = match apply_model_switch(&mut agent.acp, session_id, &desired, &method).await {
+        Ok(applied) => applied,
+        Err(error) => {
+            tracing::warn!(
+                target: "pool::model",
+                "in-place model switch to {desired} failed for channel {channel_id}: {error} — the reused session's own prompt call will surface a transport failure if this was one"
+            );
+            return;
+        }
+    };
+    let Some(raw) = applied else {
+        // Application-level rejection — already logged inside apply_model_switch.
+        return;
+    };
+    let switched = thought_level_options(&raw);
+    if !switched.is_empty() {
+        if let Some(caps) = agent.model_capabilities.as_mut() {
+            caps.effort_options_raw
+                .insert(session_id.to_owned(), switched);
+        }
+    }
+    agent
+        .state
+        .applied_model
+        .insert(*channel_id, desired.clone());
+    agent.acp.observe(
+        "session_config_captured",
+        serde_json::json!({
+            "sessionId": session_id,
+            "configOptions": agent
+                .model_capabilities
+                .as_ref()
+                .and_then(|caps| caps.effort_options_raw.get(session_id))
+                .cloned()
+                .unwrap_or_default(),
+            "models": raw.get("models").cloned().unwrap_or(serde_json::Value::Null),
+            "modelOverridden": agent.model_overridden,
+        }),
+    );
 }
 
 /// Set the session permission mode via `session/set_config_option`.
@@ -3301,6 +3389,10 @@ async fn run_prompt_task_inner(
                     );
                     return;
                 };
+                // No session/new or session/resume ran this turn — apply a
+                // pending model switch directly to this warm session instead
+                // of leaving it stuck until something else rotates it.
+                apply_desired_model_in_place(&mut agent, cid, &session_id).await;
                 (session_id, false, false)
             } else {
                 // Create new session with model application.
@@ -9985,6 +10077,79 @@ read -t 5 UNEXPECTED"#;
         assert!(agent.state.restored_channels.contains(&conversation));
         agent.acp.shutdown().await;
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn model_switch_applies_in_place_and_keeps_the_session_id() {
+        // The idle-path switch no longer invalidates the session — it only
+        // sets desired_model. The switch then applies directly to the SAME
+        // session id the next time this channel picks up a turn: no
+        // session/new or session/resume round trip, no new session id.
+        let script = r#"read -t 5 INIT
+echo '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+read -t 5 SWITCH
+if [[ "$SWITCH" != *'"method":"session/set_config_option"'* ]]; then exit 7; fi
+if [[ "$SWITCH" != *'"sessionId":"warm-session"'* ]]; then exit 8; fi
+if [[ "$SWITCH" != *'"value":"claude-opus-4-20250514"'* ]]; then exit 9; fi
+echo '{"jsonrpc":"2.0","id":1,"result":{"configOptions":[{"category":"thought_level","id":"effort","options":[]}]}}'
+read -t 5 UNEXPECTED"#;
+        let mut agent = artifact_test_agent(script).await;
+        agent.acp.initialize().await.unwrap();
+        let channel = Uuid::new_v4();
+        agent.state.sessions.insert(channel, "warm-session".into());
+        agent.model_capabilities = Some(AgentModelCapabilities {
+            effort_options_raw: HashMap::new(),
+            config_options_raw: vec![serde_json::json!({
+                "id": "model",
+                "category": "model",
+                "options": [
+                    {"value": "claude-sonnet-4-20250514"},
+                    {"value": "claude-opus-4-20250514"},
+                ],
+            })],
+            available_models_raw: None,
+        });
+        let mut pool = AgentPool::from_slots(vec![Some(agent)]);
+
+        assert_eq!(
+            pool.switch_idle_agent_model(channel, "claude-opus-4-20250514"),
+            IdleSwitchResult::Switched
+        );
+        // Not invalidated — the session id is exactly where it was.
+        assert_eq!(
+            pool.agents[0]
+                .as_ref()
+                .unwrap()
+                .state
+                .sessions
+                .get(&channel)
+                .map(String::as_str),
+            Some("warm-session")
+        );
+
+        let mut agent = pool.agents[0].take().unwrap();
+        apply_desired_model_in_place(&mut agent, &channel, "warm-session").await;
+        assert_eq!(
+            agent.state.applied_model.get(&channel).map(String::as_str),
+            Some("claude-opus-4-20250514"),
+            "the switch must be recorded as applied for this channel"
+        );
+        assert_eq!(
+            agent.state.sessions.get(&channel).map(String::as_str),
+            Some("warm-session"),
+            "the session id must survive the in-place model switch"
+        );
+        // The effort ladder refreshed from the switch response.
+        assert!(agent
+            .model_capabilities
+            .as_ref()
+            .unwrap()
+            .effort_options_raw
+            .contains_key("warm-session"));
+        // A second call for the same already-applied model sends nothing
+        // further — the script has nothing left configured to answer.
+        apply_desired_model_in_place(&mut agent, &channel, "warm-session").await;
+        agent.acp.shutdown().await;
     }
 
     #[tokio::test]
