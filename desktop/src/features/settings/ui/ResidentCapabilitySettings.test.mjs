@@ -31,6 +31,22 @@ test("unsupported Codex Manual is visibly unavailable without selecting a higher
   assert.match(html, /Unavailable with this Codex connection/);
 });
 
+test("a resident migrated off Manual shows Accept edits selected, not a dead Manual", () => {
+  // Backend migration writes an explicit Standard override for a Codex
+  // resident that was left on Restricted, so `value` arrives as "standard"
+  // even though Manual stays disabled on this connection.
+  const { html, radios } = inputs({
+    restrictedUnavailable: true,
+    value: "standard",
+  });
+  assert.equal(radios.length, 3);
+  assert.match(radios[0], /disabled/);
+  assert.doesNotMatch(radios[0], /checked/);
+  assert.match(radios[1], /checked/);
+  assert.doesNotMatch(radios[1], /disabled/);
+  assert.match(html, /Unavailable with this Codex connection/);
+});
+
 test("pending changes disable every access choice", () => {
   const { radios } = inputs({ disabled: true });
   assert.equal(radios.length, 3);

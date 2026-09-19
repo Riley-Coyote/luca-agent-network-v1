@@ -69,7 +69,7 @@ function runtimeTierNote(
     case "native_mode":
       return "Claude Code runs at this level.";
     case "native_policy":
-      return "Codex supports Accept edits and Full access. Manual is unavailable because this connection cannot enforce a read-only workspace; it will not silently run at a higher level.";
+      return "Codex supports Accept edits and Full access. Manual isn't available with this connection, so this resident now runs at Accept edits.";
     default:
       return `${runtimeFamilyName(family)} doesn’t take a level from Polyphonic. It keeps its own settings; the remembered permissions below still apply.`;
   }
