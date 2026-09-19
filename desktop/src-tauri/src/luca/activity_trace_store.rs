@@ -496,6 +496,84 @@ impl TraceStore {
         true
     }
 
+    /// Record a resident-lifecycle capability change that happens outside
+    /// any turn — e.g. a resident being moved off an unsupported Manual
+    /// rung at spawn, before it has run a single turn. Unlike
+    /// [`record_permission`](Self::record_permission) there is no existing
+    /// dispatch to attach this to, so it gets its own small, already-closed
+    /// row instead of waiting on one.
+    ///
+    /// Idempotent per resident: once one of these rows exists, a second
+    /// call is a no-op. Callers do not need to track whether they already
+    /// recorded one — which matters here, since the durable migration this
+    /// records only ever happens once. `text` and `room_text` pass the same
+    /// credential redaction as any other entry; `room_text` must already be
+    /// free of commands, paths and hosts when it arrives here.
+    pub(super) fn record_capability_migration(
+        &mut self,
+        scope: &Scope,
+        resident_pubkey: &str,
+        text: &str,
+        room_text: &str,
+        now: u64,
+    ) -> bool {
+        let dispatch_receipt_id = format!("capability-migration:{resident_pubkey}");
+        if self
+            .traces
+            .iter()
+            .any(|row| &row.scope == scope && row.trace.dispatch_receipt_id == dispatch_receipt_id)
+        {
+            return false;
+        }
+        if self.traces.len() >= MAX_TRACES {
+            let oldest = self
+                .traces
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| r.trace.status != TraceStatus::Working)
+                .min_by_key(|(_, r)| r.trace.started_at)
+                .map(|(i, _)| i);
+            let Some(oldest) = oldest else {
+                return false;
+            };
+            self.traces.remove(oldest);
+        }
+        let (room_text, room_truncated) = bounded(room_text, MAX_TEXT_BYTES);
+        let (text, truncated) = public_text(text, &room_text);
+        let mut row = StoredTrace {
+            scope: scope.clone(),
+            session_epoch: 0,
+            pending: String::new(),
+            pending_truncated: false,
+            last_sequence: 0,
+            trace: ActivityTrace {
+                conversation_id: "system".into(),
+                resident_pubkey: resident_pubkey.into(),
+                dispatch_receipt_id: dispatch_receipt_id.clone(),
+                turn_id: dispatch_receipt_id,
+                final_message_id: None,
+                anchor_message_id: None,
+                response_surface: None,
+                thread_root_id: None,
+                started_at: now,
+                ended_at: Some(now),
+                status: TraceStatus::Completed,
+                entries: Vec::new(),
+                truncated: truncated || room_truncated,
+            },
+        };
+        row.append(TraceEntry {
+            id: "capability-migration".into(),
+            sequence: 0,
+            kind: "permission".into(),
+            text,
+            room_text,
+            status: "done".into(),
+        });
+        self.traces.push(row);
+        true
+    }
+
     pub(super) fn set_placement(
         &mut self,
         scope: &Scope,

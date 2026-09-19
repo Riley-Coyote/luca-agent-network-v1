@@ -441,6 +441,33 @@ fn permission_entry_lands_on_the_working_trace_by_receipt_or_turn() {
 }
 
 #[test]
+fn capability_migration_note_needs_no_turn_and_is_recorded_once() {
+    let (_dir, mut store) = fixture();
+    let resident = "22".repeat(32);
+    let note =
+        "Manual isn't available with this Codex connection, so this resident now runs at Accept edits.";
+
+    // No `begin()`: this resident has not run a single turn yet.
+    assert!(store.record_capability_migration(&scope(), &resident, note, note, 200));
+    // The migration itself only ever happens once, so a second call — say,
+    // from a resident that restarts before its first turn — says nothing new.
+    assert!(!store.record_capability_migration(&scope(), &resident, note, note, 201));
+
+    let traces = store.list(&scope());
+    let trace = traces
+        .iter()
+        .find(|trace| trace.resident_pubkey == resident)
+        .expect("capability migration trace");
+    assert_eq!(trace.conversation_id, "system");
+    assert_eq!(trace.status, TraceStatus::Completed);
+    assert_eq!(trace.entries.len(), 1);
+    assert_eq!(trace.entries[0].kind, "permission");
+    assert_eq!(trace.entries[0].status, "done");
+    assert_eq!(trace.entries[0].text, note);
+    assert_eq!(trace.entries[0].room_text, note);
+}
+
+#[test]
 fn permission_room_text_never_carries_arguments() {
     let (_dir, mut store) = fixture();
     begin(&mut store);

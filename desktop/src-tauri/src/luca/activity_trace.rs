@@ -235,6 +235,38 @@ pub(crate) fn record_permission(
     }
 }
 
+/// Write one resident-lifecycle capability change into the public work
+/// history — a change that happens outside any turn, such as a resident
+/// being moved off an unsupported Manual rung at spawn. Idempotent per
+/// resident, mirroring [`record_permission`]: a caller does not need to
+/// track whether it already recorded one.
+pub(crate) fn record_capability_migration(
+    app: &AppHandle,
+    scope: &Scope,
+    resident_pubkey: &str,
+    text: &str,
+    room_text: &str,
+) {
+    let result = with_store(app, |store| {
+        let changed =
+            store.record_capability_migration(scope, resident_pubkey, text, room_text, now_ms());
+        if changed {
+            store.save()?;
+        }
+        Ok(changed)
+    });
+    match result {
+        Ok(true) => {
+            let _ = app.emit(ACTIVITY_TRACE_EVENT, ());
+        }
+        Ok(false) => {}
+        Err(_) => luca_log!(
+            warn,
+            "luca-activity-trace: capability migration note could not be saved"
+        ),
+    }
+}
+
 /// Read only the active native owner's community. Renderer input never chooses
 /// an owner, community or claimed final; association comes from signed dispatch
 /// publication authority. No model output is accepted from the renderer.
