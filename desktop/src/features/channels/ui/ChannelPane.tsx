@@ -107,6 +107,7 @@ import {
 import { RuntimeTaskResultReceipts } from "@/features/capabilities/ui/RuntimeTaskResultReceipts";
 import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useConversationEffort } from "@/features/thinking/useConversationEffort";
+import { ConversationAccessPicker } from "@/features/settings/ui/ConversationAccessPicker";
 import { ConversationEffortPicker } from "@/features/thinking/ui/ConversationEffortPicker";
 import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
 export const ChannelPane = React.memo(function ChannelPane({
@@ -1369,16 +1370,29 @@ export const ChannelPane = React.memo(function ChannelPane({
                       mediaController={mainComposerMedia}
                       toolbarTrailingActions={
                         capabilityResidents.length && !mainEditTarget ? (
-                          <ConversationEffortPicker
-                            residents={capabilityResidents}
-                            selectedPubkey={thinking.selectedPubkey}
-                            onSelectResident={thinking.selectResident}
-                            effort={thinking.effort}
-                            position={thinking.effortPosition}
-                            onPositionChange={thinking.setEffortPosition}
-                            onCommit={thinking.setEffort}
-                            disabled={isComposerDisabled}
-                          />
+                          // Both pickers share one trigger style tuned for a
+                          // single toolbar chip (see thinking-effort.css); a
+                          // flex row keeps two of them from stacking on that
+                          // style's own spacing. Worth a visual check once
+                          // this can be seen live.
+                          <div className="flex items-center gap-1">
+                            <ConversationAccessPicker
+                              residents={capabilityResidents}
+                              selectedPubkey={thinking.selectedPubkey}
+                              onSelectResident={thinking.selectResident}
+                              disabled={isComposerDisabled}
+                            />
+                            <ConversationEffortPicker
+                              residents={capabilityResidents}
+                              selectedPubkey={thinking.selectedPubkey}
+                              onSelectResident={thinking.selectResident}
+                              effort={thinking.effort}
+                              position={thinking.effortPosition}
+                              onPositionChange={thinking.setEffortPosition}
+                              onCommit={thinking.setEffort}
+                              disabled={isComposerDisabled}
+                            />
+                          </div>
                         ) : undefined
                       }
                       onCancelEdit={onCancelEdit}

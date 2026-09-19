@@ -4,6 +4,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AccessLevelPicker } from "./ResidentCapabilitySettings.tsx";
 
+// beta.13 P1 retires the three-rung picker (Manual/Accept edits/Full
+// access) for two plain modes — "Work in my project" (standard) and "Don't
+// ask me" (full). The confirmation AlertDialog beta.13 P4 adds is closed by
+// default (`confirmOpen` starts `false`), and Radix does not mount a closed
+// dialog's portal content, so `renderToStaticMarkup` still sees only the
+// plain radio markup below — exactly as it did before this AlertDialog was
+// added.
 function inputs(options = {}) {
   const html = renderToStaticMarkup(
     createElement(AccessLevelPicker, {
@@ -19,41 +26,47 @@ function inputs(options = {}) {
   };
 }
 
-test("unsupported Codex Manual is visibly unavailable without selecting a higher level", () => {
-  const { html, radios } = inputs({
-    restrictedUnavailable: true,
-    value: "restricted",
-  });
-  assert.equal(radios.length, 3);
-  assert.match(radios[0], /disabled/);
-  assert.match(radios[0], /checked/);
-  assert.doesNotMatch(radios[1], /disabled|checked/);
-  assert.match(html, /Unavailable with this Codex connection/);
+test("exactly two choices render: Work in my project and Don't ask me", () => {
+  const { html, radios } = inputs();
+  assert.equal(radios.length, 2);
+  assert.match(html, /Work in my project/);
+  assert.match(html, /Don&#x27;t ask me/);
+  // The retired three-rung wording must not reappear.
+  assert.doesNotMatch(html, /\bManual\b/);
+  assert.doesNotMatch(html, /Accept edits/);
+  assert.doesNotMatch(html, /Full access/);
 });
 
-test("a resident migrated off Manual shows Accept edits selected, not a dead Manual", () => {
-  // Backend migration writes an explicit Standard override for a Codex
-  // resident that was left on Restricted, so `value` arrives as "standard"
-  // even though Manual stays disabled on this connection.
-  const { html, radios } = inputs({
-    restrictedUnavailable: true,
-    value: "standard",
-  });
-  assert.equal(radios.length, 3);
-  assert.match(radios[0], /disabled/);
+test("standard selects the first (Work in my project) radio", () => {
+  const { radios } = inputs({ value: "standard" });
+  assert.match(radios[0], /checked/);
+  assert.doesNotMatch(radios[1], /checked/);
+});
+
+test("full selects the second (Don't ask me) radio", () => {
+  const { radios } = inputs({ value: "full" });
   assert.doesNotMatch(radios[0], /checked/);
   assert.match(radios[1], /checked/);
-  assert.doesNotMatch(radios[1], /disabled/);
-  assert.match(html, /Unavailable with this Codex connection/);
+});
+
+test("a resident still on the retired restricted level displays as Work in my project, not a third dead option", () => {
+  // permission_tier::migrate_unsupported_level moves any resident still
+  // stored at "restricted" to "standard" on its next start; until that
+  // start happens, the picker must not invent a third radio for it and
+  // must not leave nothing selected.
+  const { radios } = inputs({ value: "restricted" });
+  assert.equal(radios.length, 2);
+  assert.match(radios[0], /checked/);
+  assert.doesNotMatch(radios[1], /checked/);
 });
 
 test("pending changes disable every access choice", () => {
   const { radios } = inputs({ disabled: true });
-  assert.equal(radios.length, 3);
+  assert.equal(radios.length, 2);
   for (const radio of radios) assert.match(radio, /disabled/);
 });
 
-test("supported runtimes retain an available Manual choice", () => {
-  const { radios } = inputs();
-  assert.doesNotMatch(radios[0], /disabled/);
+test("neither choice is ever individually disabled — restrictedUnavailable is retired along with restricted", () => {
+  const { radios } = inputs({ disabled: false });
+  for (const radio of radios) assert.doesNotMatch(radio, /disabled/);
 });

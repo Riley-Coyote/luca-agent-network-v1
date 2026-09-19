@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Trash2 } from "lucide-react";
+import * as React from "react";
 import { toast } from "sonner";
 
 import {
@@ -12,35 +13,53 @@ import {
 } from "@/shared/api/residentCapabilities";
 import { listConnectedBrainSources } from "@/shared/api/tauriBrain";
 import type { PermissionRule, ResidentAccessLevel } from "@/shared/api/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
 
 const queryKey = ["resident-capability-settings"] as const;
 const projectNamesQueryKey = ["connected-brain-source-names"] as const;
 
+/**
+ * Beta.13 retires the three-rung picker (Manual/Accept edits/Full access)
+ * for two plain modes. A resident still stored at "restricted" (legacy
+ * Manual) is migrated to "standard" the next time it starts — see
+ * `permission_tier::migrate_unsupported_level` — so it is displayed here as
+ * "Work in my project" in the meantime rather than as a third, unselectable
+ * option.
+ */
 const levels: Array<{
-  value: ResidentAccessLevel;
+  value: "standard" | "full";
   label: string;
   description: string;
 }> = [
   {
-    value: "restricted",
-    label: "Manual",
-    description:
-      "Reads without asking. Requests approval for changes and additional access.",
-  },
-  {
     value: "standard",
-    label: "Accept edits",
+    label: "Work in my project",
     description:
-      "Works inside a project without asking. Extra access asks; supported permission requests can be remembered.",
+      "Works inside a project without asking. Extra access, and doors like messaging or the shell tool, still ask — Always makes a door stop asking, once you say so.",
   },
   {
     value: "full",
-    label: "Full access",
+    label: "Don't ask me",
     description:
-      "Runs on its own. The doors — messaging, the shell tool, proposals, deletions — still ask.",
+      "Runs on its own, doors included — messaging, deleting, the shell tool. Every one of those is still written to the Activity trail.",
   },
 ];
+
+/** A resident still on the retired "restricted" (Manual) rung reads here as
+ * the level it will actually run at — see the `levels` doc comment above. */
+function displayLevel(level: ResidentAccessLevel): "standard" | "full" {
+  return level === "full" ? "full" : "standard";
+}
 
 const runtimeFamilyNames: Record<string, string> = {
   claude_code: "Claude Code",
@@ -60,16 +79,19 @@ function runtimeFamilyName(family: string): string {
   );
 }
 
-/** What the level actually reaches in this resident's runtime, in plain words. */
+/**
+ * What the level actually reaches in this resident's runtime, in plain
+ * words — including whether a change here needs this resident to restart.
+ */
 function runtimeTierNote(
   control: "native_mode" | "native_policy" | "advisory",
   family: string,
 ): string {
   switch (control) {
     case "native_mode":
-      return "Claude Code runs at this level.";
+      return "Claude Code applies this right away — no restart needed.";
     case "native_policy":
-      return "Codex supports Accept edits and Full access. Manual isn't available with this connection, so this resident now runs at Accept edits.";
+      return "Codex supports Work in my project and Don't ask me. It takes a change here the next time this resident starts.";
     default:
       return `${runtimeFamilyName(family)} doesn’t take a level from Polyphonic. It keeps its own settings; the remembered permissions below still apply.`;
   }
@@ -101,50 +123,89 @@ function ruleScopeLabel(
   return `Always in ${projectName(rule.scope.sourceId) ?? "this project"}`;
 }
 
+/**
+ * Two modes, everywhere this control appears — the composer picker and
+ * Settings share this exact component, so the words never drift between
+ * them (beta.13 P1). Turning "Don't ask me" ON asks for one confirmation
+ * first, naming what it covers (beta.13 P4); turning it off, or choosing
+ * "Work in my project", needs no confirmation.
+ */
 export function AccessLevelPicker({
   disabled,
   onChange,
   value,
-  restrictedUnavailable = false,
+  subjectLabel = "This resident",
 }: {
   disabled: boolean;
-  restrictedUnavailable?: boolean;
   onChange: (value: ResidentAccessLevel) => void;
   value: ResidentAccessLevel;
+  /** Who the confirmation names, e.g. a resident's display name, or "New
+   * residents" for the household default. Defaults to a neutral phrase. */
+  subjectLabel?: string;
 }) {
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const displayed = displayLevel(value);
+
   return (
-    <fieldset className="grid gap-2 sm:grid-cols-3">
-      <legend className="sr-only">Resident access level</legend>
-      {levels.map((level) => (
-        <label
-          className={
-            value === level.value
-              ? "cursor-pointer rounded-xl border border-foreground/30 bg-foreground/6 p-3 text-left ring-1 ring-foreground/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
-              : "cursor-pointer rounded-xl border border-border/60 bg-card/25 p-3 text-left transition-colors hover:bg-muted/35 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
-          }
-          key={level.value}
-        >
-          <input
-            checked={value === level.value}
-            className="sr-only"
-            disabled={
-              disabled ||
-              (restrictedUnavailable && level.value === "restricted")
+    <>
+      <fieldset className="grid gap-2 sm:grid-cols-2">
+        <legend className="sr-only">Resident access level</legend>
+        {levels.map((level) => (
+          <label
+            className={
+              displayed === level.value
+                ? "cursor-pointer rounded-xl border border-foreground/30 bg-foreground/6 p-3 text-left ring-1 ring-foreground/10 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+                : "cursor-pointer rounded-xl border border-border/60 bg-card/25 p-3 text-left transition-colors hover:bg-muted/35 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
             }
-            name="resident-access-level"
-            onChange={() => onChange(level.value)}
-            type="radio"
-            value={level.value}
-          />
-          <span className="block text-sm font-medium">{level.label}</span>
-          <span className="mt-1 block text-xs leading-5 text-muted-foreground">
-            {restrictedUnavailable && level.value === "restricted"
-              ? "Unavailable with this Codex connection."
-              : level.description}
-          </span>
-        </label>
-      ))}
-    </fieldset>
+            key={level.value}
+          >
+            <input
+              checked={displayed === level.value}
+              className="sr-only"
+              disabled={disabled}
+              name="resident-access-level"
+              onChange={() => {
+                if (level.value === "full" && displayed !== "full") {
+                  setConfirmOpen(true);
+                  return;
+                }
+                onChange(level.value);
+              }}
+              type="radio"
+              value={level.value}
+            />
+            <span className="block text-sm font-medium">{level.label}</span>
+            <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+              {level.description}
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Turn on &quot;Don&apos;t ask me&quot;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {subjectLabel} will act without asking — including messaging
+              people on your behalf, deleting, and the shell tool. Every one
+              of those is still written to the Activity trail, and you can
+              turn this off again anytime.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setConfirmOpen(false);
+                onChange("full");
+              }}
+            >
+              Turn on
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -191,13 +252,14 @@ export function HouseholdAccessLevelControl() {
       <div>
         <p className="text-sm font-medium">Default resident access</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          New residents inherit this level. Per-resident choices take priority.
-          Codex residents cannot start with Manual on the current connection.
+          New residents inherit this level. Per-resident choices take
+          priority.
         </p>
       </div>
       <AccessLevelPicker
         disabled={mutation.isPending}
         onChange={(level) => mutation.mutate(level)}
+        subjectLabel="New residents, by default,"
         value={settings.data.householdDefault}
       />
     </section>
@@ -298,17 +360,13 @@ export function ResidentAccessControl({
         <AccessLevelPicker
           disabled={setLevel.isPending}
           onChange={(level) => setLevel.mutate(level)}
-          restrictedUnavailable={tier.data?.family === "codex"}
           value={effective}
         />
         <p
           className="text-xs leading-5 text-muted-foreground"
           data-testid="resident-runtime-tier-note"
         >
-          {tier.data
-            ? `${runtimeTierNote(tier.data.control, tier.data.family)} `
-            : null}
-          Changes apply the next time this resident starts.
+          {tier.data ? runtimeTierNote(tier.data.control, tier.data.family) : null}
         </p>
       </section>
       <section className="space-y-3">
