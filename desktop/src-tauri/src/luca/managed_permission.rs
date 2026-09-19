@@ -17,8 +17,7 @@ use luca_protocol::{
 use tauri::{AppHandle, Emitter};
 
 use super::permission_ledger::{
-    self, AllowReason, ManagedPermissionTense, PermissionOfferV1, PermissionSubject, ProjectRef,
-    Verdict,
+    self, AllowReason, ManagedPermissionTense, PermissionOfferV1, PermissionSubject, Verdict,
 };
 
 const PENDING_EVENT: &str = "managed-permission-pending";
@@ -326,6 +325,9 @@ fn automatic_audit_line(subject: &PermissionSubject, verdict: &Verdict) -> Optio
         Verdict::Allow(AllowReason::BrokerGuarded) => {
             audit_allowed(subject, format!("Handled by Polyphonic: {name}"))
         }
+        Verdict::Allow(AllowReason::FreeRead) => {
+            audit_allowed(subject, format!("Allowed on its own: read {name}"))
+        }
         Verdict::Allow(AllowReason::TurnRule) => {
             audit_allowed(subject, format!("Allowed for this task: {name}"))
         }
@@ -553,26 +555,54 @@ fn offer_allows(offer: &PermissionOfferV1, tense: ManagedPermissionTense) -> boo
     }
 }
 
+/// The widest scope an "Always" answer could still write for this subject: a
+/// project rule when the chat has one, otherwise `Everywhere` when every
+/// matcher can only ever describe reading — never for a path, whatever its
+/// mode, since a path rule must never travel outside the project it was
+/// raised in.
+fn rule_scope_for(subject: &PermissionSubject) -> Option<luca_protocol::PermissionRuleScopeV1> {
+    if let Some(project) = subject.project.as_ref() {
+        return Some(luca_protocol::PermissionRuleScopeV1::Project {
+            source_id: project.scope_id().clone(),
+        });
+    }
+    let has_path_matcher = subject
+        .matchers
+        .iter()
+        .any(|matcher| matches!(matcher, luca_protocol::PermissionMatcherV1::Path { .. }));
+    if !has_path_matcher
+        && subject
+            .matchers
+            .iter()
+            .all(luca_protocol::PermissionMatcherV1::is_read_only)
+    {
+        return Some(luca_protocol::PermissionRuleScopeV1::Everywhere);
+    }
+    None
+}
+
 /// Mint the durable rules for an "Always here" answer: one per thing the
 /// request asks for, so a compound command is remembered a segment at a time
 /// and the permissions list shows each on its own line.
 ///
 /// All of them or none: a line the owner said yes to must never end up half
-/// remembered, so a single matcher that will not mint refuses the lot.
+/// remembered, so a single matcher that will not mint refuses the lot. A
+/// scope or matcher `PermissionRuleV1::validate` would reject — `Everywhere`
+/// on anything but a read-only matcher — refuses the lot too, by construction:
+/// `rule_scope_for` never offers that combination, and `validate()` below is
+/// the last word regardless.
 fn rules_for(subject: &PermissionSubject) -> Option<Vec<PermissionRuleV1>> {
-    let source_id = subject.project.as_ref().map(ProjectRef::scope_id)?.clone();
     if subject.matchers.is_empty() {
         return None;
     }
+    let scope = rule_scope_for(subject)?;
     let mut rules = Vec::with_capacity(subject.matchers.len());
     for (matcher, display_name) in subject.asks() {
         let rule = PermissionRuleV1 {
             protocol: PERMISSION_RULE_PROTOCOL.into(),
             rule_id: luca_protocol::OpaqueId::parse(uuid::Uuid::new_v4().to_string()).ok()?,
             resident_pubkey: subject.resident.clone(),
-            scope: luca_protocol::PermissionRuleScopeV1::Project {
-                source_id: source_id.clone(),
-            },
+            scope: scope.clone(),
             matcher: matcher.clone(),
             effect: PermissionEffectV1::Allow,
             display_name: permission_ledger::rule_display_name(subject, matcher, display_name),
@@ -937,6 +967,7 @@ mod tests {
     };
     use serde::Deserialize;
 
+    use super::permission_ledger::ProjectRef;
     use super::*;
 
     #[derive(Debug, Deserialize)]
@@ -1048,6 +1079,8 @@ mod tests {
             }],
             matcher_names: vec!["git status".into()],
             is_door: false,
+            is_destructive: false,
+            is_free_read: false,
             is_pre_allowed: false,
             is_broker_guarded: false,
             inside_project: true,
@@ -1373,6 +1406,39 @@ mod tests {
         bare.matchers.clear();
         bare.matcher_names.clear();
         assert!(rules_for(&bare).is_none());
+    }
+
+    /// P3: with no project in view, "Always" picks the widest scope it can —
+    /// `Everywhere`, but only when every matcher can only ever describe
+    /// reading. A door's own matcher (an MCP tool outside the pre-allowed
+    /// list) never qualifies, so it still writes nothing without a project.
+    #[test]
+    fn always_picks_everywhere_only_for_read_only_matchers_with_no_project() {
+        let mut browsing = test_subject(&request("browsing", 22));
+        browsing.project = None;
+        browsing.matchers = vec![luca_protocol::PermissionMatcherV1::Domain {
+            host: "docs.rs".into(),
+        }];
+        browsing.matcher_names = vec!["docs.rs".into()];
+        let rules = rules_for(&browsing).expect("a read-only matcher may travel");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(
+            rules[0].scope,
+            luca_protocol::PermissionRuleScopeV1::Everywhere
+        );
+        assert_eq!(rules[0].validate(), Ok(()));
+
+        let mut door = test_subject(&request("door", 23));
+        door.project = None;
+        door.matchers = vec![luca_protocol::PermissionMatcherV1::McpTool {
+            server_family: "luca-communications".into(),
+            tool: "communications_send".into(),
+        }];
+        door.matcher_names = vec!["communications_send".into()];
+        assert!(
+            rules_for(&door).is_none(),
+            "a door's own matcher is never read-only, so it needs a project"
+        );
     }
 
     #[test]

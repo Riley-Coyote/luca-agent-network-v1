@@ -70,6 +70,15 @@ fn subject_for(
         (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
         _ => false,
     };
+    // No `AppHandle` here, so there is no app data directory to exclude —
+    // exactly what the real `subject()` does when it cannot resolve one.
+    let is_free_read = matches!(
+        matchers.as_slice(),
+        [PermissionMatcherV1::Path { write: false }]
+    ) && request
+        .path
+        .as_deref()
+        .is_some_and(|raw| is_free_read_path(Path::new(raw), None));
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
@@ -77,6 +86,8 @@ fn subject_for(
         matchers,
         matcher_names,
         is_door: is_door(request, identity.as_ref()),
+        is_destructive: is_destructive(request),
+        is_free_read,
         is_pre_allowed,
         is_broker_guarded,
         inside_project,
@@ -211,15 +222,8 @@ fn broker_guarded_tools_never_raise_a_runtime_card() {
 }
 
 #[test]
-fn doors_offer_only_once_and_deny() {
-    let mut doors = vec![
-        mcp_request("buzz", "shell"),
-        mcp_request("polyphonic-browser", "browse"),
-        mcp_request("luca-communications", "communications_send"),
-    ];
-    let mut view_image = mcp_request("buzz", "view_image");
-    view_image.domain = Some("example.com".into());
-    doors.push(view_image);
+fn destructive_doors_offer_only_once_and_deny() {
+    let mut doors = vec![];
     let mut deleting = request();
     deleting.tool_kind = Some("delete".into());
     deleting.tool_name = Some("Delete".into());
@@ -231,25 +235,31 @@ fn doors_offer_only_once_and_deny() {
     for request in &doors {
         let subject = subject_for(request, Some(project("source-a", "/tmp/luca")));
         assert!(subject.is_door, "{:?} is a door", request.tool_name);
+        assert!(
+            subject.is_destructive,
+            "{:?} is destructive",
+            request.tool_name
+        );
         let verdict = decide_with(&[], &[], &subject);
         let offer = ask(&verdict);
         assert!(offer.once && offer.deny);
         assert!(
             !offer.task && !offer.always_here,
-            "a door is never remembered"
+            "a destructive door is never remembered"
         );
         assert_eq!(offer.note.as_deref(), Some("This one always asks."));
     }
 
-    // A door is not remembered even when the owner already answered its
-    // matcher for this turn, or wrote a rule for it.
-    let shell = mcp_request("buzz", "shell");
-    let subject = subject_for(&shell, Some(project("source-a", "/tmp/luca")));
+    // Not remembered even when the owner already answered its matcher for
+    // this turn, or wrote a rule naming it — that is the whole point of
+    // `is_destructive`.
+    let rm = command_request("rm", &[]);
+    let subject = subject_for(&rm, Some(project("source-a", "/tmp/luca")));
     let remembered = subject
         .matchers
         .first()
         .cloned()
-        .expect("a door still has a matcher");
+        .expect("a destructive command still has a matcher");
     let rules = vec![rule(
         "rule-1",
         here(),
@@ -260,7 +270,66 @@ fn doors_offer_only_once_and_deny() {
         decide_with(&rules, &[remembered], &subject),
         Verdict::Ask { .. }
     ));
+}
 
+/// Since beta.13, a door that is not destructive asks the first time, same as
+/// anything else, but can be answered "Always" and then stops asking — a
+/// resident's own shell, browsing, and messaging someone on the owner's
+/// behalf all read the same way once approved.
+#[test]
+fn non_destructive_doors_ask_first_but_can_be_remembered() {
+    let mut doors = vec![
+        mcp_request("buzz", "shell"),
+        mcp_request("polyphonic-browser", "browse"),
+        mcp_request("luca-communications", "communications_send"),
+    ];
+    let mut view_image = mcp_request("buzz", "view_image");
+    view_image.domain = Some("example.com".into());
+    doors.push(view_image);
+
+    for request in &doors {
+        let subject = subject_for(request, Some(project("source-a", "/tmp/luca")));
+        assert!(subject.is_door, "{:?} is a door", request.tool_name);
+        assert!(
+            !subject.is_destructive,
+            "{:?} is not destructive",
+            request.tool_name
+        );
+        let verdict = decide_with(&[], &[], &subject);
+        let offer = ask(&verdict);
+        assert!(offer.once && offer.deny);
+        assert!(!offer.task, "\"for this task\" is retired everywhere");
+        assert!(
+            offer.always_here,
+            "{:?} can still be remembered, with a project in view",
+            request.tool_name
+        );
+
+        // Once the owner says "Always", the same door stops asking.
+        let remembered = subject
+            .matchers
+            .first()
+            .cloned()
+            .expect("a door still has a matcher");
+        let rules = vec![rule(
+            "rule-1",
+            here(),
+            remembered,
+            PermissionEffectV1::Allow,
+        )];
+        assert!(
+            matches!(
+                decide_with(&rules, &[], &subject),
+                Verdict::Allow(AllowReason::Rule { .. })
+            ),
+            "{:?} should stop asking once remembered",
+            request.tool_name
+        );
+    }
+}
+
+#[test]
+fn native_shell_is_not_a_door_and_never_offers_task() {
     // A runtime's own shell is not a door: it is the ask-once-then-remembered
     // rung, which is the whole point of the ledger.
     let native = command_request("git", &["status"]);
@@ -268,7 +337,7 @@ fn doors_offer_only_once_and_deny() {
     assert!(!native.is_door);
     let verdict = decide_with(&[], &[], &native);
     let offer = ask(&verdict);
-    assert!(offer.task && offer.always_here);
+    assert!(!offer.task && offer.always_here);
 }
 
 #[test]
@@ -345,7 +414,11 @@ fn project_rule_does_not_cross_projects() {
         !offer.always_here,
         "with no project there is no here to remember"
     );
-    assert!(offer.task, "a matcher can still be remembered for the turn");
+    assert!(!offer.task, "\"for this task\" is retired everywhere");
+    assert_eq!(
+        offer.note.as_deref(),
+        Some("There's no project here to remember this in, so Polyphonic can only answer once.")
+    );
 }
 
 #[test]
@@ -399,8 +472,12 @@ fn everywhere_never_allows_commands_or_writes() {
         "a write may never be remembered everywhere"
     );
 
-    // Reading is the one thing an everywhere rule may say.
-    let reading = path_request(&file.to_string_lossy(), false);
+    // Reading is the one thing an everywhere rule may say. An ordinary file
+    // would already be a free read on its own (see P2), which would prove
+    // nothing about the rule under test, so this one is a secret path —
+    // never free — to force the decision through the rule instead.
+    let secret_file = root.join(".env");
+    let reading = path_request(&secret_file.to_string_lossy(), false);
     let reading = subject_for(&reading, Some(inside));
     assert!(matches!(
         decide_with(
@@ -514,8 +591,9 @@ fn path_rule_requires_inside_project_on_component_boundary() {
     assert!(!subject_for(&climbing, Some(project.clone())).inside_project);
 
     // A rule that remembers writing also answers reading; the reverse is not
-    // true.
-    let reading = path_request(&inside_root.join("notes.md").to_string_lossy(), false);
+    // true. A secret path, so an ordinary free read (P2) does not mask what
+    // this is actually testing.
+    let reading = path_request(&inside_root.join(".env").to_string_lossy(), false);
     let reading = subject_for(&reading, Some(project.clone()));
     assert!(matches!(
         decide_with(&rules, &[], &reading),
@@ -674,7 +752,7 @@ fn compound_command_needs_every_segment_remembered() {
         "a remembered `ls` may not carry an unseen `echo`"
     );
     let offer = ask(&verdict);
-    assert!(offer.task && offer.always_here);
+    assert!(!offer.task && offer.always_here);
     assert_eq!(offer.remembers, vec!["ls".to_string(), "echo".to_string()]);
 
     // Both remembered, and the line goes through with no card at all.
@@ -797,7 +875,7 @@ fn single_segment_unchanged() {
 
         let verdict = decide_with(&[], &[], &subject);
         let offer = ask(&verdict);
-        assert!(offer.once && offer.deny && offer.task && offer.always_here);
+        assert!(offer.once && offer.deny && !offer.task && offer.always_here);
         assert_eq!(offer.remembers, vec!["git status".to_string()]);
         assert_eq!(offer.note, None);
 
@@ -881,4 +959,128 @@ fn a_remembered_answer_reads_as_a_sentence() {
         assert!(!sentence.contains('\u{202e}'));
         assert!(sentence.len() <= MAX_PERMISSION_RULE_DISPLAY_BYTES);
     }
+}
+
+// ── P2: reads are free, except secrets ──────────────────────────────────────
+
+#[test]
+fn an_ordinary_read_outside_the_project_never_raises_a_card() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temporary.path()).unwrap();
+    let file = root.join("README.md");
+
+    // No project at all.
+    let reading = path_request(&file.to_string_lossy(), false);
+    let subject = subject_for(&reading, None);
+    assert!(subject.is_free_read);
+    assert_eq!(
+        decide_with(&[], &[], &subject),
+        Verdict::Allow(AllowReason::FreeRead)
+    );
+
+    // A project exists, but this file is outside it.
+    let elsewhere = ProjectRef::Source {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+        canonical_root: root.join("other-project"),
+        label: "other-project".into(),
+    };
+    let subject = subject_for(&reading, Some(elsewhere));
+    assert!(subject.is_free_read);
+    assert_eq!(
+        decide_with(&[], &[], &subject),
+        Verdict::Allow(AllowReason::FreeRead)
+    );
+
+    // Writing the very same path is not free.
+    let writing = path_request(&file.to_string_lossy(), true);
+    let subject = subject_for(&writing, None);
+    assert!(!subject.is_free_read);
+    assert!(matches!(
+        decide_with(&[], &[], &subject),
+        Verdict::Ask { .. }
+    ));
+}
+
+#[test]
+fn secret_reads_still_raise_a_card_with_once_and_always() {
+    let temporary = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(temporary.path()).unwrap();
+    let ssh_dir = root.join(".ssh");
+    std::fs::create_dir_all(&ssh_dir).unwrap();
+
+    for secret in [
+        root.join(".env"),
+        root.join(".env.local"),
+        ssh_dir.join("id_ed25519"),
+        root.join("service.pem"),
+        root.join("notes").join("team-secrets").join("plan.md"),
+    ] {
+        let reading = path_request(&secret.to_string_lossy(), false);
+        let subject = subject_for(&reading, None);
+        assert!(
+            !subject.is_free_read,
+            "{} should not be a free read",
+            secret.display()
+        );
+        assert!(matches!(
+            decide_with(&[], &[], &subject),
+            Verdict::Ask { .. }
+        ));
+    }
+
+    // Ordinary files whose names merely resemble a secret are not swept in —
+    // matching is on whole path components, not a substring of the joined
+    // path.
+    for ordinary in [root.join("environment.rs"), root.join("valid_rsa_notes.md")] {
+        let reading = path_request(&ordinary.to_string_lossy(), false);
+        let subject = subject_for(&reading, None);
+        assert!(
+            subject.is_free_read,
+            "{} should still be a free read",
+            ordinary.display()
+        );
+    }
+
+    // With a project in view, a secret read can still offer Once and Always
+    // like any other card — it just is not free.
+    let project_ref = ProjectRef::Source {
+        source_id: OpaqueId::parse("source-a").unwrap(),
+        canonical_root: root.clone(),
+        label: "project".into(),
+    };
+    let reading = path_request(&root.join(".env").to_string_lossy(), false);
+    let subject = subject_for(&reading, Some(project_ref));
+    assert!(subject.inside_project);
+    let verdict = decide_with(&[], &[], &subject);
+    let offer = ask(&verdict);
+    assert!(offer.once && offer.deny && offer.always_here);
+    assert_eq!(offer.note, None);
+}
+
+#[test]
+fn an_unresolvable_path_fails_closed_rather_than_reading_free() {
+    // A path with more `..` segments than it has components cannot be
+    // resolved lexically; that must never be treated as a safe free read.
+    let unresolvable = path_request("../../../escape.txt", false);
+    let subject = subject_for(&unresolvable, None);
+    assert!(!subject.is_free_read);
+}
+
+// ── P3: doors and paths pick the widest scope "Always" can still write ─────
+
+#[test]
+fn browsing_with_no_project_can_be_remembered_everywhere() {
+    // A `Domain` matcher is read-only by definition, so with no project in
+    // view it may still be remembered `Everywhere` — the one case beta.13
+    // newly turns on.
+    let mut browsing = request();
+    browsing.domain = Some("docs.rs".into());
+    let subject = subject_for(&browsing, None);
+    let verdict = decide_with(&[], &[], &subject);
+    let offer = ask(&verdict);
+    assert!(
+        offer.always_here,
+        "a read-only, project-less request may still be remembered everywhere"
+    );
+    assert_eq!(offer.note, None);
 }

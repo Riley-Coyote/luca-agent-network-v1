@@ -23,12 +23,14 @@ use std::{
 };
 
 use luca_protocol::{
-    mcp_server_family, CommandSegmentV1, Hex64, ManagedPermissionRequestV1, OpaqueId,
-    PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1,
+    is_secret_path, mcp_server_family, CommandSegmentV1, Hex64, ManagedPermissionRequestV1,
+    OpaqueId, PermissionEffectV1, PermissionMatcherV1, PermissionRuleScopeV1, PermissionRuleV1,
     DESTRUCTIVE_COMMAND_TOKENS, DOOR_SERVER_FAMILIES, MAX_PERMISSION_RULE_DISPLAY_BYTES,
     POLYPHONIC_BROKER_GUARDED_TOOLS, POLYPHONIC_DOOR_TOOLS, POLYPHONIC_PRE_ALLOWED_TOOLS,
 };
 use tauri::{AppHandle, Manager};
+
+use crate::data_dir::BuzzPathExt;
 
 /// Matchers remembered for one turn, and turns remembered at once. Both are
 /// process-local ceilings; nothing here survives a restart.
@@ -95,9 +97,16 @@ pub(crate) struct PermissionSubject {
     pub matchers: Vec<PermissionMatcherV1>,
     /// The short owner-facing phrase for each matcher, in the same order.
     pub matcher_names: Vec<String>,
-    /// A door onto the machine or the world: allowed once at most, never
-    /// remembered.
+    /// A door onto the machine or the world. Since beta.13 most doors ask
+    /// first but may still be remembered; see `is_destructive` for the ones
+    /// that never are.
     pub is_door: bool,
+    /// A deletion or a destructive command (`rm`, `shred`, …): allowed once
+    /// at most, never remembered, whatever else is true of the request.
+    pub is_destructive: bool,
+    /// A read-only path request outside the secrets list: allowed anywhere
+    /// without a card at all.
+    pub is_free_read: bool,
     /// One of Polyphonic's own read-only tools.
     pub is_pre_allowed: bool,
     /// A tool whose side effect already goes through the desktop authority
@@ -125,6 +134,9 @@ impl PermissionSubject {
 pub(crate) enum AllowReason {
     PreAllowed,
     BrokerGuarded,
+    /// A read-only path request outside the secrets list. Reads are free
+    /// everywhere except that short list; see `is_free_read_path`.
+    FreeRead,
     TurnRule,
     Rule {
         /// Every remembered rule that had to answer, one per segment.
@@ -201,18 +213,24 @@ fn inventory_contains(inventory: &[(&str, &str)], family: &str, tool: &str) -> b
     })
 }
 
-/// A door is a way onto the machine or out into the world. Doors are answered
-/// one at a time, forever.
+/// A deletion, or a command word that is never remembered whatever the owner
+/// answered once (`rm`, `shred`, …). Destructive requests are doors that stay
+/// once-only even after beta.13 lets other doors be remembered.
+fn is_destructive(request: &ManagedPermissionRequestV1) -> bool {
+    request.tool_kind.as_deref() == Some("delete")
+        || command_tokens(request).any(|token| DESTRUCTIVE_COMMAND_TOKENS.contains(&token))
+}
+
+/// A door is a way onto the machine or out into the world. Since beta.13 a
+/// door asks first, same as anything else, but may still end up remembered —
+/// except a destructive one (see `is_destructive`), which always asks.
 ///
 /// Runtime-native shells are deliberately not doors. A `Bash` tool call the
 /// runtime raises itself has no MCP identity, so it falls through to the
 /// ordinary "ask once per new command, then remembered" rung; only Polyphonic's
 /// own `buzz` `shell` tool is a door.
 fn is_door(request: &ManagedPermissionRequestV1, identity: Option<&(String, String)>) -> bool {
-    if request.tool_kind.as_deref() == Some("delete") {
-        return true;
-    }
-    if command_tokens(request).any(|token| DESTRUCTIVE_COMMAND_TOKENS.contains(&token)) {
+    if is_destructive(request) {
         return true;
     }
     let Some((family, tool)) = identity else {
@@ -336,6 +354,30 @@ fn lexical_path(path: &Path) -> PathBuf {
     resolved
 }
 
+/// The app's own data directory, honouring the same override the rest of the
+/// desktop uses. `None` when it cannot be resolved, which `is_free_read_path`
+/// then treats as "cannot classify" rather than "safe".
+fn app_data_dir(app: &AppHandle) -> Option<PathBuf> {
+    app.buzz_path().app_data_dir().ok()
+}
+
+/// Whether reading `path` may be allowed everywhere, with no card at all.
+///
+/// Fails closed: a path that cannot be resolved to a real or lexical form —
+/// the sentinel `lexical_path` returns for one that climbs above its own
+/// root — is treated the same as a known secret: not free, so the request
+/// still gets a card rather than being silently allowed.
+fn is_free_read_path(path: &Path, app_data_dir: Option<&Path>) -> bool {
+    let resolved = std::fs::canonicalize(path).unwrap_or_else(|_| lexical_path(path));
+    if resolved == PathBuf::from("/\u{0}unresolvable") {
+        return false;
+    }
+    if app_data_dir.is_some_and(|dir| is_inside(dir, path)) {
+        return false;
+    }
+    !is_secret_path(&resolved)
+}
+
 fn bounded_display(value: &str) -> String {
     let clean: String = value
         .chars()
@@ -457,6 +499,7 @@ pub(crate) fn subject(
     let is_broker_guarded = identity.as_ref().is_some_and(|(family, tool)| {
         inventory_contains(POLYPHONIC_BROKER_GUARDED_TOOLS, family, tool)
     });
+    let is_destructive = is_destructive(request);
     let is_door = is_door(request, identity.as_ref());
     let matchers = derive_matchers(request, identity.as_ref());
     let matcher_names: Vec<String> = matchers
@@ -468,6 +511,16 @@ pub(crate) fn subject(
         (Some(project), Some(path)) => is_inside(project.canonical_root(), Path::new(path)),
         _ => false,
     };
+    // A free read is exactly one bare read-only path matcher, outside the
+    // secrets list. Anything else — a write, a command, an MCP tool, more
+    // than one matcher — still goes through the ordinary card.
+    let is_free_read = matches!(
+        matchers.as_slice(),
+        [PermissionMatcherV1::Path { write: false }]
+    ) && request
+        .path
+        .as_deref()
+        .is_some_and(|raw| is_free_read_path(Path::new(raw), app_data_dir(app).as_deref()));
     PermissionSubject {
         resident: request.resident_pubkey.clone(),
         project,
@@ -475,6 +528,8 @@ pub(crate) fn subject(
         matchers,
         matcher_names,
         is_door,
+        is_destructive,
+        is_free_read,
         is_pre_allowed,
         is_broker_guarded,
         inside_project,
@@ -718,9 +773,10 @@ fn rule_answers(
 /// The whole decision, as a pure function of what is remembered.
 ///
 /// Order is the contract: an explicit deny beats everything; Polyphonic's own
-/// reads never ask; a broker-guarded tool has its own gate; a door always
-/// asks; then this turn's answers and the owner's durable rules together;
-/// then a card.
+/// reads never ask; a broker-guarded tool has its own gate; a free read is
+/// allowed anywhere; a destructive or unmatchable door always asks; then this
+/// turn's answers and the owner's durable rules together; then a card, which
+/// picks the widest scope "Always" could still write.
 ///
 /// A compound command is allowed without a card only when EVERY segment is
 /// already answered. One remembered `ls` never lets an unseen `echo` through,
@@ -747,11 +803,17 @@ pub(crate) fn decide_with(
     if subject.is_broker_guarded {
         return Verdict::Allow(AllowReason::BrokerGuarded);
     }
+    if subject.is_free_read {
+        return Verdict::Allow(AllowReason::FreeRead);
+    }
     let project_label = subject
         .project
         .as_ref()
         .map(|project| project.label().to_owned());
-    if subject.is_door {
+    // A destructive door, or one with nothing a rule could be written from
+    // (a compound or wrapper command), never gets to remember: it asks every
+    // time, and says so.
+    if subject.is_door && (subject.is_destructive || subject.matchers.is_empty()) {
         return Verdict::Ask {
             offer: PermissionOfferV1::once_or_deny(
                 project_label,
@@ -763,16 +825,36 @@ pub(crate) fn decide_with(
         return Verdict::Allow(answered);
     }
     let remembrable = !subject.matchers.is_empty();
-    let path_outside = subject
+    let has_path_matcher = subject
         .matchers
         .iter()
-        .any(|matcher| matches!(matcher, PermissionMatcherV1::Path { .. }))
-        && !subject.inside_project;
-    let always_here = remembrable && subject.project.is_some() && !path_outside;
+        .any(|matcher| matches!(matcher, PermissionMatcherV1::Path { .. }));
+    // A path never travels outside the project it was raised in, read-only or
+    // not — only a project rule can answer it, never `Everywhere`.
+    let path_outside = has_path_matcher && !subject.inside_project;
+    let scope_without_project = !has_path_matcher
+        && subject
+            .matchers
+            .iter()
+            .all(PermissionMatcherV1::is_read_only);
+    let always_here =
+        remembrable && !path_outside && (subject.project.is_some() || scope_without_project);
+    let note = if !remembrable {
+        Some("Polyphonic can only answer this one once.".to_owned())
+    } else if always_here {
+        None
+    } else if path_outside {
+        Some("This is outside your project, so Polyphonic can only answer once.".to_owned())
+    } else {
+        Some(
+            "There's no project here to remember this in, so Polyphonic can only answer once."
+                .to_owned(),
+        )
+    };
     Verdict::Ask {
         offer: PermissionOfferV1 {
             once: true,
-            task: remembrable,
+            task: false,
             always_here,
             deny: true,
             project_label,
@@ -781,7 +863,7 @@ pub(crate) fn decide_with(
             } else {
                 Vec::new()
             },
-            note: (!remembrable).then(|| "Polyphonic can only answer this one once.".to_owned()),
+            note,
         },
     }
 }
