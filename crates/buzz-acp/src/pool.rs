@@ -2224,33 +2224,31 @@ fn managed_artifact_turn(
 }
 
 /// Open `turn` as this conversation's active owner turn on the resident
-/// process's turn gate, if both a gate and a resolved turn exist. Returns
-/// the generation the caller must present again to [`close_artifact_turn_gate`]
-/// — never a value it makes up itself, so a stale retry can tell it has been
-/// superseded rather than silently binding whatever turn is open next.
+/// process's turn gate, if both a gate and a resolved turn exist. The
+/// returned guard closes the turn on drop — see
+/// [`crate::artifact_turn_gate::ArtifactTurnGate::open_guarded`] — so every
+/// exit path out of the prompt task that follows closes it, not only the
+/// ones an explicit call site remembers. Call [`close_artifact_turn_gate`]
+/// at the sites where closing *before* the guard's own drop point matters
+/// (before a cancel, before the final hand-off); every other exit path (an
+/// `Err(...)`, `MaxTokens`, `Refusal`, or any early `return`) is covered
+/// automatically when the guard goes out of scope.
 fn open_artifact_turn_gate(
     ctx: &PromptContext,
     turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
-) -> Option<u64> {
+) -> Option<crate::artifact_turn_gate::OwnerTurnGuard> {
     let gate = ctx.artifact_turn_gate.as_ref()?;
     let turn = turn?;
-    let generation = gate.next_generation();
-    gate.open(&turn.conversation_id, turn.clone(), generation);
-    Some(generation)
+    Some(gate.open_guarded(turn.clone()))
 }
 
-/// Close the turn opened by a matching [`open_artifact_turn_gate`] call, if
-/// any. A no-op when there was no gate, no resolved turn, or `open` was never
-/// called (e.g. a sibling-created session with no owner turn this round).
-fn close_artifact_turn_gate(
-    ctx: &PromptContext,
-    turn: Option<&crate::artifact_mcp::ArtifactTurnBindingV1>,
-    generation: Option<u64>,
-) {
-    if let (Some(gate), Some(turn), Some(generation)) =
-        (ctx.artifact_turn_gate.as_ref(), turn, generation)
-    {
-        gate.close(&turn.conversation_id, generation);
+/// Close a turn early, before a point where closing matters more than
+/// waiting for the guard's own drop (a cancel, the final hand-off). A no-op
+/// when there was no gate, no resolved turn, or the guard was already
+/// closed.
+fn close_artifact_turn_gate(guard: &mut Option<crate::artifact_turn_gate::OwnerTurnGuard>) {
+    if let Some(guard) = guard.as_mut() {
+        guard.close();
     }
 }
 
@@ -3761,10 +3759,12 @@ async fn run_prompt_task_inner(
     }
 
     // Open this owner turn's artifact authority immediately before the prompt
-    // that may call it goes on the wire — owner-triggered channel turns only.
-    // `artifact_gate_generation` travels with this turn to every close site
-    // below so a stale retry can never bind the next one.
-    let artifact_gate_generation = if matches!(source, PromptSource::Channel(_)) {
+    // that may call it goes on the wire — owner-triggered channel turns only
+    // (`artifact_turn` is already `None` for Heartbeat/Continuity sources).
+    // `artifact_gate_guard` travels with this turn to every explicit close
+    // site below; every other exit path out of this function closes it too,
+    // via its `Drop` — see `open_artifact_turn_gate`.
+    let mut artifact_gate_guard = if matches!(source, PromptSource::Channel(_)) {
         open_artifact_turn_gate(&ctx, artifact_turn.as_ref())
     } else {
         None
@@ -3812,7 +3812,7 @@ async fn run_prompt_task_inner(
                         // Close this turn's artifact authority before cancelling
                         // it — a call that arrives after this point must never
                         // be authorized against a turn we are about to end.
-                        close_artifact_turn_gate(&ctx, artifact_turn.as_ref(), artifact_gate_generation);
+                        close_artifact_turn_gate(&mut artifact_gate_guard);
                         // Prompt is genuinely in-flight — cancel it.
                         match agent
                             .acp
@@ -3950,11 +3950,7 @@ async fn run_prompt_task_inner(
                             // turn's artifact authority before the final
                             // hand-off so a late tool call from this ended
                             // generation can never still be authorized.
-                            close_artifact_turn_gate(
-                                &ctx,
-                                artifact_turn.as_ref(),
-                                artifact_gate_generation,
-                            );
+                            close_artifact_turn_gate(&mut artifact_gate_guard);
                             handoff_managed_final_after_end_turn(
                                 &mut agent,
                                 &ctx,
@@ -3995,7 +3991,7 @@ async fn run_prompt_task_inner(
             if matches!(stop_reason, StopReason::EndTurn)
                 && matches!(source, PromptSource::Channel(_))
             {
-                close_artifact_turn_gate(&ctx, artifact_turn.as_ref(), artifact_gate_generation);
+                close_artifact_turn_gate(&mut artifact_gate_guard);
                 handoff_managed_final_after_end_turn(&mut agent, &ctx, batch.as_ref(), &turn_id)
                     .await;
             }

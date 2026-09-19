@@ -213,6 +213,71 @@ impl ArtifactTurnGate {
             }
         }
     }
+
+    /// Open `turn` and return an RAII guard that closes it on drop.
+    ///
+    /// Structural fix for a prompt task with many exit paths (`Err(...)`,
+    /// `MaxTokens`, `Refusal`, any early `return`): rather than requiring
+    /// every call site to remember an explicit `close`, only the sites where
+    /// closing *early* matters (before a cancel, before the final hand-off)
+    /// call [`OwnerTurnGuard::close`] themselves — every other exit path is
+    /// covered by the guard's `Drop` once it goes out of scope. The desktop
+    /// broker's own turn registry is the actual authority and already
+    /// rejects a call for a turn it has revoked, so a late close here was
+    /// always defense in depth, not the only thing standing between a call
+    /// and a turn that has already ended — this makes that defense
+    /// unconditional instead of resting on every call site remembering it.
+    pub(crate) fn open_guarded(&self, turn: ArtifactTurnBindingV1) -> OwnerTurnGuard {
+        let generation = self.next_generation();
+        let conversation_id = turn.conversation_id.clone();
+        self.open(&conversation_id, turn, generation);
+        OwnerTurnGuard {
+            gate: self.clone(),
+            conversation_id,
+            generation,
+            closed: false,
+        }
+    }
+
+    /// Test-only: whether `conversation` currently has an open owner turn.
+    #[cfg(test)]
+    pub(crate) fn has_open_turn(&self, conversation: &OpaqueId) -> bool {
+        self.inner
+            .conversations
+            .lock()
+            .ok()
+            .and_then(|conversations| {
+                conversations
+                    .get(conversation)
+                    .map(|state| state.active.is_some())
+            })
+            .unwrap_or(false)
+    }
+}
+
+/// RAII guard for one open owner turn — see [`ArtifactTurnGate::open_guarded`].
+pub(crate) struct OwnerTurnGuard {
+    gate: ArtifactTurnGate,
+    conversation_id: OpaqueId,
+    generation: u64,
+    closed: bool,
+}
+
+impl OwnerTurnGuard {
+    /// Close early — before a cancel, before the final hand-off. Idempotent:
+    /// a second call (or the `Drop` that follows) is a no-op.
+    pub(crate) fn close(&mut self) {
+        if !self.closed {
+            self.gate.close(&self.conversation_id, self.generation);
+            self.closed = true;
+        }
+    }
+}
+
+impl Drop for OwnerTurnGuard {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 fn sha256(bytes: &[u8]) -> [u8; 32] {
@@ -696,5 +761,54 @@ mod tests {
         while let Ok(request) = rx.try_recv() {
             assert_eq!(request["turn_id"], "turn-1");
         }
+    }
+
+    #[tokio::test]
+    async fn dropped_guard_closes_the_turn_without_an_explicit_close_call() {
+        // The structural fix: a prompt task that returns early on any exit
+        // path (Err, MaxTokens, Refusal, ...) never calls `close` itself —
+        // it just lets the guard fall out of scope. That alone must leave no
+        // open turn on the gate, exactly as if `close` had been called.
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let desktop = start_stub_broker(ok_response, tx);
+        let gate = ArtifactTurnGate::start_for_test().unwrap();
+        let conversation = OpaqueId::parse("conv-guard").unwrap();
+        gate.register_conversation(
+            conversation.clone(),
+            crate::artifact_mcp::test_gate_broker_binding(desktop),
+        );
+
+        let guard = gate.open_guarded(turn("conv-guard", "turn-1"));
+        assert!(gate.has_open_turn(&conversation));
+        drop(guard);
+        assert!(
+            !gate.has_open_turn(&conversation),
+            "dropping the guard without calling close() must still close the turn"
+        );
+    }
+
+    #[tokio::test]
+    async fn guard_close_is_idempotent_with_drop() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let desktop = start_stub_broker(ok_response, tx);
+        let gate = ArtifactTurnGate::start_for_test().unwrap();
+        let conversation = OpaqueId::parse("conv-guard-2").unwrap();
+        gate.register_conversation(
+            conversation.clone(),
+            crate::artifact_mcp::test_gate_broker_binding(desktop),
+        );
+
+        let mut guard = gate.open_guarded(turn("conv-guard-2", "turn-1"));
+        guard.close();
+        assert!(!gate.has_open_turn(&conversation));
+        // A second turn opens at a new generation while the first guard is
+        // still alive (its caller already called close() explicitly, e.g.
+        // before a cancel) — the guard's later Drop must not clobber it.
+        gate.open(&conversation, turn("conv-guard-2", "turn-2"), 99);
+        drop(guard);
+        assert!(
+            gate.has_open_turn(&conversation),
+            "an already-closed guard's Drop must not close a later, unrelated turn"
+        );
     }
 }
