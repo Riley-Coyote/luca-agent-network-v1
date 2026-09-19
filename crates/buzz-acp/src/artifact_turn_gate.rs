@@ -73,6 +73,12 @@ struct ConversationState {
 struct GateInner {
     socket_path: PathBuf,
     conversations: Mutex<HashMap<OpaqueId, ConversationState>>,
+    /// Source of the `generation` a caller stamps on every `open`/`close`
+    /// pair. Monotonic for the life of this gate (one resident process) —
+    /// never reused — so a call retried after its turn closed and a new one
+    /// opened can tell the difference and fail closed instead of silently
+    /// adopting the newer turn.
+    next_generation: std::sync::atomic::AtomicU64,
 }
 
 /// The turn gate. Cheap to clone — every clone shares the same registry and
@@ -88,8 +94,7 @@ impl ArtifactTurnGate {
     /// where the private `0700` directory is created — callers pass the same
     /// root the desktop artifact broker itself uses for its own sockets.
     pub(crate) fn start(socket_root: &Path) -> Result<Self, String> {
-        let directory =
-            socket_root.join(format!("luca-atg-{}", uuid::Uuid::new_v4().simple()));
+        let directory = socket_root.join(format!("luca-atg-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&directory)
             .map_err(|_| "artifact turn gate directory could not be created".to_owned())?;
         #[cfg(unix)]
@@ -104,6 +109,7 @@ impl ArtifactTurnGate {
         let inner = Arc::new(GateInner {
             socket_path,
             conversations: Mutex::new(HashMap::new()),
+            next_generation: std::sync::atomic::AtomicU64::new(1),
         });
         let accept_inner = inner.clone();
         tokio::spawn(async move {
@@ -126,12 +132,23 @@ impl ArtifactTurnGate {
             inner: Arc::new(GateInner {
                 socket_path,
                 conversations: Mutex::new(HashMap::new()),
+                next_generation: std::sync::atomic::AtomicU64::new(1),
             }),
         })
     }
 
     pub(crate) fn socket_path_string(&self) -> String {
         self.inner.socket_path.to_string_lossy().into_owned()
+    }
+
+    /// Mint the next generation for an `open`/`close` pair on this gate.
+    /// Callers open a turn with the value returned here and close it with
+    /// the same value — never a value they made up themselves — so a stale
+    /// retry can tell it has been superseded (see `late_call_never_binds_next_turn`).
+    pub(crate) fn next_generation(&self) -> u64 {
+        self.inner
+            .next_generation
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Register (or re-register) one conversation's sidecar, minting a fresh
@@ -186,7 +203,11 @@ impl ArtifactTurnGate {
     pub(crate) fn close(&self, conversation: &OpaqueId, generation: u64) {
         if let Ok(mut conversations) = self.inner.conversations.lock() {
             if let Some(state) = conversations.get_mut(conversation) {
-                if state.active.as_ref().is_some_and(|active| active.generation == generation) {
+                if state
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active.generation == generation)
+                {
                     state.active = None;
                 }
             }
@@ -267,9 +288,7 @@ async fn handle_frame(inner: &Arc<GateInner>, request: serde_json::Value) -> ser
     let (Some(conversation_str), Some(capability), Some(operation_request_id), Some(operation)) = (
         request.get("conversation_id").and_then(|v| v.as_str()),
         request.get("capability").and_then(|v| v.as_str()),
-        request
-            .get("operation_request_id")
-            .and_then(|v| v.as_str()),
+        request.get("operation_request_id").and_then(|v| v.as_str()),
         request.get("operation").and_then(|v| v.as_str()),
     ) else {
         return diagnostic_response(&request, DIAGNOSTIC_INVALID_CAPABILITY);
@@ -317,18 +336,20 @@ async fn handle_frame(inner: &Arc<GateInner>, request: serde_json::Value) -> ser
         match forward_to_desktop(call.binding.endpoint(), &frame).await {
             Ok(response) => {
                 let diagnostic = response.get("diagnostic_code").and_then(|v| v.as_str());
-                if diagnostic == Some(DIAGNOSTIC_TURN_NOT_ACTIVE) && retries < TURN_NOT_ACTIVE_RETRIES
+                if diagnostic == Some(DIAGNOSTIC_TURN_NOT_ACTIVE)
+                    && retries < TURN_NOT_ACTIVE_RETRIES
                 {
                     // Only keep retrying while this exact generation is
                     // still the conversation's open turn. If it has moved
                     // on (closed, or a new turn opened), this call must not
                     // silently start using the new one — it fails closed.
-                    let current_generation = inner.conversations.lock().ok().and_then(|conversations| {
-                        conversations
-                            .get(&conversation_id)
-                            .and_then(|state| state.active.as_ref())
-                            .map(|active| active.generation)
-                    });
+                    let current_generation =
+                        inner.conversations.lock().ok().and_then(|conversations| {
+                            conversations
+                                .get(&conversation_id)
+                                .and_then(|state| state.active.as_ref())
+                                .map(|active| active.generation)
+                        });
                     if current_generation != Some(call.generation) {
                         return diagnostic_response(&request, DIAGNOSTIC_NO_ACTIVE_OWNER_TURN);
                     }
@@ -398,7 +419,8 @@ mod tests {
         response_fn: impl Fn(&serde_json::Value) -> serde_json::Value + Send + Sync + 'static,
         seen: mpsc::UnboundedSender<serde_json::Value>,
     ) -> PathBuf {
-        let dir = PathBuf::from("/tmp").join(format!("luca-atg-stub-{}", uuid::Uuid::new_v4().simple()));
+        let dir =
+            PathBuf::from("/tmp").join(format!("luca-atg-stub-{}", uuid::Uuid::new_v4().simple()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("desktop.sock");
         let listener = StubListener::bind(&path).unwrap();
@@ -419,7 +441,8 @@ mod tests {
                             Ok(0) | Err(_) => return,
                             Ok(_) => {}
                         }
-                        let Ok(request) = serde_json::from_str::<serde_json::Value>(line.trim_end())
+                        let Ok(request) =
+                            serde_json::from_str::<serde_json::Value>(line.trim_end())
                         else {
                             return;
                         };
@@ -622,13 +645,12 @@ mod tests {
         .await;
         assert_eq!(response["ok"], true);
         let received = rx.recv().await.unwrap();
-        let expected = crate::artifact_mcp::test_gate_broker_binding(PathBuf::new())
-            .frame(
-                &bound_turn,
-                "req-cap",
-                "resident_place_get",
-                serde_json::json!({}),
-            )["capability"]
+        let expected = crate::artifact_mcp::test_gate_broker_binding(PathBuf::new()).frame(
+            &bound_turn,
+            "req-cap",
+            "resident_place_get",
+            serde_json::json!({}),
+        )["capability"]
             .clone();
         // What the gate actually put on the wire to the desktop broker is
         // exactly the independently-derived per-turn HMAC for this turn —
@@ -651,9 +673,10 @@ mod tests {
         gate.open(&conversation, turn("conv-race", "turn-1"), 1);
 
         let socket_path = std::path::PathBuf::from(gate.socket_path_string());
-        let call = tokio::spawn(async move {
-            send_call(&socket_path, "conv-race", &token, "req-race").await
-        });
+        let call =
+            tokio::spawn(
+                async move { send_call(&socket_path, "conv-race", &token, "req-race").await },
+            );
 
         // Wait for the first attempt to actually reach the stub — proof the
         // call started against turn-1 — then close it and open a new turn

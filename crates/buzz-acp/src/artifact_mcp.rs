@@ -187,49 +187,6 @@ impl ArtifactMcpConfig {
         }
     }
 
-    pub(crate) fn server_for_turn(&self, turn: &ArtifactTurnBindingV1) -> McpServer {
-        let capability = derive_turn_capability(&self.bootstrap, turn);
-        McpServer {
-            name: artifact_server_name(&turn.conversation_id),
-            command: self.command.clone(),
-            args: Vec::new(),
-            env: vec![
-                EnvVar {
-                    name: "LUCA_ARTIFACT_MODE".into(),
-                    value: "1".into(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_ENDPOINT".into(),
-                    value: self.bootstrap.endpoint.clone(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_CAPABILITY".into(),
-                    value: capability,
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_CAPABILITY_GENERATION".into(),
-                    value: self.bootstrap.capability_generation.get().to_string(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_CONVERSATION_ID".into(),
-                    value: turn.conversation_id.as_str().to_owned(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_TURN_ID".into(),
-                    value: turn.turn_id.as_str().to_owned(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID".into(),
-                    value: turn.dispatch_receipt_id.as_str().to_owned(),
-                },
-                EnvVar {
-                    name: "LUCA_ARTIFACT_CANCELLATION_EPOCH".into(),
-                    value: turn.cancellation_epoch.get().to_string(),
-                },
-            ],
-        }
-    }
-
     /// Build the sidecar's MCP server projection for the new turn-gate shape:
     /// one sidecar per conversation, authenticated with a conversation-scoped
     /// token instead of a turn baked into `session/new`. The gate resolves the
@@ -280,6 +237,20 @@ impl ArtifactMcpConfig {
             endpoint: PathBuf::from(&self.bootstrap.endpoint),
             bootstrap: self.bootstrap.clone(),
         }
+    }
+
+    /// Root directory for this resident process's own turn-gate socket —
+    /// the same root the desktop artifact broker uses for its own per-lease
+    /// sockets (see desktop's `create_broker_lease`, which binds under
+    /// `/tmp/luca-ab-<uuid>/...`): the endpoint's grandparent directory.
+    /// Falls back to the process temp directory if the endpoint is ever
+    /// shallower than that.
+    pub(crate) fn broker_socket_root(&self) -> PathBuf {
+        Path::new(&self.bootstrap.endpoint)
+            .parent()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir)
     }
 
     fn probe_server(&self, receipt: &DisposableProbeReceipt) -> McpServer {
@@ -628,47 +599,6 @@ mod tests {
     }
 
     #[test]
-    fn projection_contains_only_exact_sidecar_coordinates() {
-        let config = ArtifactMcpConfig {
-            command: "/opt/luca/buzz-dev-mcp".into(),
-            bootstrap: bootstrap(),
-            declared_support: ArtifactMcpSupport::Supported,
-            probe_key: None,
-            probe_adapter: None,
-        };
-        let server = config.server_for_turn(&turn());
-        assert!(server.name.starts_with("luca-artifacts-"));
-        assert_eq!(server.env.len(), 8);
-        let serialized = serde_json::to_string(&server).unwrap();
-        assert!(!serialized.contains("root-fixture"));
-        assert!(!serialized.contains(&"a".repeat(64)));
-        assert!(!serialized.contains("LUCA_MANAGED"));
-        assert!(!serialized.contains("PRIVATE_KEY"));
-
-        // The name is stable for the conversation — a remembered permission
-        // keyed on the server family has to survive the next turn — and still
-        // separates one conversation from another.
-        let suffix = server.name.strip_prefix("luca-artifacts-").unwrap();
-        assert_eq!(suffix.len(), 12);
-        assert!(suffix
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
-
-        let mut next_turn = turn();
-        next_turn.turn_id = OpaqueId::parse("turn-2").unwrap();
-        next_turn.dispatch_receipt_id = OpaqueId::parse("dispatch-2").unwrap();
-        next_turn.cancellation_epoch = SafeU53::new(8).unwrap();
-        assert_eq!(server.name, config.server_for_turn(&next_turn).name);
-
-        let mut other_conversation = turn();
-        other_conversation.conversation_id = OpaqueId::parse("conversation-2").unwrap();
-        assert_ne!(
-            server.name,
-            config.server_for_turn(&other_conversation).name
-        );
-    }
-
-    #[test]
     fn capability_changes_with_dispatch_and_cancellation() {
         let bootstrap = bootstrap();
         let original = derive_turn_capability(&bootstrap, &turn());
@@ -709,8 +639,30 @@ mod tests {
         assert!(!names.contains(&"LUCA_ARTIFACT_DISPATCH_RECEIPT_ID"));
         assert!(!names.contains(&"LUCA_ARTIFACT_CANCELLATION_EPOCH"));
 
-        // The name is still the stable, conversation-only coordinate.
+        // The name is still the stable, conversation-only coordinate, and
+        // never leaks the master capability, working root or other bootstrap
+        // secrets onto the wire.
         assert_eq!(server.name, artifact_server_name(&conversation_id));
+        let suffix = server.name.strip_prefix("luca-artifacts-").unwrap();
+        assert_eq!(suffix.len(), 12);
+        assert!(suffix
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)));
+        let serialized = serde_json::to_string(&server).unwrap();
+        assert!(!serialized.contains("root-fixture"));
+        assert!(!serialized.contains(&"a".repeat(64)));
+        assert!(!serialized.contains("LUCA_MANAGED"));
+        assert!(!serialized.contains("PRIVATE_KEY"));
+
+        // A second registration for the *same* conversation still yields the
+        // same server name — a remembered permission keyed on the server
+        // family survives the next turn — while a different conversation
+        // gets a different one.
+        let repeat = config.server_for_conversation(&gate, &conversation_id);
+        assert_eq!(server.name, repeat.name);
+        let other_conversation = OpaqueId::parse("conversation-2").unwrap();
+        let other = config.server_for_conversation(&gate, &other_conversation);
+        assert_ne!(server.name, other.name);
     }
 
     #[test]
