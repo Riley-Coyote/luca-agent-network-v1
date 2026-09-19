@@ -6,6 +6,8 @@
 //! signing capability, no secret, and no payload body, and they never widen
 //! what a resident may do beyond what its owner already approved once.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::managed_permission::is_display_safe;
@@ -242,6 +244,70 @@ pub const DOOR_SERVER_FAMILIES: &[&str] = &["polyphonic-browser", "polyphonic_br
 /// Command words that are never remembered, whatever the owner answered once.
 pub const DESTRUCTIVE_COMMAND_TOKENS: &[&str] = &["rm", "rmdir", "shred", "unlink"];
 
+/// Path components that mark a location as a credential store, matched
+/// against a whole component, case-insensitively — never as a substring of
+/// an unrelated one.
+pub const SECRET_PATH_DIRECTORY_COMPONENTS: &[&str] = &[".ssh", ".aws", ".gnupg", "keychains"];
+
+/// Filename prefixes that mark a secret, matched against the last path
+/// component only, case-insensitively: `.env`, `.env.local`, `id_rsa`,
+/// `id_rsa.pub`, `id_ed25519`, `id_ed25519.pub`, and the like.
+pub const SECRET_FILENAME_PREFIXES: &[&str] = &[".env", "id_rsa", "id_ed25519"];
+
+/// Filename suffixes that mark a secret, matched against the last path
+/// component only, case-insensitively.
+pub const SECRET_FILENAME_SUFFIXES: &[&str] = &[".pem", ".key", ".keychain", ".keychain-db"];
+
+/// Substrings allowed to match anywhere inside one path component (never
+/// across a `/`). A false positive here only costs an extra card, never a
+/// silent leak, so `credential` and `secret` stay deliberately wide.
+pub const SECRET_PATH_COMPONENT_SUBSTRINGS: &[&str] = &["credential", "secret"];
+
+/// Whether `path` names something a free read must not cover: an SSH, cloud
+/// or GPG credential directory, a macOS keychain, a `.env` file, a private
+/// key, or anything with "credential" or "secret" inside one of its own path
+/// components.
+///
+/// Matched component by component, lower-cased — never as a substring of the
+/// joined path string, so `/repo/id_rsathing.txt` and `/repo/environment.rs`
+/// do not match while `/repo/.env.local` and `~/.ssh/id_ed25519` do. The
+/// `credential`/`secret` substrings are the deliberate exception: they may
+/// match anywhere inside one component (`team-secrets/plan.md` still
+/// counts), just never across a path separator.
+pub fn is_secret_path(path: &Path) -> bool {
+    let components: Vec<String> = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    if components
+        .iter()
+        .any(|part| SECRET_PATH_DIRECTORY_COMPONENTS.contains(&part.as_str()))
+    {
+        return true;
+    }
+    let Some(filename) = components.last() else {
+        return false;
+    };
+    if SECRET_FILENAME_PREFIXES
+        .iter()
+        .any(|prefix| filename.starts_with(prefix))
+    {
+        return true;
+    }
+    if SECRET_FILENAME_SUFFIXES
+        .iter()
+        .any(|suffix| filename.ends_with(suffix))
+    {
+        return true;
+    }
+    components.iter().any(|part| {
+        SECRET_PATH_COMPONENT_SUBSTRINGS
+            .iter()
+            .any(|needle| part.contains(needle))
+    })
+}
+
 /// Programs that run whatever follows them. A rule for `bash` would cover
 /// `bash -c "rm -rf /"`, so a segment that starts with one of these is never
 /// remembered and a rule naming one never validates.
@@ -338,6 +404,44 @@ mod tests {
         }
         assert!(!is_wrapper_command_token("git"));
         assert!(!is_wrapper_command_token("ls"));
+    }
+
+    #[test]
+    fn secret_path_matches_known_patterns() {
+        for path in [
+            "/Users/riley/.env",
+            "/Users/riley/.env.local",
+            "/Users/riley/project/config.PEM",
+            "/Users/riley/project/server.key",
+            "/Users/riley/.ssh/id_ed25519",
+            "/Users/riley/.SSH/id_rsa",
+            "/Users/riley/.aws/credentials",
+            "/Users/riley/.gnupg/secring.gpg",
+            "/Users/riley/Library/Keychains/login.keychain-db",
+            "/Users/riley/notes/my-credential-store.txt",
+            "/Users/riley/notes/team-secrets/plan.md",
+        ] {
+            assert!(
+                is_secret_path(Path::new(path)),
+                "{path} should be treated as a secret path"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_paths_are_not_secret_by_substring_coincidence() {
+        for path in [
+            "/Users/riley/project/environment.rs",
+            "/Users/riley/project/valid_rsa_notes.md",
+            "/Users/riley/project/keychainstore.md",
+            "/Users/riley/project/README.md",
+            "/Users/riley/project/src/main.rs",
+        ] {
+            assert!(
+                !is_secret_path(Path::new(path)),
+                "{path} should not be treated as a secret path"
+            );
+        }
     }
 
     #[test]
