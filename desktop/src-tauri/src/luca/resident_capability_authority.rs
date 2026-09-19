@@ -357,6 +357,48 @@ pub(crate) fn set_resident_access(
     })
 }
 
+/// Move a resident off Manual when its runtime cannot enforce it, without
+/// disturbing an owner choice that is already something else. Returns
+/// whether this call actually changed anything: `false` means the resident
+/// was already past Manual (an earlier start already migrated it, or the
+/// owner had already chosen Accept edits or Full), so there is nothing new
+/// to tell the owner about.
+///
+/// Writing an explicit `Standard` entry for this resident is what makes the
+/// move durable and one-time: the next call sees that entry directly
+/// (rather than falling through to the household default) and returns
+/// `false` without touching the store again.
+pub(crate) fn migrate_unsupported_manual(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+) -> Result<bool, String> {
+    migrate_unsupported_manual_at(&store_path(app)?, owner_pubkey, resident_pubkey)
+}
+
+fn migrate_unsupported_manual_at(
+    path: &Path,
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+) -> Result<bool, String> {
+    let resident_pubkey = validate_pubkey(resident_pubkey)?;
+    mutate_store(path, |store| {
+        let owner = owner_mut(store, owner_pubkey);
+        let effective = owner
+            .resident_access
+            .get(&resident_pubkey)
+            .copied()
+            .unwrap_or(owner.household_default);
+        if effective != ResidentAccessLevel::Restricted {
+            return Ok(false);
+        }
+        owner
+            .resident_access
+            .insert(resident_pubkey, ResidentAccessLevel::Standard);
+        Ok(true)
+    })
+}
+
 pub(crate) fn effective_access(
     app: &AppHandle,
     owner_pubkey: &str,
@@ -624,6 +666,92 @@ mod tests {
         let owner = owner_mut(&mut store, &"aa".repeat(32));
         assert_eq!(owner.household_default, ResidentAccessLevel::Standard);
         assert!(owner.grants.is_empty());
+    }
+
+    #[test]
+    fn migrate_unsupported_manual_moves_a_restricted_resident_once() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        let resident_pubkey = "bb".repeat(32);
+        mutate_store(&path, |store| {
+            owner_mut(store, &owner_pubkey)
+                .resident_access
+                .insert(resident_pubkey.clone(), ResidentAccessLevel::Restricted);
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(migrate_unsupported_manual_at(&path, &owner_pubkey, &resident_pubkey).unwrap());
+
+        // Visible in the settings this owner is shown: not a dead Manual.
+        let settings = mutate_store(&path, |store| {
+            Ok(settings_snapshot(owner_mut(store, &owner_pubkey)))
+        })
+        .unwrap();
+        assert_eq!(
+            settings.resident_access.get(&resident_pubkey),
+            Some(&ResidentAccessLevel::Standard)
+        );
+
+        // The next start finds an explicit Standard entry already there, so
+        // there is nothing left to migrate.
+        assert!(!migrate_unsupported_manual_at(&path, &owner_pubkey, &resident_pubkey).unwrap());
+    }
+
+    #[test]
+    fn migrate_unsupported_manual_leaves_accept_edits_and_full_alone() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        for (resident_pubkey, level) in [
+            ("bb".repeat(32), ResidentAccessLevel::Standard),
+            ("cc".repeat(32), ResidentAccessLevel::Full),
+        ] {
+            mutate_store(&path, |store| {
+                owner_mut(store, &owner_pubkey)
+                    .resident_access
+                    .insert(resident_pubkey.clone(), level);
+                Ok(())
+            })
+            .unwrap();
+            assert!(
+                !migrate_unsupported_manual_at(&path, &owner_pubkey, &resident_pubkey).unwrap(),
+                "{level:?} should not be touched"
+            );
+        }
+    }
+
+    #[test]
+    fn migrate_unsupported_manual_moves_a_household_default_of_restricted_too() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join(STORE_FILE);
+        let owner_pubkey = "aa".repeat(32);
+        let resident_pubkey = "bb".repeat(32);
+        mutate_store(&path, |store| {
+            owner_mut(store, &owner_pubkey).household_default = ResidentAccessLevel::Restricted;
+            Ok(())
+        })
+        .unwrap();
+
+        assert!(migrate_unsupported_manual_at(&path, &owner_pubkey, &resident_pubkey).unwrap());
+
+        read_store(&path, |store| {
+            let owner = store
+                .owners
+                .iter()
+                .find(|owner| owner.owner_pubkey == owner_pubkey)
+                .unwrap();
+            // The household default itself is untouched; only this resident
+            // gets an explicit override.
+            assert_eq!(owner.household_default, ResidentAccessLevel::Restricted);
+            assert_eq!(
+                owner.resident_access.get(&resident_pubkey),
+                Some(&ResidentAccessLevel::Standard)
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 
     fn test_grant() -> DurableCapabilityGrantV1 {

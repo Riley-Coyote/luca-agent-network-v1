@@ -79,9 +79,14 @@ pub(crate) fn for_family(family: &str, level: ResidentAccessLevel) -> RuntimeTie
     }
 }
 
-/// Refuse a preset the supported native adapter cannot actually enforce.
+/// A preset the supported native adapter cannot actually enforce.
 /// codex-acp 1.11's preset named read-only uses a workspace-write sandbox.
-/// Never start a Manual resident at that weaker level merely to make it run.
+///
+/// The spawn path now migrates a Codex resident off Manual before this is
+/// ever called (see [`migrate_unsupported_level`]), so in practice this
+/// never sees `("codex", Restricted)` any more. It stays as the guard for a
+/// combination nothing today knows how to make safe: fail closed rather
+/// than start a resident at a level its runtime cannot actually hold to.
 pub(crate) fn validate_runtime_level(
     family: &str,
     level: ResidentAccessLevel,
@@ -90,6 +95,52 @@ pub(crate) fn validate_runtime_level(
         return Err("Manual access is unavailable with this Codex connection. The adapter permits project writes even in its read-only preset. No work was started. Choose Accept edits explicitly, or use a runtime that supports Manual access.".to_owned());
     }
     Ok(())
+}
+
+/// Owner-facing sentence for a resident moved off an unsupported Manual
+/// rung. Used both in Settings and in the Activity trace, so the wording
+/// never drifts between the two places the owner sees it.
+pub(crate) const CODEX_MANUAL_MIGRATION_NOTE: &str =
+    "Manual isn't available with this Codex connection, so this resident now runs at Accept edits.";
+
+/// True exactly when this family/level combination cannot start the way the
+/// owner set it — today, only a Codex resident left on Manual.
+fn needs_manual_migration(family: &str, level: ResidentAccessLevel) -> bool {
+    family == "codex" && level == ResidentAccessLevel::Restricted
+}
+
+/// Move a resident off a rung its runtime cannot enforce, instead of
+/// refusing to start it. The move is written through
+/// `resident_capability_authority`, so it is durable: the next start reads
+/// the new rung directly and this never fires twice for the same resident.
+/// Returns the level this spawn should actually use, and whether a
+/// migration just happened (so the caller can tell the owner about it once,
+/// not on every start).
+///
+/// If the durable write itself fails, this spawn still runs at Accept
+/// edits — the point of migrating is that a resident is never left unable
+/// to start over its own access rung, even when persistence has trouble.
+pub(crate) fn migrate_unsupported_level(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    resident_pubkey: &str,
+    family: &str,
+    level: ResidentAccessLevel,
+) -> (ResidentAccessLevel, bool) {
+    if !needs_manual_migration(family, level) {
+        return (level, false);
+    }
+    if let Err(error) = crate::luca::resident_capability_authority::migrate_unsupported_manual(
+        app,
+        owner_pubkey,
+        resident_pubkey,
+    ) {
+        luca_log!(
+            warn,
+            "luca-permission-tier: could not durably record the Accept-edits migration, running this start at Accept edits anyway: {error}"
+        );
+    }
+    (ResidentAccessLevel::Standard, true)
 }
 
 /// The runtime family behind one stable resident identity.
@@ -137,6 +188,39 @@ mod tests {
         assert!(validate_runtime_level("codex", ResidentAccessLevel::Standard).is_ok());
         assert!(validate_runtime_level("codex", ResidentAccessLevel::Full).is_ok());
         assert!(validate_runtime_level("claude_code", ResidentAccessLevel::Restricted).is_ok());
+    }
+
+    /// The migration gate itself, independent of the durable write: only a
+    /// Codex resident actually left on Manual needs to move. A non-Codex
+    /// family, and a Codex resident already past Manual, are both untouched.
+    #[test]
+    fn only_a_restricted_codex_resident_needs_the_manual_migration() {
+        assert!(needs_manual_migration(
+            "codex",
+            ResidentAccessLevel::Restricted
+        ));
+        assert!(!needs_manual_migration(
+            "codex",
+            ResidentAccessLevel::Standard
+        ));
+        assert!(!needs_manual_migration("codex", ResidentAccessLevel::Full));
+        for family in [
+            "claude_code",
+            "hermes",
+            "kimi",
+            "grok",
+            "goose",
+            "openclaw",
+            "unknown",
+        ] {
+            for level in [
+                ResidentAccessLevel::Restricted,
+                ResidentAccessLevel::Standard,
+                ResidentAccessLevel::Full,
+            ] {
+                assert!(!needs_manual_migration(family, level), "{family} {level:?}");
+            }
+        }
     }
 
     #[test]
