@@ -743,7 +743,7 @@ test.describe("streamed words", () => {
     ).toBe(true);
   });
 
-  test("a completed paragraph's words do not move once the stream settles", async ({
+  test("a completed paragraph's words do not reflow once the stream settles", async ({
     page,
   }) => {
     const errors = watchConsole(page);
@@ -759,24 +759,47 @@ test.describe("streamed words", () => {
     // to catch the row mid-effect, not after it has already quietly finished.
     await page.waitForTimeout(80);
 
-    // The spans themselves are the measurement: they are never torn out for
-    // a differently-measured plain-text tree (see useStreamingWordEffect),
-    // so the same elements are read both times, mid-stream and settled.
-    const captureWordRects = () =>
+    // offsetLeft/offsetTop/offsetWidth are layout quantities: unlike
+    // getBoundingClientRect, they do not include the element's own
+    // `transform`. Bloom's scale is exactly the kind of thing that would
+    // make a getBoundingClientRect diff read as "moved" when nothing in the
+    // layout actually did — this is the reflow question, not the animation
+    // question. The computed transform/filter/opacity/willChange are
+    // captured alongside, purely to log and to check inertness after settle.
+    const captureWordLayout = () =>
       paragraphWords.evaluateAll((nodes) =>
         nodes.map((node) => {
-          const rect = node.getBoundingClientRect();
+          const element = node as HTMLElement;
+          const computed = getComputedStyle(element);
           return {
-            height: rect.height,
-            width: rect.width,
-            x: rect.x,
-            y: rect.y,
+            filter: computed.filter,
+            offsetLeft: element.offsetLeft,
+            offsetTop: element.offsetTop,
+            offsetWidth: element.offsetWidth,
+            opacity: computed.opacity,
+            text: element.textContent,
+            transform: computed.transform,
+            willChange: computed.willChange,
           };
         }),
       );
 
-    const midStream = await captureWordRects();
+    const midStream = await captureWordLayout();
     expect(midStream.length).toBeGreaterThan(0);
+    // Evidence either way: log every sample so a run can be inspected
+    // without re-running it, and call out "The" (index 0 of this paragraph)
+    // specifically, since it is the word the coordinator's failure named.
+    console.log(
+      "no-jump mid-stream samples:",
+      JSON.stringify(midStream, null, 2),
+    );
+    const firstWordMidStream = midStream[0];
+    console.log(
+      `"${firstWordMidStream?.text}" at the mid-stream sample: transform=${firstWordMidStream?.transform}` +
+        (firstWordMidStream && firstWordMidStream.transform !== "none"
+          ? " (mid-animation — scaled, as expected for a word whose own clock has not finished)"
+          : " (already at rest)"),
+    );
 
     await emitSignedFinal(page, receiptId, "managed-no-jump-signed-final");
     await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
@@ -786,26 +809,45 @@ test.describe("streamed words", () => {
     // delay — this is the "everything has been sitting still" reading.
     await page.waitForTimeout(1_000);
 
-    const settled = await captureWordRects();
+    const settled = await captureWordLayout();
     expect(settled.length).toBe(midStream.length);
+    console.log("no-jump settled samples:", JSON.stringify(settled, null, 2));
 
     const words = PROSE_TWO.split(/\s+/);
+
+    // The reflow question: layout position and width, transform excluded.
     for (let i = 0; i < settled.length; i += 1) {
       const before = midStream[i];
       const after = settled[i];
       const label = words[i] ?? `#${i}`;
       expect(
-        Math.abs(before.x - after.x),
-        `word "${label}" x moved: ${before.x} -> ${after.x}`,
+        Math.abs(before.offsetLeft - after.offsetLeft),
+        `word "${label}" offsetLeft moved: ${before.offsetLeft} -> ${after.offsetLeft} ` +
+          `(transform mid-stream: ${before.transform}, settled: ${after.transform})`,
       ).toBeLessThanOrEqual(0.5);
       expect(
-        Math.abs(before.y - after.y),
-        `word "${label}" y moved: ${before.y} -> ${after.y}`,
+        Math.abs(before.offsetTop - after.offsetTop),
+        `word "${label}" offsetTop moved: ${before.offsetTop} -> ${after.offsetTop}`,
       ).toBeLessThanOrEqual(0.5);
       expect(
-        Math.abs(before.width - after.width),
-        `word "${label}" width changed: ${before.width} -> ${after.width}`,
+        Math.abs(before.offsetWidth - after.offsetWidth),
+        `word "${label}" offsetWidth changed: ${before.offsetWidth} -> ${after.offsetWidth}`,
       ).toBeLessThanOrEqual(0.5);
+    }
+
+    // The other half, kept separate on purpose: once settled, nothing about
+    // any word's *painted* box may still be in flight either — computed
+    // style, not the inline style `settle()` writes, so this also catches a
+    // stylesheet rule doing the same thing by another means.
+    for (let i = 0; i < settled.length; i += 1) {
+      const after = settled[i];
+      const label = words[i] ?? `#${i}`;
+      expect(after.transform, `word "${label}" settled transform`).toBe("none");
+      expect(after.filter, `word "${label}" settled filter`).toBe("none");
+      expect(after.opacity, `word "${label}" settled opacity`).toBe("1");
+      expect(after.willChange, `word "${label}" settled will-change`).toBe(
+        "auto",
+      );
     }
     expect(errors).toEqual([]);
   });
