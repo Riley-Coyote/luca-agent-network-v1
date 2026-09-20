@@ -197,6 +197,7 @@ type MessageComposerProps = {
   } | null;
   showTopBorder?: boolean;
   toolbarExtraActions?: React.ReactNode;
+  toolbarPostAudioActions?: React.ReactNode;
   toolbarTrailingActions?: React.ReactNode;
   typingParentEventId?: string | null;
   typingRootEventId?: string | null;
@@ -232,6 +233,7 @@ function MessageComposerImpl({
   mediaController,
   showTopBorder = false,
   toolbarExtraActions,
+  toolbarPostAudioActions,
   toolbarTrailingActions,
   typingParentEventId = null,
   typingRootEventId = null,
@@ -1694,6 +1696,7 @@ function MessageComposerImpl({
             composerDisabled={disabled}
             editor={richText.editor}
             extraActions={toolbarExtraActions}
+            postAudioActions={toolbarPostAudioActions}
             trailingActions={toolbarTrailingActions}
             formattingDisabled={disabled}
             isEmojiPickerOpen={isEmojiPickerOpen}

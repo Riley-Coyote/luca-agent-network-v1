@@ -1368,11 +1368,10 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onAutoSubmitComplete={handleAutoSubmitComplete}
                       isSending={isSending}
                       mediaController={mainComposerMedia}
-                      // Access sits with the composer's own controls on the
-                      // left; thinking stays on the right where it has always
-                      // been. Two chips crowded together on the right read as
-                      // one setting split in half.
-                      toolbarExtraActions={
+                      // Access sits after the microphone — with the composer's
+                      // own controls, without displacing them — and thinking
+                      // stays on the right where it has always been.
+                      toolbarPostAudioActions={
                         capabilityResidents.length && !mainEditTarget ? (
                           <ConversationAccessPicker
                             residents={capabilityResidents}

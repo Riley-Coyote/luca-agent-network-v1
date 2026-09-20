@@ -27,6 +27,7 @@ export const MessageComposerToolbar = React.memo(
     composerDisabled,
     editor,
     extraActions,
+    postAudioActions,
     trailingActions,
     formattingDisabled,
     isEmojiPickerOpen,
@@ -62,6 +63,9 @@ export const MessageComposerToolbar = React.memo(
     composerDisabled: boolean;
     editor: Editor | null;
     extraActions?: React.ReactNode;
+    /** Sits after the microphone, so a picker added here never displaces
+     * the composer's own buttons. */
+    postAudioActions?: React.ReactNode;
     trailingActions?: React.ReactNode;
     formattingDisabled: boolean;
     isEmojiPickerOpen: boolean;
@@ -225,6 +229,8 @@ export const MessageComposerToolbar = React.memo(
           </TooltipTrigger>
           <TooltipContent>{audioButtonLabel}</TooltipContent>
         </Tooltip>
+
+        {postAudioActions}
 
         {sendDisabled !== undefined ? (
           <Button
