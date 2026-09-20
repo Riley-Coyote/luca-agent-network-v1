@@ -102,7 +102,7 @@ export function ConversationAccessPicker({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        align="end"
+        align="start"
         className="thinking-effort-picker__content border-0"
         collisionPadding={12}
         data-testid="conversation-access-popover"
@@ -138,12 +138,13 @@ export function ConversationAccessPicker({
             Choose a resident to set its access level.
           </p>
         ) : (
-          <div className="p-1">
+          <div className="p-0.5">
             <AccessLevelPicker
               disabled={pending || tier.isLoading}
               onChange={(level) => void setLevel(level)}
               subjectLabel={selectedResident?.name ?? "This resident"}
               value={tier.data?.level ?? "standard"}
+              variant="menu"
             />
             {tier.data && (
               <p className="thinking-effort-picker__note text-2xs">

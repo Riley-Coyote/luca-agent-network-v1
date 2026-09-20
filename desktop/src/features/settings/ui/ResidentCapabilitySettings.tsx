@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck, Trash2 } from "lucide-react";
+import { Check, ShieldCheck, Trash2 } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -40,18 +40,23 @@ const levels: Array<{
   value: "standard" | "full";
   label: string;
   description: string;
+  /** The same choice said in one breath, for the composer menu, where a
+   * paragraph would turn a two-item menu into a wall of text. */
+  menuDescription: string;
 }> = [
   {
     value: "standard",
     label: "Work in my project",
     description:
       "Works inside a project without asking. Extra access, and doors like messaging or the shell tool, still ask — Always makes a door stop asking, once you say so.",
+    menuDescription: "Asks before reaching outside it",
   },
   {
     value: "full",
     label: "Don't ask me",
     description:
       "Runs on its own, doors included — messaging, deleting, the shell tool. Every one of those is still written to the Activity trail.",
+    menuDescription: "Never asks; everything is still logged",
   },
 ];
 
@@ -135,6 +140,7 @@ export function AccessLevelPicker({
   onChange,
   value,
   subjectLabel = "This resident",
+  variant = "cards",
 }: {
   disabled: boolean;
   onChange: (value: ResidentAccessLevel) => void;
@@ -142,9 +148,90 @@ export function AccessLevelPicker({
   /** Who the confirmation names, e.g. a resident's display name, or "New
    * residents" for the household default. Defaults to a neutral phrase. */
   subjectLabel?: string;
+  /** `cards` is the Settings surface, where the two modes have room to sit
+   * side by side. `menu` is the composer popover, where the same two modes
+   * read as ordinary menu rows — a title, a line of explanation, a tick on
+   * the one in force — because two cards floating over a conversation look
+   * like a dialog that wandered in. */
+  variant?: "cards" | "menu";
 }) {
   const [confirmOpen, setConfirmOpen] = React.useState(false);
   const displayed = displayLevel(value);
+  const choose = (level: ResidentAccessLevel) => {
+    if (level === "full" && displayed !== "full") {
+      setConfirmOpen(true);
+      return;
+    }
+    onChange(level);
+  };
+
+  if (variant === "menu") {
+    return (
+      <>
+        <fieldset className="grid gap-0.5">
+          <legend className="sr-only">Resident access level</legend>
+          {levels.map((level) => (
+            <label
+              className="flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-muted/40 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
+              key={level.value}
+            >
+              <input
+                checked={displayed === level.value}
+                className="sr-only"
+                disabled={disabled}
+                name="resident-access-level-menu"
+                onChange={() => choose(level.value)}
+                type="radio"
+                value={level.value}
+              />
+              <Check
+                aria-hidden="true"
+                className={
+                  displayed === level.value
+                    ? "mt-0.5 size-3 shrink-0 opacity-90"
+                    : "mt-0.5 size-3 shrink-0 opacity-0"
+                }
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-medium leading-5">
+                  {level.label}
+                </span>
+                <span className="mt-0.5 block text-2xs leading-4 text-muted-foreground">
+                  {level.menuDescription}
+                </span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Turn on &quot;Don&apos;t ask me&quot;?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {subjectLabel} will act without asking — including messaging
+                people on your behalf, deleting, and the shell tool. Every one
+                of those is still written to the Activity trail, and you can
+                turn this off again anytime.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setConfirmOpen(false);
+                  onChange("full");
+                }}
+              >
+                Turn on
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    );
+  }
 
   return (
     <>

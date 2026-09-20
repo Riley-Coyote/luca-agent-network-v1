@@ -1368,20 +1368,23 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onAutoSubmitComplete={handleAutoSubmitComplete}
                       isSending={isSending}
                       mediaController={mainComposerMedia}
+                      // Access sits with the composer's own controls on the
+                      // left; thinking stays on the right where it has always
+                      // been. Two chips crowded together on the right read as
+                      // one setting split in half.
+                      toolbarExtraActions={
+                        capabilityResidents.length && !mainEditTarget ? (
+                          <ConversationAccessPicker
+                            residents={capabilityResidents}
+                            selectedPubkey={thinking.selectedPubkey}
+                            onSelectResident={thinking.selectResident}
+                            disabled={isComposerDisabled}
+                          />
+                        ) : undefined
+                      }
                       toolbarTrailingActions={
                         capabilityResidents.length && !mainEditTarget ? (
-                          // Both pickers share one trigger style tuned for a
-                          // single toolbar chip (see thinking-effort.css); a
-                          // flex row keeps two of them from stacking on that
-                          // style's own spacing. Worth a visual check once
-                          // this can be seen live.
                           <div className="flex items-center gap-1">
-                            <ConversationAccessPicker
-                              residents={capabilityResidents}
-                              selectedPubkey={thinking.selectedPubkey}
-                              onSelectResident={thinking.selectResident}
-                              disabled={isComposerDisabled}
-                            />
                             <ConversationEffortPicker
                               residents={capabilityResidents}
                               selectedPubkey={thinking.selectedPubkey}
