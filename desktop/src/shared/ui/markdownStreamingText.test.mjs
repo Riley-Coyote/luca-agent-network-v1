@@ -182,32 +182,13 @@ test("several words are in flight at once", () => {
   assert.ok(inFlight >= 8 && inFlight <= 14, `in flight: ${inFlight}`);
 });
 
-test("settling pins opacity and a prose word's filter just under their defaults, never landing on them", () => {
-  // Landing exactly on `opacity: 1` / `filter: none` — the literal default —
-  // takes the element out of the category that needs its own backing
-  // surface to composite, and that category switch is what nudged a
-  // settled line by a device pixel. Staying just under the default keeps
-  // the category constant across the word's whole life, at a value no
-  // reader could ever perceive as different from settled.
+test("both effects settle to no filter and no transform", () => {
   for (const key of ["bloom", "diffusion"]) {
-    const prose = fakeNode("");
-    STREAMING_WORD_ANIMATIONS[key].apply(prose, 1);
-    assert.equal(prose.style.transform, "none", key);
-    assert.equal(prose.style.opacity, "0.999", key);
-    assert.notEqual(prose.style.opacity, "1", key);
-    assert.equal(prose.style.filter, "blur(0.001px)", key);
-    assert.notEqual(prose.style.filter, "none", key);
-
-    // An expression word must never gain a filter it never had — that is
-    // exactly what pushes the whole coloured run into rasterising and
-    // blurring as one unit instead of keeping its own clip.
-    for (const kind of ["clip", "plain"]) {
-      const expression = fakeNode(kind);
-      STREAMING_WORD_ANIMATIONS[key].apply(expression, 1);
-      assert.equal(expression.style.filter, "none", `${key}/${kind}`);
-      assert.equal(expression.style.transform, "none", `${key}/${kind}`);
-      assert.equal(expression.style.opacity, "0.999", `${key}/${kind}`);
-    }
+    const node = fakeNode();
+    STREAMING_WORD_ANIMATIONS[key].apply(node, 1);
+    assert.equal(node.style.filter, "none", key);
+    assert.equal(node.style.transform, "none", key);
+    assert.equal(node.style.opacity, "", key);
   }
 });
 
@@ -227,7 +208,9 @@ test("bloom peaks at 1.10 and contracts to size", () => {
   const node = fakeNode();
   STREAMING_WORD_ANIMATIONS.bloom.apply(node, 0);
   assert.equal(node.style.transform, "scale(1.1000)");
-  assert.equal(node.style.filter, "blur(2.00px)");
+  // Opacity and transform only — bloom never carries a filter (see the
+  // dedicated "bloom never carries a filter" test for why).
+  assert.equal(node.style.filter, "none");
 
   STREAMING_WORD_ANIMATIONS.bloom.apply(node, 0.5);
   assert.equal(node.style.transform, "scale(1.0500)");
@@ -317,9 +300,9 @@ test("prose is split into one inline-block span per word", () => {
 test("the whitespace between words survives as whitespace", () => {
   const tree = run([element("p", [text(" a  b\nc ")])]);
   const parts = tree.children[0].children.map((child) =>
-    child.type === "text" ? child.value : " ",
+    child.type === "text" ? child.value : " ",
   );
-  assert.deepEqual(parts, [" ", " ", "  ", " ", "\n", " ", " "]);
+  assert.deepEqual(parts, [" ", " ", "  ", " ", "\n", " ", " "]);
 });
 
 test("link and emphasis structure is kept, only their text is split", () => {
@@ -431,10 +414,26 @@ test("an expression word is never given a filter", () => {
       assert.ok(Number(node.style.opacity) > 0, `${key}/${kind}`);
       assert.ok(Number(node.style.opacity) < 1, `${key}/${kind}`);
     }
-    const prose = fakeNode("");
-    STREAMING_WORD_ANIMATIONS[key].apply(prose, 0.4);
-    assert.match(prose.style.filter, /^blur\(/, key);
   }
+});
+
+test("bloom never carries a filter, on prose or otherwise", () => {
+  // A one-device-pixel settle-time reflow traced to a word's filter easing
+  // from an active blur to `none` — see `settle()`'s call site in the bloom
+  // entry. Bloom is opacity and transform only now, at every progress.
+  for (const kind of ["", "plain", "clip"]) {
+    const node = fakeNode(kind);
+    for (const progress of [0, 0.4, 0.99]) {
+      STREAMING_WORD_ANIMATIONS.bloom.apply(node, progress);
+      assert.equal(node.style.filter, "none", `${kind}@${progress}`);
+    }
+  }
+});
+
+test("diffusion still blurs prose", () => {
+  const prose = fakeNode("");
+  STREAMING_WORD_ANIMATIONS.diffusion.apply(prose, 0.4);
+  assert.match(prose.style.filter, /^blur\(/);
 });
 
 test("a whitespace-only text node is left exactly as it was", () => {
