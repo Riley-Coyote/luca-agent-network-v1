@@ -342,7 +342,7 @@ test("attachment and permission failures stay sanitized while text remains avail
     permissionCard.getByTestId("managed-permission-tense-deny"),
   ).toHaveText("Deny");
   await expect(permissionCard).toContainText(
-    "Remembered for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
+    "Remembers git status for polyphonic. Take it back any time in Settings › Agents › Capabilities.",
   );
   await permissionCard
     .getByTestId("managed-permission-tense-always")

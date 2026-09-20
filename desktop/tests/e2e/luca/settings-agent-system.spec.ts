@@ -156,7 +156,9 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
 
   await page.getByRole("button", { name: "Capabilities" }).click();
   await expect(page.getByTestId("resident-access-control")).toBeVisible();
-  await expect(page.getByRole("radio", { name: /Accept edits/ })).toBeChecked();
+  await expect(
+    page.getByRole("radio", { name: /Work in my project/ }),
+  ).toBeChecked();
   await expect(
     page.getByText("Remembered permissions", { exact: true }),
   ).toBeVisible();
@@ -165,7 +167,7 @@ test("one resident record agrees across settings, runtime, and MCP grants", asyn
     "Hermes doesn’t take a level from Polyphonic.",
   );
   await expect(page.getByTestId("resident-runtime-tier-note")).toContainText(
-    "Changes apply the next time this resident starts.",
+    "Hermes doesn\u2019t take a level from Polyphonic",
   );
   const rememberedRule = page.getByTestId(
     "remembered-permission-rule-rule-git-status",

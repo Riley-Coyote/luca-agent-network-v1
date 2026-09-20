@@ -61,7 +61,7 @@ function rememberHint(
 ): string {
   const where = projectLabel ?? "this project";
   const tail = "Take it back any time in Settings › Agents › Capabilities.";
-  return remembers.length > 1
+  return remembers.length > 0
     ? `Remembers ${readAsList(remembers)} for ${where}. ${tail}`
     : `Remembered for ${where}. ${tail}`;
 }
