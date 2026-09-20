@@ -212,27 +212,25 @@ export function ManagedPermissionCard({
               ) : null}
             </>
           ) : (
-            <>
-              {visiblePermissionTenses(offer).map((tense) => {
-                const wireTense = PERMISSION_TENSE_WIRE_VALUE[tense];
-                const config = TENSE_BUTTON_CONFIG[tense];
-                return (
-                  <Button
-                    data-testid={`managed-permission-tense-${tense}`}
-                    disabled={resolving !== null}
-                    key={tense}
-                    onClick={() => void decide(wireTense)}
-                    size="sm"
-                    type="button"
-                    variant={config.variant}
-                  >
-                    {resolving === wireTense
-                      ? busyLabel(wireTense)
-                      : config.label}
-                  </Button>
-                );
-              })}
-            </>
+            visiblePermissionTenses(offer).map((tense) => {
+              const wireTense = PERMISSION_TENSE_WIRE_VALUE[tense];
+              const config = TENSE_BUTTON_CONFIG[tense];
+              return (
+                <Button
+                  data-testid={`managed-permission-tense-${tense}`}
+                  disabled={resolving !== null}
+                  key={tense}
+                  onClick={() => void decide(wireTense)}
+                  size="sm"
+                  type="button"
+                  variant={config.variant}
+                >
+                  {resolving === wireTense
+                    ? busyLabel(wireTense)
+                    : config.label}
+                </Button>
+              );
+            })
           )}
         </div>
         {!structured ? (
