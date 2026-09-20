@@ -2,7 +2,7 @@ import * as React from "react";
 
 import {
   createStreamingWordSchedule,
-  STREAMING_SPACING_EASE_MS,
+  STREAMING_SETTLE_GRACE_MS,
   STREAMING_WORD_SELECTOR,
   type StreamingTextEffect,
   streamingWordAnimation,
@@ -186,22 +186,29 @@ export function useStreamingWordEffect(
     return () => cancelAnimationFrame(frame);
   }, [active, paint, running]);
 
-  // The row's word-spacing eases shut after the spans are gone; drop the
-  // attribute once that transition has had its time.
+  // A grace beat after the last word settles, before the spans unwrap to
+  // plain text (see the `wordSpans` return below) and gesture animations
+  // paused by the attribute (see the stylesheet) resume.
   React.useEffect(() => {
     if (resolvedPhase !== "settling") return;
     wordsRef.current = [];
     staleRef.current = true;
     const timer = window.setTimeout(
       () => setPhase("idle"),
-      STREAMING_SPACING_EASE_MS + 40,
+      STREAMING_SETTLE_GRACE_MS + 40,
     );
     return () => window.clearTimeout(timer);
   }, [resolvedPhase]);
 
   if (resolvedPhase === "idle") return IDLE;
   return {
-    wordSpans: running,
+    // True through both "running" and "settling": unwrapping a word span is a
+    // full-tree swap in the caller (plain markdown replaces the word-spanned
+    // parse), and doing that the instant the last word's own animation ends
+    // would just trade one settle-time jump for another. Spans stay mounted
+    // — already written to their settled, no-op styles — until the grace
+    // timer above moves the row to idle.
+    wordSpans: true,
     effectAttribute: running ? effect : "settling",
   };
 }

@@ -212,14 +212,17 @@ test("bloom peaks at 1.10 and contracts to size", () => {
 
   STREAMING_WORD_ANIMATIONS.bloom.apply(node, 0.5);
   assert.equal(node.style.transform, "scale(1.0500)");
-  // Never past the cap: a transform reserves no layout, so the row's
-  // word-spacing is sized for exactly this peak.
+  // Never past the cap: kept modest because nothing compensates for it —
+  // the overlap with a neighbour must stay slight, not because a row-level
+  // spacing was ever sized to exactly this peak.
   for (let p = 0; p <= 1; p += 0.05) {
     STREAMING_WORD_ANIMATIONS.bloom.apply(node, p);
     const scale = Number(/scale\(([\d.]+)\)/.exec(node.style.transform)?.[1]);
     if (Number.isFinite(scale)) assert.ok(scale <= 1.1 + 1e-9, `${scale}`);
   }
-  assert.equal(STREAMING_WORD_ANIMATIONS.bloom.spacedRow, true);
+  // Neither effect reserves row space: a layout property eased shut is what
+  // used to re-wrap the paragraph once the last word landed.
+  assert.equal(STREAMING_WORD_ANIMATIONS.bloom.spacedRow, false);
   assert.equal(STREAMING_WORD_ANIMATIONS.diffusion.spacedRow, false);
 });
 

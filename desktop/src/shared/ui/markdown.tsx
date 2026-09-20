@@ -1978,7 +1978,13 @@ function MarkdownInner({
   const parseVariant = streamWords
     ? `${componentSet.variant}:w`
     : componentSet.variant;
-  const progressiveMode = progressive || streaming;
+  // `streaming` can go false (the durable event lands) before the hook has
+  // finished the settle grace period it holds `streamWords` open for — a
+  // long reply's tail can still be mid-word when that happens. Falling back
+  // to the plain, cached parse on that same render would tear the word spans
+  // out from under still-animating words instead of letting them settle in
+  // place, which is the jump this is guarding against, not a cosmetic one.
+  const progressiveMode = progressive || streaming || streamWords;
   const markdownNode =
     configNudge !== null ? null : progressiveMode ? (
       <ProgressiveMarkdownRenderer

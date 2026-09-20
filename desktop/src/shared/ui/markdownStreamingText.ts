@@ -51,8 +51,14 @@ export const STREAMING_GAP_STEADY_MS = 26;
 export const STREAMING_GAP_RAMP_WORDS = 10;
 /** A block break holds the rhythm for a beat before the next word starts. */
 export const STREAMING_BLOCK_PAUSE_MS = 120;
-/** How long the bloom row takes to ease its word-spacing back to normal. */
-export const STREAMING_SPACING_EASE_MS = 300;
+/**
+ * How long the row holds its `data-md-stream-effect` attribute after the last
+ * word settles, before the spans unwrap to plain text. Nothing layout-
+ * affecting animates during this window — it exists only so the unwrap (and
+ * the gesture animations paused by the attribute, see the stylesheet) happens
+ * a beat after the row goes quiet rather than on the same frame.
+ */
+export const STREAMING_SETTLE_GRACE_MS = 300;
 /**
  * When a whole remainder lands at once — the terminal drain flushes its buffer
  * in 300ms — the ramp would spend half a minute reading it back out. The tail
@@ -136,9 +142,15 @@ export function streamingWordProgress(
 export type StreamingWordAnimation = {
   readonly unit: "word";
   readonly durationMs: number;
-  /** Shared ramp — the two effects differ only in `apply` and row spacing. */
+  /** Shared ramp — the two effects differ only in `apply`. */
   readonly gapMs: (index: number) => number;
-  /** True when the row has to reserve room for words that outgrow their box. */
+  /**
+   * Kept for effects that may want it later; neither current effect reserves
+   * row space today. Nothing that affects layout may animate — a transform's
+   * overflow is left uncompensated rather than opened and eased shut by a
+   * layout property, which is what used to make the row re-wrap once it
+   * closed back up.
+   */
   readonly spacedRow: boolean;
   readonly apply: (node: HTMLElement, progress: number) => void;
   readonly reset: (node: HTMLElement) => void;
@@ -182,15 +194,18 @@ export const STREAMING_WORD_ANIMATIONS: Record<
   },
   /**
    * Words land a touch large and contract to size. A center-origin scale
-   * overflows its layout box without reserving any space, so the peak stays
-   * capped at 1.10 and the row carries extra word-spacing — otherwise adjacent
-   * words collide while in flight and the line is illegible.
+   * overflows its layout box without reserving any space — nothing about the
+   * row may reserve that room either, or the row itself becomes a layout
+   * property with a frame-by-frame value. The peak stays capped at 1.10 so
+   * the overlap with a neighbour, while a word is still near-transparent
+   * early in its own transition, stays slight enough to read as texture
+   * rather than as a collision.
    */
   bloom: {
     unit: "word",
     durationMs: STREAMING_WORD_MS,
     gapMs: streamingWordGapMs,
-    spacedRow: true,
+    spacedRow: false,
     apply(node, progress) {
       if (progress >= 1) {
         settle(node);

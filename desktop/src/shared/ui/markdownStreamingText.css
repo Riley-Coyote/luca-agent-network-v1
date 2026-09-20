@@ -43,34 +43,11 @@
 }
 
 /*
- * Bloom grows a word past its layout box without reserving any of that room,
- * so adjacent words collide while in flight. The row opens up for the whole
- * stream and eases shut once the last word has settled.
- *
- * The closed value is `0` rather than `normal` only so the width stays
- * readable: both animate the same way, but `getComputedStyle` reports the
- * keyword back as the string `normal`, which reads as no width at all.
+ * Bloom grows a word past its layout box without reserving any of that room:
+ * the overflow is left uncompensated rather than carried by a row-level
+ * word-spacing that opens for the stream and eases shut behind it. Easing a
+ * layout property is exactly what re-wraps the paragraph as it closes — the
+ * "jump and settle" this file used to cause once the last word landed. The
+ * peak scale (see markdownStreamingText.ts) is kept modest enough that the
+ * transient overlap with a neighbour reads as texture, not a collision.
  */
-[data-md-stream-effect] {
-  word-spacing: 0;
-  transition: word-spacing 300ms var(--motion-ease-standard, ease-out);
-}
-
-[data-md-stream-effect="bloom"] {
-  word-spacing: 0.22em;
-}
-
-/* word-spacing inherits; code must keep its own metrics. */
-[data-md-stream-effect] :where(pre, code, kbd, samp, [data-code-block]) {
-  word-spacing: normal;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-md-stream-effect] {
-    transition: none;
-  }
-
-  [data-md-stream-effect="bloom"] {
-    word-spacing: 0;
-  }
-}

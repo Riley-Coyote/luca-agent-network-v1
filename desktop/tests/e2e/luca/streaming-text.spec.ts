@@ -549,10 +549,10 @@ test.describe("streamed words", () => {
     );
     const scales = distinct(midStream?.scales ?? []);
     expect(scales.length).toBeGreaterThanOrEqual(3);
-    // The peak is capped: a transform reserves no layout, and the row's
-    // word-spacing is sized for exactly this much overflow.
+    // The peak is capped: only opacity, transform and filter animate per
+    // word, and nothing compensates for the overflow, so it has to stay
+    // slight on its own.
     for (const scale of scales) expect(scale).toBeLessThanOrEqual(1.1001);
-    // The row opens up while words are in flight so they cannot collide.
     await expect(
       row.locator('[data-md-stream-effect="bloom"]').first(),
     ).toHaveCount(1);
@@ -633,7 +633,7 @@ test.describe("streamed words", () => {
     expect(errors).toEqual([]);
   });
 
-  test("the bloom row eases its spacing shut behind the last word", async ({
+  test("the bloom row's word-spacing never opens — nothing layout-affecting animates", async ({
     page,
   }) => {
     await seedEffect(page, "bloom");
@@ -641,36 +641,14 @@ test.describe("streamed words", () => {
     const { receiptId, row } = await streamReply(page, "spacing-turn");
     const root = row.locator("[data-md-stream-effect]").first();
 
-    // The signed final is deliberately still held here, so the row cannot
-    // settle out from under the sample however slow the machine is. What can
-    // still be late is the width itself: the markdown stylesheet arrives in
-    // its own chunk, so a single read can land while the attribute is on the
-    // element but its rule has not applied to it yet, and report the inherited
-    // `normal` — which parses to NaN, not to a width. Poll for a real one.
     await expect(root).toHaveAttribute("data-md-stream-effect", "bloom");
-    let open = 0;
-    await expect
-      .poll(
-        async () => {
-          open = await root.evaluate(
-            (element) =>
-              Number.parseFloat(getComputedStyle(element).wordSpacing) || 0,
-          );
-          return open;
-        },
-        {
-          message: "the bloom row must open its spacing while words fly",
-          timeout: 15_000,
-        },
-      )
-      .toBeGreaterThan(0);
-
     await expect(row).toContainText("without asking for any credit");
 
-    // Record the ease from inside the page, one reading per frame. The whole
-    // animation is 300ms and a single cross-process read can cost more than
-    // that on a loaded machine, so a test-side loop sees the open width, then
-    // nothing, and concludes the row snapped.
+    // Bloom's overflow is carried by `transform` alone now, which reserves no
+    // layout — so there is nothing here to open while words fly and nothing
+    // to ease shut once they land. Record every frame from before the reply
+    // even starts through well after it settles: it must read as a flat line
+    // at the row's resting word-spacing the whole way.
     await page.evaluate(() => {
       const store = window as unknown as { __streamSpacing?: number[] };
       store.__streamSpacing = [];
@@ -678,10 +656,11 @@ test.describe("streamed words", () => {
         const node = document.querySelector<HTMLElement>(
           "[data-md-stream-effect]",
         );
-        if (!node) return;
-        store.__streamSpacing?.push(
-          Number.parseFloat(getComputedStyle(node).wordSpacing) || 0,
-        );
+        if (node) {
+          store.__streamSpacing?.push(
+            Number.parseFloat(getComputedStyle(node).wordSpacing) || 0,
+          );
+        }
         requestAnimationFrame(tick);
       };
       requestAnimationFrame(tick);
@@ -691,19 +670,126 @@ test.describe("streamed words", () => {
     await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
       timeout: 20_000,
     });
+    // A beat past the unwrap, so the recording covers the settle grace period
+    // too, not just the in-flight portion of the stream.
+    await page.waitForTimeout(500);
 
-    // The row has to ease, not snap: without the transition this records the
-    // open width and then zero, with nothing in between.
-    const seen = await page.evaluate(
+    const recorded = await page.evaluate(
       () =>
         (window as unknown as { __streamSpacing?: number[] }).__streamSpacing ??
         [],
     );
-    expect(seen.length, "the recorder must have run").toBeGreaterThan(1);
+    expect(recorded.length, "the recorder must have run").toBeGreaterThan(1);
     expect(
-      seen.some((value) => value > 0 && value < open - 0.01),
-      `expected a width between 0 and ${open}; saw ${JSON.stringify(seen.slice(-40))}`,
+      recorded.every((value) => value === 0),
+      `expected word-spacing to stay at 0 throughout; saw ${JSON.stringify(recorded)}`,
     ).toBe(true);
+  });
+
+  test("a completed paragraph's words do not move once the stream settles", async ({
+    page,
+  }) => {
+    const errors = watchConsole(page);
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    const { receiptId, row } = await streamReply(page, "no-jump-turn");
+
+    const paragraph = row.locator(".message-markdown p").last();
+    await expect(row).toContainText("without asking for any credit");
+    // A beat for the last few words to actually be in flight — the point is
+    // to catch the row mid-effect, not after it has already quietly finished.
+    await page.waitForTimeout(80);
+
+    const words = PROSE_TWO.split(/\s+/);
+    const captureWordRects = () =>
+      paragraph.evaluate((container, targetWords: string[]) => {
+        const walker = document.createTreeWalker(
+          container,
+          NodeFilter.SHOW_TEXT,
+        );
+        const textNodes: { node: Text; start: number }[] = [];
+        let text = "";
+        let node = walker.nextNode();
+        while (node) {
+          const textNode = node as Text;
+          textNodes.push({ node: textNode, start: text.length });
+          text += textNode.textContent ?? "";
+          node = walker.nextNode();
+        }
+        const rangeAt = (start: number, end: number): Range => {
+          const range = document.createRange();
+          for (const entry of textNodes) {
+            const nodeEnd = entry.start + (entry.node.textContent?.length ?? 0);
+            if (start >= entry.start && start < nodeEnd) {
+              range.setStart(entry.node, start - entry.start);
+            }
+            if (end <= nodeEnd && end >= entry.start) {
+              range.setEnd(entry.node, end - entry.start);
+              break;
+            }
+          }
+          return range;
+        };
+        let cursor = 0;
+        return targetWords.map((word) => {
+          const idx = text.indexOf(word, cursor);
+          if (idx === -1) return null;
+          cursor = idx + word.length;
+          const rect = rangeAt(idx, idx + word.length).getBoundingClientRect();
+          return {
+            height: rect.height,
+            width: rect.width,
+            x: rect.x,
+            y: rect.y,
+          };
+        });
+      }, words);
+
+    const midStream = await captureWordRects();
+    expect(
+      midStream.every((rect) => rect !== null),
+      `expected every word to resolve a rect while streaming; saw ${JSON.stringify(midStream)}`,
+    ).toBe(true);
+
+    await emitSignedFinal(page, receiptId, "managed-no-jump-signed-final");
+    await expect(row.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    // Comfortably past both a word's own settle and the unwrap's grace delay
+    // — this is the "everything has been sitting still" reading.
+    await page.waitForTimeout(1_000);
+
+    const settled = await captureWordRects();
+    expect(
+      settled.every((rect) => rect !== null),
+      `expected every word to still resolve a rect once settled; saw ${JSON.stringify(settled)}`,
+    ).toBe(true);
+
+    for (let i = 0; i < words.length; i += 1) {
+      const before = midStream[i] as {
+        height: number;
+        width: number;
+        x: number;
+        y: number;
+      };
+      const after = settled[i] as {
+        height: number;
+        width: number;
+        x: number;
+        y: number;
+      };
+      expect(
+        Math.abs(before.x - after.x),
+        `word "${words[i]}" x moved: ${before.x} -> ${after.x}`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs(before.y - after.y),
+        `word "${words[i]}" y moved: ${before.y} -> ${after.y}`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs(before.width - after.width),
+        `word "${words[i]}" width changed: ${before.width} -> ${after.width}`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+    expect(errors).toEqual([]);
   });
 
   for (const effect of ["bloom", "diffusion"] as const) {
@@ -741,8 +827,8 @@ test.describe("streamed words", () => {
       const varied = signal === "scale" ? gradient.scales : gradient.opacities;
       expect(distinct(varied).length, detail).toBeGreaterThanOrEqual(3);
       for (const scale of distinct(gradient.scales)) {
-        // A transform reserves no layout; the row's spacing is sized for
-        // exactly this much overflow and no more.
+        // A transform reserves no layout and nothing compensates for it, so
+        // the peak has to stay this modest on its own.
         expect(scale, detail).toBeLessThanOrEqual(1.1001);
       }
       // No filter reaches a clipped word, in either effect.
@@ -879,9 +965,9 @@ test.describe("streamed words", () => {
     const short = "Yes — that is exactly the claim it makes.";
     const receiptId = await streamReplyChunked(page, "short-turn", short);
 
-    // The row opens its spacing to make room for words that outgrow their box.
-    // On a reply that fits, that room must not cost it a line, or the reply
-    // re-wraps under the reader when the spacing eases shut.
+    // Bloom's overflow is carried by transform alone, which reserves no
+    // layout — so a reply that fits on one line must stay on it, whether or
+    // not a word is mid-animation, and must still be one line once settled.
     const lines = await page.evaluate(
       () =>
         new Promise<number[]>((resolve) => {
