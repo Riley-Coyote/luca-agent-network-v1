@@ -1978,12 +1978,15 @@ function MarkdownInner({
   const parseVariant = streamWords
     ? `${componentSet.variant}:w`
     : componentSet.variant;
-  // `streaming` can go false (the durable event lands) before the hook has
-  // finished the settle grace period it holds `streamWords` open for — a
-  // long reply's tail can still be mid-word when that happens. Falling back
-  // to the plain, cached parse on that same render would tear the word spans
-  // out from under still-animating words instead of letting them settle in
-  // place, which is the jump this is guarding against, not a cosmetic one.
+  // `streamWords` is sticky once a message has ever streamed (see
+  // useStreamingWordEffect): falling back to the plain, cached parse — a
+  // different element tree, measuring the same text as fewer, larger runs
+  // instead of many small ones — is a re-render this component must never
+  // choose to do on its own for a message that took the streaming path,
+  // whether words are still mid-flight (`streaming` can go false before the
+  // tail finishes animating) or long since settled. It is the DOM swap
+  // itself that can move a word by a fraction of a pixel, not just doing it
+  // too early.
   const progressiveMode = progressive || streaming || streamWords;
   const markdownNode =
     configNudge !== null ? null : progressiveMode ? (

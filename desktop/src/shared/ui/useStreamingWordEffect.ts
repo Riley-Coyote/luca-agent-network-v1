@@ -90,6 +90,16 @@ export function useStreamingWordEffect(
   const wordsRef = React.useRef<HTMLElement[]>([]);
   const staleRef = React.useRef(true);
   const rescanRef = React.useRef(true);
+  // Sticky for the life of this mount: once a message has been word-spanned
+  // for streaming, it stays that way, even after every word has settled and
+  // the row has gone idle. Unwrapping back to plain markdown was itself the
+  // remaining source of the settle-time jump — the same text, split across
+  // many small boxes versus laid out as one continuous run, can measure a
+  // fraction of a pixel differently, and a DOM swap is a re-measure no
+  // matter how long after the animation it happens. Spans cost nothing once
+  // settled (see `settle()` below and the effects that stop touching them
+  // once `running` goes false), so there is nothing to gain by removing them.
+  const everWordSpannedRef = React.useRef(false);
 
   // Derived during render so the very first streamed paint already carries
   // spans — an effect would land one frame late and flash unstyled words.
@@ -98,6 +108,7 @@ export function useStreamingWordEffect(
   else if (active && animation && phase !== "running")
     resolvedPhase = "running";
   if (resolvedPhase !== phase) setPhase(resolvedPhase);
+  if (resolvedPhase !== "idle") everWordSpannedRef.current = true;
 
   const running = resolvedPhase === "running";
 
@@ -186,9 +197,9 @@ export function useStreamingWordEffect(
     return () => cancelAnimationFrame(frame);
   }, [active, paint, running]);
 
-  // A grace beat after the last word settles, before the spans unwrap to
-  // plain text (see the `wordSpans` return below) and gesture animations
-  // paused by the attribute (see the stylesheet) resume.
+  // A grace beat after the last word settles, before the gesture animations
+  // paused by the `data-md-stream-effect` attribute (see the stylesheet)
+  // resume. No longer gates an unwrap — see `everWordSpannedRef` above.
   React.useEffect(() => {
     if (resolvedPhase !== "settling") return;
     wordsRef.current = [];
@@ -200,14 +211,22 @@ export function useStreamingWordEffect(
     return () => window.clearTimeout(timer);
   }, [resolvedPhase]);
 
-  if (resolvedPhase === "idle") return IDLE;
+  if (resolvedPhase === "idle") {
+    // A message that never streamed (history, "off", reduced motion) takes
+    // the ordinary idle path — no spans, ever. One that did keeps its spans
+    // now that every word has settled and the attribute is gone; they carry
+    // no styles the plain markup wouldn't also carry (see `settle()`), so
+    // this is the same box either way, just never swapped for a different
+    // element.
+    return everWordSpannedRef.current
+      ? { effectAttribute: undefined, wordSpans: true }
+      : IDLE;
+  }
   return {
-    // True through both "running" and "settling": unwrapping a word span is a
-    // full-tree swap in the caller (plain markdown replaces the word-spanned
-    // parse), and doing that the instant the last word's own animation ends
-    // would just trade one settle-time jump for another. Spans stay mounted
-    // — already written to their settled, no-op styles — until the grace
-    // timer above moves the row to idle.
+    // True through both "running" and "settling", same as the idle branch
+    // above once a message has ever streamed: the row never drops spans, so
+    // there is no moment where the render swaps to a differently-measured
+    // tree.
     wordSpans: true,
     effectAttribute: running ? effect : "settling",
   };

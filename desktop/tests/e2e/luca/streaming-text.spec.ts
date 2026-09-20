@@ -603,7 +603,7 @@ test.describe("streamed words", () => {
     expect(await watchWorst(page, "code-words")).toBe(0);
   });
 
-  test("the spans unwrap when the stream ends, leaving the plain reply", async ({
+  test("settled spans stay mounted, inert, and still read as plain text", async ({
     page,
   }) => {
     const errors = watchConsole(page);
@@ -617,10 +617,32 @@ test.describe("streamed words", () => {
       "data-signed-message-id",
       "managed-stream-signed-final",
     );
-    await expect(row.locator(WORD)).toHaveCount(0, { timeout: 15_000 });
+    // The row stops being "in effect" once settled, but the spans it wrote
+    // are never torn out for a differently-measured plain-text tree — they
+    // stay mounted, holding no styles the plain markup wouldn't also imply.
     await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
       timeout: 15_000,
     });
+    const wordCount = await row.locator(WORD).count();
+    expect(
+      wordCount,
+      "settled spans must still be mounted, not unwrapped",
+    ).toBeGreaterThan(0);
+    const inlineStyles = await row.locator(WORD).evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        filter: (node as HTMLElement).style.filter,
+        opacity: (node as HTMLElement).style.opacity,
+        transform: (node as HTMLElement).style.transform,
+      })),
+    );
+    for (const style of inlineStyles) {
+      // Either explicitly settled (`settle()` writes "none") or never
+      // touched at all (a span rendered fresh below the settle cursor) —
+      // both compute to the same, inert box.
+      expect(["", "none"]).toContain(style.filter);
+      expect(["", "none"]).toContain(style.transform);
+      expect(style.opacity).toBe("");
+    }
 
     const body = await row.evaluate(
       (element) =>
@@ -631,6 +653,41 @@ test.describe("streamed words", () => {
     for (const word of REPLY_WORDS) expect(body).toContain(word);
     expect(body).toContain("const calibrated = questions.filter(honest);");
     expect(errors).toEqual([]);
+  });
+
+  test("settled words still select and copy as clean, correctly spaced text", async ({
+    page,
+  }) => {
+    await seedEffect(page, "bloom");
+    await openChannel(page);
+    const { receiptId, row } = await streamReply(page, "copy-turn");
+
+    await expect(row).toContainText("without asking for any credit");
+    await emitSignedFinal(page, receiptId, "managed-copy-signed-final");
+    await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+
+    // Word boundaries are still real inline-block spans at this point, not
+    // plain text — a selection has to cross them the same way it would cross
+    // a `<strong>` or an `<a>`, with no word run together and no space lost
+    // or doubled at a span edge.
+    const selected = await row.evaluate((element) => {
+      const paragraphs = element.querySelectorAll(".message-markdown p");
+      const paragraph = paragraphs[paragraphs.length - 1];
+      if (!paragraph) return "";
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      const text = selection?.toString() ?? "";
+      selection?.removeAllRanges();
+      return text;
+    });
+
+    expect(selected).toBe(PROSE_TWO);
+    expect(selected).not.toContain("  ");
   });
 
   test("the bloom row's word-spacing never opens — nothing layout-affecting animates", async ({
@@ -695,98 +752,59 @@ test.describe("streamed words", () => {
     const { receiptId, row } = await streamReply(page, "no-jump-turn");
 
     const paragraph = row.locator(".message-markdown p").last();
+    const paragraphWords = paragraph.locator(WORD);
     await expect(row).toContainText("without asking for any credit");
+    await expect(paragraphWords).toHaveCount(PROSE_TWO.split(/\s+/).length);
     // A beat for the last few words to actually be in flight — the point is
     // to catch the row mid-effect, not after it has already quietly finished.
     await page.waitForTimeout(80);
 
-    const words = PROSE_TWO.split(/\s+/);
+    // The spans themselves are the measurement: they are never torn out for
+    // a differently-measured plain-text tree (see useStreamingWordEffect),
+    // so the same elements are read both times, mid-stream and settled.
     const captureWordRects = () =>
-      paragraph.evaluate((container, targetWords: string[]) => {
-        const walker = document.createTreeWalker(
-          container,
-          NodeFilter.SHOW_TEXT,
-        );
-        const textNodes: { node: Text; start: number }[] = [];
-        let text = "";
-        let node = walker.nextNode();
-        while (node) {
-          const textNode = node as Text;
-          textNodes.push({ node: textNode, start: text.length });
-          text += textNode.textContent ?? "";
-          node = walker.nextNode();
-        }
-        const rangeAt = (start: number, end: number): Range => {
-          const range = document.createRange();
-          for (const entry of textNodes) {
-            const nodeEnd = entry.start + (entry.node.textContent?.length ?? 0);
-            if (start >= entry.start && start < nodeEnd) {
-              range.setStart(entry.node, start - entry.start);
-            }
-            if (end <= nodeEnd && end >= entry.start) {
-              range.setEnd(entry.node, end - entry.start);
-              break;
-            }
-          }
-          return range;
-        };
-        let cursor = 0;
-        return targetWords.map((word) => {
-          const idx = text.indexOf(word, cursor);
-          if (idx === -1) return null;
-          cursor = idx + word.length;
-          const rect = rangeAt(idx, idx + word.length).getBoundingClientRect();
+      paragraphWords.evaluateAll((nodes) =>
+        nodes.map((node) => {
+          const rect = node.getBoundingClientRect();
           return {
             height: rect.height,
             width: rect.width,
             x: rect.x,
             y: rect.y,
           };
-        });
-      }, words);
+        }),
+      );
 
     const midStream = await captureWordRects();
-    expect(
-      midStream.every((rect) => rect !== null),
-      `expected every word to resolve a rect while streaming; saw ${JSON.stringify(midStream)}`,
-    ).toBe(true);
+    expect(midStream.length).toBeGreaterThan(0);
 
     await emitSignedFinal(page, receiptId, "managed-no-jump-signed-final");
-    await expect(row.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
-    // Comfortably past both a word's own settle and the unwrap's grace delay
-    // — this is the "everything has been sitting still" reading.
+    await expect(row.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    // Comfortably past a word's own settle and the effect attribute's grace
+    // delay — this is the "everything has been sitting still" reading.
     await page.waitForTimeout(1_000);
 
     const settled = await captureWordRects();
-    expect(
-      settled.every((rect) => rect !== null),
-      `expected every word to still resolve a rect once settled; saw ${JSON.stringify(settled)}`,
-    ).toBe(true);
+    expect(settled.length).toBe(midStream.length);
 
-    for (let i = 0; i < words.length; i += 1) {
-      const before = midStream[i] as {
-        height: number;
-        width: number;
-        x: number;
-        y: number;
-      };
-      const after = settled[i] as {
-        height: number;
-        width: number;
-        x: number;
-        y: number;
-      };
+    const words = PROSE_TWO.split(/\s+/);
+    for (let i = 0; i < settled.length; i += 1) {
+      const before = midStream[i];
+      const after = settled[i];
+      const label = words[i] ?? `#${i}`;
       expect(
         Math.abs(before.x - after.x),
-        `word "${words[i]}" x moved: ${before.x} -> ${after.x}`,
+        `word "${label}" x moved: ${before.x} -> ${after.x}`,
       ).toBeLessThanOrEqual(0.5);
       expect(
         Math.abs(before.y - after.y),
-        `word "${words[i]}" y moved: ${before.y} -> ${after.y}`,
+        `word "${label}" y moved: ${before.y} -> ${after.y}`,
       ).toBeLessThanOrEqual(0.5);
       expect(
         Math.abs(before.width - after.width),
-        `word "${words[i]}" width changed: ${before.width} -> ${after.width}`,
+        `word "${label}" width changed: ${before.width} -> ${after.width}`,
       ).toBeLessThanOrEqual(0.5);
     }
     expect(errors).toEqual([]);
@@ -843,7 +861,9 @@ test.describe("streamed words", () => {
         `managed-gradient-${effect}`,
         GRADIENT_REPLY,
       );
-      await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+      await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
+        timeout: 20_000,
+      });
       const settled = await page.evaluate(() => {
         const line = document.querySelector<HTMLElement>(
           "[data-expression-gradient]",
@@ -884,7 +904,9 @@ test.describe("streamed words", () => {
       "managed-order-signed-final",
       GRADIENT_REPLY,
     );
-    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
     const order = await page.evaluate(
       () => (window as unknown as { __settled?: number[] }).__settled ?? [],
     );
@@ -911,7 +933,6 @@ test.describe("streamed words", () => {
       "managed-quiet-signed-final",
       GRADIENT_REPLY,
     );
-    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
     await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
       timeout: 20_000,
     });
@@ -988,7 +1009,9 @@ test.describe("streamed words", () => {
         }),
     );
     await emitSignedFinal(page, receiptId, "managed-short-final", short);
-    await expect(page.locator(WORD)).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator("[data-md-stream-effect]")).toHaveCount(0, {
+      timeout: 20_000,
+    });
     const settledLines = await page.evaluate(
       () =>
         document
