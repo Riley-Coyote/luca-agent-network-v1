@@ -161,9 +161,27 @@ function blurred(node: HTMLElement): boolean {
   return node.getAttribute(STREAMING_WORD_ATTRIBUTE) === "";
 }
 
+/**
+ * `opacity` below 1, and any `filter` other than `none`, put an element in
+ * the category that needs its own backing surface to composite correctly —
+ * and an inline-block's own contribution to its line's baseline is worked
+ * out differently depending on whether it is in that category, landing a
+ * settled line a device pixel from where it sat while a word was still
+ * mid-transition. `transform` alone does not: a plain compositor operation
+ * needs no backing surface, and measuring it directly (offsetLeft/offsetTop,
+ * which ignore transform) confirms it never moves the line.
+ *
+ * So the two properties that can move the line are pinned at a value that
+ * reads as fully settled — opacity indistinguishable from 1, filter (where a
+ * word ever carried one) indistinguishable from no blur at all — without
+ * ever landing on the literal default that would leave the category. There
+ * is nothing left to recategorize once every word already got here
+ * gradually, one animation frame at a time, rather than in one jump at the
+ * end.
+ */
 function settle(node: HTMLElement): void {
-  node.style.opacity = "";
-  node.style.filter = "none";
+  node.style.opacity = "0.999";
+  node.style.filter = blurred(node) ? "blur(0.001px)" : "none";
   node.style.transform = "none";
 }
 

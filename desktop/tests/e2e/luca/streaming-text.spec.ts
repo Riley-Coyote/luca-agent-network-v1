@@ -636,12 +636,16 @@ test.describe("streamed words", () => {
       })),
     );
     for (const style of inlineStyles) {
-      // Either explicitly settled (`settle()` writes "none") or never
-      // touched at all (a span rendered fresh below the settle cursor) —
-      // both compute to the same, inert box.
-      expect(["", "none"]).toContain(style.filter);
+      // Either explicitly settled or never touched at all (a span rendered
+      // fresh below the settle cursor) — both read as the same, inert box.
+      // Settled opacity/filter land just under their CSS defaults rather
+      // than on them (see `settle()`'s doc comment) — indistinguishable to
+      // a reader, but never the literal value that would put the element
+      // back in the category an inline-block's own line-box math treats
+      // differently.
       expect(["", "none"]).toContain(style.transform);
-      expect(style.opacity).toBe("");
+      expect(["", "0.999"]).toContain(style.opacity);
+      expect(["", "none", "blur(0.001px)"]).toContain(style.filter);
     }
 
     const body = await row.evaluate(
@@ -839,12 +843,34 @@ test.describe("streamed words", () => {
     // any word's *painted* box may still be in flight either — computed
     // style, not the inline style `settle()` writes, so this also catches a
     // stylesheet rule doing the same thing by another means.
+    //
+    // Opacity and filter land just under their literal defaults on purpose
+    // (see `settle()` in markdownStreamingText.ts) rather than exactly on
+    // them — landing exactly on `opacity: 1` / `filter: none` is what
+    // recategorised the element and moved the line by a device pixel, so
+    // these check "reads as settled to any observer", not "is bit-for-bit
+    // the CSS default".
     for (let i = 0; i < settled.length; i += 1) {
       const after = settled[i];
       const label = words[i] ?? `#${i}`;
       expect(after.transform, `word "${label}" settled transform`).toBe("none");
-      expect(after.filter, `word "${label}" settled filter`).toBe("none");
-      expect(after.opacity, `word "${label}" settled opacity`).toBe("1");
+      const blurPx = Number(/^blur\(([\d.]+)px\)$/.exec(after.filter)?.[1]);
+      expect(
+        Number.isFinite(blurPx),
+        `word "${label}" settled filter should be a small blur, was: ${after.filter}`,
+      ).toBe(true);
+      expect(blurPx, `word "${label}" settled filter radius`).toBeLessThan(
+        0.01,
+      );
+      const opacity = Number(after.opacity);
+      expect(
+        opacity,
+        `word "${label}" settled opacity should read as fully opaque`,
+      ).toBeGreaterThanOrEqual(0.99);
+      expect(
+        opacity,
+        `word "${label}" settled opacity must stay under 1, not land on it`,
+      ).toBeLessThan(1);
       expect(after.willChange, `word "${label}" settled will-change`).toBe(
         "auto",
       );

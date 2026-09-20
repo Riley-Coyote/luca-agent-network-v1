@@ -182,13 +182,32 @@ test("several words are in flight at once", () => {
   assert.ok(inFlight >= 8 && inFlight <= 14, `in flight: ${inFlight}`);
 });
 
-test("both effects settle to no filter and no transform", () => {
+test("settling pins opacity and a prose word's filter just under their defaults, never landing on them", () => {
+  // Landing exactly on `opacity: 1` / `filter: none` — the literal default —
+  // takes the element out of the category that needs its own backing
+  // surface to composite, and that category switch is what nudged a
+  // settled line by a device pixel. Staying just under the default keeps
+  // the category constant across the word's whole life, at a value no
+  // reader could ever perceive as different from settled.
   for (const key of ["bloom", "diffusion"]) {
-    const node = fakeNode();
-    STREAMING_WORD_ANIMATIONS[key].apply(node, 1);
-    assert.equal(node.style.filter, "none", key);
-    assert.equal(node.style.transform, "none", key);
-    assert.equal(node.style.opacity, "", key);
+    const prose = fakeNode("");
+    STREAMING_WORD_ANIMATIONS[key].apply(prose, 1);
+    assert.equal(prose.style.transform, "none", key);
+    assert.equal(prose.style.opacity, "0.999", key);
+    assert.notEqual(prose.style.opacity, "1", key);
+    assert.equal(prose.style.filter, "blur(0.001px)", key);
+    assert.notEqual(prose.style.filter, "none", key);
+
+    // An expression word must never gain a filter it never had — that is
+    // exactly what pushes the whole coloured run into rasterising and
+    // blurring as one unit instead of keeping its own clip.
+    for (const kind of ["clip", "plain"]) {
+      const expression = fakeNode(kind);
+      STREAMING_WORD_ANIMATIONS[key].apply(expression, 1);
+      assert.equal(expression.style.filter, "none", `${key}/${kind}`);
+      assert.equal(expression.style.transform, "none", `${key}/${kind}`);
+      assert.equal(expression.style.opacity, "0.999", `${key}/${kind}`);
+    }
   }
 });
 
