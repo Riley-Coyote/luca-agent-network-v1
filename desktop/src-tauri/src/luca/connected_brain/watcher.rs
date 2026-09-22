@@ -64,10 +64,8 @@ struct ConnectedBrainWatcherRuntime {
 }
 
 pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), String> {
-    // Escape hatch while a refresh is still a full re-index per trigger: with
-    // the watcher disabled the persisted index keeps serving (it is
-    // authoritative at startup) and nothing re-indexes until the next explicit
-    // connect/refresh. Remove once refresh is incremental.
+    // Operational escape hatch: manual refresh remains available. Normal
+    // background refresh reuses unchanged files from the encrypted index.
     if std::env::var_os("LUCA_DISABLE_BRAIN_WATCHER").is_some() {
         luca_log!(
             info,
@@ -267,7 +265,7 @@ fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) {
         let candidate = state
             .read_connected_brain_candidate(&owner, source_id)
             .map_err(|error| error.code().to_owned())?;
-        let build = super::build_index(source_id, &candidate)?;
+        let build = state.build_connected_brain_index(&owner, source_id, &candidate)?;
         let authorities = resident_authorities(app, &state)?;
         state
             .connect_brain_source(owner.clone(), candidate, build, &authorities)

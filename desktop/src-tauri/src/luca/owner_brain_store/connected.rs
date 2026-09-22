@@ -28,6 +28,8 @@ pub(super) struct ConnectedBrainManifestV1 {
     pub(super) index_page_lineage_ids: Vec<OpaqueId>,
     pub(super) item_count: SafeU53,
     pub(super) entry_count: SafeU53,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) files: BTreeMap<String, crate::luca::connected_brain::IndexedFile>,
 }
 
 impl ConnectedBrainManifestV1 {
@@ -42,11 +44,19 @@ impl ConnectedBrainManifestV1 {
             (self.entry_count.get() as usize).div_ceil(MAX_CONNECTED_INDEX_PAGE_ENTRIES);
         if self.protocol != CONNECTED_BRAIN_PROTOCOL
             || self.source.protocol != CONNECTED_BRAIN_PROTOCOL
-            || self.index_page_lineage_ids.is_empty()
+            || (self.index_page_lineage_ids.is_empty() != (self.entry_count.get() == 0))
             || self.index_page_lineage_ids.len() < minimum_pages
             || self.index_page_lineage_ids.len() > MAX_CONNECTED_INDEX_PAGES
-            || self.item_count.get() == 0
-            || self.entry_count.get() == 0
+            || self.files.len() > self.entry_count.get() as usize
+            || self.files.values().any(|file| {
+                file.entry_count == 0
+                    || file.entry_count > self.entry_count.get() as usize
+                    || file.fingerprint.len() != 64
+                    || !file
+                        .fingerprint
+                        .bytes()
+                        .all(|byte| byte.is_ascii_hexdigit())
+            })
             || self
                 .index_page_lineage_ids
                 .iter()
@@ -146,6 +156,103 @@ pub(crate) fn connect_source(
         .map_err(|_| OwnerBrainStoreError::Unavailable)?;
     let runtime = ready_runtime_mut(&mut state, &owner_pubkey)?;
     connect_source_with_runtime(&root, runtime, owner_pubkey, candidate, build, authorities)
+}
+
+/// Read optimization metadata only from the active encrypted owner/source.
+/// Missing legacy metadata is a cold refresh, never a separate plaintext cache.
+pub(crate) fn read_prior_connected_index(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+    candidate: &ConnectedBrainDiscoveryCandidateV1,
+) -> Result<crate::luca::connected_brain::PriorIndex, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime(&state, owner_pubkey)?;
+    prior_connected_index_with_runtime(&root, runtime, source_id, candidate)
+}
+
+pub(super) fn prior_connected_index_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &ContinuityRuntime,
+    source_id: &OpaqueId,
+    candidate: &ConnectedBrainDiscoveryCandidateV1,
+) -> Result<crate::luca::connected_brain::PriorIndex, OwnerBrainStoreError> {
+    let Some((generation, namespace, key)) = connected_generation(root, runtime)? else {
+        return Err(OwnerBrainStoreError::Stale);
+    };
+    let Some(manifest) =
+        find_connected_manifest(&generation, &namespace, key.as_bytes(), source_id)?
+    else {
+        return Err(OwnerBrainStoreError::Stale);
+    };
+    if manifest.source.status == ConnectedBrainSourceStatusV1::Disconnected {
+        return Err(OwnerBrainStoreError::Stale);
+    }
+    let binding = find_connected_binding(&generation, &namespace, key.as_bytes(), source_id)?;
+    if Path::new(&binding.canonical_root) != candidate.canonical_root
+        || manifest.source.source_kind != candidate.source_kind
+    {
+        return Err(OwnerBrainStoreError::Stale);
+    }
+    if manifest.files.is_empty() || manifest.source.status != ConnectedBrainSourceStatusV1::Current
+    {
+        return Ok(crate::luca::connected_brain::PriorIndex {
+            established: true,
+            expected_generation: Some(connected_source_generation(
+                &generation,
+                &namespace,
+                source_id,
+            )?),
+            ..Default::default()
+        });
+    }
+    let expected_generation = Some(connected_source_generation(
+        &generation,
+        &namespace,
+        source_id,
+    )?);
+    let address = owner_brain_source_address(namespace, source_id.clone())?;
+    let entries = super::connected_retrieval::load_connected_entries(
+        &generation,
+        &address,
+        key.as_bytes(),
+        &manifest,
+        Instant::now() + std::time::Duration::from_secs(30),
+    )?;
+    Ok(crate::luca::connected_brain::PriorIndex {
+        established: true,
+        expected_generation,
+        files: manifest.files,
+        entries,
+    })
+}
+
+/// Only source-scoped active authority participates. Unrelated resident turns
+/// must not make a background refresh stale, but Forget/rebind/disconnect must.
+fn connected_source_generation(
+    generation: &StoredRevisionGenerationV1,
+    namespace: &NamespaceKey,
+    source_id: &OpaqueId,
+) -> Result<Sha256Ref, OwnerBrainStoreError> {
+    let mut lineages = generation
+        .snapshot
+        .lineages
+        .iter()
+        .filter(|lineage| {
+            lineage.namespace == *namespace.as_protocol()
+                && lineage.scope.source_id.as_ref() == Some(source_id)
+                && lineage.lifecycle == RevisionLifecycle::Active
+        })
+        .collect::<Vec<_>>();
+    lineages.sort_by(|left, right| left.lineage_root_id.cmp(&right.lineage_root_id));
+    sha_ref_for(&lineages)
 }
 
 /// Rebind one existing connected source to a newly selected local root while
@@ -652,10 +759,22 @@ pub(super) fn connect_source_with_runtime(
         .as_ref()
         .map(|(manifest, _)| manifest.source.source_id.clone())
         .unwrap_or(source_id_for_candidate(&candidate).map_err(|_| OwnerBrainStoreError::Invalid)?);
+    if let Some(expected) = &build.expected_generation {
+        let current = connected_source_generation(
+            generation.as_ref().ok_or(OwnerBrainStoreError::Stale)?,
+            &namespace,
+            &source_id,
+        )?;
+        if &current != expected {
+            return Err(OwnerBrainStoreError::Stale);
+        }
+    }
     let (build, pages) = bounded_index_pages(&source_id, build)?;
     let replayed = existing.as_ref().is_some_and(|(manifest, _)| {
         manifest.source.index_revision == build.index_revision
             && manifest.source.status == ConnectedBrainSourceStatusV1::Current
+            && manifest.files == build.files
+            && manifest.item_count.get() == build.item_count as u64
     });
     if !replayed {
         persist_connected_index(
@@ -736,12 +855,28 @@ fn bounded_index_pages(
         .iter()
         .flat_map(|entries| entries.iter().cloned())
         .collect::<Vec<_>>();
-    if retained_entries.is_empty() {
-        return Err(OwnerBrainStoreError::Invalid);
-    }
     build.index_revision = sha_ref_for(&retained_entries)?;
     build.refresh_cursor = build.index_revision.as_str().to_owned();
     build.entries = retained_entries;
+    let mut retained_counts = BTreeMap::<String, usize>::new();
+    for entry in &build.entries {
+        *retained_counts
+            .entry(entry.relative_locator.clone())
+            .or_default() += 1;
+    }
+    build
+        .files
+        .retain(|path, file| retained_counts.get(path) == Some(&file.entry_count));
+    // Keep optimization metadata below the encrypted record budget. Uncached
+    // overflow files remain correct; they simply use the cold extraction path.
+    let mut marker_bytes = 0;
+    build.files.retain(|path, _| {
+        let Ok(encoded_path) = serde_json::to_vec(path) else {
+            return false;
+        };
+        marker_bytes += encoded_path.len() + 128;
+        marker_bytes <= 512 * 1024
+    });
 
     let pages = entry_pages
         .into_iter()
@@ -788,8 +923,8 @@ fn persist_connected_index(
     let created_at = existing
         .map(|manifest| manifest.source.created_at.clone())
         .unwrap_or_else(|| now.clone());
-    // Every replacement is a new cache incarnation, including A -> B -> A.
-    // Previously forgotten IDs must never be reused or resurrected.
+    // Changed pages receive a new incarnation, including A -> B -> A.
+    // Only still-active, identical pages can be reused; never forgotten IDs.
     let reconnect_generation = if existing.is_some() {
         Some(
             &generation
@@ -812,9 +947,46 @@ fn persist_connected_index(
             .transpose()?
             .unwrap_or_else(|| build.index_revision.clone()),
     );
+    let mut reusable_pages = BTreeMap::new();
+    if let (Some(generation), Some(existing)) = (generation, existing) {
+        if existing.source.status == ConnectedBrainSourceStatusV1::Current {
+            for page in &pages {
+                let Some(id) = existing
+                    .index_page_lineage_ids
+                    .get(page.page_index.get() as usize)
+                else {
+                    continue;
+                };
+                let Some(lineage) = generation.snapshot.lineages.iter().find(|lineage| {
+                    lineage.lineage_root_id == *id
+                        && lineage.namespace == *address.namespace().as_protocol()
+                        && lineage.scope == *address.as_protocol()
+                        && lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD
+                        && lineage.lifecycle == RevisionLifecycle::Active
+                }) else {
+                    continue;
+                };
+                let old: ConnectedBrainIndexPageV1 = decrypt_active_body(
+                    generation,
+                    lineage
+                        .active_head_record_id
+                        .as_ref()
+                        .ok_or(OwnerBrainStoreError::Invalid)?,
+                    namespace_key,
+                )?;
+                old.validate()?;
+                if sha_ref_for(&old)? == sha_ref_for(page)? {
+                    reusable_pages.insert(page.page_index.get(), id.clone());
+                }
+            }
+        }
+    }
     let page_lineages = pages
         .iter()
         .map(|page| {
+            if let Some(id) = reusable_pages.get(&page.page_index.get()) {
+                return Ok(id.clone());
+            }
             let page_index = page.page_index.get().to_string();
             if let Some(reconnect_generation) = reconnect_generation {
                 digest_id(
@@ -872,6 +1044,7 @@ fn persist_connected_index(
             .map_err(|_| OwnerBrainStoreError::Invalid)?,
         entry_count: SafeU53::new(build.entries.len() as u64)
             .map_err(|_| OwnerBrainStoreError::Invalid)?,
+        files: build.files,
     };
     manifest.validate()?;
     let binding = ConnectedBrainBindingV1 {
@@ -897,6 +1070,7 @@ fn persist_connected_index(
     let mut requests = pages
         .iter()
         .zip(page_lineages)
+        .filter(|(page, _)| !reusable_pages.contains_key(&page.page_index.get()))
         .map(|(page, lineage)| {
             prepare_revision(
                 generation,
@@ -1523,6 +1697,10 @@ mod bounded_index_page_tests {
             refresh_cursor: hash(0).as_str().to_owned(),
             item_count: 2_048,
             entries,
+            files: BTreeMap::new(),
+            expected_generation: None,
+            reused_files: 0,
+            extracted_files: 0,
         };
 
         let (bounded, pages) = bounded_index_pages(&source_id, build).unwrap();
