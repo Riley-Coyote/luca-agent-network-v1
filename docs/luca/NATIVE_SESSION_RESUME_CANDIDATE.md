@@ -1,5 +1,15 @@
 # Polyphonic beta.12 — native session restoration
 
+> **Historical candidate snapshot; superseded in part by beta.13.** Verified
+> September 21 against app source `8d6ce9905`: warm conversation sessions
+> (`b3b2fae9a`), bounded warm-session retention (`3b4fe200b`), live model changes
+> (`e004949d8`), and prompt deltas (`525d92488`) are integrated. The old Codex
+> Manual limitation below also predates the durable migration (`3422fd1cf`)
+> and AcceptEdits startup change (`67b9c69f5`). Keep the following as beta.12
+> candidate evidence, not the current feature/permission inventory. Native
+> session restoration remains distinct from Brain indexing and from resuming
+> an arbitrary external-app conversation.
+
 ## Release state
 
 Candidate branch: `fix/native-session-resume-beta12`, based on app commit

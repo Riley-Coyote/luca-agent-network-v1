@@ -1,6 +1,6 @@
 # Luca fork instructions
 
-## Where the work is (verified 2026-09-16)
+## Where the work is (verified 2026-09-21)
 
 Two separate lines of work live in this repo. **They never merge into each
 other.**
@@ -9,6 +9,12 @@ other.**
 |------|--------|----------|
 | The app — Polyphonic desktop | `codex/first-meeting-finish` (ships the releases; tagged `v0.5.0-beta.N`) | `~/Documents/Repositories/.codex-workspaces/luca-first-meeting-finish` |
 | The website — beta landing page | `codex/quickchat` (only `polyphonic-landing/`) | `~/Documents/Repositories/luca-agent-network-v1` |
+
+The source repository is **public by Riley's choice**, reconfirmed September 21.
+Its GitHub default branch is `codex/first-meeting-finish`, not `luca/v1`.
+The proposed main-checkout swap has not happened: the paths above still apply.
+Recent Polyphonic web/mobile work is a separate product line; do not count it
+as shipped desktop functionality. See the current-state note in [HANDOFF.md](HANDOFF.md).
 
 Start new app work from the shipped release tag, in its own worktree:
 
@@ -19,9 +25,8 @@ git worktree add -b <short-name> <path> "$(git describe --tags --abbrev=0 codex/
 **Do not branch from, merge into, or treat as current** — every one of these is
 strictly behind the shipped app and has no commits of its own:
 
-- `luca/v1` — 1057 commits behind. This is still GitHub's default branch, so
-  tooling will call it "main". It is history, not the product.
-- `luca/v1.1` — 428 commits behind.
+- `luca/v1` — historical baseline, no longer GitHub's default branch.
+- `luca/v1.1` — historical baseline.
 - `agent/runtime-reliability`, `agent/vision-demo` — reference coordinates only.
 
 `HANDOFF.md`, `docs/luca/G1_CHECKLIST.md` and the `.codex/luca-v1/` kit are
