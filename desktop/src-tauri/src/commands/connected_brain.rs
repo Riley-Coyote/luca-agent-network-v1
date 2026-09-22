@@ -705,7 +705,7 @@ pub async fn refresh_connected_brain_source(
             .read_connected_brain_candidate(&owner, &source_id)
             .map_err(|error| error.code().to_owned())?;
         let watch_root = candidate.canonical_root.clone();
-        let build = connected_brain::build_index(&source_id, &candidate)?;
+        let build = state.build_connected_brain_index(&owner, &source_id, &candidate)?;
         let result = state
             .connect_brain_source(owner.clone(), candidate, build, &authorities)
             .map_err(|error| error.code().to_owned())?;

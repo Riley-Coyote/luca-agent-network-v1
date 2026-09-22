@@ -40,6 +40,19 @@ pub(crate) fn visit_documents(
     root: &Path,
     mut visitor: impl FnMut(&str, String) -> Result<bool, String>,
 ) -> Result<bool, String> {
+    visit_paths(root, |relative_path| {
+        let Ok(body) = read_document(root, relative_path) else {
+            return Ok(true);
+        };
+        visitor(relative_path, body)
+    })
+}
+
+/// Enumerate eligible paths without opening unchanged document bodies.
+pub(super) fn visit_paths(
+    root: &Path,
+    mut visitor: impl FnMut(&str) -> Result<bool, String>,
+) -> Result<bool, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "repository is unavailable".to_owned())?;
@@ -87,7 +100,7 @@ pub(crate) fn visit_documents(
 fn visit_git_paths(
     mut reader: impl BufRead,
     canonical_root: &Path,
-    visitor: &mut impl FnMut(&str, String) -> Result<bool, String>,
+    visitor: &mut impl FnMut(&str) -> Result<bool, String>,
 ) -> Result<bool, String> {
     let mut raw_path = Vec::new();
     loop {
@@ -123,16 +136,7 @@ fn visit_git_paths(
         if metadata.len() == 0 || metadata.len() > MAX_INDEX_FILE_BYTES {
             continue;
         }
-        let Ok(bytes) = fs::read(&canonical) else {
-            continue;
-        };
-        if bytes.contains(&0) || credential_content(&bytes) {
-            continue;
-        }
-        let Ok(body) = String::from_utf8(bytes) else {
-            continue;
-        };
-        if !visitor(&relative_path, body)? {
+        if !visitor(&relative_path)? {
             return Ok(false);
         }
     }

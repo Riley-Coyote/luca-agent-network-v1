@@ -19,9 +19,9 @@ const MAX_SESSION_FILES: usize = 20_000;
 const MAX_SESSION_DEPTH: usize = 8;
 const MAX_JSONL_LINE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SESSION_SELECTIONS: usize = 32;
-const MAX_INDEXED_MESSAGES_PER_SESSION: usize = 16;
-const MAX_INDEX_SESSION_BYTES: usize = 2 * 1024 * 1024;
-const MAX_INDEX_SESSION_LINES: usize = 4_000;
+pub(super) const MAX_INDEXED_MESSAGES_PER_SESSION: usize = 16;
+pub(super) const MAX_INDEX_SESSION_BYTES: usize = 2 * 1024 * 1024;
+pub(super) const MAX_INDEX_SESSION_LINES: usize = 4_000;
 const MAX_RAIL_SESSION_FILES: usize = 200;
 const MAX_RAIL_SESSION_BYTES: usize = 64 * 1024 * 1024;
 const MAX_RAIL_SESSION_LINES: usize = 100_000;
@@ -29,6 +29,16 @@ const MAX_CONTEXT_SESSION_BYTES: usize = 32 * 1024 * 1024;
 const MAX_CONTEXT_SESSION_LINES: usize = 50_000;
 const SESSION_STREAM_BUFFER_BYTES: usize = 64 * 1024;
 const SESSION_PURPOSE_SCAN_BYTES: u64 = 1024 * 1024;
+
+#[cfg(test)]
+thread_local! {
+    static PURPOSE_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn purpose_reads() -> usize {
+    PURPOSE_READS.with(std::cell::Cell::get)
+}
 
 static HTTP_URL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?i)https?://[^\s<>\"'`]+"#).expect("HTTP URL preservation regex must compile")
@@ -144,13 +154,6 @@ pub(super) fn session_metadata(
 /// Return body-free native session metadata newest first. This is deliberately
 /// independent from the bounded Brain search index: a very large conversation
 /// must not prevent newer conversations from appearing in the session rail.
-pub(super) fn session_file_metadata(
-    root: &Path,
-    kind: ConnectedBrainSourceKindV1,
-) -> Result<Vec<SessionFileMetadata>, String> {
-    session_file_metadata_excluding(root, kind, &HashSet::new())
-}
-
 pub(super) fn session_file_metadata_excluding(
     root: &Path,
     kind: ConnectedBrainSourceKindV1,
@@ -165,14 +168,35 @@ pub(super) fn session_file_metadata_before(
     excluded_provider_session_ids: &HashSet<String>,
     deadline: Option<std::time::Instant>,
 ) -> Result<Vec<SessionFileMetadata>, String> {
+    session_file_metadata_with_reuse(root, kind, excluded_provider_session_ids, deadline, &|_| {
+        false
+    })
+}
+
+pub(super) fn session_index_file_metadata(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    known_visible: &impl Fn(&Path) -> bool,
+) -> Result<Vec<SessionFileMetadata>, String> {
+    session_file_metadata_with_reuse(root, kind, &HashSet::new(), None, known_visible)
+}
+
+fn session_file_metadata_with_reuse(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+    deadline: Option<std::time::Instant>,
+    known_visible: &impl Fn(&Path) -> bool,
+) -> Result<Vec<SessionFileMetadata>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
-    let mut files = session_files_before(
+    let mut files = session_files_before_with_reuse(
         &canonical_root,
         kind,
         excluded_provider_session_ids,
         deadline,
+        known_visible,
     )?
     .into_iter()
     .filter_map(|path| {
@@ -191,37 +215,6 @@ pub(super) fn session_file_metadata_before(
             .then_with(|| right.relative_locator.cmp(&left.relative_locator))
     });
     Ok(files)
-}
-
-/// Visit visible session records in deterministic file/ordinal order. The
-/// visitor can stop the source immediately, which lets index construction end
-/// at its existing entry cap without collecting transcripts or opening the
-/// remaining files.
-pub(super) fn visit_messages(
-    root: &Path,
-    kind: ConnectedBrainSourceKindV1,
-    mut visitor: impl FnMut(&str, usize, String) -> Result<bool, String>,
-) -> Result<(), String> {
-    let canonical_root = root
-        .canonicalize()
-        .map_err(|_| "session history is unavailable".to_owned())?;
-    for session in session_file_metadata(&canonical_root, kind)? {
-        let mut budget =
-            SessionReadBudget::new(1, MAX_INDEX_SESSION_BYTES, MAX_INDEX_SESSION_LINES);
-        let messages = read_visible_prefix(
-            &canonical_root,
-            kind,
-            &session.relative_locator,
-            MAX_INDEXED_MESSAGES_PER_SESSION,
-            &mut budget,
-        )?;
-        for (ordinal, message) in messages.into_iter().enumerate() {
-            if !visitor(&session.relative_locator, ordinal, message)? {
-                return Ok(());
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Read the first visible user-facing messages from one native session under a
@@ -344,6 +337,18 @@ fn session_files_before(
     excluded_provider_session_ids: &HashSet<String>,
     deadline: Option<std::time::Instant>,
 ) -> Result<Vec<PathBuf>, String> {
+    session_files_before_with_reuse(root, kind, excluded_provider_session_ids, deadline, &|_| {
+        false
+    })
+}
+
+fn session_files_before_with_reuse(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    excluded_provider_session_ids: &HashSet<String>,
+    deadline: Option<std::time::Instant>,
+    known_visible: &impl Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>, String> {
     let canonical_root = root
         .canonicalize()
         .map_err(|_| "session history is unavailable".to_owned())?;
@@ -385,7 +390,7 @@ fn session_files_before(
             } else if file_type.is_file()
                 && path.extension().and_then(|value| value.to_str()) == Some("jsonl")
                 && !session_file_is_excluded(&path, excluded_provider_session_ids)
-                && !session_is_polyphonic_internal(&path)
+                && (known_visible(&path) || !session_is_polyphonic_internal(&path))
             {
                 files.push(path);
             }
@@ -411,6 +416,8 @@ pub(super) fn session_file_is_excluded(
 }
 
 fn session_is_polyphonic_internal(path: &Path) -> bool {
+    #[cfg(test)]
+    PURPOSE_READS.with(|count| count.set(count.get() + 1));
     let Ok(file) = fs::File::open(path) else {
         return false;
     };

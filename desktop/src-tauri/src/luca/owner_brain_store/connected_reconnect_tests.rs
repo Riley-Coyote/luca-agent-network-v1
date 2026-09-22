@@ -154,6 +154,182 @@ fn repeated_index_refresh_keeps_live_page_capacity_bounded() {
 }
 
 #[test]
+fn incremental_markers_survive_encrypted_reload_and_empty_source_purges_pages() {
+    use crate::luca::connected_brain::build_index_incremental;
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("incremental-repository");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let candidate = candidate(&repository);
+    drop(state);
+    let mut state = runtime(&temp);
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    let unchanged = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!((unchanged.reused_files, unchanged.extracted_files), (1, 0));
+    let result = connect_source_with_runtime(
+        &root,
+        &mut state,
+        owner(),
+        candidate.clone(),
+        unchanged,
+        &[],
+    )
+    .unwrap();
+    assert!(result.replayed);
+    fs::remove_file(repository.join("fact.md")).unwrap();
+    let empty = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert!(empty.entries.is_empty());
+    let result =
+        connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), empty, &[])
+            .unwrap();
+    assert!(!result.replayed);
+    assert_eq!(result.source.entry_count.get(), 0);
+    let generation = state
+        .store
+        .load_revision_generation(&owner())
+        .unwrap()
+        .unwrap();
+    assert!(!generation
+        .snapshot
+        .lineages
+        .iter()
+        .any(|lineage| lineage.record_type.as_str() == CONNECTED_INDEX_PAGE_RECORD));
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    assert!(prior.established);
+    fs::write(repository.join("fact.md"), "Freshly restored visible fact.").unwrap();
+    let restored = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!(restored.extracted_files, 1);
+    connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), restored, &[])
+        .unwrap();
+    connected_lifecycle::disconnect_source_with_runtime(&root, &mut state, &owner(), &source_id)
+        .unwrap();
+    assert!(matches!(
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate),
+        Err(OwnerBrainStoreError::Stale)
+    ));
+}
+
+#[test]
+fn incremental_build_cannot_cross_a_concurrent_disconnect() {
+    use crate::luca::connected_brain::build_index_incremental;
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("incremental-disconnect");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let candidate = candidate(&repository);
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    let in_flight = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    connected_lifecycle::disconnect_source_with_runtime(&root, &mut state, &owner(), &source_id)
+        .unwrap();
+    let result = connect_source_with_runtime(&root, &mut state, owner(), candidate, in_flight, &[]);
+    assert!(matches!(result, Err(OwnerBrainStoreError::Stale)));
+    let source = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        source.source.status,
+        ConnectedBrainSourceStatusV1::Disconnected
+    );
+}
+
+#[test]
+fn incremental_refresh_rewrites_only_changed_encrypted_pages() {
+    use crate::luca::connected_brain::build_index_incremental;
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("incremental-pages");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    for name in ["a.md", "b.md", "c.md"] {
+        fs::write(repository.join(name), "stable corpus fact ".repeat(48_000)).unwrap();
+    }
+    let candidate = candidate(&repository);
+    let cold = build_index(&source_id, &candidate).unwrap();
+    connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), cold, &[]).unwrap();
+    let before = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert!(before.index_page_lineage_ids.len() > 1);
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    fs::write(repository.join("fact.md"), "Only the final fact changed.").unwrap();
+    let updated = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!((updated.reused_files, updated.extracted_files), (3, 1));
+    connect_source_with_runtime(&root, &mut state, owner(), candidate, updated, &[]).unwrap();
+    let after = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        before.index_page_lineage_ids.len(),
+        after.index_page_lineage_ids.len()
+    );
+    let differences = before
+        .index_page_lineage_ids
+        .iter()
+        .zip(&after.index_page_lineage_ids)
+        .filter(|(left, right)| left != right)
+        .count();
+    assert_eq!(differences, 1);
+}
+
+#[test]
+fn incremental_refresh_migrates_legacy_index_once_and_refreshes_metadata_only_changes() {
+    use crate::luca::connected_brain::build_index_incremental;
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("incremental-legacy");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let candidate = candidate(&repository);
+    let mut legacy = build_index(&source_id, &candidate).unwrap();
+    legacy.files.clear();
+    connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), legacy, &[])
+        .unwrap();
+    let manifest = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    let encoded = serde_json::to_value(&manifest).unwrap();
+    assert!(encoded.get("files").is_none());
+    let decoded: ConnectedBrainManifestV1 = serde_json::from_value(encoded).unwrap();
+    decoded.validate().unwrap();
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    let migrated = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!((migrated.reused_files, migrated.extracted_files), (0, 1));
+    connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), migrated, &[])
+        .unwrap();
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    fs::write(repository.join("fact.md"), "A bounded startup fact.").unwrap();
+    let touched = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!(touched.extracted_files, 1);
+    assert_eq!(touched.index_revision, manifest.source.index_revision);
+    let result =
+        connect_source_with_runtime(&root, &mut state, owner(), candidate.clone(), touched, &[])
+            .unwrap();
+    assert!(!result.replayed);
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    let warm = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!((warm.reused_files, warm.extracted_files), (1, 0));
+    let result =
+        connect_source_with_runtime(&root, &mut state, owner(), candidate, warm, &[]).unwrap();
+    assert!(result.replayed);
+}
+
+#[test]
 fn v4_brain_store_upgrades_without_resetting_sources() {
     let temp = tempfile::tempdir().unwrap();
     let mut runtime = runtime(&temp);

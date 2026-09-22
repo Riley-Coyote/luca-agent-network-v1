@@ -18,7 +18,10 @@ mod sessions;
 mod watcher;
 
 pub(crate) use discovery::{discover, discover_in_added_root, ConnectedBrainDiscoveryViewV1};
-pub(crate) use index::{build_index, read_verified_excerpt, ConnectedBrainIndexBuildV1};
+pub(crate) use index::{
+    build_index, build_index_incremental, read_verified_excerpt, ConnectedBrainIndexBuildV1,
+    IndexedFile, PriorIndex,
+};
 pub(crate) use session_context::{
     context_for_native_session, list_native_sessions, native_session_reference,
     recent_native_session_references, IndexedSessionContextV1, IndexedSessionListV1,

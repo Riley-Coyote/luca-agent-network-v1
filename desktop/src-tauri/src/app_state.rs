@@ -525,6 +525,23 @@ impl AppState {
         )
     }
 
+    pub(crate) fn build_connected_brain_index(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        candidate: &crate::luca::connected_brain::ConnectedBrainDiscoveryCandidateV1,
+    ) -> Result<crate::luca::connected_brain::ConnectedBrainIndexBuildV1, String> {
+        let prior = crate::luca::owner_brain_store::read_prior_connected_index(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            candidate,
+        )
+        .map_err(|error| error.code().to_owned())?;
+        crate::luca::connected_brain::build_index_incremental(source_id, candidate, &prior)
+    }
+
     /// Rebind one existing connected source to a newly selected local folder
     /// without changing its opaque identity or resident grants.
     pub(crate) fn rebind_connected_brain_source(
