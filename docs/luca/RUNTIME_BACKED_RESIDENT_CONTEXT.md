@@ -125,7 +125,45 @@ The Brain search index remains separately bounded. Runtime-session indexing
 starts with the newest files and caps entries per conversation so one enormous
 transcript cannot crowd every other recent session out of search.
 
-## Deferred
+## Brain refresh semantics (verified September 21, 2026)
+
+The August 30 catalogue fix (`29c0b8e31`) separated session browsing from the
+bounded search index: metadata supplies the catalogue and selected context is
+read lazily. It did not make search indexing a changed-files-only operation.
+
+Implemented at `17e802a68` (after the installed beta.13): manual source refresh
+and background refresh now reuse unchanged file entries from the encrypted
+owner/source index. File identity, size, modification and change timestamps
+invalidate markers on macOS/Unix; other platforms also hash the bounded
+indexable prefix. New or changed files are re-extracted under the existing
+limits; deleted, newly ignored and newly internal sessions drop out. Directory
+metadata enumeration still runs, and changed transcripts reread a bounded
+prefix rather than using an append-only cursor.
+
+Markers are private encrypted manifest metadata, not a plaintext transcript
+cache. They survive restarts; old manifests get one cold refresh to establish
+them. Initial connection and explicit reconnection still build a fresh index.
+Marker storage is bounded to 512 KiB; overflow or partially retained files fall
+back to extraction rather than being mistaken for complete cached files.
+
+Identical active encrypted index pages are retained; changed pages receive new
+lineage IDs. Previously forgotten pages are never reused. A source-scoped
+authority check rejects in-flight refreshes across disconnect, Forget or rebind.
+Deleting the last indexed file publishes an empty index and purges old pages.
+Unchanged index/markers/counts skip persistence altogether. Existing watcher
+noise filtering, debouncing, excerpt hash verification and grant checks remain.
+Startup still reattaches valid source watchers without reindexing them.
+
+Verification: 50 focused native `connected_` tests pass, including a 200-session
+corpus that re-extracts exactly one changed file, encrypted reload, legacy
+migration, metadata-only edits, empty sources, page reuse and disconnect races.
+The installed beta.13 must be rebuilt before this behavior is live.
+
+## Original context-handoff deferrals
+
+These describe the external-session context handoff's scope, not the whole
+app's current capability inventory. Restoration of Polyphonic's own native
+sessions subsequently landed; see [native session restoration](NATIVE_SESSION_RESUME_CANDIDATE.md).
 
 Native-session resume or bidirectional synchronization, terminal emulation,
 provider settings editing, MCP/skill/plugin installation or toggles,

@@ -1,5 +1,35 @@
 # Luca V1 continuation handoff
 
+## Current-state clarification — September 21, 2026
+
+Source now includes incremental Brain refresh at `17e802a68` on
+`codex/first-meeting-finish`; installed
+`/Applications/Polyphonic.app` and the public release are beta.13. This is a
+status snapshot, not a fresh release-acceptance claim.
+
+- **Native sessions:** warm-session reuse and prompt deltas landed after the
+  beta.12 candidate document. Its exclusions are historical, not current.
+  See [the updated release note](docs/luca/NATIVE_SESSION_RESUME_CANDIDATE.md).
+- **Brain:** incremental source refresh is implemented after beta.13: unchanged
+  file entries and identical active encrypted pages are reused. The first refresh
+  of a legacy index establishes encrypted file markers. Catalogue browsing
+  remains separate; startup reattaches watchers without rebuilding valid sources.
+  All 50 focused native connected-source tests pass. The installed beta.13 has
+  not been rebuilt with this change. See [refresh semantics](docs/luca/RUNTIME_BACKED_RESIDENT_CONTEXT.md#brain-refresh-semantics-verified-september-21-2026).
+- **OpenClaw:** the observed local Node v25.5.0 fails the installed runtime's
+  version requirement (`>=22.22.3 <23`, `>=24.15.0 <25`, or `>=25.9.0`). This is
+  a machine-specific readiness issue, not proof all users are affected. No Node
+  installation or runtime configuration was changed during this review.
+- **Repository:** Riley intentionally restored public visibility; older private
+  status notes describe the earlier state. The source default branch is now
+  `codex/first-meeting-finish`; release assets live in `Riley-Coyote/polyphonic-app`.
+- **Product lines:** recent Polyphonic web/mobile work is separate from this
+  desktop release. The main checkout still holds the landing-page branch;
+  the proposed checkout swap has not been executed. Use [AGENTS.md](AGENTS.md)
+  for current locations, not the historical handoffs below.
+
+---
+
 > **Historical record — read for intent, not for current state (2026-09-16).**
 > Where the code actually lives, which branch ships, and what must never be
 > merged is in [CLAUDE.md](CLAUDE.md) under "Where the work is". The branch
