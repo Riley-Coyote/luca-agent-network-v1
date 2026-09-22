@@ -303,13 +303,11 @@
    comes through them. Never the reverse order: a transparent webview over an
    uninstalled layer is a window with nothing in it.
 
-   The alphas are the pop-out's own, not the theme's. Dark rides the
-   conversation-card surface at 70%: a small window parked over other work
-   should read as glass more plainly than the full-screen app does, and 70%
-   still gives running text its ground. Light rides the floor at 80% — dark
-   ink on a light plate over a dark wallpaper is the first thing to go, and
-   the extra ten points buy it back. Both are lighter than the application's
-   own card glass, which is the point.
+   The default alphas are the pop-out's own, not the theme's. Obsidian is the
+   exception: its detached conversation is the same single floor-glass layer
+   as the main window, not a darker conversation card wrapped around another
+   surface. Light keeps the denser floor needed to hold dark ink over a dark
+   wallpaper.
 
    One plate, on the shell: root and body step aside entirely so the window's
    own rounded corners and the native shadow have nothing painted into them,
@@ -326,8 +324,46 @@
   background: hsl(var(--mn-surface) / 0.7);
 }
 
+:root[data-luca-popout][data-luca-popout-glass][data-luca-theme="obsidian"]
+  .luca-popout {
+  background: rgb(5 5 8 / 0.12);
+}
+
 :root[data-luca-popout][data-luca-popout-glass]:not(.dark) .luca-popout {
   background: hsl(var(--mn-floor) / 0.8);
+}
+
+/* The same compact elevated-control material as the main Obsidian window.
+   Pop-outs intentionally do not carry `data-luca-native`, so their installed
+   glass marker is the independent proof that transparency is safe here. */
+:root[data-luca-popout][data-luca-popout-glass][data-luca-theme="obsidian"] {
+  --luca-popout-frost-blur: blur(20px) saturate(140%);
+}
+
+:root[data-luca-popout][data-luca-popout-glass][data-luca-theme="obsidian"]
+  :is(
+    [data-testid="message-timeline-day-divider"] > p,
+    [data-testid^="message-action-bar-"] > div,
+    [data-testid="message-scroll-to-latest"],
+    [data-testid="thread-scroll-to-latest"]
+  ) {
+  background: rgb(18 18 23 / 0.52);
+  border-color: transparent;
+  box-shadow: var(--mn-lit-edge), var(--mn-contact-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: var(--luca-popout-frost-blur);
+}
+
+/* The detached composer is the one recessed object on the floor glass. The
+   pop-out deliberately withholds `data-luca-native`, so the main-window glass
+   composer rule cannot reach it; keep this local to installed Obsidian glass.
+   Without the glass marker (IPC failure or reduced transparency), the ordinary
+   opaque composer remains untouched. */
+:root[data-luca-popout][data-luca-popout-glass][data-luca-theme="obsidian"]
+  [data-testid="message-composer"] {
+  background: rgb(0 0 0 / 0.34);
+  border-color: transparent;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
 }
 
 /* The scroll-edge veil is a solid band of `--background` faded at one end. It

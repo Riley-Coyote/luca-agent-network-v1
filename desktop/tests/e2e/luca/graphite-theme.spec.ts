@@ -245,3 +245,62 @@ test("Crystalline stays solid in a browser context", async ({ page }) => {
     await card.evaluate((el) => getComputedStyle(el).backgroundColor),
   ).not.toBe("rgba(0, 0, 0, 0)");
 });
+
+test("Obsidian material recipe is inspectable only through an explicit simulated native marker", async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("buzz-theme", "obsidian");
+    window.localStorage.setItem("buzz-follow-system", "false");
+  });
+  await installMockBridge(page);
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  const root = page.locator("html");
+  const card = page.locator("[data-luca-conversation-surface]").first();
+  const plate = page.locator("[data-luca-theme-shell-layer]");
+  const composer = page.getByTestId("message-composer");
+
+  // This is deliberately not a native-vibrancy test. A normal browser must
+  // remain on the opaque fallback; this marker exposes the exact CSS recipe
+  // for screenshot/design inspection without claiming a browser has AppKit's
+  // desktop backdrop.
+  expect(await root.getAttribute("data-luca-native")).toBeNull();
+  expect(
+    await root.evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+
+  await root.evaluate((el) => {
+    // Match the native marker's paired boot-guard removal in ThemeProvider.
+    // The marker alone is intentionally insufficient: the inline cold-boot
+    // color would otherwise still cover the simulated material recipe.
+    el.setAttribute("data-luca-native", "simulated");
+    el.style.removeProperty("background-color");
+  });
+  await expect(root).toHaveAttribute("data-luca-native", "simulated");
+  await expect(card).toBeVisible();
+  await expect(plate).toBeVisible();
+  await expect(composer).toBeVisible();
+
+  await expect(root).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(plate).toHaveCSS("background-color", "rgba(5, 5, 8, 0.12)");
+  await expect(card).toHaveCSS("background-color", "rgba(4, 4, 7, 0.56)");
+  // The baseline is 30% black; the non-reduced-transparency refinement may
+  // deepen it to 34%. Both are deliberately translucent, never an opaque
+  // fallback plate.
+  expect(
+    await composer.evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).toMatch(/^rgba\(0, 0, 0, 0\.(?:3|34)\)$/);
+  await page.screenshot({
+    path: testInfo.outputPath("obsidian-simulated-material-recipe.png"),
+    fullPage: true,
+  });
+
+  // Removing the inspection-only marker returns the exact same document to
+  // the browser-safe opaque state, rather than leaving a false preview mode.
+  await root.evaluate((el) => el.removeAttribute("data-luca-native"));
+  expect(await root.getAttribute("data-luca-native")).toBeNull();
+  expect(
+    await root.evaluate((el) => getComputedStyle(el).backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+});

@@ -505,6 +505,50 @@ test("accent picker reveals/hides when toggling Buzz", async ({ page }) => {
   await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
 });
 
+test("appearance grid fades stay attached to the real picker state", async ({
+  page,
+}) => {
+  // Obsidian is a fixed-neutral first-party palette, so its real picker keeps
+  // both edge fades. This is a component test, not a synthetic gradient
+  // check: the hooks live on the production settings tree.
+  await seedTheme(page, "obsidian");
+  await installMockBridge(page);
+  const panel = await openAppearance(page, "dark");
+  const grid = panel.locator("[data-luca-theme-grid]");
+  const topFade = panel.locator('[data-luca-theme-grid-fade="top"]');
+  const bottomFade = panel.locator('[data-luca-theme-grid-fade="bottom"]');
+
+  await expect(grid).toBeVisible();
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toBeVisible();
+  await expect(bottomFade).toHaveCSS("pointer-events", "none");
+
+  // This opt-in marker is a selector inspection only, mirroring the native
+  // marker plus boot-guard removal. It proves the real settings tree changes
+  // from painted edge bands to a content mask under Obsidian; it does not
+  // pretend Chromium has the native desktop backdrop.
+  await page.locator("html").evaluate((el) => {
+    el.setAttribute("data-luca-native", "simulated");
+    el.style.removeProperty("background-color");
+  });
+  await expect(topFade).toHaveCSS("opacity", "0");
+  await expect(bottomFade).toHaveCSS("opacity", "0");
+  expect(
+    await grid.evaluate((el) => {
+      const style = getComputedStyle(el);
+      return style.maskImage || style.webkitMaskImage;
+    }),
+  ).toContain("linear-gradient");
+
+  // A derived theme reveals the accent picker. The bottom fade must then be
+  // absent; otherwise a light background can paint the known white bar over
+  // the swatches/picker seam. The top fade remains the scroll-edge cue.
+  await panel.getByTestId("theme-option-github-dark").click();
+  await expect(page.getByTestId("accent-color-neutral")).toBeVisible();
+  await expect(topFade).toBeVisible();
+  await expect(bottomFade).toHaveCount(0);
+});
+
 test("Luca light and dark modes apply live without a reload", async ({
   page,
 }) => {

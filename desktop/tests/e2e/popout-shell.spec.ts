@@ -252,6 +252,29 @@ test.describe("the pop-out shell", () => {
     }
   });
 
+  test("Obsidian pop-out uses its own thin plate and restrained composer", async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("buzz-theme", "obsidian");
+      window.localStorage.setItem("buzz-follow-system", "false");
+    });
+    await installMockBridge(page);
+    await page.goto(POPOUT_URL);
+
+    const root = page.locator("html");
+    const shell = page.getByTestId("popout-shell");
+    const composer = page.getByTestId("message-composer");
+    await expect(root).toHaveAttribute("data-luca-theme", "obsidian");
+    await expect(root).toHaveAttribute("data-luca-popout-glass", "");
+    await expect(shell).toHaveCSS("background-color", "rgba(5, 5, 8, 0.12)");
+    await expect(composer).toHaveCSS("background-color", "rgba(0, 0, 0, 0.34)");
+
+    // This remains a pop-out-specific material marker: it must not borrow the
+    // main window's native marker or make the browser fallback transparent.
+    expect(await root.getAttribute("data-luca-native")).toBeNull();
+  });
+
   test("does not open the canvas on a resident's canvas-present", async ({
     page,
   }) => {

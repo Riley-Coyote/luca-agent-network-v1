@@ -139,8 +139,8 @@
   border-color: transparent;
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.09),
-    0 1px 2px rgb(0 0 0 / 0.22),
-    0 10px 30px rgb(0 0 0 / 0.2);
+    0 1px 2px rgb(0 0 0 / 0.14),
+    0 2px 8px -4px rgb(0 0 0 / 0.14);
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
   [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
@@ -163,6 +163,19 @@
   [data-luca-card]
   [data-luca-card] {
   background: rgb(252 251 249 / 0.66);
+}
+
+/* The resident chat column keeps the card marker for radius and clipping, but
+   it occupies the floor beside the rail. Do not let the generic glass-card
+   weather turn that floor role into a nearly black second card. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    [data-testid="agent-chats-column"][data-luca-card] {
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 /* Native glass cards share the same desktop backdrop at the selector seam.
@@ -277,7 +290,7 @@
     [data-luca-glass-fallback]
   )
   [data-testid="message-composer"] {
-  background: rgb(255 255 255 / 0.075);
+  background: rgb(0 0 0 / 0.34);
 }
 @media (prefers-reduced-transparency: reduce) {
   :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
@@ -349,6 +362,80 @@
 :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"] {
   --glass-deep-blur: blur(40px) saturate(150%);
   --glass-frost-blur: blur(20px) saturate(140%);
+}
+
+/* Obsidian's small floating controls are one translucent, elevated family.
+   They need enough local frost to remain legible over motion without becoming
+   opaque stickers on the larger glass surfaces. Quick Chat follows the same
+   material ladder: a card-depth panel, a lighter launcher, and a recessed
+   composer darker than the panel around it. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    :is(
+      [data-testid="message-timeline-day-divider"] > p,
+      [data-testid^="message-action-bar-"] > div,
+      [data-testid="message-scroll-to-latest"],
+      [data-testid="thread-scroll-to-latest"],
+      .qc-launcher
+    ) {
+    background: rgb(18 18 23 / 0.52);
+    border-color: transparent;
+    box-shadow: var(--mn-lit-edge), var(--mn-contact-shadow);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: var(--glass-frost-blur);
+  }
+
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    .qc-panel {
+    background: rgb(4 4 7 / 0.56);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.09),
+      0 8px 34px -12px rgb(0 0 0 / 0.34);
+    -webkit-backdrop-filter: blur(40px) saturate(150%);
+    backdrop-filter: var(--glass-deep-blur);
+  }
+
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    .qc-composer {
+    background: rgb(0 0 0 / 0.34);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  }
+
+  /* Opaque edge veils become bands over native glass. Fade the scroll content
+     itself instead; the grid's 8px outer padding plus 4px card-ring allowance
+     keeps a selected theme's focus edge inside the fully visible region. */
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    [data-luca-theme-grid-fade] {
+    opacity: 0;
+  }
+
+  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
+      [data-luca-glass-fallback]
+    )
+    [data-luca-theme-grid] {
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 12px,
+      black calc(100% - 12px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      black 12px,
+      black calc(100% - 12px),
+      transparent
+    );
+  }
 }
 :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
   [role="dialog"],

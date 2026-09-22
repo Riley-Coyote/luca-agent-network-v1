@@ -538,6 +538,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
         {/* Top fade */}
         <div
           aria-hidden="true"
+          data-luca-theme-grid-fade="top"
           className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
           style={{
             background:
@@ -550,6 +551,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
         {accentPickerHidden ? (
           <div
             aria-hidden="true"
+            data-luca-theme-grid-fade="bottom"
             className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3"
             style={{
               background:
@@ -557,7 +559,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
             }}
           />
         ) : null}
-        <div className="max-h-[430px] overflow-y-auto rounded-lg pt-2">
+        <div
+          className="max-h-[430px] overflow-y-auto rounded-lg pt-2"
+          data-luca-theme-grid=""
+        >
           <div className="flex flex-wrap gap-4 p-1">
             {selectedMode === "system" ? (
               <SingleThemeTile
