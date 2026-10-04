@@ -323,6 +323,10 @@ native app fixture remains idle. No personal session was a test target.
 
 ### Checkpoint verification — 2026-10-04
 
+Implementation checkpoint: `6be4891d4462e195be1aa6f64b72b16f440d3f0c`,
+pushed to `origin/codex/companion-delegation-2026-10-04`; remote SHA verified.
+The shipping branch and installed beta.13 remain unchanged.
+
 | Check | Observed result / boundary |
 |---|---|
 | Frontend helper suite | 4,096 / 4,096 pass on the release-based worktree. |
