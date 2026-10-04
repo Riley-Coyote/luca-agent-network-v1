@@ -7,7 +7,6 @@
 use crate::data_dir::BuzzPathExt;
 use std::{
     collections::HashMap,
-    fs,
     path::{Path, PathBuf},
     process::Stdio,
     sync::{mpsc, Arc, Mutex, OnceLock},
@@ -25,6 +24,8 @@ use tokio::{
     sync::watch,
 };
 use uuid::Uuid;
+
+mod storage;
 
 const EVENT_NAME: &str = "luca://runtime-task";
 const PROPOSAL_EVENT_NAME: &str = "luca://runtime-task-proposal";
@@ -373,19 +374,6 @@ async fn start_runtime_task_internal(
             });
         }
     }
-    let mut child = process
-        .spawn()
-        .map_err(|_| format!("{runtime_family} could not start with the existing profile"))?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "runtime task input is unavailable".to_owned())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "runtime task output is unavailable".to_owned())?;
-    let stderr = child.stderr.take();
-
     let task_id = Uuid::new_v4().to_string();
     let task_input = serde_json::json!({
         "taskId": task_id,
@@ -396,14 +384,6 @@ async fn start_runtime_task_internal(
     });
     let encoded_input = serde_json::to_vec(&task_input)
         .map_err(|_| "runtime task input could not be encoded".to_owned())?;
-    stdin
-        .write_all(&encoded_input)
-        .await
-        .map_err(|_| "runtime task input could not be delivered".to_owned())?;
-    stdin
-        .shutdown()
-        .await
-        .map_err(|_| "runtime task input could not be completed".to_owned())?;
     let now = Utc::now().to_rfc3339();
     let projection = RuntimeTaskProjectionV1 {
         task_id: task_id.clone(),
@@ -428,6 +408,33 @@ async fn start_runtime_task_internal(
         can_retry: false,
         retry_of_task_id,
     };
+    // No process or prompt may be dispatched until its ownership receipt is
+    // durable. If persistence fails, the dispatch closure is never invoked.
+    let mut child = storage::persist_before_dispatch(
+        || persist_projection(&app, &projection),
+        || {
+            process
+                .spawn()
+                .map_err(|_| format!("{runtime_family} could not start with the existing profile"))
+        },
+    )?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| "runtime task input is unavailable".to_owned())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "runtime task output is unavailable".to_owned())?;
+    let stderr = child.stderr.take();
+    stdin
+        .write_all(&encoded_input)
+        .await
+        .map_err(|_| "runtime task input could not be delivered".to_owned())?;
+    stdin
+        .shutdown()
+        .await
+        .map_err(|_| "runtime task input could not be completed".to_owned())?;
     let (cancel_tx, cancel_rx) = watch::channel(false);
     let child = Arc::new(tokio::sync::Mutex::new(child));
     {
@@ -446,7 +453,6 @@ async fn start_runtime_task_internal(
             },
         );
     }
-    persist_projection(&app, &projection)?;
     let _ = app.emit(EVENT_NAME, &projection);
 
     let runner_app = app.clone();
@@ -1128,12 +1134,8 @@ fn receipt_directory(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "runtime task receipt storage is unavailable".to_owned())?
         .join("luca")
         .join(RECEIPT_DIRECTORY);
-    fs::create_dir_all(&directory).map_err(|_| "create runtime task receipt storage".to_owned())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700));
-    }
+    storage::prepare_private_directory(&directory)
+        .map_err(|_| "prepare private runtime task receipt storage".to_owned())?;
     Ok(directory)
 }
 
@@ -1144,46 +1146,33 @@ fn result_directory(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|_| "runtime task result storage is unavailable".to_owned())?
         .join("luca")
         .join(RESULT_DIRECTORY);
-    fs::create_dir_all(&directory).map_err(|_| "create runtime task result storage".to_owned())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700));
-    }
+    storage::prepare_private_directory(&directory)
+        .map_err(|_| "prepare private runtime task result storage".to_owned())?;
     Ok(directory)
 }
 
 fn persist_projection(app: &AppHandle, projection: &RuntimeTaskProjectionV1) -> Result<(), String> {
+    validate_opaque(&projection.task_id, 128, "task")?;
     let directory = receipt_directory(app)?;
     let path = directory.join(format!("{}.json", projection.task_id));
     let bytes =
         serde_json::to_vec(projection).map_err(|_| "encode runtime task receipt".to_owned())?;
-    fs::write(&path, bytes).map_err(|_| "write runtime task receipt".to_owned())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    storage::atomic_write_private(&path, &bytes)
+        .map_err(|_| "persist runtime task receipt".to_owned())
 }
 
 fn persist_result(app: &AppHandle, task_id: &str, result: &str) -> Result<(), String> {
     validate_opaque(task_id, 128, "task")?;
     let path = result_directory(app)?.join(format!("{task_id}.txt"));
-    fs::write(&path, result.as_bytes()).map_err(|_| "write runtime task result".to_owned())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
-    }
-    Ok(())
+    storage::atomic_write_private(&path, result.as_bytes())
+        .map_err(|_| "persist runtime task result".to_owned())
 }
 
 fn load_result(app: &AppHandle, task_id: &str) -> Option<String> {
     validate_opaque(task_id, 128, "task").ok()?;
     let path = result_directory(app).ok()?.join(format!("{task_id}.txt"));
-    let bytes = fs::read(path).ok()?;
-    if bytes.is_empty() || bytes.len() > MAX_TEXT_BYTES {
+    let bytes = storage::read_bounded(&path, MAX_TEXT_BYTES).ok()?;
+    if bytes.is_empty() {
         return None;
     }
     String::from_utf8(bytes).ok()
@@ -1211,19 +1200,21 @@ fn load_receipts(app: &AppHandle) -> Result<(), String> {
 fn load_receipts_once(app: &AppHandle) -> Result<(), String> {
     let directory = receipt_directory(app)?;
     let mut loaded = Vec::new();
-    for entry in fs::read_dir(directory)
-        .map_err(|_| "read runtime task receipts".to_owned())?
-        .flatten()
-        .take(MAX_RECEIPTS)
-    {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+    let paths = storage::newest_receipt_paths(&directory, MAX_RECEIPTS, MAX_TEXT_BYTES)
+        .map_err(|_| "read runtime task receipts".to_owned())?;
+    for path in paths {
+        let Ok(bytes) = storage::read_bounded(&path, MAX_TEXT_BYTES) else {
             continue;
-        }
-        let Ok(bytes) = fs::read(path) else { continue };
+        };
         let Ok(mut projection) = serde_json::from_slice::<RuntimeTaskProjectionV1>(&bytes) else {
             continue;
         };
+        if validate_opaque(&projection.task_id, 128, "task").is_err()
+            || path.file_stem().and_then(|value| value.to_str())
+                != Some(projection.task_id.as_str())
+        {
+            continue;
+        }
         projection.can_retry = false;
         if matches!(
             projection.state,
@@ -1237,6 +1228,7 @@ fn load_receipts_once(app: &AppHandle) -> Result<(), String> {
         }
         loaded.push(projection);
     }
+    loaded.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
     let mut state = memory()
         .lock()
         .map_err(|_| "runtime task state is unavailable".to_owned())?;
