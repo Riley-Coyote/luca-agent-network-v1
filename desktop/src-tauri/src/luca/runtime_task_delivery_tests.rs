@@ -39,6 +39,67 @@ fn store() -> (tempfile::TempDir, RuntimeTaskDeliveryStore) {
     (directory, store)
 }
 
+#[test]
+fn delivery_store_reader_bounds_growth_and_accepts_the_exact_byte_limit() {
+    use std::io::Cursor;
+
+    let exact = vec![b' '; MAX_STORE_BYTES as usize];
+    assert_eq!(
+        read_delivery_store_bounded(Cursor::new(&exact)).unwrap(),
+        exact
+    );
+
+    // More bytes arriving after metadata inspection must not all be consumed.
+    let mut growing = std::io::repeat(b'x').take(MAX_STORE_BYTES + 4096);
+    assert_eq!(
+        read_delivery_store_bounded(&mut growing),
+        Err(RuntimeTaskDeliveryError::Invalid)
+    );
+    assert_eq!(growing.limit(), 4095);
+}
+
+#[test]
+fn delivery_store_reader_reports_io_failure_without_accepting_partial_bytes() {
+    let mut reader = std::io::Cursor::new(b"partial").chain(FailingReader);
+    assert_eq!(
+        read_delivery_store_bounded(&mut reader),
+        Err(RuntimeTaskDeliveryError::Persistence)
+    );
+}
+
+struct FailingReader;
+
+impl Read for FailingReader {
+    fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+        Err(std::io::Error::other("injected read failure"))
+    }
+}
+
+#[test]
+fn delivery_store_load_rejects_oversized_nonregular_and_symlink_inputs() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("deliveries.json");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(MAX_STORE_BYTES + 1).unwrap();
+    assert!(matches!(
+        RuntimeTaskDeliveryStore::load(path.clone()),
+        Err(RuntimeTaskDeliveryError::Invalid)
+    ));
+    assert!(matches!(
+        RuntimeTaskDeliveryStore::load(directory.path().to_owned()),
+        Err(RuntimeTaskDeliveryError::Invalid)
+    ));
+    #[cfg(unix)]
+    {
+        let link = directory.path().join("linked.json");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(matches!(
+            RuntimeTaskDeliveryStore::load(link),
+            Err(RuntimeTaskDeliveryError::Invalid)
+        ));
+    }
+}
+
 fn completion_scope(approval: &RuntimeTaskDeliveryApprovalV1) -> RuntimeTaskCompletionScopeV1 {
     RuntimeTaskCompletionScopeV1 {
         task_id: approval.task_id.clone(),

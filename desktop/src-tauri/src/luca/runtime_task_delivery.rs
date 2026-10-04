@@ -8,6 +8,7 @@
 use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{BTreeSet, HashMap},
+    io::Read,
     path::PathBuf,
     sync::{Arc, Mutex, OnceLock},
     time::Duration,
@@ -235,6 +236,20 @@ pub(crate) struct RuntimeTaskDeliveryStore {
     rows: HashMap<String, RuntimeTaskDeliveryRowV1>,
 }
 
+/// Bound the opened stream as well as its metadata. Concurrent growth must not
+/// allocate an unbounded authority-store body after the metadata size check.
+fn read_delivery_store_bounded(reader: impl Read) -> Result<Vec<u8>, RuntimeTaskDeliveryError> {
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_STORE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| RuntimeTaskDeliveryError::Persistence)?;
+    if bytes.len() as u64 > MAX_STORE_BYTES {
+        return Err(RuntimeTaskDeliveryError::Invalid);
+    }
+    Ok(bytes)
+}
+
 impl RuntimeTaskDeliveryStore {
     pub(crate) fn load(path: PathBuf) -> Result<Self, RuntimeTaskDeliveryError> {
         if !path.exists() {
@@ -251,7 +266,14 @@ impl RuntimeTaskDeliveryStore {
         {
             return Err(RuntimeTaskDeliveryError::Invalid);
         }
-        let bytes = std::fs::read(&path).map_err(|_| RuntimeTaskDeliveryError::Persistence)?;
+        let file = std::fs::File::open(&path).map_err(|_| RuntimeTaskDeliveryError::Persistence)?;
+        let opened_metadata = file
+            .metadata()
+            .map_err(|_| RuntimeTaskDeliveryError::Persistence)?;
+        if !opened_metadata.is_file() || opened_metadata.len() > MAX_STORE_BYTES {
+            return Err(RuntimeTaskDeliveryError::Invalid);
+        }
+        let bytes = read_delivery_store_bounded(file)?;
         let persisted: PersistedRuntimeTaskDeliveryStoreV1 =
             serde_json::from_slice(&bytes).map_err(|_| RuntimeTaskDeliveryError::Invalid)?;
         if persisted.schema != STORE_SCHEMA || persisted.deliveries.len() > MAX_DELIVERIES {

@@ -6,8 +6,37 @@ use std::{
     fs::{self, File},
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    time::SystemTime,
+    time::{Duration, Instant, SystemTime},
 };
+
+const RECEIPT_SCAN_BUDGET: ReceiptScanBudget = ReceiptScanBudget {
+    max_entries: 40_000,
+    max_duration: Duration::from_secs(2),
+};
+
+#[derive(Clone, Copy)]
+struct ReceiptScanBudget {
+    max_entries: usize,
+    max_duration: Duration,
+}
+
+impl ReceiptScanBudget {
+    fn check(self, entries: usize, elapsed: Duration) -> io::Result<()> {
+        if entries > self.max_entries {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "runtime task receipt scan exceeds its entry limit",
+            ));
+        }
+        if elapsed >= self.max_duration {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "runtime task receipt scan exceeds its time limit",
+            ));
+        }
+        Ok(())
+    }
+}
 
 /// Create or repair a desktop-owned task directory before storing private bytes.
 pub(super) fn prepare_private_directory(path: &Path) -> io::Result<()> {
@@ -115,16 +144,38 @@ struct ReceiptCandidate {
 /// Select newest stored receipts by filesystem modification time before reading
 /// their bodies, retaining only a bounded candidate heap. This avoids reading
 /// every body to rank its `updatedAt`. Ties use the filename deterministically.
+/// Entry/time exhaustion fails closed: a partial scan is not a newest set.
+/// The deadline is checked between filesystem operations, not an OS-I/O timeout.
 pub(super) fn newest_receipt_paths(
     directory: &Path,
     limit: usize,
     max_bytes: usize,
 ) -> io::Result<Vec<PathBuf>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let started = Instant::now();
+    select_newest_receipt_paths(
+        fs::read_dir(directory)?,
+        limit,
+        max_bytes,
+        RECEIPT_SCAN_BUDGET,
+        || started.elapsed(),
+    )
+}
+
+fn select_newest_receipt_paths(
+    entries: impl Iterator<Item = io::Result<fs::DirEntry>>,
+    limit: usize,
+    max_bytes: usize,
+    budget: ReceiptScanBudget,
+    elapsed: impl Fn() -> Duration,
+) -> io::Result<Vec<PathBuf>> {
     let mut candidates = BinaryHeap::new();
-    for entry in fs::read_dir(directory)?.flatten() {
-        if limit == 0 {
-            break;
-        }
+    for (index, entry) in entries.enumerate() {
+        // Count every entry, including non-receipts and failed directory reads.
+        budget.check(index.saturating_add(1), elapsed())?;
+        let Ok(entry) = entry else { continue };
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
             continue;
@@ -149,6 +200,7 @@ pub(super) fn newest_receipt_paths(
             candidates.pop();
         }
     }
+    budget.check(0, elapsed())?;
     let mut selected = candidates
         .into_iter()
         .map(|Reverse(candidate)| candidate)
@@ -163,7 +215,7 @@ pub(super) fn newest_receipt_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{cell::Cell, fs::FileTimes, time::Duration};
+    use std::{cell::Cell, fs::FileTimes};
 
     #[test]
     fn replacement_is_complete_and_private() {
@@ -331,6 +383,88 @@ mod tests {
         assert_eq!(
             newest_receipt_paths(directory.path(), 1, 8).unwrap(),
             vec![directory.path().join("b.json")]
+        );
+    }
+
+    #[test]
+    fn receipt_scan_entry_limit_is_exact_and_never_returns_a_partial_newest_set() {
+        let directory = tempfile::tempdir().unwrap();
+        receipt_file(directory.path(), "older.json", 10, b"old");
+        receipt_file(directory.path(), "newer.json", 20, b"new");
+        let scan = |max_entries| {
+            select_newest_receipt_paths(
+                fs::read_dir(directory.path()).unwrap(),
+                1,
+                8,
+                ReceiptScanBudget {
+                    max_entries,
+                    max_duration: Duration::from_secs(2),
+                },
+                || Duration::ZERO,
+            )
+        };
+
+        assert_eq!(scan(2).unwrap(), vec![directory.path().join("newer.json")]);
+        assert_eq!(scan(1).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn ignored_entries_and_failed_reads_consume_the_scan_budget() {
+        let directory = tempfile::tempdir().unwrap();
+        receipt_file(directory.path(), "ignored.txt", 10, b"text");
+        let budget = ReceiptScanBudget {
+            max_entries: 1,
+            max_duration: Duration::from_secs(2),
+        };
+        let entries = fs::read_dir(directory.path())
+            .unwrap()
+            .chain(std::iter::once(Err(io::Error::other(
+                "injected read error",
+            ))));
+        assert_eq!(
+            select_newest_receipt_paths(entries, 1, 8, budget, || Duration::ZERO)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        let errors = (0..2).map(|_| Err(io::Error::other("injected read error")));
+        assert_eq!(
+            select_newest_receipt_paths(errors, 1, 8, budget, || Duration::ZERO)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn receipt_scan_checks_the_deadline_after_the_last_filesystem_operation() {
+        let directory = tempfile::tempdir().unwrap();
+        receipt_file(directory.path(), "newest.json", 10, b"new");
+        let checks = Cell::new(0);
+        let result = select_newest_receipt_paths(
+            fs::read_dir(directory.path()).unwrap(),
+            1,
+            8,
+            ReceiptScanBudget {
+                max_entries: 1,
+                max_duration: Duration::from_secs(2),
+            },
+            || {
+                let previous = checks.get();
+                checks.set(previous + 1);
+                Duration::from_secs(previous * 2)
+            },
+        );
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn zero_receipt_limit_does_not_touch_the_filesystem() {
+        let directory = tempfile::tempdir().unwrap();
+        assert!(
+            newest_receipt_paths(&directory.path().join("missing"), 0, 8)
+                .unwrap()
+                .is_empty()
         );
     }
 
