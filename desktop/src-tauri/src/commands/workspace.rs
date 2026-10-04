@@ -320,5 +320,6 @@ pub async fn apply_workspace(
         });
     }
 
+    crate::luca::runtime_tasks::queue_runtime_task_delivery_recovery(&restore_app);
     Ok(())
 }

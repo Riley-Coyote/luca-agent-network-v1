@@ -1,6 +1,19 @@
 use tauri::AppHandle;
 
 #[tauri::command]
+pub fn retry_runtime_task_delivery(
+    app: AppHandle,
+    task_id: String,
+) -> Result<crate::luca::runtime_tasks::RuntimeTaskProjectionV1, String> {
+    crate::luca::runtime_tasks::retry_runtime_task_delivery(app, task_id)
+}
+
+#[tauri::command]
+pub fn open_runtime_task_native_session(app: AppHandle, task_id: String) -> Result<(), String> {
+    crate::luca::runtime_tasks::open_runtime_task_native_session(app, task_id)
+}
+
+#[tauri::command]
 pub async fn pick_runtime_task_folder(app: AppHandle) -> Result<Option<String>, String> {
     crate::luca::runtime_tasks::pick_runtime_task_folder(app).await
 }
@@ -55,9 +68,10 @@ pub fn get_runtime_task_result(
 
 #[tauri::command]
 pub fn list_runtime_task_proposals(
+    app: AppHandle,
     conversation_id: String,
 ) -> Result<Vec<crate::luca::runtime_tasks::RuntimeTaskProposalV1>, String> {
-    crate::luca::runtime_tasks::list_runtime_task_proposals(conversation_id)
+    crate::luca::runtime_tasks::list_runtime_task_proposals(app, conversation_id)
 }
 
 #[tauri::command]

@@ -4,6 +4,10 @@
 //! engine. The desktop owns confirmation, receipts and cancellation. The ACP
 //! adapter owns execution and the user's existing provider profile.
 
+mod codex_cli;
+mod codex_events;
+mod native_isolation;
+
 use std::{io::Read as _, time::Duration};
 
 use anyhow::{Context as _, Result};
@@ -20,6 +24,18 @@ use crate::{
 
 const PROTOCOL: &str = "polyphonic.runtime-task.v1";
 const MAX_INPUT_BYTES: u64 = 72 * 1024;
+// Shorter than AcpClient's internal best-effort wait: a stuck cleanup must
+// fail closed here rather than return a successful terminal host event.
+const SHUTDOWN_BOUND: Duration = Duration::from_secs(4);
+const OBSERVER_DRAIN_BOUND: Duration = Duration::from_secs(1);
+
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum RuntimeTaskOperation {
+    #[default]
+    NewTask,
+    ContinueSession,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -29,6 +45,9 @@ struct RuntimeTaskInputV1 {
     prompt: String,
     working_folder: String,
     permission_mode: String,
+    #[serde(default)]
+    operation: RuntimeTaskOperation,
+    provider_session_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -51,7 +70,18 @@ struct RuntimeTaskOutputV1<'a> {
 pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
     let input = read_input()?;
     validate_input(&input)?;
+    if input.operation == RuntimeTaskOperation::ContinueSession {
+        // Only the desktop's separately verified saved-CLI target lane enters
+        // here. App-owned work must use its native queue/controller, not this
+        // subprocess as a replacement. In particular, do not initialize ACP,
+        // adopt a resident context or install managed MCP servers for resume.
+        return codex_cli::run(&args, &input).await;
+    }
     let agent_args = normalize_agent_args(&args.agent.agent_command, args.agent.agent_args);
+    // Install before creating the owned ACP child. A host's graceful TERM/INT
+    // must enter cleanup instead of bypassing the client's Drop entirely.
+    let mut signals = codex_cli::StopSignals::new()
+        .map_err(|_| anyhow::anyhow!("runtime task cleanup handler is unavailable"))?;
     let observer = ObserverHandle::in_process();
     let observer_task = spawn_safe_observer(observer.clone());
     let mcp_servers = managed_mcp_provider::read_inherited_servers().unwrap_or_default();
@@ -73,7 +103,7 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         started_at: Some(chrono::Utc::now().to_rfc3339()),
     });
 
-    let outcome = async {
+    let provider_outcome = async {
         client.initialize().await?;
         let session = client
             .session_new_full(
@@ -134,9 +164,23 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
             })?
             .unwrap_or_default();
         Ok::<_, crate::acp::AcpError>((stop, result))
-    }
-    .await;
+    };
+    let outcome = tokio::select! {
+        outcome = provider_outcome => outcome,
+        () = signals.wait() => Err(crate::acp::AcpError::Protocol(
+            "runtime task was interrupted".into(),
+        )),
+    };
 
+    let shutdown = tokio::time::timeout(SHUTDOWN_BOUND, client.shutdown())
+        .await
+        .map_err(|_| cleanup_error());
+    // The observer task holds only a receiver, not a sender. Detaching the
+    // client's last sender closes the bus after its queued progress, which
+    // must be drained and joined before any terminal result is emitted.
+    client.set_observer(None, 0);
+    let observer = finish_safe_observer(observer_task).await;
+    let outcome = terminal_outcome(outcome, shutdown.and(observer));
     match outcome {
         Ok((stop, result)) => emit(RuntimeTaskOutputV1 {
             protocol: PROTOCOL,
@@ -160,9 +204,21 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
             });
         }
     }
-    client.shutdown().await;
-    observer_task.abort();
     Ok(())
+}
+
+fn cleanup_error() -> crate::acp::AcpError {
+    crate::acp::AcpError::Protocol("runtime task shutdown could not be verified".into())
+}
+
+fn terminal_outcome(
+    outcome: Result<(StopReason, String), crate::acp::AcpError>,
+    cleanup: Result<(), crate::acp::AcpError>,
+) -> Result<(StopReason, String), crate::acp::AcpError> {
+    // A completed provider turn is not a successful host terminal event when
+    // our shutdown/drain fence failed. Never retain that candidate result.
+    cleanup?;
+    outcome
 }
 
 fn read_input() -> Result<RuntimeTaskInputV1> {
@@ -187,6 +243,16 @@ fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
     {
         anyhow::bail!("runtime task input is invalid");
     }
+    match input.operation {
+        RuntimeTaskOperation::NewTask if input.provider_session_id.is_none() => {}
+        RuntimeTaskOperation::ContinueSession
+            if input.permission_mode == "normal"
+                && input
+                    .provider_session_id
+                    .as_deref()
+                    .is_some_and(codex_cli::valid_session_id) => {}
+        _ => anyhow::bail!("runtime task input is invalid"),
+    }
     Ok(())
 }
 
@@ -199,10 +265,37 @@ fn valid_opaque(value: &str) -> bool {
 }
 
 fn spawn_safe_observer(observer: ObserverHandle) -> tokio::task::JoinHandle<()> {
+    spawn_safe_observer_with(observer, |label| {
+        emit(RuntimeTaskOutputV1 {
+            protocol: PROTOCOL,
+            kind: "step",
+            provider_session_id: None,
+            label: Some(label),
+            result: None,
+            stop_reason: None,
+            error: None,
+        });
+    })
+}
+
+fn spawn_safe_observer_with(
+    observer: ObserverHandle,
+    mut emit_label: impl FnMut(&'static str) + Send + 'static,
+) -> tokio::task::JoinHandle<()> {
+    // Subscribe before spawning, so even progress emitted before the task's
+    // first poll is queued. Do not capture the sender in the task: dropping
+    // the client's observer must actually close and drain this receiver.
+    let mut receiver = observer.subscribe();
     tokio::spawn(async move {
-        let mut receiver = observer.subscribe();
         let mut last_label = None;
-        while let Ok(event) = receiver.recv().await {
+        loop {
+            let event = match receiver.recv().await {
+                Ok(event) => event,
+                // Observer progress is best effort. A lagged receiver still
+                // drains newer safe labels; lag must not look like closure.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            };
             let Some(label) = safe_step(&event) else {
                 continue;
             };
@@ -210,17 +303,25 @@ fn spawn_safe_observer(observer: ObserverHandle) -> tokio::task::JoinHandle<()> 
                 continue;
             }
             last_label = Some(label);
-            emit(RuntimeTaskOutputV1 {
-                protocol: PROTOCOL,
-                kind: "step",
-                provider_session_id: None,
-                label: Some(label),
-                result: None,
-                stop_reason: None,
-                error: None,
-            });
+            emit_label(label);
         }
     })
+}
+
+async fn finish_safe_observer(
+    mut task: tokio::task::JoinHandle<()>,
+) -> Result<(), crate::acp::AcpError> {
+    match tokio::time::timeout(OBSERVER_DRAIN_BOUND, &mut task).await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(_)) => Err(cleanup_error()),
+        Err(_) => {
+            task.abort();
+            // Abort alone does not fence output. Join even the aborted task,
+            // so no scheduled progress can appear after a terminal event.
+            let _ = task.await;
+            Err(cleanup_error())
+        }
+    }
 }
 
 fn safe_step(event: &crate::observer::ObserverEvent) -> Option<&'static str> {
@@ -300,4 +401,54 @@ mod tests {
         assert!(!valid_opaque("task id with spaces"));
         assert!(valid_opaque("task:1234-abcd"));
     }
+
+    #[test]
+    fn existing_input_defaults_to_unchanged_acp_new_task_operation() {
+        let input: RuntimeTaskInputV1 = serde_json::from_value(serde_json::json!({
+            "taskId": "task:old",
+            "conversationId": "conversation:old",
+            "prompt": "SYNTHETIC_TASK",
+            "workingFolder": "/synthetic/folder",
+            "permissionMode": "full_access",
+        }))
+        .expect("legacy input");
+        assert_eq!(input.operation, RuntimeTaskOperation::NewTask);
+        assert!(input.provider_session_id.is_none());
+        assert!(validate_input(&input).is_ok());
+    }
+
+    #[test]
+    fn continuation_input_requires_native_id_normal_policy_and_explicit_operation() {
+        let mut value = serde_json::json!({
+            "taskId": "task:continue",
+            "conversationId": "conversation:continue",
+            "prompt": "SYNTHETIC_TASK",
+            "workingFolder": "/synthetic/folder",
+            "permissionMode": "normal",
+            "operation": "continue_session",
+            "providerSessionId": "01a1083a-f0f0-76a3-b1d9-c0268a062636",
+        });
+        let input: RuntimeTaskInputV1 = serde_json::from_value(value.clone()).expect("valid input");
+        assert!(validate_input(&input).is_ok());
+        value["permissionMode"] = serde_json::json!("full_access");
+        let input: RuntimeTaskInputV1 = serde_json::from_value(value.clone()).expect("input shape");
+        assert!(validate_input(&input).is_err());
+        value["permissionMode"] = serde_json::json!("normal");
+        for id in [serde_json::Value::Null, serde_json::json!("--last")] {
+            value["providerSessionId"] = id;
+            let input: RuntimeTaskInputV1 =
+                serde_json::from_value(value.clone()).expect("input shape");
+            assert!(validate_input(&input).is_err());
+        }
+        value["providerSessionId"] = serde_json::json!("01a1083a-f0f0-76a3-b1d9-c0268a062636");
+        value["operation"] = serde_json::json!("new_task");
+        let input: RuntimeTaskInputV1 = serde_json::from_value(value.clone()).expect("input shape");
+        assert!(validate_input(&input).is_err());
+        value["operation"] = serde_json::json!("fork");
+        assert!(serde_json::from_value::<RuntimeTaskInputV1>(value).is_err());
+    }
 }
+
+#[cfg(test)]
+#[path = "runtime_task_runner/legacy_cleanup_tests.rs"]
+mod legacy_cleanup_tests;

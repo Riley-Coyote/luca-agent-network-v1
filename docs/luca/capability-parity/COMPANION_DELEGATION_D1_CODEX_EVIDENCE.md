@@ -105,3 +105,67 @@ Budget used by this Codex proof: two disposable session IDs, seven submitted
 and completed model turns. Combined with Claude: three disposable session IDs,
 eight prompt attempts (seven completed, one Claude quota rejection), zero
 active owned test workers. The approved total limit remains 12 IDs / 40 attempts.
+
+## D6 production-runner acceptance reservation
+
+2026-10-04: reserve one further prompt attempt in the saved CLI fixture above,
+using the freshly built production `buzz-acp runtime-task` continuation lane.
+No new native session ID is authorized. The command preserves the native
+profile, sends its prompt on stdin, and uses the existing exact UUID and folder.
+Combined budget including this reserved attempt: **3 / 12 IDs, 9 / 40 attempts**.
+The outcome will be appended before another native prompt is attempted.
+
+Attempt 9: the production runner acknowledged the exact saved UUID, then
+failed closed with `The native Codex event stream could not be verified` after
+630ms. No completion or alternate session was reported. The top-level shared
+Cargo helper was overwritten by Tauri's compile-only placeholder copy, so this
+check used Cargo's corresponding fresh executable in `debug/deps` (same build
+fingerprint, real ARM64 executable). An initial zero-helper preflight failed
+before dispatch and consumed no prompt. This attempt is counted conservatively
+even if the provider had not started its model turn.
+
+Reserve attempt 10 in that same saved fixture to inspect bounded native JSONL
+directly and determine the protocol mismatch. No configuration overrides or
+new session are permitted. Combined budget: **3 / 12 IDs, 10 / 40 attempts**.
+
+Attempt 10 completed in the original saved UUID and returned the synthetic
+diagnostic marker. Native `0.160.0` emits a startup feature warning as
+`item.completed` / `item.type=error` **before** `turn.started`, then a normal
+agent result and `turn.completed` (exit zero). The runner incorrectly rejected
+that pre-turn diagnostic. The fix discards only bounded, valid pre-turn error
+items after exact thread acknowledgement; during-turn errors, native
+`error`/`turn.failed`, missing completion, trailing events and mismatched IDs
+still fail closed. Provider configuration was not changed to suppress warnings.
+
+Reserve attempt 11 for the fixed production runner in the same saved fixture.
+Combined budget: **3 / 12 IDs, 11 / 40 attempts**. No other worker is active.
+
+Attempt 11 passed through the fixed production runner: exact original session
+acknowledgement, body-free writing progress, original context token plus the
+synthetic acceptance marker, `stopReason=end_turn`, exit zero after 11,691ms.
+The actual runner command was `codex exec --json --cd <original folder> resume
+<original UUID> -`, with no sandbox, model, profile or configuration override.
+Its own stdout contained no startup warning body or native diagnostic stderr.
+This verifies the production runner lane, not the full companion/UI result loop.
+
+Reserve attempt 12 for one public queue input to the original disposable app
+fixture, to fixture-check its exact acknowledgement format. The saved CLI
+worker is terminal. Combined budget: **3 / 12 IDs, 12 / 40 attempts**.
+
+Attempt 12: the CLI exited zero with the exact acknowledgement
+`Queued message 01a10929-2076-7320-bd6a-0286709cc5c7 for thread 01a1082d-50c1-7d03-a5f4-ca00e0361a78.`
+The live acknowledgement has a final period that the earlier parser fixture
+omitted. The parser now accepts that one verified suffix (and its unsuffixed
+fixture form), still rejecting other punctuation, appended text, nil message
+IDs, duplicate acknowledgements and wrong targets. No second message was sent
+to repair the acknowledgement. Work completion is independently checked below;
+queue acceptance alone remains an externally owned, incomplete handoff.
+
+The host-bound native app observation independently confirmed original-thread
+turn `01a10929-23d8-7f12-885f-2fdb3d944f72` completed in 3,989ms with exact
+`POLYPHONIC_D6_NATIVE_QUEUE_OK_88c35a`. The original app fixture is idle again.
+This host-bound observation is acceptance evidence only, not a public
+Polyphonic controller. No automatic queue retry, new thread or app replacement
+occurred. Final native budget at this checkpoint: **3 / 12 IDs, 12 / 40 attempts**;
+all owned test workers terminal (10 completed Codex turns, 1 runner attempt
+aborted before verified turn completion, 1 Claude quota rejection).

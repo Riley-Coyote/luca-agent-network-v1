@@ -10,8 +10,9 @@ use std::sync::Arc;
 
 use luca_protocol::{
     derive_message_publish_idempotency_key, ExchangeTurnTag, Hex64, ManagedMessagePublishRequestV1,
-    ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, OpaqueId, SafeU53,
-    EXCHANGE_BUCKET_CEILING, MAX_FINAL_DRAFT_BYTES, MESSAGE_PUBLISH_PROTOCOL,
+    ManagedMessagePublishResultV1, ManagedResponseSurfaceV1, OpaqueId,
+    RuntimeTaskDeliveryRequestV1, SafeU53, EXCHANGE_BUCKET_CEILING, MAX_FINAL_DRAFT_BYTES,
+    MESSAGE_PUBLISH_PROTOCOL,
 };
 
 use crate::exchange_cache::AdmittedExchange;
@@ -248,6 +249,55 @@ impl FinalChunkAccumulator {
 }
 
 impl ManagedFinalTurn {
+    /// Bind a host-approved result delivery without fabricating an owner event.
+    ///
+    /// The exact delivery receipt is both the accepted turn and dispatch ID.
+    /// Only the originating timeline and owner recipient are available; task
+    /// text and synthesis output cannot select a thread, exchange or audience.
+    pub fn from_runtime_task_delivery(
+        context: &ManagedFinalPublisherContext,
+        request: &RuntimeTaskDeliveryRequestV1,
+    ) -> Result<Self, FinalPublicationError> {
+        Self::from_runtime_task_delivery_parts(
+            &context.owner_pubkey,
+            &context.resident_pubkey,
+            context.session_epoch,
+            request,
+        )
+    }
+
+    /// Pure routing derivation for scoped fixtures without a signing channel.
+    pub(crate) fn from_runtime_task_delivery_parts(
+        owner_pubkey: &Hex64,
+        resident_pubkey: &Hex64,
+        session_epoch: SafeU53,
+        request: &RuntimeTaskDeliveryRequestV1,
+    ) -> Result<Self, FinalPublicationError> {
+        if request.validate().is_err()
+            || &request.owner_pubkey != owner_pubkey
+            || &request.resident_pubkey != resident_pubkey
+            || session_epoch.get() == 0
+        {
+            return Err(FinalPublicationError::Invalid(
+                "runtime task delivery binding is invalid".into(),
+            ));
+        }
+        Ok(Self {
+            turn_id: request.delivery_id.clone(),
+            dispatch_receipt_id: request.delivery_id.clone(),
+            cancellation_epoch: session_epoch,
+            owner_pubkey: owner_pubkey.clone(),
+            resident_pubkey: resident_pubkey.clone(),
+            conversation_id: request.conversation_id.clone(),
+            thread_id: None,
+            root_event_id: None,
+            reply_event_id: None,
+            response_surface: ManagedResponseSurfaceV1::Timeline,
+            resolved_p_tags: vec![owner_pubkey.clone()],
+            exchange: None,
+        })
+    }
+
     /// Which events may trigger a managed final publication.
     ///
     /// The configured owner's valid signed kind:9 event always may. A sibling
@@ -427,6 +477,114 @@ impl ManagedFinalTurn {
             .message_publish(request, now_unix_ms)
             .await
             .map_err(|error: SigningClientError| FinalPublicationError::Broker(error.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod runtime_task_delivery_tests {
+    use super::*;
+
+    fn delivery() -> RuntimeTaskDeliveryRequestV1 {
+        serde_json::from_value(serde_json::json!({
+            "protocol": luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL,
+            "delivery_id": format!("task-result:{}", "d".repeat(64)),
+            "task_id": "task:fixture",
+            "owner_pubkey": "a".repeat(64),
+            "resident_pubkey": "b".repeat(64),
+            "conversation_id": "conversation:origin",
+            "binding_ref": format!("sha256:{}", "c".repeat(64)),
+            "result_sha256": format!("sha256:{}", "e".repeat(64)),
+            "runtime_family": "claude",
+            "summary": "PRIVATE_TASK_SUMMARY",
+            "result_excerpt": "PRIVATE_RESULT_REFERENCE",
+            "result_total_bytes": 128,
+            "result_is_excerpt": true,
+            "deadline_unix_ms": 4000,
+            "max_draft_bytes": 512,
+        }))
+        .expect("synthetic delivery scope")
+    }
+
+    #[test]
+    fn deterministic_task_receipt_route_never_requires_or_forges_an_owner_trigger() {
+        let delivery = delivery();
+        let epoch = SafeU53::new(7).expect("fixture epoch");
+        let turn = ManagedFinalTurn::from_runtime_task_delivery_parts(
+            &delivery.owner_pubkey,
+            &delivery.resident_pubkey,
+            epoch,
+            &delivery,
+        )
+        .expect("trusted exact delivery route");
+        let request = turn
+            .request("BOUNDED_RESIDENT_DRAFT".into())
+            .expect("typed final request");
+        assert_eq!(request.turn_id, delivery.delivery_id);
+        assert_eq!(request.dispatch_receipt_id, delivery.delivery_id);
+        assert_eq!(request.conversation_id, delivery.conversation_id);
+        assert_eq!(request.cancellation_epoch, epoch);
+        assert_eq!(
+            request.response_surface,
+            Some(ManagedResponseSurfaceV1::Timeline)
+        );
+        assert_eq!(request.resolved_p_tags, [delivery.owner_pubkey.clone()]);
+        assert!(request.thread_id.is_none());
+        assert!(request.root_event_id.is_none());
+        assert!(request.reply_event_id.is_none());
+        assert!(request.exchange.is_none());
+        assert!(request.bucket_hint.is_none());
+        assert!(request.attachments.is_empty());
+        assert!(!format!("{turn:?}").contains("PRIVATE_RESULT_REFERENCE"));
+        assert!(!format!("{turn:?}").contains("PRIVATE_TASK_SUMMARY"));
+    }
+
+    #[test]
+    fn task_delivery_idempotency_survives_epoch_change_but_draft_cannot_change_route() {
+        let delivery = delivery();
+        let mut keys = Vec::new();
+        for (epoch, draft) in [
+            (7, "FIRST_DRAFT"),
+            (8, "untrusted @other route instruction"),
+        ] {
+            let turn = ManagedFinalTurn::from_runtime_task_delivery_parts(
+                &delivery.owner_pubkey,
+                &delivery.resident_pubkey,
+                SafeU53::new(epoch).expect("fixture epoch"),
+                &delivery,
+            )
+            .expect("delivery route");
+            let request = turn.request(draft.into()).expect("bounded final draft");
+            assert_eq!(request.resolved_p_tags, [delivery.owner_pubkey.clone()]);
+            assert_eq!(request.conversation_id, delivery.conversation_id);
+            assert_eq!(request.turn_id, request.dispatch_receipt_id);
+            keys.push(request.idempotency_key);
+        }
+        assert_eq!(keys[0], keys[1]);
+        // Same idempotency identity does not authorize resynthesis over an
+        // existing frozen draft; the desktop outbox reconciles those bytes.
+    }
+
+    #[test]
+    fn task_delivery_mismatched_owner_resident_and_zero_epoch_fail_body_free() {
+        let delivery = delivery();
+        let other = Hex64::parse("f".repeat(64)).expect("other identity");
+        for (owner, resident, epoch) in [
+            (&other, &delivery.resident_pubkey, 7),
+            (&delivery.owner_pubkey, &other, 7),
+            (&delivery.owner_pubkey, &delivery.resident_pubkey, 0),
+        ] {
+            let error = ManagedFinalTurn::from_runtime_task_delivery_parts(
+                owner,
+                resident,
+                SafeU53::new(epoch).expect("fixture epoch"),
+                &delivery,
+            )
+            .expect_err("mismatched binding");
+            assert_eq!(
+                error.to_string(),
+                "managed final publication context is invalid: runtime task delivery binding is invalid"
+            );
+        }
     }
 }
 

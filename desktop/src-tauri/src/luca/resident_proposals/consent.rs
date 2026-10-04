@@ -100,8 +100,8 @@ pub(crate) fn list_resident_runtimes(app: &AppHandle, arguments: Value) -> Resul
                     .runtimes
                     .iter()
                     .find(|outcome| outcome.native_type == kind);
-                let available =
-                    outcome.is_some_and(|outcome| outcome.status == NativeDiscoveryStatus::Available);
+                let available = outcome
+                    .is_some_and(|outcome| outcome.status == NativeDiscoveryStatus::Available);
                 runtimes.push(json!({
                     "family": family, "id": family, "label": label, "available": available,
                     "models": [],
@@ -444,29 +444,30 @@ pub(super) fn create_from_consent(
     // Mark before creating: the rail reads this the moment the record is saved,
     // which happens inside the call below.
     crate::managed_agents::waking::mark_waking(&persona.id);
-    let created = tauri::async_runtime::block_on(super::super::resident_registry::create_luca_resident(
-        serde_json::from_value(json!({
-            "name": display_name,
-            "personaId": persona.id,
-            "systemPrompt": arguments.system_prompt.trim(),
-            "avatarUrl": entry.avatar_url,
-            "acpCommand": "buzz-acp",
-            "agentCommand": entry.command,
-            "agentArgs": entry.default_args,
-            "mcpCommand": entry.mcp_command.clone().unwrap_or_default(),
-            "harnessOverride": true,
-            "model": model,
-            "parallelism": 1,
-            // The record must exist before this call returns; the process is
-            // started by the background bring-up below.
-            "spawnAfterCreate": false,
-            "startOnAppLaunch": true,
-            "backend": {"type": "local"}
-        }))
-        .map_err(|_| "The agreed resident could not be prepared.")?,
-        app.clone(),
-        app.state::<crate::app_state::AppState>(),
-    ));
+    let created =
+        tauri::async_runtime::block_on(super::super::resident_registry::create_luca_resident(
+            serde_json::from_value(json!({
+                "name": display_name,
+                "personaId": persona.id,
+                "systemPrompt": arguments.system_prompt.trim(),
+                "avatarUrl": entry.avatar_url,
+                "acpCommand": "buzz-acp",
+                "agentCommand": entry.command,
+                "agentArgs": entry.default_args,
+                "mcpCommand": entry.mcp_command.clone().unwrap_or_default(),
+                "harnessOverride": true,
+                "model": model,
+                "parallelism": 1,
+                // The record must exist before this call returns; the process is
+                // started by the background bring-up below.
+                "spawnAfterCreate": false,
+                "startOnAppLaunch": true,
+                "backend": {"type": "local"}
+            }))
+            .map_err(|_| "The agreed resident could not be prepared.")?,
+            app.clone(),
+            app.state::<crate::app_state::AppState>(),
+        ));
     let created = match created {
         Ok(created) => created,
         Err(error) => {
@@ -555,7 +556,12 @@ fn attach_to_conversation(
         .into_iter()
         .flatten()
         .find(|error| error.get("pubkey").and_then(Value::as_str) == Some(resident_pubkey))
-        .and_then(|error| error.get("error").and_then(Value::as_str).map(str::to_owned));
+        .and_then(|error| {
+            error
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
     match failed {
         Some(error) => Err(error),
         None => Ok(()),

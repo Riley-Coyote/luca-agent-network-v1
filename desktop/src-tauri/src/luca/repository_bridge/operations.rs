@@ -136,6 +136,9 @@ pub(super) fn prepare(
         RepositoryToolOperationV1::ProposeRuntimeTask => {
             Err("runtime task proposals are handled by the broker".into())
         }
+        RepositoryToolOperationV1::ListRuntimeTaskSessions => {
+            Err("runtime task session listing is handled by the broker".into())
+        }
         RepositoryToolOperationV1::ReadRuntimeTaskResult => {
             Err("runtime task results are handled by the broker".into())
         }
@@ -235,6 +238,9 @@ pub(super) fn execute(
         }
         RepositoryToolOperationV1::ProposeRuntimeTask => {
             Err("runtime task proposals are handled by the broker".into())
+        }
+        RepositoryToolOperationV1::ListRuntimeTaskSessions => {
+            Err("runtime task session listing is handled by the broker".into())
         }
         RepositoryToolOperationV1::ReadRuntimeTaskResult => {
             Err("runtime task results are handled by the broker".into())

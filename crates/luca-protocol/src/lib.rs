@@ -28,6 +28,7 @@ mod notebook;
 mod owner_identity;
 mod permission_rule;
 mod relay_auth;
+mod runtime_task_delivery;
 
 pub use artifact::*;
 pub use brain::*;
@@ -103,3 +104,4 @@ pub use relay_auth::{
     MAX_RELAY_AUTH_CHALLENGE_BYTES, MAX_RELAY_AUTH_EVENT_BYTES, MAX_RELAY_AUTH_FRESHNESS_SECS,
     MAX_RELAY_AUTH_URL_BYTES, RELAY_AUTH_SIGN_PROTOCOL,
 };
+pub use runtime_task_delivery::*;

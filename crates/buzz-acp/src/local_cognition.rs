@@ -3,7 +3,9 @@
 //! The channel carries body-free job authority from the trusted desktop. The
 //! harness reloads signed conversation history itself, executes a fresh
 //! tool-free session on the already configured resident runtime/model, and
-//! returns validated private output without relay publication authority.
+//! returns validated private output. A separately typed runtime-task delivery
+//! may hand one bounded final draft to the existing signing broker; no model
+//! output selects routing or gains generic relay/signing authority.
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
@@ -15,7 +17,7 @@ use serde::Serialize;
 #[cfg(unix)]
 use luca_protocol::Sha256Ref;
 #[cfg(unix)]
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
 const INHERITED_FD: i32 = 5;
 const MAX_FRAME_BYTES: usize = 64 * 1024;
@@ -99,22 +101,13 @@ pub(crate) fn inherited_receiver(
 
     tokio::spawn(async move {
         loop {
-            let mut frame = Vec::new();
-            let read = reader.read_until(b'\n', &mut frame).await;
-            let Ok(read) = read else { break };
-            if read == 0 || frame.len() > MAX_FRAME_BYTES || frame.last() != Some(&b'\n') {
-                break;
-            }
-            let request = match serde_json::from_slice::<ResidentPrivateCognitionRequestV1>(&frame)
-            {
-                Ok(request)
-                    if request.validate().is_ok()
-                        && request.resident_pubkey() == &resident_pubkey
-                        && request.binding_ref() == &binding_ref =>
-                {
-                    request
-                }
+            let frame = match read_frame(&mut reader).await {
+                Ok(Some(frame)) => frame,
                 _ => break,
+            };
+            let request = match decode_request(&frame, &resident_pubkey, &binding_ref) {
+                Ok(request) => request,
+                Err(()) => break,
             };
             let now = unix_time_millis();
             let remaining = request.deadline_unix_ms().get().saturating_sub(now);
@@ -147,6 +140,42 @@ pub(crate) fn inherited_receiver(
     Ok(Some(rx))
 }
 
+#[cfg(unix)]
+async fn read_frame<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<Vec<u8>>, ()> {
+    let mut frame = Vec::with_capacity(MAX_FRAME_BYTES + 1);
+    let read = reader
+        .take((MAX_FRAME_BYTES + 1) as u64)
+        .read_until(b'\n', &mut frame)
+        .await
+        .map_err(|_| ())?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if frame.len() > MAX_FRAME_BYTES || frame.last() != Some(&b'\n') {
+        return Err(());
+    }
+    Ok(Some(frame))
+}
+
+#[cfg(unix)]
+fn decode_request(
+    frame: &[u8],
+    resident_pubkey: &luca_protocol::Hex64,
+    binding_ref: &Sha256Ref,
+) -> Result<ResidentPrivateCognitionRequestV1, ()> {
+    let request: ResidentPrivateCognitionRequestV1 =
+        serde_json::from_slice(frame).map_err(|_| ())?;
+    if request.validate().is_err()
+        || request.resident_pubkey() != resident_pubkey
+        || request.binding_ref() != binding_ref
+    {
+        return Err(());
+    }
+    Ok(request)
+}
+
 #[cfg(not(unix))]
 pub(crate) fn inherited_receiver(
 ) -> Result<Option<tokio::sync::mpsc::UnboundedReceiver<CognitionEnvelope>>, String> {
@@ -159,7 +188,7 @@ async fn write_reply(
     reply: CognitionReply,
 ) -> Result<(), ()> {
     let mut bytes = serde_json::to_vec(&WireReply::from(reply)).map_err(|_| ())?;
-    if bytes.len() > MAX_FRAME_BYTES {
+    if bytes.len() >= MAX_FRAME_BYTES {
         return Err(());
     }
     bytes.push(b'\n');
@@ -174,4 +203,43 @@ fn unix_time_millis() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+#[cfg(all(test, unix))]
+mod runtime_task_delivery_frame_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn overlength_private_frame_stops_at_bound_without_waiting_for_newline() {
+        let bytes = vec![b'x'; MAX_FRAME_BYTES * 3];
+        let mut reader = &bytes[..];
+        assert_eq!(read_frame(&mut reader).await, Err(()));
+        assert_eq!(reader.len(), bytes.len() - MAX_FRAME_BYTES - 1);
+    }
+
+    #[tokio::test]
+    async fn private_frame_preserves_delimiters_and_rejects_unterminated_tail() {
+        let mut reader = &b"{}\r\n{}\nPRIVATE_UNTERMINATED"[..];
+        assert_eq!(read_frame(&mut reader).await, Ok(Some(b"{}\r\n".to_vec())));
+        assert_eq!(read_frame(&mut reader).await, Ok(Some(b"{}\n".to_vec())));
+        assert_eq!(read_frame(&mut reader).await, Err(()));
+        assert_eq!(read_frame(&mut reader).await, Ok(None));
+    }
+
+    #[test]
+    fn malformed_private_frame_is_body_free_and_not_recovered_as_a_request() {
+        let resident = luca_protocol::Hex64::parse("b".repeat(64)).expect("fixture resident");
+        let binding =
+            Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).expect("fixture binding");
+        for frame in [
+            &b"PRIVATE_MALFORMED\n"[..],
+            &b"{\"kind\":\"unknown\",\"PRIVATE_BODY\":true}\n"[..],
+            &b"\xff\n"[..],
+        ] {
+            assert!(matches!(
+                decode_request(frame, &resident, &binding),
+                Err(())
+            ));
+        }
+    }
 }

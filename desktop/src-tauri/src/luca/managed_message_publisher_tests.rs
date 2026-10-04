@@ -159,6 +159,15 @@ fn publisher(fixture: &Fixture, state: Arc<Mutex<FakeRelayState>>) -> ManagedMes
     )
 }
 
+#[test]
+fn retained_outbox_receipt_snapshot_is_exact_and_body_free() {
+    let fixture = fixture();
+    assert_eq!(
+        retained_outbox_dispatch_receipt_ids(&fixture.outbox),
+        BTreeSet::from([fixture.request.dispatch_receipt_id.clone()])
+    );
+}
+
 fn one_shot_http_response(
     status: u16,
     body: Vec<u8>,

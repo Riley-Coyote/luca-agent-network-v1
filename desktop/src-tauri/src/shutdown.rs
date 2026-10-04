@@ -131,6 +131,12 @@ pub(crate) fn shutdown_mesh_runtime(app: &tauri::AppHandle) {
 }
 
 pub(crate) fn shutdown_managed_agents(app: &tauri::AppHandle) -> Result<(), String> {
+    if crate::luca::runtime_tasks::shutdown_owned_runtime_tasks(app).is_err() {
+        luca_log!(
+            warn,
+            "luca-runtime-tasks: owned task shutdown could not be fully verified"
+        );
+    }
     if let Err(error) = crate::commands::stop_all_preview_sessions() {
         luca_log!(
             warn,

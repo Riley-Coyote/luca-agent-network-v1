@@ -11,7 +11,8 @@ use std::{
 use luca_protocol::{
     CreateResidentJournalPageRequestV1, CreateResidentJournalPageResultV1,
     LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1,
-    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1, SafeU53, Sha256Ref,
+    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1,
+    RuntimeTaskDeliveryRequestV1, RuntimeTaskDeliveryResultV1, SafeU53, Sha256Ref,
 };
 use serde::Deserialize;
 
@@ -145,6 +146,19 @@ pub(crate) fn active_binding_ref(
         .ok_or(ManagedCognitionError::Unavailable)
 }
 
+/// Current broker-bound runtime epoch for an exact resident's delivery claim.
+pub(crate) fn active_session_epoch(
+    resident_pubkey: &luca_protocol::Hex64,
+) -> Result<SafeU53, ManagedCognitionError> {
+    clients()
+        .lock()
+        .map_err(|_| ManagedCognitionError::Unavailable)?
+        .get(resident_pubkey.as_str())
+        .filter(|client| client.session_epoch.get() != 0)
+        .map(|client| client.session_epoch)
+        .ok_or(ManagedCognitionError::Unavailable)
+}
+
 pub(crate) fn request(
     request: &LocalContinuityCognitionRequestV1,
 ) -> Result<LocalContinuityCognitionResultV1, ManagedCognitionError> {
@@ -153,7 +167,7 @@ pub(crate) fn request(
     };
     match request_private(&envelope)? {
         ResidentPrivateCognitionResultV1::Metabolism { result } => Ok(result),
-        ResidentPrivateCognitionResultV1::Journal { .. } => Err(ManagedCognitionError::Invalid),
+        _ => Err(ManagedCognitionError::Invalid),
     }
 }
 
@@ -165,8 +179,34 @@ pub(crate) fn request_journal(
     };
     match request_private(&envelope)? {
         ResidentPrivateCognitionResultV1::Journal { result } => Ok(result),
-        ResidentPrivateCognitionResultV1::Metabolism { .. } => Err(ManagedCognitionError::Invalid),
+        _ => Err(ManagedCognitionError::Invalid),
     }
+}
+
+/// Synthesize one verified task result and receive its typed broker outcome.
+pub(crate) fn request_runtime_task(
+    request: &RuntimeTaskDeliveryRequestV1,
+) -> Result<RuntimeTaskDeliveryResultV1, ManagedCognitionError> {
+    let envelope = ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+        request: request.clone(),
+    };
+    match request_private(&envelope)? {
+        ResidentPrivateCognitionResultV1::RuntimeTaskDelivery { result } => Ok(result),
+        _ => Err(ManagedCognitionError::Invalid),
+    }
+}
+
+fn request_frame(
+    request: &ResidentPrivateCognitionRequestV1,
+) -> Result<Vec<u8>, ManagedCognitionError> {
+    let mut frame = serde_json::to_vec(request).map_err(|_| ManagedCognitionError::Invalid)?;
+    // Bounds apply to the actual escaped envelope including its delimiter,
+    // not just the reference's UTF-8 byte count. Never grow the global frame.
+    if frame.len() >= MAX_FRAME_BYTES {
+        return Err(ManagedCognitionError::Invalid);
+    }
+    frame.push(b'\n');
+    Ok(frame)
 }
 
 fn request_private(
@@ -203,6 +243,7 @@ impl ManagedCognitionClient {
         if remaining == 0 {
             return Err(ManagedCognitionError::Timeout);
         }
+        let frame = request_frame(request)?;
         let timeout = Duration::from_millis(remaining);
         let mut channel = self
             .channel
@@ -217,11 +258,6 @@ impl ManagedCognitionClient {
             .get_ref()
             .set_read_timeout(Some(timeout))
             .map_err(|_| ManagedCognitionError::Unavailable)?;
-        let mut frame = serde_json::to_vec(request).map_err(|_| ManagedCognitionError::Invalid)?;
-        if frame.len() > MAX_FRAME_BYTES {
-            return Err(ManagedCognitionError::Invalid);
-        }
-        frame.push(b'\n');
         channel
             .writer
             .write_all(&frame)
@@ -282,4 +318,52 @@ fn unix_time_millis() -> u64 {
         .as_millis()
         .try_into()
         .unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod runtime_task_delivery_tests {
+    use super::*;
+
+    fn request(excerpt: String) -> ResidentPrivateCognitionRequestV1 {
+        ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+            request: serde_json::from_value(serde_json::json!({
+                "protocol": luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL,
+                "delivery_id": format!("task-result:{}", "d".repeat(64)),
+                "task_id": "task:fixture",
+                "owner_pubkey": "a".repeat(64),
+                "resident_pubkey": "b".repeat(64),
+                "conversation_id": "conversation:fixture",
+                "binding_ref": format!("sha256:{}", "c".repeat(64)),
+                "result_sha256": format!("sha256:{}", "e".repeat(64)),
+                "runtime_family": "claude",
+                "summary": "PRIVATE_TASK_SUMMARY",
+                "result_excerpt": excerpt,
+                "result_total_bytes": 1024 * 1024,
+                "result_is_excerpt": true,
+                "deadline_unix_ms": 4000,
+                "max_draft_bytes": 512,
+            }))
+            .expect("synthetic bounded delivery"),
+        }
+    }
+
+    #[test]
+    fn escaped_48k_reference_cannot_raise_private_cognition_frame_limit() {
+        let request = request("\u{1}".repeat(48 * 1024));
+        assert!(request.validate().is_ok());
+        assert_eq!(request_frame(&request), Err(ManagedCognitionError::Invalid));
+    }
+
+    #[test]
+    fn default_8k_reference_fits_even_worst_case_json_escape_expansion() {
+        let request = request("\u{1}".repeat(8 * 1024));
+        let frame = request_frame(&request).expect("bounded default frame");
+        assert!(frame.len() <= MAX_FRAME_BYTES);
+        assert_eq!(frame.last(), Some(&b'\n'));
+        assert_eq!(
+            serde_json::from_slice::<ResidentPrivateCognitionRequestV1>(&frame)
+                .expect("strict private request frame"),
+            request
+        );
+    }
 }

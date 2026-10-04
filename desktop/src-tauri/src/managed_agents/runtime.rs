@@ -315,6 +315,28 @@ fn terminalize_restart_dispatches_if_proven(
     }
 }
 
+/// Only a fully inspected startup outbox can prove that an old, event-free
+/// result reservation is orphaned. Never regenerate a draft or signed event.
+fn block_orphaned_runtime_task_returns_after_startup(
+    app: &AppHandle,
+    broker: &crate::luca::signing_broker::ResidentSigningBroker,
+    scope: crate::luca::runtime_task_delivery::RuntimeTaskDeliveryBrokerRecoveryScopeV1,
+) -> Result<usize, String> {
+    let retained = broker.retained_publication_dispatch_receipt_ids();
+    let store = crate::luca::runtime_task_delivery::global_runtime_task_delivery_store(app)
+        .map_err(|error| error.to_string())?;
+    let timestamp = crate::luca::continuity_jobs::current_canonical_timestamp()?;
+    let blocked = store
+        .lock()
+        .map_err(|_| "Task return state is unavailable.".to_owned())?
+        .block_orphaned_prepared_after_broker_invalidation(&scope, &retained, timestamp)
+        .map_err(|error| error.to_string())?;
+    for task in &blocked {
+        crate::luca::runtime_tasks::refresh_runtime_task_delivery(app, task.as_str());
+    }
+    Ok(blocked.len())
+}
+
 const RESTART_RECEIPT_RETRY_DELAYS_MS: [u64; 5] = [100, 250, 500, 1_000, 2_000];
 
 fn settle_restart_receipt_batch<F>(
@@ -3197,6 +3219,7 @@ fn spawn_agent_child_unix(
             std::sync::Arc::clone(&dispatch_store),
             app.clone(),
             runtime_binding_ref.clone(),
+            session_epoch.get(),
         )
         .map_err(|error| format!("failed to bind managed message publisher: {error}"))?;
         resident_start_guard
@@ -3248,6 +3271,9 @@ fn spawn_agent_child_unix(
     let resident_for_broker = resident_pubkey.clone();
     let epoch_for_broker = session_epoch;
     let app_for_broker = app.clone();
+    let owner_for_broker = owner_pubkey.clone();
+    let relay_for_broker = effective_relay_url.clone();
+    let binding_for_broker = runtime_binding_ref.clone();
     let broker_thread =
         match std::thread::Builder::new()
             .name(broker_thread_name)
@@ -3271,6 +3297,35 @@ fn spawn_agent_child_unix(
                             resident_for_broker.as_str(),
                         ) {
                             luca_log!(warn, "luca-artifacts: failed to settle restart-interrupted receipts: {error}");
+                        }
+                        let recovery = (|| -> Result<usize, String> {
+                            let origin_relay_ref = crate::luca::runtime_task_delivery::origin_relay_ref(
+                                &app_for_broker, &relay_for_broker,
+                            ).map_err(|error| error.to_string())?;
+                            let origin_community_id = crate::luca::runtime_task_delivery::community_id_for_relay_ref(
+                                &origin_relay_ref,
+                            ).map_err(|error| error.to_string())?;
+                            block_orphaned_runtime_task_returns_after_startup(
+                                &app_for_broker,
+                                &broker,
+                                crate::luca::runtime_task_delivery::RuntimeTaskDeliveryBrokerRecoveryScopeV1 {
+                                    owner_pubkey: owner_for_broker,
+                                    resident_pubkey: resident_for_broker.clone(),
+                                    origin_relay_ref,
+                                    origin_community_id,
+                                    binding_ref: binding_for_broker,
+                                    current_session_epoch: epoch_for_broker.get(),
+                                },
+                            )
+                        })();
+                        match recovery {
+                            Ok(blocked) if blocked > 0 => luca_log!(info,
+                                "luca-runtime-tasks: blocked {blocked} orphaned result reservation(s) after complete startup outbox reconciliation"
+                            ),
+                            Ok(_) => {},
+                            Err(error) => luca_log!(warn,
+                                "luca-runtime-tasks: could not verify restart result reservations: {error}"
+                            ),
                         }
                     }
                     Ok(None) => luca_log!(info,
@@ -3373,6 +3428,7 @@ fn spawn_agent_child_unix(
         adapter_availability: spawned_adapter_availability,
     };
     resident_start_guard.commit();
+    crate::luca::runtime_tasks::queue_runtime_task_delivery_recovery(app);
     Ok(process)
 }
 

@@ -6,6 +6,7 @@
 
 use crate::data_dir::BuzzPathExt;
 use std::{
+    collections::BTreeSet,
     io::Read,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -19,7 +20,7 @@ use luca_protocol::{
 };
 use nostr::{Event, JsonUtil, Keys, Kind};
 use reqwest::Method;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 use super::{
     exchange::{classify_exchange_refusal, ExchangeDenial, ExchangeNote, ExchangeRefusal},
@@ -33,11 +34,32 @@ use super::{
         ManagedMessageOutbox, ManagedMessagePublicationAuthority, ManagedOutboxReconcileEntry,
         ManagedOutboxState, ManagedPublicationAuthorityError,
     },
+    runtime_task_delivery::{
+        community_id_for_relay_ref, global_runtime_task_delivery_store, origin_relay_ref,
+        verified_conversation_members, RuntimeTaskDeliveryError,
+        RuntimeTaskDeliveryReconciliationV1, RuntimeTaskDeliveryScopeV1,
+        RuntimeTaskDeliveryStateV1, RuntimeTaskDeliveryStore,
+    },
 };
 
 const RELAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONCILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
+
+/// Exact dispatch receipts retained in the decrypted publication outbox.
+///
+/// Startup recovery passes this snapshot to the runtime-task authority only
+/// after the previous broker has been invalidated. Keeping every receipt (not
+/// just runtime-task-shaped IDs) makes the absence proof conservatively broad.
+pub(crate) fn retained_outbox_dispatch_receipt_ids(
+    outbox: &ManagedMessageOutbox,
+) -> BTreeSet<OpaqueId> {
+    outbox
+        .reconciliation_entries()
+        .into_iter()
+        .map(|entry| entry.request.dispatch_receipt_id)
+        .collect()
+}
 
 #[derive(Debug)]
 enum ManagedRelaySubmitOutcome {
@@ -338,6 +360,17 @@ pub(crate) struct ManagedMessagePublisher {
     presentation_scope: Option<super::activity_trace::Scope>,
     exchange: Option<ExchangeAuthority>,
     reply_image_uploader: Option<Box<dyn ReplyImageUploader>>,
+    runtime_task_delivery: Option<RuntimeTaskDeliveryAuthority>,
+}
+
+#[derive(Clone)]
+struct RuntimeTaskDeliveryAuthority {
+    app: AppHandle,
+    store: Arc<Mutex<RuntimeTaskDeliveryStore>>,
+    publisher_relay_ref: Sha256Ref,
+    publisher_community_id: OpaqueId,
+    binding_ref: Sha256Ref,
+    active_session_epoch: u64,
 }
 
 /// Turn one relay blob descriptor into a signed-event attachment.
@@ -476,7 +509,11 @@ impl ManagedMessagePublisher {
         dispatch_store: Arc<Mutex<ManagedDispatchStore>>,
         app: AppHandle,
         binding_ref: Sha256Ref,
+        active_session_epoch: u64,
     ) -> Result<Self, String> {
+        if active_session_epoch == 0 {
+            return Err("runtime-task delivery session epoch must be nonzero".to_owned());
+        }
         let resident_pubkey = resident_keys.public_key().to_hex();
         // The resident signs its own uploads, exactly as it signs its own
         // events: the relay's media door admits the same Nostr keys its WS door
@@ -492,6 +529,19 @@ impl ManagedMessagePublisher {
         };
         let artifact_app_data_dir = app.buzz_path().app_data_dir().ok();
         let presentation_scope = super::activity_trace::host_scope(&app).ok();
+        let publisher_relay_ref = origin_relay_ref(&app, relay_url)
+            .map_err(|_| "derive runtime-task delivery relay scope".to_owned())?;
+        let publisher_community_id = community_id_for_relay_ref(&publisher_relay_ref)
+            .map_err(|_| "derive runtime-task delivery community scope".to_owned())?;
+        let runtime_task_delivery = Some(RuntimeTaskDeliveryAuthority {
+            app: app.clone(),
+            store: global_runtime_task_delivery_store(&app)
+                .map_err(|_| "load runtime-task delivery authority".to_owned())?,
+            publisher_relay_ref,
+            publisher_community_id,
+            binding_ref: binding_ref.clone(),
+            active_session_epoch,
+        });
         Ok(Self {
             resident_pubkey,
             dispatch_store,
@@ -501,6 +551,7 @@ impl ManagedMessagePublisher {
             presentation_scope,
             exchange: Some(exchange),
             reply_image_uploader,
+            runtime_task_delivery,
         })
     }
 
@@ -519,6 +570,7 @@ impl ManagedMessagePublisher {
             presentation_scope: None,
             exchange: None,
             reply_image_uploader: None,
+            runtime_task_delivery: None,
         }
     }
 
@@ -564,6 +616,150 @@ impl ManagedMessagePublisher {
             | DispatchAuthorizationError::WrongSurface
             | DispatchAuthorizationError::WrongSession => ManagedPublicationAuthorityError::Denied,
         }
+    }
+
+    fn map_runtime_task_delivery_error(
+        error: RuntimeTaskDeliveryError,
+    ) -> ManagedPublicationAuthorityError {
+        match error {
+            RuntimeTaskDeliveryError::Unavailable | RuntimeTaskDeliveryError::Persistence => {
+                ManagedPublicationAuthorityError::Unavailable
+            }
+            RuntimeTaskDeliveryError::Cancelled => ManagedPublicationAuthorityError::Cancelled,
+            RuntimeTaskDeliveryError::Invalid => ManagedPublicationAuthorityError::Invalid,
+            RuntimeTaskDeliveryError::Denied | RuntimeTaskDeliveryError::Terminal => {
+                ManagedPublicationAuthorityError::Denied
+            }
+        }
+    }
+
+    fn is_runtime_task_delivery(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> Result<bool, ManagedPublicationAuthorityError> {
+        let Some(authority) = &self.runtime_task_delivery else {
+            return Ok(false);
+        };
+        authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+            .map(|store| store.has_authority(&request.dispatch_receipt_id))
+    }
+
+    /// Reconstruct the current scope from desktop-owned state. Neither the
+    /// cognition runner nor a model can select a relay, community, owner,
+    /// resident, conversation, binding, or session here.
+    fn runtime_task_delivery_scope(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+    ) -> Result<Option<RuntimeTaskDeliveryScopeV1>, ManagedPublicationAuthorityError> {
+        self.runtime_task_delivery_scope_for(request, false)
+    }
+
+    fn runtime_task_delivery_scope_for(
+        &self,
+        request: &ManagedMessagePublishRequestV1,
+        frozen_reconciliation: bool,
+    ) -> Result<Option<RuntimeTaskDeliveryScopeV1>, ManagedPublicationAuthorityError> {
+        if !self.is_runtime_task_delivery(request)? {
+            return Ok(None);
+        }
+        let authority = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        let state = authority.app.state::<crate::app_state::AppState>();
+        let owner = Hex64::parse(
+            state
+                .signing_keys()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .public_key()
+                .to_hex(),
+        )
+        .map_err(|_| ManagedPublicationAuthorityError::Denied)?;
+        let current_relay_url = crate::relay::relay_ws_url_with_override(&state);
+        let current_relay_ref = origin_relay_ref(&authority.app, &current_relay_url)
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        let current_community_id = community_id_for_relay_ref(&current_relay_ref)
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        if current_relay_ref != authority.publisher_relay_ref
+            || current_community_id != authority.publisher_community_id
+        {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        let delivery_state = authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .delivery_state(&request.dispatch_receipt_id)
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        // The first synthesis/publication must belong to this live resident
+        // host. Once exact bytes are Prepared/Submitted, a restarted host may
+        // only reconcile those bytes; it may not synthesize or re-sign them.
+        if !frozen_reconciliation
+            && (authority.active_session_epoch != request.cancellation_epoch.get()
+                || !self
+                    .dispatch_store
+                    .lock()
+                    .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                    .is_active_session(
+                        request.resident_pubkey.as_str(),
+                        request.cancellation_epoch.get(),
+                    ))
+        {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        if frozen_reconciliation
+            && !matches!(
+                delivery_state,
+                RuntimeTaskDeliveryStateV1::Prepared
+                    | RuntimeTaskDeliveryStateV1::Submitted
+                    | RuntimeTaskDeliveryStateV1::Published
+                    | RuntimeTaskDeliveryStateV1::Rejected
+                    | RuntimeTaskDeliveryStateV1::Cancelled
+            )
+        {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        let members = verified_conversation_members(&authority.app, &request.conversation_id)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        if !members.contains(&owner) || !members.contains(&request.resident_pubkey) {
+            return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        Ok(Some(RuntimeTaskDeliveryScopeV1 {
+            owner_pubkey: owner,
+            resident_pubkey: request.resident_pubkey.clone(),
+            conversation_id: request.conversation_id.clone(),
+            origin_relay_ref: current_relay_ref,
+            origin_community_id: current_community_id,
+            binding_ref: authority.binding_ref.clone(),
+            session_epoch: request.cancellation_epoch.get(),
+        }))
+    }
+
+    fn runtime_task_delivery_timestamp(
+    ) -> Result<luca_protocol::CanonicalTimestamp, ManagedPublicationAuthorityError> {
+        luca_protocol::CanonicalTimestamp::parse(
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        )
+        .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+    }
+
+    fn refresh_runtime_task_delivery_projection(&self, request: &ManagedMessagePublishRequestV1) {
+        let Some(authority) = &self.runtime_task_delivery else {
+            return;
+        };
+        let task_id = authority
+            .store
+            .lock()
+            .ok()
+            .and_then(|store| store.task_id_for_delivery(&request.dispatch_receipt_id));
+        let Some(task_id) = task_id else {
+            return;
+        };
+        // Observation only, and always outside the authority-store lock.
+        super::runtime_tasks::refresh_runtime_task_delivery(&authority.app, task_id.as_str());
     }
 
     fn parse_exact_event(
@@ -1033,6 +1229,9 @@ impl ManagedMessagePublisher {
         installation_session_id: &OpaqueId,
         now_unix_secs: u64,
     ) -> Result<(), ManagedPublicationAuthorityError> {
+        if self.is_runtime_task_delivery(&entry.request)? {
+            return self.reconcile_runtime_task_entry(entry, outbox, installation_session_id);
+        }
         if entry.state == ManagedOutboxState::Accepted {
             if !self.settle_owner_return(&entry) {
                 return Ok(());
@@ -1168,6 +1367,232 @@ impl ManagedMessagePublisher {
             }
         }
     }
+
+    fn mark_runtime_task_accepted(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        let authority = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        let now = Self::runtime_task_delivery_timestamp()?;
+        {
+            let mut store = authority
+                .store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            store
+                .mark_published(&entry.request.dispatch_receipt_id, &entry.event_id, now)
+                .map_err(Self::map_runtime_task_delivery_error)?;
+        }
+        self.refresh_runtime_task_delivery_projection(&entry.request);
+        outbox
+            .mark_accepted(
+                &entry.idempotency_key,
+                OpaqueId::parse(entry.event_id.as_str().to_owned())
+                    .map_err(|_| ManagedPublicationAuthorityError::Invalid)?,
+            )
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .finalize_published_outbox(&entry.request.dispatch_receipt_id, &entry.event_id)
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        outbox
+            .mark_authority_finalized(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        // This branch intentionally has no continuity handoff job: D4 returns
+        // the task's bounded synthesis, not a second autonomous cognition turn.
+        outbox
+            .mark_handoff_recorded(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+    }
+
+    fn reject_runtime_task_entry(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        let authority = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+        authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .mark_rejected(
+                &entry.request.dispatch_receipt_id,
+                &entry.event_id,
+                Self::runtime_task_delivery_timestamp()?,
+            )
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        self.refresh_runtime_task_delivery_projection(&entry.request);
+        outbox
+            .reject_during_reconciliation(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        authority
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .recover_terminal_outbox_finalization(
+                &entry.request.dispatch_receipt_id,
+                &entry.event_id,
+                RuntimeTaskDeliveryStateV1::Rejected,
+            )
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        outbox
+            .mark_authority_finalized(&entry.idempotency_key)
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)
+    }
+
+    fn submit_runtime_task_entry(
+        &mut self,
+        entry: &ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+        installation_session_id: &OpaqueId,
+        timeout: Duration,
+        frozen_reconciliation: bool,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        let scope = self
+            .runtime_task_delivery_scope_for(&entry.request, frozen_reconciliation)?
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        if entry.state == ManagedOutboxState::Prepared {
+            outbox
+                .mark_submitted(&entry.idempotency_key, installation_session_id, false)
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        }
+        let decision = {
+            let authority = self
+                .runtime_task_delivery
+                .as_ref()
+                .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+            authority
+                .store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .authorize_reconciliation(
+                    &entry.request,
+                    &entry.event_id,
+                    true,
+                    &scope,
+                    Self::runtime_task_delivery_timestamp()?,
+                )
+                .map_err(Self::map_runtime_task_delivery_error)?
+        };
+        self.refresh_runtime_task_delivery_projection(&entry.request);
+        match decision {
+            RuntimeTaskDeliveryReconciliationV1::Published => {
+                return self.mark_runtime_task_accepted(entry, outbox)
+            }
+            RuntimeTaskDeliveryReconciliationV1::Cancelled => {
+                return Err(ManagedPublicationAuthorityError::Cancelled)
+            }
+            RuntimeTaskDeliveryReconciliationV1::Rejected => {
+                self.reject_runtime_task_entry(entry, outbox)?;
+                return Err(ManagedPublicationAuthorityError::Denied);
+            }
+            RuntimeTaskDeliveryReconciliationV1::Ready => {}
+        }
+        match self
+            .transport
+            .submit_exact(&entry.signed_event_json, timeout)
+        {
+            ManagedRelaySubmitOutcome::Response(response)
+                if response.event_id == entry.event_id.as_str() && response.accepted =>
+            {
+                self.mark_runtime_task_accepted(entry, outbox)
+            }
+            ManagedRelaySubmitOutcome::TerminalRejected { .. }
+            | ManagedRelaySubmitOutcome::Response(_) => {
+                self.reject_runtime_task_entry(entry, outbox)?;
+                Err(ManagedPublicationAuthorityError::Denied)
+            }
+            ManagedRelaySubmitOutcome::Retryable => {
+                Err(ManagedPublicationAuthorityError::Unavailable)
+            }
+        }
+    }
+
+    fn reconcile_runtime_task_entry(
+        &mut self,
+        entry: ManagedOutboxReconcileEntry,
+        outbox: &mut ManagedMessageOutbox,
+        installation_session_id: &OpaqueId,
+    ) -> Result<(), ManagedPublicationAuthorityError> {
+        if entry.state == ManagedOutboxState::Accepted {
+            return self.mark_runtime_task_accepted(&entry, outbox);
+        }
+        if entry.state == ManagedOutboxState::Rejected {
+            return self.reject_runtime_task_entry(&entry, outbox);
+        }
+        let scope = self
+            .runtime_task_delivery_scope_for(&entry.request, true)?
+            .ok_or(ManagedPublicationAuthorityError::Denied)?;
+        let decision = self
+            .runtime_task_delivery
+            .as_ref()
+            .ok_or(ManagedPublicationAuthorityError::Unavailable)?
+            .store
+            .lock()
+            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .authorize_reconciliation(
+                &entry.request,
+                &entry.event_id,
+                entry.state == ManagedOutboxState::Submitted,
+                &scope,
+                Self::runtime_task_delivery_timestamp()?,
+            )
+            .map_err(Self::map_runtime_task_delivery_error)?;
+        self.refresh_runtime_task_delivery_projection(&entry.request);
+        match decision {
+            RuntimeTaskDeliveryReconciliationV1::Published => {
+                return self.mark_runtime_task_accepted(&entry, outbox)
+            }
+            RuntimeTaskDeliveryReconciliationV1::Rejected => {
+                self.reject_runtime_task_entry(&entry, outbox)?;
+                return Err(ManagedPublicationAuthorityError::Denied);
+            }
+            RuntimeTaskDeliveryReconciliationV1::Cancelled => {
+                return Err(ManagedPublicationAuthorityError::Cancelled)
+            }
+            RuntimeTaskDeliveryReconciliationV1::Ready => {}
+        }
+        if entry.state == ManagedOutboxState::Prepared {
+            outbox
+                .mark_submitted(&entry.idempotency_key, installation_session_id, false)
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+        }
+        match self.transport.probe_exact(
+            &entry.signed_event_json,
+            entry.event_id.as_str(),
+            RECONCILE_REQUEST_TIMEOUT,
+        ) {
+            ManagedRelayProbeOutcome::Present(response)
+                if response.event_id == entry.event_id.as_str() && response.accepted =>
+            {
+                self.mark_runtime_task_accepted(&entry, outbox)
+            }
+            ManagedRelayProbeOutcome::Absent => self.submit_runtime_task_entry(
+                &entry,
+                outbox,
+                installation_session_id,
+                RECONCILE_REQUEST_TIMEOUT,
+                true,
+            ),
+            ManagedRelayProbeOutcome::TerminalRejected => {
+                self.reject_runtime_task_entry(&entry, outbox)?;
+                Err(ManagedPublicationAuthorityError::Denied)
+            }
+            ManagedRelayProbeOutcome::Present(_) => Err(ManagedPublicationAuthorityError::Invalid),
+            ManagedRelayProbeOutcome::Retryable => {
+                Err(ManagedPublicationAuthorityError::Unavailable)
+            }
+        }
+    }
 }
 
 impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
@@ -1185,6 +1610,11 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         &self,
         request: &ManagedMessagePublishRequestV1,
     ) -> ManagedMessagePublishRequestV1 {
+        // A runtime-task return is text-only by construction. Artifact
+        // receipts from another turn must never be attached to its one result.
+        if self.is_runtime_task_delivery(request).unwrap_or(false) {
+            return request.clone();
+        }
         if !request.attachments.is_empty() {
             // Already resolved (a re-freeze onto a different exchange turn).
             return request.clone();
@@ -1280,6 +1710,19 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
     ) -> Result<ExchangePlan, ManagedPublicationAuthorityError> {
         if request.resident_pubkey.as_str() != self.resident_pubkey {
             return Err(ManagedPublicationAuthorityError::Denied);
+        }
+        if let Some(scope) = self.runtime_task_delivery_scope(request)? {
+            let authority = self
+                .runtime_task_delivery
+                .as_ref()
+                .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+            authority
+                .store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .authorize_publication(request, &scope)
+                .map_err(Self::map_runtime_task_delivery_error)?;
+            return Ok(ExchangePlan::unchanged());
         }
         let Some(exchange) = &self.exchange else {
             return self.resolve_without_exchange_authority(request);
@@ -1383,6 +1826,22 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         if request.resident_pubkey.as_str() != self.resident_pubkey {
             return Err(ManagedPublicationAuthorityError::Denied);
         }
+        if let Some(scope) = self.runtime_task_delivery_scope(request)? {
+            let authority = self
+                .runtime_task_delivery
+                .as_ref()
+                .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+            let reserved = authority
+                .store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .reserve_publication(request, &scope, Self::runtime_task_delivery_timestamp()?)
+                .map_err(Self::map_runtime_task_delivery_error);
+            if reserved.is_ok() {
+                self.refresh_runtime_task_delivery_projection(request);
+            }
+            return reserved;
+        }
         self.dispatch_store
             .lock()
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
@@ -1411,6 +1870,31 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
             request: request.clone(),
             created_order: 0,
         };
+        if let Some(scope) = self.runtime_task_delivery_scope(request)? {
+            let authority = self
+                .runtime_task_delivery
+                .as_ref()
+                .ok_or(ManagedPublicationAuthorityError::Unavailable)?;
+            authority
+                .store
+                .lock()
+                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+                .begin_submission(
+                    request,
+                    &entry.event_id,
+                    &scope,
+                    Self::runtime_task_delivery_timestamp()?,
+                )
+                .map_err(Self::map_runtime_task_delivery_error)?;
+            self.refresh_runtime_task_delivery_projection(request);
+            return self.submit_runtime_task_entry(
+                &entry,
+                outbox,
+                installation_session_id,
+                RELAY_REQUEST_TIMEOUT,
+                false,
+            );
+        }
         {
             let mut store = self
                 .dispatch_store

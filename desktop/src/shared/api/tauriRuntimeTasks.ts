@@ -6,10 +6,28 @@ export type RuntimeTaskState =
   | "queued"
   | "active"
   | "stopping"
+  | "awaiting_native"
   | "succeeded"
   | "stopped"
   | "failed"
   | "interrupted";
+
+export type RuntimeTaskOperation =
+  | "new_task"
+  | "continue_session"
+  | "send_message";
+
+export type RuntimeTaskDeliveryState =
+  | "awaiting_result"
+  | "pending_synthesis"
+  | "synthesizing"
+  | "prepared"
+  | "submitted"
+  | "published"
+  | "retryable"
+  | "rejected"
+  | "cancelled"
+  | "blocked";
 
 export type RuntimeTaskStep = {
   label: string;
@@ -24,6 +42,10 @@ export type RuntimeTaskProjection = {
   summary: string;
   workingFolder: string;
   permissionMode: "normal" | "full_access";
+  operation?: RuntimeTaskOperation;
+  controlOwner?: "polyphonic" | "native_app";
+  targetLabel?: string | null;
+  targetSessionRef?: string | null;
   state: RuntimeTaskState;
   providerSessionId: string | null;
   currentStep: string | null;
@@ -35,6 +57,8 @@ export type RuntimeTaskProjection = {
   error: string | null;
   canRetry: boolean;
   retryOfTaskId: string | null;
+  deliveryState?: RuntimeTaskDeliveryState | null;
+  deliveryCanRetry?: boolean;
 };
 
 export type RuntimeTaskResult = {
@@ -50,6 +74,12 @@ export type RuntimeTaskProposal = {
   residentPubkey: string;
   runtimeFamily: "codex" | "claude_code";
   summary: string;
+  operation?: RuntimeTaskOperation;
+  /** Native-owned opaque references, not user-entered provider session UUIDs. */
+  sourceId?: string | null;
+  sessionId?: string | null;
+  targetLabel?: string | null;
+  targetWorkingFolder?: string | null;
   createdAt: string;
 };
 
@@ -66,6 +96,10 @@ export type StartRuntimeTaskInput = {
   prompt: string;
   workingFolder: string;
   permissionMode: "normal" | "full_access";
+  operation?: RuntimeTaskOperation;
+  /** Native-owned opaque references, independently revalidated on dispatch. */
+  sourceId?: string | null;
+  sessionId?: string | null;
 };
 
 export function pickRuntimeTaskFolder(): Promise<string | null> {
@@ -96,6 +130,13 @@ export function retryRuntimeTask(
   return invokeTauri("retry_runtime_task", { taskId });
 }
 
+/** Retry only this task's authorized result summary, never the provider task. */
+export function retryRuntimeTaskDelivery(
+  taskId: string,
+): Promise<RuntimeTaskProjection> {
+  return invokeTauri("retry_runtime_task_delivery", { taskId });
+}
+
 export function listRuntimeTasks(
   conversationId: string,
 ): Promise<RuntimeTaskProjection[]> {
@@ -106,6 +147,11 @@ export function getRuntimeTaskResult(
   taskId: string,
 ): Promise<RuntimeTaskResult> {
   return invokeTauri("get_runtime_task_result", { taskId });
+}
+
+/** Open the native target resolved from this receipt, never a renderer URL. */
+export function openRuntimeTaskSession(taskId: string): Promise<void> {
+  return invokeTauri("open_runtime_task_native_session", { taskId });
 }
 
 export function listRuntimeTaskProposals(

@@ -1,10 +1,28 @@
-import { Check, ChevronDown, ChevronUp, RotateCcw, X } from "lucide-react";
+import {
+  ArrowUpRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import * as React from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import {
   getRuntimeTaskResult,
+  openRuntimeTaskSession,
+  retryRuntimeTaskDelivery,
   type RuntimeTaskProjection,
 } from "@/shared/api/tauriRuntimeTasks";
+import {
+  runtimeTaskNativeHandoff,
+  runtimeTaskReceiptLabel,
+  runtimeTaskDeliveryLabel,
+  runtimeTaskSummaryRetry,
+  mergeRuntimeTasks,
+} from "../lib/runtimeTaskPresentation";
+import { runtimeTasksKey } from "../useRuntimeTasks";
 
 const DISMISSED_KEY = "polyphonic.runtime-task-receipts.dismissed.v1";
 
@@ -31,10 +49,6 @@ function writeDismissed(ids: Set<string>) {
   }
 }
 
-function providerLabel(task: RuntimeTaskProjection) {
-  return task.runtimeFamily === "codex" ? "Codex" : "Claude Code";
-}
-
 export function RuntimeTaskResultReceipts({
   onRetrySynthesis,
   tasks,
@@ -42,6 +56,7 @@ export function RuntimeTaskResultReceipts({
   onRetrySynthesis: (task: RuntimeTaskProjection) => Promise<void>;
   tasks: RuntimeTaskProjection[];
 }) {
+  const queryClient = useQueryClient();
   const [dismissed, setDismissed] = React.useState(readDismissed);
   const [expandedTaskId, setExpandedTaskId] = React.useState<string | null>(
     null,
@@ -49,15 +64,24 @@ export function RuntimeTaskResultReceipts({
   const [result, setResult] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [retryingSynthesis, setRetryingSynthesis] = React.useState(false);
-  const [retryError, setRetryError] = React.useState<string | null>(null);
+  const [openingNative, setOpeningNative] = React.useState(false);
+  const [actionError, setActionError] = React.useState<{
+    taskId: string;
+    message: string;
+  } | null>(null);
   const task = tasks.find(
     (candidate) =>
-      (candidate.state === "succeeded" || candidate.state === "stopped") &&
+      (runtimeTaskNativeHandoff(candidate) ||
+        candidate.state === "succeeded" ||
+        candidate.state === "stopped") &&
       !dismissed.has(candidate.taskId),
   );
   if (!task) return null;
-  const expanded = expandedTaskId === task.taskId;
-  const canReview = task.state === "succeeded";
+  const nativeHandoff = runtimeTaskNativeHandoff(task);
+  const canReview = !nativeHandoff && task.state === "succeeded";
+  const deliveryLabel = runtimeTaskDeliveryLabel(task);
+  const summaryRetry = runtimeTaskSummaryRetry(task);
+  const expanded = canReview && expandedTaskId === task.taskId;
 
   const toggle = () => {
     if (!canReview) return;
@@ -81,7 +105,11 @@ export function RuntimeTaskResultReceipts({
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className="grid size-6 shrink-0 place-items-center rounded-full bg-foreground/[0.06]">
-          <Check aria-hidden className="size-3.5" />
+          {nativeHandoff ? (
+            <ArrowUpRight aria-hidden className="size-3.5" />
+          ) : (
+            <Check aria-hidden className="size-3.5" />
+          )}
         </span>
         <button
           className="min-w-0 flex-1 text-left"
@@ -92,32 +120,84 @@ export function RuntimeTaskResultReceipts({
             {task.summary}
           </span>
           <span className="block text-xs text-ink-muted">
-            {task.state === "succeeded" ? "Completed" : "Stopped"} with{" "}
-            {providerLabel(task)}
+            {runtimeTaskReceiptLabel(task)}
           </span>
         </button>
-        {canReview ? (
+        {nativeHandoff && task.runtimeFamily === "codex" ? (
           <button
-            aria-label="Retry resident synthesis"
+            className="flex h-7 items-center gap-1.5 rounded-full px-2 text-xs text-ink-muted hover:bg-foreground/[0.06] hover:text-ink disabled:opacity-45"
+            disabled={openingNative}
+            onClick={() => {
+              setOpeningNative(true);
+              setActionError(null);
+              void openRuntimeTaskSession(task.taskId)
+                .catch((cause: unknown) => {
+                  setActionError({
+                    taskId: task.taskId,
+                    message:
+                      cause instanceof Error
+                        ? cause.message
+                        : "The native session could not be opened.",
+                  });
+                })
+                .finally(() => setOpeningNative(false));
+            }}
+            type="button"
+          >
+            {openingNative ? "Opening…" : "Open in Codex"}
+          </button>
+        ) : null}
+        {summaryRetry ? (
+          <button
+            aria-label={
+              summaryRetry === "delivery"
+                ? "Retry result summary"
+                : "Retry resident synthesis"
+            }
             className="flex h-7 items-center gap-1.5 rounded-full px-2 text-xs text-ink-muted hover:bg-foreground/[0.06] hover:text-ink disabled:opacity-45"
             disabled={retryingSynthesis}
             onClick={() => {
               setRetryingSynthesis(true);
-              setRetryError(null);
-              void onRetrySynthesis(task)
+              setActionError(null);
+              const retry =
+                summaryRetry === "delivery"
+                  ? retryRuntimeTaskDelivery(task.taskId).then((updated) => {
+                      if (
+                        updated.taskId !== task.taskId ||
+                        updated.conversationId !== task.conversationId
+                      ) {
+                        throw new Error(
+                          "The result summary retry could not be verified.",
+                        );
+                      }
+                      // The command reply is authoritative even if the event
+                      // bridge is unavailable. A newer event still wins merge.
+                      queryClient.setQueryData<RuntimeTaskProjection[]>(
+                        runtimeTasksKey(task.conversationId),
+                        (current = []) => mergeRuntimeTasks(current, [updated]),
+                      );
+                    })
+                  : onRetrySynthesis(task);
+              void retry
                 .catch((cause: unknown) => {
-                  setRetryError(
-                    cause instanceof Error
-                      ? cause.message
-                      : "Resident synthesis could not be retried.",
-                  );
+                  setActionError({
+                    taskId: task.taskId,
+                    message:
+                      cause instanceof Error
+                        ? cause.message
+                        : "The result summary could not be retried.",
+                  });
                 })
                 .finally(() => setRetryingSynthesis(false));
             }}
             type="button"
           >
             <RotateCcw aria-hidden className="size-3.5" />
-            {retryingSynthesis ? "Retrying…" : "Retry synthesis"}
+            {retryingSynthesis
+              ? "Retrying…"
+              : summaryRetry === "delivery"
+                ? "Retry summary"
+                : "Retry synthesis"}
           </button>
         ) : null}
         {canReview ? (
@@ -150,9 +230,27 @@ export function RuntimeTaskResultReceipts({
           <X aria-hidden className="size-3.5" />
         </button>
       </div>
-      {retryError ? (
+      {deliveryLabel ? (
+        <p className="mt-2 text-xs text-ink-muted" role="status">
+          {deliveryLabel}
+        </p>
+      ) : null}
+      {nativeHandoff ? (
+        <p className="mt-2 text-xs text-ink-muted">
+          {task.targetLabel ? `${task.targetLabel}. ` : ""}
+          {task.state === "failed" || task.state === "interrupted"
+            ? "Check this exact session before sending again. Delivery could not be confirmed; no automatic retry will run. "
+            : "Polyphonic is not observing a verified result for this handoff. "}
+          Handle approvals and stopping in{" "}
+          {task.runtimeFamily === "codex" ? "Codex" : "Claude Code"}.
+        </p>
+      ) : null}
+      {nativeHandoff && task.error ? (
+        <p className="mt-2 text-xs text-ink-muted">{task.error}</p>
+      ) : null}
+      {actionError?.taskId === task.taskId ? (
         <p className="mt-2 text-xs text-destructive" role="alert">
-          {retryError}
+          {actionError.message}
         </p>
       ) : null}
       {expanded ? (

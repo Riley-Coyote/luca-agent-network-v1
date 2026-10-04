@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  listRuntimeTasks,
   resolveRuntimeTaskProjectFolder,
   respondRuntimeTaskProposal,
   type RuntimeTaskProposal,
 } from "@/shared/api/tauriRuntimeTasks";
+import { isExistingRuntimeTask } from "../lib/runtimeTaskPresentation";
+import { useRuntimeTasks } from "../useRuntimeTasks";
 import {
   RuntimeTaskConfirmationCard,
   type RuntimeTaskDraft,
@@ -20,11 +21,12 @@ export function RuntimeTaskProposalConfirmation({
   residentNames: ReadonlyMap<string, string>;
 }) {
   const proposal = proposals[0];
+  const existingSession = isExistingRuntimeTask(proposal?.operation);
   const hasProjectSources = projectSourceIds.length > 0;
   const projectFolderQuery = useQuery({
     queryKey: ["runtime-task-project-folder", projectSourceIds],
     queryFn: () => resolveRuntimeTaskProjectFolder(projectSourceIds),
-    enabled: Boolean(proposal) && hasProjectSources,
+    enabled: Boolean(proposal) && hasProjectSources && !existingSession,
     retry: false,
     staleTime: 10_000,
   });
@@ -32,14 +34,11 @@ export function RuntimeTaskProposalConfirmation({
   // Run would sit disabled with no way to see why. Fall back to the folder
   // the last task in this conversation ran in — the picker still overrides
   // it, and when there is no prior task the field stays empty.
-  const conversationId = proposal?.conversationId ?? null;
-  const priorTasksQuery = useQuery({
-    queryKey: ["runtime-tasks", conversationId],
-    queryFn: () => listRuntimeTasks(conversationId ?? ""),
-    enabled: Boolean(conversationId) && !hasProjectSources,
-    retry: false,
-    staleTime: 1_000,
-  });
+  const priorTasksQuery = useRuntimeTasks(
+    !existingSession && !hasProjectSources
+      ? (proposal?.conversationId ?? null)
+      : null,
+  );
   if (!proposal) return null;
   const lastUsedFolder =
     (priorTasksQuery.data ?? [])
@@ -53,7 +52,14 @@ export function RuntimeTaskProposalConfirmation({
     runtimeFamily: proposal.runtimeFamily,
     summary: proposal.summary,
     prompt: proposal.summary,
-    workingFolder: projectFolderQuery.data ?? lastUsedFolder,
+    workingFolder: existingSession
+      ? proposal.targetWorkingFolder
+      : (projectFolderQuery.data ?? lastUsedFolder),
+    operation: proposal.operation,
+    sourceId: proposal.sourceId,
+    sessionId: proposal.sessionId,
+    targetLabel: proposal.targetLabel,
+    targetWorkingFolder: proposal.targetWorkingFolder,
   };
 
   return (

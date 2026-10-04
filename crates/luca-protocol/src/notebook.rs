@@ -6,7 +6,8 @@
 
 use crate::{
     CanonicalTimestamp, ContinuityError, Hex64, LocalContinuityCognitionRequestV1,
-    LocalContinuityCognitionResultV1, OpaqueId, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    LocalContinuityCognitionResultV1, OpaqueId, RuntimeTaskDeliveryRequestV1,
+    RuntimeTaskDeliveryResultV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
     MAX_CONTINUITY_PACKET_BYTES, MAX_JOURNAL_ANNOTATION_BYTES, MAX_JOURNAL_BODY_BYTES,
     MAX_JOURNAL_PROMPT_BYTES, MAX_JOURNAL_SOURCE_EVENTS, MAX_JOURNAL_TITLE_BYTES,
     MAX_MEMORY_NOTE_BYTES, MAX_MEMORY_NOTE_SOURCE_EVENTS, MAX_SELECTED_JOURNAL_PAGES,
@@ -650,6 +651,10 @@ pub enum ResidentPrivateCognitionRequestV1 {
     Journal {
         request: CreateResidentJournalPageRequestV1,
     },
+    /// Host-approved synthesis and typed final signing handoff for one result.
+    RuntimeTaskDelivery {
+        request: RuntimeTaskDeliveryRequestV1,
+    },
 }
 
 impl ResidentPrivateCognitionRequestV1 {
@@ -657,6 +662,9 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => request.validate(),
             Self::Journal { request } => request.validate(),
+            Self::RuntimeTaskDelivery { request } => {
+                request.validate().map_err(|_| ContinuityError::Binding)
+            }
         }
     }
 
@@ -664,6 +672,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => &request.job_id,
             Self::Journal { request } => &request.job_id,
+            Self::RuntimeTaskDelivery { request } => &request.delivery_id,
         }
     }
 
@@ -671,6 +680,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => &request.owner_pubkey,
             Self::Journal { request } => &request.owner_pubkey,
+            Self::RuntimeTaskDelivery { request } => &request.owner_pubkey,
         }
     }
 
@@ -678,6 +688,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => &request.resident_pubkey,
             Self::Journal { request } => &request.resident_pubkey,
+            Self::RuntimeTaskDelivery { request } => &request.resident_pubkey,
         }
     }
 
@@ -685,6 +696,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => &request.binding_ref,
             Self::Journal { request } => &request.binding_ref,
+            Self::RuntimeTaskDelivery { request } => &request.binding_ref,
         }
     }
 
@@ -692,6 +704,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => request.deadline_unix_ms,
             Self::Journal { request } => request.deadline_unix_ms,
+            Self::RuntimeTaskDelivery { request } => request.deadline_unix_ms,
         }
     }
 
@@ -699,6 +712,7 @@ impl ResidentPrivateCognitionRequestV1 {
         match self {
             Self::Metabolism { request } => request.max_result_bytes,
             Self::Journal { request } => request.max_result_bytes,
+            Self::RuntimeTaskDelivery { request } => request.max_draft_bytes,
         }
     }
 }
@@ -714,6 +728,7 @@ impl std::fmt::Debug for ResidentPrivateCognitionRequestV1 {
                 &match self {
                     Self::Metabolism { .. } => "metabolism",
                     Self::Journal { .. } => "journal",
+                    Self::RuntimeTaskDelivery { .. } => "runtime_task_delivery",
                 },
             )
             .finish_non_exhaustive()
@@ -730,6 +745,9 @@ pub enum ResidentPrivateCognitionResultV1 {
     Journal {
         result: CreateResidentJournalPageResultV1,
     },
+    RuntimeTaskDelivery {
+        result: RuntimeTaskDeliveryResultV1,
+    },
 }
 
 impl ResidentPrivateCognitionResultV1 {
@@ -745,6 +763,12 @@ impl ResidentPrivateCognitionResultV1 {
             (Self::Journal { result }, ResidentPrivateCognitionRequestV1::Journal { request }) => {
                 result.validate_against(request)
             }
+            (
+                Self::RuntimeTaskDelivery { result },
+                ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request },
+            ) => result
+                .validate_against(request)
+                .map_err(|_| ContinuityError::Binding),
             _ => Err(ContinuityError::Binding),
         }
     }
@@ -759,6 +783,7 @@ impl std::fmt::Debug for ResidentPrivateCognitionResultV1 {
                 &match self {
                     Self::Metabolism { .. } => "metabolism",
                     Self::Journal { .. } => "journal",
+                    Self::RuntimeTaskDelivery { .. } => "runtime_task_delivery",
                 },
             )
             .finish_non_exhaustive()

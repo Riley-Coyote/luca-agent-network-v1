@@ -27,8 +27,8 @@ fn exchange() -> Vec<ConversationMessage> {
 #[test]
 fn an_owner_answer_after_lucas_proposal_is_consent() {
     let messages = exchange();
-    let consent =
-        verified_consent(&messages, "agreement", OWNER, RESIDENT, CONVERSATION, NOW).expect("consent");
+    let consent = verified_consent(&messages, "agreement", OWNER, RESIDENT, CONVERSATION, NOW)
+        .expect("consent");
     assert_eq!(consent.id, "agreement");
 }
 
@@ -183,8 +183,14 @@ fn one_agreement_creates_one_resident_however_often_the_tool_retries() {
 
 #[test]
 fn a_bring_up_failure_is_reported_in_one_bounded_line() {
-    assert_eq!(bounded_error("   "), "Starting this resident did not finish.");
-    assert_eq!(bounded_error("codex is not signed in"), "codex is not signed in");
+    assert_eq!(
+        bounded_error("   "),
+        "Starting this resident did not finish."
+    );
+    assert_eq!(
+        bounded_error("codex is not signed in"),
+        "codex is not signed in"
+    );
     assert_eq!(bounded_error("two\nlines"), "twolines");
     assert_eq!(bounded_error(&"x".repeat(400)).chars().count(), 240);
 }

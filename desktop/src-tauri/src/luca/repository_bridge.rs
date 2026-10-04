@@ -410,12 +410,35 @@ fn handle_frame(
             receipt: None,
         });
     }
+    if frame.operation == RepositoryToolOperationV1::ListRuntimeTaskSessions {
+        return crate::luca::runtime_tasks::list_runtime_task_sessions_for_resident(
+            app,
+            context.resident_pubkey.as_str(),
+            frame.arguments,
+        )
+        .map(|content| RepositoryBrokerResponseV1 {
+            protocol: BROKER_PROTOCOL,
+            ok: true,
+            content,
+            receipt: None,
+        });
+    }
     if frame.operation == RepositoryToolOperationV1::ProposeRuntimeTask {
+        let mut probe = caller
+            .try_clone()
+            .map_err(|_| "Runtime task caller is unavailable.".to_owned())?;
+        probe
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .map_err(|_| "Runtime task caller cannot be monitored.".to_owned())?;
         return crate::luca::runtime_tasks::propose_runtime_task(
             app,
             context.resident_pubkey.as_str(),
             frame.conversation_id.as_str(),
             frame.arguments,
+            || {
+                !active.load(Ordering::SeqCst)
+                    || crate::luca::resident_proposals::caller_disconnected(&mut probe)
+            },
         )
         .map(|content| RepositoryBrokerResponseV1 {
             protocol: BROKER_PROTOCOL,

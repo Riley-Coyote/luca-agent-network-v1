@@ -2,11 +2,17 @@ import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, ShieldCheck, X } from "lucide-react";
 import * as React from "react";
 
-import { pickRuntimeTaskFolder } from "@/shared/api/tauriRuntimeTasks";
+import {
+  pickRuntimeTaskFolder,
+  type RuntimeTaskOperation,
+} from "@/shared/api/tauriRuntimeTasks";
 import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
 import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
 import { Button } from "@/shared/ui/button";
-import type { RuntimeTaskTarget } from "@/features/capabilities/lib/runtimeTaskPresentation";
+import {
+  isExistingRuntimeTask,
+  type RuntimeTaskTarget,
+} from "@/features/capabilities/lib/runtimeTaskPresentation";
 
 type RuntimeTarget = RuntimeTaskTarget;
 
@@ -22,12 +28,20 @@ export type RuntimeTaskDraft = {
   summary: string;
   prompt: string;
   workingFolder?: string | null;
+  operation?: RuntimeTaskOperation;
+  sourceId?: string | null;
+  sessionId?: string | null;
+  targetLabel?: string | null;
+  targetWorkingFolder?: string | null;
 };
 
 export type RuntimeTaskConfirmationDetails = {
   runtimeFamily: RuntimeTarget;
   workingFolder: string;
   permissionMode: "normal" | "full_access";
+  operation?: RuntimeTaskOperation;
+  sourceId?: string | null;
+  sessionId?: string | null;
 };
 
 export function RuntimeTaskConfirmationCard({
@@ -41,15 +55,20 @@ export function RuntimeTaskConfirmationCard({
   onConfirm: (details: RuntimeTaskConfirmationDetails) => Promise<unknown>;
   onConfirmed: () => void;
 }) {
+  const existingSession = isExistingRuntimeTask(draft.operation);
+  const operationLabel =
+    draft.operation === "send_message" ? "Send" : "Continue";
   const runtimeQuery = useQuery({
     queryKey: ["runtime-task-targets"],
     queryFn: listRuntimeConnectionStatus,
+    enabled: !existingSession,
     retry: false,
     staleTime: 10_000,
   });
   const capabilitySettingsQuery = useQuery({
     queryKey: ["resident-capability-settings"],
     queryFn: getResidentCapabilitySettings,
+    enabled: !existingSession,
     retry: false,
     staleTime: 10_000,
   });
@@ -64,11 +83,18 @@ export function RuntimeTaskConfirmationCard({
       ),
     [runtimeQuery.data],
   );
-  const [target, setTarget] = React.useState<RuntimeTarget>(
+  const [selectedTarget, setTarget] = React.useState<RuntimeTarget>(
     draft.runtimeFamily,
   );
-  const [workingFolder, setWorkingFolder] = React.useState(
+  const [selectedFolder, setWorkingFolder] = React.useState(
     draft.workingFolder ?? "",
+  );
+  const target = existingSession ? draft.runtimeFamily : selectedTarget;
+  const workingFolder = existingSession
+    ? (draft.targetWorkingFolder ?? "")
+    : selectedFolder;
+  const exactTargetReady = Boolean(
+    draft.sourceId?.trim() && draft.sessionId?.trim() && workingFolder.trim(),
   );
   const [permissionMode, setPermissionMode] = React.useState<
     "normal" | "full_access"
@@ -88,14 +114,14 @@ export function RuntimeTaskConfirmationCard({
   }, [fullAccessEnabled, permissionMode]);
 
   React.useEffect(() => {
-    if (!workingFolder && draft.workingFolder) {
+    if (!existingSession && !selectedFolder && draft.workingFolder) {
       setWorkingFolder(draft.workingFolder);
     }
-  }, [draft.workingFolder, workingFolder]);
+  }, [draft.workingFolder, existingSession, selectedFolder]);
 
-  const targetReady = availableTargets.some(
-    (runtime) => runtime.runtimeId === target,
-  );
+  const targetReady = existingSession
+    ? exactTargetReady
+    : availableTargets.some((runtime) => runtime.runtimeId === target);
 
   return (
     <section
@@ -105,9 +131,17 @@ export function RuntimeTaskConfirmationCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-ink">Run task</p>
+          <p className="text-sm font-semibold text-ink">
+            {existingSession
+              ? draft.operation === "send_message"
+                ? "Send to existing session"
+                : "Continue existing session"
+              : "Run task"}
+          </p>
           <p className="mt-0.5 text-xs text-ink-muted">
-            Nothing starts until you confirm these exact details.
+            {existingSession
+              ? "Only this exact session and its working folder will be used."
+              : "Nothing starts until you confirm these exact details."}
           </p>
         </div>
         <Button
@@ -128,6 +162,7 @@ export function RuntimeTaskConfirmationCard({
           <select
             className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
             disabled={
+              existingSession ||
               isStarting ||
               runtimeQuery.isLoading ||
               availableTargets.length === 0
@@ -137,7 +172,9 @@ export function RuntimeTaskConfirmationCard({
             }
             value={target}
           >
-            {!targetReady ? (
+            {existingSession ? (
+              <option value={target}>{runtimeTargetLabel(target)}</option>
+            ) : !targetReady ? (
               <option disabled value={target}>
                 {runtimeTargetLabel(target)} —{" "}
                 {runtimeQuery.isLoading
@@ -147,40 +184,48 @@ export function RuntimeTaskConfirmationCard({
                     : "unavailable"}
               </option>
             ) : null}
-            {availableTargets.map((runtime) => (
-              <option key={runtime.runtimeId} value={runtime.runtimeId}>
-                {runtime.label}
+            {!existingSession &&
+              availableTargets.map((runtime) => (
+                <option key={runtime.runtimeId} value={runtime.runtimeId}>
+                  {runtime.label}
+                </option>
+              ))}
+          </select>
+        </label>
+        {existingSession ? (
+          <div className="grid gap-1 text-xs text-ink-muted">
+            <span>Permission policy</span>
+            <span>Keep this session's native permissions</span>
+          </div>
+        ) : (
+          <label className="grid gap-1 text-xs text-ink-muted">
+            Permission mode
+            <select
+              className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
+              disabled={isStarting}
+              onChange={(event) =>
+                setPermissionMode(
+                  event.currentTarget.value as "normal" | "full_access",
+                )
+              }
+              value={permissionMode}
+            >
+              <option value="normal">Ask when needed</option>
+              <option disabled={!fullAccessEnabled} value="full_access">
+                {fullAccessEnabled
+                  ? "Full Access"
+                  : "Full Access — enable in Settings"}
               </option>
-            ))}
-          </select>
-        </label>
-        <label className="grid gap-1 text-xs text-ink-muted">
-          Permission mode
-          <select
-            className="h-9 rounded-lg border border-border/55 bg-background px-2.5 text-sm text-ink outline-none focus-visible:border-ring"
-            disabled={isStarting}
-            onChange={(event) =>
-              setPermissionMode(
-                event.currentTarget.value as "normal" | "full_access",
-              )
-            }
-            value={permissionMode}
-          >
-            <option value="normal">Ask when needed</option>
-            <option disabled={!fullAccessEnabled} value="full_access">
-              {fullAccessEnabled
-                ? "Full Access"
-                : "Full Access — enable in Settings"}
-            </option>
-          </select>
-        </label>
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="mt-3 grid gap-1">
         <span className="text-xs text-ink-muted">Working folder</span>
         <button
           className="flex h-9 min-w-0 items-center gap-2 rounded-lg border border-border/55 bg-background px-2.5 text-left text-sm text-ink hover:bg-plate"
-          disabled={isStarting}
+          disabled={isStarting || existingSession}
           onClick={() => {
             void pickRuntimeTaskFolder().then((folder) => {
               if (folder) {
@@ -199,6 +244,11 @@ export function RuntimeTaskConfirmationCard({
       </div>
 
       <div className="mt-3 rounded-xl bg-background/70 px-3 py-2.5">
+        {existingSession && draft.targetLabel ? (
+          <p className="line-clamp-2 text-sm font-medium text-ink">
+            {draft.targetLabel}
+          </p>
+        ) : null}
         <p className="line-clamp-2 text-sm font-medium text-ink">
           {draft.summary}
         </p>
@@ -207,30 +257,55 @@ export function RuntimeTaskConfirmationCard({
         </p>
       </div>
 
-      {permissionMode === "full_access" ? (
+      {existingSession ? (
+        <p className="mt-3 text-xs text-ink-muted">
+          {draft.operation === "send_message"
+            ? `This sends a queued follow-up to ${runtimeTargetLabel(target)}. Delivery is not work completion; handle approvals and stopping in the native app.`
+            : "Before continuing, confirm this exact saved CLI session is not running in another client. File metadata and Polyphonic's local lease do not prove that it is idle everywhere. Continuation keeps its original folder, identity, and native permission policy."}
+        </p>
+      ) : null}
+      {draft.operation !== "send_message" ? (
+        <p className="mt-3 text-xs text-ink-muted">
+          Confirming authorizes this exact task and one result summary by{" "}
+          {draft.residentName} back into this same conversation. It does not
+          authorize another provider task.
+        </p>
+      ) : null}
+      {existingSession && !exactTargetReady ? (
+        <p className="mt-3 text-xs text-destructive" role="alert">
+          The exact session or its working folder is unavailable. Ask your
+          resident to resolve the target again; no work will be sent.
+        </p>
+      ) : null}
+      {!existingSession && permissionMode === "full_access" ? (
         <div className="mt-3 flex gap-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <ShieldCheck aria-hidden className="mt-0.5 size-3.5 shrink-0" />
           Full Access lets this runtime work without individual approval prompts
           for this task.
         </div>
       ) : null}
-      {capabilitySettingsQuery.isError ? (
+      {!existingSession && capabilitySettingsQuery.isError ? (
         <p className="mt-3 text-xs text-ink-muted">
           Full Access could not be verified, so this task will ask when needed.
         </p>
       ) : null}
-      {runtimeQuery.isError ? (
+      {!existingSession && runtimeQuery.isError ? (
         <p className="mt-3 text-xs text-destructive">
           Polyphonic could not check which runtimes are ready. Reconnect Codex
           or Claude Code, then try this task again.
         </p>
       ) : null}
-      {runtimeQuery.isSuccess && availableTargets.length === 0 ? (
+      {!existingSession &&
+      runtimeQuery.isSuccess &&
+      availableTargets.length === 0 ? (
         <p className="mt-3 text-xs text-destructive">
           Connect and authenticate Codex or Claude Code before running a task.
         </p>
       ) : null}
-      {runtimeQuery.isSuccess && availableTargets.length > 0 && !targetReady ? (
+      {!existingSession &&
+      runtimeQuery.isSuccess &&
+      availableTargets.length > 0 &&
+      !targetReady ? (
         <p className="mt-3 text-xs text-destructive">
           {runtimeTargetLabel(target)} is not ready. Choose another verified
           runtime or reconnect it before running this task.
@@ -259,7 +334,14 @@ export function RuntimeTaskConfirmationCard({
             void onConfirm({
               runtimeFamily: target,
               workingFolder,
-              permissionMode,
+              permissionMode: existingSession ? "normal" : permissionMode,
+              ...(existingSession
+                ? {
+                    operation: draft.operation,
+                    sourceId: draft.sourceId,
+                    sessionId: draft.sessionId,
+                  }
+                : {}),
             })
               .then(onConfirmed)
               .catch((cause: unknown) => {
@@ -273,7 +355,13 @@ export function RuntimeTaskConfirmationCard({
           }}
           type="button"
         >
-          {isStarting ? "Starting…" : "Run"}
+          {isStarting
+            ? existingSession
+              ? "Sending…"
+              : "Starting…"
+            : existingSession
+              ? operationLabel
+              : "Run"}
         </Button>
       </div>
     </section>

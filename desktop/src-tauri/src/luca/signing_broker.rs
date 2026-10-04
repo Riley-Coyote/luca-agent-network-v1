@@ -204,6 +204,14 @@ impl ResidentSigningBroker {
         self.capsule_handle.clone()
     }
 
+    /// Snapshot retained publication receipts only on the sole outbox owner
+    /// thread, after invalidating any prior resident broker.
+    pub(crate) fn retained_publication_dispatch_receipt_ids(
+        &self,
+    ) -> std::collections::BTreeSet<luca_protocol::OpaqueId> {
+        super::managed_message_publisher::retained_outbox_dispatch_receipt_ids(&self.message_outbox)
+    }
+
     fn service_capsule_requests(&self) {
         service_capsule_broker_slice(
             &self.capsule_receiver,

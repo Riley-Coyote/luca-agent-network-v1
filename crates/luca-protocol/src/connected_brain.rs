@@ -486,6 +486,8 @@ pub enum RepositoryToolOperationV1 {
     /// Request a fixed owner review surface; does not approve any change.
     OperatorOpenSurface,
     ProposeRuntimeTask,
+    /// Read exact, granted native-session candidates; creates no work.
+    ListRuntimeTaskSessions,
     ReadRuntimeTaskResult,
     List,
     Tree,

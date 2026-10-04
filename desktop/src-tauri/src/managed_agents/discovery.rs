@@ -13,7 +13,7 @@ use crate::managed_agents::{
 mod runtime_cli;
 mod runtime_metadata;
 
-pub(crate) use runtime_cli::runtime_shim_dir;
+pub(crate) use runtime_cli::{resolve_runtime_cli, runtime_shim_dir};
 pub(crate) use runtime_metadata::KnownAcpRuntime;
 
 const GOOSE_AVATAR_URL: &str = "https://goose-docs.ai/img/logo_dark.png";
@@ -186,6 +186,8 @@ const KNOWN_ACP_RUNTIMES: &[KnownAcpRuntime] = &[
         // It is on no shell PATH, which is why a clean Mac only ever found the
         // April-2025 npm relic.
         bundle_cli_paths: &[
+            "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
+            "~/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "/Applications/ChatGPT.app/Contents/Resources/codex",
             "~/Applications/ChatGPT.app/Contents/Resources/codex",
         ],

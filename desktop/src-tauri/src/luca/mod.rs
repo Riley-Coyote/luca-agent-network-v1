@@ -78,6 +78,7 @@ pub(crate) mod resident_registry;
 pub(crate) mod resident_session_capabilities;
 pub(crate) mod runtime_capabilities;
 pub(crate) mod runtime_session_purpose;
+pub(crate) mod runtime_task_delivery;
 pub(crate) mod runtime_tasks;
 pub(crate) mod session_attachment;
 pub(crate) mod signing_broker;

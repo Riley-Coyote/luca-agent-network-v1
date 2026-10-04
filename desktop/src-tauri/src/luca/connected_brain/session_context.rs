@@ -223,7 +223,7 @@ pub(crate) fn native_session_reference(
     }))
 }
 
-fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, String> {
+pub(crate) fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, String> {
     let mut digest = Sha256::new();
     digest.update(b"polyphonic-indexed-session-context-v1\0");
     digest.update(source_id.as_str().as_bytes());

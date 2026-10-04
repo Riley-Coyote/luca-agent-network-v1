@@ -670,6 +670,16 @@ impl ManagedDispatchStore {
             .map(|_| ())
     }
 
+    /// Read-only live host check; never grants a dispatch or changes an epoch.
+    pub(crate) fn is_active_session(&self, resident_pubkey: &str, session_epoch: u64) -> bool {
+        session_epoch != 0
+            && self
+                .active_sessions
+                .get(&resident_pubkey.to_ascii_lowercase())
+                .copied()
+                == Some(session_epoch)
+    }
+
     pub(crate) fn replace_active_session_for_start(
         &mut self,
         resident_pubkey: &str,

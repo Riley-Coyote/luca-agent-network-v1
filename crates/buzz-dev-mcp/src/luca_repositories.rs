@@ -19,7 +19,9 @@ const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
 const BROKER_DEADLINE: Duration = Duration::from_secs(130);
 const RESIDENT_PROPOSAL_DEADLINE: Duration = Duration::from_secs(16 * 60);
-const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(24 * 60 * 60 + 15 * 60);
+// Only owner confirmation and bounded dispatch hold the companion's tool call.
+// Durable native observation/result return continues independently afterward.
+const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(15 * 60 + 60);
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -228,10 +230,7 @@ impl ProposeResidentParams {
                 .purpose
                 .as_deref()
                 .is_none_or(|purpose| is_bounded_line(purpose, 200))
-            || !self
-                .consent_event_id
-                .as_deref()
-                .is_none_or(is_event_id)
+            || !self.consent_event_id.as_deref().is_none_or(is_event_id)
         {
             return Err(ErrorData::invalid_params(
                 "Supply the exact model id from list_resident_runtimes, one short purpose, and the owner's agreeing message ID",
@@ -293,6 +292,16 @@ pub(crate) struct ProposeRuntimeTaskParams {
     summary: String,
     /// Complete task instruction to deliver only after the owner confirms.
     task: String,
+    /// `new_task` (default), `send_message` to an exact Codex app chat, or
+    /// `continue_session` for an explicitly saved, idle Codex CLI session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    operation: Option<String>,
+    /// Exact opaque connected source from list_runtime_task_sessions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_id: Option<String>,
+    /// Exact opaque session from list_runtime_task_sessions, never a title/UUID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -300,6 +309,19 @@ pub(crate) struct ProposeRuntimeTaskParams {
 pub(crate) struct RuntimeTaskResultParams {
     /// Exact completed task ID shown in Polyphonic's durable result receipt.
     task_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RuntimeTaskSessionsParams {
+    /// `codex` or `claude_code`; Claude metadata is not execution proof.
+    target_runtime: String,
+    /// Optionally restrict listing to one exact connected source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_id: Option<String>,
+    /// At most 50 metadata candidates per source; defaults to 20.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    limit: Option<usize>,
 }
 
 impl RuntimeTaskResultParams {
@@ -326,7 +348,16 @@ impl ProposeRuntimeTaskParams {
             && !self.task.chars().any(|character| {
                 character.is_control() && !matches!(character, '\n' | '\r' | '\t')
             });
-        if valid_target && valid_summary && valid_task {
+        let valid_operation = match self.operation.as_deref().unwrap_or("new_task") {
+            "new_task" => self.source_id.is_none() && self.session_id.is_none(),
+            "send_message" | "continue_session" => {
+                self.target_runtime == "codex"
+                    && self.source_id.as_deref().is_some_and(is_opaque_id)
+                    && self.session_id.as_deref().is_some_and(is_opaque_id)
+            }
+            _ => false,
+        };
+        if valid_target && valid_summary && valid_task && valid_operation {
             Ok(())
         } else {
             Err(ErrorData::invalid_params(
@@ -510,8 +541,31 @@ impl LucaRepositoriesMcp {
     }
 
     #[tool(
+        name = "list_runtime_task_sessions",
+        description = "List bounded, body-free native session candidates from current connected history sources granted to this resident. Use the returned opaque source/session IDs to ask the owner which exact work to continue or which Codex app chat to message. Workspace basenames and update times aid disambiguation; metadata is not live status or action authority. Never dispatch to latest, guess by title, or treat Claude metadata as verified external execution. This creates and resumes nothing."
+    )]
+    async fn list_runtime_task_sessions(
+        &self,
+        Parameters(params): Parameters<RuntimeTaskSessionsParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if !matches!(params.target_runtime.as_str(), "codex" | "claude_code")
+            || params
+                .source_id
+                .as_deref()
+                .is_some_and(|id| !is_opaque_id(id))
+            || params.limit.is_some_and(|limit| !(1..=50).contains(&limit))
+        {
+            return Err(ErrorData::invalid_params(
+                "Native session listing is invalid",
+                None,
+            ));
+        }
+        self.client.call("list_runtime_task_sessions", params).await
+    }
+
+    #[tool(
         name = "propose_runtime_task",
-        description = "Ask the owner to confirm one new Codex or Claude Code task. This only opens Polyphonic's confirmation card; nothing runs until the owner chooses a working folder, permission mode, and Run. Use after a natural request such as 'send this to Codex'."
+        description = "Ask the owner to confirm delegation through the native harness. Omit operation for one new Codex or Claude Code task; the owner chooses its folder and permissions. For an existing Codex app chat use send_message with the exact opaque source_id and session_id returned by list_runtime_task_sessions. This queues a follow-up in that same app chat, not steering, completion, or cancellation. For a saved Codex CLI session use continue_session only after explicit target selection and owner confirmation that it is not running in another client. Existing targets retain their real workspace and native permission policy; do not guess by title, choose the latest session, fork, or substitute a new task. Claude external continuation is not yet verified; do not claim support. Nothing dispatches before owner confirmation. Native-app progress, questions, approvals, and stopping remain in the native app; use the handoff receipt and never auto-resend uncertain delivery."
     )]
     async fn propose_runtime_task(
         &self,
@@ -678,6 +732,7 @@ mod tests {
             names,
             vec![
                 "list_resident_runtimes",
+                "list_runtime_task_sessions",
                 "polyphonic_open",
                 "polyphonic_status",
                 "propose_repository_connection",
@@ -704,6 +759,9 @@ mod tests {
             target_runtime: "codex".into(),
             summary: "Inspect the project".into(),
             task: "Find and report the failing check.".into(),
+            operation: None,
+            source_id: None,
+            session_id: None,
         }
         .validate()
         .is_ok());
@@ -711,6 +769,9 @@ mod tests {
             target_runtime: "other".into(),
             summary: "Inspect the project".into(),
             task: "Find the failing check.".into(),
+            operation: None,
+            source_id: None,
+            session_id: None,
         }
         .validate()
         .is_err());
@@ -718,9 +779,58 @@ mod tests {
             target_runtime: "claude_code".into(),
             summary: "Inspect\nthe project".into(),
             task: "Find the failing check.".into(),
+            operation: None,
+            source_id: None,
+            session_id: None,
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn existing_runtime_tasks_require_exact_opaque_coordinates() {
+        for operation in ["send_message", "continue_session"] {
+            let valid = serde_json::json!({
+                "target_runtime": "codex",
+                "summary": "Continue the selected work",
+                "task": "Report the next verified result.",
+                "operation": operation,
+                "source_id": "source-fixture",
+                "session_id": "session-fixture"
+            });
+            let params: ProposeRuntimeTaskParams = serde_json::from_value(valid.clone()).unwrap();
+            assert!(params.validate().is_ok());
+            for field in ["source_id", "session_id"] {
+                let mut missing = valid.clone();
+                missing.as_object_mut().unwrap().remove(field);
+                let params: ProposeRuntimeTaskParams = serde_json::from_value(missing).unwrap();
+                assert!(params.validate().is_err());
+                let mut title = valid.clone();
+                title[field] = "the latest chat".into();
+                let params: ProposeRuntimeTaskParams = serde_json::from_value(title).unwrap();
+                assert!(params.validate().is_err());
+            }
+            let mut unverified = valid;
+            unverified["target_runtime"] = "claude_code".into();
+            let params: ProposeRuntimeTaskParams = serde_json::from_value(unverified).unwrap();
+            assert!(params.validate().is_err());
+        }
+    }
+
+    #[test]
+    fn new_runtime_tasks_never_silently_adopt_existing_work() {
+        for operation in ["new_task", "latest", "fork", ""] {
+            let params: ProposeRuntimeTaskParams = serde_json::from_value(serde_json::json!({
+                "target_runtime": "codex",
+                "summary": "Inspect the project",
+                "task": "Report the failing check.",
+                "operation": operation,
+                "source_id": "source-fixture",
+                "session_id": "session-fixture"
+            }))
+            .unwrap();
+            assert!(params.validate().is_err());
+        }
     }
 
     #[test]

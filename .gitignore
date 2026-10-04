@@ -28,6 +28,7 @@ Thumbs.db
 .scratch/
 
 # Playwright artifacts
+/desktop/output/playwright/
 playwright-report/
 test-results/
 blob-report/

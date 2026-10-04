@@ -34,6 +34,27 @@ D1 is a feasibility gate, not permission to substitute a different experience.
 If a required native control path cannot be proved, report the limitation and
 request a scope decision before treating that path as implementable.
 
+### Approved phased boundary — 2026-10-04
+
+Riley answered `yes` to proceeding with the verified dispatch/continuation
+paths while temporarily leaving approvals and stopping **externally owned**
+sessions in their native apps. D2/D3/D5 may proceed for those proved paths.
+Owned Polyphonic tasks retain their existing permission and stop controls.
+
+- Codex app-session follow-ups use the proved public exact-ID queue, clearly
+  labeled as queued delivery rather than steering or task completion.
+- Saved Codex CLI continuation uses the proved original native ID and workspace;
+  it is never presented as app-owned control or a replacement for a live session.
+- Claude execution remains gated on its affected native proof; quota is not
+  evidence that the native capability is unsupported. No provider/model fallback.
+- Externally owned progress/result observation is advertised only when separately
+  verified and correlated. Otherwise preserve a truthful native handoff/unresolved
+  receipt rather than a successful-looking result or blind retry.
+
+This is phased implementation approval, not full D0-D6 completion or release
+approval. All existing isolation, consent, native-proof budget and deferrals
+remain unchanged.
+
 Suggested approval:
 
 ```text
@@ -305,23 +326,26 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 
 | Lane | Status | Evidence / next action |
 |---|---|---|
-| D0 | Baseline established | Release/tag/app verified; isolated worktree from beta.13; 4,096 frontend tests and typecheck pass. Native candidate/test-data isolation remains a D6 gate; no Polyphonic app launched here. |
-| D1 | Gate not cleared | Codex exact app-session queue and saved CLI resume pass native proof. Claude's first fixture prompt was quota-rejected. Public control of existing app-session approvals/cancellation and externally reachable observation remain unproved. See proof documents below. |
-| D2 | Held at D1 | Do not guess target/controller authority from session metadata. |
-| D3 | Held at D1 | No speculative existing-session connector committed. |
-| D4 | Partial implementation | Atomic private receipt/result replacement, persist-before-spawn and bounded newest-receipt loading implemented; 10 deterministic storage tests pass. Later persistence errors, durable completion/delivery and restart reconciliation remain unfinished. |
-| D5 | Held at D1 | No changes to the companion UX or separate design exploration. |
-| D6 | Not reached | No native candidate, full CI, installed-app replacement or release. |
+| D0 | Established | Exact shipped beta.13 base, isolated feature tree, private candidate identity and reproducible checks recorded. Shipping/design tree and installed app preserved. |
+| D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
+| D2 | Implemented; deterministic checks pass | Granted-source metadata lookup, exact opaque session reference, canonical native workspace, bounded metadata reads and confirmation-time revalidation. No title/latest guesses or silent source/session switch. |
+| D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
+| D4 | Implemented; native loop/restart acceptance pending | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. Owned-task return uses the original companion/conversation with digest/epoch/audience authority. Limitations below remain explicit. |
+| D5 | Implemented; 23 focused UI cases pass | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and command-receipt recovery when a live event is missed. Existing visual design retained. Native complete-loop acceptance remains pending. |
+| D6 | Verification and packaging in progress | Scoped Rust/frontend checks and bounded browser regressions complete. Isolated signed candidate, native process metrics and complete-loop acceptance are the next gates; no release or installed replacement authorized. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
 is not a claim of cancellation, approval mediation or a complete delegation loop.
 
-Budget used: **3 / 12 disposable IDs, 8 / 40 prompt attempts** (7 completed Codex
-turns; 1 Claude quota rejection). All owned test processes are terminal; the
-native app fixture remains idle. No personal session was a test target.
+Budget used: **3 / 12 disposable IDs, 12 / 40 prompt attempts** (10 completed
+Codex turns, one runner attempt aborted before verified completion, one Claude
+quota rejection). All owned native test processes are terminal; the native app
+fixture remains idle. No personal session was a test target. Reserve and record
+another attempt before submitting a provider prompt; no automatic Claude retry,
+paid API path, model fallback, or native-profile repair is authorized.
 
-### Checkpoint verification — 2026-10-04
+### Historical checkpoint verification — 2026-10-04
 
 Implementation checkpoint: `6be4891d4462e195be1aa6f64b72b16f440d3f0c`,
 pushed to `origin/codex/companion-delegation-2026-10-04`; remote SHA verified.
@@ -350,10 +374,62 @@ scope decision for existing-session questions, cancellation and observation.
 Do not silently substitute CLI-owned work for app-owned work, enable disabled
 runtime configuration, or redispatch an unacknowledged provider action.
 
-Scope decision requested but not yet granted: whether to implement verified
-dispatch/continuation first, with explicit native-app handoffs for approvals and
-stopping externally owned work, while leaving full D0-D6 completion pending.
-Until Riley answers, D2/D3/D5 remain held at the original D1 gate.
+Scope decision granted: implement verified dispatch/continuation first, with
+explicit native-app handoffs for approvals and stopping externally owned work.
+The phased boundary in section 1 applies; full D0-D6 completion remains pending.
+
+### Integrated implementation checkpoint — 2026-10-04
+
+The next feature checkpoint contains the integrated phased implementation, not
+the separate design exploration. Its exact source revision is recorded by Git
+and will be embedded in the isolated candidate's signed source receipt.
+
+| Check | Observed result / boundary |
+|---|---|
+| Frontend helper suite | 4,106 / 4,106 pass, including 56 runtime-task helper tests. |
+| Typecheck, production build, fresh E2E build | Pass. Existing Vite chunk/dynamic-import warnings remain. |
+| Task-card Playwright | 23 / 23 pass on fresh E2E assets, including missed delivery-event recovery, exact continuation and native queue handoffs. Mock-backed UI proof, not a native complete delegation loop. |
+| Conversation regressions | 10 / 10 conversation-reliability, 2 / 2 send-binding, 1 / 1 messaging gate and 2 / 2 idle activity/focus cases pass. |
+| Active activity shelf | Six failures in the bounded regression run; renderer/spec bytes are unchanged from beta.13. An exact untouched release build reproduces five same Sandpile assertions; its sixth case fails earlier at chat-title assertion. No repair/design change included. |
+| Desktop scoped Rust tests | 113 / 113 runtime-task/authority/recovery tests and 35 / 35 managed-publication tests pass. |
+| Protocol, MCP, ACP | 81 protocol tests, 13 MCP operation tests and 47 runner/private delivery tests pass; three private-frame tests also pass. |
+| Desktop full Rust suite | Earlier integrated batch: 2,616 passed, 18 ignored, two native-runtime probe timeout failures. The unchanged probe module passes all three bounded-command tests when run serially. A full untouched-release Rust reproduction is not established; do not claim the entire suite green. |
+| Clippy | Desktop library and ACP library pass with `-D warnings`. |
+| Scoped formatting / whitespace | All 51 changed/new Rust files and seven changed TS/TSX/spec files pass scoped formatting; `git diff --check` passes. |
+| Full `just ci` | Stops at workspace formatting in untouched `buzz-db` files. Exact beta.13 reproduces those formatting hunks. Full CI is not green and no unrelated formatting sweep is included. |
+| Candidate entrypoint | 14 / 14 fixture checks, Bash syntax, ShellCheck and isolated config contract pass. Requires a clean feature checkpoint; builds six real ARM64 sidecars in dedicated storage, then signs/verifies a separate app. No placeholders are accepted for packaging. |
+| Receipt-cache microbenchmark | Same outputs on exact baseline/candidate fixtures. Median batch-mean cost at 512 receipts: 15.315 vs 24.740 microseconds (+9.426 microseconds). This is a pure cache update, not native CPU, fsync or provider latency. Native measurements remain pending. |
+
+Owned source spans `crates/buzz-acp` task runner/private cognition, the narrow
+`luca-protocol` delivery contract, MCP delegation operations, and the desktop's
+existing native tasks, target lookup, authority, publication and recovery seams.
+UI changes are limited to `desktop/src/features/capabilities/**`, its existing
+Tauri task API and task-card E2E spec. New modules under
+`desktop/src-tauri/src/luca/runtime_tasks/` keep identity, event framing, worker
+lifecycle and result delivery separate. The candidate script/config/fixtures
+are isolated opt-in tooling, not release configuration.
+
+Bounded V1 limitations:
+
+- Externally owned `SendMessage` is exact-session acknowledged input delivery,
+  not a trusted progress/completion/result-return/cancellation channel. The UI
+  retains an unresolved native handoff rather than manufacturing completion.
+- Graceful stop/shutdown reaps only owned work. Hard SIGKILL cannot prove child
+  tree cleanup; native work may survive and recovery is `Interrupted`, never
+  auto-redispatched. A tiny authority-before-receipt crash window can leave a
+  non-projected `AwaitingResult` authority; it cannot publish without proof.
+- Deferred startup outbox reconciliation retains and retries the exact frozen
+  bytes. Prior-epoch orphan cleanup after a later terminal reconciliation may
+  wait until the next companion restart; it does not trigger resynthesis or
+  duplicate publication.
+- Claude quota pauses that native gate. It is not evidence of unsupported
+  same-ID continuation. No complete D0-D6/Claude certification is claimed.
+
+Next: freeze/push the checked feature checkpoint, build and open the isolated
+candidate, verify its identity/signatures/data scope, collect native idle
+metrics, and exercise applicable owned-task completion/recovery cases only in
+disposable fixtures within the remaining native proof budget. Keep failed or
+unavailable gates explicit in the candidate handoff.
 
 Completion means the approved delegation cases work through verified native
 controls, required tests/evidence are recorded, and Riley can review an isolated

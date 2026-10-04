@@ -1280,7 +1280,7 @@ enum PoolEvent {
     Panic(tokio::task::JoinError),
     Respawn(Box<RespawnResult>),
     SteerAck(SteerAckEvent),
-    Cognition(local_cognition::CognitionEnvelope),
+    Cognition(Box<local_cognition::CognitionEnvelope>),
 }
 
 /// Wait for work completed by a checked-out slot or its background replacement.
@@ -2185,7 +2185,7 @@ async fn tokio_main() -> Result<()> {
                     }
                 } => {
                     let _ = result_rx;
-                    Some(PoolEvent::Cognition(request))
+                    Some(PoolEvent::Cognition(Box::new(request)))
                 }
                 head = async {
                     match relay_exchange_rx.as_mut() {
@@ -2754,7 +2754,12 @@ async fn tokio_main() -> Result<()> {
                 if let PromptSource::Channel(ch) = &result.source {
                     typing_channels.remove(ch);
                 }
-                resolve_private_cognition_result(&mut pending_cognition, &mut result);
+                resolve_private_cognition_result(
+                    &mut pending_cognition,
+                    &mut result,
+                    ctx.managed_final_publisher.as_ref(),
+                )
+                .await;
                 if handle_prompt_result(
                     &mut pool,
                     &mut queue,
@@ -2954,7 +2959,7 @@ async fn tokio_main() -> Result<()> {
             }
             Some(PoolEvent::Cognition(envelope)) => {
                 dispatch_private_cognition(
-                    envelope,
+                    *envelope,
                     &mut pool,
                     &queue,
                     &ctx,
@@ -4051,8 +4056,8 @@ fn dispatch_private_cognition(
         return;
     };
     let (control_tx, control_rx) = tokio::sync::oneshot::channel::<ControlSignal>();
+    let turn_id = private_cognition_turn_id(&request);
     let source = PromptSource::Continuity(Box::new(request));
-    let turn_id = Uuid::new_v4().to_string();
     let task_turn_id = turn_id.clone();
     agent.acp.clear_steer_rx();
     let result_tx = pool.result_tx();
@@ -4107,6 +4112,15 @@ fn dispatch_private_cognition(
         },
     );
     pending.insert(job_id, envelope.reply_tx);
+}
+
+fn private_cognition_turn_id(request: &luca_protocol::ResidentPrivateCognitionRequestV1) -> String {
+    match request {
+        luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } => {
+            request.delivery_id.as_str().to_owned()
+        }
+        _ => Uuid::new_v4().to_string(),
+    }
 }
 
 /// The disposable Codex ACP process used for a managed resident's private
@@ -4478,9 +4492,10 @@ async fn read_app_server_response(
     }
 }
 
-fn resolve_private_cognition_result(
+async fn resolve_private_cognition_result(
     pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
     result: &mut PromptResult,
+    context: Option<&luca_final_publisher::ManagedFinalPublisherContext>,
 ) {
     let PromptSource::Continuity(request) = &result.source else {
         return;
@@ -4488,6 +4503,20 @@ fn resolve_private_cognition_result(
     let Some(reply_tx) = pending.remove(request.job_id().as_str()) else {
         return;
     };
+    if let luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } =
+        request.as_ref()
+    {
+        let reply = resolve_runtime_task_delivery(
+            request,
+            &result.turn_id,
+            result.private_output.take(),
+            matches!(result.outcome, PromptOutcome::Ok(acp::StopReason::EndTurn)),
+            context,
+        )
+        .await;
+        let _ = reply_tx.send(reply);
+        return;
+    }
     let reply = if matches!(result.outcome, PromptOutcome::Ok(_)) {
         result
             .private_output
@@ -4512,6 +4541,9 @@ fn resolve_private_cognition_result(
                         luca_protocol::ResidentPrivateCognitionResultV1::Journal { result }
                     })
                 }
+                luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+                    ..
+                } => None,
             })
             .filter(|parsed| {
                 parsed.validate_against(request).is_ok()
@@ -4526,6 +4558,180 @@ fn resolve_private_cognition_result(
         local_cognition::CognitionReply::Unavailable("runtime_failed")
     };
     let _ = reply_tx.send(reply);
+}
+
+fn runtime_task_delivery_draft(
+    request: &luca_protocol::RuntimeTaskDeliveryRequestV1,
+    turn_id: &str,
+    output: Option<String>,
+    completed: bool,
+    now_unix_ms: u64,
+) -> Result<String, &'static str> {
+    if !completed {
+        return Err("runtime_failed");
+    }
+    if request.validate().is_err() || turn_id != request.delivery_id.as_str() {
+        return Err("invalid_result");
+    }
+    if now_unix_ms >= request.deadline_unix_ms.get() {
+        return Err("deadline_expired");
+    }
+    output
+        .filter(|draft| {
+            !draft.trim().is_empty() && draft.len() <= request.max_draft_bytes.get() as usize
+        })
+        .ok_or("invalid_result")
+}
+
+async fn resolve_runtime_task_delivery(
+    request: &luca_protocol::RuntimeTaskDeliveryRequestV1,
+    turn_id: &str,
+    output: Option<String>,
+    completed: bool,
+    context: Option<&luca_final_publisher::ManagedFinalPublisherContext>,
+) -> local_cognition::CognitionReply {
+    let now_unix_ms = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX);
+    let draft = match runtime_task_delivery_draft(request, turn_id, output, completed, now_unix_ms)
+    {
+        Ok(draft) => draft,
+        Err(code) => return local_cognition::CognitionReply::Unavailable(code),
+    };
+    let Some(context) = context else {
+        return local_cognition::CognitionReply::Unavailable("binding_unavailable");
+    };
+    let turn = match luca_final_publisher::ManagedFinalTurn::from_runtime_task_delivery(
+        context, request,
+    ) {
+        Ok(turn) => turn,
+        Err(_) => return local_cognition::CognitionReply::Unavailable("invalid_result"),
+    };
+    // The broker remains the only signer and relay authority. Preserve the
+    // durable receipt across retries; no owner event or direct relay write is
+    // fabricated here, and raw draft/provider bodies never enter the reply.
+    let handoff = turn.handoff(Arc::clone(&context.broker), draft, now_unix_ms);
+    let remaining = request.deadline_unix_ms.get().saturating_sub(now_unix_ms);
+    let publication = match tokio::time::timeout(Duration::from_millis(remaining), handoff).await {
+        Ok(Ok(publication)) => publication,
+        Ok(Err(_)) => {
+            return local_cognition::CognitionReply::Unavailable("publication_unavailable")
+        }
+        Err(_) => return local_cognition::CognitionReply::Unavailable("deadline_expired"),
+    };
+    let result = luca_protocol::RuntimeTaskDeliveryResultV1 {
+        protocol: luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL.to_owned(),
+        delivery_id: request.delivery_id.clone(),
+        task_id: request.task_id.clone(),
+        result_sha256: request.result_sha256.clone(),
+        publication,
+    };
+    if result.validate_against(request).is_err() {
+        return local_cognition::CognitionReply::Unavailable("invalid_result");
+    }
+    local_cognition::CognitionReply::Completed(Box::new(
+        luca_protocol::ResidentPrivateCognitionResultV1::RuntimeTaskDelivery { result },
+    ))
+}
+
+#[cfg(test)]
+mod runtime_task_delivery_tests {
+    use super::*;
+
+    fn request() -> luca_protocol::RuntimeTaskDeliveryRequestV1 {
+        serde_json::from_value(serde_json::json!({
+            "protocol": luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL,
+            "delivery_id": format!("task-result:{}", "d".repeat(64)),
+            "task_id": "task:fixture",
+            "owner_pubkey": "a".repeat(64),
+            "resident_pubkey": "b".repeat(64),
+            "conversation_id": "conversation:origin",
+            "binding_ref": format!("sha256:{}", "c".repeat(64)),
+            "result_sha256": format!("sha256:{}", "e".repeat(64)),
+            "runtime_family": "claude",
+            "summary": "PRIVATE_TASK_SUMMARY",
+            "result_excerpt": "PRIVATE_RESULT_REFERENCE",
+            "result_total_bytes": 128,
+            "result_is_excerpt": true,
+            "deadline_unix_ms": luca_protocol::JSON_SAFE_INTEGER_MAX,
+            "max_draft_bytes": 32,
+        }))
+        .expect("synthetic delivery request")
+    }
+
+    #[test]
+    fn private_task_turn_is_exact_delivery_id_across_dispatch_and_retry() {
+        let request = request();
+        let envelope = luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+            request: request.clone(),
+        };
+        assert_eq!(
+            private_cognition_turn_id(&envelope),
+            request.delivery_id.as_str()
+        );
+        assert_eq!(
+            private_cognition_turn_id(&envelope),
+            envelope.job_id().as_str()
+        );
+    }
+
+    #[test]
+    fn draft_requires_end_turn_same_identity_deadline_and_exact_utf8_bound() {
+        let request = request();
+        let turn = request.delivery_id.as_str();
+        assert_eq!(
+            runtime_task_delivery_draft(&request, turn, Some("λ".repeat(16)), true, 4_000),
+            Ok("λ".repeat(16))
+        );
+        for output in [None, Some("  ".into()), Some("λ".repeat(17))] {
+            assert_eq!(
+                runtime_task_delivery_draft(&request, turn, output, true, 4_000),
+                Err("invalid_result")
+            );
+        }
+        assert_eq!(
+            runtime_task_delivery_draft(
+                &request,
+                "random-private-turn",
+                Some("PRIVATE_DRAFT".into()),
+                true,
+                4_000
+            ),
+            Err("invalid_result")
+        );
+        assert_eq!(
+            runtime_task_delivery_draft(&request, turn, Some("PRIVATE_DRAFT".into()), false, 4_000),
+            Err("runtime_failed")
+        );
+        assert_eq!(
+            runtime_task_delivery_draft(
+                &request,
+                turn,
+                Some("PRIVATE_DRAFT".into()),
+                true,
+                request.deadline_unix_ms.get()
+            ),
+            Err("deadline_expired")
+        );
+    }
+
+    #[tokio::test]
+    async fn unavailable_signing_binding_never_returns_private_draft_or_directly_publishes() {
+        let request = request();
+        let reply = resolve_runtime_task_delivery(
+            &request,
+            request.delivery_id.as_str(),
+            Some("PRIVATE_DRAFT".into()),
+            true,
+            None,
+        )
+        .await;
+        assert!(matches!(
+            reply,
+            local_cognition::CognitionReply::Unavailable("binding_unavailable")
+        ));
+        let debug = format!("{reply:?}");
+        assert!(!debug.contains("PRIVATE_DRAFT"));
+        assert!(!debug.contains("PRIVATE_RESULT_REFERENCE"));
+    }
 }
 
 fn preempt_private_cognition(pool: &mut AgentPool) {

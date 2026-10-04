@@ -15,6 +15,34 @@ const ROOM = "general";
 const LUCA = TEST_IDENTITIES.alice.pubkey;
 const PICKED_FOLDER = "/synthetic/projects/picked";
 const PRIOR_FOLDER = "/synthetic/projects/last-used";
+const TARGET_FOLDER = "/synthetic/projects/exact-native-target";
+
+const browserMessages = new WeakMap<Page, { kind: string; text: string }[]>();
+
+test.beforeEach(({ page }) => {
+  const messages: { kind: string; text: string }[] = [];
+  browserMessages.set(page, messages);
+  page.on("pageerror", (error) =>
+    messages.push({ kind: "pageerror", text: error.message }),
+  );
+  page.on("console", (message) => {
+    if (message.type() === "error" || message.type() === "warning") {
+      messages.push({ kind: message.type(), text: message.text() });
+    }
+  });
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  await testInfo.attach("runtime-task-browser-messages", {
+    body: JSON.stringify(browserMessages.get(page) ?? [], null, 2),
+    contentType: "application/json",
+  });
+});
+
+async function captureMockState(page: Page, filename: string) {
+  await waitForAnimations(page);
+  await page.screenshot({ path: `output/playwright/${filename}` });
+}
 
 type Call = { command: string; payload: unknown };
 type HostState = {
@@ -23,6 +51,19 @@ type HostState = {
   tasks: RuntimeTaskProjection[];
   pickedFolder: string | null;
   runtimeStatusFails: boolean;
+  holdLists: boolean;
+  pendingListResolvers: Array<() => void>;
+  completedListCalls: number;
+  suppressDeliveryEvents: boolean;
+};
+
+type HostOptions = {
+  tasks?: RuntimeTaskProjection[];
+  proposals?: RuntimeTaskProposal[];
+  pickedFolder?: string | null;
+  runtimeStatusFails?: boolean;
+  holdLists?: boolean;
+  suppressDeliveryEvents?: boolean;
 };
 
 declare global {
@@ -74,21 +115,20 @@ function priorTask(
 // Only the proposal bookkeeping is simulated, the way the Rust host keeps it:
 // a respond resolves the proposal and the host announces the resolution. The
 // rest of the conversation runs on the real mock bridge.
-async function installHost(
-  page: Page,
-  options: {
-    tasks?: RuntimeTaskProjection[];
-    pickedFolder?: string | null;
-    runtimeStatusFails?: boolean;
-  },
-) {
+async function installHost(page: Page, options: HostOptions) {
   await page.addInitScript((options) => {
     const state: HostState = {
       calls: [],
-      proposals: {},
+      proposals: Object.fromEntries(
+        (options.proposals ?? []).map((item) => [item.proposalId, item]),
+      ),
       tasks: options.tasks ?? [],
       pickedFolder: options.pickedFolder ?? null,
       runtimeStatusFails: options.runtimeStatusFails ?? false,
+      holdLists: options.holdLists ?? false,
+      pendingListResolvers: [],
+      completedListCalls: 0,
+      suppressDeliveryEvents: options.suppressDeliveryEvents ?? false,
     };
     window.__RUNTIME_TASK_CARD_TEST__ = state;
     type Invoke = (
@@ -114,9 +154,57 @@ async function installHost(
             command,
             payload: structuredClone(payload ?? null),
           });
-          if (command === "list_runtime_task_proposals")
-            return Object.values(state.proposals);
-          if (command === "list_runtime_tasks") return state.tasks;
+          if (
+            command === "list_runtime_task_proposals" ||
+            command === "list_runtime_tasks"
+          ) {
+            const snapshot = structuredClone(
+              command === "list_runtime_task_proposals"
+                ? Object.values(state.proposals)
+                : state.tasks,
+            );
+            if (state.holdLists) {
+              await new Promise<void>((resolve) =>
+                state.pendingListResolvers.push(resolve),
+              );
+            }
+            state.completedListCalls += 1;
+            return snapshot;
+          }
+          if (command === "open_runtime_task_native_session") return null;
+          if (command === "retry_runtime_task_delivery") {
+            const taskId = (payload as { taskId: string }).taskId;
+            const index = state.tasks.findIndex(
+              (task) => task.taskId === taskId,
+            );
+            const previous = state.tasks[index];
+            if (!previous?.deliveryCanRetry)
+              throw new Error("This result summary cannot be retried.");
+            const retried: RuntimeTaskProjection = {
+              ...previous,
+              deliveryState: "pending_synthesis",
+              deliveryCanRetry: false,
+              updatedAt: new Date(
+                Date.parse(previous.updatedAt) + 1_000,
+              ).toISOString(),
+            };
+            state.tasks[index] = retried;
+            if (!state.suppressDeliveryEvents) {
+              window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+                "luca://runtime-task",
+                retried,
+              );
+            }
+            return retried;
+          }
+          if (command === "get_runtime_task_result") {
+            return {
+              taskId: (payload as { taskId: string }).taskId,
+              state: "succeeded",
+              result: "Synthetic completed task result.",
+              error: null,
+            };
+          }
           if (
             command === "list_runtime_connection_status" &&
             state.runtimeStatusFails
@@ -157,23 +245,35 @@ async function installHost(
   });
 }
 
-async function open(
-  page: Page,
-  options: {
-    tasks?: RuntimeTaskProjection[];
-    pickedFolder?: string | null;
-    runtimeStatusFails?: boolean;
-  } = {},
-) {
+async function open(page: Page, options: HostOptions = {}) {
   await installHost(page, options);
   await page.goto(`/?e2e=mock#/channels/${DM_ID}`);
   await expect(page.getByTestId("message-input")).toBeVisible({
     timeout: 30_000,
   });
-  await page.waitForFunction(() =>
-    window.__RUNTIME_TASK_CARD_TEST__?.calls.some(
-      (call) => call.command === "list_runtime_task_proposals",
-    ),
+  await page.waitForFunction(() => {
+    const calls = window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [];
+    return (
+      calls.some((call) => call.command === "list_runtime_task_proposals") &&
+      calls.some((call) => call.command === "list_runtime_tasks")
+    );
+  });
+}
+
+async function releaseLists(page: Page) {
+  const expectedCompletions = await page.evaluate(() => {
+    const state = window.__RUNTIME_TASK_CARD_TEST__;
+    if (!state) throw new Error("No host list boundary.");
+    state.holdLists = false;
+    const pending = state.pendingListResolvers.splice(0);
+    const expected = state.completedListCalls + pending.length;
+    for (const resolve of pending) resolve();
+    return expected;
+  });
+  await page.waitForFunction(
+    (expected) =>
+      (window.__RUNTIME_TASK_CARD_TEST__?.completedListCalls ?? 0) >= expected,
+    expectedCompletions,
   );
 }
 
@@ -251,6 +351,10 @@ test("Run waits for a folder, then starts the task exactly once", async ({
 }) => {
   await open(page, { pickedFolder: PICKED_FOLDER });
   const card = await raise(page);
+  await expect(card).toContainText(
+    "authorizes this exact task and one result summary by Luca back into this same conversation",
+  );
+  await expect(card).toContainText("does not authorize another provider task");
 
   // No project and no earlier task: there is nothing to run in yet.
   const run = card.getByRole("button", { name: "Run", exact: true });
@@ -307,6 +411,383 @@ test("a failed runtime check says so instead of going quiet", async ({
 test("the card in a resident DM", async ({ page }) => {
   await open(page, { tasks: [priorTask()] });
   await raise(page);
-  await waitForAnimations(page);
-  await page.screenshot({ path: "test-results/runtime-task-card.png" });
+  await captureMockState(page, "runtime-task-card.png");
+});
+
+test("a native-app follow-up locks the exact target and preserves its permission policy", async ({
+  page,
+}) => {
+  await open(page, {
+    tasks: [priorTask()],
+    pickedFolder: PICKED_FOLDER,
+    runtimeStatusFails: true,
+  });
+  const card = await raise(
+    page,
+    proposal({
+      operation: "send_message",
+      runtimeFamily: "codex",
+      sourceId: "opaque-source-ref",
+      sessionId: "opaque-session-ref",
+      targetLabel: "The exact requested Codex session",
+      targetWorkingFolder: TARGET_FOLDER,
+    }),
+  );
+  await expect(
+    card.getByText("The exact requested Codex session"),
+  ).toBeVisible();
+  await expect(card.getByRole("combobox", { name: "Runtime" })).toBeDisabled();
+  await expect(card.getByRole("combobox", { name: "Runtime" })).toHaveValue(
+    "codex",
+  );
+  await expect(
+    card.getByRole("button", { name: TARGET_FOLDER }),
+  ).toBeDisabled();
+  await expect(
+    card.getByRole("combobox", { name: "Permission mode" }),
+  ).toHaveCount(0);
+  await expect(card.getByText(/Full Access/)).toHaveCount(0);
+  await expect(card.getByText(PRIOR_FOLDER, { exact: true })).toHaveCount(0);
+  await expect(card.getByText("opaque-session-ref")).toHaveCount(0);
+  await expect(card).not.toContainText("one result summary");
+  await expect(card).toContainText("Delivery is not work completion");
+  await captureMockState(page, "runtime-task-send-confirmation.png");
+  const send = card.getByRole("button", { name: "Send", exact: true });
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(card).toHaveCount(0);
+  expect(await responses(page)).toEqual([
+    {
+      proposalId: "runtime-task-proposal-1",
+      approved: true,
+      runtimeFamily: "codex",
+      workingFolder: TARGET_FOLDER,
+      permissionMode: "normal",
+    },
+  ]);
+  expect(
+    await page.evaluate(() =>
+      window.__RUNTIME_TASK_CARD_TEST__?.calls.filter(
+        (call) => call.command === "pick_runtime_task_folder",
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test("saved-session continuation offers Continue, not a new task or target override", async ({
+  page,
+}) => {
+  await open(page, { runtimeStatusFails: true });
+  const card = await raise(
+    page,
+    proposal({
+      operation: "continue_session",
+      runtimeFamily: "codex",
+      sourceId: "opaque-source-ref",
+      sessionId: "opaque-saved-session-ref",
+      targetLabel: "Saved Codex work",
+      targetWorkingFolder: TARGET_FOLDER,
+    }),
+  );
+  await expect(
+    card.getByRole("button", { name: "Run", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    card.getByRole("button", { name: "Continue", exact: true }),
+  ).toBeEnabled();
+  await expect(card).toContainText(
+    "confirm this exact saved CLI session is not running in another client",
+  );
+  await expect(card).toContainText(
+    "File metadata and Polyphonic's local lease do not prove that it is idle everywhere",
+  );
+  await expect(card).toContainText(
+    "authorizes this exact task and one result summary by Luca back into this same conversation",
+  );
+  await captureMockState(page, "runtime-task-continue-confirmation.png");
+  await card.getByRole("button", { name: "Continue", exact: true }).click();
+  expect(await responses(page)).toEqual([
+    {
+      proposalId: "runtime-task-proposal-1",
+      approved: true,
+      runtimeFamily: "codex",
+      workingFolder: TARGET_FOLDER,
+      permissionMode: "normal",
+    },
+  ]);
+});
+
+test("missing native refs never fall back to the prior task folder", async ({
+  page,
+}) => {
+  await open(page, { tasks: [priorTask()], pickedFolder: PICKED_FOLDER });
+  const card = await raise(
+    page,
+    proposal({
+      operation: "send_message",
+      runtimeFamily: "codex",
+      targetLabel: "Unresolved native target",
+    }),
+  );
+  await expect(card.getByRole("alert")).toContainText("no work will be sent");
+  await expect(
+    card.getByRole("button", { name: "Send", exact: true }),
+  ).toBeDisabled();
+  await expect(card.getByRole("combobox", { name: "Runtime" })).toBeDisabled();
+  await expect(card.getByText(PRIOR_FOLDER, { exact: true })).toHaveCount(0);
+  expect(await responses(page)).toEqual([]);
+});
+
+for (const state of ["awaiting_native", "interrupted", "failed"] as const) {
+  test(`native ${state} remains a handoff without result, Stop or Retry`, async ({
+    page,
+  }) => {
+    const native = priorTask({
+      taskId: `native-${state}`,
+      state,
+      runtimeFamily: "codex",
+      operation: "send_message",
+      controlOwner: "native_app",
+      targetLabel: "Exact app-owned Codex work",
+      targetSessionRef: "opaque-session-ref",
+      workingFolder: TARGET_FOLDER,
+      canRetry: true,
+      deliveryState: "retryable",
+      deliveryCanRetry: true,
+    });
+    await open(page, { tasks: [native] });
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText(
+      state === "awaiting_native"
+        ? "Queued in Codex — work is not complete"
+        : "Delivery uncertain in Codex",
+    );
+    await expect(receipt).not.toContainText("Completed with");
+    await expect(receipt).not.toContainText("Stopped with");
+    await expect(
+      page.getByRole("button", { name: "Stop", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Retry", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      receipt.getByRole("button", { name: "Review task result" }),
+    ).toHaveCount(0);
+    await expect(
+      receipt.getByRole("button", { name: "Retry resident synthesis" }),
+    ).toHaveCount(0);
+    await expect(
+      receipt.getByRole("button", { name: "Retry result summary" }),
+    ).toHaveCount(0);
+    await expect(receipt).not.toContainText("Resident summary");
+    if (state === "awaiting_native") {
+      await captureMockState(page, "runtime-task-native-handoff.png");
+    }
+    await receipt
+      .getByRole("button", { name: "Open in Codex", exact: true })
+      .click();
+    const calls = await page.evaluate(
+      () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+    );
+    expect(
+      calls
+        .filter((call) => call.command === "open_runtime_task_native_session")
+        .map((call) => call.payload),
+    ).toEqual([{ taskId: native.taskId }]);
+    expect(
+      calls.filter((call) =>
+        [
+          "get_runtime_task_result",
+          "retry_runtime_task",
+          "retry_runtime_task_delivery",
+          "cancel_runtime_task",
+        ].includes(call.command),
+      ),
+    ).toEqual([]);
+  });
+}
+
+for (const [deliveryState, notice] of [
+  ["pending_synthesis", "Resident summary queued for this conversation."],
+  ["synthesizing", "Preparing the resident summary for this conversation."],
+  [
+    "prepared",
+    "Resident summary prepared; not yet submitted to this conversation.",
+  ],
+  [
+    "submitted",
+    "Resident summary submitted; publication is not yet confirmed.",
+  ],
+  ["published", "Resident summary published in this conversation."],
+] as const) {
+  test(`a ${deliveryState} summary does not expose the legacy owner-send retry`, async ({
+    page,
+  }) => {
+    await open(page, {
+      tasks: [priorTask({ deliveryState, deliveryCanRetry: false })],
+    });
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    await expect(receipt.getByRole("status")).toHaveText(notice);
+    await expect(
+      receipt.getByRole("button", { name: "Retry resident synthesis" }),
+    ).toHaveCount(0);
+    await expect(
+      receipt.getByRole("button", { name: "Retry result summary" }),
+    ).toHaveCount(0);
+    if (deliveryState !== "published") {
+      await expect(receipt).not.toContainText("Resident summary published");
+    }
+    if (deliveryState === "prepared" || deliveryState === "published") {
+      await captureMockState(page, `runtime-task-summary-${deliveryState}.png`);
+    }
+  });
+}
+
+test("authorized summary retry only retries delivery for the exact completed task", async ({
+  page,
+}) => {
+  const complete = priorTask({
+    deliveryState: "retryable",
+    deliveryCanRetry: true,
+  });
+  await open(page, { tasks: [complete] });
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await expect(receipt).toContainText("Resident summary needs attention");
+  await expect(
+    receipt.getByRole("button", { name: "Retry resident synthesis" }),
+  ).toHaveCount(0);
+  await captureMockState(page, "runtime-task-summary-retry.png");
+  await receipt.getByRole("button", { name: "Retry result summary" }).click();
+  await expect(receipt.getByRole("status")).toHaveText(
+    "Resident summary queued for this conversation.",
+  );
+  await expect(
+    receipt.getByRole("button", { name: "Retry result summary" }),
+  ).toHaveCount(0);
+  const calls = await page.evaluate(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+  );
+  expect(
+    calls
+      .filter((call) => call.command === "retry_runtime_task_delivery")
+      .map((call) => call.payload),
+  ).toEqual([{ taskId: complete.taskId }]);
+  expect(
+    calls.filter((call) =>
+      [
+        "retry_runtime_task",
+        "start_runtime_task",
+        "cancel_runtime_task",
+        "get_runtime_task_result",
+      ].includes(call.command),
+    ),
+  ).toEqual([]);
+  expect(
+    calls.some((call) =>
+      JSON.stringify(call.payload).includes("Please synthesize the completed"),
+    ),
+  ).toBe(false);
+});
+
+test("summary retry uses its command receipt even when the event is missed", async ({
+  page,
+}) => {
+  const complete = priorTask({
+    deliveryState: "retryable",
+    deliveryCanRetry: true,
+  });
+  await open(page, { tasks: [complete], suppressDeliveryEvents: true });
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await receipt.getByRole("button", { name: "Retry result summary" }).click();
+  await expect(receipt.getByRole("status")).toHaveText(
+    "Resident summary queued for this conversation.",
+  );
+  await expect(
+    receipt.getByRole("button", { name: "Retry result summary" }),
+  ).toHaveCount(0);
+  const calls = await page.evaluate(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+  );
+  expect(
+    calls.filter((call) => call.command === "retry_runtime_task_delivery"),
+  ).toHaveLength(1);
+  expect(
+    calls.filter(
+      (call) =>
+        call.command === "start_runtime_task" ||
+        call.command === "retry_runtime_task",
+    ),
+  ).toEqual([]);
+});
+
+test("a result summary cannot retry without native delivery authority", async ({
+  page,
+}) => {
+  await open(page, {
+    tasks: [priorTask({ deliveryState: "retryable", deliveryCanRetry: false })],
+  });
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await expect(receipt).toContainText("Resident summary needs attention");
+  await expect(
+    receipt.getByRole("button", { name: "Retry result summary" }),
+  ).toHaveCount(0);
+  await expect(
+    receipt.getByRole("button", { name: "Retry resident synthesis" }),
+  ).toHaveCount(0);
+});
+
+test("a legacy receipt retains its explicit manual resident synthesis action", async ({
+  page,
+}) => {
+  await open(page, { tasks: [priorTask()] });
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await expect(
+    receipt.getByRole("button", { name: "Retry resident synthesis" }),
+  ).toBeEnabled();
+  await expect(
+    receipt.getByRole("button", { name: "Retry result summary" }),
+  ).toHaveCount(0);
+  await expect(receipt.getByRole("status")).toHaveCount(0);
+});
+
+test("a subscribed event survives an older list backfill and a stale update", async ({
+  page,
+}) => {
+  const older = priorTask({
+    state: "active",
+    runtimeFamily: "codex",
+    controlOwner: "native_app",
+  });
+  await open(page, { tasks: [older], holdLists: true });
+  const acknowledged = {
+    ...older,
+    state: "awaiting_native" as const,
+    updatedAt: "2026-10-04T12:00:00Z",
+  };
+  await page.evaluate((task) => {
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://runtime-task", task);
+  }, acknowledged);
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await expect(receipt).toContainText("Queued in Codex — work is not complete");
+  await releaseLists(page);
+  await page.evaluate((task) => {
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://runtime-task", task);
+  }, older);
+  await expect(receipt).toContainText("Queued in Codex — work is not complete");
+});
+
+test("a resolved proposal is not resurrected by an in-flight list", async ({
+  page,
+}) => {
+  const request = proposal();
+  await open(page, { proposals: [request], holdLists: true });
+  const card = await raise(page, request);
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await releaseLists(page);
+  await expect(card).toHaveCount(0);
+  expect(await responses(page)).toEqual([
+    { proposalId: request.proposalId, approved: false },
+  ]);
 });
