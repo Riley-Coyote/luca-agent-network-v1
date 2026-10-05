@@ -391,13 +391,13 @@ and will be embedded in the isolated candidate's signed source receipt.
 | Task-card Playwright | 23 / 23 pass on fresh E2E assets, including missed delivery-event recovery, exact continuation and native queue handoffs. Mock-backed UI proof, not a native complete delegation loop. |
 | Conversation regressions | 10 / 10 conversation-reliability, 2 / 2 send-binding, 1 / 1 messaging gate and 2 / 2 idle activity/focus cases pass. |
 | Active activity shelf | Six failures in the bounded regression run; renderer/spec bytes are unchanged from beta.13. An exact untouched release build reproduces five same Sandpile assertions; its sixth case fails earlier at chat-title assertion. No repair/design change included. |
-| Desktop scoped Rust tests | 120 / 120 runtime-task/authority/recovery tests and 35 / 35 managed-publication tests pass. Seven additional storage-boundary tests cover the final read-bound repairs. |
+| Desktop scoped Rust tests | 122 / 122 runtime-task/authority/recovery tests and 35 / 35 managed-publication tests pass. Seven storage-boundary tests cover the final read-bound repairs; two additional relay-scope cases cover the native local-workspace regression. |
 | Protocol, MCP, ACP | 81 protocol tests, 13 MCP operation tests and 47 runner/private delivery tests pass; three private-frame tests also pass. |
 | Desktop full Rust suite | Earlier integrated batch: 2,616 passed, 18 ignored, two native-runtime probe timeout failures. The unchanged probe module passes all three bounded-command tests when run serially. A full untouched-release Rust reproduction is not established; do not claim the entire suite green. |
 | Clippy | Desktop library and ACP library pass with `-D warnings`. |
 | Scoped formatting / whitespace | All 51 changed/new Rust files and seven changed TS/TSX/spec files pass scoped formatting; `git diff --check` passes. |
 | Full `just ci` | Stops at workspace formatting in untouched `buzz-db` files. Exact beta.13 reproduces those formatting hunks. Full CI is not green and no unrelated formatting sweep is included. |
-| Candidate entrypoint | 14 / 14 fixture checks, Bash syntax, ShellCheck and isolated config contract pass. Requires a clean feature checkpoint; builds six real ARM64 sidecars in dedicated storage, then signs/verifies a separate app. No placeholders are accepted for packaging. |
+| Candidate entrypoint | 17 / 17 fixture checks, Bash syntax, ShellCheck and isolated config contract pass. Requires a clean feature checkpoint; builds six real ARM64 sidecars in dedicated storage, then signs/verifies a separate app. Absolute Node/local Tauri and absolute Cargo preserve the pinned cache/compiler/offline environment across Hermit boundaries. No placeholders are accepted for packaging. |
 | Native packaging | Initial clean `c2d7aef85` checkpoint built successfully with six real ARM64 helpers; source/isolation receipt, helper hashes and Developer ID signature verified. Not launched or installed. Rebuild from the subsequent storage-hardening checkpoint before native acceptance. |
 | Final storage read bounds | Receipt scan counts all entries, including ignored/failed entries, caps work at 40,000 entries and checks a two-second cooperative deadline. Exhaustion rejects the whole selection, not a partial newest set. Delivery-store reads check opened-handle metadata and consume at most 2 MiB plus one sentinel byte before validation. Boundary, growth and failed-read fixtures pass. |
 | Receipt-cache microbenchmark | Same outputs on exact baseline/candidate fixtures. Median batch-mean cost at 512 receipts: 15.315 vs 24.740 microseconds (+9.426 microseconds). This is a pure cache update, not native CPU, fsync or provider latency. Native measurements remain pending. |
@@ -430,11 +430,37 @@ Bounded V1 limitations:
   not preemptive wall-clock guarantees. The catalogue's outer three-second
   host budget does not interrupt an already-running filesystem operation.
 
-Next: freeze/push the storage-hardening checkpoint, rebuild and open the isolated
-candidate, verify its identity/signatures/data scope, collect native idle
-metrics, and exercise applicable owned-task completion/recovery cases only in
-disposable fixtures within the remaining native proof budget. Keep failed or
-unavailable gates explicit in the candidate handoff.
+### Native candidate preflight — 2026-10-05 UTC
+
+Clean pushed `1269d0fb4` packaged successfully with six real ARM64 helpers,
+verified Developer ID signatures, signed helper hashes and exact source/data
+receipts. No installed application was replaced. The candidate was visibly
+inspected in native CUA under its distinct bundle identity and fresh profile.
+The launch command must remain in an owned, held-open execution session for
+this environment; the first short-lived command's process disappeared without
+a matching crash report, while the held-open launch survived and was stopped
+gracefully by its exact recorded PID.
+
+Fresh onboarding selected authenticated Codex with every personal-agent import
+off and no Brain/history grants. Before any provider prompt/session, Meet Luca
+failed at the new publisher's relay-scope derivation: its live supervised
+loopback endpoint was normalized to the stable local sentinel and then rejected
+by the network-URL validator. This is a candidate regression, not successful
+native acceptance. The repair validates a concrete network URL first and hashes
+the sentinel only for the exact active-supervised match. Raw sentinels, custom
+schemes, credentials and unrelated loopback endpoints remain rejected or
+distinct; owner/resident/conversation/binding/membership authority is unchanged.
+Two added regression cases cover that boundary and remote behavior. Native
+rebuild/retry remains pending at this checkpoint.
+
+Actual native proof usage remains **3/12 disposable IDs, 12/40 prompt attempts**.
+Up to five additional IDs/ten attempts are reserved for welcome/continuity,
+synthetic delegation and tool-free result return, including automatic work.
+
+Next: freeze/push the local-relay/cache repairs, rebuild and reopen the isolated
+candidate, collect native idle metrics, and exercise applicable owned-task
+completion/recovery cases only in disposable fixtures within the remaining
+native proof budget. Keep failed or unavailable gates explicit in the handoff.
 
 Completion means the approved delegation cases work through verified native
 controls, required tests/evidence are recorded, and Riley can review an isolated

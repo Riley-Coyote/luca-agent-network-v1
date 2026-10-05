@@ -40,6 +40,69 @@ fn store() -> (tempfile::TempDir, RuntimeTaskDeliveryStore) {
 }
 
 #[test]
+fn local_relay_scope_is_stable_only_for_the_exact_supervised_coordinate() {
+    let local =
+        relay_ref_with_supervised_url("ws://127.0.0.1:4317", Some("ws://127.0.0.1:4317")).unwrap();
+    for active in ["ws://127.0.0.1:4317", "ws://127.0.0.1:49152"] {
+        assert_eq!(
+            relay_ref_with_supervised_url(active, Some(active)).unwrap(),
+            local
+        );
+        assert_ne!(relay_ref_with_supervised_url(active, None).unwrap(), local);
+    }
+    assert_ne!(
+        relay_ref_with_supervised_url("ws://127.0.0.1:4317", Some("ws://127.0.0.1:49152")).unwrap(),
+        local
+    );
+    assert!(community_id_for_relay_ref(&local).is_ok());
+    for supervised in [
+        None,
+        Some("ws://127.0.0.1:4317"),
+        Some(crate::local_relay::LOCAL_RELAY_SENTINEL),
+    ] {
+        assert_eq!(
+            relay_ref_with_supervised_url(crate::local_relay::LOCAL_RELAY_SENTINEL, supervised),
+            Err(RuntimeTaskDeliveryError::Invalid)
+        );
+    }
+}
+
+#[test]
+fn relay_scope_rejects_sentinel_variants_and_preserves_remote_validation() {
+    for invalid in [
+        crate::local_relay::LOCAL_RELAY_SENTINEL,
+        "buzz-local://another-device",
+        "buzz-local://on-this-device/",
+        "buzz-local://on-this-device?auth=fixture",
+        "buzz-local://on-this-device#fragment",
+        "buzz-local://user@on-this-device",
+        "file:///tmp/relay",
+        "wss://user:fixture@relay.example",
+        "wss://user@relay.example",
+        "not a relay URL",
+    ] {
+        assert_eq!(
+            relay_ref_from_network_url(invalid),
+            Err(RuntimeTaskDeliveryError::Invalid),
+            "{invalid}"
+        );
+    }
+    let remote = relay_ref_from_network_url("wss://relay.example/").unwrap();
+    assert_eq!(
+        relay_ref_from_network_url("wss://relay.example/?auth=fixture#fragment").unwrap(),
+        remote
+    );
+    assert_ne!(
+        relay_ref_from_network_url("wss://another.example/").unwrap(),
+        remote
+    );
+    assert_ne!(
+        relay_ref_with_supervised_url("ws://127.0.0.1:4317", Some("ws://127.0.0.1:4317")).unwrap(),
+        remote
+    );
+}
+
+#[test]
 fn delivery_store_reader_bounds_growth_and_accepts_the_exact_byte_limit() {
     use std::io::Cursor;
 

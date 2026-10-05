@@ -1318,11 +1318,23 @@ pub(crate) fn origin_relay_ref(
     app: &AppHandle,
     relay_url: &str,
 ) -> Result<Sha256Ref, RuntimeTaskDeliveryError> {
-    let logical = crate::local_relay::relay_url(&app.state::<crate::local_relay::RuntimeState>())
-        .filter(|active| active == relay_url)
-        .map(|_| crate::local_relay::LOCAL_RELAY_SENTINEL)
-        .unwrap_or(relay_url);
-    relay_ref_from_logical_url(logical)
+    let supervised =
+        crate::local_relay::relay_url(&app.state::<crate::local_relay::RuntimeState>());
+    relay_ref_with_supervised_url(relay_url, supervised.as_deref())
+}
+
+fn relay_ref_with_supervised_url(
+    relay_url: &str,
+    supervised_url: Option<&str>,
+) -> Result<Sha256Ref, RuntimeTaskDeliveryError> {
+    // A persisted marker is never a usable endpoint. Validate the concrete
+    // network coordinate before normalizing the exact supervised endpoint.
+    let network_ref = relay_ref_from_network_url(relay_url)?;
+    if supervised_url == Some(relay_url) {
+        hash_canonical_relay_coordinate(crate::local_relay::LOCAL_RELAY_SENTINEL)
+    } else {
+        Ok(network_ref)
+    }
 }
 
 pub(crate) fn community_id_for_relay_ref(
@@ -1441,7 +1453,7 @@ fn exact_relay_coordinate<'a>(
     Ok(event)
 }
 
-fn relay_ref_from_logical_url(relay_url: &str) -> Result<Sha256Ref, RuntimeTaskDeliveryError> {
+fn relay_ref_from_network_url(relay_url: &str) -> Result<Sha256Ref, RuntimeTaskDeliveryError> {
     let mut parsed = url::Url::parse(relay_url).map_err(|_| RuntimeTaskDeliveryError::Invalid)?;
     if !matches!(parsed.scheme(), "ws" | "wss" | "http" | "https")
         || !parsed.username().is_empty()
@@ -1452,7 +1464,10 @@ fn relay_ref_from_logical_url(relay_url: &str) -> Result<Sha256Ref, RuntimeTaskD
     }
     parsed.set_query(None);
     parsed.set_fragment(None);
-    let canonical = parsed.as_str().trim_end_matches('/');
+    hash_canonical_relay_coordinate(parsed.as_str().trim_end_matches('/'))
+}
+
+fn hash_canonical_relay_coordinate(canonical: &str) -> Result<Sha256Ref, RuntimeTaskDeliveryError> {
     let mut hasher = Sha256::new();
     hasher.update(RELAY_DOMAIN.as_bytes());
     hasher.update(b"\0");
