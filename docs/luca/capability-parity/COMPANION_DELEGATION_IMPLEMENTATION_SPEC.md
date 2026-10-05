@@ -330,23 +330,26 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
 | D2 | Implemented; deterministic checks pass | Granted-source metadata lookup, exact opaque session reference, canonical native workspace, bounded metadata reads and confirmation-time revalidation. No title/latest guesses or silent source/session switch. |
 | D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
-| D4 | Implemented; native return exposed two narrow repair gaps | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. One completed task returned as one signed Luca summary. The busy-admission delay and startup-warning contamination are repaired in source; fresh native acceptance and published-result restart remain pending. |
-| D5 | Implemented; 23 focused UI cases pass | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and command-receipt recovery when a live event is missed. Existing visual design retained. Native complete-loop acceptance remains pending. |
-| D6 | Verification in progress; isolated signed packaging passed | Actual native welcome, owned worker completion, primary same-ID restoration and one signed summary observed. That summary truthfully reported a contaminated saved answer after a roughly four-minute delay, so clean/prompt return acceptance is not claimed. Fresh native return/restart and comparative performance gates remain pending; no release or installed replacement authorized. |
+| D4 | Owned Codex return/restart verified | Persist-before-spawn, bounded private storage, correlated completion, stop/shutdown races, coalesced recovery and frozen-byte publication recovery. A fresh clean result returned on one synthesis attempt in about 36.2 seconds after worker completion, while away from the chat. Published receipt/result survived restart without replay, duplicate publication or another provider turn. Other harness gates remain pending. |
+| D5 | Implemented; one native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 23 focused UI cases pass on freshly regenerated E2E assets. Native Run, background completion, original-chat summary and raw result review verified; this does not certify every approval/cancellation path. Existing visual design retained. |
+| D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `3e2183ef4`, six real ARM64 helpers, fresh UI checks, clean native owned Codex return and post-publication restart verified. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
 is not a claim of cancellation, approval mediation or a complete delegation loop.
 
-Budget used: **8 / 12 disposable IDs, 19 / 40 prompt attempts** (17 completed
+Budget used: **11 / 12 disposable IDs, 23 / 40 prompt attempts** (21 completed
 Codex turns, one runner attempt aborted before verified completion, one Claude
-quota rejection). The isolated candidate is stopped; its completed worker
-results and delivery records are retained. The external native-app fixture
-remains idle. No personal session was a test target. The current candidate
-reservation is up to four further IDs/eight attempts, capped at twelve
-IDs/27 attempts including automatic welcome/continuity/synthesis. This remains
-inside the approved total 12-ID/40-attempt budget. No automatic
+quota rejection). The isolated candidate is open, with its disposable profile,
+completed results and delivery records retained. The external native-app fixture
+remains idle. No personal session was a test target. The final native check
+stayed within the prior twelve-ID/27-attempt candidate reservation, counting
+automatic continuity/synthesis. No additional provider prompt is planned; do
+not assume another full-loop test fits the one remaining ID. No automatic
 Claude retry, paid API path, model fallback, or native-profile repair is authorized.
+
+Current review instructions and evidence boundaries:
+[candidate handoff](COMPANION_DELEGATION_CANDIDATE_HANDOFF.md).
 
 ### Historical checkpoint verification — 2026-10-04
 
@@ -579,3 +582,58 @@ controls, required tests/evidence are recorded, and Riley can review an isolated
 candidate. It does not mean merged, installed, notarized, released, or publicly
 available. Any unsupported core case remains explicitly incomplete until Riley
 approves a changed scope.
+
+### Fresh clean native acceptance and restart — 2026-10-05 UTC
+
+The signed candidate is built from clean, pushed source
+`3e2183ef47760bdc48ca10dd97ef689e3409755d`. All six real ARM64 helpers and
+deep/strict signatures passed verification. A subsequent documentation-only
+handoff commit does not change the artifact's source receipt or claim a rebuild.
+After the Tauri build overwrote dist, `build:e2e` was regenerated and all 23
+task-card Playwright cases passed (one worker, port 5839, 59.5 seconds).
+
+The Mac restart interrupted inspection before the new request was sent. Exact
+relay checks established zero occurrences of the new marker and one prior
+published event before continuing. The primary Codex provider session remained
+`01a10981-7e9a-77a0-bd4a-64e3a4792bfa`; its managed binding remained
+`sha256:82a42e6c925e9a81889efefd113f68367f7700e16e74146e7fd147ededebf250`.
+The existing completed tasks were not retried or migrated.
+
+Distinct task `66705134-b269-402c-ad18-b1230b78087b` was approved once through
+the native Run sheet: Codex, Ask when needed, exact disposable fixture. Worker
+`01a10a54-26f4-7761-b022-8f84966bfb14` completed one turn with zero tool calls
+and no fixture changes. The saved result is byte-for-byte
+`POLYPHONIC_D6_CLEAN_RETURN_0b93e1`, without the startup warning or trailing bytes.
+
+While the user-facing view was on Activity, private result synthesis completed
+once and published Luca event
+`b8de180b143d440f112e6e7da5e7125154128188cfeeb110b83a96e1f991e20e` into the
+original conversation. Read-only relay SQL confirms exactly one event, the
+expected Luca signer, kind 9, original conversation and 64-byte signature.
+Native AX and actual-scale screenshot inspection confirmed the summary,
+Published status and exact raw result under Review task result. The summary
+does not echo the opaque marker, consistent with the test request.
+
+Worker completed at 04:30:56.770821Z; Published finalized at 04:31:33Z, about
+36.2 seconds later. The delivery used one synthesis attempt and finalized its
+outbox, replacing the prior failed 235-second/busy-lease case. Ordinary private
+continuity also completed once; these automatic sessions are counted in the
+11-ID/23-attempt total above.
+
+The exact launcher gracefully stopped owned PID 33066 and restarted as PID
+43587. At 04:37:09Z, native UI again showed the completed result/summary;
+read-only SQL still counted one old and one fresh published event. Result
+digest, delivery state, synthesis attempt, finalized outbox, provider IDs and
+all provider turn counts remained unchanged. No new model prompt was used for
+restart verification. The candidate remains open for Riley.
+
+Five post-return process samples over eight seconds measured 25 owned
+descendants: aggregate CPU 3.4–5.2%, RSS 927,696–927,776 KiB; app CPU 0–0.1%,
+RSS 147,552–147,584 KiB. Separate WebKit XPC processes are excluded. This is a
+bounded observation, not a controlled release/candidate performance comparison
+or a settled-idle certification. That D6 gate remains incomplete.
+
+Shipping checkout remains `f96a3c7bc` with its exact recorded dirty design
+files intact. Installed `/Applications/Polyphonic.app` remains beta.13 /
+`chat.polyphonic.desktop`. No merge, notarization, updater/feed change, installed
+replacement, personal-session mutation or Claude retry occurred.
