@@ -27,7 +27,7 @@ No merge, installation, public release or updater change is authorized.
   `/Users/rileycoyote/Documents/Repositories/.codex-workspaces/polyphonic-companion-delegation-2026-10-04`
 - Feature branch: `codex/companion-delegation-2026-10-04` (checkpoint commits pushed).
 - Shipped base: beta.13, `f84aaafa53386f213b832441983838b23c32c745`.
-- Signed artifact source: `3e2183ef47760bdc48ca10dd97ef689e3409755d`.
+- Signed artifact source: `4c2a8448e7d1feba9212cff0e7d16e18579d652a`.
   The final handoff is a later documentation-only commit, not an artifact rebuild.
 - Open app:
   `/Volumes/LaCie/Luca-Development/build/companion-delegation-candidate-target/debug/bundle/macos/Polyphonic Companion Delegation Candidate.app`
@@ -38,9 +38,14 @@ No merge, installation, public release or updater change is authorized.
   that bundle. Six real ARM64 helpers and Developer ID deep/strict signatures
   verified; debug candidate, not notarized and not installed.
 
-The app is already open on the synthetic Luca conversation. Use Review task
-result to see the exact marker. Its test owner/profile is not Riley's live data.
-The installed beta.13 and the shipping/design worktree remain untouched.
+The rebuilt app is open on the existing synthetic Luca conversation. Its prior
+task receipts and exact clean result are retained; the raw result still matches
+`sha256:d9f19b6ed4ccb68f41b9fc5148d1867b2b03b7d6b3fe8a39ff70f5b81afa28d7`.
+No new provider session/purpose rows were allocated on this restart, and the
+installed Nest skill contains the corrected Brain-optional guidance. The old
+Brain-required reply remains history, not a new response from this build. Its
+test owner/profile is not Riley's live profile; no personal history was inspected
+by these checks. Installed beta.13 and the shipping/design tree remain untouched.
 
 The existing opt-in entrypoint is
 `scripts/build-companion-delegation-candidate.sh`. Its exact-HEAD/clean-tree
@@ -71,10 +76,13 @@ There are no separate design changes.
 Current source checks pass: 4,106 frontend helper tests, 245 focused desktop
 native tests, 15 repository MCP tests, four ACP managed-prompt tests, all three
 relevant libraries' Clippy with warnings denied, scoped formatting, typecheck,
-production/E2E builds, 31 task-card Playwright cases and diff checks. The signed
-artifact above is still the older checkpoint until the explicit rebuild.
-The native owned Codex loop and post-publication restart passed on that older
-signed source; they are not fresh provider proof of the Brain-off lookup.
+production/E2E builds, and diff checks. After native packaging, E2E assets were
+regenerated again: all 46 task-card, first-conversation and activity-trace cases
+pass, including all 31 task-card cases. The candidate's six real ARM64 helpers,
+exact source/isolation receipt and Developer ID strict/deep signatures pass.
+The native owned Codex loop was proved on previous signed source `3e2183ef4`;
+this rebuild's launch/persistence inspection is not fresh provider proof of
+the Brain-off lookup or cancellation paths.
 
 Full certification remains incomplete:
 

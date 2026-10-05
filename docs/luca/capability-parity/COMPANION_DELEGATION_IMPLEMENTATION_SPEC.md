@@ -343,7 +343,7 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
 | D4 | Owned Codex return/restart verified | Persist-before-spawn, bounded private storage, correlated completion, stop/shutdown races, coalesced recovery and frozen-byte publication recovery. A fresh clean result returned on one synthesis attempt in about 36.2 seconds after worker completion, while away from the chat. Published receipt/result survived restart without replay, duplicate publication or another provider turn. Other harness gates remain pending. |
 | D5 | Implemented; one prior native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 31 focused UI cases pass on freshly regenerated E2E assets, including stale raw results and Stop failures/races. Native Run, background completion, original-chat summary and raw result review were verified on signed checkpoint `3e2183ef4`; this does not certify every approval/cancellation path or the newer Brain-off lookup. Existing visual design retained. |
-| D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `3e2183ef4`, six real ARM64 helpers, fresh UI checks, clean native owned Codex return and post-publication restart verified. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
+| D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `4c2a8448e`, six real ARM64 helpers, 46 fresh post-build UI checks and native launch/persistence inspection pass. Clean native owned Codex return was proved on prior source `3e2183ef4`, not a new provider loop on this rebuild. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
@@ -694,3 +694,18 @@ No new native sessions or provider prompts were used for these deterministic
 checks. Budget remains 11/12 disposable IDs and 23/40 prompt attempts. A new
 full-loop proof needs a budget decision before it can allocate additional IDs;
 Claude continuation remains behind its existing native proof gate.
+
+The correction checkpoint `4c2a8448e7d1feba9212cff0e7d16e18579d652a` is pushed
+and rebuilt with the existing isolated entrypoint. The exact old owned candidate
+PID 43587 was gracefully stopped, preserving its state; new owned PID 82849
+opened the signed candidate from that source. Six real ARM64 helpers and the
+strict/deep Developer ID signatures were verified before launch. After the Tauri
+build, freshly regenerated E2E assets passed all 46 task-card, first-conversation
+and activity-trace cases. The existing native conversation was visually inspected
+without sending a prompt or changing window/display settings. The clean task
+still has a succeeded receipt and the same exact raw-result hash; the resident
+runtime-session and purpose files are byte-identical across this restart. The
+generated installed Nest skill contains the new Brain-optional guidance.
+This is launch/persistence verification, not a new native delegation or model
+behavior proof. Subsequent handoff updates are documentation-only; the artifact
+keeps the exact `4c2a8448e` source receipt.
