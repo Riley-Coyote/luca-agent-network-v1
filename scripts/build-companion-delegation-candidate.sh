@@ -266,8 +266,23 @@ verify_bundle() {
     /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 }
 
+capture_native_node() {
+    local native_node
+    native_node=$(node -p 'process.execPath') || fail "cannot resolve the existing Node executable"
+    [[ "$native_node" == /* && ! "$native_node" =~ [[:cntrl:]] && -f "$native_node" && ! -L "$native_node" && -s "$native_node" && -x "$native_node" ]] || fail "resolved Node must be an existing absolute executable"
+    printf '%s\n' "$native_node"
+}
+
+build_tauri_candidate() {
+    local native_node="$1" rust_bin="$2"
+    # Hermit pnpm/node shims reapply their Cargo home and PATH. Bypass both
+    # boundaries so Tauri inherits the caller's pinned toolchain and user cache.
+    (cd "$REPO_ROOT/desktop" && "$native_node" ./node_modules/@tauri-apps/cli/tauri.js build --runner "$rust_bin/cargo" \
+        --debug --bundles app --config "$CONFIG_PATH" --ci --no-sign -- --offline --locked)
+}
+
 build_candidate() {
-    local rust_bin signing name built_revision
+    local rust_bin native_node signing name built_revision
     refuse_running_candidate
     lock_instance
     clear_candidate_environment
@@ -275,6 +290,7 @@ build_candidate() {
     # Generated Hermit activation is independently maintained by the repository.
     # shellcheck source=/dev/null
     . ./bin/activate-hermit
+    native_node=$(capture_native_node)
     rust_bin="$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin"
     [[ -x "$rust_bin/cargo" && -x "$rust_bin/rustc" && -d "$HOME/.cargo" ]] || fail "Rust 1.95.0 and the existing user Cargo cache are required"
     export PATH="$rust_bin:$PATH" CARGO_HOME="$HOME/.cargo" CARGO_TARGET_DIR="$TARGET_DIR"
@@ -298,7 +314,7 @@ build_candidate() {
         chmod +x "$REPO_ROOT/desktop/src-tauri/binaries/$name-aarch64-apple-darwin"
         [[ "$(sha256 "$TARGET_DIR/debug/$name")" == "$(sha256 "$REPO_ROOT/desktop/src-tauri/binaries/$name-aarch64-apple-darwin")" ]] || fail "staged helper bytes differ from the current build"
     done
-    (cd desktop && pnpm exec tauri build --debug --bundles app --config "$CONFIG_PATH" --ci --no-sign -- --offline --locked)
+    build_tauri_candidate "$native_node" "$rust_bin"
     # Source must stay frozen while Cargo/Tauri run; ignored outputs are allowed.
     built_revision="$SOURCE_REVISION"
     assert_source

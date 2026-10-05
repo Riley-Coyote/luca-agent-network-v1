@@ -107,6 +107,80 @@ test("candidate env scrub removes identity/build injection without changing nati
   assert.doesNotMatch(result.stdout + result.stderr, /fixture-secret/);
 });
 
+test("native Node capture keeps the existing absolute executable and validates probe arguments", () => {
+  temporary((root) => {
+    const executable = join(root, "existing Node");
+    writeFileSync(executable, "fixture-only-executable", { mode: 0o700 });
+    const result = shell(`
+      FIXTURE_NATIVE_NODE="$1"
+      node() {
+        [[ "$#" == 2 && "$1" == -p && "$2" == process.execPath ]]
+        printf '%s\\n' "$FIXTURE_NATIVE_NODE"
+      }
+      capture_native_node
+    `, [executable]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `${executable}\n`);
+  });
+});
+
+test("native Node capture fails closed for invalid or unavailable executables", () => {
+  temporary((root) => {
+    const zero = join(root, "zero");
+    const nonexecutable = join(root, "nonexecutable");
+    const executable = join(root, "executable");
+    const linked = join(root, "linked");
+    writeFileSync(zero, "", { mode: 0o700 });
+    writeFileSync(nonexecutable, "fixture-only", { mode: 0o600 });
+    writeFileSync(executable, "fixture-only", { mode: 0o700 });
+    symlinkSync(executable, linked);
+    for (const path of ["", "relative-node", `${root}/control\npath`, root, join(root, "missing"), zero, nonexecutable, linked]) {
+      const result = shell('FIXTURE_NATIVE_NODE="$1"; node() { printf "%s" "$FIXTURE_NATIVE_NODE"; }; capture_native_node', [path]);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /existing absolute executable/);
+      assert.equal(result.stdout, "");
+    }
+    const unavailable = shell('node() { return 17; }; capture_native_node');
+    assert.notEqual(unavailable.status, 0);
+    assert.match(unavailable.stderr, /cannot resolve/);
+  });
+});
+
+test("Tauri invocation bypasses poisoned Hermit shims and preserves exact pinned Cargo arguments and environment", () => {
+  temporary((root) => {
+    const nativeNode = join(root, "native Node");
+    const rustBin = join(root, "pinned Rust bin");
+    const cargoHome = join(root, "user Cargo cache");
+    const target = join(root, "dedicated target");
+    const poisoned = join(root, "poisoned shims");
+    mkdirSync(poisoned);
+    for (const name of ["node", "pnpm", "cargo", "tauri"]) {
+      writeFileSync(join(poisoned, name), '#!/bin/bash\nprintf "unexpected poisoned shim\\n" >&2\nexit 91\n', { mode: 0o700 });
+    }
+    const capture = `process.stdout.write(JSON.stringify({ cwd: process.cwd(), argv: process.argv.slice(1), cargoHome: process.env.CARGO_HOME, target: process.env.CARGO_TARGET_DIR, rustc: process.env.RUSTC, rustdoc: process.env.RUSTDOC, offline: process.env.CARGO_NET_OFFLINE, path: process.env.PATH }));`;
+    writeFileSync(nativeNode, `#!/bin/bash\nexec ${quote(process.execPath)} -e ${quote(capture)} -- "$@"\n`, { mode: 0o700 });
+    const result = shell(`
+      export PATH="$4:$5:/usr/bin:/bin" CARGO_HOME="$2" CARGO_TARGET_DIR="$3"
+      export RUSTC="$4/rustc" RUSTDOC="$4/rustdoc" CARGO_NET_OFFLINE=true
+      build_tauri_candidate "$1" "$4"
+    `, [nativeNode, cargoHome, target, rustBin, poisoned]);
+    assert.equal(result.status, 0, result.stderr);
+    const invoked = JSON.parse(result.stdout);
+    assert.deepEqual(invoked, {
+      cwd: join(repository, "desktop"),
+      argv: ["./node_modules/@tauri-apps/cli/tauri.js", "build", "--runner", join(rustBin, "cargo"), "--debug", "--bundles", "app", "--config", overlay, "--ci", "--no-sign", "--", "--offline", "--locked"],
+      cargoHome,
+      target,
+      rustc: join(rustBin, "rustc"),
+      rustdoc: join(rustBin, "rustdoc"),
+      offline: "true",
+      path: `${rustBin}:${poisoned}:/usr/bin:/bin`,
+    });
+    assert.equal(existsSync(target), false);
+    assert.equal(existsSync(cargoHome), false);
+  });
+});
+
 test("source receipt includes all six fresh helper hashes and exact source/isolation, not env bodies", () => {
   temporary((root) => {
     const target = join(root, "target");
@@ -259,7 +333,9 @@ test("script has no automatic build/launch and no global kill or profile rewrite
   const text = readFileSync(script, "utf8");
   assert.doesNotMatch(text, /pkill|killall|osascript|lsregister|ensure-luca-dev-relay|\bopen -[an]|export HOME=|--features mesh-llm|cargo update|--last|--fork/);
   assert.match(text, /cargo build --offline --locked.*-p buzz-relay/);
-  assert.match(text, /tauri build --debug --bundles app.*--no-sign -- --offline --locked/);
+  assert.match(text, /"\$native_node" \.\/node_modules\/@tauri-apps\/cli\/tauri\.js build --runner "\$rust_bin\/cargo"/);
+  assert.match(text, /--debug --bundles app.*--no-sign -- --offline --locked/);
+  assert.doesNotMatch(text, /pnpm exec tauri/);
   assert.match(text, /if \[\[ "\$\{BASH_SOURCE\[0\]\}" == "\$0" \]\]; then main/);
   const result = spawnSync("bash", [script], { encoding: "utf8" });
   assert.equal(result.status, 2);
