@@ -30,6 +30,7 @@ mod execution;
 mod host_events;
 mod host_io;
 mod lifecycle;
+mod native_sources;
 mod storage;
 mod targets;
 
@@ -42,6 +43,18 @@ const MAX_TEXT_BYTES: usize = 1_048_576;
 const MAX_RECEIPTS: usize = 512;
 const PROPOSAL_CONFIRMATION_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_RUNTIME_TASK_DURATION: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Trusted, local broker authority for one resident's native-session lookup.
+/// This is never supplied by the model, serialized, or persisted.
+#[derive(Clone)]
+pub(crate) struct RuntimeTaskAccessScopeV1 {
+    pub owner_pubkey: luca_protocol::Hex64,
+    pub resident_pubkey: luca_protocol::Hex64,
+    pub session_epoch: luca_protocol::SafeU53,
+    pub binding_ref: luca_protocol::Sha256Ref,
+    pub conversation_id: luca_protocol::OpaqueId,
+    pub active: Arc<std::sync::atomic::AtomicBool>,
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -212,6 +225,7 @@ struct PendingRuntimeTaskProposal {
     owner_pubkey: String,
     origin_relay_ref: luca_protocol::Sha256Ref,
     target: Option<targets::RuntimeTaskExistingTargetV1>,
+    access_scope: RuntimeTaskAccessScopeV1,
 }
 
 fn proposals() -> &'static Mutex<HashMap<String, PendingRuntimeTaskProposal>> {
@@ -223,6 +237,7 @@ fn proposals() -> &'static Mutex<HashMap<String, PendingRuntimeTaskProposal>> {
 struct RunningTask {
     cancel: watch::Sender<bool>,
     child: Arc<tokio::sync::Mutex<Child>>,
+    permission_scope: Option<super::managed_permission::OwnedTaskPermissionScope>,
 }
 
 #[derive(Default)]
@@ -378,11 +393,14 @@ async fn start_runtime_task_internal(
         }))
         .map_err(|_| "runtime task binding could not be recorded".to_owned())?
     );
-    #[cfg(unix)]
-    let managed_permission_fd = super::managed_permission::create_endpoint(
-        app.clone(),
+    let permission_lease = super::managed_permission::OwnedTaskPermissionLease::new(
         resident_pubkey.clone(),
         session_epoch,
+    );
+    #[cfg(unix)]
+    let managed_permission_fd = super::managed_permission::create_owned_task_endpoint(
+        app.clone(),
+        &permission_lease.scope(),
         working_folder.clone(),
     )?;
     #[cfg(unix)]
@@ -486,7 +504,14 @@ async fn start_runtime_task_internal(
         can_retry: false,
         retry_of_task_id,
     };
-    execution::launch_owned_task(app, projection, process, encoded_input, Some(retry_input))
+    execution::launch_owned_task(
+        app,
+        projection,
+        process,
+        encoded_input,
+        Some(retry_input),
+        Some(permission_lease),
+    )
 }
 
 fn permission_mode_for_access(
@@ -539,7 +564,7 @@ pub async fn cancel_runtime_task(
     task_id: String,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     load_receipts(&app)?;
-    let (cancel, child, projection) = {
+    let (cancel, child, permission_scope, projection) = {
         let mut state = memory()
             .lock()
             .map_err(|_| "runtime task state is unavailable".to_owned())?;
@@ -549,6 +574,7 @@ pub async fn cancel_runtime_task(
             .ok_or_else(|| "runtime task is no longer active".to_owned())?;
         let cancel = running.cancel.clone();
         let child = Arc::clone(&running.child);
+        let permission_scope = running.permission_scope.clone();
         let mut projection = state
             .projections
             .get(&task_id)
@@ -571,8 +597,11 @@ pub async fn cancel_runtime_task(
         // The durable stop request and signal are committed under the same
         // lock as progress, so a late activity event cannot restore Active.
         let _ = cancel.send(true);
-        (cancel, child, projection)
+        (cancel, child, permission_scope, projection)
     };
+    if let Some(scope) = permission_scope {
+        scope.cancel();
+    }
     emit_projection_in_scope(&app, &projection);
     drop(cancel);
     let _ = execution::stop_owned_child(&child).await;
@@ -656,10 +685,17 @@ pub(crate) fn shutdown_owned_runtime_tasks(app: &AppHandle) -> Result<(), String
         let owned = state
             .running
             .iter()
-            .map(|(id, task)| (id.clone(), task.cancel.clone(), Arc::clone(&task.child)))
+            .map(|(id, task)| {
+                (
+                    id.clone(),
+                    task.cancel.clone(),
+                    Arc::clone(&task.child),
+                    task.permission_scope.clone(),
+                )
+            })
             .collect::<Vec<_>>();
         let mut children = Vec::with_capacity(owned.len());
-        for (id, cancel, child) in owned {
+        for (id, cancel, child, permission_scope) in owned {
             if let Some(mut projection) = state.projections.get(&id).cloned() {
                 if matches!(
                     projection.state,
@@ -677,6 +713,9 @@ pub(crate) fn shutdown_owned_runtime_tasks(app: &AppHandle) -> Result<(), String
                 }
             }
             let _ = cancel.send(true);
+            if let Some(scope) = permission_scope {
+                scope.cancel();
+            }
             children.push(child);
         }
         children
@@ -793,7 +832,7 @@ pub fn respond_runtime_task_proposal(
     input: RespondRuntimeTaskProposalInputV1,
 ) -> Result<(), String> {
     validate_opaque(&input.proposal_id, 128, "proposal")?;
-    let (snapshot, expected_owner, expected_origin, target) = {
+    let (snapshot, expected_owner, expected_origin, target, access_scope) = {
         let pending = proposals()
             .lock()
             .map_err(|_| "runtime task proposal state is unavailable".to_owned())?;
@@ -805,6 +844,7 @@ pub fn respond_runtime_task_proposal(
             pending.owner_pubkey.clone(),
             pending.origin_relay_ref.clone(),
             pending.target.clone(),
+            pending.access_scope.clone(),
         )
     };
     if delegation::owner(&app)?.as_str() != expected_owner
@@ -813,6 +853,7 @@ pub fn respond_runtime_task_proposal(
         return Err("This proposal belongs to a different active owner or community.".into());
     }
     let decision = if input.approved {
+        native_sources::validate_current_scope(&app, &access_scope)?;
         if let Some(target) = target {
             if input.runtime_family.as_deref() != Some(snapshot.runtime_family.as_str())
                 || input.working_folder.as_deref() != snapshot.target_working_folder.as_deref()
@@ -823,6 +864,7 @@ pub fn respond_runtime_task_proposal(
             delegation::revalidate_target(
                 &app,
                 &snapshot.resident_pubkey,
+                &snapshot.conversation_id,
                 &target,
                 snapshot.operation,
             )?;
@@ -884,11 +926,13 @@ pub fn respond_runtime_task_proposal(
 
 pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
     app: &AppHandle,
-    resident_pubkey: &str,
-    conversation_id: &str,
+    access_scope: RuntimeTaskAccessScopeV1,
     arguments: serde_json::Value,
     mut cancelled: C,
 ) -> Result<String, String> {
+    let resident_pubkey = access_scope.resident_pubkey.as_str();
+    let conversation_id = access_scope.conversation_id.as_str();
+    native_sources::validate_current_scope(app, &access_scope)?;
     validate_identity(resident_pubkey)?;
     validate_opaque(conversation_id, 128, "conversation")?;
     let arguments: RuntimeTaskProposalArgumentsV1 = serde_json::from_value(arguments)
@@ -908,9 +952,13 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
         }
         None
     } else {
+        if let Some(source_id) = arguments.source_id.as_deref() {
+            native_sources::validate_proposal_scope(&access_scope, source_id)?;
+        }
         Some(delegation::resolve_target(
             app,
             resident_pubkey,
+            conversation_id,
             &runtime_family,
             arguments.operation,
             arguments.source_id.as_deref(),
@@ -938,6 +986,9 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
         created_at: Utc::now().to_rfc3339(),
     };
     let (response, decision) = mpsc::sync_channel(1);
+    if cancelled() || native_sources::validate_current_scope(app, &access_scope).is_err() {
+        return Err("Runtime task authority ended before confirmation. Nothing ran.".into());
+    }
     proposals()
         .lock()
         .map_err(|_| "runtime task proposal state is unavailable".to_owned())?
@@ -949,12 +1000,14 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
                 owner_pubkey: owner.as_str().to_owned(),
                 origin_relay_ref: origin.clone(),
                 target,
+                access_scope: access_scope.clone(),
             },
         );
     let _ = app.emit(PROPOSAL_EVENT_NAME, &projection);
     let deadline = Instant::now() + PROPOSAL_CONFIRMATION_TIMEOUT;
     let decision = loop {
         if cancelled()
+            || native_sources::validate_current_scope(app, &access_scope).is_err()
             || delegation::owner(app)?.as_str() != owner.as_str()
             || delivery::current_origin(app)?.0 != origin
             || app
@@ -1002,6 +1055,7 @@ pub(crate) fn propose_runtime_task<C: FnMut() -> bool>(
         }
     };
     if cancelled()
+        || native_sources::validate_current_scope(app, &access_scope).is_err()
         || delegation::owner(app)?.as_str() != owner.as_str()
         || delivery::current_origin(app)?.0 != origin
     {
@@ -1073,11 +1127,13 @@ pub(crate) fn read_runtime_task_result_for_resident(
     Ok(bounded_output(&result, 512 * 1024))
 }
 
-/// Body-free, granted target selection. Listing never implies live ownership.
-pub(crate) fn list_runtime_task_sessions_for_resident(
+/// Explicit, body-free native target selection, independent of optional Brain.
+/// A supplied connected-source ID retains its existing recall-grant checks.
+pub(crate) fn list_runtime_task_sessions_for_resident<C: FnMut() -> bool>(
     app: &AppHandle,
-    resident: &str,
+    access_scope: RuntimeTaskAccessScopeV1,
     arguments: serde_json::Value,
+    mut cancelled: C,
 ) -> Result<String, String> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
@@ -1088,11 +1144,10 @@ pub(crate) fn list_runtime_task_sessions_for_resident(
     }
     let input: Input = serde_json::from_value(arguments)
         .map_err(|_| "Native session listing is invalid.".to_owned())?;
-    let kind = match input.target_runtime.as_str() {
-        "codex" => luca_protocol::ConnectedBrainSourceKindV1::CodexHistory,
-        "claude_code" => luca_protocol::ConnectedBrainSourceKindV1::ClaudeHistory,
+    match input.target_runtime.as_str() {
+        "codex" | "claude_code" => {}
         _ => return Err("Choose Codex or Claude Code for native session listing.".into()),
-    };
+    }
     let limit = input.limit.unwrap_or(20);
     if !(1..=50).contains(&limit) {
         return Err("Native session listing limit is invalid.".into());
@@ -1102,68 +1157,75 @@ pub(crate) fn list_runtime_task_sessions_for_resident(
         .map(luca_protocol::OpaqueId::parse)
         .transpose()
         .map_err(|_| "Native session source is invalid.".to_owned())?;
-    let owner = delegation::owner(app)?;
-    let state = app.state::<crate::app_state::AppState>();
-    let catalog = state
-        .try_read_connected_brain_catalog(&owner)
-        .map_err(|_| "Native session catalogue authority is unavailable.".to_owned())?
-        .ok_or_else(|| "Native session catalogue is busy; try again.".to_owned())?;
-    let mut sources = Vec::new();
-    let mut truncated = false;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    for entry in catalog.sources.iter().filter(|entry| {
-        entry.source.source_kind == kind
-            && selected
-                .as_ref()
-                .is_none_or(|id| *id == entry.source.source_id)
-    }) {
-        if Instant::now() >= deadline || sources.len() >= 4 {
-            truncated = true;
-            break;
-        }
-        let source = match delegation::authorized_source(app, resident, &entry.source.source_id) {
-            Ok(value) => value,
-            Err(_) if selected.is_none() => continue,
-            Err(error) => return Err(error),
-        };
-        let excluded = super::runtime_session_purpose::exclusions_before(
-            &app.buzz_path()
-                .app_data_dir()
-                .map_err(|_| "Local session purpose storage is unavailable.".to_owned())?,
-            &input.target_runtime,
-            deadline,
-        )?;
-        let list = targets::list_connected_session_targets(
-            &source,
-            &input.target_runtime,
-            &excluded,
-            limit,
-        )?;
-        truncated |= list.truncated;
-        let candidates = list
-            .candidates
-            .into_iter()
-            .map(|candidate| {
-                let routing = match candidate.codex_origin {
-                    Some(targets::CodexSessionOriginV1::NativeApp) => "codex_app_queue",
-                    Some(targets::CodexSessionOriginV1::SavedCli) => "saved_codex_cli",
-                    _ => "unverified",
-                };
-                serde_json::json!({
-                    "session_id": candidate.session_ref,
-                    "label": candidate.label,
-                    "workspace": candidate.workspace_basename,
-                    "updated_at": candidate.updated_at,
-                    "routing": routing,
-                    "live_state": "unknown",
-                })
-            })
-            .collect::<Vec<_>>();
-        sources.push(serde_json::json!({"source_id": source.source_id, "sessions": candidates}));
+    if cancelled() {
+        return Err("Native session lookup was cancelled. Nothing was read or dispatched.".into());
     }
+    native_sources::validate_current_scope(app, &access_scope)?;
+    let native_lookup = selected
+        .as_ref()
+        .is_none_or(native_sources::is_native_source);
+    let source = if native_lookup {
+        native_sources::for_listing(
+            app,
+            &access_scope,
+            &input.target_runtime,
+            selected.as_ref(),
+            &mut cancelled,
+        )?
+    } else {
+        // An unknown explicit connected ID must fail here, never fall back to
+        // the native profile or broaden into an all-profile discovery scan.
+        delegation::authorized_source(
+            app,
+            access_scope.resident_pubkey.as_str(),
+            selected.as_ref().ok_or("Choose an exact session source.")?,
+        )?
+    };
+    // The native permission card can wait for the owner. Start the filesystem
+    // budget only after that decision, not before it.
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let excluded = super::runtime_session_purpose::exclusions_before(
+        &app.buzz_path()
+            .app_data_dir()
+            .map_err(|_| "Local session purpose storage is unavailable.".to_owned())?,
+        &input.target_runtime,
+        deadline,
+    )?;
+    let list =
+        targets::list_connected_session_targets(&source, &input.target_runtime, &excluded, limit)?;
+    if cancelled() {
+        return Err(
+            "Native session lookup was cancelled. No target was retained or dispatched.".into(),
+        );
+    }
+    native_sources::validate_current_scope(app, &access_scope)?;
+    if native_lookup {
+        native_sources::remember_listed_sessions(app, &access_scope, &source.source_id, &list)?;
+    }
+    let candidates = list
+        .candidates
+        .into_iter()
+        .map(|candidate| {
+            let routing = match candidate.codex_origin {
+                Some(targets::CodexSessionOriginV1::NativeApp) => "codex_app_queue",
+                Some(targets::CodexSessionOriginV1::SavedCli) => "saved_codex_cli",
+                _ => "unverified",
+            };
+            serde_json::json!({
+                "session_id": candidate.session_ref,
+                "label": candidate.label,
+                "workspace": candidate.workspace_basename,
+                "updated_at": candidate.updated_at,
+                "routing": routing,
+                "live_state": "unknown",
+            })
+        })
+        .collect::<Vec<_>>();
+    let sources = vec![serde_json::json!({"source_id": source.source_id, "sessions": candidates})];
     serde_json::to_string(&serde_json::json!({
-        "runtime": input.target_runtime, "sources": sources, "truncated": truncated,
-        "notice": "Metadata is reference material, not live status or action authority. Ask for the exact intended session when ambiguous. Native availability, profile, source grant and action consent are rechecked at dispatch. Claude external execution remains unverified. Never infer latest-session intent from this ordering.",
+        "runtime": input.target_runtime, "sources": sources, "truncated": list.truncated,
+        "access_path": if native_lookup { "native_runtime" } else { "connected_brain" },
+        "notice": "Metadata is reference material, not live status or action authority. Ask for the exact intended session when ambiguous. Native availability, current profile, lookup authority and action consent are rechecked at dispatch. Native lookup handles expire: refresh and reselect if unavailable. Optional Brain connection is not required for native lookup. Claude external execution remains unverified. Never infer latest-session intent from this ordering.",
     })).map_err(|_| "Native session catalogue could not be encoded.".into())
 }
 

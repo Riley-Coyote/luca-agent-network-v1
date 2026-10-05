@@ -275,13 +275,23 @@ mod tests {
         assert!(
             FIRST_MEETING_PROMPT.contains("existing Brain review or repository proposal surface")
         );
-        assert!(FIRST_MEETING_PROMPT
-            .contains("If they decline, or bring you a task instead, start that work immediately"));
+        assert!(FIRST_MEETING_PROMPT.contains(
+            "If they decline the look, or bring you a task instead, start that work immediately"
+        ));
         assert!(FIRST_MEETING_PROMPT.contains("open from something real you found"));
         assert!(FIRST_MEETING_PROMPT.contains("When the host says what you have read"));
-        // The offer must not become a second route into the filesystem.
-        assert!(FIRST_MEETING_PROMPT
-            .contains("Do not bypass a declined Brain connection using broader filesystem access"));
+        assert!(FIRST_MEETING_PROMPT.contains("use the available runtime tools"));
+        assert!(FIRST_MEETING_PROMPT.contains("Brain is optional retained knowledge"));
+        assert!(FIRST_MEETING_PROMPT.contains("Do not require a Brain connection or import"));
+        assert!(FIRST_MEETING_PROMPT.contains("do not silently index or retain"));
+        assert!(FIRST_MEETING_PROMPT.contains(
+            "Declining a Brain connection alone does not decline a separately requested read"
+        ));
+        // No Brain opt-in is needed for requested work, but a refusal to read
+        // and native runtime permissions are still real boundaries.
+        assert!(FIRST_MEETING_PROMPT.contains("Respect a refusal to read a source"));
+        assert!(FIRST_MEETING_PROMPT.contains("keep native permissions and approvals in force"));
+        assert!(FIRST_MEETING_PROMPT.contains("unsolicited background researcher"));
         // The quick-answer block stays exactly as it was.
         assert!(FIRST_MEETING_PROMPT.contains("polyphonic-choices"));
         // Nothing is selected during setup now; the prompt must not claim it.

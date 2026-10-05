@@ -43,6 +43,19 @@ function task(overrides = {}) {
   };
 }
 
+function receiptMarkup(props) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return renderToStaticMarkup(
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(RuntimeTaskResultReceipts, props),
+    ),
+  );
+}
+
 function confirmation(draft) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -231,14 +244,12 @@ describe("runtime task presentation", () => {
       });
       assert.equal(runtimeTaskAction(native), null);
       assert.equal(runtimeTaskVisible(native, new Set(), Date.now()), false);
-      const html = renderToStaticMarkup(
-        createElement(RuntimeTaskResultReceipts, {
-          tasks: [native],
-          onRetrySynthesis: async () => {
-            throw new Error("Must not run for a native handoff");
-          },
-        }),
-      );
+      const html = receiptMarkup({
+        tasks: [native],
+        onRetrySynthesis: async () => {
+          throw new Error("Must not run for a native handoff");
+        },
+      });
       assert.match(html, /Open in Codex/);
       assert.doesNotMatch(
         html,
@@ -296,14 +307,12 @@ describe("runtime task presentation", () => {
         deliveryCanRetry: false,
       });
       assert.match(runtimeTaskDeliveryLabel(receipt), label);
-      const html = renderToStaticMarkup(
-        createElement(RuntimeTaskResultReceipts, {
-          tasks: [receipt],
-          onRetrySynthesis: async () => {
-            throw new Error("No owner message for native delivery");
-          },
-        }),
-      );
+      const html = receiptMarkup({
+        tasks: [receipt],
+        onRetrySynthesis: async () => {
+          throw new Error("No owner message for native delivery");
+        },
+      });
       assert.match(html, label);
       assert.doesNotMatch(
         html,
@@ -394,14 +403,12 @@ describe("runtime task presentation", () => {
       }),
       null,
     );
-    const html = renderToStaticMarkup(
-      createElement(RuntimeTaskResultReceipts, {
-        tasks: [
-          { ...complete, deliveryState: "retryable", deliveryCanRetry: true },
-        ],
-        onRetrySynthesis: async () => {},
-      }),
-    );
+    const html = receiptMarkup({
+      tasks: [
+        { ...complete, deliveryState: "retryable", deliveryCanRetry: true },
+      ],
+      onRetrySynthesis: async () => {},
+    });
     assert.match(html, /Retry result summary/);
     assert.doesNotMatch(html, /Retry resident synthesis/);
   });

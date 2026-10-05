@@ -4,8 +4,11 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
-    sync::{mpsc, Mutex, OnceLock},
-    time::Duration,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex, OnceLock,
+    },
+    time::{Duration, Instant},
 };
 
 use luca_protocol::{
@@ -34,7 +37,7 @@ struct Pending {
 struct PendingCapability {
     owner_pubkey: String,
     request: ManagedPermissionRequestV2,
-    decision_tx: mpsc::Sender<CapabilityPermissionDecision>,
+    decision_tx: mpsc::Sender<ResolvedCapabilityPermission>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +56,21 @@ pub(crate) enum ManagedPermissionResolutionOutcome {
     Expired,
     SessionReplaced,
     ApplicationClosed,
+}
+
+#[derive(Debug)]
+struct ResolvedCapabilityPermission {
+    decision: CapabilityPermissionDecision,
+    outcome: ManagedPermissionResolutionOutcome,
+}
+
+impl ResolvedCapabilityPermission {
+    fn denied(outcome: ManagedPermissionResolutionOutcome) -> Self {
+        Self {
+            decision: CapabilityPermissionDecision::Deny,
+            outcome,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -223,12 +241,48 @@ pub(crate) fn create_endpoint(
     session_epoch: luca_protocol::SafeU53,
     working_root: PathBuf,
 ) -> Result<ManagedPermissionChildFd, String> {
+    create_endpoint_with_scope(app, resident_pubkey, session_epoch, working_root, None)
+}
+
+/// Create an endpoint whose authority closes with only its owned runtime task.
+#[cfg(unix)]
+pub(crate) fn create_owned_task_endpoint(
+    app: AppHandle,
+    scope: &OwnedTaskPermissionScope,
+    working_root: PathBuf,
+) -> Result<ManagedPermissionChildFd, String> {
+    create_endpoint_with_scope(
+        app,
+        scope.resident_pubkey.clone(),
+        scope.session_epoch,
+        working_root,
+        Some(scope.clone()),
+    )
+}
+
+#[cfg(unix)]
+fn create_endpoint_with_scope(
+    app: AppHandle,
+    resident_pubkey: luca_protocol::Hex64,
+    session_epoch: luca_protocol::SafeU53,
+    working_root: PathBuf,
+    permission_scope: Option<OwnedTaskPermissionScope>,
+) -> Result<ManagedPermissionChildFd, String> {
     use std::os::fd::{FromRawFd, IntoRawFd};
     let (desktop, child) = std::os::unix::net::UnixStream::pair()
         .map_err(|error| format!("create managed permission socketpair: {error}"))?;
     std::thread::Builder::new()
         .name("luca-managed-permission".into())
-        .spawn(move || serve(app, desktop, resident_pubkey, session_epoch, working_root))
+        .spawn(move || {
+            serve(
+                app,
+                desktop,
+                resident_pubkey,
+                session_epoch,
+                working_root,
+                permission_scope,
+            )
+        })
         .map_err(|error| format!("start managed permission server: {error}"))?;
     // The raw fd is immediately re-owned, avoiding a path/token/env secret.
     let owned = unsafe { std::os::fd::OwnedFd::from_raw_fd(child.into_raw_fd()) };
@@ -242,6 +296,7 @@ fn serve(
     resident_pubkey: luca_protocol::Hex64,
     session_epoch: luca_protocol::SafeU53,
     working_root: PathBuf,
+    permission_scope: Option<OwnedTaskPermissionScope>,
 ) {
     let writer = match stream.try_clone() {
         Ok(writer) => writer,
@@ -249,6 +304,12 @@ fn serve(
     };
     let mut reader = BufReader::new(stream);
     loop {
+        if permission_scope
+            .as_ref()
+            .is_some_and(OwnedTaskPermissionScope::is_closed)
+        {
+            break;
+        }
         let mut line = String::new();
         let Ok(read) = reader.read_line(&mut line) else {
             break;
@@ -265,7 +326,19 @@ fn serve(
         {
             break;
         }
-        let decision = await_local_decision(&app, request.clone(), &working_root);
+        let closed = || {
+            permission_scope
+                .as_ref()
+                .is_some_and(OwnedTaskPermissionScope::is_closed)
+        };
+        let decision = if permission_scope.is_some() {
+            await_local_decision_cancellable(&app, request.clone(), &working_root, closed)
+        } else {
+            await_local_decision(&app, request.clone(), &working_root)
+        };
+        if closed() {
+            break;
+        }
         let Ok(bytes) = serde_json::to_vec(&decision) else {
             break;
         };
@@ -433,7 +506,82 @@ pub(crate) fn await_local_decision(
     request: ManagedPermissionRequestV1,
     working_root: &Path,
 ) -> ManagedPermissionDecisionV1 {
-    if request.validate().is_err() {
+    await_local_decision_cancellable(app, request, working_root, || false)
+}
+
+fn insert_runtime_permission(
+    id: &str,
+    entry: Pending,
+    cancelled: &mut impl FnMut() -> bool,
+) -> bool {
+    pending().lock().is_ok_and(|mut entries| {
+        // Stop marks the shared scope closed before acquiring this same lock
+        // to drain rows. This prevents any buffered request inserting later.
+        if cancelled() || entries.contains_key(id) {
+            return false;
+        }
+        entries.insert(id.to_owned(), entry);
+        true
+    })
+}
+
+fn runtime_preflight_decision(
+    request: &ManagedPermissionRequestV1,
+    cancelled: &mut impl FnMut() -> bool,
+    automatic: impl FnOnce() -> Option<ManagedPermissionDecisionV1>,
+) -> Option<ManagedPermissionDecisionV1> {
+    if cancelled() || request.validate().is_err() {
+        return Some(self::cancelled(request));
+    }
+    let decision = automatic();
+    if cancelled() {
+        Some(self::cancelled(request))
+    } else {
+        decision
+    }
+}
+
+fn wait_runtime_permission_response(
+    request: &ManagedPermissionRequestV1,
+    receiver: &mpsc::Receiver<ResolvedManagedPermission>,
+    timeout: Duration,
+    cancelled: &mut impl FnMut() -> bool,
+) -> ResolvedManagedPermission {
+    let started = Instant::now();
+    loop {
+        if cancelled() {
+            return cancelled_resolution(request, ManagedPermissionResolutionOutcome::Cancelled);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return cancelled_resolution(request, ManagedPermissionResolutionOutcome::Expired);
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(100))) {
+            Ok(response) => {
+                return if cancelled() {
+                    cancelled_resolution(request, ManagedPermissionResolutionOutcome::Cancelled)
+                } else {
+                    response
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return cancelled_resolution(
+                    request,
+                    ManagedPermissionResolutionOutcome::Cancelled,
+                );
+            }
+        }
+    }
+}
+
+fn await_local_decision_cancellable(
+    app: &AppHandle,
+    request: ManagedPermissionRequestV1,
+    working_root: &Path,
+    mut interrupted: impl FnMut() -> bool,
+) -> ManagedPermissionDecisionV1 {
+    if interrupted() || request.validate().is_err() {
         return cancelled(&request);
     }
     // Without an active owner there is no ledger to consult and no authority to
@@ -447,10 +595,26 @@ pub(crate) fn await_local_decision(
         }
     };
     let subject = permission_ledger::subject(app, &owner, &request, working_root);
-    let verdict = permission_ledger::decide(app, owner.as_str(), &request, &subject);
+    let mut verdict = None;
+    let automatic = runtime_preflight_decision(&request, &mut interrupted, || {
+        let policy = permission_ledger::decide(app, owner.as_str(), &request, &subject);
+        let decision = if matches!(policy, Verdict::Ask { .. }) {
+            None
+        } else {
+            decide_and_select(&request, &policy)
+        };
+        verdict = Some(policy);
+        decision
+    });
+    if interrupted() {
+        return cancelled(&request);
+    }
+    let Some(verdict) = verdict else {
+        return cancelled(&request);
+    };
     if !matches!(verdict, Verdict::Ask { .. }) {
-        let settled = decide_and_select(&request, &verdict);
-        if let (Some(decision), Some(line)) = (settled, automatic_audit_line(&subject, &verdict)) {
+        if let (Some(decision), Some(line)) = (automatic, automatic_audit_line(&subject, &verdict))
+        {
             audit(app, &request, line);
             return decision;
         }
@@ -463,24 +627,18 @@ pub(crate) fn await_local_decision(
 
     let id = pending_id(&request);
     let (tx, rx) = mpsc::channel();
-    let inserted = pending().lock().ok().and_then(|mut entries| {
-        if entries.contains_key(&id) {
-            None
-        } else {
-            entries.insert(
-                id.clone(),
-                Pending {
-                    request: request.clone(),
-                    owner_pubkey: owner.as_str().to_owned(),
-                    subject: subject.clone(),
-                    offer: offer.clone(),
-                    decision_tx: tx,
-                },
-            );
-            Some(())
-        }
-    });
-    let decision = if inserted.is_some() {
+    let inserted = insert_runtime_permission(
+        &id,
+        Pending {
+            request: request.clone(),
+            owner_pubkey: owner.as_str().to_owned(),
+            subject: subject.clone(),
+            offer: offer.clone(),
+            decision_tx: tx,
+        },
+        &mut interrupted,
+    );
+    let decision = if inserted {
         let _ = app.emit(
             PENDING_EVENT,
             PendingManagedPermission {
@@ -489,15 +647,12 @@ pub(crate) fn await_local_decision(
                 offer: Some(offer),
             },
         );
-        match rx.recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS)) {
-            Ok(resolution) => resolution,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Expired)
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Cancelled)
-            }
-        }
+        wait_runtime_permission_response(
+            &request,
+            &rx,
+            Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS),
+            &mut interrupted,
+        )
     } else {
         cancelled_resolution(&request, ManagedPermissionResolutionOutcome::Cancelled)
     };
@@ -784,12 +939,7 @@ pub(crate) fn resolve_with_app(
             resolve(pending_id, option_id, tense)
         };
     }
-    let mut entries = capability_pending()
-        .lock()
-        .map_err(|_| "capability permission registry unavailable".to_string())?;
-    let pending = entries.remove(pending_id).ok_or_else(|| {
-        "managed permission request is unknown, expired, or already resolved".to_string()
-    })?;
+    let pending = take_capability_pending(pending_id)?;
     // A structured capability request keeps its own two option ids. The card's
     // tense is translated onto them so one renderer can drive both surfaces.
     let option_id = option_id.or_else(|| {
@@ -825,16 +975,94 @@ pub(crate) fn resolve_with_app(
     };
     pending
         .decision_tx
-        .send(decision)
+        .send(ResolvedCapabilityPermission { decision, outcome })
         .map_err(|_| "capability permission request is no longer waiting".to_string())?;
-    let _ = app.emit(
-        RESOLVED_EVENT,
-        ManagedPermissionResolvedEvent {
-            pending_id: pending_id.to_owned(),
-            outcome,
-        },
-    );
     Ok(())
+}
+
+fn take_capability_pending(pending_id: &str) -> Result<PendingCapability, String> {
+    capability_pending()
+        .lock()
+        .map_err(|_| "capability permission registry unavailable".to_string())?
+        .remove(pending_id)
+        .ok_or_else(|| {
+            "managed permission request is unknown, expired, or already resolved".to_string()
+        })
+}
+
+/// Recheck caller scope around policy reads before accepting automatic access.
+fn capability_preflight_decision(
+    request: &ManagedPermissionRequestV2,
+    cancelled: &mut impl FnMut() -> bool,
+    automatic_decision: impl FnOnce() -> Option<CapabilityPermissionDecision>,
+) -> Option<CapabilityPermissionDecision> {
+    if cancelled() || request.validate().is_err() {
+        return Some(CapabilityPermissionDecision::Deny);
+    }
+    let decision = automatic_decision();
+    if cancelled() {
+        Some(CapabilityPermissionDecision::Deny)
+    } else {
+        decision
+    }
+}
+
+fn wait_capability_response(
+    receiver: &mpsc::Receiver<ResolvedCapabilityPermission>,
+    timeout: Duration,
+    cancelled: &mut impl FnMut() -> bool,
+) -> ResolvedCapabilityPermission {
+    let started = Instant::now();
+    loop {
+        if cancelled() {
+            return ResolvedCapabilityPermission::denied(
+                ManagedPermissionResolutionOutcome::Cancelled,
+            );
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return ResolvedCapabilityPermission::denied(
+                ManagedPermissionResolutionOutcome::Expired,
+            );
+        }
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(100))) {
+            Ok(response) => {
+                return if cancelled() {
+                    ResolvedCapabilityPermission::denied(
+                        ManagedPermissionResolutionOutcome::Cancelled,
+                    )
+                } else {
+                    response
+                };
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return ResolvedCapabilityPermission::denied(
+                    ManagedPermissionResolutionOutcome::Cancelled,
+                );
+            }
+        }
+    }
+}
+
+fn settle_capability_response(
+    pending_id: &str,
+    receiver: &mpsc::Receiver<ResolvedCapabilityPermission>,
+    timeout: Duration,
+    cancelled: &mut impl FnMut() -> bool,
+    mut emit: impl FnMut(ManagedPermissionResolvedEvent),
+) -> CapabilityPermissionDecision {
+    let response = wait_capability_response(receiver, timeout, cancelled);
+    if let Ok(mut entries) = capability_pending().lock() {
+        entries.remove(pending_id);
+    }
+    // The waiter owns the one resolved event, including expiry and session
+    // cancellation. Removing one ID never closes a sibling permission card.
+    emit(ManagedPermissionResolvedEvent {
+        pending_id: pending_id.to_owned(),
+        outcome: response.outcome,
+    });
+    response.decision
 }
 
 /// Resolve one structured operator permission against resident policy, an
@@ -844,32 +1072,48 @@ pub(crate) fn await_capability_decision(
     owner_pubkey: &str,
     request: ManagedPermissionRequestV2,
 ) -> CapabilityPermissionDecision {
-    if request.validate().is_err() {
-        return CapabilityPermissionDecision::Deny;
-    }
-    let level = super::resident_capability_authority::effective_access(
-        app,
-        owner_pubkey,
-        request.resident_pubkey.as_str(),
-    )
-    .unwrap_or(ResidentAccessLevel::Restricted);
-    if durable_grant_allowed(request.capability, request.risk)
-        && super::resident_capability_authority::is_granted(
+    await_capability_decision_cancellable(app, owner_pubkey, request, || false)
+}
+
+/// Await only this request while its caller and authority scope remain current.
+/// The predicate must return true on disconnection or invalidated caller scope.
+pub(crate) fn await_capability_decision_cancellable(
+    app: &AppHandle,
+    owner_pubkey: &str,
+    request: ManagedPermissionRequestV2,
+    mut cancelled: impl FnMut() -> bool,
+) -> CapabilityPermissionDecision {
+    if let Some(decision) = capability_preflight_decision(&request, &mut cancelled, || {
+        let level = super::resident_capability_authority::effective_access(
             app,
             owner_pubkey,
             request.resident_pubkey.as_str(),
-            request.capability,
-            &request.resource.kind,
-            &request.resource.resource_ref,
         )
-        .unwrap_or(false)
-    {
-        return CapabilityPermissionDecision::AlwaysAllow;
+        .unwrap_or(ResidentAccessLevel::Restricted);
+        if durable_grant_allowed(request.capability, request.risk)
+            && super::resident_capability_authority::is_granted(
+                app,
+                owner_pubkey,
+                request.resident_pubkey.as_str(),
+                request.capability,
+                &request.resource.kind,
+                &request.resource.resource_ref,
+            )
+            .unwrap_or(false)
+        {
+            Some(CapabilityPermissionDecision::AlwaysAllow)
+        } else if level == ResidentAccessLevel::Full
+            && !must_confirm_every_time(request.capability, request.risk)
+        {
+            Some(CapabilityPermissionDecision::AllowOnce)
+        } else {
+            None
+        }
+    }) {
+        return decision;
     }
-    if level == ResidentAccessLevel::Full
-        && !must_confirm_every_time(request.capability, request.risk)
-    {
-        return CapabilityPermissionDecision::AllowOnce;
+    if cancelled() {
+        return CapabilityPermissionDecision::Deny;
     }
     let id = luca_protocol::canonical_sha256(&request)
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
@@ -900,13 +1144,15 @@ pub(crate) fn await_capability_decision(
             offer: None,
         },
     );
-    let decision = rx
-        .recv_timeout(Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS))
-        .unwrap_or(CapabilityPermissionDecision::Deny);
-    if let Ok(mut entries) = capability_pending().lock() {
-        entries.remove(&id);
-    }
-    decision
+    settle_capability_response(
+        &id,
+        &rx,
+        Duration::from_secs(MANAGED_PERMISSION_TIMEOUT_SECS),
+        &mut cancelled,
+        |event| {
+            let _ = app.emit(RESOLVED_EVENT, event);
+        },
+    )
 }
 
 pub(crate) fn cancel_all() {
@@ -921,13 +1167,83 @@ pub(crate) fn cancel_all() {
     }
     if let Ok(mut entries) = capability_pending().lock() {
         for (_, pending) in entries.drain() {
-            let _ = pending.decision_tx.send(CapabilityPermissionDecision::Deny);
+            let _ = pending
+                .decision_tx
+                .send(ResolvedCapabilityPermission::denied(
+                    ManagedPermissionResolutionOutcome::ApplicationClosed,
+                ));
         }
     }
 }
 
 /// Cancel pending prompts owned by an ACP session that exited or was replaced.
 pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64) {
+    cancel_session_permissions(
+        resident_pubkey,
+        session_epoch,
+        ManagedPermissionResolutionOutcome::SessionReplaced,
+    );
+}
+
+/// Private, ephemeral permission ownership for one explicit runtime task.
+/// This epoch is not the companion's epoch or a provider's native session ID.
+#[derive(Clone)]
+pub(crate) struct OwnedTaskPermissionScope {
+    resident_pubkey: luca_protocol::Hex64,
+    session_epoch: luca_protocol::SafeU53,
+    closed: Arc<AtomicBool>,
+}
+
+impl OwnedTaskPermissionScope {
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn cancel(&self) {
+        self.closed.store(true, Ordering::Release);
+        cancel_session_permissions(
+            self.resident_pubkey.as_str(),
+            self.session_epoch.get(),
+            ManagedPermissionResolutionOutcome::Cancelled,
+        );
+    }
+}
+
+/// Keep through setup and worker lifetime, including early returns and unwind.
+pub(crate) struct OwnedTaskPermissionLease {
+    scope: OwnedTaskPermissionScope,
+}
+
+impl OwnedTaskPermissionLease {
+    pub(crate) fn new(
+        resident_pubkey: luca_protocol::Hex64,
+        session_epoch: luca_protocol::SafeU53,
+    ) -> Self {
+        Self {
+            scope: OwnedTaskPermissionScope {
+                resident_pubkey,
+                session_epoch,
+                closed: Arc::new(AtomicBool::new(false)),
+            },
+        }
+    }
+
+    pub(crate) fn scope(&self) -> OwnedTaskPermissionScope {
+        self.scope.clone()
+    }
+}
+
+impl Drop for OwnedTaskPermissionLease {
+    fn drop(&mut self) {
+        self.scope.cancel();
+    }
+}
+
+fn cancel_session_permissions(
+    resident_pubkey: &str,
+    session_epoch: u64,
+    outcome: ManagedPermissionResolutionOutcome,
+) {
     permission_ledger::clear_session(resident_pubkey, session_epoch);
     if let Ok(mut entries) = pending().lock() {
         let doomed: Vec<String> = entries
@@ -940,10 +1256,9 @@ pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64)
             .collect();
         for id in doomed {
             if let Some(pending) = entries.remove(&id) {
-                let _ = pending.decision_tx.send(cancelled_resolution(
-                    &pending.request,
-                    ManagedPermissionResolutionOutcome::SessionReplaced,
-                ));
+                let _ = pending
+                    .decision_tx
+                    .send(cancelled_resolution(&pending.request, outcome));
             }
         }
     }
@@ -958,7 +1273,9 @@ pub(crate) fn cancel_resident_session(resident_pubkey: &str, session_epoch: u64)
             .collect::<Vec<_>>();
         for id in doomed {
             if let Some(pending) = entries.remove(&id) {
-                let _ = pending.decision_tx.send(CapabilityPermissionDecision::Deny);
+                let _ = pending
+                    .decision_tx
+                    .send(ResolvedCapabilityPermission::denied(outcome));
             }
         }
     }
@@ -995,6 +1312,219 @@ mod tests {
             "/../../tests/luca-conformance/f10/continuity_absent.json"
         )))
         .expect("F10 fixture must be valid JSON")
+    }
+
+    fn capability_request(source: &str, epoch: u64) -> ManagedPermissionRequestV2 {
+        ManagedPermissionRequestV2 {
+            protocol: luca_protocol::MANAGED_PERMISSION_V2_PROTOCOL.into(),
+            resident_pubkey: Hex64::parse("1".repeat(64)).expect("synthetic resident"),
+            session_epoch: SafeU53::new(epoch).expect("synthetic epoch"),
+            turn_id: OpaqueId::parse(format!("lookup-turn-{source}")).expect("synthetic turn"),
+            conversation_id: OpaqueId::parse("lookup-conversation")
+                .expect("synthetic conversation"),
+            request_id: OpaqueId::parse(format!("lookup-request-{source}"))
+                .expect("synthetic request"),
+            capability: CapabilityKind::FilesystemRead,
+            risk: CapabilityRisk::Routine,
+            operation: "Read bounded native session metadata".into(),
+            operation_fingerprint: luca_protocol::Sha256Ref::parse(format!(
+                "sha256:{}",
+                "2".repeat(64)
+            ))
+            .expect("synthetic fingerprint"),
+            resource: luca_protocol::CapabilityResourceV1 {
+                kind: "native_session_metadata".into(),
+                resource_ref: format!("native-source-{source}"),
+                display_name: "Native session metadata".into(),
+            },
+        }
+    }
+
+    fn insert_pending_capability(
+        request: ManagedPermissionRequestV2,
+    ) -> (String, mpsc::Receiver<ResolvedCapabilityPermission>) {
+        let id = luca_protocol::canonical_sha256(&request).expect("synthetic pending ID");
+        let (tx, rx) = mpsc::channel();
+        capability_pending()
+            .lock()
+            .expect("capability registry")
+            .insert(
+                id.clone(),
+                PendingCapability {
+                    owner_pubkey: "aa".repeat(32),
+                    request,
+                    decision_tx: tx,
+                },
+            );
+        (id, rx)
+    }
+
+    #[test]
+    fn cancelled_capability_preflight_cannot_use_automatic_access() {
+        for automatic in [
+            CapabilityPermissionDecision::AllowOnce,
+            CapabilityPermissionDecision::AlwaysAllow,
+        ] {
+            let called = std::cell::Cell::new(false);
+            let decision = capability_preflight_decision(
+                &capability_request("cancelled", 7),
+                &mut || true,
+                || {
+                    called.set(true);
+                    Some(automatic)
+                },
+            );
+            assert_eq!(decision, Some(CapabilityPermissionDecision::Deny));
+            assert!(
+                !called.get(),
+                "cancelled scope must not read automatic policy"
+            );
+        }
+    }
+
+    #[test]
+    fn scope_change_during_automatic_policy_read_fails_closed() {
+        for automatic in [
+            Some(CapabilityPermissionDecision::AllowOnce),
+            Some(CapabilityPermissionDecision::AlwaysAllow),
+            None,
+        ] {
+            let interrupted = std::cell::Cell::new(false);
+            let decision = capability_preflight_decision(
+                &capability_request("changed", 7),
+                &mut || interrupted.get(),
+                || {
+                    interrupted.set(true);
+                    automatic
+                },
+            );
+            assert_eq!(decision, Some(CapabilityPermissionDecision::Deny));
+        }
+    }
+
+    #[test]
+    fn cancelling_one_capability_card_preserves_sibling_source_and_epoch() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let (cancelled_id, cancelled_rx) =
+            insert_pending_capability(capability_request("cancel", 7));
+        let (same_epoch_id, same_epoch_rx) =
+            insert_pending_capability(capability_request("sibling", 7));
+        let (other_epoch_id, other_epoch_rx) =
+            insert_pending_capability(capability_request("other", 8));
+        let mut events = Vec::new();
+        let decision = settle_capability_response(
+            &cancelled_id,
+            &cancelled_rx,
+            Duration::from_secs(120),
+            &mut || true,
+            |event| events.push(event),
+        );
+        assert_eq!(decision, CapabilityPermissionDecision::Deny);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].pending_id, cancelled_id);
+        assert_eq!(
+            events[0].outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        assert!(
+            take_capability_pending(&cancelled_id).is_err(),
+            "late answer must be rejected"
+        );
+        for (id, receiver) in [
+            (same_epoch_id, same_epoch_rx),
+            (other_epoch_id, other_epoch_rx),
+        ] {
+            let sibling = take_capability_pending(&id).expect("unrelated card remains answerable");
+            sibling
+                .decision_tx
+                .send(ResolvedCapabilityPermission {
+                    decision: CapabilityPermissionDecision::AllowOnce,
+                    outcome: ManagedPermissionResolutionOutcome::Approved,
+                })
+                .expect("sibling waiter survives");
+            assert_eq!(
+                receiver.recv().expect("sibling answer").decision,
+                CapabilityPermissionDecision::AllowOnce
+            );
+        }
+        cancel_all();
+    }
+
+    #[test]
+    fn capability_expiry_closes_only_its_exact_card_and_emits_resolution() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let (id, rx) = insert_pending_capability(capability_request("expired", 7));
+        let (sibling_id, _sibling_rx) = insert_pending_capability(capability_request("waiting", 7));
+        let mut events = Vec::new();
+        assert_eq!(
+            settle_capability_response(&id, &rx, Duration::ZERO, &mut || false, |event| events
+                .push(event),),
+            CapabilityPermissionDecision::Deny
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].pending_id, id);
+        assert_eq!(
+            events[0].outcome,
+            ManagedPermissionResolutionOutcome::Expired
+        );
+        assert!(take_capability_pending(&id).is_err());
+        assert!(take_capability_pending(&sibling_id).is_ok());
+        cancel_all();
+    }
+
+    #[test]
+    fn interruption_wins_even_over_an_already_queued_capability_allow() {
+        for allowed in [
+            CapabilityPermissionDecision::AllowOnce,
+            CapabilityPermissionDecision::AlwaysAllow,
+        ] {
+            let (tx, rx) = mpsc::channel();
+            tx.send(ResolvedCapabilityPermission {
+                decision: allowed,
+                outcome: ManagedPermissionResolutionOutcome::Approved,
+            })
+            .expect("queued approval");
+            let mut checks = 0;
+            let response = wait_capability_response(&rx, Duration::from_secs(1), &mut || {
+                checks += 1;
+                checks > 1
+            });
+            assert_eq!(response.decision, CapabilityPermissionDecision::Deny);
+            assert_eq!(
+                response.outcome,
+                ManagedPermissionResolutionOutcome::Cancelled
+            );
+        }
+    }
+
+    #[test]
+    fn disconnected_capability_wait_is_denied_and_never_approved() {
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        let response = wait_capability_response(&rx, Duration::from_secs(1), &mut || false);
+        assert_eq!(response.decision, CapabilityPermissionDecision::Deny);
+        assert_eq!(
+            response.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+    }
+
+    #[test]
+    fn capability_wait_preserves_native_denial_and_exact_session_close_reason() {
+        for outcome in [
+            ManagedPermissionResolutionOutcome::Rejected,
+            ManagedPermissionResolutionOutcome::SessionReplaced,
+            ManagedPermissionResolutionOutcome::ApplicationClosed,
+        ] {
+            let (tx, rx) = mpsc::channel();
+            tx.send(ResolvedCapabilityPermission::denied(outcome))
+                .expect("queued denial");
+            let response = wait_capability_response(&rx, Duration::from_secs(1), &mut || false);
+            assert_eq!(response.decision, CapabilityPermissionDecision::Deny);
+            assert_eq!(response.outcome, outcome);
+        }
     }
 
     #[test]
@@ -1139,6 +1669,262 @@ mod tests {
             },
         );
         (id, rx)
+    }
+
+    #[test]
+    fn owned_task_permission_drop_closes_only_its_exact_resident_epoch() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let owned = request("owned-task", 7);
+        let (owned_id, owned_rx) = insert_pending(owned.clone());
+        let (capability_id, capability_rx) =
+            insert_pending_capability(capability_request("owned", 7));
+        let (companion_id, companion_rx) = insert_pending(request("companion", 8));
+        let mut other_resident = request("other-resident", 7);
+        other_resident.resident_pubkey = Hex64::parse("3".repeat(64)).expect("other resident");
+        let (other_id, other_rx) = insert_pending(other_resident);
+        drop(OwnedTaskPermissionLease::new(
+            owned.resident_pubkey.clone(),
+            owned.session_epoch,
+        ));
+        let decision = owned_rx.recv().expect("owned request closed");
+        assert_eq!(
+            decision.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        assert_eq!(
+            decision.decision.disposition,
+            ManagedPermissionDispositionV1::Cancelled
+        );
+        decision
+            .decision
+            .validate_for(&owned)
+            .expect("exact request correlation");
+        let decision = capability_rx.recv().expect("owned capability closed");
+        assert_eq!(decision.decision, CapabilityPermissionDecision::Deny);
+        assert_eq!(
+            decision.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        assert!(resolve(&owned_id, Some("runtime-allow".into()), None).is_err());
+        assert!(take_capability_pending(&capability_id).is_err());
+        for (id, receiver) in [(companion_id, companion_rx), (other_id, other_rx)] {
+            assert!(
+                receiver.try_recv().is_err(),
+                "unrelated permission must remain waiting"
+            );
+            resolve(&id, Some("runtime-allow".into()), None)
+                .expect("unrelated request remains answerable");
+            assert_eq!(
+                receiver
+                    .recv()
+                    .expect("unrelated answer")
+                    .decision
+                    .disposition,
+                ManagedPermissionDispositionV1::Selected
+            );
+        }
+        cancel_all();
+    }
+
+    #[test]
+    fn owned_task_immediate_stop_and_terminal_drop_are_idempotent() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let owned = request("stop-owned", 7);
+        let (id, rx) = insert_pending(owned.clone());
+        let lease = OwnedTaskPermissionLease::new(owned.resident_pubkey, owned.session_epoch);
+        let scope = lease.scope();
+        assert!(!scope.is_closed());
+        scope.cancel();
+        assert!(scope.is_closed());
+        assert_eq!(
+            rx.recv().expect("stop closes permission").outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        drop(lease);
+        scope.cancel();
+        assert!(resolve(&id, Some("runtime-allow".into()), None).is_err());
+        assert!(pending().lock().expect("registry").is_empty());
+        cancel_all();
+    }
+
+    #[test]
+    fn closed_owned_scope_rejects_buffered_late_permission_registration() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let late = request("buffered-late", 7);
+        let lease = OwnedTaskPermissionLease::new(late.resident_pubkey.clone(), late.session_epoch);
+        let scope = lease.scope();
+        let (sibling_id, sibling_rx) = insert_pending(request("unrelated-live", 8));
+        scope.cancel();
+        let id = pending_id(&late);
+        let (tx, rx) = mpsc::channel();
+        assert!(!insert_runtime_permission(
+            &id,
+            Pending {
+                owner_pubkey: "aa".repeat(32),
+                subject: test_subject(&late),
+                request: late,
+                offer: full_offer(),
+                decision_tx: tx,
+            },
+            &mut || scope.is_closed(),
+        ));
+        assert!(matches!(
+            rx.try_recv(),
+            Err(mpsc::TryRecvError::Disconnected)
+        ));
+        assert!(resolve(&id, Some("runtime-allow".into()), None).is_err());
+        assert!(sibling_rx.try_recv().is_err());
+        resolve(&sibling_id, Some("runtime-allow".into()), None).expect("sibling still answerable");
+        assert_eq!(
+            sibling_rx
+                .recv()
+                .expect("sibling answer")
+                .decision
+                .disposition,
+            ManagedPermissionDispositionV1::Selected
+        );
+        drop(lease);
+        cancel_all();
+    }
+
+    #[test]
+    fn owned_scope_close_cannot_become_an_automatic_permission_allow() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        for already_closed in [false, true] {
+            let owned = request("automatic-after-stop", 7);
+            let lease =
+                OwnedTaskPermissionLease::new(owned.resident_pubkey.clone(), owned.session_epoch);
+            let scope = lease.scope();
+            if already_closed {
+                scope.cancel();
+            }
+            let policy_reads = std::cell::Cell::new(0);
+            let decision = runtime_preflight_decision(&owned, &mut || scope.is_closed(), || {
+                policy_reads.set(policy_reads.get() + 1);
+                scope.cancel();
+                Some(selected_decision(&owned, Some("runtime-allow".into())))
+            })
+            .expect("closed scope has correlated cancellation");
+            assert_eq!(
+                decision.disposition,
+                ManagedPermissionDispositionV1::Cancelled
+            );
+            decision.validate_for(&owned).expect("same exact request");
+            assert_eq!(policy_reads.get(), usize::from(!already_closed));
+            drop(lease);
+        }
+        cancel_all();
+    }
+
+    #[test]
+    fn runtime_wait_denies_a_queued_answer_after_its_owned_scope_closes() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        let owned = request("queued-answer-after-stop", 7);
+        let lease =
+            OwnedTaskPermissionLease::new(owned.resident_pubkey.clone(), owned.session_epoch);
+        let scope = lease.scope();
+        let (tx, rx) = mpsc::channel();
+        tx.send(ResolvedManagedPermission {
+            decision: selected_decision(&owned, Some("runtime-allow".into())),
+            outcome: ManagedPermissionResolutionOutcome::Approved,
+            tense: Some(ManagedPermissionTense::Once),
+        })
+        .expect("queued exact approval");
+        let mut checks = 0;
+        let response =
+            wait_runtime_permission_response(&owned, &rx, Duration::from_secs(1), &mut || {
+                checks += 1;
+                if checks > 1 {
+                    scope.cancel();
+                }
+                scope.is_closed()
+            });
+        assert_eq!(
+            response.outcome,
+            ManagedPermissionResolutionOutcome::Cancelled
+        );
+        assert_eq!(
+            response.decision.disposition,
+            ManagedPermissionDispositionV1::Cancelled
+        );
+        response
+            .decision
+            .validate_for(&owned)
+            .expect("same request after cancellation");
+        drop(lease);
+        cancel_all();
+    }
+
+    #[test]
+    fn owned_task_setup_error_and_unwind_drop_the_exact_permission_lease() {
+        let _guard = permission_ledger::test_global_state_guard();
+        cancel_all();
+        for unwind in [false, true] {
+            let owned = request(if unwind { "setup-panic" } else { "setup-error" }, 7);
+            let (id, rx) = insert_pending(owned.clone());
+            let result = std::panic::catch_unwind(|| -> Result<(), &str> {
+                let _lease =
+                    OwnedTaskPermissionLease::new(owned.resident_pubkey, owned.session_epoch);
+                if unwind {
+                    panic!("synthetic owned-task setup failure");
+                }
+                Err("synthetic owned-task setup failure")
+            });
+            assert!(result.is_err() || result.is_ok_and(|result| result.is_err()));
+            assert_eq!(
+                rx.recv().expect("setup cleanup").outcome,
+                ManagedPermissionResolutionOutcome::Cancelled
+            );
+            assert!(resolve(&id, Some("runtime-allow".into()), None).is_err());
+        }
+        cancel_all();
+    }
+
+    #[test]
+    fn aborting_owned_worker_drops_only_its_permission_lease() {
+        let _guard = permission_ledger::test_global_state_guard();
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("synthetic test runtime")
+            .block_on(async {
+                cancel_all();
+                let owned = request("aborted-worker", 7);
+                let (id, rx) = insert_pending(owned.clone());
+                let (sibling_id, sibling_rx) = insert_pending(request("running-sibling", 8));
+                let lease =
+                    OwnedTaskPermissionLease::new(owned.resident_pubkey, owned.session_epoch);
+                let (started, entered) = tokio::sync::oneshot::channel();
+                let worker = tokio::spawn(async move {
+                    let _lease = lease;
+                    let _ = started.send(());
+                    std::future::pending::<()>().await;
+                });
+                entered.await.expect("synthetic worker entered");
+                worker.abort();
+                assert!(worker.await.expect_err("worker aborted").is_cancelled());
+                assert_eq!(
+                    rx.recv().expect("abort cleanup").outcome,
+                    ManagedPermissionResolutionOutcome::Cancelled
+                );
+                assert!(resolve(&id, Some("runtime-allow".into()), None).is_err());
+                assert!(sibling_rx.try_recv().is_err());
+                resolve(&sibling_id, Some("runtime-allow".into()), None)
+                    .expect("sibling stays answerable");
+                assert_eq!(
+                    sibling_rx
+                        .recv()
+                        .expect("sibling answer")
+                        .decision
+                        .disposition,
+                    ManagedPermissionDispositionV1::Selected
+                );
+                cancel_all();
+            });
     }
 
     #[test]

@@ -433,6 +433,99 @@ fn founding_refresh_ignores_unbundled_personas() {
 }
 
 #[test]
+fn stock_luca_access_instructions_refresh_without_touching_authored_work() {
+    use crate::managed_agents::resident_packs;
+
+    let dir = folder();
+    put(
+        dir.path(),
+        DocumentKind::Instructions,
+        resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS,
+    );
+    std::fs::write(
+        dir.path().join("AGENTS.md"),
+        resident_packs::LUCA_AGENTS_BEFORE_DIRECT_ACCESS,
+    )
+    .unwrap();
+    put(dir.path(), DocumentKind::Soul, "My authored soul.");
+    put(dir.path(), DocumentKind::Lessons, "My learned work.");
+    assert_eq!(
+        refresh_founding_documents(dir.path(), "builtin:fizz").unwrap(),
+        vec!["instructions.md".to_owned(), "AGENTS.md".to_owned()]
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("instructions.md")).unwrap(),
+        resident_packs::LUCA.instructions
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap(),
+        resident_packs::LUCA.agents
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("soul.md")).unwrap(),
+        "My authored soul."
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("lessons.md")).unwrap(),
+        "My learned work."
+    );
+    assert!(refresh_founding_documents(dir.path(), "builtin:fizz")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn access_guidance_refresh_preserves_edited_absent_and_other_resident_documents() {
+    use crate::managed_agents::resident_packs;
+
+    for persona in ["builtin:fizz", "builtin:fifty", "custom:mine"] {
+        let dir = folder();
+        let authored = format!(
+            "{}\nMy explicit access policy.",
+            resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS
+        );
+        put(dir.path(), DocumentKind::Instructions, &authored);
+        assert!(refresh_founding_documents(dir.path(), persona)
+            .unwrap()
+            .is_empty());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("instructions.md")).unwrap(),
+            authored
+        );
+        assert!(!dir.path().join("AGENTS.md").exists());
+    }
+    for persona in ["builtin:fifty", "custom:mine"] {
+        let dir = folder();
+        put(
+            dir.path(),
+            DocumentKind::Instructions,
+            resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS,
+        );
+        assert!(refresh_founding_documents(dir.path(), persona)
+            .unwrap()
+            .is_empty());
+    }
+    let dir = folder();
+    assert!(refresh_founding_documents(dir.path(), "builtin:fizz")
+        .unwrap()
+        .is_empty());
+    assert!(!dir.path().join("instructions.md").exists());
+}
+
+#[test]
+fn stock_luca_pack_keeps_brain_optional_and_export_matches_live_instructions() {
+    let pack = &crate::managed_agents::resident_packs::LUCA;
+    assert!(pack
+        .instructions
+        .contains("Brain is optional retained knowledge"));
+    assert!(pack.instructions.contains("actual permissions"));
+    assert!(pack
+        .instructions
+        .contains("A one-off read does not authorize Brain indexing or retention"));
+    assert!(pack.agents.ends_with(pack.instructions));
+}
+
+#[test]
 fn resident_pack_seeds_all_files_without_replacing_existing_work() {
     for (persona_id, pack, has_cognition) in [
         (

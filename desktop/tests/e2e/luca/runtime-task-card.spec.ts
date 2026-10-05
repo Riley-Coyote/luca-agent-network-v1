@@ -55,6 +55,18 @@ type HostState = {
   pendingListResolvers: Array<() => void>;
   completedListCalls: number;
   suppressDeliveryEvents: boolean;
+  heldResultTaskIds: string[];
+  pendingResultResolvers: Record<string, () => void>;
+  completedResultCalls: number;
+  resultBodies: Record<string, string>;
+  resultTaskIdOverrides: Record<string, string>;
+  resultStateOverrides: Record<string, RuntimeTaskProjection["state"]>;
+  stopError: string | null;
+  suppressStopEvents: boolean;
+  stopReplyTaskId: string | null;
+  holdStops: boolean;
+  pendingStopResolvers: Array<() => void>;
+  completedStopCalls: number;
 };
 
 type HostOptions = {
@@ -64,6 +76,14 @@ type HostOptions = {
   runtimeStatusFails?: boolean;
   holdLists?: boolean;
   suppressDeliveryEvents?: boolean;
+  heldResultTaskIds?: string[];
+  resultBodies?: Record<string, string>;
+  resultTaskIdOverrides?: Record<string, string>;
+  resultStateOverrides?: Record<string, RuntimeTaskProjection["state"]>;
+  stopError?: string;
+  suppressStopEvents?: boolean;
+  stopReplyTaskId?: string;
+  holdStops?: boolean;
 };
 
 declare global {
@@ -129,6 +149,18 @@ async function installHost(page: Page, options: HostOptions) {
       pendingListResolvers: [],
       completedListCalls: 0,
       suppressDeliveryEvents: options.suppressDeliveryEvents ?? false,
+      heldResultTaskIds: options.heldResultTaskIds ?? [],
+      pendingResultResolvers: {},
+      completedResultCalls: 0,
+      resultBodies: options.resultBodies ?? {},
+      resultTaskIdOverrides: options.resultTaskIdOverrides ?? {},
+      resultStateOverrides: options.resultStateOverrides ?? {},
+      stopError: options.stopError ?? null,
+      suppressStopEvents: options.suppressStopEvents ?? false,
+      stopReplyTaskId: options.stopReplyTaskId ?? null,
+      holdStops: options.holdStops ?? false,
+      pendingStopResolvers: [],
+      completedStopCalls: 0,
     };
     window.__RUNTIME_TASK_CARD_TEST__ = state;
     type Invoke = (
@@ -198,12 +230,52 @@ async function installHost(page: Page, options: HostOptions) {
             return retried;
           }
           if (command === "get_runtime_task_result") {
+            const taskId = (payload as { taskId: string }).taskId;
+            if (state.heldResultTaskIds.includes(taskId)) {
+              await new Promise<void>((resolve) => {
+                state.pendingResultResolvers[taskId] = resolve;
+              });
+            }
+            state.completedResultCalls += 1;
             return {
-              taskId: (payload as { taskId: string }).taskId,
-              state: "succeeded",
-              result: "Synthetic completed task result.",
+              taskId: state.resultTaskIdOverrides[taskId] ?? taskId,
+              state: state.resultStateOverrides[taskId] ?? "succeeded",
+              result:
+                state.resultBodies[taskId] ??
+                "Synthetic completed task result.",
               error: null,
             };
+          }
+          if (command === "cancel_runtime_task") {
+            if (state.stopError) throw new Error(state.stopError);
+            const taskId = (payload as { taskId: string }).taskId;
+            const index = state.tasks.findIndex(
+              (task) => task.taskId === taskId,
+            );
+            const task = state.tasks[index];
+            if (!task) throw new Error("The exact task is unavailable.");
+            const stopped: RuntimeTaskProjection = {
+              ...task,
+              state: "stopping",
+              currentStep: "Stopping task",
+              updatedAt: new Date(
+                Date.parse(task.updatedAt) + 1_000,
+              ).toISOString(),
+            };
+            state.tasks[index] = stopped;
+            if (state.holdStops) {
+              await new Promise<void>((resolve) =>
+                state.pendingStopResolvers.push(resolve),
+              );
+            }
+            if (!state.suppressStopEvents) {
+              window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.(
+                "luca://runtime-task",
+                stopped,
+              );
+            }
+            state.completedStopCalls += 1;
+            return { ...stopped, taskId: state.stopReplyTaskId ?? taskId };
           }
           if (
             command === "list_runtime_connection_status" &&
@@ -749,6 +821,235 @@ test("a legacy receipt retains its explicit manual resident synthesis action", a
     receipt.getByRole("button", { name: "Retry result summary" }),
   ).toHaveCount(0);
   await expect(receipt.getByRole("status")).toHaveCount(0);
+});
+
+test("a late raw result cannot cross from a dismissed receipt into another task", async ({
+  page,
+}) => {
+  const first = priorTask({
+    taskId: "result-first",
+    summary: "First result receipt.",
+    startedAt: "2026-09-01T00:00:02Z",
+  });
+  const second = priorTask({
+    taskId: "result-second",
+    summary: "Second result receipt.",
+  });
+  await open(page, {
+    tasks: [first, second],
+    heldResultTaskIds: [first.taskId],
+    resultBodies: {
+      [first.taskId]: "PRIVATE_FIRST_RESULT",
+      [second.taskId]: "EXACT_SECOND_RESULT",
+    },
+  });
+  const receipt = page.getByTestId("runtime-task-result-receipt");
+  await expect(receipt).toContainText(first.summary);
+  await receipt
+    .getByRole("button", { name: "Review task result", exact: true })
+    .click();
+  await page.waitForFunction(
+    (id) =>
+      Boolean(window.__RUNTIME_TASK_CARD_TEST__?.pendingResultResolvers[id]),
+    first.taskId,
+  );
+  await receipt
+    .getByRole("button", { name: "Dismiss task receipt", exact: true })
+    .click();
+  await expect(receipt).toContainText(second.summary);
+  await receipt
+    .getByRole("button", { name: "Review task result", exact: true })
+    .click();
+  await expect(receipt).toContainText("EXACT_SECOND_RESULT");
+  await page.evaluate(async (id) => {
+    window.__RUNTIME_TASK_CARD_TEST__?.pendingResultResolvers[id]?.();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+    );
+  }, first.taskId);
+  await page.waitForFunction(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.completedResultCalls === 2,
+  );
+  await expect(receipt).toContainText("EXACT_SECOND_RESULT");
+  await expect(receipt).not.toContainText("PRIVATE_FIRST_RESULT");
+});
+
+for (const invalid of ["task_id", "completion_state"] as const) {
+  test(`raw result rejects an uncorrelated ${invalid} reply`, async ({
+    page,
+  }) => {
+    const task = priorTask({
+      taskId: `invalid-result-${invalid}`,
+      summary: "Exact raw-result fixture.",
+    });
+    await open(page, {
+      tasks: [task],
+      resultBodies: { [task.taskId]: "UNVERIFIED_RESULT_BODY" },
+      resultTaskIdOverrides:
+        invalid === "task_id" ? { [task.taskId]: "different-task" } : {},
+      resultStateOverrides:
+        invalid === "completion_state" ? { [task.taskId]: "failed" } : {},
+    });
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    await receipt
+      .getByRole("button", { name: "Review task result", exact: true })
+      .click();
+    await expect(receipt.getByRole("alert")).toHaveText(
+      "The task result could not be verified.",
+    );
+    await expect(receipt).not.toContainText("UNVERIFIED_RESULT_BODY");
+  });
+}
+
+function activeOwnedTask() {
+  return priorTask({
+    taskId: "exact-stop-fixture",
+    runtimeFamily: "codex",
+    controlOwner: "polyphonic",
+    operation: "new_task",
+    summary: "Exact owned Stop fixture.",
+    state: "active",
+    currentStep: "Working in exact Stop fixture",
+    completedAt: null,
+  });
+}
+
+test("an accepted Stop merges its exact receipt even when the native event is missed", async ({
+  page,
+}) => {
+  const task = activeOwnedTask();
+  await open(page, { tasks: [task], suppressStopEvents: true });
+  const item = page.locator(".luca-runtime-task-item");
+  await item.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(item).toHaveAttribute("data-activity-state", "stopping");
+  await expect(item).toContainText("Stopping task");
+  const stoppedIds = await page.evaluate(() =>
+    window.__RUNTIME_TASK_CARD_TEST__?.calls
+      .filter((call) => call.command === "cancel_runtime_task")
+      .map((call) => (call.payload as { taskId: string }).taskId),
+  );
+  expect(stoppedIds).toEqual([task.taskId]);
+});
+
+test("a rejected Stop is visible and does not invent a stopped state", async ({
+  page,
+}) => {
+  await open(page, {
+    tasks: [activeOwnedTask()],
+    stopError: "Owner authority changed; nothing was stopped.",
+  });
+  const item = page.locator(".luca-runtime-task-item");
+  await item.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(
+    page.getByText("Owner authority changed; nothing was stopped.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(item).toHaveAttribute("data-activity-state", "active");
+  await expect(
+    item.getByRole("button", { name: "Stop", exact: true }),
+  ).toBeEnabled();
+  expect(
+    browserMessages
+      .get(page)
+      ?.filter((message) => message.kind === "pageerror"),
+  ).toEqual([]);
+});
+
+test("a Stop reply for another task cannot update the requested task", async ({
+  page,
+}) => {
+  await open(page, {
+    tasks: [activeOwnedTask()],
+    suppressStopEvents: true,
+    stopReplyTaskId: "wrong-task",
+  });
+  const item = page.locator(".luca-runtime-task-item");
+  await item.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(
+    page.getByText("The task stop receipt could not be verified.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(item).toHaveAttribute("data-activity-state", "active");
+});
+
+test("an in-flight Stop cannot be dispatched twice", async ({ page }) => {
+  await open(page, {
+    tasks: [activeOwnedTask()],
+    holdStops: true,
+    suppressStopEvents: true,
+  });
+  const button = page
+    .locator(".luca-runtime-task-item")
+    .getByRole("button", { name: "Stop", exact: true });
+  await button.click();
+  await expect(button).toBeDisabled();
+  await button.evaluate((element: HTMLButtonElement) => element.click());
+  await page.waitForFunction(
+    () =>
+      (window.__RUNTIME_TASK_CARD_TEST__?.pendingStopResolvers.length ?? 0) ===
+      1,
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        window.__RUNTIME_TASK_CARD_TEST__?.calls.filter(
+          (call) => call.command === "cancel_runtime_task",
+        ).length,
+    ),
+  ).toBe(1);
+  await page.evaluate(() => {
+    for (const resolve of window.__RUNTIME_TASK_CARD_TEST__?.pendingStopResolvers.splice(
+      0,
+    ) ?? [])
+      resolve();
+  });
+  await expect(page.locator(".luca-runtime-task-item")).toHaveAttribute(
+    "data-activity-state",
+    "stopping",
+  );
+});
+
+test("a newer terminal event wins over a late accepted Stop command receipt", async ({
+  page,
+}) => {
+  const task = activeOwnedTask();
+  await open(page, {
+    tasks: [task],
+    holdStops: true,
+    suppressStopEvents: true,
+  });
+  await page
+    .locator(".luca-runtime-task-item")
+    .getByRole("button", { name: "Stop", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      (window.__RUNTIME_TASK_CARD_TEST__?.pendingStopResolvers.length ?? 0) ===
+      1,
+  );
+  await page.evaluate((task) => {
+    const state = window.__RUNTIME_TASK_CARD_TEST__;
+    if (!state) throw new Error("No exact Stop boundary.");
+    const terminal: RuntimeTaskProjection = {
+      ...task,
+      state: "stopped",
+      currentStep: null,
+      completedAt: "2026-09-01T00:01:02Z",
+      updatedAt: "2026-09-01T00:01:02Z",
+    };
+    state.tasks = [terminal];
+    window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://runtime-task", terminal);
+    for (const resolve of state.pendingStopResolvers.splice(0)) resolve();
+  }, task);
+  await page.waitForFunction(
+    () => window.__RUNTIME_TASK_CARD_TEST__?.completedStopCalls === 1,
+  );
+  await expect(page.getByTestId("runtime-task-result-receipt")).toContainText(
+    "Stopped with Codex",
+  );
+  await expect(page.locator(".luca-runtime-task-item")).toHaveCount(0);
 });
 
 test("a subscribed event survives an older list backfill and a stale update", async ({

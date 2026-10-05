@@ -296,7 +296,7 @@ pub(crate) struct ProposeRuntimeTaskParams {
     /// `continue_session` for an explicitly saved, idle Codex CLI session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     operation: Option<String>,
-    /// Exact opaque connected source from list_runtime_task_sessions.
+    /// Exact opaque native lookup or connected source from list_runtime_task_sessions.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_id: Option<String>,
     /// Exact opaque session from list_runtime_task_sessions, never a title/UUID.
@@ -316,12 +316,33 @@ pub(crate) struct RuntimeTaskResultParams {
 struct RuntimeTaskSessionsParams {
     /// `codex` or `claude_code`; Claude metadata is not execution proof.
     target_runtime: String,
-    /// Optionally restrict listing to one exact connected source.
+    /// An exact previously returned native lookup handle or connected source.
+    /// Omit to request only this runtime's current native profile with normal
+    /// filesystem-read permission. No Brain connection is required.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     source_id: Option<String>,
     /// At most 50 metadata candidates per source; defaults to 20.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
+}
+
+impl RuntimeTaskSessionsParams {
+    fn validate(&self) -> Result<(), ErrorData> {
+        if !matches!(self.target_runtime.as_str(), "codex" | "claude_code")
+            || self
+                .source_id
+                .as_deref()
+                .is_some_and(|id| !is_opaque_id(id))
+            || self.limit.is_some_and(|limit| !(1..=50).contains(&limit))
+        {
+            Err(ErrorData::invalid_params(
+                "Native session listing is invalid",
+                None,
+            ))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl RuntimeTaskResultParams {
@@ -531,7 +552,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "polyphonic_open",
-        description = "Request an owner review screen in Polyphonic from this conversation. For bringing in projects or previous chats, use surface brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
+        description = "Request an owner review screen in Polyphonic from this conversation. Use surface brain only when the owner wants an optional retained Brain connection for projects or previous chats. One-off machine/file access uses normal native tools and permissions; external runtime delegation uses list_runtime_task_sessions and propose_runtime_task, without requiring Brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
     )]
     async fn polyphonic_open(
         &self,
@@ -542,24 +563,13 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "list_runtime_task_sessions",
-        description = "List bounded, body-free native session candidates from current connected history sources granted to this resident. Use the returned opaque source/session IDs to ask the owner which exact work to continue or which Codex app chat to message. Workspace basenames and update times aid disambiguation; metadata is not live status or action authority. Never dispatch to latest, guess by title, or treat Claude metadata as verified external execution. This creates and resumes nothing."
+        description = "After the user asks to inspect or delegate native runtime work, list bounded, body-free candidates from only the requested runtime's current native profile under normal filesystem-read permission. Omit source_id for this direct lookup: Brain connection or recall is not required, and no Brain material is connected, indexed or retained. An explicit connected source_id retains its existing Brain grants; a returned native source_id is a short-lived handle scoped to this resident session and conversation. Use the returned opaque source/session IDs to ask the owner which exact work to continue or which Codex app chat to message. Refresh and reselect expired handles; never substitute a new lookup target. Workspace basenames and update times aid disambiguation; metadata is not live status or action authority. Never dispatch to latest, guess by title, or treat Claude metadata as verified external execution. This creates and resumes nothing."
     )]
     async fn list_runtime_task_sessions(
         &self,
         Parameters(params): Parameters<RuntimeTaskSessionsParams>,
     ) -> Result<CallToolResult, ErrorData> {
-        if !matches!(params.target_runtime.as_str(), "codex" | "claude_code")
-            || params
-                .source_id
-                .as_deref()
-                .is_some_and(|id| !is_opaque_id(id))
-            || params.limit.is_some_and(|limit| !(1..=50).contains(&limit))
-        {
-            return Err(ErrorData::invalid_params(
-                "Native session listing is invalid",
-                None,
-            ));
-        }
+        params.validate()?;
         self.client.call("list_runtime_task_sessions", params).await
     }
 
@@ -754,6 +764,84 @@ mod tests {
     }
 
     #[test]
+    fn native_session_lookup_schema_needs_no_brain_source_or_untrusted_scope() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "list_runtime_task_sessions")
+            .expect("session lookup tool");
+        let schema = serde_json::to_value(tool.input_schema).unwrap();
+        assert_eq!(schema["additionalProperties"], false);
+        assert_eq!(schema["required"], serde_json::json!(["target_runtime"]));
+        let description = tool.description.as_deref().unwrap();
+        assert!(description.contains("Brain connection or recall is not required"));
+        assert!(description.contains("connected source_id retains its existing Brain grants"));
+        assert!(description.contains("never substitute a new lookup target"));
+        for runtime in ["codex", "claude_code"] {
+            for source in [
+                None,
+                Some("native-session-source-fixture"),
+                Some("source-fixture"),
+            ] {
+                let params = RuntimeTaskSessionsParams {
+                    target_runtime: runtime.into(),
+                    source_id: source.map(str::to_owned),
+                    limit: None,
+                };
+                assert!(params.validate().is_ok());
+                let encoded = serde_json::to_value(params).unwrap();
+                if source.is_none() {
+                    assert_eq!(encoded, serde_json::json!({"target_runtime": runtime}));
+                }
+            }
+        }
+        for field in [
+            "owner",
+            "resident",
+            "conversation_id",
+            "session_epoch",
+            "profile",
+            "path",
+            "grants",
+            "connect",
+            "index",
+            "retain",
+        ] {
+            let mut input = serde_json::json!({"target_runtime":"codex"});
+            input[field] = serde_json::json!("injected");
+            assert!(
+                serde_json::from_value::<RuntimeTaskSessionsParams>(input).is_err(),
+                "{field}"
+            );
+        }
+        for input in [
+            serde_json::json!({"target_runtime":"all"}),
+            serde_json::json!({"target_runtime":"codex","source_id":"the latest chat"}),
+            serde_json::json!({"target_runtime":"codex","source_id":""}),
+            serde_json::json!({"target_runtime":"codex","limit":0}),
+            serde_json::json!({"target_runtime":"codex","limit":51}),
+        ] {
+            assert!(serde_json::from_value::<RuntimeTaskSessionsParams>(input)
+                .unwrap()
+                .validate()
+                .is_err());
+        }
+    }
+
+    #[test]
+    fn brain_review_is_optional_and_never_a_prerequisite_for_direct_work() {
+        let tool = LucaRepositoriesMcp::tool_router()
+            .list_all()
+            .into_iter()
+            .find(|tool| tool.name == "polyphonic_open")
+            .expect("review tool");
+        let description = tool.description.as_deref().unwrap();
+        assert!(description.contains("optional retained Brain connection"));
+        assert!(description.contains("normal native tools and permissions"));
+        assert!(description.contains("without requiring Brain"));
+    }
+
+    #[test]
     fn runtime_task_proposals_are_bounded_and_explicit() {
         assert!(ProposeRuntimeTaskParams {
             target_runtime: "codex".into(),
@@ -800,6 +888,12 @@ mod tests {
             });
             let params: ProposeRuntimeTaskParams = serde_json::from_value(valid.clone()).unwrap();
             assert!(params.validate().is_ok());
+            let mut native = valid.clone();
+            native["source_id"] = "native-session-source-fixture".into();
+            assert!(serde_json::from_value::<ProposeRuntimeTaskParams>(native)
+                .unwrap()
+                .validate()
+                .is_ok());
             for field in ["source_id", "session_id"] {
                 let mut missing = valid.clone();
                 missing.as_object_mut().unwrap().remove(field);

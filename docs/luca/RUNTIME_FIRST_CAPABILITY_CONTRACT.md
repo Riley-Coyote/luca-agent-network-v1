@@ -63,6 +63,29 @@ Polyphonic must not become a second Codex, Claude Code, Hermes, or OpenClaw
 engine. Its job is to preserve the resident and make the selected runtime's
 work safe, legible, and natural inside Polyphonic.
 
+## Brain is optional, not an access gateway
+
+Brain provides owner-selected indexing, retrieval, and retained/shared source
+context. It is not a prerequisite for ordinary filesystem tools, native-session
+inspection, or cross-harness delegation. An absent, disabled, disconnected, or
+declined Brain connection must not be described as loss of runtime capability.
+
+When the user requests a read, edit, or task, use the exact runtime's available
+tools and current native permissions, or the separately authorized hosted
+control path. Resolve the intended project/session; do not require importing it
+into Brain first. One-off access is not permission to index, retain, or share
+that material in Brain. Automatic Brain ingestion/retrieval keeps its explicit
+source grants; context attachments are not native session control.
+
+Declining a retained Brain connection alone does not forbid independently
+requested one-off work. An explicit refusal to read a source still applies
+unless the user changes it. No request grants blanket machine access, overrides
+a native sandbox or approval, or authorizes unsolicited whole-history scans.
+
+This distinction applies to all residents, including Luca, and to both prompts
+and native access checks. Test ordinary work and session delegation with no
+Brain sources/grants configured, not only with a fully connected account.
+
 ## Provider resolution order
 
 For every requested capability, resolve the provider in this order:

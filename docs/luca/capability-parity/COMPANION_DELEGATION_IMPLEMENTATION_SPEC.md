@@ -55,6 +55,17 @@ This is phased implementation approval, not full D0-D6 completion or release
 approval. All existing isolation, consent, native-proof budget and deferrals
 remain unchanged.
 
+### Direct access correction — 2026-10-04
+
+Riley clarified that Brain is optional. Requested access to the user's machine,
+native sessions, and other harnesses must not require a Brain connection or
+recall grant. Complete this distinction in runtime guidance and session target
+discovery using the existing per-request native permission surfaces. Do not
+change native sandbox/approval policy or automatically index/retain material.
+Brain ingestion/retrieval stays separately opt-in. A declined connection is
+not a declined one-off read; an explicit refusal to read still applies unless
+the user changes it. No unsolicited machine-wide or whole-history discovery.
+
 Suggested approval:
 
 ```text
@@ -175,11 +186,11 @@ working directory/worktree, observed state, and supported operations. The UI
 receives an opaque reference plus safe display metadata, not credentials or raw
 provider envelopes.
 
-- New task: resolve an explicit connected project/folder, or ask one focused question.
+- New task: resolve an explicit project/folder, or ask one focused question. Brain connection is not required.
 - Existing work: resolve the exact native session and its real project/worktree. A different requested project requires clarification, not a silent directory switch.
 - Ambiguous names, stale references, duplicate project names, and changed profiles must stop dispatch until resolved.
 - Session titles/transcripts are reference material, never authority or reliable live status.
-- Catalogue access remains scoped to granted sources; control access is independently checked against the user's requested action.
+- Brain catalogue/retrieval access remains scoped to granted sources. Requested native-session discovery has its own bounded filesystem-read permission, separate from Brain; control access is independently checked against the user's requested action.
 
 ### Operations
 
@@ -230,7 +241,7 @@ execution. Questions preserve their exact task/session/turn correlation.
 |---|---|---|
 | D0 | Verify release/base; isolate source and Polyphonic test data; reproduce relevant checks; inventory runtime discovery and protocol versions. | Baseline, owned paths, test commands, and known failures are recorded. |
 | D1 | Disposable native proof for both harnesses: new task, exact saved-session continuation, active-session follow-up, status, questions, stop, and reconnect as supported. Inspect supported app-controller access first. | Each operation has native evidence or a documented blocker. Required unsupported paths receive Riley's decision before D3 commits to a connector. |
-| D2 | Extend native target resolution using connected session metadata and live provider facts. Fix relevant runtime executable discovery, including current bundled locations. | Wrong/ambiguous project or session cannot dispatch; the exact target and real workspace are clear. |
+| D2 | Extend native target resolution using independently permissioned native session metadata, optional connected-source metadata, and live provider facts. Fix relevant runtime executable discovery, including current bundled locations. | Wrong/ambiguous project or session cannot dispatch; the exact target and real workspace are clear without requiring Brain. |
 | D3 | Extend `runtime_tasks.rs`, its MCP authority, and the ACP/native runner with distinct new/continue/send operations and version-aware capabilities. | Same-ID new/continuation cases work through the proved controls, using existing profile/configuration. |
 | D4 | Harden intent/receipt persistence, acknowledgement handling, event normalization, restart reconciliation, and durable completion delivery. | Fault injection cannot produce a hidden duplicate or false completion; observations and results survive restart. |
 | D5 | Extend `tauriRuntimeTasks`, `useRuntimeTasks`, confirmation/receipt components, and companion instructions for targeting, questions, follow-up, cancellation, and synthesis. | The user completes the delegation loop from the existing conversation without relaying messages manually. |
@@ -328,10 +339,10 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 |---|---|---|
 | D0 | Established | Exact shipped beta.13 base, isolated feature tree, private candidate identity and reproducible checks recorded. Shipping/design tree and installed app preserved. |
 | D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
-| D2 | Implemented; deterministic checks pass | Granted-source metadata lookup, exact opaque session reference, canonical native workspace, bounded metadata reads and confirmation-time revalidation. No title/latest guesses or silent source/session switch. |
+| D2 | Implemented; deterministic checks pass | Brain-independent native lookup uses bounded filesystem-read permission and a short-lived owner/resident/session/binding/conversation-scoped handle. Explicit connected sources retain their existing grants. Exact listed session, canonical native workspace and current authority are revalidated before dispatch. No title/latest guesses or silent source/session switch. The new Brain-off lookup path is fixture-tested, not fresh provider-certified. |
 | D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
 | D4 | Owned Codex return/restart verified | Persist-before-spawn, bounded private storage, correlated completion, stop/shutdown races, coalesced recovery and frozen-byte publication recovery. A fresh clean result returned on one synthesis attempt in about 36.2 seconds after worker completion, while away from the chat. Published receipt/result survived restart without replay, duplicate publication or another provider turn. Other harness gates remain pending. |
-| D5 | Implemented; one native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 23 focused UI cases pass on freshly regenerated E2E assets. Native Run, background completion, original-chat summary and raw result review verified; this does not certify every approval/cancellation path. Existing visual design retained. |
+| D5 | Implemented; one prior native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 31 focused UI cases pass on freshly regenerated E2E assets, including stale raw results and Stop failures/races. Native Run, background completion, original-chat summary and raw result review were verified on signed checkpoint `3e2183ef4`; this does not certify every approval/cancellation path or the newer Brain-off lookup. Existing visual design retained. |
 | D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `3e2183ef4`, six real ARM64 helpers, fresh UI checks, clean native owned Codex return and post-publication restart verified. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
@@ -637,3 +648,49 @@ Shipping checkout remains `f96a3c7bc` with its exact recorded dirty design
 files intact. Installed `/Applications/Polyphonic.app` remains beta.13 /
 `chat.polyphonic.desktop`. No merge, notarization, updater/feed change, installed
 replacement, personal-session mutation or Claude retry occurred.
+
+### Brain-optional access and permission lifecycle correction — 2026-10-05 UTC
+
+Riley corrected an unintended Brain prerequisite. Ordinary runtime file/shell
+tools already operate independently, but stock guidance conflated requested
+access with retained Brain connections, and existing-session delegation lookup
+required a connected-source recall grant. Both are corrected in this checkpoint.
+
+- Shared ACP guidance, the versioned installed Nest skill, Luca's first-meeting
+  brief, stock instructions, and the runtime-first contract now distinguish
+  requested work from opt-in Brain indexing/retrieval/retention. No source is
+  silently connected, imported, indexed, retained, or broadly scanned.
+- Only byte-identical prior stock Luca instructions/AGENTS files are refreshed
+  through the existing compare-and-swap path. Edited, absent, learned, and other
+  residents' documents are preserved; exact previous stock bytes are archived.
+- Omitted `source_id` selects only the requested harness's current native
+  profile, using existing routine filesystem-read permissions. Brain-off
+  metadata is body-free/bounded and has a process-local, twenty-minute opaque
+  lease bound to the exact authority and returned sessions. Restart, revocation,
+  caller disconnect, profile change, or expiry requires refresh/reselection,
+  never a replacement dispatch. Explicit connected IDs still require their
+  Brain grants; an unknown ID does not trigger an alternative scan.
+- Owned task permission scopes close before Stop/terminal cleanup, including
+  buffered late requests. Cancellable waits clear only their own pending rows;
+  sibling and companion permissions are not cancelled. Native-session metadata
+  waits also stop on authority change or caller disconnect.
+- Raw result callbacks are bound to the visible task and returned identity.
+  Stop errors are surfaced, duplicate clicks coalesce, and exact command receipts
+  recover missed events without overwriting newer terminal evidence. The three
+  SSR receipt fixtures now supply the real query provider required in HEAD;
+  their behavioral assertions are unchanged. No layout, styling, or design
+  exploration changes were included.
+
+Verification on the combined source snapshot: 4,106/4,106 frontend helper tests;
+245/245 focused native tests (109 runtime-task, 26 permission, 17 first-meeting,
+46 document, 47 Nest); 15/15 repository MCP and 4/4 ACP managed-prompt tests;
+31/31 task-card Playwright cases; scoped Rust/Biome formatting, typecheck,
+production and E2E builds, all three relevant libraries' Clippy with warnings
+denied, and diff checks pass. Full CI/native/performance limitations above still
+apply. Candidate packaging from this source is recorded separately in the
+handoff after rebuilding; older artifacts keep their original receipts.
+
+No new native sessions or provider prompts were used for these deterministic
+checks. Budget remains 11/12 disposable IDs and 23/40 prompt attempts. A new
+full-loop proof needs a budget decision before it can allocate additional IDs;
+Claude continuation remains behind its existing native proof gate.

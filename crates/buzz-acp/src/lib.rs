@@ -4032,6 +4032,29 @@ mod agent_draft_prompt_tests {
         assert!(!normalized.contains("I can't reach Vektor"));
         assert!(!normalized.contains("leave the next step to the owner"));
     }
+
+    #[test]
+    fn managed_residents_do_not_require_brain_for_requested_runtime_work() {
+        let normalized = include_str!("luca_managed_prompt.md")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        for rule in [
+            "Brain is an optional, owner-selected knowledge and memory layer, not a gateway",
+            "Do not require a Brain connection, import, index, or grant",
+            "explicitly requested work",
+            "Do not silently import, index, or retain the material in Brain",
+            "Declining Brain connection alone does not decline one-off work",
+            "an explicit refusal to read a source still applies unless the owner changes it",
+            "Respect native sandbox/approval policy",
+            "not blanket machine-wide permission or permission to scan history",
+            "list_runtime_task_sessions",
+            "not a Brain import or a whole-history scan",
+            "do not call a queue acknowledgement a completed task",
+        ] {
+            assert!(normalized.contains(rule), "missing access rule: {rule}");
+        }
+    }
 }
 
 fn dispatch_private_cognition(

@@ -60,11 +60,21 @@ before rebuilding. Retain its disposable state. Do not use broad process kills.
 
 ## Verification and remaining gates
 
-Focused checks pass: 139 desktop task/cognition/store tests; ACP private-frame,
-startup-notice, publisher/presentation and delivery checks; both libraries'
-Clippy with warnings denied; scoped formatting, typecheck, production/native
-build, regenerated E2E build, 23 task-card Playwright cases and diff checks.
-The native owned Codex loop and post-publication restart passed as above.
+Latest source correction removes Brain as a prerequisite for requested native
+session lookup and ordinary runtime work. Brain indexing/retrieval/retention
+stays explicitly opt-in. Stock Luca instructions are safely refreshed only
+when they still match the exact previous stock bytes; user edits are preserved.
+Owned task permission scopes now close on Stop/terminal cleanup, late result
+callbacks cannot cross tasks, and Stop failures/missed events are handled.
+There are no separate design changes.
+
+Current source checks pass: 4,106 frontend helper tests, 245 focused desktop
+native tests, 15 repository MCP tests, four ACP managed-prompt tests, all three
+relevant libraries' Clippy with warnings denied, scoped formatting, typecheck,
+production/E2E builds, 31 task-card Playwright cases and diff checks. The signed
+artifact above is still the older checkpoint until the explicit rebuild.
+The native owned Codex loop and post-publication restart passed on that older
+signed source; they are not fresh provider proof of the Brain-off lookup.
 
 Full certification remains incomplete:
 
@@ -77,6 +87,8 @@ Full certification remains incomplete:
 - Controlled native release/candidate performance comparison and the remaining
   native interruption/approval cases are not certified by the single clean loop.
   Point samples and the receipt-cache microbenchmark are not substitutes.
+- The Brain-off native-session lookup and cancellable permission paths have
+  deterministic fixture coverage but not a new provider-backed native loop.
 - Full CI stops on untouched beta.13 formatting. Known unchanged Sandpile
   assertions and native probe timeout failures are documented in the spec;
   scoped green checks do not mean the entire repository suite is green.

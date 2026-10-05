@@ -91,6 +91,14 @@ pub(crate) const LUCA_2026_09_13: FoundingEdition = FoundingEdition {
     identity: include_str!("../../resident-packs/luca/archive/IDENTITY-2026-09-13.md"),
 };
 
+/// Exact stock operating guidance before direct requested access was separated
+/// from optional Brain connection. Only unchanged copies may be refreshed.
+pub(crate) const LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS: &str = include_str!(
+    "../../resident-packs/luca/archive/instructions-2026-10-04-before-direct-access.md"
+);
+pub(crate) const LUCA_AGENTS_BEFORE_DIRECT_ACCESS: &str =
+    include_str!("../../resident-packs/luca/archive/AGENTS-2026-10-04-before-direct-access.md");
+
 pub(crate) const FIFTY_2026_09_13: FoundingEdition = FoundingEdition {
     soul: include_str!("../../resident-packs/fifty/archive/soul-2026-09-13.md"),
     convictions: include_str!("../../resident-packs/fifty/archive/convictions-2026-09-13.md"),

@@ -1209,9 +1209,9 @@ impl FoundingSlot {
     }
 }
 
-/// The four documents that say who a bundled resident is: soul, convictions,
-/// self-model, IDENTITY. The learned documents — lessons, memory, user-model,
-/// relationship — are deliberately absent; nothing here may touch them.
+/// The four founding identity documents, plus exact-stock Luca operating
+/// guidance. Learned documents and owner/resident-edited instructions are
+/// deliberately excluded; nothing here may touch them.
 fn founding_slots(persona_id: &str) -> Vec<FoundingSlot> {
     use crate::managed_agents::resident_packs;
 
@@ -1219,7 +1219,7 @@ fn founding_slots(persona_id: &str) -> Vec<FoundingSlot> {
         return Vec::new();
     };
     let editions = resident_packs::previous_editions(persona_id);
-    vec![
+    let mut slots = vec![
         FoundingSlot {
             target: DocumentTarget::Kind {
                 kind: DocumentKind::Soul,
@@ -1250,10 +1250,29 @@ fn founding_slots(persona_id: &str) -> Vec<FoundingSlot> {
             current: pack.identity,
             previous: editions.iter().map(|edition| edition.identity).collect(),
         },
-    ]
+    ];
+    if persona_id == crate::managed_agents::LUCA_PERSONA_ID {
+        slots.extend([
+            FoundingSlot {
+                target: DocumentTarget::Kind {
+                    kind: DocumentKind::Instructions,
+                },
+                current: pack.instructions,
+                previous: vec![resident_packs::LUCA_INSTRUCTIONS_BEFORE_DIRECT_ACCESS],
+            },
+            FoundingSlot {
+                target: DocumentTarget::RelPath {
+                    rel_path: "AGENTS.md".to_owned(),
+                },
+                current: pack.agents,
+                previous: vec![resident_packs::LUCA_AGENTS_BEFORE_DIRECT_ACCESS],
+            },
+        ]);
+    }
+    slots
 }
 
-/// Move a bundled resident's founding documents to the current edition,
+/// Move a bundled resident's founding/stock operating documents to the current edition,
 /// file by file, and only where the file on disk is still exactly a text
 /// this app shipped.
 ///

@@ -1,6 +1,25 @@
 use super::*;
 
 #[test]
+fn refreshed_nest_guidance_separates_brain_from_runtime_access() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join(".buzz");
+    ensure_nest_at(&root).unwrap();
+    let skill = std::fs::read_to_string(root.join(CANONICAL_SKILL_DIR).join("SKILL.md")).unwrap();
+    for rule in [
+        "Brain is optional retained knowledge",
+        "not a prerequisite for file access, native sessions, or delegation",
+        "Do not require connecting or indexing the material in Brain first",
+        "do not import or retain it merely because a one-off read was authorized",
+        "Declining a Brain connection alone does not decline",
+        "obey native approvals",
+    ] {
+        assert!(skill.contains(rule), "missing access rule: {rule}");
+    }
+    assert_eq!(NEST_SKILL_VERSION, 10);
+}
+
+#[test]
 fn nest_dir_is_under_home() {
     if let Some(dir) = nest_dir() {
         // Accepts .buzz (prod), .buzz-dev (dev), or the instance-local `nest`

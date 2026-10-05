@@ -69,6 +69,8 @@ export function RuntimeTaskResultReceipts({
     taskId: string;
     message: string;
   } | null>(null);
+  const resultGeneration = React.useRef(0);
+  const visibleTaskId = React.useRef<string | null>(null);
   const task = tasks.find(
     (candidate) =>
       (runtimeTaskNativeHandoff(candidate) ||
@@ -76,6 +78,7 @@ export function RuntimeTaskResultReceipts({
         candidate.state === "stopped") &&
       !dismissed.has(candidate.taskId),
   );
+  visibleTaskId.current = task?.taskId ?? null;
   if (!task) return null;
   const nativeHandoff = runtimeTaskNativeHandoff(task);
   const canReview = !nativeHandoff && task.state === "succeeded";
@@ -86,16 +89,43 @@ export function RuntimeTaskResultReceipts({
   const toggle = () => {
     if (!canReview) return;
     if (expanded) {
+      resultGeneration.current += 1;
       setExpandedTaskId(null);
       setResult(null);
+      setLoading(false);
       return;
     }
+    const generation = ++resultGeneration.current;
+    const taskId = task.taskId;
+    const current = () =>
+      resultGeneration.current === generation &&
+      visibleTaskId.current === taskId;
     setExpandedTaskId(task.taskId);
+    setResult(null);
+    setActionError(null);
     setLoading(true);
-    void getRuntimeTaskResult(task.taskId)
-      .then((payload) => setResult(payload.result))
-      .catch(() => setResult(null))
-      .finally(() => setLoading(false));
+    void getRuntimeTaskResult(taskId)
+      .then((payload) => {
+        if (!current()) return;
+        if (payload.taskId !== taskId || payload.state !== "succeeded") {
+          throw new Error("The task result could not be verified.");
+        }
+        setResult(payload.result);
+      })
+      .catch((cause: unknown) => {
+        if (!current()) return;
+        setResult(null);
+        setActionError({
+          taskId,
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "The task result could not be read.",
+        });
+      })
+      .finally(() => {
+        if (current()) setLoading(false);
+      });
   };
 
   return (
@@ -218,6 +248,10 @@ export function RuntimeTaskResultReceipts({
           aria-label="Dismiss task receipt"
           className="grid size-7 place-items-center rounded-full text-ink-muted hover:bg-foreground/[0.06] hover:text-ink"
           onClick={() => {
+            resultGeneration.current += 1;
+            setExpandedTaskId(null);
+            setResult(null);
+            setLoading(false);
             setDismissed((current) => {
               const next = new Set(current);
               next.add(task.taskId);

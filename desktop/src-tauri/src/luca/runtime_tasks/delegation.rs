@@ -74,21 +74,28 @@ fn exclusions(app: &AppHandle, runtime: &str) -> Result<HashSet<String>, String>
     )
 }
 
+#[allow(clippy::too_many_arguments)] // Keep exact target and conversation authority explicit.
 pub(super) fn resolve_target(
     app: &AppHandle,
     resident: &str,
+    conversation: &str,
     runtime: &str,
     operation: RuntimeTaskOperationV1,
     source_id: Option<&str>,
     session_id: Option<&str>,
     folder: Option<&Path>,
 ) -> Result<RuntimeTaskExistingTargetV1, String> {
-    let source_id = OpaqueId::parse(source_id.unwrap_or_default().to_owned())
-        .map_err(|_| "Choose an exact connected session source.".to_owned())?;
+    let source_id = OpaqueId::parse(source_id.unwrap_or_default().to_owned()).map_err(|_| {
+        "Choose an exact session source returned by native session lookup.".to_owned()
+    })?;
     let session_id = OpaqueId::parse(session_id.unwrap_or_default().to_owned()).map_err(|_| {
         "Choose an exact session; titles or latest-session guesses cannot dispatch.".to_owned()
     })?;
-    let source = authorized_source(app, resident, &source_id)?;
+    let source = if native_sources::is_native_source(&source_id) {
+        native_sources::resolve_source(app, resident, conversation, &source_id, &session_id)?
+    } else {
+        authorized_source(app, resident, &source_id)?
+    };
     let target = targets::resolve_connected_session_target(
         &source,
         &session_id,
@@ -105,10 +112,21 @@ pub(super) fn resolve_target(
 pub(super) fn revalidate_target(
     app: &AppHandle,
     resident: &str,
+    conversation: &str,
     target: &RuntimeTaskExistingTargetV1,
     operation: RuntimeTaskOperationV1,
 ) -> Result<(), String> {
-    let source = authorized_source(app, resident, &target.source_id)?;
+    let source = if native_sources::is_native_source(&target.source_id) {
+        native_sources::resolve_source(
+            app,
+            resident,
+            conversation,
+            &target.source_id,
+            &target.session_ref,
+        )?
+    } else {
+        authorized_source(app, resident, &target.source_id)?
+    };
     let current = targets::revalidate_connected_session_target(
         &source,
         target,
@@ -135,14 +153,7 @@ fn validate_operation(
 fn validate_default_profile(source: &RuntimeTaskTargetSourceV1) -> Result<(), String> {
     // Do not point the default CLI at an unrelated imported/backup profile.
     // Supporting another profile requires separately verified native routing.
-    let codex_home = std::env::var_os("CODEX_HOME")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".codex")))
-        .ok_or_else(|| "Native Codex profile is unavailable.".to_owned())?;
-    let expected = codex_home
-        .join("sessions")
-        .canonicalize()
-        .map_err(|_| "Native Codex profile is unavailable.".to_owned())?;
+    let expected = native_sources::current_profile_root("codex")?;
     if source.canonical_root != expected {
         return Err("The selected source is not the CLI's current native profile; review it in the native app.".into());
     }
@@ -300,6 +311,7 @@ pub(super) async fn start_existing(
     let target = resolve_target(
         &app,
         &input.resident_pubkey,
+        &input.conversation_id,
         &input.runtime_family,
         input.operation,
         input.source_id.as_deref(),
@@ -307,7 +319,13 @@ pub(super) async fn start_existing(
         Some(Path::new(&input.working_folder)),
     )?;
     let executable = native_cli(input.operation, &target.canonical_working_folder).await?;
-    revalidate_target(&app, &input.resident_pubkey, &target, input.operation)?;
+    revalidate_target(
+        &app,
+        &input.resident_pubkey,
+        &input.conversation_id,
+        &target,
+        input.operation,
+    )?;
     if owner(&app)? != dispatch_owner {
         return Err("The active owner changed before dispatch. Nothing ran.".into());
     }
@@ -390,7 +408,7 @@ pub(super) async fn start_existing(
         if state.projections.values().any(|task| {
             task.owner_pubkey == projection.owner_pubkey
                 && task.provider_session_id == projection.provider_session_id
-                && task.target_source_ref == projection.target_source_ref
+                && task.runtime_family == projection.runtime_family
                 && matches!(
                     task.state,
                     RuntimeTaskStateV1::Queued
@@ -450,7 +468,7 @@ pub(super) async fn start_existing(
     let (process, encoded) = owned_dispatch.ok_or_else(|| {
         "The requested native operation was not prepared. Nothing ran.".to_owned()
     })?;
-    execution::launch_owned_task(app, projection, process, encoded, None)
+    execution::launch_owned_task(app, projection, process, encoded, None, None)
 }
 
 #[cfg(test)]

@@ -1,8 +1,9 @@
-//! Exact, local-only target resolution over an already-authorized connected source.
+//! Exact, local-only target resolution over an already-authorized source.
 //!
 //! A context attachment, transcript title, or native UUID supplied by a model is
-//! not action authority. The caller checks owner, resident, source grants and
-//! explicit action consent before entering this capsule and again at dispatch.
+//! not action authority. The caller checks owner, resident, native lookup
+//! authority or connected-source grants, and explicit action consent before
+//! entering this capsule and again at dispatch.
 
 use std::{
     collections::{HashSet, VecDeque},
@@ -27,7 +28,8 @@ const MAX_LOCATOR_BYTES: usize = 4096;
 const MAX_LISTED_TARGETS: usize = 50;
 const MAX_WORKSPACE_LABEL_CHARS: usize = 96;
 
-/// A current source snapshot supplied by the host after its grant checks.
+/// A current source snapshot supplied by the host after its authority checks.
+/// Native profiles use short-lived local lookup permission, never Brain recall.
 #[derive(Clone)]
 pub(super) struct RuntimeTaskTargetSourceV1 {
     pub source_id: OpaqueId,

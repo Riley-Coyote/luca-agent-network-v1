@@ -15,6 +15,7 @@ pub(super) fn launch_owned_task(
     mut process: Command,
     encoded_input: Vec<u8>,
     retry_input: Option<StartRuntimeTaskInputV1>,
+    permission_lease: Option<super::super::managed_permission::OwnedTaskPermissionLease>,
 ) -> Result<RuntimeTaskProjectionV1, String> {
     if app
         .state::<crate::app_state::AppState>()
@@ -95,6 +96,7 @@ pub(super) fn launch_owned_task(
         RunningTask {
             cancel: cancel_tx,
             child: Arc::clone(&child),
+            permission_scope: permission_lease.as_ref().map(|lease| lease.scope()),
         },
     );
     drop(state);
@@ -110,6 +112,7 @@ pub(super) fn launch_owned_task(
             stderr,
             encoded_input,
             cancel_rx,
+            permission_lease,
         )
         .await;
     });
@@ -147,6 +150,7 @@ async fn run_owned_task(
     stderr: Option<tokio::process::ChildStderr>,
     encoded_input: Vec<u8>,
     mut cancel: watch::Receiver<bool>,
+    _permission_lease: Option<super::super::managed_permission::OwnedTaskPermissionLease>,
 ) {
     let stderr_task = stderr.map(|mut stderr| {
         tauri::async_runtime::spawn(async move {
@@ -403,9 +407,18 @@ fn settle_failure(
 }
 
 fn remove_running(task_id: &str) {
-    if let Ok(mut state) = memory().lock() {
-        state.running.remove(task_id);
+    let permission_scope = if let Ok(mut state) = memory().lock() {
+        let permission_scope = state
+            .running
+            .remove(task_id)
+            .and_then(|running| running.permission_scope);
         state.task_inputs.remove(task_id);
+        permission_scope
+    } else {
+        None
+    };
+    if let Some(scope) = permission_scope {
+        scope.cancel();
     }
 }
 

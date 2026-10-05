@@ -1,5 +1,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronUp, RotateCcw, Square, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 import type { AgentActivity } from "@/features/agents/lib/activityPhase";
 import type { BotActivityAgent } from "@/features/channels/ui/BotActivityBar";
@@ -28,7 +30,9 @@ import {
 import {
   runtimeTaskAction,
   runtimeTaskVisible,
+  mergeRuntimeTasks,
 } from "@/features/capabilities/lib/runtimeTaskPresentation";
+import { runtimeTasksKey } from "@/features/capabilities/useRuntimeTasks";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/ui/popover";
 import {
   EMPTY_ACTIVITY_SHELF_SLOTS,
@@ -189,12 +193,16 @@ function runtimeTaskProvider(task: RuntimeTaskProjection): string {
 function RuntimeTaskCompactItem({
   expanded,
   onDismiss,
+  onStop,
   onToggle,
+  stopping,
   task,
 }: {
   expanded: boolean;
   onDismiss: () => void;
+  onStop: (task: RuntimeTaskProjection) => void;
   onToggle: () => void;
+  stopping: boolean;
   task: RuntimeTaskProjection;
 }) {
   const action = runtimeTaskAction(task);
@@ -233,7 +241,8 @@ function RuntimeTaskCompactItem({
       {action === "stop" ? (
         <button
           className="luca-activity-item__action"
-          onClick={() => void cancelRuntimeTask(task.taskId)}
+          disabled={stopping}
+          onClick={() => onStop(task)}
           type="button"
         >
           <Square aria-hidden className="size-3" />
@@ -638,6 +647,47 @@ export function ConversationAgentActivityStrip({
   permissionContent,
   runtimeTasks = [],
 }: ConversationAgentActivityStripProps) {
+  const queryClient = useQueryClient();
+  const stoppingTasks = React.useRef(new Set<string>());
+  const [stoppingTaskIds, setStoppingTaskIds] = React.useState(
+    () => new Set<string>(),
+  );
+  const stopRuntimeTask = React.useCallback(
+    (task: RuntimeTaskProjection) => {
+      if (stoppingTasks.current.has(task.taskId)) return;
+      stoppingTasks.current.add(task.taskId);
+      setStoppingTaskIds(new Set(stoppingTasks.current));
+      void cancelRuntimeTask(task.taskId)
+        .then((updated) => {
+          if (
+            updated.taskId !== task.taskId ||
+            updated.conversationId !== task.conversationId
+          ) {
+            throw new Error("The task stop receipt could not be verified.");
+          }
+          // The exact command receipt still updates this task when its event
+          // is missed; a newer subscribed terminal receipt continues to win.
+          queryClient.setQueryData<RuntimeTaskProjection[]>(
+            runtimeTasksKey(task.conversationId),
+            (current = []) => mergeRuntimeTasks(current, [updated]),
+          );
+        })
+        .catch((cause: unknown) => {
+          toast.error(
+            cause instanceof Error
+              ? cause.message
+              : typeof cause === "string"
+                ? cause
+                : "The task could not be stopped. Its outcome is unchanged.",
+          );
+        })
+        .finally(() => {
+          stoppingTasks.current.delete(task.taskId);
+          setStoppingTaskIds(new Set(stoppingTasks.current));
+        });
+    },
+    [queryClient],
+  );
   const slotState = React.useRef(EMPTY_ACTIVITY_SHELF_SLOTS);
   const announcedChannelId = React.useRef(channelId);
   const announcedItems = React.useRef(
@@ -962,7 +1012,9 @@ export function ConversationAgentActivityStrip({
                 return next;
               })
             }
+            onStop={stopRuntimeTask}
             onToggle={() => setExpanded((value) => !value)}
+            stopping={stoppingTaskIds.has(visibleRuntimeTasks[0].taskId)}
             task={visibleRuntimeTasks[0]}
           />
         ) : null}
@@ -1107,7 +1159,8 @@ export function ConversationAgentActivityStrip({
                 {task.state === "queued" || task.state === "active" ? (
                   <button
                     className="luca-activity-item__action luca-runtime-task-run__action"
-                    onClick={() => void cancelRuntimeTask(task.taskId)}
+                    disabled={stoppingTaskIds.has(task.taskId)}
+                    onClick={() => stopRuntimeTask(task)}
                     type="button"
                   >
                     <Square aria-hidden className="size-3" />
