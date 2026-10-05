@@ -2176,12 +2176,16 @@ pub fn build_managed_agent_summary(
         let global_for_hash =
             crate::managed_agents::load_global_agent_config(app).unwrap_or_default();
         let teams_for_hash = crate::managed_agents::load_teams(app).unwrap_or_default();
+        let supervised_local_relay =
+            tauri::Manager::try_state::<crate::local_relay::RuntimeState>(app)
+                .and_then(|runtime| crate::local_relay::relay_url(&runtime));
         let hash_drift = runtime.spawn_config_hash
-            != crate::managed_agents::spawn_hash::spawn_config_hash(
+            != crate::managed_agents::spawn_hash::spawn_config_hash_with_supervised_local_relay(
                 record,
                 personas,
                 &teams_for_hash,
                 &crate::relay::relay_ws_url_with_override(&state),
+                supervised_local_relay.as_deref(),
                 &global_for_hash,
             );
         let availability_drift = super::availability_drift(
@@ -2526,11 +2530,15 @@ fn spawn_agent_child_unix(
         resident_pubkey.clone(),
         session_epoch,
     )?;
-    let spawn_config_hash = super::spawn_hash::spawn_config_hash(
+    let binding_supervised_local_relay =
+        tauri::Manager::try_state::<crate::local_relay::RuntimeState>(app)
+            .and_then(|runtime| crate::local_relay::relay_url(&runtime));
+    let spawn_config_hash = super::spawn_hash::spawn_config_hash_with_supervised_local_relay(
         record,
         &personas,
         &teams,
         &effective_relay_url,
+        binding_supervised_local_relay.as_deref(),
         &global,
     );
     let runtime_configuration_sha256 = managed_runtime_configuration_sha256(spawn_config_hash)?;

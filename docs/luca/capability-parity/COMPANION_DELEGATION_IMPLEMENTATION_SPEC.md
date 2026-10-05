@@ -330,20 +330,22 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
 | D2 | Implemented; deterministic checks pass | Granted-source metadata lookup, exact opaque session reference, canonical native workspace, bounded metadata reads and confirmation-time revalidation. No title/latest guesses or silent source/session switch. |
 | D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
-| D4 | Implemented; native loop/restart acceptance pending | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. Owned-task return uses the original companion/conversation with digest/epoch/audience authority. Limitations below remain explicit. |
+| D4 | Implemented; focused repairs verified, native return/restart pending | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. Native worker completion passed. Warm Codex reservation/return, queued-user preemption and stable supervised-local binding now pass deterministic checks; complete-loop/restart acceptance remains pending. |
 | D5 | Implemented; 23 focused UI cases pass | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and command-receipt recovery when a live event is missed. Existing visual design retained. Native complete-loop acceptance remains pending. |
-| D6 | Verification and packaging in progress | Scoped Rust/frontend checks and bounded browser regressions complete. Isolated signed candidate, native process metrics and complete-loop acceptance are the next gates; no release or installed replacement authorized. |
+| D6 | Verification in progress; isolated signed packaging passed | Scoped Rust/frontend checks and bounded browser regressions complete. Actual native welcome and delegated-worker completion passed. Complete return-loop/restart acceptance and interactive native process metrics remain pending; no release or installed replacement authorized. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
 is not a claim of cancellation, approval mediation or a complete delegation loop.
 
-Budget used: **3 / 12 disposable IDs, 12 / 40 prompt attempts** (10 completed
+Budget used: **5 / 12 disposable IDs, 15 / 40 prompt attempts** (13 completed
 Codex turns, one runner attempt aborted before verified completion, one Claude
-quota rejection). All owned native test processes are terminal; the native app
-fixture remains idle. No personal session was a test target. Reserve and record
-another attempt before submitting a provider prompt; no automatic Claude retry,
-paid API path, model fallback, or native-profile repair is authorized.
+quota rejection). The isolated candidate is stopped; its completed worker
+result and pending summary are retained. The external native-app fixture
+remains idle. No personal session was a test target. The current candidate
+reservation has up to three IDs/seven attempts remaining, capped at eight
+IDs/22 attempts including automatic welcome/continuity/synthesis. No automatic
+Claude retry, paid API path, model fallback, or native-profile repair is authorized.
 
 ### Historical checkpoint verification — 2026-10-04
 
@@ -429,6 +431,11 @@ Bounded V1 limitations:
 - Filesystem scan deadlines are cooperative checks between OS operations,
   not preemptive wall-clock guarantees. The catalogue's outer three-second
   host budget does not interrupt an already-running filesystem operation.
+- Managed binding fingerprints still derive from the existing Rust
+  `DefaultHasher`. Same-build local-port restart stability is covered; a
+  toolchain/app upgrade may change the fingerprint and fail closed on a
+  pending approval. Cross-version binding migration requires a separately
+  versioned canonical digest, never a relaxed comparison or approval rewrite.
 
 ### Native candidate preflight — 2026-10-05 UTC
 
@@ -457,10 +464,72 @@ Actual native proof usage remains **3/12 disposable IDs, 12/40 prompt attempts**
 Up to five additional IDs/ten attempts are reserved for welcome/continuity,
 synthetic delegation and tool-free result return, including automatic work.
 
-Next: freeze/push the local-relay/cache repairs, rebuild and reopen the isolated
-candidate, collect native idle metrics, and exercise applicable owned-task
-completion/recovery cases only in disposable fixtures within the remaining
-native proof budget. Keep failed or unavailable gates explicit in the handoff.
+### Native worker checkpoint — 2026-10-05 UTC
+
+Clean pushed `350bb90cd` built and signed successfully with the local-relay and
+pinned-cache repairs. Actual native onboarding selected the existing Codex
+authentication, with all personal imports/history grants off. Luca's welcome
+appeared in its original conversation and the private relay contains one
+correctly attributed Luca-signed final. Fresh post-packaging E2E assets pass
+all 23 task-card cases (42.5 seconds).
+
+One synthetic delegated task was approved in the native confirmation sheet for
+the exact disposable Git fixture. Its worker completed successfully, retained
+its recorded provider session ID, and saved the exact requested result marker.
+The native card displays success and the fixture remains unchanged. This proves
+new-task dispatch/completion, not the complete companion return loop.
+
+The durable summary entered Synthesizing but created no private provider
+session/prompt. Native inspection exposed a singleton scheduling gap: private
+cognition rejects the idle Codex worker because it holds a warm conversation.
+The candidate is stopped while that gap is repaired. Managed Codex's isolated
+summary must preserve the original worker and its warm session, including on
+temporary-process failure, cancellation and panic; non-isolated runtimes retain
+the no-live-channel guard. The completed task must not be redispatched.
+
+Startup/locked-process CPU/RSS samples are not an interactive idle baseline.
+Interactive native metrics, saved-result return and restart acceptance remain
+pending. A second source-reviewed gap affects restart: the managed configuration
+hash includes the changing supervised local relay port. Normalize only the
+exact active supervised network endpoint consistently for spawn, restart drift
+and current-owner authority; arbitrary loopback and remote addresses remain
+distinct. This must not relax model/provider/instruction sensitivity.
+
+The already saved synthetic approval contains a one-way legacy binding hash
+and cannot safely be rewritten. Keep that completed task/result and fail closed
+on mismatched authority, with no redispatch. Next: checkpoint the focused
+scheduling/stable-binding repairs, rebuild/reopen the isolated candidate, and
+use a distinct fresh synthetic task for complete-loop and published-result
+restart acceptance within the reservation. Keep unavailable gates explicit.
+
+### Warm-worker and restart repair checkpoint — 2026-10-05 UTC
+
+The managed Codex isolated path now reserves cold capacity first, or an idle
+warm worker as an opaque token. Only the temporary process receives private
+cognition; the original worker's session, model, context and steer state remain
+untouched. An outer return guard covers failure, unwind and abort ordering.
+Setup cancellation explicitly stops/reaps the exact discovery process group
+and temporary ACP client within bounded waits; forced abort/SIGKILL still has
+the disclosed best-effort cleanup boundary.
+
+Queued conversation work preempts only its blocking isolated reservation. A
+known public-worker affinity never cancels another worker's private work; a new
+conversation may reclaim one deterministic isolated slot when no idle capacity
+exists. The unchanged queued batch dispatches only after the guarded original
+return. Non-isolated continuity retains its strict no-live-channel rule.
+
+All three managed hash consumers now normalize only the validated, exact
+active supervised network endpoint to the stable local identity. Invalid/raw
+sentinels, ordinary loopback and remote coordinates stay distinct; actual
+transport URLs and model/provider/instruction sensitivity are unchanged.
+No persisted approval was rewritten or given new authority.
+
+Verification: 40 distinct ACP scheduling/error/delivery/legacy-guard tests,
+28 managed hash tests (five new boundaries), and 120 focused desktop task tests
+pass. Both ACP and desktop library Clippy pass with `-D warnings`; scoped
+Rust formatting and `git diff --check` pass. The next native candidate must be
+built from this clean pushed checkpoint. Native complete-loop, restart and
+settled interactive metrics remain unverified until that candidate is exercised.
 
 Completion means the approved delegation cases work through verified native
 controls, required tests/evidence are recorded, and Riley can review an isolated

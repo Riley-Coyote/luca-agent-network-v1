@@ -1,10 +1,11 @@
 //! Spawn-time config hash for the restart-required badge.
 //!
-//! [`spawn_config_hash`] digests the *effective spawned values* — what a
-//! process launch of `record` would actually receive — so the UI can compare
-//! a running process's hash (stamped on [`super::ManagedAgentProcess`] at
-//! spawn) against a recomputation from current disk state and show a
-//! "restart required" badge only when a restart would change what runs.
+//! [`spawn_config_hash_with_supervised_local_relay`] digests the *effective
+//! spawned values* — what a process launch of `record` would actually receive
+//! — so the UI can compare a running process's hash (stamped on
+//! [`super::ManagedAgentProcess`] at spawn) against a recomputation from
+//! current disk state and show a "restart required" badge only when a restart
+//! would change what runs.
 //!
 //! Scope rules (decided in #centralize-personas-and-agents, revised in PR
 //! #1602 review):
@@ -17,12 +18,18 @@
 //!   fields the spawn env writes read are hashed as spawn resolves them.
 //! - The relay URL is hashed in resolved form (`effective_agent_relay_url`):
 //!   a record with a blank relay spawns against the active workspace relay,
-//!   so a workspace relay change means a restart would change what runs.
+//!   so a workspace relay change means a restart would change what runs. The
+//!   exact validated endpoint of the desktop-supervised local relay is reduced
+//!   to its stable sentinel so an ephemeral port change does not manufacture
+//!   binding drift across an app restart.
 //! - Channel membership is not an input: agents pick up channel changes live
 //!   (#1468), never via restart.
 //!
-//! The hash never crosses a process or persistence boundary, so
-//! `DefaultHasher` (not stable across Rust releases) is sufficient.
+//! This existing hash also feeds the managed runtime binding fingerprint,
+//! including durable delegation approvals. `DefaultHasher` is stable for a
+//! same-build restart, but not guaranteed across Rust/toolchain releases.
+//! Cross-version recovery therefore fails closed on binding drift; a future
+//! versioned canonical configuration digest must not relax old approvals.
 
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -33,6 +40,57 @@ use super::{
     types::{AgentDefinition, ManagedAgentRecord, TeamRecord},
     GlobalAgentConfig,
 };
+
+const INVALID_BINDING_RELAY_DOMAIN: &str = "polyphonic.invalid-binding-relay.v1";
+
+enum BindingRelayHashMaterial<'a> {
+    Network(&'a str),
+    SupervisedLocal,
+    Invalid(&'a str),
+}
+
+/// Classify the resolved relay used by a managed binding. Only the exact
+/// active desktop-supervised network endpoint may acquire the stable local
+/// identity. A raw sentinel is not a network endpoint and therefore cannot be
+/// used as a shortcut to that identity.
+fn binding_relay_hash_material<'a>(
+    effective_relay: &'a str,
+    supervised_local_relay: Option<&str>,
+) -> BindingRelayHashMaterial<'a> {
+    let valid_network = url::Url::parse(effective_relay).is_ok_and(|parsed| {
+        matches!(parsed.scheme(), "ws" | "wss" | "http" | "https")
+            && parsed.host_str().is_some()
+            && parsed.username().is_empty()
+            && parsed.password().is_none()
+    });
+    if !valid_network {
+        return BindingRelayHashMaterial::Invalid(effective_relay);
+    }
+    if supervised_local_relay == Some(effective_relay) {
+        BindingRelayHashMaterial::SupervisedLocal
+    } else {
+        BindingRelayHashMaterial::Network(effective_relay)
+    }
+}
+
+fn hash_binding_relay(
+    hasher: &mut DefaultHasher,
+    effective_relay: &str,
+    supervised_local_relay: Option<&str>,
+) {
+    match binding_relay_hash_material(effective_relay, supervised_local_relay) {
+        BindingRelayHashMaterial::Network(relay) => relay.hash(hasher),
+        BindingRelayHashMaterial::SupervisedLocal => {
+            crate::local_relay::LOCAL_RELAY_SENTINEL.hash(hasher);
+        }
+        BindingRelayHashMaterial::Invalid(relay) => {
+            // Keep invalid/custom coordinates distinct from the trusted local
+            // sentinel without perturbing hashes for existing valid relays.
+            INVALID_BINDING_RELAY_DOMAIN.hash(hasher);
+            relay.hash(hasher);
+        }
+    }
+}
 
 /// The prompt a spawn would actually deliver: `Some("")` collapses to `None`
 /// because an empty `BUZZ_ACP_SYSTEM_PROMPT` is no prompt.
@@ -63,11 +121,32 @@ pub(crate) fn effective_team_instructions(
 /// Digest the effective spawn configuration of `record` under the current
 /// `personas`, resolving a blank record relay against `workspace_relay`.
 /// Pure — no `AppHandle`, no disk, no keyring.
+#[cfg(test)]
 pub(crate) fn spawn_config_hash(
     record: &ManagedAgentRecord,
     personas: &[AgentDefinition],
     teams: &[TeamRecord],
     workspace_relay: &str,
+    global: &GlobalAgentConfig,
+) -> u64 {
+    spawn_config_hash_with_supervised_local_relay(
+        record,
+        personas,
+        teams,
+        workspace_relay,
+        None,
+        global,
+    )
+}
+
+/// Digest the effective spawn configuration while giving the exact active
+/// desktop-supervised local relay a restart-stable logical identity.
+pub(crate) fn spawn_config_hash_with_supervised_local_relay(
+    record: &ManagedAgentRecord,
+    personas: &[AgentDefinition],
+    teams: &[TeamRecord],
+    workspace_relay: &str,
+    supervised_local_relay: Option<&str>,
     global: &GlobalAgentConfig,
 ) -> u64 {
     // Prospective re-snapshot: apply the same `apply_persona_snapshot` the
@@ -107,7 +186,9 @@ pub(crate) fn spawn_config_hash(
     // Record fields the spawn env writes read directly. The relay is hashed
     // resolved: a blank record relay spawns on the workspace relay, so a
     // workspace relay change must trip the badge.
-    crate::relay::effective_agent_relay_url(&record.relay_url, workspace_relay).hash(&mut hasher);
+    let effective_relay =
+        crate::relay::effective_agent_relay_url(&record.relay_url, workspace_relay);
+    hash_binding_relay(&mut hasher, &effective_relay, supervised_local_relay);
     // Prompt basis: a resident with an agent folder spawns on the assembled
     // documents, so the folder's content hash is what can drift; a record
     // without one still spawns on the pin (`system_prompt`), same resolver as

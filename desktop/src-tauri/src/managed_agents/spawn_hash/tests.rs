@@ -250,6 +250,191 @@ fn workspace_relay_change_ignored_for_pinned_record_relay() {
 }
 
 #[test]
+fn supervised_local_relay_port_change_preserves_binding_hash() {
+    let mut rec = record();
+    rec.relay_url = String::new();
+    let first = "ws://127.0.0.1:4317";
+    let restarted = "ws://127.0.0.1:49152";
+    assert_eq!(
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            first,
+            Some(first),
+            &Default::default(),
+        ),
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            restarted,
+            Some(restarted),
+            &Default::default(),
+        )
+    );
+}
+
+#[test]
+fn only_the_exact_valid_supervised_relay_gets_the_stable_local_binding() {
+    let mut rec = record();
+    rec.relay_url = String::new();
+    let local = "ws://127.0.0.1:4317";
+    let other_loopback = "ws://127.0.0.1:49152";
+    let stable_local = spawn_config_hash_with_supervised_local_relay(
+        &rec,
+        &[],
+        &[],
+        local,
+        Some(local),
+        &Default::default(),
+    );
+    assert_ne!(
+        stable_local,
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            local,
+            Some(other_loopback),
+            &Default::default(),
+        )
+    );
+    assert_ne!(
+        stable_local,
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            crate::local_relay::LOCAL_RELAY_SENTINEL,
+            Some(crate::local_relay::LOCAL_RELAY_SENTINEL),
+            &Default::default(),
+        ),
+        "a raw sentinel must not impersonate the validated supervised endpoint"
+    );
+    assert_ne!(
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            "wss://relay-a.example",
+            Some(local),
+            &Default::default(),
+        ),
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            "wss://relay-b.example",
+            Some(local),
+            &Default::default(),
+        )
+    );
+}
+
+#[test]
+fn unsupervised_loopback_ports_and_invalid_coordinates_do_not_canonicalize() {
+    let mut rec = record();
+    rec.relay_url = String::new();
+    let hash = |relay: &str, supervised: Option<&str>| {
+        spawn_config_hash_with_supervised_local_relay(
+            &rec,
+            &[],
+            &[],
+            relay,
+            supervised,
+            &Default::default(),
+        )
+    };
+
+    assert_ne!(
+        hash("ws://127.0.0.1:4317", None),
+        hash("ws://127.0.0.1:49152", None),
+        "ordinary loopback coordinates remain exact network identities"
+    );
+
+    let invalid = "buzz-local://claimed-active";
+    assert_eq!(
+        hash(invalid, Some(invalid)),
+        hash(invalid, None),
+        "an exact active claim cannot canonicalize a non-network coordinate"
+    );
+    assert_ne!(
+        hash(invalid, Some(invalid)),
+        hash("ws://127.0.0.1:4317", Some("ws://127.0.0.1:4317"))
+    );
+}
+
+#[test]
+fn pinned_remote_relay_remains_distinct_and_port_independent() {
+    let mut pinned_a = record();
+    pinned_a.relay_url = "wss://pinned-a.example".into();
+    let mut pinned_b = pinned_a.clone();
+    pinned_b.relay_url = "wss://pinned-b.example".into();
+    let local_a = "ws://127.0.0.1:4317";
+    let local_b = "ws://127.0.0.1:49152";
+    let hash_a = spawn_config_hash_with_supervised_local_relay(
+        &pinned_a,
+        &[],
+        &[],
+        local_a,
+        Some(local_a),
+        &Default::default(),
+    );
+    assert_eq!(
+        hash_a,
+        spawn_config_hash_with_supervised_local_relay(
+            &pinned_a,
+            &[],
+            &[],
+            local_b,
+            Some(local_b),
+            &Default::default(),
+        )
+    );
+    assert_ne!(
+        hash_a,
+        spawn_config_hash_with_supervised_local_relay(
+            &pinned_b,
+            &[],
+            &[],
+            local_a,
+            Some(local_a),
+            &Default::default(),
+        )
+    );
+}
+
+#[test]
+fn stable_local_binding_keeps_model_provider_and_instruction_sensitivity() {
+    let mut base = record();
+    base.relay_url = String::new();
+    let relay = "ws://127.0.0.1:4317";
+    let binding_hash = |record: &ManagedAgentRecord| {
+        spawn_config_hash_with_supervised_local_relay(
+            record,
+            &[],
+            &[],
+            relay,
+            Some(relay),
+            &Default::default(),
+        )
+    };
+    let baseline = binding_hash(&base);
+
+    let mut model = base.clone();
+    model.model = Some("model-b".into());
+    assert_ne!(baseline, binding_hash(&model));
+
+    let mut provider = base.clone();
+    provider.provider = Some("provider-b".into());
+    assert_ne!(baseline, binding_hash(&provider));
+
+    base.system_prompt = Some("Changed managed instructions.".into());
+    assert_ne!(baseline, binding_hash(&base));
+}
+
+#[test]
 fn respond_to_allowlist_edit_changes_hash() {
     let rec = record();
     let mut edited = record();

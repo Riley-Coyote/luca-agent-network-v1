@@ -56,6 +56,9 @@ const COMMUNICATIONS_MCP_SYSTEM_PROMPT: &str = "[Luca Communications]\nThe commu
 pub struct TaskMeta {
     pub agent_index: usize,
     pub channel_id: Option<Uuid>,
+    /// The isolated private task has an original-worker return guard. Its
+    /// queued terminal result, not JoinError recovery, releases the slot.
+    pub isolated_continuity: bool,
     /// Identifies terminal events when the task panics before returning a result.
     pub turn_id: String,
     /// Clone of batch for Queue mode panic recovery.
@@ -732,6 +735,43 @@ impl AgentPool {
                 .is_some_and(|agent| agent.state.sessions.is_empty())
         })?;
         self.agents[index].take()
+    }
+
+    /// Reserve idle capacity for a separate, disposable private-cognition
+    /// process. Prefer a cold worker; a singleton may lend a warm worker as
+    /// an opaque token only. The caller must return that exact worker without
+    /// prompting, clearing, closing, or transferring temporary-process health
+    /// onto its ACP client. Busy slots and channel affinity stay untouched.
+    pub(crate) fn try_reserve_idle_worker_for_isolated_cognition(&mut self) -> Option<OwnedAgent> {
+        self.try_claim_idle_worker_with_no_live_channels()
+            .or_else(|| self.try_claim(None))
+    }
+
+    /// A queued conversation may reclaim only the private reservation blocking
+    /// its worker. Called only after a failed conversation claim.
+    /// Known affinity must not cancel another worker's private task. A new
+    /// conversation with no affinity may reclaim one isolated reservation.
+    /// The normal guard/result path returns the original; no slot is aborted,
+    /// removed, invalidated, or reused before that return.
+    pub(crate) fn preempt_isolated_cognition_for_channel(&mut self, channel: Uuid) -> bool {
+        let holder = self.session_holders.get(&channel).copied();
+        if holder.is_none() && self.any_idle() {
+            return false;
+        }
+        let task_id = self
+            .task_map
+            .iter()
+            .filter(|(_, task)| {
+                task.isolated_continuity
+                    && task.control_tx.is_some()
+                    && holder.is_none_or(|index| task.agent_index == index)
+            })
+            .min_by_key(|(id, task)| (task.agent_index, **id))
+            .map(|(id, _)| *id);
+        task_id
+            .and_then(|id| self.task_map.get_mut(&id))
+            .and_then(|task| task.control_tx.take())
+            .is_some_and(|control| control.send(ControlSignal::Cancel).is_ok())
     }
 
     /// Close and drop any channel session idle for longer than
@@ -11052,6 +11092,7 @@ read -t 5 UNEXPECTED"#;
         pool.task_map.insert(
             task.id(),
             TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: Some(other),
                 turn_id: "holder-test".into(),
@@ -11104,6 +11145,205 @@ read -t 5 UNEXPECTED"#;
         // nothing safe to claim — this must return None, never fall back to
         // a busy worker's conversation.
         assert!(pool.try_claim_idle_worker_with_no_live_channels().is_none());
+        for agent in pool.agents.iter_mut().flatten() {
+            agent.acp.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn isolated_cognition_reservation_prefers_cold_then_preserves_warm_singleton() {
+        let conversation = Uuid::new_v4();
+        let mut warm = artifact_test_agent("read -r UNUSED").await;
+        warm.state
+            .sessions
+            .insert(conversation, "warm-session".into());
+        warm.state.turn_counts.insert(conversation, 7);
+        warm.state.heartbeat_session = Some("warm-heartbeat".into());
+        let mut cold = artifact_test_agent("read -r UNUSED").await;
+        cold.index = 1;
+        let mut pool = AgentPool::from_slots(vec![Some(warm), Some(cold)]);
+
+        let mut preferred = pool
+            .try_reserve_idle_worker_for_isolated_cognition()
+            .unwrap();
+        assert_eq!(
+            preferred.index, 1,
+            "do not borrow a warm slot while cold capacity exists"
+        );
+        preferred.acp.shutdown().await;
+        let borrowed = pool
+            .try_reserve_idle_worker_for_isolated_cognition()
+            .unwrap();
+        assert_eq!(borrowed.index, 0);
+        assert_eq!(borrowed.state.sessions[&conversation], "warm-session");
+        assert_eq!(borrowed.state.turn_counts[&conversation], 7);
+        assert_eq!(
+            borrowed.state.heartbeat_session.as_deref(),
+            Some("warm-heartbeat")
+        );
+        assert_eq!(pool.session_holders.get(&conversation), Some(&0));
+        assert!(pool
+            .try_reserve_idle_worker_for_isolated_cognition()
+            .is_none());
+
+        pool.return_agent(borrowed);
+        assert!(
+            pool.try_claim_idle_worker_with_no_live_channels().is_none(),
+            "non-isolated continuity still refuses the warm singleton"
+        );
+        let mut original = pool.try_claim(Some(conversation)).unwrap();
+        assert_eq!(original.index, 0);
+        assert_eq!(original.state.sessions[&conversation], "warm-session");
+        original.acp.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn isolated_cognition_reservation_keeps_busy_warm_channel_affinity() {
+        let conversation = Uuid::new_v4();
+        let mut warm = artifact_test_agent("read -r UNUSED").await;
+        warm.state
+            .sessions
+            .insert(conversation, "warm-session".into());
+        let mut cold = artifact_test_agent("read -r UNUSED").await;
+        cold.index = 1;
+        let mut pool = AgentPool::from_slots(vec![Some(warm), Some(cold)]);
+        let cold = pool.try_claim_idle_worker_with_no_live_channels().unwrap();
+        let borrowed = pool
+            .try_reserve_idle_worker_for_isolated_cognition()
+            .unwrap();
+        let handle = pool.join_set.spawn(std::future::pending());
+        pool.task_map.insert(
+            handle.id(),
+            TaskMeta {
+                agent_index: borrowed.index,
+                channel_id: None,
+                isolated_continuity: true,
+                turn_id: "isolated-fixture".into(),
+                recoverable_batch: None,
+                control_tx: None,
+                steer_tx: None,
+            },
+        );
+        pool.return_agent(cold);
+        assert!(
+            pool.try_claim(Some(conversation)).is_none(),
+            "a borrowed warm session must not fork onto the other idle slot"
+        );
+        assert_eq!(pool.session_holders.get(&conversation), Some(&0));
+        handle.abort();
+        pool.join_set.shutdown().await;
+        pool.task_map.clear();
+        pool.return_agent(borrowed);
+        let mut original = pool.try_claim(Some(conversation)).unwrap();
+        assert_eq!(original.index, 0);
+        original.acp.shutdown().await;
+        for agent in pool.agents.iter_mut().flatten() {
+            agent.acp.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn isolated_cognition_preemption_never_cancels_unrelated_or_public_work() {
+        let public_channel = Uuid::new_v4();
+        let private_channel = Uuid::new_v4();
+        let mut first = artifact_test_agent("read -r UNUSED").await;
+        first
+            .state
+            .sessions
+            .insert(public_channel, "public-warm".into());
+        let mut second = artifact_test_agent("read -r UNUSED").await;
+        second.index = 1;
+        second
+            .state
+            .sessions
+            .insert(private_channel, "private-warm".into());
+        let mut pool = AgentPool::from_slots(vec![Some(first), Some(second)]);
+        let public_worker = pool.try_claim(Some(public_channel)).unwrap();
+        let private_worker = pool.try_claim(Some(private_channel)).unwrap();
+        let public_task = pool.join_set.spawn(std::future::pending());
+        let private_task = pool.join_set.spawn(std::future::pending());
+        let (public_tx, mut public_rx) = tokio::sync::oneshot::channel();
+        let (private_tx, mut private_rx) = tokio::sync::oneshot::channel();
+        for (task, index, channel, isolated, control_tx) in [
+            (public_task.id(), 0, Some(public_channel), false, public_tx),
+            (private_task.id(), 1, None, true, private_tx),
+        ] {
+            pool.task_map.insert(
+                task,
+                TaskMeta {
+                    agent_index: index,
+                    channel_id: channel,
+                    isolated_continuity: isolated,
+                    turn_id: "preemption-fixture".into(),
+                    recoverable_batch: None,
+                    control_tx: Some(control_tx),
+                    steer_tx: None,
+                },
+            );
+        }
+        assert!(pool.try_claim(Some(public_channel)).is_none());
+        assert!(!pool.preempt_isolated_cognition_for_channel(public_channel));
+        assert!(matches!(
+            private_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        assert!(matches!(
+            public_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+
+        let new_channel = Uuid::new_v4();
+        assert!(pool.try_claim(Some(new_channel)).is_none());
+        assert!(pool.preempt_isolated_cognition_for_channel(new_channel));
+        assert!(matches!(private_rx.try_recv(), Ok(ControlSignal::Cancel)));
+        assert!(!pool.preempt_isolated_cognition_for_channel(new_channel));
+        assert!(matches!(
+            public_rx.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        pool.join_set.shutdown().await;
+        pool.task_map.clear();
+        pool.return_agent(public_worker);
+        pool.return_agent(private_worker);
+        for agent in pool.agents.iter_mut().flatten() {
+            agent.acp.shutdown().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn isolated_cognition_affinity_preemption_keeps_other_idle_capacity() {
+        let conversation = Uuid::new_v4();
+        let mut warm = artifact_test_agent("read -r UNUSED").await;
+        warm.state
+            .sessions
+            .insert(conversation, "warm-session".into());
+        let mut cold = artifact_test_agent("read -r UNUSED").await;
+        cold.index = 1;
+        let mut pool = AgentPool::from_slots(vec![Some(warm), Some(cold)]);
+        let borrowed = pool.try_claim(Some(conversation)).unwrap();
+        let task = pool.join_set.spawn(std::future::pending());
+        let (control_tx, mut control_rx) = tokio::sync::oneshot::channel();
+        pool.task_map.insert(
+            task.id(),
+            TaskMeta {
+                agent_index: 0,
+                channel_id: None,
+                isolated_continuity: true,
+                turn_id: "affinity-preemption-fixture".into(),
+                recoverable_batch: None,
+                control_tx: Some(control_tx),
+                steer_tx: None,
+            },
+        );
+        assert!(pool.any_idle());
+        assert!(pool.try_claim(Some(conversation)).is_none());
+        assert!(!pool.preempt_isolated_cognition_for_channel(Uuid::new_v4()));
+        assert!(pool.preempt_isolated_cognition_for_channel(conversation));
+        assert!(matches!(control_rx.try_recv(), Ok(ControlSignal::Cancel)));
+        assert!(pool.agents[1].is_some());
+        pool.join_set.shutdown().await;
+        pool.task_map.clear();
+        pool.return_agent(borrowed);
         for agent in pool.agents.iter_mut().flatten() {
             agent.acp.shutdown().await;
         }

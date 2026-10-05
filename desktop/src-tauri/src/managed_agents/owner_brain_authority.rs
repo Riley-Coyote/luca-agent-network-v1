@@ -37,8 +37,16 @@ pub(crate) fn current_owner_brain_runtime_authority(
         &record.relay_url,
         &crate::relay::relay_ws_url_with_override(&state),
     );
-    let spawn_hash =
-        super::spawn_hash::spawn_config_hash(record, &personas, &teams, &relay_url, &global);
+    let supervised_local_relay = tauri::Manager::try_state::<crate::local_relay::RuntimeState>(app)
+        .and_then(|runtime| crate::local_relay::relay_url(&runtime));
+    let spawn_hash = super::spawn_hash::spawn_config_hash_with_supervised_local_relay(
+        record,
+        &personas,
+        &teams,
+        &relay_url,
+        supervised_local_relay.as_deref(),
+        &global,
+    );
     let fingerprint = managed_runtime_configuration_sha256(spawn_hash)?;
     let binding_ref = luca_protocol::Sha256Ref::parse(format!("sha256:{}", fingerprint.as_str()))
         .map_err(|error| format!("invalid managed runtime binding: {error}"))?;

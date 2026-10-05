@@ -3294,6 +3294,9 @@ fn dispatch_pending(
                 tracing::debug!(pending_channels = pending, "pool_exhausted");
                 queue.requeue_preserve_timestamps(batch);
                 queue.mark_complete(channel_id);
+                if pool.preempt_isolated_cognition_for_channel(channel_id) {
+                    tracing::debug!(channel = %channel_id, "private cognition yielded to queued conversation");
+                }
                 break;
             }
         };
@@ -3344,6 +3347,7 @@ fn dispatch_pending(
         pool.task_map_mut().insert(
             abort_handle.id(),
             pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index,
                 channel_id: Some(channel_id),
                 turn_id,
@@ -3790,8 +3794,23 @@ fn recover_panicked_agent(
     observer: Option<observer::ObserverHandle>,
 ) {
     let task_id = join_error.id();
+    if pool
+        .task_map()
+        .get(&task_id)
+        .is_some_and(|meta| meta.isolated_continuity)
+    {
+        // The guard synchronously queued the untouched original before this
+        // JoinError became ready. Keep its metadata for that result, including
+        // when another completion's join-drain beats the result channel.
+        tracing::debug!("isolated task stopped; original-worker return is queued");
+        return;
+    }
     let Some(meta) = pool.task_map_mut().remove(&task_id) else {
-        tracing::error!("panic for unknown task {task_id:?} — bug");
+        if join_error.is_cancelled() {
+            tracing::debug!("cancelled task {task_id:?} already returned its worker");
+        } else {
+            tracing::error!("panic for unknown task {task_id:?} — bug");
+        }
         return;
     };
     let i = meta.agent_index;
@@ -3952,6 +3971,7 @@ fn dispatch_heartbeat(
     pool.task_map_mut().insert(
         abort_handle.id(),
         pool::TaskMeta {
+            isolated_continuity: false,
             agent_index,
             channel_id: None,
             turn_id,
@@ -4037,34 +4057,25 @@ fn dispatch_private_cognition(
             ));
         return;
     }
-    // User-visible work always wins. The desktop job remains durable and may
-    // retry after the conversation becomes idle.
-    if queue.pending_channels() > 0 {
-        let _ = envelope
-            .reply_tx
-            .send(local_cognition::CognitionReply::Unavailable(
-                "user_work_pending",
-            ));
-        return;
-    }
-    // Never hand a continuity job a worker that is holding a live warm
-    // channel session — see `try_claim_idle_worker_with_no_live_channels`.
-    let Some(mut agent) = pool.try_claim_idle_worker_with_no_live_channels() else {
-        let _ = envelope
-            .reply_tx
-            .send(local_cognition::CognitionReply::Unavailable("runtime_busy"));
-        return;
+    let isolated_codex = config.identity.is_managed()
+        && config::normalize_agent_command_identity(&config.agent_command) == "codex-acp";
+    let mut agent = match claim_private_cognition_worker(pool, queue, isolated_codex) {
+        Ok(agent) => agent,
+        Err(code) => {
+            let _ = envelope
+                .reply_tx
+                .send(local_cognition::CognitionReply::Unavailable(code));
+            return;
+        }
     };
     let (control_tx, control_rx) = tokio::sync::oneshot::channel::<ControlSignal>();
     let turn_id = private_cognition_turn_id(&request);
     let source = PromptSource::Continuity(Box::new(request));
     let task_turn_id = turn_id.clone();
-    agent.acp.clear_steer_rx();
     let result_tx = pool.result_tx();
     let ctx = Arc::clone(ctx);
     let agent_index = agent.index;
-    let is_codex = config::normalize_agent_command_identity(&config.agent_command) == "codex-acp";
-    let abort_handle = if is_codex && config.identity.is_managed() {
+    let abort_handle = if isolated_codex {
         let spawn = CodexContinuitySpawnSpec {
             command: config.agent_command.clone(),
             args: config.agent_args.clone(),
@@ -4073,19 +4084,28 @@ fn dispatch_private_cognition(
             observer,
             cwd: ctx.cwd.clone(),
         };
-        pool.join_set.spawn(async move {
+        let binding = CodexContinuityWorkerBinding::from(&agent);
+        // Construct outside the spawned future: even an abort before its first
+        // poll must queue the original rather than drop its warm ACP client.
+        let guard = IsolatedContinuityAgentGuard::new(
+            agent,
+            source.clone(),
+            task_turn_id.clone(),
+            result_tx,
+        );
+        pool.join_set.spawn(finish_isolated_continuity_task(
+            guard,
             run_isolated_codex_continuity_task(
-                agent,
+                binding,
                 source,
                 ctx,
-                result_tx,
                 control_rx,
                 task_turn_id,
                 spawn,
-            )
-            .await;
-        })
+            ),
+        ))
     } else {
+        agent.acp.clear_steer_rx();
         pool.join_set.spawn(async move {
             pool::run_prompt_task(
                 agent,
@@ -4105,6 +4125,7 @@ fn dispatch_private_cognition(
         pool::TaskMeta {
             agent_index,
             channel_id: None,
+            isolated_continuity: isolated_codex,
             turn_id,
             recoverable_batch: None,
             control_tx: Some(control_tx),
@@ -4112,6 +4133,25 @@ fn dispatch_private_cognition(
         },
     );
     pending.insert(job_id, envelope.reply_tx);
+}
+
+fn claim_private_cognition_worker(
+    pool: &mut AgentPool,
+    queue: &EventQueue,
+    isolated_codex: bool,
+) -> Result<OwnedAgent, &'static str> {
+    // User-visible work always wins. Only the separate managed Codex process
+    // may reserve a warm worker; runtimes that prompt the claimed worker keep
+    // the strict no-live-channel rule.
+    if queue.pending_channels() > 0 {
+        return Err("user_work_pending");
+    }
+    if isolated_codex {
+        pool.try_reserve_idle_worker_for_isolated_cognition()
+    } else {
+        pool.try_claim_idle_worker_with_no_live_channels()
+    }
+    .ok_or("runtime_busy")
 }
 
 fn private_cognition_turn_id(request: &luca_protocol::ResidentPrivateCognitionRequestV1) -> String {
@@ -4136,27 +4176,128 @@ struct CodexContinuitySpawnSpec {
     cwd: String,
 }
 
+struct CodexContinuityWorkerBinding {
+    index: usize,
+    desired_model: Option<String>,
+    desired_permission_mode: Option<config::PermissionMode>,
+    model_overridden: bool,
+}
+
+impl From<&OwnedAgent> for CodexContinuityWorkerBinding {
+    fn from(agent: &OwnedAgent) -> Self {
+        Self {
+            index: agent.index,
+            desired_model: agent.desired_model.clone(),
+            desired_permission_mode: agent.desired_permission_mode,
+            model_overridden: agent.model_overridden,
+        }
+    }
+}
+
+fn isolated_continuity_failure() -> PromptOutcome {
+    // Temporary transport health says nothing about the reserved warm worker.
+    // Keep failure truthful and body-free without triggering its respawn.
+    PromptOutcome::Error(AcpError::AgentError {
+        code: -32603,
+        message: "isolated private cognition failed".to_owned(),
+    })
+}
+
+struct IsolatedContinuityAgentGuard {
+    original: Option<OwnedAgent>,
+    source: PromptSource,
+    turn_id: String,
+    result_tx: mpsc::UnboundedSender<PromptResult>,
+}
+
+impl IsolatedContinuityAgentGuard {
+    fn new(
+        original: OwnedAgent,
+        source: PromptSource,
+        turn_id: String,
+        result_tx: mpsc::UnboundedSender<PromptResult>,
+    ) -> Self {
+        Self {
+            original: Some(original),
+            source,
+            turn_id,
+            result_tx,
+        }
+    }
+
+    fn complete(mut self, outcome: PromptOutcome, private_output: Option<String>) {
+        let healthy_original_outcome = match outcome {
+            PromptOutcome::Ok(reason) => PromptOutcome::Ok(reason),
+            PromptOutcome::Cancelled => PromptOutcome::Cancelled,
+            _ => isolated_continuity_failure(),
+        };
+        let private_output = if matches!(healthy_original_outcome, PromptOutcome::Ok(_)) {
+            private_output
+        } else {
+            None
+        };
+        self.send(healthy_original_outcome, private_output);
+    }
+
+    fn send(&mut self, outcome: PromptOutcome, private_output: Option<String>) {
+        if let Some(agent) = self.original.take() {
+            let _ = self.result_tx.send(PromptResult {
+                agent,
+                source: self.source.clone(),
+                turn_id: self.turn_id.clone(),
+                outcome,
+                private_output,
+                batch: None,
+            });
+        }
+    }
+}
+
+impl Drop for IsolatedContinuityAgentGuard {
+    fn drop(&mut self) {
+        self.send(isolated_continuity_failure(), None);
+    }
+}
+
+async fn finish_isolated_continuity_task(
+    guard: IsolatedContinuityAgentGuard,
+    core: impl std::future::Future<Output = (PromptOutcome, Option<String>)>,
+) {
+    let (outcome, output) = match std::panic::AssertUnwindSafe(core).catch_unwind().await {
+        Ok(result) => result,
+        Err(_) => (isolated_continuity_failure(), None),
+    };
+    guard.complete(outcome, output);
+}
+
+enum IsolatedContinuitySetupError {
+    Cancelled,
+    Failed,
+}
+
+async fn cancellable_continuity_setup<T>(
+    setup: impl std::future::Future<Output = Result<T, String>>,
+    control_rx: &mut tokio::sync::oneshot::Receiver<ControlSignal>,
+) -> Result<T, IsolatedContinuitySetupError> {
+    tokio::select! {
+        biased;
+        _ = control_rx => Err(IsolatedContinuitySetupError::Cancelled),
+        result = setup => result.map_err(|_| IsolatedContinuitySetupError::Failed),
+    }
+}
+
 async fn run_isolated_codex_continuity_task(
-    original_agent: OwnedAgent,
+    binding: CodexContinuityWorkerBinding,
     source: PromptSource,
     ctx: Arc<PromptContext>,
-    result_tx: mpsc::UnboundedSender<PromptResult>,
-    control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
+    mut control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
     turn_id: String,
     spawn: CodexContinuitySpawnSpec,
-) {
-    let native_tools = match discover_codex_native_tools(&spawn).await {
+) -> (PromptOutcome, Option<String>) {
+    let native_tools = match discover_codex_native_tools(&spawn, &mut control_rx).await {
         Ok(tools) => tools,
-        Err(error) => {
-            send_original_continuity_agent(
-                result_tx,
-                original_agent,
-                source,
-                turn_id,
-                PromptOutcome::Error(AcpError::Protocol(error)),
-            );
-            return;
-        }
+        Err(IsolatedContinuitySetupError::Cancelled) => return (PromptOutcome::Cancelled, None),
+        Err(IsolatedContinuitySetupError::Failed) => return (isolated_continuity_failure(), None),
     };
     tracing::info!(
         mcp_server_count = native_tools.mcp_servers.len(),
@@ -4172,16 +4313,7 @@ async fn run_isolated_codex_continuity_task(
         &native_tools.mcp_servers,
     ) {
         Ok(policy) => policy,
-        Err(error) => {
-            send_original_continuity_agent(
-                result_tx,
-                original_agent,
-                source,
-                turn_id,
-                PromptOutcome::Error(AcpError::Protocol(error.to_string())),
-            );
-            return;
-        }
+        Err(_) => return (isolated_continuity_failure(), None),
     };
     let overlay = continuity_runtime_policy::codex_disabled_tool_overlay(
         &native_tools.mcp_servers,
@@ -4190,24 +4322,22 @@ async fn run_isolated_codex_continuity_task(
     .or(policy.codex_config_overlay)
     .unwrap_or_else(|| serde_json::json!({}));
     let temporary_agent =
-        match spawn_isolated_codex_continuity_agent(&spawn, &original_agent, &overlay).await {
+        match spawn_isolated_codex_continuity_agent(&spawn, &binding, &overlay, &mut control_rx)
+            .await
+        {
             Ok(agent) => agent,
-            Err(error) => {
-                send_original_continuity_agent(
-                    result_tx,
-                    original_agent,
-                    source,
-                    turn_id,
-                    PromptOutcome::Error(AcpError::Protocol(error)),
-                );
-                return;
+            Err(IsolatedContinuitySetupError::Cancelled) => {
+                return (PromptOutcome::Cancelled, None);
+            }
+            Err(IsolatedContinuitySetupError::Failed) => {
+                return (isolated_continuity_failure(), None);
             }
         };
 
     let (temporary_result_tx, mut temporary_result_rx) = mpsc::unbounded_channel();
     pool::run_prompt_task(
         temporary_agent,
-        source.clone(),
+        source,
         None,
         None,
         ctx,
@@ -4217,16 +4347,7 @@ async fn run_isolated_codex_continuity_task(
     )
     .await;
     let Some(mut temporary_result) = temporary_result_rx.recv().await else {
-        send_original_continuity_agent(
-            result_tx,
-            original_agent,
-            source,
-            turn_id,
-            PromptOutcome::Error(AcpError::Protocol(
-                "isolated Codex continuity task returned no terminal result".into(),
-            )),
-        );
-        return;
+        return (isolated_continuity_failure(), None);
     };
     temporary_result.agent.acp.shutdown().await;
     tracing::info!(
@@ -4234,65 +4355,58 @@ async fn run_isolated_codex_continuity_task(
         plugin_count = native_tools.plugins.len(),
         "completed isolated Codex continuity"
     );
-    let _ = result_tx.send(PromptResult {
-        agent: original_agent,
-        source,
-        turn_id,
-        outcome: temporary_result.outcome,
-        private_output: temporary_result.private_output,
-        batch: temporary_result.batch,
-    });
-}
-
-fn send_original_continuity_agent(
-    result_tx: mpsc::UnboundedSender<PromptResult>,
-    agent: OwnedAgent,
-    source: PromptSource,
-    turn_id: String,
-    outcome: PromptOutcome,
-) {
-    let _ = result_tx.send(PromptResult {
-        agent,
-        source,
-        turn_id,
-        outcome,
-        private_output: None,
-        batch: None,
-    });
+    (temporary_result.outcome, temporary_result.private_output)
 }
 
 async fn spawn_isolated_codex_continuity_agent(
     spawn: &CodexContinuitySpawnSpec,
-    original_agent: &OwnedAgent,
+    binding: &CodexContinuityWorkerBinding,
     overlay: &serde_json::Value,
-) -> Result<OwnedAgent, String> {
-    let mut acp = AcpClient::spawn_managed_with_final_codex_overlay(
-        &spawn.command,
-        &spawn.args,
-        &spawn.extra_env,
-        spawn.has_generated_codex_config,
-        overlay,
+    control_rx: &mut tokio::sync::oneshot::Receiver<ControlSignal>,
+) -> Result<OwnedAgent, IsolatedContinuitySetupError> {
+    // The spawn future does not suspend after creating the owned child. Keep
+    // initialization outside that future so cancellation can explicitly reap
+    // the temporary process rather than relying on AcpClient's best-effort Drop.
+    let mut acp = cancellable_continuity_setup(
+        async {
+            AcpClient::spawn_managed_with_final_codex_overlay(
+                &spawn.command,
+                &spawn.args,
+                &spawn.extra_env,
+                spawn.has_generated_codex_config,
+                overlay,
+            )
+            .await
+            .map_err(|_| "isolated Codex continuity spawn failed".to_owned())
+        },
+        control_rx,
+    )
+    .await?;
+    acp.set_observer(spawn.observer.clone(), binding.index);
+    let init = match cancellable_continuity_setup(
+        async {
+            acp.initialize()
+                .await
+                .map_err(|_| "isolated Codex continuity initialize failed".to_owned())
+        },
+        control_rx,
     )
     .await
-    .map_err(|error| format!("isolated Codex continuity spawn failed: {error}"))?;
-    acp.set_observer(spawn.observer.clone(), original_agent.index);
-    let init = match acp.initialize().await {
+    {
         Ok(init) => init,
         Err(error) => {
             acp.shutdown().await;
-            return Err(format!(
-                "isolated Codex continuity initialize failed: {error}"
-            ));
+            return Err(error);
         }
     };
     Ok(OwnedAgent {
-        index: original_agent.index,
+        index: binding.index,
         acp,
         state: SessionState::default(),
         model_capabilities: None,
-        desired_model: original_agent.desired_model.clone(),
-        desired_permission_mode: original_agent.desired_permission_mode,
-        model_overridden: original_agent.model_overridden,
+        desired_model: binding.desired_model.clone(),
+        desired_permission_mode: binding.desired_permission_mode,
+        model_overridden: binding.model_overridden,
         agent_name: normalized_agent_name(&init),
         goose_system_prompt_supported: None,
         protocol_version: init["protocolVersion"].as_u64().unwrap_or(1) as u32,
@@ -4305,13 +4419,35 @@ struct CodexNativeTools {
     plugins: Vec<String>,
 }
 
+// Discovery is the one setup stage not owned by AcpClient. Its exact process
+// group must also be stopped when preemption, task abort, or unwind drops it.
+struct CodexDiscoveryProcessGuard {
+    pid: Option<u32>,
+}
+
+impl CodexDiscoveryProcessGuard {
+    fn stop(&mut self) {
+        if let Some(pid) = self.pid.take() {
+            #[cfg(unix)]
+            let _ = acp::kill_process_group(pid);
+            #[cfg(not(unix))]
+            let _ = pid;
+        }
+    }
+}
+
+impl Drop for CodexDiscoveryProcessGuard {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 async fn discover_codex_native_tools(
     spawn: &CodexContinuitySpawnSpec,
-) -> Result<CodexNativeTools, String> {
+    control_rx: &mut tokio::sync::oneshot::Receiver<ControlSignal>,
+) -> Result<CodexNativeTools, IsolatedContinuitySetupError> {
     if !spawn.has_generated_codex_config {
-        return Err(
-            "isolated Codex continuity requires the generated CODEX_CONFIG merge path".into(),
-        );
+        return Err(IsolatedContinuitySetupError::Failed);
     }
     let parent_config = std::env::var("CODEX_CONFIG").ok();
     let config = acp::build_codex_config_env(
@@ -4319,10 +4455,10 @@ async fn discover_codex_native_tools(
         parent_config.as_deref(),
         spawn.has_generated_codex_config,
     )
-    .map_err(|error| format!("Codex continuity configuration is invalid: {error}"))?
-    .ok_or_else(|| "Codex continuity has no effective generated configuration".to_owned())?;
+    .map_err(|_| IsolatedContinuitySetupError::Failed)?
+    .ok_or(IsolatedContinuitySetupError::Failed)?;
     let generated = serde_json::from_str::<serde_json::Value>(&config)
-        .map_err(|_| "Codex continuity configuration cannot be parsed".to_owned())?;
+        .map_err(|_| IsolatedContinuitySetupError::Failed)?;
     let names_for = |value: &serde_json::Value, key: &str| {
         value
             .get(key)
@@ -4354,22 +4490,30 @@ async fn discover_codex_native_tools(
         }
     }
     acp::scrub_luca_descendant_environment(&mut command, true);
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Codex MCP discovery failed: {error}"))?;
-    let pid = child.id();
+    let mut child = cancellable_continuity_setup(
+        async {
+            command
+                .spawn()
+                .map_err(|_| "Codex MCP discovery spawn failed".to_owned())
+        },
+        control_rx,
+    )
+    .await?;
+    let mut process_guard = CodexDiscoveryProcessGuard { pid: child.id() };
     const MAX_DISCOVERY_OUTPUT_BYTES: usize = 2 * 1024 * 1024;
-    let result = tokio::time::timeout(Duration::from_secs(10), async {
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| "Codex config discovery has no stdin".to_owned())?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Codex config discovery has no stdout".to_owned())?;
-        let mut reader = BufReader::new(stdout);
-        write_app_server_request(
+    let result = cancellable_continuity_setup(
+        async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let mut stdin = child
+                    .stdin
+                    .take()
+                    .ok_or_else(|| "Codex config discovery has no stdin".to_owned())?;
+                let stdout = child
+                    .stdout
+                    .take()
+                    .ok_or_else(|| "Codex config discovery has no stdout".to_owned())?;
+                let mut reader = BufReader::new(stdout);
+                write_app_server_request(
             &mut stdin,
             1,
             "initialize",
@@ -4379,53 +4523,53 @@ async fn discover_codex_native_tools(
             }),
         )
         .await?;
-        let mut remaining = MAX_DISCOVERY_OUTPUT_BYTES;
-        read_app_server_response(&mut reader, 1, &mut remaining).await?;
-        write_app_server_request(
-            &mut stdin,
-            2,
-            "config/read",
-            serde_json::json!({ "includeLayers": false, "cwd": spawn.cwd }),
-        )
-        .await?;
-        let config_read = read_app_server_response(&mut reader, 2, &mut remaining).await?;
-        drop(stdin);
-        let status = child
-            .wait()
+                let mut remaining = MAX_DISCOVERY_OUTPUT_BYTES;
+                read_app_server_response(&mut reader, 1, &mut remaining).await?;
+                write_app_server_request(
+                    &mut stdin,
+                    2,
+                    "config/read",
+                    serde_json::json!({ "includeLayers": false, "cwd": spawn.cwd }),
+                )
+                .await?;
+                let config_read = read_app_server_response(&mut reader, 2, &mut remaining).await?;
+                drop(stdin);
+                let status = child
+                    .wait()
+                    .await
+                    .map_err(|error| format!("Codex config discovery wait failed: {error}"))?;
+                Ok((status, config_read))
+            })
             .await
-            .map_err(|error| format!("Codex config discovery wait failed: {error}"))?;
-        Ok((status, config_read))
-    })
+            .map_err(|_| "Codex MCP discovery timed out".to_owned())?
+        },
+        control_rx,
+    )
     .await;
     let (status, output) = match result {
-        Ok(Ok(result)) => result,
-        Ok(Err(error)) => {
-            #[cfg(unix)]
-            if let Some(pid) = pid {
-                let _ = acp::kill_process_group(pid);
-            }
-            #[cfg(not(unix))]
-            let _ = child.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
-            return Err(error);
+        Ok(result) => {
+            process_guard.pid = None;
+            result
         }
-        Err(_) => {
-            #[cfg(unix)]
-            if let Some(pid) = pid {
-                let _ = acp::kill_process_group(pid);
-            }
+        Err(error) => {
+            process_guard.stop();
             #[cfg(not(unix))]
             let _ = child.start_kill();
-            let _ = tokio::time::timeout(Duration::from_secs(5), child.wait()).await;
-            return Err("Codex MCP discovery timed out".into());
+            if !matches!(
+                tokio::time::timeout(Duration::from_secs(5), child.wait()).await,
+                Ok(Ok(_))
+            ) {
+                tracing::warn!("isolated Codex discovery cleanup did not finish within its bound");
+            }
+            return Err(error);
         }
     };
     if !status.success() {
-        return Err("Codex config discovery exited unsuccessfully".into());
+        return Err(IsolatedContinuitySetupError::Failed);
     }
     let config = output
         .pointer("/config")
-        .ok_or_else(|| "Codex config discovery returned no config".to_owned())?;
+        .ok_or(IsolatedContinuitySetupError::Failed)?;
     let merged_names = |key: &str, generated: Vec<String>| {
         let mut names = names_for(config, key);
         names.extend(generated);
@@ -4636,7 +4780,7 @@ async fn resolve_runtime_task_delivery(
 mod runtime_task_delivery_tests {
     use super::*;
 
-    fn request() -> luca_protocol::RuntimeTaskDeliveryRequestV1 {
+    pub(super) fn request() -> luca_protocol::RuntimeTaskDeliveryRequestV1 {
         serde_json::from_value(serde_json::json!({
             "protocol": luca_protocol::RUNTIME_TASK_DELIVERY_PROTOCOL,
             "delivery_id": format!("task-result:{}", "d".repeat(64)),
@@ -5498,6 +5642,7 @@ mod owner_control_command_tests {
         pool.task_map_mut().insert(
             abort_handle.id(),
             pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: Some(channel_id),
                 turn_id: "test-turn-id".to_string(),
@@ -6280,6 +6425,511 @@ mod error_outcome_emission_tests {
         })
     }
 
+    mod isolated_cognition_tests {
+        use super::*;
+
+        fn source() -> PromptSource {
+            PromptSource::Continuity(Box::new(
+                luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
+                    request: crate::runtime_task_delivery_tests::request(),
+                },
+            ))
+        }
+
+        fn turn_id() -> String {
+            crate::runtime_task_delivery_tests::request()
+                .delivery_id
+                .as_str()
+                .to_owned()
+        }
+
+        async fn warm_agent(conversation: Uuid) -> OwnedAgent {
+            let mut agent = dummy_agent(0).await;
+            agent
+                .state
+                .sessions
+                .insert(conversation, "unchanged-warm-session".into());
+            agent.state.turn_counts.insert(conversation, 9);
+            agent
+                .state
+                .native_context_refs
+                .insert(conversation, "sha256:unchanged-root".into());
+            agent
+                .state
+                .applied_model
+                .insert(conversation, "unchanged-model".into());
+            agent.state.heartbeat_session = Some("unchanged-heartbeat".into());
+            agent.desired_model = Some("unchanged-model".into());
+            agent.desired_permission_mode = Some(config::PermissionMode::Default);
+            agent.model_overridden = true;
+            let (_steer_tx, steer_rx) = mpsc::channel(1);
+            agent.acp.install_steer_rx(steer_rx);
+            agent
+        }
+
+        fn assert_warm_unchanged(agent: &OwnedAgent, conversation: Uuid) {
+            assert_eq!(
+                agent.state.sessions[&conversation],
+                "unchanged-warm-session"
+            );
+            assert_eq!(agent.state.turn_counts[&conversation], 9);
+            assert_eq!(
+                agent.state.native_context_refs[&conversation],
+                "sha256:unchanged-root"
+            );
+            assert_eq!(agent.state.applied_model[&conversation], "unchanged-model");
+            assert_eq!(
+                agent.state.heartbeat_session.as_deref(),
+                Some("unchanged-heartbeat")
+            );
+            assert_eq!(agent.desired_model.as_deref(), Some("unchanged-model"));
+            assert_eq!(
+                agent.desired_permission_mode,
+                Some(config::PermissionMode::Default)
+            );
+            assert!(agent.model_overridden);
+            assert!(
+                !agent.acp.steer_rx_is_none(),
+                "isolated work must never clear the original steer state"
+            );
+        }
+
+        fn register_isolated(
+            pool: &mut AgentPool,
+            id: tokio::task::Id,
+            control_tx: Option<tokio::sync::oneshot::Sender<ControlSignal>>,
+        ) {
+            pool.task_map_mut().insert(
+                id,
+                pool::TaskMeta {
+                    agent_index: 0,
+                    channel_id: None,
+                    isolated_continuity: true,
+                    turn_id: turn_id(),
+                    recoverable_batch: None,
+                    control_tx,
+                    steer_tx: None,
+                },
+            );
+        }
+
+        async fn receive_result(pool: &mut AgentPool) -> PromptResult {
+            let (rx, _) = pool.rx_and_join_set();
+            tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap()
+        }
+
+        async fn resolve_and_return(pool: &mut AgentPool, mut result: PromptResult) {
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            let mut pending = HashMap::from([(turn_id(), reply_tx)]);
+            resolve_private_cognition_result(&mut pending, &mut result, None).await;
+            assert!(
+                pending.is_empty(),
+                "failure/preemption must release duplicate-job gating"
+            );
+            assert!(matches!(
+                reply_rx.await.unwrap(),
+                local_cognition::CognitionReply::Unavailable("runtime_failed")
+            ));
+            assert!(result.private_output.is_none());
+            let mut queue = EventQueue::new(config::DedupMode::Queue);
+            let config = test_config();
+            let mut heartbeat_in_flight = false;
+            let removed_channels = HashSet::new();
+            let mut crash_history = vec![SlotCircuit {
+                crash_times: Vec::new(),
+                open_until: None,
+                respawn_in_flight: false,
+            }];
+            let (respawn_tx, mut respawn_rx) = mpsc::channel(1);
+            let mut respawn_tasks = tokio::task::JoinSet::new();
+            handle_prompt_result(
+                pool,
+                &mut queue,
+                &config,
+                true,
+                result,
+                &mut heartbeat_in_flight,
+                &removed_channels,
+                &mut crash_history,
+                &respawn_tx,
+                &mut respawn_tasks,
+                None,
+                None,
+            );
+            assert!(pool.task_map().is_empty());
+            assert!(crash_history[0].crash_times.is_empty());
+            assert!(!crash_history[0].respawn_in_flight);
+            assert!(
+                respawn_tasks.is_empty(),
+                "temporary health must not respawn the original"
+            );
+            assert!(respawn_rx.try_recv().is_err());
+        }
+
+        fn recover_guarded_join(pool: &mut AgentPool, error: tokio::task::JoinError) {
+            let mut queue = EventQueue::new(config::DedupMode::Queue);
+            let mut heartbeat_in_flight = false;
+            let mut typing = HashMap::new();
+            let mut crash_history = vec![SlotCircuit {
+                crash_times: Vec::new(),
+                open_until: None,
+                respawn_in_flight: false,
+            }];
+            let (respawn_tx, _respawn_rx) = mpsc::channel(1);
+            let mut respawn_tasks = tokio::task::JoinSet::new();
+            recover_panicked_agent(
+                pool,
+                &mut queue,
+                &test_config(),
+                error,
+                &mut heartbeat_in_flight,
+                &HashSet::new(),
+                &mut typing,
+                &mut crash_history,
+                &respawn_tx,
+                &mut respawn_tasks,
+                None,
+            );
+            assert!(crash_history[0].crash_times.is_empty());
+            assert!(respawn_tasks.is_empty());
+        }
+
+        #[tokio::test]
+        async fn warm_claim_is_isolated_only_and_user_work_always_wins() {
+            let conversation = Uuid::new_v4();
+            let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+            let mut queue = EventQueue::new(config::DedupMode::Queue);
+            assert!(matches!(
+                claim_private_cognition_worker(&mut pool, &queue, false),
+                Err("runtime_busy")
+            ));
+            let agent = claim_private_cognition_worker(&mut pool, &queue, true).unwrap();
+            assert_warm_unchanged(&agent, conversation);
+            assert!(
+                matches!(
+                    claim_private_cognition_worker(&mut pool, &queue, true),
+                    Err("runtime_busy")
+                ),
+                "active/checked-out user work cannot be borrowed"
+            );
+            pool.return_agent(agent);
+            assert!(queue.push(QueuedEvent {
+                channel_id: conversation,
+                event: EventBuilder::new(Kind::Custom(9), "synthetic user work")
+                    .sign_with_keys(&Keys::generate())
+                    .unwrap(),
+                received_at: std::time::Instant::now(),
+                prompt_tag: "isolated-scheduling-fixture".into(),
+                exchange: None,
+            }));
+            for isolated in [false, true] {
+                assert!(matches!(
+                    claim_private_cognition_worker(&mut pool, &queue, isolated),
+                    Err("user_work_pending")
+                ));
+            }
+            let mut agent = pool.try_claim(Some(conversation)).unwrap();
+            assert_warm_unchanged(&agent, conversation);
+            agent.acp.shutdown().await;
+        }
+
+        #[tokio::test]
+        async fn queued_conversation_preempts_private_reservation_without_losing_warm_session() {
+            for new_conversation in [false, true] {
+                let conversation = Uuid::new_v4();
+                let target = if new_conversation {
+                    Uuid::new_v4()
+                } else {
+                    conversation
+                };
+                let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+                let agent = pool
+                    .try_reserve_idle_worker_for_isolated_cognition()
+                    .unwrap();
+                let guard =
+                    IsolatedContinuityAgentGuard::new(agent, source(), turn_id(), pool.result_tx());
+                let (control_tx, control_rx) = tokio::sync::oneshot::channel();
+                let handle =
+                    pool.join_set
+                        .spawn(finish_isolated_continuity_task(guard, async move {
+                            assert!(matches!(control_rx.await, Ok(ControlSignal::Cancel)));
+                            (PromptOutcome::Cancelled, None)
+                        }));
+                register_isolated(&mut pool, handle.id(), Some(control_tx));
+                let event =
+                    EventBuilder::new(Kind::Custom(9), "queued user after synthesis starts")
+                        .sign_with_keys(&Keys::generate())
+                        .unwrap();
+                let mut queue = EventQueue::new(config::DedupMode::Queue);
+                assert!(queue.push(QueuedEvent {
+                    channel_id: target,
+                    event: event.clone(),
+                    received_at: std::time::Instant::now(),
+                    prompt_tag: "isolated-preemption-fixture".into(),
+                    exchange: None,
+                }));
+                assert!(
+                    dispatch_pending(&mut pool, &mut queue, &inert_prompt_context()).is_empty()
+                );
+                assert_eq!(queue.pending_channels(), 1);
+                assert!(pool.try_claim(Some(target)).is_none());
+                assert!(
+                    !pool.preempt_isolated_cognition_for_channel(target),
+                    "preemption consumes its one-shot control exactly once"
+                );
+                let result = receive_result(&mut pool).await;
+                assert!(matches!(result.outcome, PromptOutcome::Cancelled));
+                assert_warm_unchanged(&result.agent, conversation);
+                resolve_and_return(&mut pool, result).await;
+                assert!(pool.join_set.join_next().await.unwrap().is_ok());
+                assert!(pool.rx_and_join_set().0.try_recv().is_err());
+
+                let batch = queue
+                    .flush_next()
+                    .expect("the same queued user work remains");
+                assert_eq!(batch.channel_id, target);
+                assert_eq!(batch.events.len(), 1);
+                assert_eq!(batch.events[0].event.id, event.id);
+                let mut original = pool.try_claim(Some(target)).unwrap();
+                assert_eq!(original.index, 0);
+                assert_warm_unchanged(&original, conversation);
+                original.acp.shutdown().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn temporary_transport_failures_do_not_retire_or_mutate_warm_original() {
+            let outcomes = [
+                PromptOutcome::AgentExited,
+                PromptOutcome::Timeout(TimeoutKind::Idle),
+                PromptOutcome::Timeout(TimeoutKind::Hard {
+                    recently_active: false,
+                }),
+                PromptOutcome::CancelDrainTimeout(Duration::from_secs(5)),
+                PromptOutcome::Error(AcpError::Protocol("PRIVATE_TRANSPORT_BODY".into())),
+            ];
+            for outcome in outcomes {
+                let conversation = Uuid::new_v4();
+                let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+                let agent = pool
+                    .try_reserve_idle_worker_for_isolated_cognition()
+                    .unwrap();
+                let guard =
+                    IsolatedContinuityAgentGuard::new(agent, source(), turn_id(), pool.result_tx());
+                let handle = pool
+                    .join_set
+                    .spawn(finish_isolated_continuity_task(guard, async move {
+                        (outcome, Some("PRIVATE_TEMPORARY_OUTPUT".into()))
+                    }));
+                register_isolated(&mut pool, handle.id(), None);
+                let result = receive_result(&mut pool).await;
+                assert!(
+                    matches!(&result.outcome, PromptOutcome::Error(AcpError::AgentError { code: -32603, message })
+                    if message == "isolated private cognition failed")
+                );
+                assert_warm_unchanged(&result.agent, conversation);
+                resolve_and_return(&mut pool, result).await;
+                assert!(pool.join_set.join_next().await.unwrap().is_ok());
+                assert!(
+                    pool.rx_and_join_set().0.try_recv().is_err(),
+                    "exactly one terminal result"
+                );
+                let mut original = pool.try_claim(Some(conversation)).unwrap();
+                assert_warm_unchanged(&original, conversation);
+                original.acp.shutdown().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn isolated_inner_panic_clears_pending_and_returns_original_exactly_once() {
+            let conversation = Uuid::new_v4();
+            let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+            let agent = pool
+                .try_reserve_idle_worker_for_isolated_cognition()
+                .unwrap();
+            let guard =
+                IsolatedContinuityAgentGuard::new(agent, source(), turn_id(), pool.result_tx());
+            let handle = pool
+                .join_set
+                .spawn(finish_isolated_continuity_task(guard, async {
+                    panic!("synthetic isolated core panic");
+                }));
+            register_isolated(&mut pool, handle.id(), None);
+            let result = receive_result(&mut pool).await;
+            assert_warm_unchanged(&result.agent, conversation);
+            resolve_and_return(&mut pool, result).await;
+            assert!(
+                pool.join_set.join_next().await.unwrap().is_ok(),
+                "inner unwind must not reach generic worker recovery"
+            );
+            assert!(pool.rx_and_join_set().0.try_recv().is_err());
+            let mut original = pool.try_claim(Some(conversation)).unwrap();
+            assert_warm_unchanged(&original, conversation);
+            original.acp.shutdown().await;
+        }
+
+        #[tokio::test]
+        async fn isolated_abort_returns_once_under_both_join_result_orderings() {
+            for join_first in [true, false] {
+                let conversation = Uuid::new_v4();
+                let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+                let agent = pool
+                    .try_reserve_idle_worker_for_isolated_cognition()
+                    .unwrap();
+                let guard =
+                    IsolatedContinuityAgentGuard::new(agent, source(), turn_id(), pool.result_tx());
+                let handle = pool.join_set.spawn(finish_isolated_continuity_task(
+                    guard,
+                    std::future::pending(),
+                ));
+                register_isolated(&mut pool, handle.id(), None);
+                handle.abort(); // The guard must exist even before the first poll.
+                if join_first {
+                    let error = pool.join_set.join_next().await.unwrap().unwrap_err();
+                    recover_guarded_join(&mut pool, error);
+                    assert_eq!(
+                        pool.task_map().len(),
+                        1,
+                        "the queued return still needs its task metadata"
+                    );
+                }
+                let result = receive_result(&mut pool).await;
+                assert_warm_unchanged(&result.agent, conversation);
+                resolve_and_return(&mut pool, result).await;
+                if !join_first {
+                    let error = pool.join_set.join_next().await.unwrap().unwrap_err();
+                    recover_guarded_join(&mut pool, error);
+                    assert!(pool.task_map().is_empty());
+                }
+                assert!(pool.rx_and_join_set().0.try_recv().is_err());
+                let mut original = pool.try_claim(Some(conversation)).unwrap();
+                assert_warm_unchanged(&original, conversation);
+                original.acp.shutdown().await;
+            }
+        }
+
+        #[tokio::test]
+        async fn preempted_setup_is_not_polled_before_cancellation() {
+            let (tx, mut rx) = tokio::sync::oneshot::channel();
+            tx.send(ControlSignal::Cancel).unwrap();
+            let polled = std::sync::atomic::AtomicBool::new(false);
+            let setup = async {
+                polled.store(true, std::sync::atomic::Ordering::Relaxed);
+                Ok::<(), String>(())
+            };
+            assert!(matches!(
+                cancellable_continuity_setup(setup, &mut rx).await,
+                Err(IsolatedContinuitySetupError::Cancelled)
+            ));
+            assert!(!polled.load(std::sync::atomic::Ordering::Relaxed));
+        }
+
+        struct FixturePidFile(std::path::PathBuf);
+
+        impl Drop for FixturePidFile {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        async fn fixture_pid(file: &std::path::Path) -> u32 {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    if let Ok(value) = std::fs::read_to_string(file) {
+                        if let Ok(pid) = value.parse() {
+                            break pid;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .expect("inert setup process started")
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn setup_preemption_reaps_discovery_and_initialization_before_warm_return() {
+            for discovery in [true, false] {
+                let conversation = Uuid::new_v4();
+                let mut pool = AgentPool::from_slots(vec![Some(warm_agent(conversation).await)]);
+                let agent = pool
+                    .try_reserve_idle_worker_for_isolated_cognition()
+                    .unwrap();
+                let binding = CodexContinuityWorkerBinding::from(&agent);
+                let guard =
+                    IsolatedContinuityAgentGuard::new(agent, source(), turn_id(), pool.result_tx());
+                let pid_file = FixturePidFile(
+                    std::env::temp_dir().join(format!("isolated-cognition-{}.pid", Uuid::new_v4())),
+                );
+                let spawn = CodexContinuitySpawnSpec {
+                    command: "/bin/bash".into(),
+                    args: vec![
+                        "-c".into(),
+                        "printf '%s' \"$$\" > \"$1\"; read -r INIT; read -r NEVER".into(),
+                        "isolated-cognition-fixture".into(),
+                        pid_file.0.to_string_lossy().into_owned(),
+                    ],
+                    extra_env: vec![("CODEX_CONFIG".into(), "{}".into())],
+                    has_generated_codex_config: true,
+                    observer: None,
+                    cwd: std::env::temp_dir().to_string_lossy().into_owned(),
+                };
+                let (control_tx, mut control_rx) = tokio::sync::oneshot::channel();
+                let core = async move {
+                    let result = if discovery {
+                        discover_codex_native_tools(&spawn, &mut control_rx)
+                            .await
+                            .map(|_| ())
+                    } else {
+                        spawn_isolated_codex_continuity_agent(
+                            &spawn,
+                            &binding,
+                            &serde_json::json!({}),
+                            &mut control_rx,
+                        )
+                        .await
+                        .map(|_| ())
+                    };
+                    assert!(matches!(
+                        result,
+                        Err(IsolatedContinuitySetupError::Cancelled)
+                    ));
+                    (PromptOutcome::Cancelled, None)
+                };
+                let handle = pool
+                    .join_set
+                    .spawn(finish_isolated_continuity_task(guard, core));
+                register_isolated(&mut pool, handle.id(), Some(control_tx));
+                let pid = fixture_pid(&pid_file.0).await;
+                assert!(pool.try_claim(Some(conversation)).is_none());
+                preempt_private_cognition(&mut pool);
+                let result = receive_result(&mut pool).await;
+                assert!(matches!(result.outcome, PromptOutcome::Cancelled));
+                let status = tokio::process::Command::new("/bin/kill")
+                    .args(["-0", &pid.to_string()])
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .await
+                    .unwrap();
+                assert!(
+                    !status.success(),
+                    "owned fixture PID must already be reaped before warm return"
+                );
+                assert_warm_unchanged(&result.agent, conversation);
+                resolve_and_return(&mut pool, result).await;
+                assert!(pool.join_set.join_next().await.unwrap().is_ok());
+                let mut original = pool.try_claim(Some(conversation)).unwrap();
+                assert_warm_unchanged(&original, conversation);
+                original.acp.shutdown().await;
+            }
+        }
+    }
+
     #[tokio::test]
     async fn completed_respawn_wakes_quiet_loop_and_releases_queued_turn_once() {
         let channel_id = Uuid::new_v4();
@@ -6419,6 +7069,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: None,
                 turn_id: "test-turn-id".to_string(),
@@ -6490,6 +7141,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: Some(channel_id),
                 turn_id: "retry-authority-turn".to_string(),
@@ -6556,6 +7208,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: Some(channel_id),
                 turn_id: "panic-turn-id".to_string(),
@@ -6762,6 +7415,7 @@ mod error_outcome_emission_tests {
             pool.task_map_mut().insert(
                 task_id,
                 crate::pool::TaskMeta {
+                    isolated_continuity: false,
                     agent_index: 0,
                     channel_id: None,
                     turn_id: "test-turn-id".to_string(),
@@ -6856,6 +7510,7 @@ mod error_outcome_emission_tests {
             pool.task_map_mut().insert(
                 task_id,
                 crate::pool::TaskMeta {
+                    isolated_continuity: false,
                     agent_index: 0,
                     channel_id: None,
                     turn_id: "test-turn-id".to_string(),
@@ -6964,6 +7619,7 @@ mod error_outcome_emission_tests {
             pool.task_map_mut().insert(
                 task_id,
                 crate::pool::TaskMeta {
+                    isolated_continuity: false,
                     agent_index: 0,
                     channel_id: None,
                     turn_id: "test-turn-id".to_string(),
@@ -7042,6 +7698,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: None,
                 turn_id: "test-turn-id".to_string(),
@@ -7139,6 +7796,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: None,
                 turn_id: "test-turn-id".to_string(),
@@ -7260,6 +7918,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: None,
                 turn_id: "test-turn-id".to_string(),
@@ -7402,6 +8061,7 @@ mod error_outcome_emission_tests {
         pool.task_map_mut().insert(
             task_id,
             crate::pool::TaskMeta {
+                isolated_continuity: false,
                 agent_index: 0,
                 channel_id: None,
                 turn_id: "test-turn-id".to_string(),
