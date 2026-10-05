@@ -21,6 +21,11 @@ use nostr::Event;
 use uuid::Uuid;
 
 pub(crate) const CODEX_SKILL_CONTEXT_NOTICE: &str = "Warning: Skill descriptions were shortened to fit the 2% skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+pub(crate) const CODEX_SKILL_CONTEXT_NOTICE_CURRENT: &str = "Warning: Skill descriptions were shortened to fit the skills context budget. Codex can still see every skill, but some descriptions are shorter. Disable unused skills or plugins to leave more room for the rest.";
+pub(crate) const CODEX_SKILL_CONTEXT_NOTICES: [&str; 2] = [
+    CODEX_SKILL_CONTEXT_NOTICE,
+    CODEX_SKILL_CONTEXT_NOTICE_CURRENT,
+];
 pub(crate) const CODEX_SKILL_BUDGET_NOTICE_PREFIXES: [&str; 2] = [
     "Warning: Exceeded skills context budget of 2%.",
     "Warning: Exceeded skills context budget.",
@@ -33,12 +38,14 @@ pub(crate) const CODEX_SKILL_BUDGET_NOTICE_SUFFIX: &str = "model-visible skills 
 pub(crate) const SILENT_ACTION_SENTINEL: &str = "LUCA_ACTION_COMPLETE";
 
 fn strip_runtime_notice_preamble(final_draft: String) -> String {
-    if let Some(remainder) = final_draft.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) {
-        if remainder.is_empty() {
-            return String::new();
-        }
-        if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
-            return remainder.trim_start().to_owned();
+    for notice in CODEX_SKILL_CONTEXT_NOTICES {
+        if let Some(remainder) = final_draft.strip_prefix(notice) {
+            if remainder.is_empty() {
+                return String::new();
+            }
+            if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                return remainder.trim_start().to_owned();
+            }
         }
     }
     for prefix in CODEX_SKILL_BUDGET_NOTICE_PREFIXES {
@@ -883,6 +890,67 @@ mod tests {
             .push_agent_message_chunk(&quoted)
             .expect("quoted notice");
         assert_eq!(chunks.finish(false).expect("final"), quoted);
+    }
+
+    #[test]
+    fn luca_f09_current_codex_context_notice_is_stripped_across_split_chunks() {
+        let split = CODEX_SKILL_CONTEXT_NOTICE_CURRENT.len() / 2;
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(&CODEX_SKILL_CONTEXT_NOTICE_CURRENT[..split])
+            .expect("notice prefix");
+        chunks
+            .push_agent_message_chunk(&format!(
+                "{}\n\nPOLYPHONIC_D6_RETURN_RESULT_7e921c",
+                &CODEX_SKILL_CONTEXT_NOTICE_CURRENT[split..]
+            ))
+            .expect("notice remainder and answer");
+        assert_eq!(
+            chunks.finish(false).expect("final"),
+            "POLYPHONIC_D6_RETURN_RESULT_7e921c"
+        );
+    }
+
+    #[test]
+    fn luca_f09_current_codex_context_notice_only_is_not_a_final_answer() {
+        for notice_only in [
+            CODEX_SKILL_CONTEXT_NOTICE_CURRENT.to_owned(),
+            format!("{CODEX_SKILL_CONTEXT_NOTICE_CURRENT}\n\n"),
+        ] {
+            let mut chunks = FinalChunkAccumulator::default();
+            chunks
+                .push_agent_message_chunk(&notice_only)
+                .expect("notice");
+            assert_eq!(chunks.finish(false), Err(FinalPublicationError::Empty));
+        }
+    }
+
+    #[test]
+    fn luca_f09_context_notice_shape_preserves_legitimate_and_quoted_text() {
+        let legitimate = format!(
+            "{CODEX_SKILL_CONTEXT_NOTICE_CURRENT} This continuation is part of the answer."
+        );
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(&legitimate)
+            .expect("legitimate warning text");
+        assert_eq!(chunks.finish(false).expect("final"), legitimate);
+
+        let quoted = format!(
+            "A quoted diagnostic:\n{CODEX_SKILL_CONTEXT_NOTICE_CURRENT}\n\nKeep this quote."
+        );
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(&quoted)
+            .expect("quoted diagnostic");
+        assert_eq!(chunks.finish(false).expect("final"), quoted);
+
+        let unknown = "Warning: Skill descriptions changed for an unrelated reason. Keep this.";
+        let mut chunks = FinalChunkAccumulator::default();
+        chunks
+            .push_agent_message_chunk(unknown)
+            .expect("unknown warning");
+        assert_eq!(chunks.finish(false).expect("final"), unknown);
     }
 
     #[test]

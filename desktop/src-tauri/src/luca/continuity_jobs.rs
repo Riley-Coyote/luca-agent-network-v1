@@ -420,7 +420,10 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             retry_or_fail(app, &job, "runtime_timeout");
             return;
         }
-        Err(super::managed_cognition::ManagedCognitionError::Unavailable) => {
+        Err(
+            super::managed_cognition::ManagedCognitionError::Busy
+            | super::managed_cognition::ManagedCognitionError::Unavailable,
+        ) => {
             retry_or_fail(app, &job, "runtime_unavailable");
             return;
         }

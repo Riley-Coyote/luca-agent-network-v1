@@ -20,7 +20,7 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     luca_final_publisher::{
         PublicTextJoiner, CODEX_SKILL_BUDGET_NOTICE_PREFIXES, CODEX_SKILL_BUDGET_NOTICE_SUFFIX,
-        CODEX_SKILL_CONTEXT_NOTICE, SILENT_ACTION_SENTINEL,
+        CODEX_SKILL_CONTEXT_NOTICES, SILENT_ACTION_SENTINEL,
     },
     observer::{ObserverEvent, ObserverHandle},
 };
@@ -94,7 +94,7 @@ impl RuntimeNoticeGate {
             return (!chunk.is_empty()).then(|| chunk.to_owned());
         }
         self.buffered.push_str(chunk);
-        loop {
+        'gate: loop {
             if SILENT_ACTION_SENTINEL.starts_with(&self.buffered) {
                 return None;
             }
@@ -102,16 +102,21 @@ impl RuntimeNoticeGate {
                 self.decided = true;
                 return Some(std::mem::take(&mut self.buffered));
             }
-            if CODEX_SKILL_CONTEXT_NOTICE.starts_with(&self.buffered) {
+            if CODEX_SKILL_CONTEXT_NOTICES
+                .iter()
+                .any(|notice| notice.starts_with(&self.buffered))
+            {
                 return None;
             }
-            if let Some(remainder) = self.buffered.strip_prefix(CODEX_SKILL_CONTEXT_NOTICE) {
-                if remainder.is_empty() {
-                    return None;
-                }
-                if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
-                    self.buffered = remainder.trim_start().to_owned();
-                    continue;
+            for notice in CODEX_SKILL_CONTEXT_NOTICES {
+                if let Some(remainder) = self.buffered.strip_prefix(notice) {
+                    if remainder.is_empty() {
+                        return None;
+                    }
+                    if remainder.starts_with('\n') || remainder == SILENT_ACTION_SENTINEL {
+                        self.buffered = remainder.trim_start().to_owned();
+                        continue 'gate;
+                    }
                 }
             }
             if CODEX_SKILL_BUDGET_NOTICE_PREFIXES
@@ -1684,7 +1689,9 @@ mod tests {
         assert_eq!(public_activity_count(&update), Some(3));
     }
     use super::*;
-    use crate::luca_final_publisher::FinalChunkAccumulator;
+    use crate::luca_final_publisher::{
+        FinalChunkAccumulator, CODEX_SKILL_CONTEXT_NOTICE, CODEX_SKILL_CONTEXT_NOTICE_CURRENT,
+    };
 
     /// The only two `session/update` kinds that carry public-text ordering.
     #[derive(Clone, Copy)]
@@ -1772,6 +1779,10 @@ mod tests {
                 PublicUpdate::AgentMessageChunk("The useful answer."),
             ],
             vec![
+                PublicUpdate::AgentMessageChunk(CODEX_SKILL_CONTEXT_NOTICE_CURRENT),
+                PublicUpdate::AgentMessageChunk("\n\nPOLYPHONIC_D6_RETURN_RESULT_7e921c"),
+            ],
+            vec![
                 PublicUpdate::AgentMessageChunk("Looking."),
                 PublicUpdate::ToolCallOrPlan,
                 PublicUpdate::AgentMessageChunk("Still looking."),
@@ -1810,6 +1821,47 @@ mod tests {
                 &CODEX_SKILL_CONTEXT_NOTICE[split..]
             )),
             Some("Answer".into())
+        );
+    }
+
+    #[test]
+    fn current_codex_context_notice_is_suppressed_across_split_chunks() {
+        let mut gate = RuntimeNoticeGate::default();
+        let first = CODEX_SKILL_CONTEXT_NOTICE_CURRENT.len() / 3;
+        let second = CODEX_SKILL_CONTEXT_NOTICE_CURRENT.len() * 2 / 3;
+        assert_eq!(
+            gate.push(&CODEX_SKILL_CONTEXT_NOTICE_CURRENT[..first]),
+            None
+        );
+        assert_eq!(
+            gate.push(&CODEX_SKILL_CONTEXT_NOTICE_CURRENT[first..second]),
+            None
+        );
+        assert_eq!(
+            gate.push(&format!(
+                "{}\n\nPOLYPHONIC_D6_RETURN_RESULT_7e921c",
+                &CODEX_SKILL_CONTEXT_NOTICE_CURRENT[second..]
+            )),
+            Some("POLYPHONIC_D6_RETURN_RESULT_7e921c".into())
+        );
+    }
+
+    #[test]
+    fn current_codex_context_notice_gate_preserves_non_notice_text() {
+        let legitimate = format!(
+            "{CODEX_SKILL_CONTEXT_NOTICE_CURRENT} This continuation is part of the answer."
+        );
+        let mut gate = RuntimeNoticeGate::default();
+        assert_eq!(gate.push(&legitimate), Some(legitimate));
+
+        let quoted = format!("Quoted:\n{CODEX_SKILL_CONTEXT_NOTICE_CURRENT}");
+        let mut gate = RuntimeNoticeGate::default();
+        assert_eq!(gate.push(&quoted), Some(quoted));
+
+        let mut gate = RuntimeNoticeGate::default();
+        assert_eq!(
+            gate.push("Warning: Skill descriptions may be unavailable. Keep this."),
+            Some("Warning: Skill descriptions may be unavailable. Keep this.".into())
         );
     }
 

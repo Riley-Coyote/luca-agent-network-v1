@@ -1,5 +1,116 @@
 use super::*;
 
+#[test]
+fn busy_admission_polls_one_request_until_success_without_extending_deadline() {
+    let remaining = std::cell::Cell::new(2_000);
+    let mut responses = [
+        Err(managed_cognition::ManagedCognitionError::Busy),
+        Err(managed_cognition::ManagedCognitionError::Busy),
+        Ok(7_u8),
+    ]
+    .into_iter();
+    let calls = std::cell::Cell::new(0);
+    let outcome = await_admission(
+        || Ok(Some(remaining.get())),
+        || {
+            calls.set(calls.get() + 1);
+            responses.next().expect("no extra dispatch")
+        },
+        |duration| {
+            assert_eq!(duration.as_millis(), u128::from(ADMISSION_RETRY_MS));
+            remaining.set(remaining.get() - duration.as_millis() as u64);
+        },
+    )
+    .unwrap();
+    assert_eq!(outcome, Some(Ok(7)));
+    assert_eq!(calls.get(), 3);
+    assert_eq!(remaining.get(), 1_000);
+}
+
+#[test]
+fn admission_polling_stops_at_every_ambiguous_or_post_start_boundary() {
+    for error in [
+        managed_cognition::ManagedCognitionError::Unavailable,
+        managed_cognition::ManagedCognitionError::Timeout,
+        managed_cognition::ManagedCognitionError::Invalid,
+    ] {
+        let calls = std::cell::Cell::new(0);
+        let mut pauses = 0;
+        let outcome = await_admission::<()>(
+            || Ok(Some(2_000)),
+            || {
+                calls.set(calls.get() + 1);
+                Err(if calls.get() == 1 {
+                    managed_cognition::ManagedCognitionError::Busy
+                } else {
+                    error
+                })
+            },
+            |_| pauses += 1,
+        )
+        .unwrap();
+        assert_eq!(outcome, Some(Err(error)));
+        assert_eq!(calls.get(), 2);
+        assert_eq!(pauses, 1);
+    }
+}
+
+#[test]
+fn busy_until_original_deadline_returns_unstarted_without_another_attempt() {
+    let remaining = std::cell::Cell::new(650_u64);
+    let mut calls = 0;
+    let mut pauses = Vec::new();
+    let outcome = await_admission::<()>(
+        || Ok(Some(remaining.get())),
+        || {
+            calls += 1;
+            Err(managed_cognition::ManagedCognitionError::Busy)
+        },
+        |duration| {
+            pauses.push(duration.as_millis());
+            remaining.set(remaining.get() - duration.as_millis() as u64);
+        },
+    )
+    .unwrap();
+    assert_eq!(outcome, None);
+    assert_eq!(calls, 2);
+    assert_eq!(pauses, [500, 150]);
+}
+
+#[test]
+fn shutdown_or_changed_claim_scope_stops_before_another_admission_dispatch() {
+    let mut preflights = [Some(2_000), None].into_iter();
+    let mut calls = 0;
+    let outcome = await_admission::<()>(
+        || Ok(preflights.next().expect("no additional preflight")),
+        || {
+            calls += 1;
+            Err(managed_cognition::ManagedCognitionError::Busy)
+        },
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(outcome, None);
+    assert_eq!(calls, 1);
+}
+
+#[test]
+fn unavailable_preflight_never_dispatches_or_implicitly_reclaims() {
+    let outcome = await_admission::<()>(
+        || Ok(None),
+        || panic!("no dispatch without exact live authority"),
+        |_| panic!("no wait without a busy reply"),
+    )
+    .unwrap();
+    assert_eq!(outcome, None);
+    assert!(await_admission::<()>(
+        || Err("authority unavailable".into()),
+        || panic!("no dispatch after failed preflight"),
+        |_| panic!("no wait after failed preflight"),
+    )
+    .is_err());
+}
+
 fn pending() -> RuntimeTaskDeliveryReceiptV1 {
     RuntimeTaskDeliveryReceiptV1 {
         delivery_id: Some(OpaqueId::parse(format!("task-result:{}", "ab".repeat(32))).unwrap()),

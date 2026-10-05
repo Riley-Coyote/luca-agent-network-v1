@@ -565,6 +565,100 @@ fn synthesis_attempts_and_lease_are_durable_and_bounded_by_coordinator_policy() 
 }
 
 #[test]
+fn unstarted_admission_polling_does_not_mutate_or_grow_the_durable_attempt_budget() {
+    let (directory, mut store) = store();
+    let (claim, _) = bind_and_claim(&mut store);
+    for _ in 0..10 {
+        assert!(store.has_synthesis_claim(&claim));
+    }
+    store
+        .release_unstarted_synthesis(&claim, timestamp(4))
+        .unwrap();
+    assert!(!store.has_synthesis_claim(&claim));
+    let receipt = store.receipt_for_task(&claim.task_id).unwrap();
+    assert_eq!(receipt.state, RuntimeTaskDeliveryStateV1::Retryable);
+    assert_eq!(receipt.synthesis_attempts, 1);
+    assert_eq!(receipt.synthesis_lease_deadline_unix_ms, None);
+    drop(store);
+    let restarted =
+        RuntimeTaskDeliveryStore::load(directory.path().join("deliveries.json")).unwrap();
+    assert_eq!(restarted.receipt_for_task(&claim.task_id).unwrap(), receipt);
+}
+
+#[test]
+fn stale_unstarted_claim_cannot_release_a_later_lease_even_in_the_same_epoch() {
+    let (_directory, mut store) = store();
+    let (first, scope) = bind_and_claim(&mut store);
+    store
+        .release_unstarted_synthesis(&first, timestamp(4))
+        .unwrap();
+    let later = store
+        .claim_synthesis(&first.delivery_id, &scope, 7_000, 5_000, timestamp(5))
+        .unwrap();
+    assert!(!store.has_synthesis_claim(&first));
+    assert!(store.has_synthesis_claim(&later));
+    assert_eq!(
+        store.release_unstarted_synthesis(&first, timestamp(6)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+    let mut wrong_epoch = later.clone();
+    wrong_epoch.session_epoch += 1;
+    assert!(!store.has_synthesis_claim(&wrong_epoch));
+    assert_eq!(
+        store.release_unstarted_synthesis(&wrong_epoch, timestamp(7)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+    assert!(store.has_synthesis_claim(&later));
+    assert_eq!(
+        store
+            .receipt_for_task(&first.task_id)
+            .unwrap()
+            .synthesis_attempts,
+        2
+    );
+}
+
+#[test]
+fn same_millisecond_reclaim_has_a_distinct_durable_generation() {
+    let (_directory, mut store) = store();
+    let (first, scope) = bind_and_claim(&mut store);
+    store
+        .release_unstarted_synthesis(&first, timestamp(4))
+        .unwrap();
+    let later = store
+        .claim_synthesis(&first.delivery_id, &scope, 1_000, 5_000, timestamp(5))
+        .unwrap();
+    assert_eq!(first.session_epoch, later.session_epoch);
+    assert_eq!(first.lease_deadline_unix_ms, later.lease_deadline_unix_ms);
+    assert_eq!(first.synthesis_attempt, 1);
+    assert_eq!(later.synthesis_attempt, 2);
+    assert!(!store.has_synthesis_claim(&first));
+    assert!(store.has_synthesis_claim(&later));
+    assert_eq!(
+        store.release_unstarted_synthesis(&first, timestamp(6)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+    assert!(store.has_synthesis_claim(&later));
+}
+
+#[test]
+fn unstarted_release_never_reopens_a_prepared_outbox() {
+    let (_directory, mut store) = store();
+    let (claim, scope) = bind_and_claim(&mut store);
+    store
+        .reserve_publication(&request(&claim), &scope, timestamp(4))
+        .unwrap();
+    assert!(!store.has_synthesis_claim(&claim));
+    assert_eq!(
+        store.release_unstarted_synthesis(&claim, timestamp(5)),
+        Err(RuntimeTaskDeliveryError::Denied)
+    );
+    let receipt = store.receipt_for_task(&claim.task_id).unwrap();
+    assert_eq!(receipt.state, RuntimeTaskDeliveryStateV1::Prepared);
+    assert_eq!(receipt.synthesis_attempts, 1);
+}
+
+#[test]
 fn expired_synthesis_recovery_preserves_attempts_and_never_reopens_prepared_work() {
     let (_directory, mut store) = store();
     let (claim, scope) = bind_and_claim(&mut store);

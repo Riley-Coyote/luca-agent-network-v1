@@ -6,7 +6,7 @@ use super::super::{
         community_id_for_relay_ref, global_runtime_task_delivery_store, origin_relay_ref,
         RuntimeTaskCompletionScopeV1, RuntimeTaskDeliveryApprovalV1,
         RuntimeTaskDeliveryOperationV1, RuntimeTaskDeliveryReceiptV1, RuntimeTaskDeliveryScopeV1,
-        RuntimeTaskDeliveryStateV1,
+        RuntimeTaskDeliveryStateV1, RuntimeTaskSynthesisClaimV1,
     },
 };
 use super::*;
@@ -21,6 +21,82 @@ const MAX_RECOVERY_TASKS: usize = MAX_RECEIPTS;
 const EXCERPT_BYTES: usize = 8 * 1024;
 const SYNTHESIS_MS: u64 = 180_000;
 const LEASE_MS: u64 = SYNTHESIS_MS + 30_000;
+const ADMISSION_RETRY_MS: u64 = 500;
+
+/// Only a correlated pre-admission Busy reply permits polling. Every other
+/// result exits immediately to the existing publication/ambiguous lease path.
+fn await_admission<T>(
+    mut preflight: impl FnMut() -> Result<Option<u64>, String>,
+    mut dispatch: impl FnMut() -> Result<T, managed_cognition::ManagedCognitionError>,
+    mut pause: impl FnMut(Duration),
+) -> Result<Option<Result<T, managed_cognition::ManagedCognitionError>>, String> {
+    loop {
+        let Some(remaining) = preflight()? else {
+            return Ok(None);
+        };
+        if remaining == 0 {
+            return Ok(None);
+        }
+        match dispatch() {
+            Err(managed_cognition::ManagedCognitionError::Busy) => {
+                pause(Duration::from_millis(remaining.min(ADMISSION_RETRY_MS)));
+            }
+            response => return Ok(Some(response)),
+        }
+    }
+}
+
+fn admission_remaining(
+    app: &AppHandle,
+    claim: &RuntimeTaskSynthesisClaimV1,
+    deadline_unix_ms: u64,
+) -> Result<Option<u64>, String> {
+    if deadline_unix_ms <= millis()? || !admission_scope_is_current(app, claim)? {
+        return Ok(None);
+    }
+    let members = super::super::runtime_task_delivery::verified_conversation_members(
+        app,
+        &claim.conversation_id,
+    )?;
+    if !members.contains(&claim.owner_pubkey)
+        || !members.contains(&claim.resident_pubkey)
+        || !admission_scope_is_current(app, claim)?
+    {
+        return Ok(None);
+    }
+    let store = store(app)?;
+    let guard = store
+        .lock()
+        .map_err(|_| "Task return state is unavailable.".to_owned())?;
+    // Membership verification may have waited on I/O; use the original
+    // deadline's fresh remainder, never the value before that verification.
+    let remaining = deadline_unix_ms.saturating_sub(millis()?);
+    Ok((remaining > 0 && guard.has_synthesis_claim(claim)).then_some(remaining))
+}
+
+fn admission_scope_is_current(
+    app: &AppHandle,
+    claim: &RuntimeTaskSynthesisClaimV1,
+) -> Result<bool, String> {
+    if app
+        .state::<crate::app_state::AppState>()
+        .shutdown_started
+        .load(std::sync::atomic::Ordering::Acquire)
+        || !managed_cognition::active_binding_ref(&claim.resident_pubkey)
+            .is_ok_and(|binding| binding == claim.binding_ref)
+        || !managed_cognition::active_session_epoch(&claim.resident_pubkey)
+            .is_ok_and(|epoch| epoch.get() == claim.session_epoch)
+        || delegation::owner(app)? != claim.owner_pubkey
+        || current_origin(app)?
+            != (
+                claim.origin_relay_ref.clone(),
+                claim.origin_community_id.clone(),
+            )
+    {
+        return Ok(false);
+    }
+    Ok(true)
+}
 
 fn now() -> Result<luca_protocol::CanonicalTimestamp, String> {
     super::super::continuity_jobs::current_canonical_timestamp()
@@ -483,11 +559,11 @@ fn run(app: AppHandle, id: String, manual: bool) -> Result<(), String> {
         let request = RuntimeTaskDeliveryRequestV1 {
             protocol: RUNTIME_TASK_DELIVERY_PROTOCOL.to_owned(),
             delivery_id: claim.delivery_id.clone(),
-            task_id: claim.task_id,
-            owner_pubkey: claim.owner_pubkey,
-            resident_pubkey: claim.resident_pubkey,
-            conversation_id: claim.conversation_id,
-            binding_ref: claim.binding_ref,
+            task_id: claim.task_id.clone(),
+            owner_pubkey: claim.owner_pubkey.clone(),
+            resident_pubkey: claim.resident_pubkey.clone(),
+            conversation_id: claim.conversation_id.clone(),
+            binding_ref: claim.binding_ref.clone(),
             result_sha256: result_digest,
             runtime_family: projection.runtime_family,
             summary: projection.summary,
@@ -503,7 +579,24 @@ fn run(app: AppHandle, id: String, manual: bool) -> Result<(), String> {
         request
             .validate()
             .map_err(|_| "Task return request is invalid.".to_owned())?;
-        let response = managed_cognition::request_runtime_task(&request);
+        let admission = await_admission(
+            || admission_remaining(&app, &claim, request.deadline_unix_ms.get()),
+            || managed_cognition::request_runtime_task(&request, epoch),
+            thread::sleep,
+        );
+        let response = match admission {
+            Ok(Some(response)) => response,
+            unstarted => {
+                // Every response was proof of non-admission (or no dispatch was
+                // possible). Do not consume another claim/attempt automatically.
+                let _ = store(&app)?
+                    .lock()
+                    .map_err(|_| "Task return state is unavailable.".to_owned())?
+                    .release_unstarted_synthesis(&claim, now()?);
+                super::refresh_runtime_task_delivery(&app, &id);
+                return unstarted.map(|_| ());
+            }
+        };
         // A correlated broker response may already have frozen/submitted bytes.
         // Its Unavailable outcome is not permission to regenerate a message.
         match response {

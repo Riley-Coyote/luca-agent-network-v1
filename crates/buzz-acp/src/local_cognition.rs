@@ -11,7 +11,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use luca_protocol::{ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1};
+use luca_protocol::{
+    OpaqueId, ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1,
+};
 use serde::Serialize;
 
 #[cfg(unix)]
@@ -40,15 +42,16 @@ enum WireReply {
         result: Box<ResidentPrivateCognitionResultV1>,
     },
     Unavailable {
+        job_id: OpaqueId,
         code: &'static str,
     },
 }
 
-impl From<CognitionReply> for WireReply {
-    fn from(reply: CognitionReply) -> Self {
+impl WireReply {
+    fn for_request(reply: CognitionReply, job_id: OpaqueId) -> Self {
         match reply {
             CognitionReply::Completed(result) => Self::Completed { result },
-            CognitionReply::Unavailable(code) => Self::Unavailable { code },
+            CognitionReply::Unavailable(code) => Self::Unavailable { job_id, code },
         }
     }
 }
@@ -109,12 +112,16 @@ pub(crate) fn inherited_receiver(
                 Ok(request) => request,
                 Err(()) => break,
             };
+            // Correlation comes from the validated desktop request, never
+            // model output or a reply producer's choice of identity.
+            let job_id = request.job_id().clone();
             let now = unix_time_millis();
             let remaining = request.deadline_unix_ms().get().saturating_sub(now);
             if remaining == 0 {
                 if write_reply(
                     &mut write_half,
                     CognitionReply::Unavailable("deadline_expired"),
+                    job_id,
                 )
                 .await
                 .is_err()
@@ -132,7 +139,7 @@ pub(crate) fn inherited_receiver(
                 .ok()
                 .and_then(Result::ok)
                 .unwrap_or(CognitionReply::Unavailable("deadline_expired"));
-            if write_reply(&mut write_half, reply).await.is_err() {
+            if write_reply(&mut write_half, reply, job_id).await.is_err() {
                 break;
             }
         }
@@ -186,8 +193,9 @@ pub(crate) fn inherited_receiver(
 async fn write_reply(
     writer: &mut tokio::net::unix::OwnedWriteHalf,
     reply: CognitionReply,
+    job_id: OpaqueId,
 ) -> Result<(), ()> {
-    let mut bytes = serde_json::to_vec(&WireReply::from(reply)).map_err(|_| ())?;
+    let mut bytes = serde_json::to_vec(&WireReply::for_request(reply, job_id)).map_err(|_| ())?;
     if bytes.len() >= MAX_FRAME_BYTES {
         return Err(());
     }
@@ -208,6 +216,22 @@ fn unix_time_millis() -> u64 {
 #[cfg(all(test, unix))]
 mod runtime_task_delivery_frame_tests {
     use super::*;
+
+    #[test]
+    fn unavailable_private_reply_is_correlated_without_task_or_result_bodies() {
+        let reply = WireReply::for_request(
+            CognitionReply::Unavailable("runtime_busy"),
+            OpaqueId::parse("task-result:fixture").unwrap(),
+        );
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            serde_json::json!({
+                "status": "unavailable",
+                "job_id": "task-result:fixture",
+                "code": "runtime_busy"
+            })
+        );
+    }
 
     #[tokio::test]
     async fn overlength_private_frame_stops_at_bound_without_waiting_for_newline() {

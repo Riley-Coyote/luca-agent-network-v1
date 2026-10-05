@@ -160,6 +160,7 @@ pub(crate) struct RuntimeTaskSynthesisClaimV1 {
     pub result_sha256: Sha256Ref,
     pub binding_ref: Sha256Ref,
     pub session_epoch: u64,
+    pub synthesis_attempt: u8,
     pub lease_deadline_unix_ms: u64,
 }
 
@@ -661,6 +662,19 @@ impl RuntimeTaskDeliveryStore {
         )
     }
 
+    /// Admission polling may release only its exact still-unstarted lease,
+    /// never a later claim in the same runtime epoch or a prepared outbox.
+    pub(crate) fn release_unstarted_synthesis(
+        &mut self,
+        expected: &RuntimeTaskSynthesisClaimV1,
+        updated_at: CanonicalTimestamp,
+    ) -> Result<(), RuntimeTaskDeliveryError> {
+        if !self.has_synthesis_claim(expected) {
+            return Err(RuntimeTaskDeliveryError::Denied);
+        }
+        self.release_synthesis_retryable(&expected.delivery_id, expected.session_epoch, updated_at)
+    }
+
     /// End a stale synthesis lease after its persisted deadline has passed.
     ///
     /// Recovery deliberately keys this by task rather than by the old runtime
@@ -820,6 +834,13 @@ impl RuntimeTaskDeliveryStore {
         task_id: &OpaqueId,
     ) -> Option<RuntimeTaskDeliveryReceiptV1> {
         self.rows.get(task_id.as_str()).map(receipt)
+    }
+
+    pub(crate) fn has_synthesis_claim(&self, expected: &RuntimeTaskSynthesisClaimV1) -> bool {
+        self.rows.get(expected.task_id.as_str()).is_some_and(|row| {
+            row.state == RuntimeTaskDeliveryStateV1::Synthesizing
+                && claim(row).is_ok_and(|current| current == *expected)
+        })
     }
 
     pub(crate) fn has_authority(&self, delivery_id: &OpaqueId) -> bool {
@@ -1664,6 +1685,7 @@ fn claim(
         session_epoch: row
             .synthesis_session_epoch
             .ok_or(RuntimeTaskDeliveryError::Invalid)?,
+        synthesis_attempt: row.synthesis_attempts,
         lease_deadline_unix_ms: row
             .synthesis_lease_deadline_unix_ms
             .ok_or(RuntimeTaskDeliveryError::Invalid)?,

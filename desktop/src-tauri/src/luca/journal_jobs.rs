@@ -279,7 +279,8 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
 
 fn error_code(error: managed_cognition::ManagedCognitionError) -> &'static str {
     match error {
-        managed_cognition::ManagedCognitionError::Unavailable => "runtime_unavailable",
+        managed_cognition::ManagedCognitionError::Busy
+        | managed_cognition::ManagedCognitionError::Unavailable => "runtime_unavailable",
         managed_cognition::ManagedCognitionError::Invalid => "invalid_private_result",
         managed_cognition::ManagedCognitionError::Timeout => "runtime_timeout",
     }

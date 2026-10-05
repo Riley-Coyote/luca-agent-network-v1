@@ -330,21 +330,22 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
 | D2 | Implemented; deterministic checks pass | Granted-source metadata lookup, exact opaque session reference, canonical native workspace, bounded metadata reads and confirmation-time revalidation. No title/latest guesses or silent source/session switch. |
 | D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
-| D4 | Implemented; focused repairs verified, native return/restart pending | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. Native worker completion passed. Warm Codex reservation/return, queued-user preemption and stable supervised-local binding now pass deterministic checks; complete-loop/restart acceptance remains pending. |
+| D4 | Implemented; native return exposed two narrow repair gaps | Persist-before-spawn, bounded private result/receipt storage, correlated completion, stop/shutdown races, coalesced recovery, and frozen-byte publication recovery. One completed task returned as one signed Luca summary. The busy-admission delay and startup-warning contamination are repaired in source; fresh native acceptance and published-result restart remain pending. |
 | D5 | Implemented; 23 focused UI cases pass | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and command-receipt recovery when a live event is missed. Existing visual design retained. Native complete-loop acceptance remains pending. |
-| D6 | Verification in progress; isolated signed packaging passed | Scoped Rust/frontend checks and bounded browser regressions complete. Actual native welcome and delegated-worker completion passed. Complete return-loop/restart acceptance and interactive native process metrics remain pending; no release or installed replacement authorized. |
+| D6 | Verification in progress; isolated signed packaging passed | Actual native welcome, owned worker completion, primary same-ID restoration and one signed summary observed. That summary truthfully reported a contaminated saved answer after a roughly four-minute delay, so clean/prompt return acceptance is not claimed. Fresh native return/restart and comparative performance gates remain pending; no release or installed replacement authorized. |
 
 Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
 is not a claim of cancellation, approval mediation or a complete delegation loop.
 
-Budget used: **5 / 12 disposable IDs, 15 / 40 prompt attempts** (13 completed
+Budget used: **8 / 12 disposable IDs, 19 / 40 prompt attempts** (17 completed
 Codex turns, one runner attempt aborted before verified completion, one Claude
 quota rejection). The isolated candidate is stopped; its completed worker
-result and pending summary are retained. The external native-app fixture
+results and delivery records are retained. The external native-app fixture
 remains idle. No personal session was a test target. The current candidate
-reservation has up to three IDs/seven attempts remaining, capped at eight
-IDs/22 attempts including automatic welcome/continuity/synthesis. No automatic
+reservation is up to four further IDs/eight attempts, capped at twelve
+IDs/27 attempts including automatic welcome/continuity/synthesis. This remains
+inside the approved total 12-ID/40-attempt budget. No automatic
 Claude retry, paid API path, model fallback, or native-profile repair is authorized.
 
 ### Historical checkpoint verification — 2026-10-04
@@ -530,6 +531,48 @@ pass. Both ACP and desktop library Clippy pass with `-D warnings`; scoped
 Rust formatting and `git diff --check` pass. The next native candidate must be
 built from this clean pushed checkpoint. Native complete-loop, restart and
 settled interactive metrics remain unverified until that candidate is exercised.
+
+### Native result-return and narrow admission repair — 2026-10-05 UTC
+
+Clean pushed `cacb6ec26` built and signed with all six real ARM64 helpers.
+Fresh E2E assets and all 23 runtime-task-card cases passed afterward. The
+isolated profile restored primary Codex session
+`01a10981-7e9a-77a0-bd4a-64e3a4792bfa`, without replacing its identity.
+
+Distinct task `20dfad08-d34d-446d-b1a1-91c7f7446a61` completed in the disposable
+fixture through one normal-policy worker. Its provider answer was the exact
+requested sentinel, but the host saved a known Codex startup warning before
+that answer. A private resident synthesis later published exactly one signed
+Luca event (`34276308c4e13da66fa5775a6b78820019739686e1c52c062d61078f2c5e1e68`)
+in the original conversation. The outbox is finalized, but delivery used two
+lease claims and took roughly 235 seconds from worker completion. This proves
+transport/publication, not the clean, timely acceptance case.
+
+The focused repair recognizes only the exact observed startup-notice variant
+in both streaming presentation and final capture. Legitimate same-line text,
+quoted diagnostics and unknown warnings remain unchanged. Private unavailable
+replies now carry the validated request's job ID. Only correlated pre-admission
+Busy, private-channel contention and a locally checked stale epoch permit
+500-ms admission polling within the original request deadline and exact durable
+claim. Shutdown, scope, membership, binding, epoch and claim generation are
+rechecked; proven-unstarted stops/errors release only that claim without an
+automatic new attempt. No generic continuity/journal polling was added.
+
+Transport/framing ambiguity invalidates only the private cognition client, so
+late same-job replies cannot cross into a subsequent claim; active private
+binding/epoch lookups reject that client. Public companion work is unaffected.
+Post-start runtime/publication failures retain the existing cautious lease and
+frozen-outbox behavior. Fresh native proof of these repairs is still required.
+The old mismatched approval/result is retained without migration or redispatch.
+
+Focused verification: 139 desktop runtime-task/cognition/store tests pass,
+including transport poisoning, exact correlation, bounded Busy admission and
+same-millisecond claim-generation protection. ACP verification passes 4 private
+frame tests, 13 startup-notice regressions and 8 delivery tests. ACP and desktop
+library Clippy pass with `-D warnings`; all ten changed Rust files pass scoped
+formatting and diff checks. Read-only architecture review found no remaining
+concrete safety/lifecycle blocker in this patch. These checks do not substitute
+for the forthcoming fresh native acceptance.
 
 Completion means the approved delegation cases work through verified native
 controls, required tests/evidence are recorded, and Riley can review an isolated
