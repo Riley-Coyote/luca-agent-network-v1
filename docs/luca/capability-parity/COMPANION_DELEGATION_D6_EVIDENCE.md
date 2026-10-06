@@ -56,8 +56,8 @@ Actual-size native screenshots and accessibility state were inspected. Older
 model-error messages remain historical conversation content, not output from
 this corrected launch.
 
-Fresh saved-Claude continuation, native Stop, and this loop's restart inspection
-are still pending at this evidence checkpoint. The first saved-session lookup
+At that historical checkpoint, saved-Claude continuation, native Stop, and
+restart inspection were pending. The first saved-session lookup
 at limit 50 returned an invalid broker response; no native task was dispatched.
 Earlier production component
 proofs and deterministic coverage are separately identified in the D1 evidence
@@ -79,7 +79,7 @@ and the shorter caller-disconnection probe remains bounded and cancellation-safe
 Diagnostics log only a static error category/byte count, never frame content,
 capabilities, paths or answers. Ten broker tests pass, including a fragmented
 request plus a 128-KiB-plus complete reply and an exact disconnected-caller test.
-The corrected signed-app saved-session acceptance is pending the rebuild.
+The subsequent signed-app saved-session acceptance is recorded below.
 
 The rebuilt `3762327b6` native app then successfully listed 50 Claude metadata
 candidates without Brain and reached the exact `beec542f` Continue review. The
@@ -206,3 +206,44 @@ beta.13 passed its ACP library suite (899 passed, two ignored).
 
 Full `just ci` is not green: unmodified shipped `buzz-db` formatting fails the
 global formatter. Scoped checks do not erase that baseline gate failure.
+
+## Final same-session return and restart — signed `81ca54bc1`
+
+A distinct proof, not a repeat of the executed `43f6` task, used exact native
+session `beec542f-39b1-40a6-8fcd-9e7cc2eaa439`. Task
+`c3f05c4a-2320-41ff-b2d9-dd0841bea220` was confirmed in its locked original
+folder, with preserved native policy and no live external controller. The
+native transcript has exactly one new instruction containing the `9f31` marker;
+it matches the requested instruction exactly and does not supply “Beta.”
+
+The worker succeeded, retaining its own saved context. Native Review task result
+showed exactly `POLYPHONIC_D6_CLAUDE_SAVED_9f31 Beta`: 36 bytes, SHA-256
+`8ca9974f8347f3711e2b80ff5a20c82383f3a2ec2f7f65a558645f780bfb40de`.
+The worker completed at `2026-10-06T16:26:20.163037Z`. One private Luca synthesis
+published in the original chat while Library was open, by
+`2026-10-06T16:27:24.234Z`. One submitted/published event ID agrees:
+`feba0f1b93e9df8a37f12053bb58a03b9ec0f44e30948cd6e062922366509d0e`.
+
+Owned PID `70969` was stopped through the exact-identity entrypoint, and the same
+signed source reopened as PID `82660`. Successful receipt, raw result, purpose
+store and native-session map are byte-identical. There is one published delivery,
+one synthesis attempt and the same event ID. No redispatch, new native session
+or provider turn occurred. The stopped fixture remains stopped with no result.
+Native UI shows the retained success; an earlier framing-failure receipt remains
+explicitly historical. Before/after receipts are `d6-final-before-restart.json`
+and `d6-final-after-restart.json` in the ignored local proof output directory.
+
+Final source gates: full ACP serial and parallel each 995 passed / two explicit
+native-model tests ignored; 57 focused runner tests; ACP/desktop Clippy with
+warnings denied; scoped formatting/diff; 4,114 frontend tests; typecheck,
+production/native build; and all 65 freshly rebuilt post-packaging UI cases
+pass without retries or skips. Post-packaging receipt is under
+`delegation-binding-postpack-ui-Cmk7JJf6`. Earlier intermittent fake-child spawn
+failures remain disclosed as history, not labelled baseline bugs.
+
+The approved phased D0-D6 implementation is delivered for candidate review.
+External native approvals/questions/Stop/results remain native unless separately
+verified. Neither inbox receipt nor this owned-work proof broadens that boundary.
+Global CI formatting and the older full performance suite remain non-green as
+disclosed above. This is not a release, installed-app replacement, merge, or
+unrestricted parity certification.

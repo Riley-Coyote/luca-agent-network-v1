@@ -353,6 +353,29 @@ Update this section at each checkpoint with owned paths, commit, commands and
 results, native proof references, budget used, blockers, and the next action.
 Do not commit credentials, raw personal transcripts, or private provider envelopes.
 
+### Current delivery — 2026-10-06
+
+The approved phased D0-D6 implementation is delivered as an isolated candidate
+for Riley review, not a merge, installed replacement or release. Signed artifact
+source is `81ca54bc105b777e5e685f14942841ac7ce8cc2e`; subsequent documentation
+commits do not change its compiled source receipt.
+
+| Lane | Current status | Final evidence |
+|---|---|---|
+| D0 | Established | Exact shipped beta.13 source and independent baseline/candidate builds; shipping/design work and installed app untouched. |
+| D1 | Verified within phased scope | Codex exact saved/app queue and Claude same-ID restore/qualified native inbox/busy enqueue proved. Inbox receipt is not external completion or steering. |
+| D2 | Verified | Signed native Brain-off lookup at limit 50 reaches exact saved-Claude review with locked original folder/policy. Native CLI pinning corrected; no title/latest guesses or replacement. |
+| D3 | Implemented and native-tested | Owned new tasks and exact saved-context work are distinct from external native handoff. Fresh Claude context/result return passes without transcript replay or supplied answer. |
+| D4 | Verified | Final Claude receipt/raw result/session map/purpose store survive restart byte-for-byte: one synthesis, one unchanged published event, no redispatch or new model turn. Prior owned Codex proof retained. |
+| D5 | Verified within phased scope | Real question/Beta answer, exact raw result, original-chat summary while away, and task-specific Stop pass. Stop removes only owned worker tree/question and preserves Luca; external controls remain native. |
+| D6 | Candidate delivered for review | Six real ARM64 helpers, strict/deep Developer ID signatures; 4,114 frontend tests, 995 ACP serial/parallel, native/Clippy gates, typecheck/build and 65 fresh post-packaging UI cases pass. Matched performance evidence and non-green global/baseline gates explicitly disclosed. |
+
+See [final D6 evidence](COMPANION_DELEGATION_D6_EVIDENCE.md) and
+[candidate handoff](COMPANION_DELEGATION_CANDIDATE_HANDOFF.md). No unrestricted
+external approval, Stop or result-observation capability is implied.
+
+### Historical status before final native corrections
+
 | Lane | Status | Evidence / next action |
 |---|---|---|
 | D0 | Established | Exact shipped beta.13 base, isolated feature tree, private candidate identity and reproducible checks recorded. Shipping/design tree and installed app preserved. |
