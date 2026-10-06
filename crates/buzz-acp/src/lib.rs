@@ -46,7 +46,7 @@ use buzz_core::observer::{
 use clap::Parser;
 use config::{
     AssayRunArgs, AuthAgentArgs, AuthMethodsArgs, AuthenticateArgs, Config, DedupMode, ModelsArgs,
-    MultipleEventHandling, RespondTo, RuntimeTaskArgs, SubscribeMode,
+    MultipleEventHandling, RespondTo, RuntimeMessageHookArgs, RuntimeTaskArgs, SubscribeMode,
 };
 use filter::SubscriptionRule;
 use futures_util::FutureExt;
@@ -1396,6 +1396,15 @@ pub fn run() -> Result<()> {
 
 #[tokio::main]
 async fn tokio_main() -> Result<()> {
+    if is_subcommand("runtime-message-hook") {
+        let filtered: Vec<String> = std::env::args()
+            .enumerate()
+            .filter(|(i, _)| *i != 1)
+            .map(|(_, a)| a)
+            .collect();
+        let args = RuntimeMessageHookArgs::parse_from(&filtered);
+        return runtime_task_runner::claude_peer::run_hook(args).await;
+    }
     // Install the ring crypto provider for rustls (required for wss:// connections).
     rustls::crypto::ring::default_provider()
         .install_default()

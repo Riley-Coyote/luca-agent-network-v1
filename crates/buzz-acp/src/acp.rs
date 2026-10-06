@@ -14,6 +14,9 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
 use zeroize::Zeroizing;
 
+#[path = "acp_input.rs"]
+mod input;
+
 use crate::luca_final_publisher::{FinalChunkAccumulator, FinalPublicationError};
 use crate::observer::{ObserverContext, ObserverHandle};
 use crate::usage::{TurnUsage, UsageTracker};
@@ -921,6 +924,10 @@ fn build_client_capabilities() -> serde_json::Value {
 }
 
 impl AcpClient {
+    /// The retained adapter child identity, for same-session ownership checks.
+    pub(crate) fn owned_process_id(&self) -> Option<u32> {
+        self.child.id()
+    }
     /// Kill the agent subprocess and wait for it to exit (no zombies).
     ///
     /// `Drop` only calls `start_kill()` (sends SIGKILL but doesn't reap).
@@ -1279,6 +1286,12 @@ impl AcpClient {
     }
 
     fn observe_inbound(&mut self, msg: &serde_json::Value) {
+        if msg.get("method").and_then(|v| v.as_str()) == Some("elicitation/create") {
+            // Questions and user answer fields belong only to the private
+            // control channel, never to observer/conversation publication.
+            self.observe("acp_read", serde_json::json!({"method":"elicitation/create","id":msg.get("id"),"params":{"redacted":true}}));
+            return;
+        }
         let payload = if self.managed_identity {
             observer_payload_for_managed_read(msg, &mut self.artifact_observer)
         } else {
@@ -1292,7 +1305,11 @@ impl AcpClient {
     /// Must be called exactly once, before any other ACP method.
     /// The caller may inspect `agentCapabilities` in the returned value.
     pub async fn initialize(&mut self) -> Result<serde_json::Value, AcpError> {
-        let params = build_initialize_params(self.requested_protocol_version);
+        let mut params = build_initialize_params(self.requested_protocol_version);
+        #[cfg(unix)]
+        if self.managed_permission.is_some() && !self.deny_unmanaged_permissions {
+            params["clientCapabilities"]["elicitation"] = serde_json::json!({"form":{}});
+        }
         let result = self.send_request("initialize", params).await?;
         self.session_close_supported = result
             .pointer("/agentCapabilities/sessionCapabilities/close")
@@ -1519,6 +1536,10 @@ impl AcpClient {
         &mut self,
         msg: &serde_json::Value,
     ) -> Result<bool, AcpError> {
+        if self.restoring_session.is_some() && msg["method"] == "elicitation/create" {
+            self.handle_input_request(msg, None).await?;
+            return Ok(true);
+        }
         let Some((session_id, count)) = self.restoring_session.as_mut() else {
             return Ok(false);
         };
@@ -1629,6 +1650,19 @@ impl AcpClient {
             "value": value,
         });
         self.send_request("session/set_config_option", params).await
+    }
+
+    /// Restore an explicitly verified native mode without choosing a replacement policy.
+    pub(crate) async fn session_set_native_mode(
+        &mut self,
+        session_id: &str,
+        mode: &str,
+    ) -> Result<serde_json::Value, AcpError> {
+        self.send_request(
+            "session/set_mode",
+            serde_json::json!({"sessionId":session_id,"modeId":mode}),
+        )
+        .await
     }
 
     /// Send `session/set_model` (unstable ACP path).
@@ -2055,6 +2089,23 @@ impl AcpClient {
     /// Bounded by a 30-second write timeout. If the agent stops reading stdin
     /// (e.g., it's stuck or dead), the write would otherwise block forever.
     async fn write_ndjson(&mut self, value: &serde_json::Value) -> Result<(), AcpError> {
+        self.write_ndjson_observed(value, false).await
+    }
+
+    /// A question response travels only to its native caller, never onto the
+    /// observer bus. This is not a permission decision or a chat publication.
+    async fn write_private_input_response(
+        &mut self,
+        value: &serde_json::Value,
+    ) -> Result<(), AcpError> {
+        self.write_ndjson_observed(value, true).await
+    }
+
+    async fn write_ndjson_observed(
+        &mut self,
+        value: &serde_json::Value,
+        private_input: bool,
+    ) -> Result<(), AcpError> {
         const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
         let line = Zeroizing::new(serde_json::to_string(value)?);
         let stdin = self.stdin.as_mut().ok_or_else(|| {
@@ -2072,7 +2123,14 @@ impl AcpClient {
         .await
         .map_err(|_| AcpError::WriteTimeout(WRITE_TIMEOUT))?
         .map_err(AcpError::Io)?;
-        self.observe("acp_write", observer_payload_for_write(value));
+        self.observe(
+            "acp_write",
+            if private_input {
+                body_free_managed_frame(value)
+            } else {
+                observer_payload_for_write(value)
+            },
+        );
         Ok(())
     }
 
@@ -2259,6 +2317,9 @@ impl AcpClient {
                     }
                     "session/request_permission" => {
                         self.handle_permission_request(&msg).await?;
+                    }
+                    "elicitation/create" => {
+                        self.handle_input_request(&msg, None).await?;
                     }
                     other => {
                         // If the unknown message has an id, it's a request expecting a reply.
@@ -2600,6 +2661,9 @@ impl AcpClient {
                             }
                             "session/request_permission" => {
                                 self.handle_permission_request(&msg).await?;
+                            }
+                            "elicitation/create" => {
+                                self.handle_input_request(&msg, Some(session_id)).await?;
                             }
                             other => {
                                 // If the unknown message has an id, it's a request expecting a reply.
@@ -3021,11 +3085,13 @@ fn serialized_len(value: &serde_json::Value) -> usize {
 struct ArtifactObserverState {
     guard_active: bool,
     sensitive_tool_call_ids: std::collections::HashSet<String>,
+    private_question_ids: std::collections::HashSet<String>,
 }
 
 impl ArtifactObserverState {
     fn clear_tool_calls(&mut self) {
         self.sensitive_tool_call_ids.clear();
+        self.private_question_ids.clear();
     }
 }
 
@@ -3048,6 +3114,27 @@ fn observer_payload_for_managed_read(
         .and_then(serde_json::Value::as_str);
     match update_type {
         Some("tool_call") => {
+            if crate::managed_presentation::permission_match_fields(update)
+                .tool_name
+                .as_deref()
+                == Some("AskUserQuestion")
+            {
+                if let Some(id) = bounded_permission_cache_key(update.get("toolCallId")) {
+                    // Bound the projection even if a misbehaving adapter never
+                    // completes a question. Overflow fails closed for bodies.
+                    if artifact_state.private_question_ids.len() >= 64 {
+                        artifact_state.guard_active = true;
+                    } else {
+                        artifact_state.private_question_ids.insert(id.to_owned());
+                    }
+                }
+                return public_tool_lifecycle_frame(
+                    value,
+                    update,
+                    "tool_call",
+                    Some("AskUserQuestion"),
+                );
+            }
             let guarded_tool_name = artifact_state
                 .guard_active
                 .then(|| nested_artifact_tool_name(update))
@@ -3072,6 +3159,21 @@ fn observer_payload_for_managed_read(
                 .get("toolCallId")
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("unknown");
+            if artifact_state.private_question_ids.contains(tool_call_id) {
+                if update
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|status| matches!(status, "completed" | "failed" | "cancelled"))
+                {
+                    artifact_state.private_question_ids.remove(tool_call_id);
+                }
+                return public_tool_lifecycle_frame(
+                    value,
+                    update,
+                    "tool_call_update",
+                    Some("AskUserQuestion"),
+                );
+            }
             let is_artifact_update = artifact_state
                 .sensitive_tool_call_ids
                 .contains(tool_call_id)

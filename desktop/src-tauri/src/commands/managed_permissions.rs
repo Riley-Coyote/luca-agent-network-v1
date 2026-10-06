@@ -99,6 +99,25 @@ pub fn list_pending_managed_permissions(
     crate::luca::managed_permission::list_pending()
 }
 
+/// List only the current owner's transient native questions.
+#[tauri::command]
+pub fn list_pending_managed_inputs(
+    app: AppHandle,
+) -> Result<Vec<crate::luca::managed_input::PendingManagedInput>, String> {
+    crate::luca::managed_input::list_pending(&app)
+}
+
+/// Return a validated answer to one exact native question; never a permission.
+#[tauri::command]
+pub fn resolve_managed_input(
+    pending_id: String,
+    action: luca_protocol::ManagedInputActionV1,
+    answers: std::collections::BTreeMap<String, luca_protocol::ManagedInputValueV1>,
+    app: AppHandle,
+) -> Result<(), String> {
+    crate::luca::managed_input::resolve(&app, &pending_id, action, answers)
+}
+
 #[tauri::command]
 pub fn resolve_managed_permission(
     pending_id: String,

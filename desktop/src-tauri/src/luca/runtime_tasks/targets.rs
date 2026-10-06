@@ -8,7 +8,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     fs::{self, File, Metadata},
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
     time::{Duration, Instant, SystemTime},
 };
@@ -58,6 +58,8 @@ pub(super) struct RuntimeTaskExistingTargetV1 {
     pub label: String,
     pub updated_at: Option<String>,
     pub codex_origin: Option<CodexSessionOriginV1>,
+    /// Saved native policy, read only from metadata in this exact root file.
+    pub claude_permission_mode: Option<String>,
     relative_locator: String,
     canonical_source_root: PathBuf,
 }
@@ -70,6 +72,7 @@ pub(super) struct RuntimeTaskTargetCandidateV1 {
     pub workspace_basename: String,
     pub updated_at: Option<String>,
     pub codex_origin: Option<CodexSessionOriginV1>,
+    pub claude_can_continue: bool,
 }
 
 /// A bounded catalogue whose incomplete result must remain visible to callers.
@@ -98,6 +101,15 @@ impl RuntimeTaskExistingTargetV1 {
             || self.codex_origin != Some(CodexSessionOriginV1::SavedCli)
         {
             return Err("Continuation requires the explicitly selected saved Codex CLI session; app or unknown sessions cannot be substituted.".into());
+        }
+        Ok(())
+    }
+
+    /// Claude restoration is eligible only with known original native policy.
+    /// Availability must still be rechecked through `claude agents --json`.
+    pub(super) fn require_saved_claude(&self) -> Result<(), String> {
+        if self.runtime_family != "claude_code" || self.claude_permission_mode.is_none() {
+            return Err("The selected Claude session has no verified native permission policy; review it in Claude Code instead of guessing a policy.".into());
         }
         Ok(())
     }
@@ -214,6 +226,7 @@ pub(super) fn list_connected_session_targets(
             workspace_basename,
             updated_at: target.updated_at,
             codex_origin: target.codex_origin,
+            claude_can_continue: target.claude_permission_mode.is_some(),
         });
     }
     Ok(RuntimeTaskTargetListV1 {
@@ -248,6 +261,7 @@ pub(super) fn revalidate_connected_session_target(
     if current.provider_session_id != target.provider_session_id
         || current.canonical_working_folder != target.canonical_working_folder
         || current.codex_origin != target.codex_origin
+        || current.claude_permission_mode != target.claude_permission_mode
     {
         return Err("The selected native session identity or working folder changed; confirmation is no longer valid.".into());
     }
@@ -550,6 +564,12 @@ fn resolve_locator(
         ConnectedBrainSourceKindV1::ClaudeHistory => read_claude_metadata(&mut reader, native_id)?,
         ConnectedBrainSourceKindV1::Repository => return Err("Not a native session source".into()),
     };
+    let claude_permission_mode = if source.source_kind == ConnectedBrainSourceKindV1::ClaudeHistory
+    {
+        read_claude_policy_tail(&mut reader, native_id, &metadata.cwd)?
+    } else {
+        None
+    };
     if checked_session_path(source, relative_locator)? != path {
         return Err("The selected session source changed while reading metadata.".into());
     }
@@ -595,6 +615,7 @@ fn resolve_locator(
             .ok()
             .map(|value| chrono::DateTime::<chrono::Utc>::from(value).to_rfc3339()),
         codex_origin: metadata.codex_origin,
+        claude_permission_mode,
         relative_locator: relative_locator.to_owned(),
         canonical_source_root: source.canonical_root.clone(),
     })
@@ -673,6 +694,77 @@ struct ClaudeMetadataRow {
     cwd: Option<String>,
     #[serde(rename = "isSidechain")]
     is_sidechain: Option<bool>,
+    #[serde(rename = "permissionMode")]
+    permission_mode: Option<String>,
+}
+
+fn read_claude_policy_tail(
+    reader: &mut BufReader<File>,
+    native_id: Uuid,
+    original_cwd: &Path,
+) -> Result<Option<String>, String> {
+    let len = reader
+        .get_ref()
+        .metadata()
+        .map_err(|_| "Claude metadata unavailable")?
+        .len();
+    let start = len.saturating_sub(MAX_METADATA_BYTES as u64);
+    reader
+        .seek(SeekFrom::Start(start.saturating_sub(1)))
+        .map_err(|_| "Claude metadata unavailable")?;
+    let mut bytes = Vec::new();
+    reader
+        .take(MAX_METADATA_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Claude metadata unavailable")?;
+    let tail = if start == 0 {
+        bytes.as_slice()
+    } else if bytes.first() == Some(&b'\n') {
+        &bytes[1..]
+    } else if let Some(end) = bytes.iter().position(|byte| *byte == b'\n') {
+        &bytes[end + 1..]
+    } else {
+        // One giant final row must not hide an otherwise valid catalogue
+        // target. Policy is unverified, so continuation remains unavailable.
+        return Ok(None);
+    };
+    let mut mode = None;
+    for line in tail
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+    {
+        let Ok(row) = serde_json::from_slice::<ClaudeMetadataRow>(line) else {
+            // Tail bodies are not catalogue authority. If their metadata
+            // cannot be bounded/decoded, retain listing but forbid restore.
+            return Ok(None);
+        };
+        if row.is_sidechain == Some(true) {
+            return Err("The selected Claude file contains sidechain metadata.".into());
+        }
+        if let Some(id) = row.session_id.as_deref() {
+            if exact_uuid(id)? != native_id {
+                return Err(
+                    "Claude tail identity differs from the selected native session.".into(),
+                );
+            }
+        }
+        if let Some(folder) = row.cwd.as_deref() {
+            if row.session_id.is_none() || canonical_folder(folder)? != original_cwd {
+                return Err("The selected Claude session working folder changed.".into());
+            }
+        }
+        if let Some(policy) = row.permission_mode {
+            if row.session_id.is_none() {
+                return Err("Claude permission metadata has no native identity.".into());
+            }
+            mode = match policy.as_str() {
+                "manual" | "default" => Some("default".into()),
+                "auto" | "acceptEdits" | "plan" | "dontAsk" | "bypassPermissions" => Some(policy),
+                _ => None,
+            };
+        }
+    }
+    Ok(mode)
 }
 
 fn read_claude_metadata(

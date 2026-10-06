@@ -446,6 +446,18 @@ pub struct RuntimeTaskArgs {
     pub max_duration_secs: u64,
 }
 
+/// Private, one-invocation native peer-message command hook. No relay identity.
+#[derive(Debug, Parser)]
+#[command(name = "buzz-acp runtime-message-hook")]
+pub struct RuntimeMessageHookArgs {
+    /// Exact host-owned ephemeral metadata file, never a native transcript.
+    #[arg(long)]
+    pub metadata: std::path::PathBuf,
+    /// One host-owned generation; stale hook invocations cannot reuse a send.
+    #[arg(long)]
+    pub generation: String,
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "buzz-acp",

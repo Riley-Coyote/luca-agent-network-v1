@@ -680,6 +680,86 @@ for (const state of ["awaiting_native", "interrupted", "failed"] as const) {
   });
 }
 
+for (const state of ["awaiting_native", "interrupted", "failed"] as const) {
+  test(`Claude native ${state} never implies completion, synthesis or owned control`, async ({
+    page,
+  }) => {
+    const native = priorTask({
+      taskId: `claude-native-${state}`,
+      summary: "Exact external Claude follow-up",
+      state,
+      runtimeFamily: "claude_code",
+      operation: "send_message",
+      controlOwner: "native_app",
+      targetLabel: "Exact native Claude Code work",
+      targetSessionRef: "opaque-claude-session-ref",
+      workingFolder: TARGET_FOLDER,
+      // Even an inconsistent retry/delivery hint must not manufacture
+      // ownership or a completed result for an external native session.
+      canRetry: true,
+      deliveryState: "retryable",
+      deliveryCanRetry: true,
+    });
+    await open(page, { tasks: [native] });
+    const receipt = page.getByTestId("runtime-task-result-receipt");
+    const label =
+      state === "awaiting_native"
+        ? "Queued in Claude Code — work is not complete"
+        : "Delivery uncertain in Claude Code";
+    await expect(receipt).toBeVisible();
+    await expect(receipt).toContainText(label);
+    await expect(receipt).toContainText(
+      "Handle approvals and stopping in Claude Code.",
+    );
+    if (state !== "awaiting_native") {
+      await expect(receipt).toContainText("no automatic retry will run");
+    }
+    await expect(receipt).not.toContainText("Completed with");
+    await expect(receipt).not.toContainText("Stopped with");
+    await expect(receipt).not.toContainText("Resident summary");
+    await expect(page.locator(".luca-runtime-task-item")).toHaveCount(0);
+    for (const name of ["Stop", "Retry", "Open in Codex"]) {
+      await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
+        0,
+      );
+    }
+    for (const name of [
+      "Review task result",
+      "Retry resident synthesis",
+      "Retry result summary",
+    ]) {
+      await expect(receipt.getByRole("button", { name })).toHaveCount(0);
+    }
+    // The summary button is inert on a handoff: clicking it cannot fetch a
+    // result or dispatch manual synthesis under the initiating resident.
+    await receipt.getByText(native.summary, { exact: true }).click();
+    await expect(receipt).toContainText(label);
+    await expect(receipt.locator("pre")).toHaveCount(0);
+    const calls = await page.evaluate(
+      () => window.__RUNTIME_TASK_CARD_TEST__?.calls ?? [],
+    );
+    expect(
+      calls.filter((call) =>
+        [
+          "get_runtime_task_result",
+          "retry_runtime_task",
+          "retry_runtime_task_delivery",
+          "cancel_runtime_task",
+          "open_runtime_task_native_session",
+          "start_runtime_task",
+          "send_channel_message",
+          "send_message",
+        ].includes(call.command),
+      ),
+    ).toEqual([]);
+    expect(
+      browserMessages
+        .get(page)
+        ?.filter((message) => message.kind === "pageerror"),
+    ).toEqual([]);
+  });
+}
+
 for (const [deliveryState, notice] of [
   ["pending_synthesis", "Resident summary queued for this conversation."],
   ["synthesizing", "Preparing the resident summary for this conversation."],

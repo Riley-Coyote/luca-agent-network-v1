@@ -78,6 +78,7 @@ export type ConversationAgentActivityStripProps = {
   /** Permission authority remains native; this slot only places its existing
    * cards inside the one visible current-work surface. */
   permissionContent?: React.ReactNode;
+  permissionLabel?: string;
   /** Explicit provider-root tasks are projected here; this surface never
    * becomes their execution or persistence authority. */
   runtimeTasks?: RuntimeTaskProjection[];
@@ -645,6 +646,7 @@ export function ConversationAgentActivityStrip({
   onRetryResident,
   idleContent,
   permissionContent,
+  permissionLabel = "Permission needed",
   runtimeTasks = [],
 }: ConversationAgentActivityStripProps) {
   const queryClient = useQueryClient();
@@ -995,7 +997,7 @@ export function ConversationAgentActivityStrip({
             onClick={() => setExpanded((value) => !value)}
             type="button"
           >
-            <span>Permission needed</span>
+            <span>{permissionLabel}</span>
             {expanded ? <ChevronDown aria-hidden /> : <ChevronUp aria-hidden />}
           </button>
         ) : null}

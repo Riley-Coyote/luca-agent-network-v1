@@ -4,6 +4,8 @@
 //! engine. The desktop owns confirmation, receipts and cancellation. The ACP
 //! adapter owns execution and the user's existing provider profile.
 
+pub(crate) mod claude_peer;
+mod claude_saved;
 mod codex_cli;
 mod codex_events;
 mod native_isolation;
@@ -23,7 +25,9 @@ use crate::{
 };
 
 const PROTOCOL: &str = "polyphonic.runtime-task.v1";
-const MAX_INPUT_BYTES: u64 = 72 * 1024;
+// JSON escaping can double a valid 64KiB instruction. Bound the encoded frame
+// separately from the decoded instruction instead of truncating either.
+const MAX_INPUT_BYTES: u64 = 160 * 1024;
 // Shorter than AcpClient's internal best-effort wait: a stuck cleanup must
 // fail closed here rather than return a successful terminal host event.
 const SHUTDOWN_BOUND: Duration = Duration::from_secs(4);
@@ -35,6 +39,7 @@ enum RuntimeTaskOperation {
     #[default]
     NewTask,
     ContinueSession,
+    SendMessage,
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,6 +53,11 @@ struct RuntimeTaskInputV1 {
     #[serde(default)]
     operation: RuntimeTaskOperation,
     provider_session_id: Option<String>,
+    runtime_family: Option<String>,
+    native_cli: Option<String>,
+    native_permission_mode: Option<String>,
+    native_target_pid: Option<u32>,
+    native_target_name: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -70,7 +80,12 @@ struct RuntimeTaskOutputV1<'a> {
 pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
     let input = read_input()?;
     validate_input(&input)?;
-    if input.operation == RuntimeTaskOperation::ContinueSession {
+    if input.operation == RuntimeTaskOperation::SendMessage {
+        return claude_peer::run(args, &input).await;
+    }
+    let claude_resume = input.operation == RuntimeTaskOperation::ContinueSession
+        && input.runtime_family.as_deref() == Some("claude_code");
+    if input.operation == RuntimeTaskOperation::ContinueSession && !claude_resume {
         // Only the desktop's separately verified saved-CLI target lane enters
         // here. App-owned work must use its native queue/controller, not this
         // subprocess as a replacement. In particular, do not initialize ACP,
@@ -84,10 +99,20 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
         .map_err(|_| anyhow::anyhow!("runtime task cleanup handler is unavailable"))?;
     let observer = ObserverHandle::in_process();
     let observer_task = spawn_safe_observer(observer.clone());
-    let mcp_servers = managed_mcp_provider::read_inherited_servers().unwrap_or_default();
-    let purpose_store = RuntimeSessionPurposeStore::from_environment()
-        .map_err(anyhow::Error::msg)?
-        .ok_or_else(|| anyhow::anyhow!("runtime session purpose store is unavailable"))?;
+    let mcp_servers = if claude_resume {
+        Vec::new()
+    } else {
+        managed_mcp_provider::read_inherited_servers().unwrap_or_default()
+    };
+    let purpose_store = if claude_resume {
+        None
+    } else {
+        Some(
+            RuntimeSessionPurposeStore::from_environment()
+                .map_err(anyhow::Error::msg)?
+                .ok_or_else(|| anyhow::anyhow!("runtime session purpose store is unavailable"))?,
+        )
+    };
 
     let mut client = AcpClient::spawn_managed(&args.agent.agent_command, &agent_args, &[], false)
         .await
@@ -104,8 +129,47 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
     });
 
     let provider_outcome = async {
+        if claude_resume {
+            claude_saved::ensure_unclaimed(
+                input.native_cli.as_deref().unwrap_or_default(),
+                input.provider_session_id.as_deref().unwrap_or_default(),
+                &input.working_folder,
+                None,
+            )
+            .await?;
+        }
         client.initialize().await?;
-        let session = client
+        let session = if claude_resume {
+            let (session, _) = client
+                .session_restore_full_with_context(
+                    input.provider_session_id.as_deref().unwrap_or_default(),
+                    &input.working_folder,
+                    &[],
+                    Vec::new(),
+                    None,
+                    None,
+                    true,
+                )
+                .await?;
+            let mode = input.native_permission_mode.as_deref().unwrap_or_default();
+            if !agent_supports_mode(&session.raw, mode) {
+                return Err(crate::acp::AcpError::Protocol(
+                    "saved native Claude permission policy is unsupported".into(),
+                ));
+            }
+            client
+                .session_set_native_mode(&session.session_id, mode)
+                .await?;
+            claude_saved::ensure_unclaimed(
+                input.native_cli.as_deref().unwrap_or_default(),
+                input.provider_session_id.as_deref().unwrap_or_default(),
+                &input.working_folder,
+                client.owned_process_id(),
+            )
+            .await?;
+            session
+        } else {
+            client
             .session_new_full(
                 &input.working_folder,
                 mcp_servers,
@@ -114,13 +178,16 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
                      Complete only the requested task. Do not invoke or propose another runtime task.",
                 ),
             )
-            .await?;
-        purpose_store
-            .record_created(
-                &session.session_id,
-                RuntimeSessionPurposeV1::ExplicitRuntimeTask,
-            )
-            .map_err(crate::acp::AcpError::Protocol)?;
+            .await?
+        };
+        if let Some(purpose_store) = purpose_store {
+            purpose_store
+                .record_created(
+                    &session.session_id,
+                    RuntimeSessionPurposeV1::ExplicitRuntimeTask,
+                )
+                .map_err(crate::acp::AcpError::Protocol)?;
+        }
         emit(RuntimeTaskOutputV1 {
             protocol: PROTOCOL,
             kind: "session",
@@ -244,13 +311,59 @@ fn validate_input(input: &RuntimeTaskInputV1) -> Result<()> {
         anyhow::bail!("runtime task input is invalid");
     }
     match input.operation {
-        RuntimeTaskOperation::NewTask if input.provider_session_id.is_none() => {}
+        RuntimeTaskOperation::NewTask
+            if input.provider_session_id.is_none()
+                && input.runtime_family.is_none()
+                && input.native_cli.is_none()
+                && input.native_permission_mode.is_none()
+                && input.native_target_pid.is_none()
+                && input.native_target_name.is_none() => {}
         RuntimeTaskOperation::ContinueSession
             if input.permission_mode == "normal"
                 && input
                     .provider_session_id
                     .as_deref()
-                    .is_some_and(codex_cli::valid_session_id) => {}
+                    .is_some_and(codex_cli::valid_session_id)
+                && match input.runtime_family.as_deref() {
+                    None | Some("codex") => {
+                        input.native_cli.is_none() && input.native_permission_mode.is_none()
+                    }
+                    Some("claude_code") => {
+                        input.native_cli.as_deref().is_some_and(|cli| {
+                            cli.len() <= 4096
+                                && !cli.chars().any(char::is_control)
+                                && std::path::Path::new(cli).is_absolute()
+                        }) && input
+                            .native_permission_mode
+                            .as_deref()
+                            .is_some_and(claude_saved::known_mode)
+                    }
+                    _ => false,
+                }
+                && input.native_target_pid.is_none()
+                && input.native_target_name.is_none() => {}
+        RuntimeTaskOperation::SendMessage
+            if input.permission_mode == "normal"
+                && input.runtime_family.as_deref() == Some("claude_code")
+                && input
+                    .provider_session_id
+                    .as_deref()
+                    .is_some_and(codex_cli::valid_session_id)
+                && input
+                    .native_permission_mode
+                    .as_deref()
+                    .is_some_and(claude_saved::known_mode)
+                && input.native_cli.as_deref().is_some_and(|cli| {
+                    cli.len() <= 4096
+                        && !cli.chars().any(char::is_control)
+                        && std::path::Path::new(cli).is_absolute()
+                })
+                && input.native_target_pid.is_some_and(|pid| pid > 0)
+                && input.native_target_name.as_deref().is_some_and(|name| {
+                    !name.trim().is_empty()
+                        && name.len() <= 160
+                        && !name.chars().any(char::is_control)
+                }) => {}
         _ => anyhow::bail!("runtime task input is invalid"),
     }
     Ok(())
@@ -367,7 +480,15 @@ fn stop_reason(reason: &StopReason) -> &'static str {
 
 fn safe_error(error: &str) -> String {
     let lower = error.to_ascii_lowercase();
-    if lower.contains("permission") {
+    if lower.contains("already has an active controller") {
+        "This Claude session is open in another controller. Send a follow-up there or close it before continuing; nothing was sent.".into()
+    } else if lower.contains("availability") {
+        "Native Claude availability could not be verified. Inspect the selected session in Claude Code before another request.".into()
+    } else if lower.contains("native claude permission policy") {
+        "This session's native permission policy could not be preserved. Review it in Claude Code; no replacement policy was chosen.".into()
+    } else if lower.contains("working folder changed") {
+        "The selected native session's working folder changed. Refresh session lookup and select the intended project.".into()
+    } else if lower.contains("permission") {
         "The runtime task stopped at its permission boundary.".into()
     } else if lower.contains("timed out") || lower.contains("timeout") {
         "The runtime task timed out.".into()

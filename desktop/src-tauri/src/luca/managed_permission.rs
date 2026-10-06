@@ -317,6 +317,46 @@ fn serve(
         if read == 0 || line.len() > 64 * 1024 {
             break;
         }
+        if serde_json::from_str::<serde_json::Value>(&line)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("protocol")
+                    .and_then(|p| p.as_str())
+                    .map(str::to_owned)
+            })
+            .as_deref()
+            == Some(luca_protocol::MANAGED_INPUT_PROTOCOL)
+        {
+            let Ok(request) = serde_json::from_str::<luca_protocol::ManagedInputRequestV1>(&line)
+            else {
+                break;
+            };
+            if request.validate().is_err()
+                || request.resident_pubkey != resident_pubkey
+                || request.session_epoch != session_epoch
+            {
+                break;
+            }
+            let response = super::managed_input::await_response(&app, request, || {
+                permission_scope
+                    .as_ref()
+                    .is_some_and(OwnedTaskPermissionScope::is_closed)
+            });
+            let Ok(bytes) = serde_json::to_vec(&response) else {
+                break;
+            };
+            let mut output = &writer;
+            if output
+                .write_all(&bytes)
+                .and_then(|_| output.write_all(b"\n"))
+                .and_then(|_| output.flush())
+                .is_err()
+            {
+                break;
+            }
+            continue;
+        }
         let Ok(request) = serde_json::from_str::<ManagedPermissionRequestV1>(&line) else {
             break;
         };
@@ -1156,6 +1196,7 @@ pub(crate) fn await_capability_decision_cancellable(
 }
 
 pub(crate) fn cancel_all() {
+    super::managed_input::cancel_all();
     permission_ledger::clear_all();
     if let Ok(mut entries) = pending().lock() {
         for (_, pending) in entries.drain() {
@@ -1244,6 +1285,7 @@ fn cancel_session_permissions(
     session_epoch: u64,
     outcome: ManagedPermissionResolutionOutcome,
 ) {
+    super::managed_input::cancel_session(resident_pubkey, session_epoch);
     permission_ledger::clear_session(resident_pubkey, session_epoch);
     if let Ok(mut entries) = pending().lock() {
         let doomed: Vec<String> = entries

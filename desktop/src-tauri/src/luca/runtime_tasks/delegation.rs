@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use luca_protocol::{BrainGrantStateV1, Hex64, OpaqueId};
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
 use super::targets::{RuntimeTaskExistingTargetV1, RuntimeTaskTargetSourceV1};
 use super::*;
@@ -104,7 +104,7 @@ pub(super) fn resolve_target(
         &exclusions(app, runtime)?,
     )?;
     validate_operation(&target, operation)?;
-    validate_default_profile(&source)?;
+    validate_default_profile(&source, &target.runtime_family)?;
     validate_working_folder(&target.canonical_working_folder)?;
     Ok(target)
 }
@@ -134,7 +134,7 @@ pub(super) fn revalidate_target(
         &exclusions(app, &target.runtime_family)?,
     )?;
     validate_operation(&current, operation)?;
-    validate_default_profile(&source)
+    validate_default_profile(&source, &target.runtime_family)
 }
 
 fn validate_operation(
@@ -142,7 +142,13 @@ fn validate_operation(
     operation: RuntimeTaskOperationV1,
 ) -> Result<(), String> {
     match operation {
+        RuntimeTaskOperationV1::SendMessage if target.runtime_family == "claude_code" => {
+            target.require_saved_claude()
+        }
         RuntimeTaskOperationV1::SendMessage => target.require_codex_app_queue(),
+        RuntimeTaskOperationV1::ContinueSession if target.runtime_family == "claude_code" => {
+            target.require_saved_claude()
+        }
         RuntimeTaskOperationV1::ContinueSession => target.require_saved_codex_cli(),
         RuntimeTaskOperationV1::NewTask => {
             Err("An existing target cannot be used as a new task.".into())
@@ -150,10 +156,13 @@ fn validate_operation(
     }
 }
 
-fn validate_default_profile(source: &RuntimeTaskTargetSourceV1) -> Result<(), String> {
+fn validate_default_profile(
+    source: &RuntimeTaskTargetSourceV1,
+    runtime: &str,
+) -> Result<(), String> {
     // Do not point the default CLI at an unrelated imported/backup profile.
     // Supporting another profile requires separately verified native routing.
-    let expected = native_sources::current_profile_root("codex")?;
+    let expected = native_sources::current_profile_root(runtime)?;
     if source.canonical_root != expected {
         return Err("The selected source is not the CLI's current native profile; review it in the native app.".into());
     }
@@ -175,9 +184,22 @@ fn scrub_resident_environment(command: &mut Command) {
     }
 }
 
-async fn bounded_control(mut command: Command) -> Result<(bool, String), String> {
+async fn bounded_control(command: Command) -> Result<(bool, String), String> {
+    bounded_control_input(command, None, CONTROL_TIMEOUT, None).await
+}
+
+async fn bounded_control_input(
+    mut command: Command,
+    input: Option<Vec<u8>>,
+    timeout: Duration,
+    scope: Option<(&AppHandle, &RuntimeTaskProjectionV1)>,
+) -> Result<(bool, String), String> {
     command
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
@@ -186,12 +208,25 @@ async fn bounded_control(mut command: Command) -> Result<(bool, String), String>
     scrub_resident_environment(&mut command);
     let mut child = command
         .spawn()
-        .map_err(|_| "Native Codex control could not start.".to_owned())?;
+        .map_err(|_| "Native runtime control could not start.".to_owned())?;
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         stop_control_child(&mut child).await;
         return Err("Native Codex control output is unavailable.".into());
     };
     let operation = async {
+        if let Some(input) = input {
+            let mut stdin = child
+                .stdin
+                .take()
+                .ok_or("Native dispatch input is unavailable.")?;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                stdin.write_all(&input).await?;
+                stdin.shutdown().await
+            })
+            .await
+            .map_err(|_| "Native dispatch input timed out.")?
+            .map_err(|_| "Native dispatch input was interrupted.")?;
+        }
         let stdout = async {
             let mut bytes = Vec::new();
             stdout
@@ -221,10 +256,27 @@ async fn bounded_control(mut command: Command) -> Result<(bool, String), String>
             .map_err(|_| "Native Codex control acknowledgement is invalid.".to_owned())?;
         Ok((status.success(), out))
     };
-    let outcome = match tokio::time::timeout(CONTROL_TIMEOUT, operation).await {
-        Ok(result) => result,
-        Err(_) => Err("Native Codex control timed out; delivery may be uncertain.".into()),
+    let mut timed = Box::pin(tokio::time::timeout(timeout, operation));
+    let mut poll = tokio::time::interval(Duration::from_millis(100));
+    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let outcome = loop {
+        tokio::select! {
+            result = &mut timed => break match result {
+                Ok(result) => result,
+                Err(_) => Err("Native control timed out; delivery may be uncertain.".into()),
+            },
+            _ = poll.tick(), if scope.is_some() => {
+                if let Some((app, projection)) = scope {
+                    if delivery::ensure_current_scope(app, projection).is_err()
+                        || app.state::<crate::app_state::AppState>().shutdown_started.load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        break Err("Native dispatch authority changed; inspect the exact session before resending.".into());
+                    }
+                }
+            }
+        }
     };
+    drop(timed);
     if outcome.is_err() {
         stop_control_child(&mut child).await;
     }
@@ -241,20 +293,31 @@ async fn stop_control_child(child: &mut Child) {
     let _ = tokio::time::timeout(Duration::from_secs(3), child.wait()).await;
 }
 
-async fn native_cli(operation: RuntimeTaskOperationV1, folder: &Path) -> Result<PathBuf, String> {
-    let runtime = crate::managed_agents::known_acp_runtime_exact("codex")
-        .ok_or_else(|| "Native Codex discovery is unavailable.".to_owned())?;
+async fn native_cli(
+    family: &str,
+    operation: RuntimeTaskOperationV1,
+    folder: &Path,
+) -> Result<PathBuf, String> {
+    let runtime = crate::managed_agents::known_acp_runtime_exact(if family == "claude_code" {
+        "claude"
+    } else {
+        "codex"
+    })
+    .ok_or_else(|| "Native runtime discovery is unavailable.".to_owned())?;
     let resolution = tauri::async_runtime::spawn_blocking(move || {
         crate::managed_agents::resolve_runtime_cli(runtime)
     })
     .await
-    .map_err(|_| "Native Codex discovery is unavailable.".to_owned())?;
-    let executable = resolution
-        .path
-        .ok_or_else(|| "Install or update the native Codex CLI before dispatching.".to_owned())?;
+    .map_err(|_| "Native runtime discovery is unavailable.".to_owned())?;
+    let executable = resolution.path.ok_or_else(|| {
+        "Install or update this native runtime CLI before dispatching.".to_owned()
+    })?;
     let mut probe = Command::new(&executable);
     probe.current_dir(folder);
-    let required = if operation == RuntimeTaskOperationV1::SendMessage {
+    let required = if family == "claude_code" {
+        probe.args(["agents", "--help"]);
+        &["--json"][..]
+    } else if operation == RuntimeTaskOperationV1::SendMessage {
         probe.args(["queue", "--help"]);
         &["--thread", "--message"][..]
     } else {
@@ -264,7 +327,7 @@ async fn native_cli(operation: RuntimeTaskOperationV1, folder: &Path) -> Result<
     let (success, help) = bounded_control(probe).await?;
     if !success || !required.iter().all(|flag| help.contains(flag)) {
         return Err(
-            "This native Codex version does not expose the required verified operation.".into(),
+            "This native runtime version does not expose the required verified operation.".into(),
         );
     }
     Ok(executable)
@@ -296,6 +359,96 @@ fn queue_acknowledgement(output: &str, target: Uuid) -> Result<String, String> {
     Ok(message.to_string())
 }
 
+fn claude_live_target(
+    output: &str,
+    target: &RuntimeTaskExistingTargetV1,
+) -> Result<(u32, String), String> {
+    let snapshot: serde_json::Value =
+        serde_json::from_str(output).map_err(|_| "Native Claude availability is invalid.")?;
+    let rows = snapshot
+        .as_array()
+        .filter(|rows| rows.len() <= 4096)
+        .ok_or("Native Claude availability is unsupported.")?;
+    if rows.iter().any(|row| {
+        !row.is_object()
+            || !matches!(
+                row.get("kind").and_then(|v| v.as_str()),
+                Some("interactive" | "background")
+            )
+    }) {
+        return Err("Native Claude availability contains unsupported identities.".into());
+    }
+    let id = target.provider_session_id.to_string();
+    let matched = rows
+        .iter()
+        .filter(|row| row.get("sessionId").and_then(|v| v.as_str()) == Some(id.as_str()))
+        .collect::<Vec<_>>();
+    if matched.len() != 1 {
+        return Err("The exact Claude session has no unique live controller. Select saved-session continuation instead.".into());
+    }
+    let row = matched[0];
+    let pid = row
+        .get("pid")
+        .and_then(|v| v.as_u64())
+        .and_then(|pid| u32::try_from(pid).ok())
+        .filter(|pid| *pid > 0)
+        .ok_or("Native Claude controller is unavailable.")?;
+    let name = row
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|name| {
+            !name.trim().is_empty()
+                && name.len() <= 160
+                && !name.chars().any(char::is_control)
+                && !name.contains(['[', ']'])
+        })
+        .ok_or("Native Claude receiver name is unsupported.")?;
+    if row.get("kind").and_then(|v| v.as_str()) != Some("interactive")
+        || !matches!(
+            row.get("status").and_then(|v| v.as_str()),
+            Some("idle" | "busy")
+        )
+        || row
+            .get("cwd")
+            .and_then(|v| v.as_str())
+            .and_then(|cwd| Path::new(cwd).canonicalize().ok())
+            .as_deref()
+            != Some(target.canonical_working_folder.as_path())
+        || rows
+            .iter()
+            .filter(|row| row.get("name").and_then(|v| v.as_str()) == Some(name))
+            .count()
+            != 1
+    {
+        return Err("This Claude receiver is unavailable, renamed, ambiguous or in another working folder. Nothing was sent.".into());
+    }
+    Ok((pid, name.into()))
+}
+
+fn claude_acknowledgement(output: &str, target: Uuid) -> Result<String, String> {
+    let mut frames = output.lines().filter(|line| !line.trim().is_empty());
+    let frame: serde_json::Value =
+        serde_json::from_str(frames.next().ok_or("Native acknowledgement is missing.")?)
+            .map_err(|_| "Native acknowledgement is invalid.")?;
+    if frames.next().is_some()
+        || frame.get("protocol").and_then(|v| v.as_str()) != Some("polyphonic.runtime-task.v1")
+        || frame.get("kind").and_then(|v| v.as_str()) != Some("native_ack")
+        || frame.get("providerSessionId").and_then(|v| v.as_str())
+            != Some(target.to_string().as_str())
+    {
+        return Err("Native acknowledgement does not match the selected Claude session.".into());
+    }
+    let ack = frame
+        .get("nativeAcknowledgementId")
+        .and_then(|v| v.as_str())
+        .ok_or("Native acknowledgement is missing.")?;
+    let parsed = Uuid::parse_str(ack).map_err(|_| "Native acknowledgement is invalid.")?;
+    if parsed.is_nil() || parsed.hyphenated().to_string() != ack {
+        return Err("Native acknowledgement is invalid.".into());
+    }
+    Ok(ack.into())
+}
+
 pub(super) async fn start_existing(
     app: AppHandle,
     input: StartRuntimeTaskInputV1,
@@ -318,7 +471,12 @@ pub(super) async fn start_existing(
         input.session_id.as_deref(),
         Some(Path::new(&input.working_folder)),
     )?;
-    let executable = native_cli(input.operation, &target.canonical_working_folder).await?;
+    let executable = native_cli(
+        &target.runtime_family,
+        input.operation,
+        &target.canonical_working_folder,
+    )
+    .await?;
     revalidate_target(
         &app,
         &input.resident_pubkey,
@@ -369,6 +527,25 @@ pub(super) async fn start_existing(
     };
     // Resolve and encode everything before intent. A missing host or malformed
     // input must never leave a queued receipt for work that cannot dispatch.
+    let claude_restore = input.operation == RuntimeTaskOperationV1::ContinueSession
+        && target.runtime_family == "claude_code";
+    let resident =
+        Hex64::parse(projection.resident_pubkey.clone()).map_err(|_| "Task identity is invalid")?;
+    let epoch = next_session_epoch()?;
+    let permission_lease = claude_restore.then(|| {
+        super::super::managed_permission::OwnedTaskPermissionLease::new(resident.clone(), epoch)
+    });
+    #[cfg(unix)]
+    let permission_fd = permission_lease
+        .as_ref()
+        .map(|lease| {
+            super::super::managed_permission::create_owned_task_endpoint(
+                app.clone(),
+                &lease.scope(),
+                target.canonical_working_folder.clone(),
+            )
+        })
+        .transpose()?;
     let owned_dispatch = if input.operation == RuntimeTaskOperationV1::ContinueSession {
         let host = crate::managed_agents::resolve_command("buzz-acp")
             .ok_or_else(|| "Polyphonic's native task host is unavailable.".to_owned())?;
@@ -381,18 +558,39 @@ pub(super) async fn start_existing(
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         scrub_resident_environment(&mut process);
+        let adapter = if claude_restore {
+            command_for("claude_code")?.1
+        } else {
+            executable.clone()
+        };
         process
-            .env("BUZZ_ACP_AGENT_COMMAND", &executable)
+            .env("BUZZ_ACP_AGENT_COMMAND", &adapter)
             .env("BUZZ_ACP_AGENT_ARGS", "");
+        if claude_restore {
+            process.env("CLAUDE_CODE_EXECUTABLE", &executable);
+            process.env("LUCA_MANAGED_RESIDENT_PUBKEY", resident.as_str());
+            process.env("LUCA_MANAGED_SESSION_EPOCH", epoch.get().to_string());
+            process.env("LUCA_MANAGED_PERMISSION_FD", "3");
+            #[cfg(unix)]
+            if let Some(fd) = permission_fd.as_ref() {
+                install_owned_task_descriptors(&mut process, fd.raw_fd(), None);
+            }
+        }
         #[cfg(unix)]
         process.process_group(0);
-        let encoded = serde_json::to_vec(&serde_json::json!({
+        let mut wire_input = serde_json::json!({
             "taskId": projection.task_id, "conversationId": projection.conversation_id,
             "prompt": input.prompt, "workingFolder": projection.working_folder,
             "permissionMode": "normal", "operation": "continue_session",
             "providerSessionId": target.provider_session_id.to_string(),
-        }))
-        .map_err(|_| "Native task input could not be encoded.".to_owned())?;
+        });
+        if claude_restore {
+            wire_input["runtimeFamily"] = serde_json::json!("claude_code");
+            wire_input["nativeCli"] = serde_json::json!(executable);
+            wire_input["nativePermissionMode"] = serde_json::json!(target.claude_permission_mode);
+        }
+        let encoded = serde_json::to_vec(&wire_input)
+            .map_err(|_| "Native task input could not be encoded.".to_owned())?;
         Some((process, encoded))
     } else {
         None
@@ -436,29 +634,74 @@ pub(super) async fn start_existing(
     }
     if input.operation == RuntimeTaskOperationV1::SendMessage {
         emit_projection_in_scope(&app, &projection);
-        let mut command = Command::new(executable);
-        command
-            .current_dir(&target.canonical_working_folder)
-            .args(["queue", "--thread"])
-            .arg(target.provider_session_id.to_string())
-            .arg("--message")
-            .arg(&input.prompt);
-        let outcome = bounded_control(command).await.and_then(|(success, output)| {
+        let outcome = if target.runtime_family == "claude_code" {
+            let mut probe = Command::new(&executable);
+            probe
+                .current_dir(&target.canonical_working_folder)
+                .args(["agents", "--json"]);
+            let live = bounded_control(probe).await.and_then(|(success, output)| {
+                if !success {
+                    return Err("Native Claude availability is unverified.".into());
+                }
+                claude_live_target(&output, &target)
+            });
+            match live {
+                Ok((pid, name)) => {
+                    let (host, adapter) = command_for("claude_code")?;
+                    let mut command = Command::new(host);
+                    command
+                        .current_dir(&target.canonical_working_folder)
+                        .arg("runtime-task")
+                        .arg("--agent-command")
+                        .arg(adapter)
+                        .args(["--agent-args", "", "--max-duration-secs", "180"])
+                        .env("CLAUDE_CODE_EXECUTABLE", &executable);
+                    let encoded = serde_json::to_vec(&serde_json::json!({
+                        "taskId":projection.task_id,"conversationId":projection.conversation_id,"prompt":input.prompt,
+                        "workingFolder":projection.working_folder,"permissionMode":"normal","operation":"send_message",
+                        "runtimeFamily":"claude_code","providerSessionId":target.provider_session_id.to_string(),"nativeCli":executable,
+                        "nativePermissionMode":target.claude_permission_mode,"nativeTargetPid":pid,"nativeTargetName":name,
+                    })).map_err(|_| "Native message input is invalid.")?;
+                    bounded_control_input(
+                        command,
+                        Some(encoded),
+                        Duration::from_secs(210),
+                        Some((&app, &projection)),
+                    )
+                    .await
+                    .and_then(|(success, output)| {
+                        if !success {
+                            return Err("Native delivery was not acknowledged.".into());
+                        }
+                        claude_acknowledgement(&output, target.provider_session_id)
+                    })
+                }
+                Err(error) => Err(error),
+            }
+        } else {
+            let mut command = Command::new(executable);
+            command
+                .current_dir(&target.canonical_working_folder)
+                .args(["queue", "--thread"])
+                .arg(target.provider_session_id.to_string())
+                .arg("--message")
+                .arg(&input.prompt);
+            bounded_control(command).await.and_then(|(success, output)| {
             if !success { return Err("Native Codex did not acknowledge delivery; inspect the exact chat before resending.".into()); }
             queue_acknowledgement(&output, target.provider_session_id)
-        });
+        })
+        };
+        let native_name = runtime_label(&target.runtime_family);
         match outcome {
             Ok(ack) => {
                 projection.state = RuntimeTaskStateV1::AwaitingNative;
                 projection.native_acknowledgement_id = Some(ack);
-                projection.current_step = Some(
-                    "Queued in Codex; progress, questions and stopping remain in Codex".into(),
-                );
+                projection.current_step = Some(format!("Accepted by {native_name}'s native inbox; work is not complete. Progress, permission holds, questions and stopping remain in {native_name}."));
             }
             Err(_) => {
                 projection.state = RuntimeTaskStateV1::Interrupted;
                 projection.current_step = None;
-                projection.error = Some("Delivery could not be confirmed. Review the selected chat in Codex; Polyphonic will not resend automatically.".into());
+                projection.error = Some(format!("Delivery could not be confirmed. Review the selected session in {native_name}; Polyphonic will not resend automatically."));
             }
         }
         projection.updated_at = Utc::now().to_rfc3339();
@@ -468,12 +711,45 @@ pub(super) async fn start_existing(
     let (process, encoded) = owned_dispatch.ok_or_else(|| {
         "The requested native operation was not prepared. Nothing ran.".to_owned()
     })?;
-    execution::launch_owned_task(app, projection, process, encoded, None, None)
+    execution::launch_owned_task(app, projection, process, encoded, None, permission_lease)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_ack_binds_exact_receiver_and_one_native_frame_not_prose() {
+        let target = Uuid::new_v4();
+        let ack = Uuid::new_v4();
+        let frame = serde_json::json!({"protocol":"polyphonic.runtime-task.v1","kind":"native_ack","providerSessionId":target.to_string(),"nativeAcknowledgementId":ack.to_string()}).to_string();
+        assert_eq!(
+            claude_acknowledgement(&frame, target).unwrap(),
+            ack.to_string()
+        );
+        assert!(claude_acknowledgement(&frame, Uuid::new_v4()).is_err());
+        assert!(claude_acknowledgement(&format!("{frame}\n{frame}"), target).is_err());
+        assert!(claude_acknowledgement("message delivered", target).is_err());
+        for kind in ["result", "failed", "step"] {
+            let mut value: serde_json::Value = serde_json::from_str(&frame).unwrap();
+            value["kind"] = kind.into();
+            assert!(claude_acknowledgement(&value.to_string(), target).is_err());
+        }
+    }
+
+    #[test]
+    fn claude_ack_rejects_nil_noncanonical_and_missing_message_ids() {
+        let target = Uuid::new_v4();
+        for ack in [
+            serde_json::Value::Null,
+            serde_json::json!(Uuid::nil().to_string()),
+            serde_json::json!(Uuid::new_v4().simple().to_string()),
+            serde_json::json!("--last"),
+        ] {
+            let frame = serde_json::json!({"protocol":"polyphonic.runtime-task.v1","kind":"native_ack","providerSessionId":target.to_string(),"nativeAcknowledgementId":ack}).to_string();
+            assert!(claude_acknowledgement(&frame, target).is_err());
+        }
+    }
 
     #[test]
     fn queue_ack_is_correlated_and_never_implies_completion() {

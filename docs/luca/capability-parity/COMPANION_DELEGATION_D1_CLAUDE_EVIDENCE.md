@@ -297,3 +297,64 @@ Polyphonic's existing target, consent, receipt and return authorities. Do not
 flip product operation gates solely from these CLI proofs. Busy delivery,
 questions/approvals, stopping and native performance remain separate cases.
 No installed replacement, merge or release.
+
+## Production integration checkpoint — 2026-10-06
+
+Native Claude CLI `2.1.291`, installed official ACP adapter `0.61.0`, existing
+native authentication/profile; no model/provider substitution or global settings
+edit. The feature worktree remains isolated from shipping/design work.
+
+- Official `session/load` restored original fixture
+  `f8fc9abe-d9b6-4e0f-8650-87e6a3b260e0`, replaying seven frames privately and
+  retaining `PP_D1_CONTEXT_f8fc9abe`. The production `buzz-acp runtime-task`
+  continuation path then returned `PP_D1_HOST_RESUMED PP_D1_CONTEXT_f8fc9abe`
+  with the same UUID and `end_turn`, without rehydrating a Polyphonic transcript.
+- Native question delivery initially failed because the SDK silently drops
+  invalid `elicitation.form: true`. Corrected to the documented object marker
+  `form: {}` and added an actual initialization-wire regression. Fresh fixture
+  `beec542f-39b1-40a6-8fcd-9e7cc2eaa439` then issued one real AskUserQuestion
+  form through the private channel, received exact `Beta`, and returned
+  `PP_D1_INPUT_RECEIVED Beta`. An exact-ID restored turn received Skip and returned
+  `PP_D1_INPUT_SKIPPED`. Stop during another pending native form produced failure,
+  not completion. No tool permission was granted by any input answer.
+- Native peer routing rejects the full session UUID and `@shortcode` alone.
+  The provider-qualified `name [six-character code]`, taken from native
+  ListAgents and bound to public native UUID/PID/folder metadata, is accepted.
+  Qualified address proof correlated `c93d2fa0-4ca1-4d59-aaac-11a69b05373a`
+  to the original receiver and its remembered-marker reply.
+- The public adapter accepts invocation-local native command hooks, a
+  ListAgents/SendMessage-only tool projection and `persistSession: false`.
+  Native PostToolUse shapes are `{listing: text}` and structured
+  `{success, message, display, msg_id}`. Only exact successful native `msg_id`,
+  correlated to the one guarded tool invocation, is an inbox acknowledgement.
+  Model prose is not delivery evidence.
+- A deliberately mismatched sender policy produced a native held-message
+  notice despite inbox acceptance. The courier now sets only its ephemeral
+  sender to the selected receiver's verified policy and requires an exact
+  returned config acknowledgement; it never changes the receiver or global
+  settings. Unknown policy and stale/replaced/ambiguous controllers fail closed.
+- The production peer runner emitted one native acknowledgement
+  `044cccd0-b89c-4796-ab52-d93317c770b8`; original receiver UUID/PID `94318`
+  recorded verified peer PID `22224`, identical body and
+  `PP_D1_HOST_PEER_RECEIVED PP_D1_CONTEXT_f8fc9abe`. No replacement receiver or
+  persistent courier history was created.
+- A production dispatch started against original `beec...` controller PID
+  `28366` while it was busy with a guarded harmless `/bin/sleep 45` command.
+  Acknowledgement `59aa53e2-48a7-402d-94a6-7959f009f8a6` correlated to verified
+  peer PID `33592`; the original receiver returned
+  `PP_D1_BUSY_PEER_RECEIVED Beta`. The enqueue record was after the tool returned
+  but before the original turn ended. This proves active-turn continuity,
+  **not** tool-time enqueue or steering; a longer controlled tool case follows.
+- The longer exact-ID case used original `beec...` controller PID `44633`,
+  guarded `/bin/sleep 90` (no other command/tool), and the production courier.
+  Tool call `toolu_01LQR2iiRe9hsf6fBQWtiuBH` began at `12:43:28.319Z`;
+  native enqueue was `12:44:31.776Z`, **before** tool return `12:45:01.674Z`.
+  Native acknowledgement was `699683c2-d0c4-4069-9b58-087606a8623e`.
+  This establishes queued native delivery while the original controller's
+  tool was running; it does not promise immediate steering or interrupt the tool.
+
+These are production-runner/native component proofs, not certification of the
+new signed Tauri build or every D6 case. Native acknowledgement remains inbox
+acceptance, never receiver read, task completion, approval or stopping authority.
+Private answers and native tool bodies are excluded from observers/logs/receipts.
+Ephemeral guard metadata contains a message digest only and is removed on cleanup.

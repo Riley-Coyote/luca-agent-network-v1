@@ -5,6 +5,11 @@ const SESSION: &str = "01a1083a-f0f0-76a3-b1d9-c0268a062636";
 
 fn input(folder: &str) -> RuntimeTaskInputV1 {
     RuntimeTaskInputV1 {
+        runtime_family: None,
+        native_cli: None,
+        native_permission_mode: None,
+        native_target_pid: None,
+        native_target_name: None,
         task_id: "task:fixture".into(),
         conversation_id: "conversation:fixture".into(),
         prompt: "SYNTHETIC_PROMPT_ONLY\nUnicode: \u{2605}\n".into(),

@@ -128,6 +128,77 @@ fn exact_codex_target_uses_original_uuid_cwd_and_safe_snapshot() {
 }
 
 #[test]
+fn claude_native_policy_is_exact_latest_metadata_and_revalidated() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let original = fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder));
+    fixture.write(&format!("{original}{}\n", serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"manual"})));
+    let target = fixture.resolve().unwrap();
+    assert_eq!(target.claude_permission_mode.as_deref(), Some("default"));
+    target.require_saved_claude().unwrap();
+    fixture.write(&format!(
+        "{original}{}\n",
+        serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"plan"})
+    ));
+    fails(
+        revalidate_connected_session_target(&fixture.source, &target, None, &HashSet::new()),
+        "changed",
+    );
+    fixture.write(&format!("{original}{}\n", serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"unknown"})));
+    assert!(fixture.resolve().unwrap().require_saved_claude().is_err());
+}
+
+#[test]
+fn oversized_claude_tail_preserves_listing_without_guessing_permission_policy() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let original = fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder));
+    fixture.write(&format!("{original}{}\n", serde_json::json!({"type":"assistant","sessionId":SESSION_ID,"cwd":fixture.working_folder,"message":{"content":"X".repeat(MAX_METADATA_BYTES * 2)}})));
+    let target = fixture.resolve().unwrap();
+    assert!(target.claude_permission_mode.is_none());
+    assert!(target.require_saved_claude().is_err());
+    let list = list_connected_session_targets(&fixture.source, "claude_code", &HashSet::new(), 20)
+        .unwrap();
+    assert_eq!(list.candidates.len(), 1);
+    assert!(!list.candidates[0].claude_can_continue);
+}
+
+#[test]
+fn aligned_claude_tail_boundary_keeps_first_complete_policy_row() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let policy = format!(
+        "{}\n",
+        serde_json::json!({"type":"permission-mode","sessionId":SESSION_ID,"permissionMode":"plan"})
+    );
+    let final_row = format!(
+        "{}\n",
+        serde_json::json!({"type":"assistant","sessionId":SESSION_ID,"message":{"content":""}})
+    );
+    let body = "X".repeat(MAX_METADATA_BYTES - policy.len() - final_row.len());
+    let final_row = format!(
+        "{}\n",
+        serde_json::json!({"type":"assistant","sessionId":SESSION_ID,"message":{"content":body}})
+    );
+    assert_eq!(policy.len() + final_row.len(), MAX_METADATA_BYTES);
+    fixture.write(&format!(
+        "{}{policy}{final_row}",
+        fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder))
+    ));
+    assert_eq!(
+        fixture.resolve().unwrap().claude_permission_mode.as_deref(),
+        Some("plan")
+    );
+}
+
+#[test]
+fn claude_tail_cannot_switch_native_identity_or_workspace() {
+    let fixture = Fixture::new(ConnectedBrainSourceKindV1::ClaudeHistory);
+    let original = fixture.claude_row("user", SESSION_ID, Some(&fixture.working_folder));
+    fixture.write(&format!("{original}{}\n", serde_json::json!({"type":"permission-mode","sessionId":OTHER_ID,"permissionMode":"default"})));
+    fails(fixture.resolve(), "identity");
+    fixture.write(&format!("{original}{}\n", serde_json::json!({"type":"user","sessionId":SESSION_ID,"cwd":fixture.source.canonical_root})));
+    fails(fixture.resolve(), "folder changed");
+}
+
+#[test]
 fn saved_cli_and_native_app_control_are_not_substitutable() {
     let fixture = Fixture::new(ConnectedBrainSourceKindV1::CodexHistory);
     fixture.write(&fixture.codex_header(SESSION_ID, &fixture.working_folder, "exec", "codex_exec"));

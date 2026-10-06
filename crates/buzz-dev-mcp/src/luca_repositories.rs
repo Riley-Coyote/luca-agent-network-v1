@@ -292,8 +292,8 @@ pub(crate) struct ProposeRuntimeTaskParams {
     summary: String,
     /// Complete task instruction to deliver only after the owner confirms.
     task: String,
-    /// `new_task` (default), `send_message` to an exact Codex app chat, or
-    /// `continue_session` for an explicitly saved, idle Codex CLI session.
+    /// `new_task` (default), `send_message` to an exact live native session, or
+    /// `continue_session` for an explicitly selected saved Codex CLI or Claude session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     operation: Option<String>,
     /// Exact opaque native lookup or connected source from list_runtime_task_sessions.
@@ -372,8 +372,7 @@ impl ProposeRuntimeTaskParams {
         let valid_operation = match self.operation.as_deref().unwrap_or("new_task") {
             "new_task" => self.source_id.is_none() && self.session_id.is_none(),
             "send_message" | "continue_session" => {
-                self.target_runtime == "codex"
-                    && self.source_id.as_deref().is_some_and(is_opaque_id)
+                self.source_id.as_deref().is_some_and(is_opaque_id)
                     && self.session_id.as_deref().is_some_and(is_opaque_id)
             }
             _ => false,
@@ -575,7 +574,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "propose_runtime_task",
-        description = "Ask the owner to confirm delegation through the native harness. Omit operation for one new Codex or Claude Code task; the owner chooses its folder and permissions. For an existing Codex app chat use send_message with the exact opaque source_id and session_id returned by list_runtime_task_sessions. This queues a follow-up in that same app chat, not steering, completion, or cancellation. For a saved Codex CLI session use continue_session only after explicit target selection and owner confirmation that it is not running in another client. Existing targets retain their real workspace and native permission policy; do not guess by title, choose the latest session, fork, or substitute a new task. Claude external continuation is not yet verified; do not claim support. Nothing dispatches before owner confirmation. Native-app progress, questions, approvals, and stopping remain in the native app; use the handoff receipt and never auto-resend uncertain delivery."
+        description = "Ask the owner to confirm delegation through the native harness. Omit operation for one new Codex or Claude Code task; the owner chooses its folder and permissions. For an existing Codex app chat or a live idle/busy interactive Claude Code session use send_message with the exact opaque source_id and session_id returned by list_runtime_task_sessions. This queues one exact follow-up in that same native session, not steering, task completion, or cancellation. Claude uses the provider's qualified native peer address, rechecking UUID/controller/folder/policy and exact message; it never guesses a bare name or opens a replacement receiver. For a saved Codex CLI or Claude Code session use continue_session after explicit target selection and confirmation it is not running elsewhere. Claude restores the original UUID and policy and refuses a live controller. Existing targets retain their real workspace; never choose by title/latest, fork, substitute a new task or retry uncertain delivery. Nothing dispatches before owner confirmation. Polyphonic-owned work can report progress/results and ask questions here. Externally owned progress, permission holds, questions, approvals, and stopping remain in the native app; use the truthful handoff receipt."
     )]
     async fn propose_runtime_task(
         &self,
@@ -907,7 +906,7 @@ mod tests {
             let mut unverified = valid;
             unverified["target_runtime"] = "claude_code".into();
             let params: ProposeRuntimeTaskParams = serde_json::from_value(unverified).unwrap();
-            assert!(params.validate().is_err());
+            assert!(params.validate().is_ok());
         }
     }
 

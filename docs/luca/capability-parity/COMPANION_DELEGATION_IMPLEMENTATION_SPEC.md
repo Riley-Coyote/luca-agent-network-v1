@@ -356,9 +356,9 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | Lane | Status | Evidence / next action |
 |---|---|---|
 | D0 | Established | Exact shipped beta.13 base, isolated feature tree, private candidate identity and reproducible checks recorded. Shipping/design tree and installed app preserved. |
-| D1 | Codex paths and Claude foundations proved | Codex exact saved continuation/public native-app queue verified. Claude original ID/context survived close/reopen, and native peer send reached the original live-idle controller with a correlated native message ID and remembered-marker reply. Product runner integration and busy-tool cases remain. External approvals/stopping stay native under Riley's phased approval. |
+| D1 | Codex and Claude native paths proved | Codex exact saved continuation/public app queue verified. Claude production same-ID restore, exact guarded native peer inbox delivery, busy-tool enqueue, and real question Answer/Skip/Stop cases pass. Provider inbox acceptance is not steering/completion. New signed Tauri integration remains D6 verification; external controls stay native under phased approval. |
 | D2 | Implemented; deterministic checks pass | Brain-independent native lookup uses bounded filesystem-read permission and a short-lived owner/resident/session/binding/conversation-scoped handle. Explicit connected sources retain their existing grants. Exact listed session, canonical native workspace and current authority are revalidated before dispatch. No title/latest guesses or silent source/session switch. The new Brain-off lookup path is fixture-tested, not fresh provider-certified. |
-| D3 | Implemented for Codex; Claude integration next | Separate owned new/continue and external native-app queue. Codex production continuation runner passed same-ID/context proof. Claude CLI component proofs passed, but its product gates remain until saved-session/peer transport is integrated and verified. |
+| D3 | Both harness transport lanes implemented | Separate owned new/continue and external native inbox handoff. Claude restores exact UUID/workspace/policy or uses one ephemeral, guarded native courier with no persistent sender history or resident authority. Wrong/stale/ambiguous controllers, unknown policy, duplicate sends and non-native acknowledgements fail closed. Signed UI acceptance is still pending. |
 | D4 | Owned Codex return/restart verified | Persist-before-spawn, bounded private storage, correlated completion, stop/shutdown races, coalesced recovery and frozen-byte publication recovery. A fresh clean result returned on one synthesis attempt in about 36.2 seconds after worker completion, while away from the chat. Published receipt/result survived restart without replay, duplicate publication or another provider turn. Other harness gates remain pending. |
 | D5 | Implemented; one prior native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 31 focused UI cases pass on freshly regenerated E2E assets, including stale raw results and Stop failures/races. Native Run, background completion, original-chat summary and raw result review were verified on signed checkpoint `3e2183ef4`; this does not certify every approval/cancellation path or the newer Brain-off lookup. Existing visual design retained. |
 | D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `4c2a8448e`, six real ARM64 helpers, 46 fresh post-build UI checks and native launch/persistence inspection pass. Clean native owned Codex return was proved on prior source `3e2183ef4`, not a new provider loop on this rebuild. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
@@ -394,6 +394,43 @@ not automatically enable a Claude product lane or certify the full D0-D6 queue.
 
 Current review instructions and evidence boundaries:
 [candidate handoff](COMPANION_DELEGATION_CANDIDATE_HANDOFF.md).
+
+### Current source integration checkpoint — 2026-10-06
+
+Native Claude `2.1.291` / official adapter `0.61.0` production proofs are recorded
+above and in the Claude evidence. New private question protocol is separate
+from permissions: exact owner/host epoch/turn/conversation/provider/RPC/tool
+correlation, no answer retention, cancellation/expiry/owner-change fencing,
+and body-free observers. Existing UI styling is reused; question-only shelf
+copy is “Answer needed,” not a permission grant. Source and targeted checks
+remain isolated from shipping/design work; the installed app is unchanged.
+
+Verified so far: 4,114 frontend tests; 13 private-input protocol tests; 12 actual
+ACP input-wire/parser tests; 10 native input-registry tests; 15 guarded peer
+tests; 115 desktop runtime-task tests; 15 MCP repository-operation tests;
+typecheck, scoped formatting/Biome, ACP and desktop Clippy with warnings denied.
+All 56 fresh focused UI cases pass, including new Claude-specific handoffs.
+Full ACP tests pass serially (992 passed, two explicit native-model tests ignored);
+the parallel run exposed six process-global environment test races, not a green
+parallel gate. Full `just ci` still stops on identical
+unmodified beta.13 `buzz-db` formatting; it is not green.
+
+Native usage after the new component cases: **18 disposable IDs, 51 prompt
+attempts**, including ephemeral non-persisted couriers: 48 completed turns,
+two intentional/earlier interrupted attempts and one historical quota rejection.
+No personal session was a test target or changed. Longer tool-time enqueue
+evidence is explicit, not inferred from a busy-start observation. Native proof
+fixtures are closed; native catalogue reports no remaining owned fixture
+controller. Candidate remains stopped.
+
+Exact beta.13 baseline source is retained detached at
+`/Volumes/LaCie/Luca-Development/build/delegation-baseline-source`; its existing
+native isolation requires no backport. Independent offline dependencies and
+real helper build are being prepared for matched D6 comparisons. The overhead
+harness explicitly distinguishes fake-provider runner overhead from native app
+idle/performance and real provider latency. Native candidate rebuild, matched
+measurements and complete signed-app acceptance still remain; no release or
+full D0-D6 completion is claimed at this source checkpoint.
 
 ### Historical checkpoint verification — 2026-10-04
 

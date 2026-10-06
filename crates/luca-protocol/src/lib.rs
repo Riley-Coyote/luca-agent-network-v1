@@ -21,6 +21,7 @@ mod exchange;
 mod frame;
 mod ids;
 mod managed_audience;
+mod managed_input;
 mod managed_permission;
 mod managed_presentation;
 mod message_publish;
@@ -58,6 +59,10 @@ pub use ids::{
     JSON_SAFE_INTEGER_MAX,
 };
 pub use managed_audience::{ManagedAudienceIntentV1, MAX_MANAGED_AUDIENCE_RESIDENTS};
+pub use managed_input::{
+    ManagedInputActionV1, ManagedInputDecisionV1, ManagedInputFieldV1, ManagedInputKindV1,
+    ManagedInputOptionV1, ManagedInputRequestV1, ManagedInputValueV1, MANAGED_INPUT_PROTOCOL,
+};
 pub use managed_permission::{
     is_bare_command_token, is_command_argv_token, is_mcp_identifier, is_permission_domain,
     is_permission_path, CommandSegmentV1, ManagedPermissionDecisionV1,

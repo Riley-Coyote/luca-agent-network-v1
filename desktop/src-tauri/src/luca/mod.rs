@@ -45,6 +45,7 @@ pub(crate) mod managed_cognition;
 pub(crate) mod managed_continuity;
 mod managed_dispatch_routing;
 pub(crate) mod managed_dispatch_store;
+pub(crate) mod managed_input;
 #[cfg(unix)]
 pub(crate) mod managed_mcp;
 mod managed_message_event;

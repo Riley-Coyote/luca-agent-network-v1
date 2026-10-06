@@ -66,6 +66,8 @@ import { isTerminalConversationActivity } from "@/features/channels/ui/conversat
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { useNativeAgentNotice } from "@/features/luca/useNativeAgentNotice";
 import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
+import { useManagedInputs } from "@/features/capabilities/useManagedInputs";
+import { ManagedInputCard } from "@/features/capabilities/ui/ManagedInputCard";
 import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
 import {
   useRoomExchangeHistory,
@@ -214,6 +216,7 @@ export const ChannelPane = React.memo(function ChannelPane({
   const [welcomeComposerBannerState, setWelcomeComposerBannerState] =
     React.useState<WelcomeComposerBannerState>("prompt");
   const pendingManagedPermissions = useManagedPermissions();
+  const pendingManagedInputs = useManagedInputs();
   const { goChannel } = useAppNavigation();
   const prepareDmSendChannel = usePrepareDmSendChannel(
     activeChannel,
@@ -249,6 +252,9 @@ export const ChannelPane = React.memo(function ChannelPane({
         (pending) => pending.request.conversationId === activeChannelId,
       ),
     [activeChannelId, pendingManagedPermissions],
+  );
+  const activeInputRequests = pendingManagedInputs.filter(
+    (pending) => pending.request.conversationId === activeChannelId,
   );
   // Live exchanges belonging to this room, plus a re-read of the relay's spent
   // count whenever a turn-tagged message lands here.
@@ -1315,11 +1321,23 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onRetryResident={(target) =>
                         void handleRetryResident(target)
                       }
+                      permissionLabel={
+                        activePermissionRequests.length > 0
+                          ? "Permission needed"
+                          : "Answer needed"
+                      }
                       permissionContent={
-                        activePermissionRequests.length > 0 ? (
+                        activePermissionRequests.length > 0 ||
+                        activeInputRequests.length > 0 ? (
                           <div className="grid gap-2">
                             {activePermissionRequests.map((pending) => (
                               <ManagedPermissionCard
+                                key={pending.pendingId}
+                                pending={pending}
+                              />
+                            ))}
+                            {activeInputRequests.map((pending) => (
+                              <ManagedInputCard
                                 key={pending.pendingId}
                                 pending={pending}
                               />

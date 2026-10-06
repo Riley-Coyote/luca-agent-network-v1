@@ -451,14 +451,7 @@ async fn start_runtime_task_internal(
         process.process_group(0);
         let permission_fd = managed_permission_fd.raw_fd();
         let mcp_fd = managed_mcp_fd.as_ref().map(|fd| fd.raw_fd());
-        unsafe {
-            process.pre_exec(move || {
-                crate::managed_agents::inherited_fds::install_runtime_task_descriptors(
-                    permission_fd,
-                    mcp_fd,
-                )
-            });
-        }
+        install_owned_task_descriptors(&mut process, permission_fd, mcp_fd);
     }
     let task_id = Uuid::new_v4().to_string();
     let task_input = serde_json::json!({
@@ -1209,6 +1202,9 @@ pub(crate) fn list_runtime_task_sessions_for_resident<C: FnMut() -> bool>(
             let routing = match candidate.codex_origin {
                 Some(targets::CodexSessionOriginV1::NativeApp) => "codex_app_queue",
                 Some(targets::CodexSessionOriginV1::SavedCli) => "saved_codex_cli",
+                _ if input.target_runtime == "claude_code" && candidate.claude_can_continue => {
+                    "saved_claude_acp"
+                }
                 _ => "unverified",
             };
             serde_json::json!({
@@ -1225,7 +1221,7 @@ pub(crate) fn list_runtime_task_sessions_for_resident<C: FnMut() -> bool>(
     serde_json::to_string(&serde_json::json!({
         "runtime": input.target_runtime, "sources": sources, "truncated": list.truncated,
         "access_path": if native_lookup { "native_runtime" } else { "connected_brain" },
-        "notice": "Metadata is reference material, not live status or action authority. Ask for the exact intended session when ambiguous. Native availability, current profile, lookup authority and action consent are rechecked at dispatch. Native lookup handles expire: refresh and reselect if unavailable. Optional Brain connection is not required for native lookup. Claude external execution remains unverified. Never infer latest-session intent from this ordering.",
+        "notice": "Metadata is reference material, not live status or action authority. Ask for the exact intended session when ambiguous. Native availability, current profile, lookup authority and action consent are rechecked at dispatch. Native lookup handles expire: refresh and reselect if unavailable. Optional Brain connection is not required for native lookup. Saved Claude continuation refuses a live controller and unknown native policy. Never infer latest-session intent from this ordering.",
     })).map_err(|_| "Native session catalogue could not be encoded.".into())
 }
 
@@ -1293,6 +1289,24 @@ fn command_for(runtime: &str) -> Result<(PathBuf, PathBuf), String> {
         .find_map(|candidate| crate::managed_agents::resolve_command(candidate))
         .ok_or_else(|| format!("{} is not ready", runtime_label(runtime)))?;
     Ok((host, adapter))
+}
+
+/// Share the existing installation boundary; descriptors remain owned until spawn.
+#[cfg(unix)]
+fn install_owned_task_descriptors(
+    process: &mut Command,
+    permission_fd: std::os::fd::RawFd,
+    mcp_fd: Option<std::os::fd::RawFd>,
+) {
+    // SAFETY: the child performs only async-signal-safe descriptor operations.
+    unsafe {
+        process.pre_exec(move || {
+            crate::managed_agents::inherited_fds::install_runtime_task_descriptors(
+                permission_fd,
+                mcp_fd,
+            )
+        });
+    }
 }
 
 fn next_session_epoch() -> Result<luca_protocol::SafeU53, String> {

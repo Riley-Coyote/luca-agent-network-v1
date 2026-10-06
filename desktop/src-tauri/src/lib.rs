@@ -1114,6 +1114,8 @@ pub fn run() {
             list_managed_conversation_operational_status,
             cancel_managed_turn,
             list_pending_managed_permissions,
+            list_pending_managed_inputs,
+            resolve_managed_input,
             resolve_managed_permission,
             get_resident_capability_settings,
             set_polyphonic_onboarding_status,
