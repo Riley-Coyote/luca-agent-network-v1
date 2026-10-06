@@ -5,6 +5,71 @@ use serde_json::json;
 use super::*;
 
 #[test]
+fn accepted_repository_stream_handles_fragmented_requests_and_large_replies() {
+    // Explicitly reproduce Darwin's inherited accepted-socket flag on every
+    // platform. The response exceeds a small Unix socket send buffer and the
+    // client does not begin reading until after both request fragments arrive.
+    let (server, mut client) = UnixStream::pair().unwrap();
+    server.set_nonblocking(true).unwrap();
+    prepare_repository_connection(&server).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    client
+        .set_write_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let content = "SYNTHETIC_METADATA_ONLY".repeat(6000);
+    let response = RepositoryBrokerResponseV1 {
+        protocol: BROKER_PROTOCOL,
+        ok: true,
+        content: content.clone(),
+        receipt: None,
+    };
+    let mut expected = serde_json::to_vec(&response).unwrap();
+    expected.push(b'\n');
+    assert!(expected.len() < MAX_BROKER_FRAME_BYTES);
+    let reply = expected.clone();
+    let owner = std::thread::spawn(move || {
+        let mut writer = server.try_clone().unwrap();
+        let mut reader = BufReader::new(server);
+        let mut request = Vec::new();
+        reader.read_until(b'\n', &mut request).unwrap();
+        assert_eq!(request, b"synthetic request\n");
+        writer.write_all(&reply).unwrap();
+        writer.flush().unwrap();
+    });
+    std::thread::sleep(Duration::from_millis(30));
+    client.write_all(b"synthetic ").unwrap();
+    std::thread::sleep(Duration::from_millis(30));
+    client.write_all(b"request\n").unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    let mut actual = Vec::new();
+    client.read_to_end(&mut actual).unwrap();
+    owner.join().unwrap();
+    assert_eq!(actual, expected);
+    let decoded: serde_json::Value = serde_json::from_slice(&actual).unwrap();
+    assert_eq!(decoded["content"], content);
+    assert!(decoded["ok"].as_bool().unwrap());
+}
+
+#[test]
+fn prepared_repository_stream_preserves_bounded_disconnect_probes() {
+    let (mut server, client) = UnixStream::pair().unwrap();
+    server.set_nonblocking(true).unwrap();
+    prepare_repository_connection(&server).unwrap();
+    server
+        .set_read_timeout(Some(Duration::from_millis(20)))
+        .unwrap();
+    assert!(!crate::luca::resident_proposals::caller_disconnected(
+        &mut server
+    ));
+    drop(client);
+    assert!(crate::luca::resident_proposals::caller_disconnected(
+        &mut server
+    ));
+}
+
+#[test]
 fn deceptive_custom_commands_do_not_claim_a_supported_runtime() {
     assert_eq!(
         current_managed_runtime_family(Some("codex"), Some("my-codex-wrapper"), None,),

@@ -280,6 +280,16 @@ fn serve(
     }
 }
 
+// Darwin inherits O_NONBLOCK from the listener into accepted sockets. Merely
+// setting timeouts does not clear it: a fragmented request can be rejected, or
+// a larger catalogue response can stop midway with WouldBlock. Each request
+// thread owns one bounded blocking stream; the listener remains nonblocking.
+fn prepare_repository_connection(stream: &UnixStream) -> std::io::Result<()> {
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))
+}
+
 fn serve_connection(
     stream: UnixStream,
     active: &Arc<AtomicBool>,
@@ -288,8 +298,14 @@ fn serve_connection(
     master_capability: &Sha256Ref,
     approvals: &Arc<Mutex<BTreeSet<String>>>,
 ) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    if let Err(error) = prepare_repository_connection(&stream) {
+        luca_log!(
+            warn,
+            "repository broker connection setup failed: {:?}",
+            error.kind()
+        );
+        return;
+    }
     let writer = match stream.try_clone() {
         Ok(writer) => writer,
         Err(_) => return,
@@ -317,10 +333,20 @@ fn serve_connection(
     };
     if let Ok(bytes) = serde_json::to_vec(&response) {
         let mut writer = writer;
-        let _ = writer
+        if let Err(error) = writer
             .write_all(&bytes)
             .and_then(|_| writer.write_all(b"\n"))
-            .and_then(|_| writer.flush());
+            .and_then(|_| writer.flush())
+        {
+            // Static category and byte count only: never frame content,
+            // capabilities, paths, questions, or provider output.
+            luca_log!(
+                warn,
+                "repository broker response write failed: {:?}; bytes={}",
+                error.kind(),
+                bytes.len()
+            );
+        }
     }
 }
 

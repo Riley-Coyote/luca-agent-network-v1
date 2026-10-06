@@ -6,11 +6,9 @@ import { installMockBridge } from "../helpers/bridge";
  * Warm DM-open harness.
  *
  * Opening a resident's direct thread is the click the agent column exists for,
- * and it used to stall the main thread for about a second even when the thread
- * had been open before: the companion (`<mote-3d>`) created a WebGL context,
- * generated a PMREM environment and compiled its shaders on every mount. The
- * renderers now persist in a document-wide pool, so a warm open should cost a
- * scene graph and nothing else.
+ * and it must remain responsive after the first open. Readiness is the
+ * resident heading, editable composer and mock-native live subscription;
+ * the old resident-header-mote design marker is no longer rendered.
  *
  * WHY LONGTASKS: the felt stall is the main thread blocked past the 50 ms
  * frame-budget wall. `longtask` entries are the engine's own signal for that.
@@ -59,7 +57,8 @@ test("GATE: a warm open of a resident's thread stays under the long-task budget"
   });
   await page.goto("/?e2e=mock&projectDemo=1");
 
-  const mote = page.getByTestId("resident-header-mote");
+  const header = page.getByTestId("chat-title");
+  const composer = page.getByTestId("message-input");
   const column = page.getByTestId("agent-chats-column");
   const columnThread = column
     .locator('[data-testid^="agent-column-chat-"]')
@@ -68,21 +67,35 @@ test("GATE: a warm open of a resident's thread stays under the long-task budget"
   // Cold: the column offers a thread; taking it creates and opens the DM.
   await page.getByTestId("agent-rail-atlas").click();
   await page.getByTestId("agent-column-new-chat").click();
-  await expect(mote).toHaveAttribute("data-ready", "");
+  const channelTestId = await columnThread.getAttribute("data-testid");
+  if (!channelTestId)
+    throw new Error("Created resident thread is unavailable.");
+  const channelName = channelTestId.slice("agent-column-chat-".length);
+  const ready = async () => {
+    await expect(header).toHaveText("Atlas");
+    await expect(composer).toBeVisible();
+    await expect(composer).toHaveAttribute("contenteditable", "true");
+    await page.waitForFunction(
+      (channelName) =>
+        window.__BUZZ_E2E_HAS_MOCK_LIVE_SUBSCRIPTION__?.({ channelName }) ===
+        true,
+      channelName,
+    );
+  };
+  await ready();
 
   const results: { longest: number; total: number; count: number }[] = [];
   for (let run = 0; run < RUNS; run += 1) {
     // Leave for a room, so the next open is a real route change back.
     await page.getByTestId("channel-watercooler").click();
     await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-    await expect(mote).toHaveCount(0);
     await page.waitForTimeout(SETTLE_MS);
 
     await page.evaluate(() => {
       (window as unknown as LongtaskWindow).__LONGTASKS__ = [];
     });
     await columnThread.click();
-    await expect(mote).toHaveAttribute("data-ready", "");
+    await ready();
     await page.waitForTimeout(SETTLE_MS);
 
     const tasks = await page.evaluate(

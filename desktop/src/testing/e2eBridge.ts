@@ -13819,6 +13819,13 @@ export function maybeInstallE2eTauriMocks() {
         return activeConfig?.mock?.managedOperationalStatuses ?? [];
       case "list_pending_managed_permissions":
         return activeConfig?.mock?.managedPermissions ?? [];
+      // Authoritative empty snapshots for ordinary mock conversations.
+      // Specs that seed tasks/questions intercept these commands before
+      // delegating to this fallback; no result or control is fabricated.
+      case "list_pending_managed_inputs":
+      case "list_runtime_tasks":
+      case "list_runtime_task_proposals":
+        return [];
       case "resolve_managed_permission": {
         const input = payload as {
           pendingId: string;
