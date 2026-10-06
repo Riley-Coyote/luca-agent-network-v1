@@ -13,7 +13,9 @@ use crate::managed_agents::{
 mod runtime_cli;
 mod runtime_metadata;
 
-pub(crate) use runtime_cli::{resolve_runtime_cli, runtime_shim_dir};
+pub(crate) use runtime_cli::{
+    adapter_runtime_cli_environment, resolve_runtime_cli, runtime_shim_dir,
+};
 pub(crate) use runtime_metadata::KnownAcpRuntime;
 
 const GOOSE_AVATAR_URL: &str = "https://goose-docs.ai/img/logo_dark.png";

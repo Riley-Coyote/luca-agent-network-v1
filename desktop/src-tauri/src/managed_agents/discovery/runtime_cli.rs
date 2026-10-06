@@ -327,6 +327,43 @@ pub(crate) fn resolve_runtime_cli(runtime: &KnownAcpRuntime) -> RuntimeCliResolu
     result
 }
 
+/// Pin an ACP adapter to the same native CLI selected by runtime discovery.
+/// Codex's adapter otherwise starts its own bundled dependency, ignoring PATH.
+/// A missing native CLI is an error, never permission to substitute that copy.
+pub(crate) fn adapter_runtime_cli_environment(
+    runtime: Option<&KnownAcpRuntime>,
+) -> Result<Option<(&'static str, PathBuf)>, String> {
+    let Some(runtime) = runtime else {
+        return Ok(None);
+    };
+    if !matches!(runtime.id, "codex" | "claude") {
+        return Ok(None);
+    }
+    let resolution = resolve_runtime_cli(runtime);
+    let path = resolution
+        .path
+        .and_then(|path| std::fs::canonicalize(path).ok());
+    adapter_cli_binding(runtime, path)
+}
+
+fn adapter_cli_binding(
+    runtime: &KnownAcpRuntime,
+    path: Option<PathBuf>,
+) -> Result<Option<(&'static str, PathBuf)>, String> {
+    let key = match runtime.id {
+        "codex" => "CODEX_PATH",
+        "claude" => "CLAUDE_CODE_EXECUTABLE",
+        _ => return Ok(None),
+    };
+    let path = path.filter(|path| path.is_absolute()).ok_or_else(|| {
+        format!(
+            "{}'s selected native CLI is unavailable. Refresh runtime setup before continuing; no bundled substitute was started.",
+            runtime.label
+        )
+    })?;
+    Ok(Some((key, path)))
+}
+
 /// The app-owned directory holding one symlink per chosen runtime CLI.
 ///
 /// Prepended to every child process's PATH. Without it, a runtime that lives
@@ -533,6 +570,37 @@ mod tests {
 
     fn codex() -> &'static KnownAcpRuntime {
         known_acp_runtime_exact("codex").expect("codex runtime is in the catalog")
+    }
+
+    #[test]
+    fn adapter_pins_the_selected_native_cli_using_the_provider_owned_override() {
+        let path = std::env::current_dir().unwrap().join("native-selected");
+        assert_eq!(
+            adapter_cli_binding(codex(), Some(path.clone())).unwrap(),
+            Some(("CODEX_PATH", path.clone()))
+        );
+        assert_eq!(
+            adapter_cli_binding(
+                known_acp_runtime_exact("claude").unwrap(),
+                Some(path.clone())
+            )
+            .unwrap(),
+            Some(("CLAUDE_CODE_EXECUTABLE", path))
+        );
+    }
+
+    #[test]
+    fn adapter_never_silently_falls_back_when_native_discovery_has_no_absolute_path() {
+        for runtime in [codex(), known_acp_runtime_exact("claude").unwrap()] {
+            assert!(adapter_cli_binding(runtime, None).is_err());
+            assert!(adapter_cli_binding(runtime, Some(PathBuf::from("relative"))).is_err());
+        }
+        assert!(adapter_runtime_cli_environment(None).unwrap().is_none());
+        assert!(
+            adapter_cli_binding(known_acp_runtime_exact("goose").unwrap(), None)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

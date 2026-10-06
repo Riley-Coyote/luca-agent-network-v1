@@ -1220,17 +1220,19 @@ fn claude_spawn_uses_the_probed_cli_executable() {
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755))
             .expect("make fake cli executable");
     }
-    let original_path = std::env::var_os("PATH");
-    std::env::set_var("PATH", temp.path());
+    let original_override = std::env::var_os("BUZZ_CLAUDE_PATH");
+    std::env::set_var("BUZZ_CLAUDE_PATH", &cli);
 
     let mut command = std::process::Command::new("buzz-acp");
-    super::configure_runtime_cli(&mut command, super::known_acp_runtime("claude-agent-acp"));
+    super::configure_runtime_cli(&mut command, super::known_acp_runtime("claude-agent-acp"))
+        .expect("selected native cli");
 
-    if let Some(path) = original_path {
-        std::env::set_var("PATH", path);
+    if let Some(path) = original_override {
+        std::env::set_var("BUZZ_CLAUDE_PATH", path);
     } else {
-        std::env::remove_var("PATH");
+        std::env::remove_var("BUZZ_CLAUDE_PATH");
     }
+    let cli = std::fs::canonicalize(cli).expect("canonical fake cli");
     assert!(command
         .get_envs()
         .any(|(key, value)| { key == "CLAUDE_CODE_EXECUTABLE" && value == Some(cli.as_os_str()) }));
@@ -1238,8 +1240,29 @@ fn claude_spawn_uses_the_probed_cli_executable() {
 
 #[test]
 fn codex_spawn_does_not_set_a_claude_executable() {
+    let _guard = crate::managed_agents::lock_path_mutex();
+    let temp = tempfile::tempdir().expect("temp dir");
+    let cli = temp.path().join("codex");
+    std::fs::write(&cli, "").expect("fake cli");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let original_override = std::env::var_os("BUZZ_CODEX_PATH");
+    std::env::set_var("BUZZ_CODEX_PATH", &cli);
     let mut command = std::process::Command::new("buzz-acp");
-    super::configure_runtime_cli(&mut command, super::known_acp_runtime("codex-acp"));
+    super::configure_runtime_cli(&mut command, super::known_acp_runtime("codex-acp"))
+        .expect("selected native cli");
+    if let Some(path) = original_override {
+        std::env::set_var("BUZZ_CODEX_PATH", path);
+    } else {
+        std::env::remove_var("BUZZ_CODEX_PATH");
+    }
+    let cli = std::fs::canonicalize(cli).expect("canonical fake cli");
+    assert!(command
+        .get_envs()
+        .any(|(key, value)| key == "CODEX_PATH" && value == Some(cli.as_os_str())));
     assert!(!command
         .get_envs()
         .any(|(key, _)| key == "CLAUDE_CODE_EXECUTABLE"));

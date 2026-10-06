@@ -2329,16 +2329,11 @@ pub(crate) fn build_respond_to_env(
 pub(crate) fn configure_runtime_cli(
     command: &mut std::process::Command,
     runtime: Option<&KnownAcpRuntime>,
-) {
-    let Some(runtime) = runtime else {
-        return;
-    };
-    if runtime.id != "claude" {
-        return;
+) -> Result<(), String> {
+    if let Some((key, path)) = super::adapter_runtime_cli_environment(runtime)? {
+        command.env(key, path);
     }
-    if let Some(cli_path) = runtime.underlying_cli.and_then(resolve_command) {
-        command.env("CLAUDE_CODE_EXECUTABLE", cli_path);
-    }
+    Ok(())
 }
 
 fn abort_spawned_child(child: &mut std::process::Child) {
@@ -3131,7 +3126,7 @@ fn spawn_agent_child_unix(
         crate::luca::runtime_session_purpose::SESSION_IDENTITY_ENV,
         native_session_identity,
     );
-    configure_runtime_cli(&mut command, runtime_meta);
+    configure_runtime_cli(&mut command, runtime_meta)?;
     super::claude_model_bridge::configure_claude_model_bridge(
         &mut command,
         &resolved_agent_command,

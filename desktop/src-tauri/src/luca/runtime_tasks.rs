@@ -374,6 +374,16 @@ async fn start_runtime_task_internal(
     #[cfg(not(unix))]
     return Err("Explicit runtime tasks require Polyphonic's local managed host.".into());
     let (command, adapter) = command_for(runtime_family)?;
+    let runtime = crate::managed_agents::known_acp_runtime_exact(if runtime_family == "codex" {
+        "codex"
+    } else {
+        "claude"
+    });
+    let native_cli_environment = tauri::async_runtime::spawn_blocking(move || {
+        crate::managed_agents::adapter_runtime_cli_environment(runtime)
+    })
+    .await
+    .map_err(|_| "Native runtime discovery is unavailable.".to_owned())??;
     let session_epoch = next_session_epoch()?;
     let app_data_dir = app
         .buzz_path()
@@ -417,6 +427,9 @@ async fn start_runtime_task_internal(
         .kill_on_drop(true);
     process.env("BUZZ_ACP_AGENT_COMMAND", adapter);
     process.env("BUZZ_ACP_AGENT_ARGS", "");
+    if let Some((key, path)) = native_cli_environment {
+        process.env(key, path);
+    }
     process.env("LUCA_MANAGED_RESIDENT_PUBKEY", resident_pubkey.as_str());
     process.env("LUCA_MANAGED_BINDING_REF", binding_ref);
     process.env(

@@ -48,7 +48,7 @@ pub(super) async fn run_agent_models_command(
         for (k, v) in &merged_env {
             cmd.env(k, v);
         }
-        crate::managed_agents::configure_runtime_cli(&mut cmd, known_acp_runtime(&agent_command));
+        crate::managed_agents::configure_runtime_cli(&mut cmd, known_acp_runtime(&agent_command))?;
         crate::managed_agents::claude_model_bridge::configure_claude_model_bridge(
             &mut cmd,
             &agent_command,
