@@ -45,8 +45,10 @@ Owned Polyphonic tasks retain their existing permission and stop controls.
   labeled as queued delivery rather than steering or task completion.
 - Saved Codex CLI continuation uses the proved original native ID and workspace;
   it is never presented as app-owned control or a replacement for a live session.
-- Claude execution remains gated on its affected native proof; quota is not
-  evidence that the native capability is unsupported. No provider/model fallback.
+- Claude saved-session context and live-idle peer delivery now have direct
+  native CLI proof (2026-10-06). Product operation gates remain until the actual
+  transport/integration cases pass; standalone CLI proof is not UI acceptance.
+  Quota is not evidence of unsupported capability. No provider/model fallback.
 - Externally owned progress/result observation is advertised only when separately
   verified and correlated. Otherwise preserve a truthful native handoff/unresolved
   receipt rather than a successful-looking result or blind retry.
@@ -65,6 +67,22 @@ change native sandbox/approval policy or automatically index/retain material.
 Brain ingestion/retrieval stays separately opt-in. A declined connection is
 not a declined one-off read; an explicit refusal to read still applies unless
 the user changes it. No unsolicited machine-wide or whole-history discovery.
+
+### Native proof capacity amendment — 2026-10-06
+
+Riley authorized using the test capacity needed to finish D0-D6 after the
+12-session/40-turn cap was explained. This was a disposable native-proof limit,
+not a token budget. The fixed session/turn ceilings are lifted; use the smallest
+useful fixture for each case and keep recording usage. The prior 11 disposable
+IDs / 23 prompt attempts remain historical evidence, not a current stop limit.
+
+This authorizes resuming the paused Claude proof with the existing native
+account, starting with one explicit availability attempt. It does not authorize
+quota retry loops, new paid providers/credits, model fallback, personal-session
+test targets, native/global configuration changes, installed-app replacement,
+merging, or release. The two-worker concurrency limit and exact-session dispatch
+exclusion remain. All other consent, isolation, feasibility and deferral rules
+still apply.
 
 Suggested approval:
 
@@ -313,7 +331,7 @@ The approval phrase above grants only the following proposed operating envelope:
 
 - Read/investigate current implementation and official native interfaces; implement D0-D6 in the isolated feature worktree.
 - Use disposable test projects and a separate Polyphonic test-data directory. Keep the native runtime profile/configuration unchanged; isolation is not a new shadow harness profile.
-- Native acceptance budget: at most **12 disposable sessions and 40 prompt turns**, across Codex and Claude together; at most **2 concurrent native workers**, and **1 dispatch per exact session at a time**. Record usage; pause for approval if this budget is exhausted.
+- Native proof capacity: Riley lifted the former 12-session/40-turn ceilings on 2026-10-06. Use small purpose-specific fixtures and record disposable IDs, attempted/completed turns and automatic synthesis/continuity. Keep at most **2 concurrent native workers**, and **1 dispatch per exact session at a time**. Material scope, authority or billing changes still require approval; capacity alone does not broaden the feature.
 - Use existing account authentication/defaults; no new paid API billing path, account purchase, permission bypass, or silent model fallback. Authentication or quota problems pause the affected native gate.
 - Tests may control only newly created, explicitly identified test sessions. Personal projects/sessions remain read-only during preparation and are never test targets.
 - Make small checkpoint commits and push the dedicated feature branch after relevant checks. Do not merge into the shipping branch or publish a release.
@@ -338,9 +356,9 @@ Do not commit credentials, raw personal transcripts, or private provider envelop
 | Lane | Status | Evidence / next action |
 |---|---|---|
 | D0 | Established | Exact shipped beta.13 base, isolated feature tree, private candidate identity and reproducible checks recorded. Shipping/design tree and installed app preserved. |
-| D1 | Codex paths proved; Claude gate paused | Exact saved CLI continuation and public native-app queue verified, including active-session follow-up. Claude proof quota-blocked, not unsupported. Native-app approvals/stopping remain in the native app under Riley's phased approval. |
+| D1 | Codex paths and Claude foundations proved | Codex exact saved continuation/public native-app queue verified. Claude original ID/context survived close/reopen, and native peer send reached the original live-idle controller with a correlated native message ID and remembered-marker reply. Product runner integration and busy-tool cases remain. External approvals/stopping stay native under Riley's phased approval. |
 | D2 | Implemented; deterministic checks pass | Brain-independent native lookup uses bounded filesystem-read permission and a short-lived owner/resident/session/binding/conversation-scoped handle. Explicit connected sources retain their existing grants. Exact listed session, canonical native workspace and current authority are revalidated before dispatch. No title/latest guesses or silent source/session switch. The new Brain-off lookup path is fixture-tested, not fresh provider-certified. |
-| D3 | Implemented for proved Codex paths | Separate owned new/continue lane and externally owned native-app queue. Production continuation runner passed same-ID/context proof; actual native queue acknowledgement is fixture-covered. Claude continuation remains disabled until native proof. |
+| D3 | Implemented for Codex; Claude integration next | Separate owned new/continue and external native-app queue. Codex production continuation runner passed same-ID/context proof. Claude CLI component proofs passed, but its product gates remain until saved-session/peer transport is integrated and verified. |
 | D4 | Owned Codex return/restart verified | Persist-before-spawn, bounded private storage, correlated completion, stop/shutdown races, coalesced recovery and frozen-byte publication recovery. A fresh clean result returned on one synthesis attempt in about 36.2 seconds after worker completion, while away from the chat. Published receipt/result survived restart without replay, duplicate publication or another provider turn. Other harness gates remain pending. |
 | D5 | Implemented; one prior native owned Codex loop passed | Exact target/workspace and native handoff confirmation, truthful queued/uncertain states, summary-only retry and missed-event receipt recovery. All 31 focused UI cases pass on freshly regenerated E2E assets, including stale raw results and Stop failures/races. Native Run, background completion, original-chat summary and raw result review were verified on signed checkpoint `3e2183ef4`; this does not certify every approval/cancellation path or the newer Brain-off lookup. Existing visual design retained. |
 | D6 | Isolated candidate ready for phased review; broader gates incomplete | Signed source `4c2a8448e`, six real ARM64 helpers, 46 fresh post-build UI checks and native launch/persistence inspection pass. Clean native owned Codex return was proved on prior source `3e2183ef4`, not a new provider loop on this rebuild. Controlled release/candidate native performance comparison and full cross-harness acceptance remain pending. No release, installed replacement or complete D0-D6 claim. |
@@ -349,15 +367,30 @@ Native proof: [Codex](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md) and
 [Claude Code](COMPANION_DELEGATION_D1_CLAUDE_EVIDENCE.md). Verified input delivery
 is not a claim of cancellation, approval mediation or a complete delegation loop.
 
-Budget used: **11 / 12 disposable IDs, 23 / 40 prompt attempts** (21 completed
-Codex turns, one runner attempt aborted before verified completion, one Claude
-quota rejection). The isolated candidate is open, with its disposable profile,
-completed results and delivery records retained. The external native-app fixture
-remains idle. No personal session was a test target. The final native check
-stayed within the prior twelve-ID/27-attempt candidate reservation, counting
-automatic continuity/synthesis. No additional provider prompt is planned; do
-not assume another full-loop test fits the one remaining ID. No automatic
-Claude retry, paid API path, model fallback, or native-profile repair is authorized.
+Current native usage: **12 disposable IDs, 31 prompt attempts**: 29 completed
+turns, one earlier aborted Codex runner attempt and one historical Claude quota
+rejection. This includes automatic synthesis/continuity and the new peer
+receiver turn. The old fixed cap is lifted, not replaced with a token budget.
+The candidate bundle/profile/results remain retained but the app is not running.
+The new Claude proof workers exited; no personal session was a test target.
+No quota retry loop, paid API path, model fallback, native/global configuration
+repair, installed replacement, merge or release is authorized.
+
+Capacity update: the 2026-10-06 amendment above supersedes the fixed proof cap
+and authorizes an explicit resumption of the paused Claude gate. Usage is still
+tracked; the recorded old counts and earlier pause decisions are retained as
+history. New native results must update this handoff rather than being inferred
+from that approval.
+
+Latest completed checkpoint: the Claude CLI/model availability check succeeded;
+the original fixture then retained its marker after exact-ID reopen. A guarded
+native peer message reached that same live-idle controller, correlating native
+message ID `bccce711-d447-42b4-b387-b097f3a333a7`, verified sender PID 45579,
+original receiver UUID/PID 40462, exact body and terminal marker output. Two
+conflicting-argument attempts were blocked before dispatch; one corrected native
+send was accepted. Both test controllers exited cleanly. See the updated Claude
+evidence for versions, counters, fixture guard and full limitations. This does
+not automatically enable a Claude product lane or certify the full D0-D6 queue.
 
 Current review instructions and evidence boundaries:
 [candidate handoff](COMPANION_DELEGATION_CANDIDATE_HANDOFF.md).

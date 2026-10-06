@@ -1,7 +1,18 @@
 # D1 Claude Code control evidence
 
-Date: 2026-10-04. Status: model proof blocked by native account usage limit;
-no active-message success claimed. All owned fixture processes have exited.
+Initial audit: 2026-10-04. Updated: 2026-10-06.
+
+Current status: native saved-session context retention and delivery to a live
+idle interactive session are proved below. Production integration, busy-tool
+delivery, arbitrary-session approvals/stopping and reconnect are not certified.
+All owned fixture processes have exited.
+
+Resumption note, 2026-10-06: Riley lifted the former native test-capacity cap and
+authorized finishing the remaining proof. The historical results below remain
+unchanged. Resume only the identified disposable fixture, check native account
+availability once, and do not substitute a provider/model or retry a quota
+failure automatically. Fresh results below supersede the historical quota block
+for the successful cases only.
 
 ## Scope and safety
 
@@ -42,8 +53,8 @@ claude agents --json | jq 'map({sessionId,cwd,kind,pid,status,startedAt})'
 | Operation | Supported/documented path | Native evidence here |
 |---|---|---|
 | Discover live native sessions | `claude agents --json` | Verified; prompts/titles excluded |
-| New task and saved exact-ID resume | CLI `--session-id` / `--resume`; SDK `resume` | New interactive identity verified; model/context proof quota-blocked |
-| Follow up in an original interactive session | Native `ListAgents` + `SendMessage` | Disposable model proof quota-blocked before sender launch |
+| New task and saved exact-ID resume | CLI `--session-id` / `--resume`; SDK `resume` | Original native ID/folder and context retained through exit/reopen; production continuation runner not yet integrated |
+| Follow up in an original interactive session | Native `ListAgents` + `SendMessage` | Delivered into the original live idle controller, with correlated message ID, verified sender PID and remembered-marker response; busy-tool case unproved |
 | Direct external interactive-session controller | No such CLI/SDK attach-by-ID endpoint found | Not established |
 | Observe original interactive work | Native process/session status; optional native idle notice | Status verified; notice untested |
 | Approve arbitrary interactive permissions | Peer messages are not user consent | Not established by cross-session messaging |
@@ -189,3 +200,100 @@ Consumed: one unique fixture UUID, one submitted prompt attempt, zero completed
 model turns, zero sender prompts, zero peer sends. The second allocated UUID
 and remaining five prompt attempts are unused; further attempts need fresh
 coordination rather than automatic retry.
+
+## Fresh native resumption and live-idle delivery — 2026-10-06
+
+Riley authorized the needed proof capacity. No global settings, credentials,
+personal sessions, installed application or provider/model fallback changed.
+The existing native updater installed 2.1.291 without an update command from
+this audit. Initial resumed PID 36486 still ran 2.1.289; subsequent receiver
+40462 and sender 45579 ran 2.1.291. All used the existing Claude Max/default
+Opus 5.5 profile, per-fixture manual mode, and an empty strict MCP configuration.
+
+### Exact saved session and context
+
+The exact `--resume f8fc9abe-d9b6-4e0f-8650-87e6a3b260e0` reopened the original
+fixture in the original implementation directory. Native `agents --json`
+confirmed the same UUID, directory, interactive kind and owned PID 36486. One
+fresh tool-free prompt returned `PP_D1_READY_f8fc9abe`. The old quota transcript
+was replay, not a new quota failure or an automatically retried request.
+
+After native `/exit`, the fixture disappeared from the live listing. A second
+exact-ID resume opened PID 40462. A new request did not provide the marker; its
+complete native response was:
+
+```text
+PP_D1_RESUMED PP_D1_CONTEXT_f8fc9abe
+```
+
+The native assistant event retained the original session ID and `end_turn`,
+with zero tools. No fork, latest-session shortcut or alternative UUID was used.
+This is CLI evidence, not production runner/UI acceptance.
+
+### Delivery into the original live controller
+
+Reserved sender UUID `f37dbb0a-677e-4d0d-8cc7-f03d2b7ff83c` opened PID 45579,
+with only native `ListAgents`/`SendMessage` available. The original receiver
+remained live and idle as PID 40462. No replacement receiver, SDK copy or
+private-socket client was started.
+
+A per-invocation PreToolUse guard fixed the sender identity, exact receiver
+UUID/name, native PID/folder and one synthetic body. Twelve pure guard
+assertions pass. Wrong targets/bodies/senders, conflicting recipient aliases,
+unexpected tools and notification requests fail closed. Passing the guard does
+not approve permissions; native policy still applies. It atomically claims at
+most one send before execution, preventing blind duplicate dispatch.
+
+Two native send calls were blocked before dispatch: their pre-hook inputs had
+conflicting legacy `content` alongside canonical `message`. A truncated
+unbracketed PTY paste and a model refusal to manufacture unsupported legacy
+arguments also consumed turns without sending. These are not native successes.
+The final attempt validated canonical `to`/`message` exactly and removed the
+deprecated compatibility fields with documented hook `updatedInput`. The source
+of those extra fields was not isolated to a native/customization component.
+No permission decision or target/body check was bypassed.
+
+One native `SendMessage` result then returned success and message ID
+`bccce711-d447-42b4-b387-b097f3a333a7` at `2026-10-06T07:30:20.785Z`.
+This was inbox acknowledgement, not recipient completion. Independently, the
+original receiver's transcript recorded the original UUID/folder and:
+
+- `origin.kind = peer`, `verifiedPeerPid = 45579`, the sender fixture name, and
+  the same message ID `bccce711-d447-42b4-b387-b097f3a333a7`.
+- The byte-exact synthetic body, with no files/history attached.
+- An automatic tool-free receiver turn ending at `2026-10-06T07:30:23.240Z`,
+  whose complete native assistant response was:
+
+```text
+PP_D1_PEER_RECEIVED PP_D1_CONTEXT_f8fc9abe
+```
+
+Only Claude used its native peer transport. The observed sender address was
+not opened, inspected for secrets or impersonated. Sender prose alone was not
+a receipt. This proves original-controller live-idle delivery and context,
+not busy-tool interruption, arbitrary approvals/stopping, or Polyphonic return.
+
+### Cleanup, usage and next work
+
+Both exited through their own `/exit`; both exec sessions ended with exit zero.
+A native listing returned zero owned fixtures and nine other sessions still
+present. No unrelated PID was signalled or personal session modified. Synthetic
+transcripts and bounded guard/audit files remain local; no personal transcript
+is committed here.
+
+Local guard: `/private/tmp/polyphonic-claude-d1-resume.fJ0Rci/peer-gate.mjs`.
+SHA-256: `6df8f975fd0791677f3ecd1452de9b9cdb41384dd54ee6a2e643c3ddee8cbb89`.
+Sender settings SHA-256:
+`3730399d1259fb629dc1cda0331fca4a8b878370df0cc257c408cb375fed819d`.
+
+Fresh usage: one extra UUID (the reserved sender), eight completed turns:
+two receiver-owner, five sender, one automatic peer receiver. Overall queue:
+**12 disposable IDs, 31 prompt attempts**, with 29 completed turns, one earlier
+aborted Codex runner attempt and one historical Claude quota rejection. The old
+fixed cap is lifted; usage is recorded for transparency, not a new stop limit.
+
+Next: integrate/prove saved-session execution and the bounded peer lane through
+Polyphonic's existing target, consent, receipt and return authorities. Do not
+flip product operation gates solely from these CLI proofs. Busy delivery,
+questions/approvals, stopping and native performance remain separate cases.
+No installed replacement, merge or release.

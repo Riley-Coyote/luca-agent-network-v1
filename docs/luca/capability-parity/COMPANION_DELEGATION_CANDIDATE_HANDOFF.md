@@ -1,6 +1,6 @@
 # Companion delegation candidate handoff
 
-Recorded 2026-10-05 UTC (October 4 evening in Riley's local time).
+Initial verification recorded 2026-10-05 UTC. Resumption authorized 2026-10-06.
 
 Status: **Codex phased candidate ready for review, not full D0-D6 completion.**
 No merge, installation, public release or updater change is authorized.
@@ -20,6 +20,10 @@ No merge, installation, public release or updater change is authorized.
   chat, in about 36.2 seconds after worker completion, on one synthesis attempt.
   The summary and raw result survived restart without duplicate publication,
   redispatch, new provider sessions or additional model turns.
+- On 2026-10-06 the original Claude CLI fixture retained its native ID/folder
+  and context through close/reopen, and a guarded native peer message reached
+  its original live-idle controller. Native sender acknowledgement and receiver
+  origin/marker are correlated; this is component proof, not product integration.
 
 ## Candidate and source
 
@@ -38,7 +42,8 @@ No merge, installation, public release or updater change is authorized.
   that bundle. Six real ARM64 helpers and Developer ID deep/strict signatures
   verified; debug candidate, not notarized and not installed.
 
-The rebuilt app is open on the existing synthetic Luca conversation. Its prior
+The rebuilt app last opened on the existing synthetic Luca conversation. It is
+not currently running after the drive-disconnection cleanup. Its prior
 task receipts and exact clean result are retained; the raw result still matches
 `sha256:d9f19b6ed4ccb68f41b9fc5148d1867b2b03b7d6b3fe8a39ff70f5b81afa28d7`.
 No new provider session/purpose rows were allocated on this restart, and the
@@ -86,9 +91,11 @@ the Brain-off lookup or cancellation paths.
 
 Full certification remains incomplete:
 
-- Claude same-ID continuation proof hit native account quota. This is unverified,
-  not unsupported; continuation remains gated. No automatic retry, paid API,
-  alternative model or native-profile change is authorized.
+- Claude quota no longer blocks the completed component checks: exact saved-ID
+  context and live-idle native messaging passed. Its production continuation/
+  peer transport integration, busy-tool delivery and user-facing return still
+  need verification. Product gates remain; no model/provider fallback or global
+  native-profile change was made.
 - Externally owned Codex app progress/results, approval mediation and stopping
   are not verified public controls. Preserve the explicit native-app handoff;
   do not replace that session with CLI-owned work or claim result tracking.
@@ -103,11 +110,14 @@ Full certification remains incomplete:
 - Hard process termination and cross-toolchain pending-approval migration retain
   the explicit fail-closed limitations documented in the spec.
 
-Native budget used: **11/12 disposable IDs, 23/40 prompt attempts**, including
-automatic continuity/synthesis (21 completed Codex turns, one aborted runner
-attempt, one Claude quota rejection). No further provider prompts are planned;
-another full loop may exceed the single remaining ID. Riley's decision is
-needed before expanding native proof or resuming the paused Claude gate.
+Current native usage: **12 disposable IDs, 31 prompt attempts**, including
+automatic continuity/synthesis and peer receipt (29 completed turns, one earlier
+aborted runner attempt, one historical Claude quota rejection). On 2026-10-06 Riley lifted the former
+12-session/40-turn ceilings and authorized the remaining checks. Continue small
+fixtures with usage tracking and at most two native workers. The explicit Claude
+availability and original-session proofs succeeded, and both workers exited.
+No quota retry loops, provider/model
+fallback, personal-session tests, global configuration changes, merge or release.
 
 Evidence and scope: [implementation spec](COMPANION_DELEGATION_IMPLEMENTATION_SPEC.md),
 [Codex exact-session proof](COMPANION_DELEGATION_D1_CODEX_EVIDENCE.md),
