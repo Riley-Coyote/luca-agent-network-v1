@@ -26,7 +26,11 @@ async fn queued_progress_and_shutdown_progress_are_drained_before_terminal_outpu
     // these first updates. This reproduces the old scheduling race.
     progress(&observer, "plan");
     progress(&observer, "plan");
-    let provider_outcome = Ok((StopReason::EndTurn, "SYNTHETIC_FINAL".into()));
+    let provider_outcome = Ok((
+        "acknowledged-session".into(),
+        StopReason::EndTurn,
+        "SYNTHETIC_FINAL".into(),
+    ));
     // Synthetic final update arriving during cleanup is still progress, not
     // a new event allowed after the terminal result.
     progress(&observer, "agent_message_chunk");
@@ -75,7 +79,11 @@ async fn observer_join_failure_discards_candidate_completion() {
     let task = tokio::spawn(async { panic!("SYNTHETIC_OBSERVER_FAILURE") });
     let cleanup = finish_safe_observer(task).await;
     let outcome = terminal_outcome(
-        Ok((StopReason::EndTurn, "PRIVATE_CANDIDATE_NOT_RETURNED".into())),
+        Ok((
+            "acknowledged-session".into(),
+            StopReason::EndTurn,
+            "PRIVATE_CANDIDATE_NOT_RETURNED".into(),
+        )),
         cleanup,
     );
     let error = outcome.expect_err("join failure must reject completion");
@@ -103,7 +111,11 @@ async fn drain_timeout_aborts_and_joins_observer_before_failed_terminal_output()
     assert!(cleanup.is_err());
     assert!(joined.load(Ordering::SeqCst));
     assert!(terminal_outcome(
-        Ok((StopReason::EndTurn, "PRIVATE_CANDIDATE_NOT_RETURNED".into())),
+        Ok((
+            "acknowledged-session".into(),
+            StopReason::EndTurn,
+            "PRIVATE_CANDIDATE_NOT_RETURNED".into()
+        )),
         cleanup,
     )
     .is_err());
@@ -112,7 +124,11 @@ async fn drain_timeout_aborts_and_joins_observer_before_failed_terminal_output()
 #[test]
 fn shutdown_failure_never_masquerades_as_provider_completion() {
     let outcome = terminal_outcome(
-        Ok((StopReason::EndTurn, "PRIVATE_CANDIDATE_NOT_RETURNED".into())),
+        Ok((
+            "acknowledged-session".into(),
+            StopReason::EndTurn,
+            "PRIVATE_CANDIDATE_NOT_RETURNED".into(),
+        )),
         Err(crate::acp::AcpError::Io(std::io::Error::other(
             "PRIVATE_SHUTDOWN_FAILURE",
         ))),

@@ -188,15 +188,7 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
                 )
                 .map_err(crate::acp::AcpError::Protocol)?;
         }
-        emit(RuntimeTaskOutputV1 {
-            protocol: PROTOCOL,
-            kind: "session",
-            provider_session_id: Some(&session.session_id),
-            label: None,
-            result: None,
-            stop_reason: None,
-            error: None,
-        });
+        emit(session_output(&session.session_id));
         if input.permission_mode == "full_access" {
             let wire = PermissionMode::BypassPermissions.as_wire_str();
             if !agent_supports_mode(&session.raw, wire) {
@@ -230,7 +222,9 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
                 )
             })?
             .unwrap_or_default();
-        Ok::<_, crate::acp::AcpError>((stop, result))
+        // Carry only the adapter's acknowledged identity into terminal output.
+        // The requested input ID is not a substitute for a successful restore/new.
+        Ok::<_, crate::acp::AcpError>((session.session_id, stop, result))
     };
     let outcome = tokio::select! {
         outcome = provider_outcome => outcome,
@@ -249,15 +243,7 @@ pub(crate) async fn run(args: RuntimeTaskArgs) -> Result<()> {
     let observer = finish_safe_observer(observer_task).await;
     let outcome = terminal_outcome(outcome, shutdown.and(observer));
     match outcome {
-        Ok((stop, result)) => emit(RuntimeTaskOutputV1 {
-            protocol: PROTOCOL,
-            kind: "result",
-            provider_session_id: None,
-            label: None,
-            result: Some(&result),
-            stop_reason: Some(stop_reason(&stop)),
-            error: None,
-        }),
+        Ok((session_id, stop, result)) => emit(result_output(&session_id, &stop, &result)),
         Err(error) => {
             let message = safe_error(&error.to_string());
             emit(RuntimeTaskOutputV1 {
@@ -279,13 +265,41 @@ fn cleanup_error() -> crate::acp::AcpError {
 }
 
 fn terminal_outcome(
-    outcome: Result<(StopReason, String), crate::acp::AcpError>,
+    outcome: Result<(String, StopReason, String), crate::acp::AcpError>,
     cleanup: Result<(), crate::acp::AcpError>,
-) -> Result<(StopReason, String), crate::acp::AcpError> {
+) -> Result<(String, StopReason, String), crate::acp::AcpError> {
     // A completed provider turn is not a successful host terminal event when
     // our shutdown/drain fence failed. Never retain that candidate result.
     cleanup?;
     outcome
+}
+
+fn session_output(provider_session_id: &str) -> RuntimeTaskOutputV1<'_> {
+    RuntimeTaskOutputV1 {
+        protocol: PROTOCOL,
+        kind: "session",
+        provider_session_id: Some(provider_session_id),
+        label: None,
+        result: None,
+        stop_reason: None,
+        error: None,
+    }
+}
+
+fn result_output<'a>(
+    provider_session_id: &'a str,
+    stop: &StopReason,
+    result: &'a str,
+) -> RuntimeTaskOutputV1<'a> {
+    RuntimeTaskOutputV1 {
+        protocol: PROTOCOL,
+        kind: "result",
+        provider_session_id: Some(provider_session_id),
+        label: None,
+        result: Some(result),
+        stop_reason: Some(stop_reason(stop)),
+        error: None,
+    }
 }
 
 fn read_input() -> Result<RuntimeTaskInputV1> {
@@ -521,6 +535,105 @@ mod tests {
     fn recursive_or_malformed_coordinates_are_rejected() {
         assert!(!valid_opaque("task id with spaces"));
         assert!(valid_opaque("task:1234-abcd"));
+    }
+
+    fn correlated_frames(acknowledged: &str) -> (serde_json::Value, serde_json::Value) {
+        let session = serde_json::to_value(session_output(acknowledged)).unwrap();
+        let (session_id, stop, result) = terminal_outcome(
+            Ok((
+                acknowledged.into(),
+                StopReason::EndTurn,
+                "SYNTHETIC_FINAL".into(),
+            )),
+            Ok(()),
+        )
+        .unwrap();
+        let result = serde_json::to_value(result_output(&session_id, &stop, &result)).unwrap();
+        (session, result)
+    }
+
+    #[test]
+    fn saved_claude_serialized_result_retains_acknowledged_native_session() {
+        let acknowledged = "beec46a3-cc81-45c6-a557-4d668f6e73c7";
+        let (session, result) = correlated_frames(acknowledged);
+        assert_eq!(session["protocol"], PROTOCOL);
+        assert_eq!(session["kind"], "session");
+        assert_eq!(session["providerSessionId"], acknowledged);
+        assert_eq!(result["kind"], "result");
+        assert_eq!(result["providerSessionId"], session["providerSessionId"]);
+        assert_eq!(result["stopReason"], "end_turn");
+        assert_eq!(result["result"], "SYNTHETIC_FINAL");
+        assert!(result.get("error").is_none());
+    }
+
+    #[test]
+    fn legacy_new_task_serialized_result_uses_its_ack_not_any_requested_identity() {
+        // Legacy new-task adapter IDs need not be UUIDs. Keep that framing valid.
+        let acknowledged = "legacy-native-session:created-42";
+        let (session, result) = correlated_frames(acknowledged);
+        assert_eq!(session["providerSessionId"], acknowledged);
+        assert_eq!(result["protocol"], PROTOCOL);
+        assert_eq!(result["providerSessionId"], acknowledged);
+        assert!(session.get("result").is_none());
+        assert!(result.get("label").is_none());
+        assert!(result.get("error").is_none());
+    }
+
+    #[tokio::test]
+    async fn fake_adapter_restore_and_new_ack_bind_both_serialized_frames() {
+        for restoring in [true, false] {
+            let acknowledged = if restoring {
+                "beec46a3-cc81-45c6-a557-4d668f6e73c7"
+            } else {
+                "adapter-created-new-session:42"
+            };
+            let method = if restoring {
+                "session/load"
+            } else {
+                "session/new"
+            };
+            let script = format!(
+                r#"IFS= read -r INIT || exit 2
+printf '%s\n' '{{"jsonrpc":"2.0","id":0,"result":{{"agentCapabilities":{{"loadSession":true}}}}}}'
+IFS= read -r START || exit 3
+case "$START" in *'"method":"{method}"'*) ;; *) exit 4 ;; esac
+printf '%s\n' '{{"jsonrpc":"2.0","id":1,"result":{{"sessionId":"{acknowledged}"}}}}'
+"#
+            );
+            let mut client = AcpClient::spawn("/bin/sh", &["-c".into(), script], &[], false)
+                .await
+                .unwrap();
+            client.initialize().await.unwrap();
+            let session = if restoring {
+                client
+                    .session_restore_full_with_context(
+                        acknowledged,
+                        "/synthetic/workspace",
+                        &[],
+                        Vec::new(),
+                        None,
+                        None,
+                        true,
+                    )
+                    .await
+                    .unwrap()
+                    .0
+            } else {
+                client
+                    .session_new_full("/synthetic/workspace", Vec::new(), None)
+                    .await
+                    .unwrap()
+            };
+            client.shutdown().await;
+            assert_eq!(session.raw["sessionId"], acknowledged);
+            let (session_frame, result_frame) = correlated_frames(&session.session_id);
+            assert_eq!(session_frame["providerSessionId"], session.raw["sessionId"]);
+            assert_eq!(
+                result_frame["providerSessionId"],
+                session_frame["providerSessionId"]
+            );
+            assert_eq!(result_frame["stopReason"], "end_turn");
+        }
     }
 
     #[test]

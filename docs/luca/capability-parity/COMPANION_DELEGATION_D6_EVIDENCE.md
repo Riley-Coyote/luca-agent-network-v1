@@ -81,6 +81,51 @@ capabilities, paths or answers. Ten broker tests pass, including a fragmented
 request plus a 128-KiB-plus complete reply and an exact disconnected-caller test.
 The corrected signed-app saved-session acceptance is pending the rebuild.
 
+The rebuilt `3762327b6` native app then successfully listed 50 Claude metadata
+candidates without Brain and reached the exact `beec542f` Continue review. The
+original canonical folder and native policy were locked; the public native
+catalogue confirmed no live controller before Continue. Task
+`4ae02ad8-8d91-47e8-8601-73d471d523b6` restored native ID
+`beec542f-39b1-40a6-8fcd-9e7cc2eaa439` and its own saved context. The native
+transcript contains the exact `POLYPHONIC_D6_CLAUDE_SAVED_43f6 Beta` result,
+without Polyphonic replaying the conversation or supplying the old answer.
+
+The desktop correctly rejected that terminal frame because the ACP runner
+omitted `providerSessionId` from the result, despite acknowledging it earlier.
+It retained a failed receipt and no raw result/successful summary. The following
+runner correction carries the actual adapter-acknowledged identity through the
+unchanged shutdown/observer-drain fence and repeats it in the result frame.
+The strict desktop guard is not weakened. This task is considered executed;
+there is no blind repeat. A new, explicitly distinct native proof follows after
+the corrected artifact rebuild.
+
+## Native Stop
+
+On signed `3762327b6`, an independent task
+`8e04e5e0-790b-45b1-bc28-98e21c67f955`, provider session
+`dd6967d1-bf9d-4051-ae6c-393c47329982`, started only after the native Run review
+selected the disposable folder above. Its real “Which stop route?” Alpha/Beta
+question appeared in Polyphonic. No answer was sent.
+
+Stop task removed the question and transitioned through Stopping to Stopped.
+The exact owned worker PID `36717`, adapter group `36788` and every captured
+worker descendant exited. Native catalogue shows no remaining fixture
+controller. The warm Luca host PID `22054` remained alive; no unrelated session
+or installed app was signalled. No raw result exists and summary delivery is
+cancelled, not falsely completed. Before/after body-free receipts are retained
+as `desktop/output/playwright/d6-stop-before.json` and `d6-stop-after.json`.
+
+## Source verification checkpoint
+
+On `3762327b6`: typecheck, full frontend tests 4,114/4,114, scoped Biome,
+production build, native Developer-ID signatures/source receipt, and all 65
+focused UI cases pass without retries or skips. Tauri packaging was followed by
+a fresh E2E build and the same 65/65 pass on an explicitly owned fresh server,
+then that server was stopped. Native broker 10/10, runtime-task 115/115 and
+input-registry 10/10 tests pass, with desktop Clippy warnings denied. Evidence
+roots are `delegation-final-frontend-Z0VaHRoq` and
+`delegation-postpackaging-ui-fb8KXpR6` under the dedicated build directory.
+
 ## Performance evidence boundaries
 
 Matched fake-provider host comparison:
