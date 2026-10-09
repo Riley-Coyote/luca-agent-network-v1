@@ -46,6 +46,8 @@ pub(crate) struct PreparedArtifactPreviewV1 {
 struct StoredPresentation {
     owner_pubkey: String,
     artifact_id: String,
+    creation_turn_id: Option<String>,
+    created_by_pubkey: String,
     presentation_id: String,
     media_type: String,
     content: Vec<u8>,
@@ -119,6 +121,8 @@ pub(crate) fn prepare(
     let stored = StoredPresentation {
         owner_pubkey: owner_pubkey.as_str().to_owned(),
         artifact_id: artifact_id.as_str().to_owned(),
+        creation_turn_id: preview.artifact.source_turn_id.clone(),
+        created_by_pubkey: preview.artifact.created_by_pubkey.clone(),
         presentation_id: presentation_id.clone(),
         media_type: preview.version.media_type.clone(),
         content: preview.content.ok_or(ArtifactStoreError::CorruptBlob)?,
@@ -188,9 +192,26 @@ pub(crate) fn revoke_all() -> Result<usize, String> {
     Ok(count)
 }
 
+#[cfg(test)]
 pub(crate) fn handle(
     owner_pubkey: Option<&str>,
     request: &http::Request<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
+    handle_guarded(owner_pubkey, request, |_, _, _, _, serve| Some(serve()))
+}
+
+/// The desktop supplies current derivative authority around byte serving.
+/// Tokens/cache entries do not preserve permission after source withdrawal.
+pub(crate) fn handle_guarded(
+    owner_pubkey: Option<&str>,
+    request: &http::Request<Vec<u8>>,
+    guard: impl FnOnce(
+        &str,
+        &str,
+        Option<&str>,
+        &str,
+        Box<dyn FnOnce() -> http::Response<Vec<u8>>>,
+    ) -> Option<http::Response<Vec<u8>>>,
 ) -> http::Response<Vec<u8>> {
     if request.method() != Method::GET
         || request.uri().host() != Some("localhost")
@@ -218,6 +239,20 @@ pub(crate) fn handle(
     let Some(presentation) = presentation else {
         return error_response(StatusCode::NOT_FOUND);
     };
+    let artifact_id = presentation.artifact_id.clone();
+    let turn = presentation.creation_turn_id.clone();
+    let author = presentation.created_by_pubkey.clone();
+    guard(
+        owner_pubkey,
+        &artifact_id,
+        turn.as_deref(),
+        &author,
+        Box::new(move || serve_presentation(presentation)),
+    )
+    .unwrap_or_else(|| error_response(StatusCode::NOT_FOUND))
+}
+
+fn serve_presentation(presentation: StoredPresentation) -> http::Response<Vec<u8>> {
     let mut response = http::Response::new(presentation.content);
     *response.status_mut() = StatusCode::OK;
     let headers = response.headers_mut();
@@ -269,6 +304,8 @@ mod tests {
             StoredPresentation {
                 owner_pubkey: owner.to_owned(),
                 artifact_id: "artifact-1".to_owned(),
+                creation_turn_id: None,
+                created_by_pubkey: owner.to_owned(),
                 presentation_id: presentation_id.clone(),
                 media_type: "text/html; charset=utf-8".to_owned(),
                 content: b"<!-- an attacker-controlled early comment --><meta http-equiv=\"Content-Security-Policy\" content=\"default-src * 'unsafe-inline'\"><meta http-equiv=\"refresh\" content=\"0;url=http://127.0.0.1:9/escaped\"><script>window.test = true</script>".to_vec(),

@@ -6,6 +6,7 @@ use base64::Engine as _;
 
 fn main() {
     build_quickchat_capture();
+    build_companion_awareness();
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_URL");
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_HTTP");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_PUBLIC_KEY");
@@ -150,4 +151,21 @@ fn build_quickchat_capture() {
         matches!(status, Ok(status) if status.success()),
         "Failed to compile Quick Chat capture helper"
     );
+}
+
+// Embedded command-line helper only. Compilation never invokes the helper,
+// requests OS permission, captures a screen or starts observation at runtime.
+fn build_companion_awareness() {
+    println!("cargo:rerun-if-changed=helpers/companion-awareness.swift");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref()!=Ok("macos") {return;}
+    let architecture=match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64")=>"arm64",Ok("x86_64")=>"x86_64",_=>panic!("Unsupported companion awareness helper architecture"),
+    };
+    let Some(directory)=std::env::var_os("OUT_DIR") else {panic!("Missing companion awareness helper output directory");};
+    let output=std::path::PathBuf::from(directory).join("companion-awareness");
+    let status=std::process::Command::new("xcrun")
+        .args(["swiftc","-parse-as-library","-warnings-as-errors","-O","-module-name","CompanionAwareness","-target"])
+        .arg(format!("{architecture}-apple-macos13.0"))
+        .args(["helpers/companion-awareness.swift","-o"]).arg(output).status();
+    assert!(matches!(status,Ok(status)if status.success()),"Failed to compile companion awareness helper");
 }

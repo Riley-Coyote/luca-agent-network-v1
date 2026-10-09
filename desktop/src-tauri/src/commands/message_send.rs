@@ -268,6 +268,10 @@ pub async fn send_channel_message(
     response_surface: Option<ManagedResponseSurfaceV1>,
     state: State<'_, AppState>,
 ) -> Result<SendChannelMessageResponse, String> {
+    state.companion_last_explicit_activity_ms.store(
+        chrono::Utc::now().timestamp_millis().max(0) as u64,
+        std::sync::atomic::Ordering::Release,
+    );
     let channel_uuid = uuid::Uuid::parse_str(&channel_id)
         .map_err(|_| format!("invalid channel UUID: {channel_id}"))?;
     let mut mentions = mention_pubkeys.unwrap_or_default();
@@ -291,6 +295,11 @@ pub async fn send_channel_message(
         .map_err(|error| error.to_string())?
         .clone()
         .ok_or_else(|| "application handle is unavailable".to_string())?;
+    if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
+        // Timestamp + bounded wake only. Native cancellation/gate/store work
+        // belongs to the independent initiative control monitor, not sending.
+        let _ = state.companion_coordinator.foreground_activity(&app);
+    }
 
     let visit_store = if kind_num == buzz_core_pkg::kind::KIND_STREAM_MESSAGE {
         Some(crate::luca::exchange_store::global_exchange_store(&app)?)

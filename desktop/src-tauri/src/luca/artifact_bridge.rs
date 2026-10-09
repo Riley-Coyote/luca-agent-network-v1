@@ -637,6 +637,13 @@ fn authorize_turn(
     {
         return Err(());
     }
+    let conversation = coordinates.conversation_id.clone();
+    let receipt = Hex64::parse(coordinates.dispatch_receipt_id.as_str()).map_err(|_| ())?;
+    if !store.lock().map_err(|_| ())?.broker_artifacts_allowed_for_dispatch(
+        &context.owner_pubkey, &context.resident_pubkey, &conversation, &receipt,
+    ) {
+        return Err(());
+    }
     let state = app.state::<crate::app_state::AppState>();
     let owner_keys = state.signing_keys().map_err(|_| ())?;
     if owner_keys.public_key().to_hex() != context.owner_pubkey.as_str() {

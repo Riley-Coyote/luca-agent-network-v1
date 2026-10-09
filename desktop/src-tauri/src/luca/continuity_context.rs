@@ -20,8 +20,9 @@ use luca_continuity::{
 use luca_protocol::{
     canonical_sha256, ContinuityContextRequestV1, ContinuityLayerStatusV1,
     ContinuityNamespaceKindV1, ContinuityNamespaceV1, ContinuityScopeV1, ContinuityWakeHandoffV1,
-    ContinuityWakeItemV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId, SafeU53, Sha256Ref,
-    CONTINUITY_PROTOCOL, MAX_RECALLED_MEMORY_NOTES,
+    ContinuityWakeItemV1, ContinuityWorkingReferenceV1, Hex64, InitiativeSemanticThreadV1,
+    InitiativeThreadKindV1, OpaqueId, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    MAX_RECALLED_MEMORY_NOTES,
 };
 use sha2::{Digest, Sha256};
 
@@ -722,6 +723,14 @@ fn assemble_resident_layers(
             record.provenance_refs().to_vec(),
         )?;
         match kind {
+            DurableContinuityRecordKind::OpenThread
+                if serde_json::from_str::<InitiativeSemanticThreadV1>(record.body())
+                    .is_ok_and(|thread| thread.kind == InitiativeThreadKindV1::Own) =>
+            {
+                // A resident's curiosity is its own reference material, not an
+                // inherited obligation for the owner in the handoff layer.
+                hypomnema.push(item);
+            }
             DurableContinuityRecordKind::Handoff | DurableContinuityRecordKind::OpenThread => {
                 handoff.push(item);
             }

@@ -13,11 +13,18 @@ use std::{
 
 use luca_protocol::{
     CreateResidentJournalPageRequestV1, CreateResidentJournalPageResultV1,
-    LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1,
-    ResidentPrivateCognitionRequestV1, ResidentPrivateCognitionResultV1,
-    RuntimeTaskDeliveryRequestV1, RuntimeTaskDeliveryResultV1, SafeU53, Sha256Ref,
+    InitiativePlanningRequestV1, InitiativePlanningResultV1, LocalContinuityCognitionRequestV1,
+    LocalContinuityCognitionResultV1, ResidentPrivateCognitionRequestV1,
+    ResidentPrivateCognitionResultV1, RuntimeTaskDeliveryRequestV1, RuntimeTaskDeliveryResultV1,
+    SafeU53, Sha256Ref,
 };
 use serde::Deserialize;
+
+mod initiative;
+pub(crate) use initiative::{
+    begin_initiative_planning, begin_initiative_pursuit, request_initiative_planning,
+    request_initiative_pursuit, ManagedInitiativeAdmission, ManagedInitiativeCancellation,
+};
 
 const MAX_FRAME_BYTES: usize = 64 * 1024;
 
@@ -54,8 +61,14 @@ pub(crate) struct ManagedCognitionClient {
     session_epoch: SafeU53,
     binding_ref: Sha256Ref,
     invalidated: AtomicBool,
+    /// Adapter policy, not proof that a model pursuit has succeeded.
+    initiative_tool_free_adapter: AtomicBool,
     #[cfg(unix)]
     channel: Mutex<Channel>,
+    #[cfg(unix)]
+    control_writer: Mutex<std::os::unix::net::UnixStream>,
+    #[cfg(unix)]
+    pending_initiative: Mutex<Option<initiative::PendingInitiative>>,
 }
 
 impl std::fmt::Debug for ManagedCognitionClient {
@@ -150,15 +163,21 @@ pub(crate) fn create_endpoint(
     let reader = desktop
         .try_clone()
         .map_err(|error| format!("clone managed cognition socket: {error}"))?;
+    let control_writer = desktop
+        .try_clone()
+        .map_err(|_| "clone private initiative control writer".to_owned())?;
     let client = Arc::new(ManagedCognitionClient {
         resident_pubkey,
         session_epoch,
         binding_ref,
         invalidated: AtomicBool::new(false),
+        initiative_tool_free_adapter: AtomicBool::new(false),
         channel: Mutex::new(Channel {
             reader: BufReader::new(reader),
             writer: desktop,
         }),
+        control_writer: Mutex::new(control_writer),
+        pending_initiative: Mutex::new(None),
     });
     let owned = std::os::fd::OwnedFd::from(child);
     Ok((ManagedCognitionChildFd(owned), client))
@@ -169,6 +188,26 @@ fn clients() -> &'static Mutex<std::collections::HashMap<String, Arc<ManagedCogn
         Mutex<std::collections::HashMap<String, Arc<ManagedCognitionClient>>>,
     > = OnceLock::new();
     CLIENTS.get_or_init(|| Mutex::new(std::collections::HashMap::new()))
+}
+
+impl ManagedCognitionClient {
+    /// Host runtime resolution supplies this fact. Unknown or Codex adapters
+    /// cannot inherit Claude's independently implemented no-tools policy.
+    pub(crate) fn set_initiative_adapter(&self, runtime_family: &str) {
+        self.initiative_tool_free_adapter
+            .store(runtime_family == "claude_code", Ordering::Release);
+    }
+}
+
+pub(crate) fn initiative_adapter_supported(resident: &luca_protocol::Hex64) -> bool {
+    clients()
+        .lock()
+        .ok()
+        .and_then(|clients| clients.get(resident.as_str()).cloned())
+        .is_some_and(|client| {
+            !client.invalidated.load(Ordering::Acquire)
+                && client.initiative_tool_free_adapter.load(Ordering::Acquire)
+        })
 }
 
 pub(crate) fn register(client: Arc<ManagedCognitionClient>) -> Result<(), String> {
@@ -317,6 +356,14 @@ impl ManagedCognitionClient {
         };
         if self.invalidated.load(Ordering::Acquire) {
             return Err(ManagedCognitionError::Unavailable);
+        }
+        if self
+            .pending_initiative
+            .lock()
+            .map_err(|_| ManagedCognitionError::Unavailable)?
+            .is_some()
+        {
+            return Err(ManagedCognitionError::Busy);
         }
         // Another private request may have held the channel. The original
         // deadline still applies after acquiring it; never extend admission.

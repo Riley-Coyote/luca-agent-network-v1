@@ -70,6 +70,9 @@ pub(crate) fn enqueue_finalized(
     source_event_id: &luca_protocol::Hex64,
     binding_ref: &Sha256Ref,
 ) -> Result<Option<OpaqueId>, String> {
+    if !automatic_derivatives_allowed(app, &publish_request.owner_pubkey,
+        &publish_request.resident_pubkey, source_event_id)
+    { return Ok(None); }
     if continuity_mode(
         app,
         &publish_request.owner_pubkey,
@@ -379,6 +382,12 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
         Ok(Some(job)) => job,
         Ok(None) | Err(_) => return,
     };
+    if !automatic_derivatives_allowed(app, &job.job.owner_pubkey,
+        &job.job.resident_pubkey, &job.job.source_event_id)
+    {
+        let _ = transition_terminal(app, &job, "cancelled", "awareness_derivative_unavailable");
+        return;
+    }
     if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
         != Ok(ResidentContinuityModeV1::Enabled)
     {
@@ -434,9 +443,12 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             let _ = complete_job(app, &job, "no_change");
         }
         LocalContinuityCognitionOutcomeV1::Handoff { handoff } => {
+            let carried_handoff = handoff.clone();
             if continuity_mode(app, &job.job.owner_pubkey, &job.job.resident_pubkey)
                 != Ok(ResidentContinuityModeV1::Enabled)
                 || !job_is_running(app, &job)
+                || !automatic_derivatives_allowed(app, &job.job.owner_pubkey,
+                    &job.job.resident_pubkey, &job.job.source_event_id)
             {
                 let _ = transition_terminal(app, &job, "cancelled", "continuity_preempted");
                 return;
@@ -452,6 +464,12 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             });
             match commit {
                 ResidentMetabolismCommitOutcomeV1::Committed(_) => {
+                    // Reuse the validated resident authorship, without another
+                    // model call. Failure is quiet and never breaks handoff/chat.
+                    let _ = super::companion_initiative::carried::carry_committed_handoff(
+                        &state, &job.job.owner_pubkey, &job.job.resident_pubkey,
+                        &job.job.source_event_id, &carried_handoff,
+                    );
                     let _ = complete_job(app, &job, "handoff_committed");
                 }
                 // A pinned owner correction intentionally wins. The automatic
@@ -478,6 +496,18 @@ fn execute_job(app: &AppHandle, job_id: &OpaqueId) {
             let _ = fail_job(app, &job, code, false);
         }
     }
+}
+
+/// A temporary source frame is not permission to retain a handoff/carry body.
+/// Unknown metadata is not silently treated as a clean native conversation.
+pub(crate) fn automatic_derivatives_allowed(
+    app: &AppHandle, owner: &luca_protocol::Hex64, resident: &luca_protocol::Hex64,
+    final_event: &luca_protocol::Hex64,
+) -> bool {
+    super::managed_dispatch_store::global_dispatch_store(app).ok()
+        .and_then(|store| store.lock().ok().map(|store|
+            store.automatic_derivatives_allowed_for_final(owner, resident, final_event)))
+        .unwrap_or(false)
 }
 
 fn job_is_running(app: &AppHandle, job: &FinalizedHandoffJob) -> bool {

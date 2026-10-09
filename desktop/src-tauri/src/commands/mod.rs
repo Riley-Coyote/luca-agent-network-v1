@@ -21,6 +21,13 @@ mod channel_templates;
 mod channel_window;
 mod channels;
 mod clipboard;
+mod companion;
+#[cfg(unix)]
+mod companion_browser;
+mod companion_sources;
+mod companion_initiative;
+mod companion_profiles;
+mod companion_machine;
 mod connected_brain;
 mod continuity;
 mod conversation_context;
@@ -94,6 +101,13 @@ pub use channel_templates::*;
 pub use channel_window::*;
 pub use channels::*;
 pub use clipboard::*;
+pub use companion::*;
+#[cfg(unix)]
+pub use companion_browser::*;
+pub use companion_sources::*;
+pub use companion_initiative::*;
+pub use companion_profiles::*;
+pub use companion_machine::*;
 pub use connected_brain::*;
 pub use continuity::*;
 pub(crate) use conversation_context::*;

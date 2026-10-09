@@ -22,8 +22,10 @@ pub(crate) use index::{build_index, read_verified_excerpt, ConnectedBrainIndexBu
 pub(crate) use session_context::session_id as native_session_opaque_id;
 pub(crate) use session_context::{
     context_for_native_session, list_native_sessions, native_session_reference,
-    recent_native_session_references, IndexedSessionContextV1, IndexedSessionListV1,
+    recent_native_session_references, visible_native_session_excerpts, IndexedSessionContextV1,
+    IndexedSessionListV1,
 };
+pub(crate) use sessions::redact_reference_local_paths;
 pub(crate) use sessions::SessionReadBudget;
 pub(crate) use watcher::{
     register_connected_source, start_connected_source_watcher, unregister_connected_source,

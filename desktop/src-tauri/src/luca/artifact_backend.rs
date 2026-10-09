@@ -13,6 +13,7 @@ use tauri::AppHandle;
 use super::{
     artifact_bridge::ArtifactBrokerBackend,
     artifacts::{ArtifactRecord, ArtifactStore, ArtifactStoreError, ArtifactWriteContext},
+    companion_awareness::artifact_access::is_initiative_creation,
 };
 
 /// Desktop-owned artifact backend shared by every compatible ACP runtime.
@@ -161,6 +162,9 @@ impl DesktopArtifactBackend {
                         args.limit,
                     )?
                     .iter()
+                    // Local initiative creations do not carry broker/provider
+                    // egress authority merely because the owner can read them.
+                    .filter(|artifact| !is_initiative_creation(artifact))
                     .map(Self::metadata)
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|_| ArtifactStoreError::SchemaIncompatible)?;
@@ -239,7 +243,10 @@ fn require_artifact_conversation_scope(
         | ArtifactToolOperationV1::PreviewDetach(_) => None,
     };
     if let Some(artifact_id) = artifact_id {
-        store.get_for_conversation(&binding.owner_pubkey, &binding.conversation_id, artifact_id)?;
+        let artifact = store.get_for_conversation(&binding.owner_pubkey, &binding.conversation_id, artifact_id)?;
+        if is_initiative_creation(&artifact) {
+            return Err(ArtifactStoreError::NotFound);
+        }
     }
     Ok(())
 }

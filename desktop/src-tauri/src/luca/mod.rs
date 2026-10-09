@@ -13,6 +13,8 @@ pub(crate) mod artifact_bridge;
 #[cfg(unix)]
 pub(crate) mod communication_bridge;
 pub(crate) mod communication_turn_registry;
+pub(crate) mod companion_awareness;
+pub(crate) mod companion_initiative;
 pub(crate) mod connected_brain;
 #[allow(dead_code)]
 pub(crate) mod continuity_backup;

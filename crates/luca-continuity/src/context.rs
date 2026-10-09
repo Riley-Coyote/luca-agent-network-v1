@@ -10,10 +10,11 @@ use luca_protocol::{
     canonicalize, CanonicalTimestamp, ContinuityContextRequestV1, ContinuityContextResultV1,
     ContinuityLayerResultV1, ContinuityLayerStatusV1, ContinuityPacketV1,
     ContinuityPromptPayloadV1, ContinuityWakeHandoffV1, ContinuityWakeItemV1,
-    ContinuityWakePacketV1, ContinuityWorkingReferenceV1, Hex64, OpaqueId, ProviderEgressV1,
-    SafeDiagnosticV1, SafeU53, Sha256Ref, CONTINUITY_PROMPT_PROTOCOL_V1, CONTINUITY_PROTOCOL,
-    CONTINUITY_WAKE_COMPILER_V1, CONTINUITY_WAKE_PROTOCOL_V1, MAX_CONTINUITY_PACKET_BYTES,
-    MAX_CONTINUITY_REFS, MAX_CONTINUITY_WAKE_AMBIENT_ITEMS, MAX_CONTINUITY_WAKE_COMMITMENTS,
+    ContinuityWakePacketV1, ContinuityWorkingReferenceV1, Hex64, InitiativeSemanticThreadV1,
+    InitiativeThreadKindV1, OpaqueId, ProviderEgressV1, SafeDiagnosticV1, SafeU53, Sha256Ref,
+    CONTINUITY_PROMPT_PROTOCOL_V1, CONTINUITY_PROTOCOL, CONTINUITY_WAKE_COMPILER_V1,
+    CONTINUITY_WAKE_PROTOCOL_V1, MAX_CONTINUITY_PACKET_BYTES, MAX_CONTINUITY_REFS,
+    MAX_CONTINUITY_WAKE_AMBIENT_ITEMS, MAX_CONTINUITY_WAKE_COMMITMENTS,
     MAX_CONTINUITY_WAKE_CORRECTIONS, MAX_CONTINUITY_WAKE_RELEVANT_ITEMS,
     MAX_OWNER_BRAIN_RETRIEVAL_CHUNKS,
 };
@@ -705,6 +706,14 @@ fn validate_wake_input(input: &ContinuityWakeCompileInput) -> Result<(), Continu
     Ok(())
 }
 
+/// Classification only: authenticated host material is still untrusted
+/// reference text and can never grant execution or author another principal.
+fn is_resident_owned_inquiry(item: &ContinuityWakeItemV1) -> bool {
+    item.record_kind.as_str() == "open-thread"
+        && serde_json::from_str::<InitiativeSemanticThreadV1>(&item.body)
+            .is_ok_and(|thread| thread.kind == InitiativeThreadKindV1::Own)
+}
+
 fn select_wake_material(
     input: ContinuityWakeCompileInput,
 ) -> Result<SelectedWakeMaterial, ContinuityError> {
@@ -744,6 +753,18 @@ fn select_wake_material(
             corrections.push(selected);
         } else {
             match source.item.record_kind.as_str() {
+                "open-thread" if is_resident_owned_inquiry(&source.item) => {
+                    // A companion's own curiosity is reference material, not
+                    // an obligation the human has to fulfill. Keep the exact
+                    // canonical kind and provenance while using a neutral lane.
+                    if source.selected_by_retrieval
+                        && relevant.len() < MAX_CONTINUITY_WAKE_RELEVANT_ITEMS
+                    {
+                        relevant.push(selected);
+                    } else {
+                        ambient_candidates.push(selected);
+                    }
+                }
                 "commitment" | "preference" | "open-thread" => {
                     if commitments.len() < MAX_CONTINUITY_WAKE_COMMITMENTS {
                         commitments.push(selected);
@@ -2535,6 +2556,66 @@ mod tests {
 
     fn compiled_payload(output: &ContinuityWakeCompileOutput) -> serde_json::Value {
         serde_json::from_str(&output.packet.as_ref().unwrap().content).unwrap()
+    }
+
+    #[test]
+    fn own_curiosity_is_not_an_owner_commitment() {
+        let mut input = wake_input(false);
+        input.current_handoff = None;
+        input.capsule_identity_orientation.clear();
+        input.capsule_relationship_orientation.clear();
+        input.owner_brain_references.clear();
+        let body = |kind: &str, id: &str| {
+            serde_json::to_string(&serde_json::json!({
+                "protocol": luca_protocol::INITIATIVE_SEMANTIC_THREAD_PROTOCOL,
+                "thread_id": id,
+                "owner_pubkey": input.owner_pubkey,
+                "resident_pubkey": input.resident_pubkey,
+                "kind": kind,
+                "disposition": "carried",
+                "revision": 0,
+                "body": format!("A meaningful {kind} inquiry"),
+                "source_event_ids": [],
+                "source_refs": [sha('a')],
+                "created_at": timestamp(1),
+                "updated_at": timestamp(1)
+            }))
+            .unwrap()
+        };
+        let own_body = body("own", "own-inquiry");
+        let shared_body = body("shared", "shared-inquiry");
+        input.resident_items = vec![
+            wake_source(
+                "own-inquiry",
+                "open-thread",
+                "resident",
+                &own_body,
+                'a',
+                0,
+                1,
+                false,
+                true,
+            ),
+            wake_source(
+                "shared-inquiry",
+                "open-thread",
+                "resident",
+                &shared_body,
+                'a',
+                1,
+                1,
+                false,
+                true,
+            ),
+        ];
+        let selected = select_wake_material(input).unwrap();
+        assert_eq!(selected.commitments.len(), 1);
+        assert_eq!(
+            selected.commitments[0].item.item_id.as_str(),
+            "shared-inquiry"
+        );
+        assert_eq!(selected.relevant.len(), 1);
+        assert_eq!(selected.relevant[0].item.item_id.as_str(), "own-inquiry");
     }
 
     #[test]

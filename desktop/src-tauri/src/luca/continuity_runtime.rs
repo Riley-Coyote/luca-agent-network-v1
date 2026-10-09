@@ -14,8 +14,8 @@ use luca_continuity::{
     RetrievalText, RevisionActor, RevisionLifecycle, RevisionOperation, RevisionRequest,
 };
 use luca_protocol::{
-    canonical_sha256, CanonicalTimestamp, Hex64, OpaqueId, ResidentHandoffV1, ResidentMemoryNoteV1,
-    SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
+    canonical_sha256, CanonicalTimestamp, Hex64, InitiativeDispositionV1, OpaqueId,
+    ResidentHandoffV1, ResidentMemoryNoteV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
 };
 
 use crate::app_state::ContinuityLifecycleLock;
@@ -1381,6 +1381,45 @@ where
                 0,
             )));
         }
+        let Some(lineage_root) = capture.active_head_lineage_roots.get(&encrypted.record_id) else {
+            return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Invalid(receipt(
+                request,
+                attempt_count,
+                Some(&capture.token),
+                0,
+            )));
+        };
+        let initiative_thread = match super::resident_notebook::decode_initiative_thread_material(
+            encrypted,
+            lineage_root,
+            &material,
+        ) {
+            Ok(thread) => thread,
+            Err(_) => {
+                return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Invalid(receipt(
+                    request,
+                    attempt_count,
+                    Some(&capture.token),
+                    0,
+                )));
+            }
+        };
+        // Closed pursuits remain available through explicit notebook disclosure,
+        // but never enter the normal retrieval index or carried Wake. Filtering
+        // happens inside the authenticated immutable capture, before ranking.
+        if initiative_thread.as_ref().is_some_and(|thread| {
+            matches!(
+                thread.disposition,
+                InitiativeDispositionV1::Declined
+                    | InitiativeDispositionV1::Retired
+                    | InitiativeDispositionV1::Completed
+            )
+        }) {
+            continue;
+        }
+        let initiative_source_event_ids = initiative_thread
+            .as_ref()
+            .map(|thread| thread.source_event_ids.clone());
         let input = match material.into_record_input(
             request.address.clone(),
             encrypted.record_id.clone(),
@@ -1400,7 +1439,10 @@ where
         };
         match RetrievalRecord::new(input) {
             Ok(record) => {
-                let source_event_ids = match exact_source_event_ids(&record) {
+                let source_event_ids = match initiative_source_event_ids
+                    .map(Ok)
+                    .unwrap_or_else(|| exact_source_event_ids(&record))
+                {
                     Ok(value) => value,
                     Err(_) => {
                         return AttemptResult::Final(ContinuityReadLeaseOutcomeV1::Invalid(

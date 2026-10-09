@@ -1,6 +1,11 @@
 //! Desktop-owned admission records for Luca-managed resident turns.
 //!
 //! Exact signed owner events authorize turns; relay chronology does not.
+mod awareness;
+pub(crate) use awareness::{
+    ordinary_turn_awareness_consumers_ready, ManagedAwarenessTaintedScopeV1,
+    ManagedTurnAwarenessBindingV1, ManagedTurnAwarenessLookupV1,
+};
 use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{HashMap, HashSet},
@@ -24,7 +29,8 @@ const STORE_SCHEMA_V1: &str = "luca.managed-dispatch-store.v1";
 const STORE_SCHEMA_V2: &str = "luca.managed-dispatch-store.v2";
 const STORE_SCHEMA_V3: &str = "luca.managed-dispatch-store.v3";
 const STORE_SCHEMA_V4: &str = "luca.managed-dispatch-store.v4";
-const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v5";
+const STORE_SCHEMA_V5: &str = "luca.managed-dispatch-store.v5";
+const STORE_SCHEMA: &str = "luca.managed-dispatch-store.v6";
 const MAX_DISPATCHES: usize = 512;
 const DISPATCH_TTL_SECONDS: u64 = 30 * 60;
 const CONTINUITY_DISPATCH_DOMAIN: &str = "luca.continuity.dispatch-set.v1";
@@ -123,6 +129,10 @@ pub(crate) struct ActiveDispatch {
     /// delivers prepared context to this exact managed ACP turn.
     #[serde(default)]
     pub(crate) turn_context_receipt: Option<ManagedTurnContextReceiptV1>,
+    /// Optional immutable awareness frame binding. New-schema absence is
+    /// Unknown, not an assertion that this native scope never received sources.
+    #[serde(default)]
+    pub(crate) awareness_context_binding: Option<ManagedTurnAwarenessBindingV1>,
 }
 
 /// Body-free receipt for the exact context packet delivered to local managed
@@ -192,6 +202,8 @@ pub(crate) enum ManagedDispatchReconciliation {
 struct PersistedDispatchStore {
     schema: String,
     dispatches: Vec<ActiveDispatch>,
+    #[serde(default)]
+    awareness_tainted_scopes: Vec<ManagedAwarenessTaintedScopeV1>,
 }
 
 /// Exact broker comparison failure. These codes are deliberately body-free.
@@ -321,6 +333,7 @@ pub(crate) struct ManagedDispatchStore {
     path: PathBuf,
     dispatches: HashMap<(String, String), ActiveDispatch>,
     active_sessions: HashMap<String, u64>,
+    awareness_tainted_scopes: Vec<ManagedAwarenessTaintedScopeV1>,
 }
 
 impl ManagedDispatchStore {
@@ -331,6 +344,7 @@ impl ManagedDispatchStore {
 
     /// Load a bounded store, rejecting malformed or unsupported state.
     pub(crate) fn load(path: PathBuf) -> Result<Self, String> {
+        let mut awareness_tainted_scopes = Vec::new();
         let dispatches = if path.exists() {
             let bytes = std::fs::read(&path)
                 .map_err(|error| format!("read managed dispatch store: {error}"))?;
@@ -345,11 +359,19 @@ impl ManagedDispatchStore {
                     | STORE_SCHEMA_V2
                     | STORE_SCHEMA_V3
                     | STORE_SCHEMA_V4
+                    | STORE_SCHEMA_V5
                     | STORE_SCHEMA
             ) || persisted.dispatches.len() > MAX_DISPATCHES
             {
                 return Err("managed dispatch store schema or row count is invalid".into());
             }
+            let legacy = persisted.schema != STORE_SCHEMA;
+            if legacy && (!persisted.awareness_tainted_scopes.is_empty()
+                || persisted.dispatches.iter().any(|row| row.awareness_context_binding.is_some()))
+            {
+                return Err("legacy dispatch schema cannot claim awareness metadata".into());
+            }
+            awareness_tainted_scopes = persisted.awareness_tainted_scopes;
             let mut dispatches = HashMap::with_capacity(persisted.dispatches.len());
             for mut dispatch in persisted.dispatches {
                 // v1/v2 rows are top-level owner dispatches. Upgrade their
@@ -361,6 +383,9 @@ impl ManagedDispatchStore {
                 if dispatch.causal_root_event_id.is_none() {
                     dispatch.causal_root_event_id = Some(dispatch.trigger_event_id.clone());
                 }
+                if legacy {
+                    dispatch.awareness_context_binding = Some(ManagedTurnAwarenessBindingV1::legacy_clean(&dispatch)?);
+                }
                 validate_dispatch(&dispatch)?;
                 let key = (
                     dispatch.trigger_event_id.clone(),
@@ -370,6 +395,7 @@ impl ManagedDispatchStore {
                     return Err("managed dispatch store contains duplicate rows".into());
                 }
             }
+            awareness::validate_store_bindings(&dispatches, &awareness_tainted_scopes)?;
             dispatches
         } else {
             HashMap::new()
@@ -378,6 +404,7 @@ impl ManagedDispatchStore {
             path,
             dispatches,
             active_sessions: HashMap::new(),
+            awareness_tainted_scopes,
         })
     }
 
@@ -1261,6 +1288,7 @@ impl ManagedDispatchStore {
                 artifact_bindings: artifact_bindings.clone(),
                 context_binding: context_binding.clone(),
                 turn_context_receipt: None,
+                awareness_context_binding: None,
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -1379,6 +1407,7 @@ impl ManagedDispatchStore {
             artifact_bindings: Vec::new(),
             context_binding: None,
             turn_context_receipt: None,
+            awareness_context_binding: None,
         };
         let previous = self.dispatches.clone();
         self.dispatches.insert(key.clone(), candidate);
@@ -2435,8 +2464,12 @@ impl ManagedDispatchStore {
         let bytes = serde_json::to_vec(&PersistedDispatchStore {
             schema: STORE_SCHEMA.to_owned(),
             dispatches,
+            awareness_tainted_scopes: self.awareness_tainted_scopes.clone(),
         })
         .map_err(|error| format!("serialize managed dispatch store: {error}"))?;
+        if bytes.len() > 2 * 1024 * 1024 {
+            return Err("managed dispatch store exceeds size limit".into());
+        }
         atomic_write_restricted(&self.path, &bytes)
     }
 }
@@ -2511,6 +2544,9 @@ fn validate_dispatch(dispatch: &ActiveDispatch) -> Result<(), String> {
     }
     if let Some(binding) = &dispatch.context_binding {
         binding.validate()?;
+    }
+    if let Some(binding) = &dispatch.awareness_context_binding {
+        binding.validate(dispatch)?;
     }
     match (&dispatch.context_binding, &dispatch.turn_context_receipt) {
         (Some(binding), Some(receipt)) => validate_turn_context_receipt(binding, receipt)?,

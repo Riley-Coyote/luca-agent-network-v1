@@ -203,6 +203,26 @@ pub fn load_managed_agents(app: &AppHandle) -> Result<Vec<ManagedAgentRecord>, S
     Ok(records)
 }
 
+/// Public identifiers only, without querying or migrating the keychain.
+/// Narrowing controls remain available when resident custody is locked.
+pub(crate) fn load_managed_agent_public_keys(
+    app: &AppHandle,
+) -> Result<Vec<luca_protocol::Hex64>, String> {
+    use zeroize::Zeroize;
+    let mut records = load_agent_store(app)?;
+    for record in &mut records {
+        record.private_key_nsec.zeroize();
+    }
+    records
+        .into_iter()
+        .filter(|record| !record.pubkey.is_empty())
+        .map(|record| {
+            luca_protocol::Hex64::parse(record.pubkey)
+                .map_err(|_| "invalid managed resident identity".to_owned())
+        })
+        .collect()
+}
+
 /// Load the key-less agent *definitions* (former personas) from the unified
 /// store. The persona compatibility shim (`load_personas`) presents these in
 /// the legacy shape via `to_definition_view`.

@@ -48,6 +48,16 @@ Buzz product assumptions in the upstream guide below. In particular:
   and must not be merged wholesale.
 - Do not claim G1 from unit tests alone. Use the repository checklist.
 
+### Local build storage
+
+Keep active source, toolchains, dependencies, build targets and proof processes
+on the internal SSD. Run local Rust work through
+`bash scripts/with-internal-build-cache.sh <command>`. Dev/test incremental
+snapshots are disabled; compiled dependencies remain reusable. Never point live
+builds or dependency symlinks at LaCie. Follow
+[docs/luca/BUILD_STORAGE.md](docs/luca/BUILD_STORAGE.md) for verified cold
+archives, restoration and coordination with other cleanup sessions.
+
 # AGENTS.md — Upstream AI Agent Contributor Guide
 
 This guide is for AI agents contributing to the Buzz codebase. It covers

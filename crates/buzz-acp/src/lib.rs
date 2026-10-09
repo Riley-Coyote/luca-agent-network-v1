@@ -4075,28 +4075,52 @@ fn dispatch_private_cognition(
     observer: Option<observer::ObserverHandle>,
     pending: &mut HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
 ) {
-    let request = envelope.request;
+    let (request, reply_tx) = match envelope {
+        local_cognition::CognitionEnvelope::Request { request, reply_tx } => (request, reply_tx),
+        local_cognition::CognitionEnvelope::CancelInitiative { control } => {
+            cancel_private_initiative(pool, pending, ctx, &control);
+            return;
+        }
+    };
     let job_id = request.job_id().as_str().to_owned();
     let authorized = ctx.managed_final_publisher.as_ref().is_some_and(|managed| {
         request.owner_pubkey() == &managed.owner_pubkey
             && request.resident_pubkey() == &managed.resident_pubkey
+            && match &request {
+                luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning {
+                    request,
+                } => request.session_epoch == managed.session_epoch,
+                luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => {
+                    request.session_epoch == managed.session_epoch
+                }
+                _ => true,
+            }
     });
     if !authorized || pending.contains_key(&job_id) {
-        let _ = envelope
-            .reply_tx
-            .send(local_cognition::CognitionReply::Unavailable(
-                "invalid_or_duplicate",
-            ));
+        let _ = reply_tx.send(local_cognition::CognitionReply::Unavailable(
+            "invalid_or_duplicate",
+        ));
         return;
     }
-    let isolated_codex = config.identity.is_managed()
-        && config::normalize_agent_command_identity(&config.agent_command) == "codex-acp";
-    let mut agent = match claim_private_cognition_worker(pool, queue, isolated_codex) {
+    let runtime = config::normalize_agent_command_identity(&config.agent_command);
+    let isolated_codex = config.identity.is_managed() && runtime == "codex-acp";
+    let isolated_claude = config.identity.is_managed() && runtime == "claude-agent-acp";
+    // Codex's existing overlay excludes MCP/plugins, not every built-in tool.
+    // New initiative work must never infer tool-free authority from a denied
+    // approval or a read-only sandbox. Legacy reflection/journal stays unchanged.
+    if is_initiative_request(&request)
+        && !initiative_tool_isolation_supported(&runtime, config.identity.is_managed())
+    {
+        let _ = reply_tx.send(local_cognition::CognitionReply::Unavailable(
+            "tool_isolation_unsupported",
+        ));
+        return;
+    }
+    let isolated = isolated_codex || isolated_claude;
+    let mut agent = match claim_private_cognition_worker(pool, queue, isolated) {
         Ok(agent) => agent,
         Err(code) => {
-            let _ = envelope
-                .reply_tx
-                .send(local_cognition::CognitionReply::Unavailable(code));
+            let _ = reply_tx.send(local_cognition::CognitionReply::Unavailable(code));
             return;
         }
     };
@@ -4107,7 +4131,7 @@ fn dispatch_private_cognition(
     let result_tx = pool.result_tx();
     let ctx = Arc::clone(ctx);
     let agent_index = agent.index;
-    let abort_handle = if isolated_codex {
+    let abort_handle = if isolated {
         let spawn = CodexContinuitySpawnSpec {
             command: config.agent_command.clone(),
             args: config.agent_args.clone(),
@@ -4127,13 +4151,14 @@ fn dispatch_private_cognition(
         );
         pool.join_set.spawn(finish_isolated_continuity_task(
             guard,
-            run_isolated_codex_continuity_task(
+            run_isolated_native_continuity_task(
                 binding,
                 source,
                 ctx,
                 control_rx,
                 task_turn_id,
                 spawn,
+                isolated_claude,
             ),
         ))
     } else {
@@ -4157,28 +4182,62 @@ fn dispatch_private_cognition(
         pool::TaskMeta {
             agent_index,
             channel_id: None,
-            isolated_continuity: isolated_codex,
+            isolated_continuity: isolated,
             turn_id,
             recoverable_batch: None,
             control_tx: Some(control_tx),
             steer_tx: None,
         },
     );
-    pending.insert(job_id, envelope.reply_tx);
+    pending.insert(job_id, reply_tx);
+}
+
+fn cancel_private_initiative(
+    pool: &mut AgentPool,
+    pending: &HashMap<String, tokio::sync::oneshot::Sender<local_cognition::CognitionReply>>,
+    ctx: &PromptContext,
+    control: &luca_protocol::ResidentPrivateCognitionControlV1,
+) {
+    let luca_protocol::ResidentPrivateCognitionControlV1::CancelInitiative {
+        job_id,
+        resident_pubkey,
+        session_epoch,
+        ..
+    } = control;
+    if !pending.contains_key(job_id.as_str())
+        || !ctx.managed_final_publisher.as_ref().is_some_and(|managed| {
+            &managed.resident_pubkey == resident_pubkey && managed.session_epoch == *session_epoch
+        })
+    {
+        return;
+    }
+    let turn_id = format!("initiative:{}", job_id.as_str());
+    for task in pool.task_map_mut().values_mut() {
+        cancel_exact_initiative_task(task, &turn_id);
+    }
+}
+
+fn cancel_exact_initiative_task(task: &mut pool::TaskMeta, turn_id: &str) -> bool {
+    if task.channel_id.is_some() || !task.isolated_continuity || task.turn_id != turn_id {
+        return false;
+    }
+    task.control_tx
+        .take()
+        .is_some_and(|tx| tx.send(ControlSignal::Cancel).is_ok())
 }
 
 fn claim_private_cognition_worker(
     pool: &mut AgentPool,
     queue: &EventQueue,
-    isolated_codex: bool,
+    isolated: bool,
 ) -> Result<OwnedAgent, &'static str> {
-    // User-visible work always wins. Only the separate managed Codex process
+    // User-visible work always wins. A separate managed native process
     // may reserve a warm worker; runtimes that prompt the claimed worker keep
     // the strict no-live-channel rule.
     if queue.pending_channels() > 0 {
         return Err("user_work_pending");
     }
-    if isolated_codex {
+    if isolated {
         pool.try_reserve_idle_worker_for_isolated_cognition()
     } else {
         pool.try_claim_idle_worker_with_no_live_channels()
@@ -4191,11 +4250,29 @@ fn private_cognition_turn_id(request: &luca_protocol::ResidentPrivateCognitionRe
         luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery { request } => {
             request.delivery_id.as_str().to_owned()
         }
+        luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { request } => {
+            format!("initiative:{}", request.job_id.as_str())
+        }
+        luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { request } => {
+            format!("initiative:{}", request.job_id.as_str())
+        }
         _ => Uuid::new_v4().to_string(),
     }
 }
 
-/// The disposable Codex ACP process used for a managed resident's private
+fn is_initiative_request(request: &luca_protocol::ResidentPrivateCognitionRequestV1) -> bool {
+    matches!(
+        request,
+        luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { .. }
+            | luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { .. }
+    )
+}
+
+fn initiative_tool_isolation_supported(runtime: &str, managed: bool) -> bool {
+    managed && runtime == "claude-agent-acp"
+}
+
+/// The disposable native ACP process used for a managed resident's private
 /// continuity turn. The claimed resident worker is never given the turn, so
 /// its public-session state, model binding, and native tools remain untouched.
 #[derive(Clone)]
@@ -4316,6 +4393,120 @@ async fn cancellable_continuity_setup<T>(
         _ = control_rx => Err(IsolatedContinuitySetupError::Cancelled),
         result = setup => result.map_err(|_| IsolatedContinuitySetupError::Failed),
     }
+}
+
+async fn run_isolated_native_continuity_task(
+    binding: CodexContinuityWorkerBinding,
+    source: PromptSource,
+    ctx: Arc<PromptContext>,
+    control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
+    turn_id: String,
+    spawn: CodexContinuitySpawnSpec,
+    isolated_claude: bool,
+) -> (PromptOutcome, Option<String>) {
+    if isolated_claude {
+        run_isolated_claude_continuity_task(binding, source, ctx, control_rx, turn_id, spawn).await
+    } else {
+        run_isolated_codex_continuity_task(binding, source, ctx, control_rx, turn_id, spawn).await
+    }
+}
+
+async fn run_isolated_claude_continuity_task(
+    binding: CodexContinuityWorkerBinding,
+    source: PromptSource,
+    ctx: Arc<PromptContext>,
+    mut control_rx: tokio::sync::oneshot::Receiver<ControlSignal>,
+    turn_id: String,
+    spawn: CodexContinuitySpawnSpec,
+) -> (PromptOutcome, Option<String>) {
+    let temporary_agent =
+        match spawn_isolated_claude_continuity_agent(&spawn, &binding, &mut control_rx).await {
+            Ok(agent) => agent,
+            Err(IsolatedContinuitySetupError::Cancelled) => {
+                return (PromptOutcome::Cancelled, None)
+            }
+            Err(IsolatedContinuitySetupError::Failed) => {
+                return (isolated_continuity_failure(), None)
+            }
+        };
+    // A fresh private worker has no public sessions. Existing session creation
+    // enforces tools:[], strictMcpConfig, settingSources:[] and exact model.
+    let (temporary_result_tx, mut temporary_result_rx) = mpsc::unbounded_channel();
+    pool::run_prompt_task(
+        temporary_agent,
+        source,
+        None,
+        None,
+        ctx,
+        temporary_result_tx,
+        Some(control_rx),
+        turn_id,
+    )
+    .await;
+    let Some(mut result) = temporary_result_rx.recv().await else {
+        return (isolated_continuity_failure(), None);
+    };
+    result.agent.acp.shutdown().await;
+    (result.outcome, result.private_output)
+}
+
+async fn spawn_isolated_claude_continuity_agent(
+    spawn: &CodexContinuitySpawnSpec,
+    binding: &CodexContinuityWorkerBinding,
+    control_rx: &mut tokio::sync::oneshot::Receiver<ControlSignal>,
+) -> Result<OwnedAgent, IsolatedContinuitySetupError> {
+    let mut acp = cancellable_continuity_setup(
+        async {
+            AcpClient::spawn_managed(
+                &spawn.command,
+                &spawn.args,
+                &spawn.extra_env,
+                spawn.has_generated_codex_config,
+            )
+            .await
+            .map_err(|_| "isolated Claude continuity spawn failed".to_owned())
+        },
+        control_rx,
+    )
+    .await?;
+    acp.set_observer(spawn.observer.clone(), binding.index);
+    let init = match cancellable_continuity_setup(
+        async {
+            acp.initialize()
+                .await
+                .map_err(|_| "isolated Claude continuity initialize failed".to_owned())
+        },
+        control_rx,
+    )
+    .await
+    {
+        Ok(init) => init,
+        Err(error) => {
+            acp.shutdown().await;
+            return Err(error);
+        }
+    };
+    let agent_name = normalized_agent_name(&init);
+    if !matches!(
+        agent_name.as_str(),
+        "claude-agent-acp" | "@agentclientprotocol/claude-agent-acp"
+    ) {
+        acp.shutdown().await;
+        return Err(IsolatedContinuitySetupError::Failed);
+    }
+    Ok(OwnedAgent {
+        index: binding.index,
+        acp,
+        state: SessionState::default(),
+        model_capabilities: None,
+        desired_model: binding.desired_model.clone(),
+        desired_permission_mode: binding.desired_permission_mode,
+        model_overridden: binding.model_overridden,
+        agent_name,
+        goose_system_prompt_supported: None,
+        protocol_version: init["protocolVersion"].as_u64().unwrap_or(1) as u32,
+        additional_directories_supported: supports_additional_directories(&init),
+    })
 }
 
 async fn run_isolated_codex_continuity_task(
@@ -4693,6 +4884,40 @@ async fn resolve_private_cognition_result(
         let _ = reply_tx.send(reply);
         return;
     }
+    if let luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { request } =
+        request.as_ref()
+    {
+        let now = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX);
+        let reply = parse_initiative_planning_result(
+            request,
+            result.private_output.take(),
+            matches!(result.outcome, PromptOutcome::Ok(acp::StopReason::EndTurn)),
+            now,
+        )
+        .map(|result| local_cognition::CognitionReply::Completed(Box::new(result)))
+        .unwrap_or(local_cognition::CognitionReply::Unavailable(
+            "invalid_result",
+        ));
+        let _ = reply_tx.send(reply);
+        return;
+    }
+    if let luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { request } =
+        request.as_ref()
+    {
+        let now = u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap_or(u64::MAX);
+        let reply = parse_initiative_pursuit_result(
+            request,
+            result.private_output.take(),
+            matches!(result.outcome, PromptOutcome::Ok(acp::StopReason::EndTurn)),
+            now,
+        )
+        .map(|result| local_cognition::CognitionReply::Completed(Box::new(result)))
+        .unwrap_or(local_cognition::CognitionReply::Unavailable(
+            "invalid_result",
+        ));
+        let _ = reply_tx.send(reply);
+        return;
+    }
     let reply = if matches!(result.outcome, PromptOutcome::Ok(_)) {
         result
             .private_output
@@ -4720,6 +4945,8 @@ async fn resolve_private_cognition_result(
                 luca_protocol::ResidentPrivateCognitionRequestV1::RuntimeTaskDelivery {
                     ..
                 } => None,
+                luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePlanning { .. } => None,
+                luca_protocol::ResidentPrivateCognitionRequestV1::InitiativePursuit { .. } => None,
             })
             .filter(|parsed| {
                 parsed.validate_against(request).is_ok()
@@ -4734,6 +4961,186 @@ async fn resolve_private_cognition_result(
         local_cognition::CognitionReply::Unavailable("runtime_failed")
     };
     let _ = reply_tx.send(reply);
+}
+
+fn parse_initiative_planning_result(
+    request: &luca_protocol::InitiativePlanningRequestV1,
+    output: Option<String>,
+    completed: bool,
+    now_unix_ms: u64,
+) -> Option<luca_protocol::ResidentPrivateCognitionResultV1> {
+    if !completed {
+        return None;
+    }
+    let output = output.filter(|output| output.len() <= request.max_result_bytes.get() as usize)?;
+    let result: luca_protocol::InitiativePlanningResultV1 = serde_json::from_str(&output).ok()?;
+    result.validate_against_at(request, now_unix_ms).ok()?;
+    let envelope = luca_protocol::ResidentPrivateCognitionResultV1::InitiativePlanning { result };
+    luca_protocol::canonicalize(&envelope)
+        .ok()
+        .filter(|bytes| bytes.len() <= request.max_result_bytes.get() as usize)?;
+    Some(envelope)
+}
+
+fn parse_initiative_pursuit_result(
+    request: &luca_protocol::InitiativePursuitRequestV1,
+    output: Option<String>,
+    completed: bool,
+    now_unix_ms: u64,
+) -> Option<luca_protocol::ResidentPrivateCognitionResultV1> {
+    if !completed {
+        return None;
+    }
+    let output = output.filter(|output| output.len() <= request.max_result_bytes.get() as usize)?;
+    let result: luca_protocol::InitiativePursuitResultV1 = serde_json::from_str(&output).ok()?;
+    result.validate_against_at(request, now_unix_ms).ok()?;
+    let envelope = luca_protocol::ResidentPrivateCognitionResultV1::InitiativePursuit { result };
+    luca_protocol::canonicalize(&envelope)
+        .ok()
+        .filter(|bytes| bytes.len() <= request.max_result_bytes.get() as usize)?;
+    Some(envelope)
+}
+
+#[cfg(test)]
+mod initiative_pursuit_result_tests {
+    use super::*;
+    use crate::pool::initiative_pursuit_tests::{request, result};
+
+    #[test]
+    fn authorship_requires_end_turn_current_correlation_and_original_deadline() {
+        let request = request();
+        let valid = result(&request);
+        let now = crate::pool::initiative_planning_tests::admitted_ms();
+        let output = serde_json::to_string(&valid).expect("private authored result");
+        assert!(
+            parse_initiative_pursuit_result(&request, Some(output.clone()), true, now).is_some()
+        );
+        assert!(
+            parse_initiative_pursuit_result(&request, Some(output.clone()), false, now).is_none()
+        );
+        assert!(parse_initiative_pursuit_result(
+            &request,
+            Some(output),
+            true,
+            request.deadline_unix_ms.get()
+        )
+        .is_none());
+        let mut stale = valid;
+        stale.binding_ref = luca_protocol::Sha256Ref::parse(format!("sha256:{}", "d".repeat(64)))
+            .expect("other binding");
+        assert!(parse_initiative_pursuit_result(
+            &request,
+            Some(serde_json::to_string(&stale).expect("stale wire")),
+            true,
+            now
+        )
+        .is_none());
+        for runtime in ["codex-acp", "hermes", "openclaw", "unknown"] {
+            assert!(!initiative_tool_isolation_supported(runtime, true));
+        }
+        assert!(initiative_tool_isolation_supported(
+            "claude-agent-acp",
+            true
+        ));
+        assert!(!initiative_tool_isolation_supported(
+            "claude-agent-acp",
+            false
+        ));
+    }
+
+    #[test]
+    fn exact_initiative_cancel_never_signals_public_legacy_or_other_owned_work() {
+        fn task(
+            turn: &str,
+            channel: Option<Uuid>,
+            isolated: bool,
+        ) -> (
+            pool::TaskMeta,
+            tokio::sync::oneshot::Receiver<ControlSignal>,
+        ) {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            (
+                pool::TaskMeta {
+                    agent_index: 0,
+                    channel_id: channel,
+                    isolated_continuity: isolated,
+                    turn_id: turn.into(),
+                    recoverable_batch: None,
+                    control_tx: Some(tx),
+                    steer_tx: None,
+                },
+                rx,
+            )
+        }
+        let exact = "initiative:pursuit:owned";
+        for (turn, channel, isolated) in [
+            (exact, Some(Uuid::new_v4()), true),
+            ("legacy:reflection", None, true),
+            ("initiative:pursuit:other", None, true),
+            (exact, None, false),
+        ] {
+            let (mut task, mut rx) = task(turn, channel, isolated);
+            assert!(!cancel_exact_initiative_task(&mut task, exact));
+            assert!(matches!(
+                rx.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ));
+        }
+        let (mut task, mut rx) = task(exact, None, true);
+        assert!(cancel_exact_initiative_task(&mut task, exact));
+        assert!(matches!(rx.try_recv(), Ok(ControlSignal::Cancel)));
+        assert!(!cancel_exact_initiative_task(&mut task, exact));
+    }
+}
+
+#[cfg(test)]
+mod initiative_planning_result_tests {
+    use super::*;
+    use crate::pool::initiative_planning_tests::{admitted_ms, request, result};
+
+    #[test]
+    fn no_change_returns_only_a_correlated_private_choice() {
+        let request = request();
+        let output = serde_json::to_string(&result(&request)).expect("private choice JSON");
+        let Some(luca_protocol::ResidentPrivateCognitionResultV1::InitiativePlanning { result }) =
+            parse_initiative_planning_result(&request, Some(output), true, admitted_ms() + 1)
+        else {
+            panic!("expected a private planning choice")
+        };
+        assert_eq!(
+            result.decision.result,
+            luca_protocol::InitiativePlanningOutcomeV1::NoChange
+        );
+    }
+
+    #[test]
+    fn expired_partial_or_wrong_binding_output_cannot_be_admitted() {
+        let request = request();
+        let output = serde_json::to_string(&result(&request)).expect("private choice JSON");
+        assert!(parse_initiative_planning_result(
+            &request,
+            Some(output.clone()),
+            false,
+            admitted_ms() + 1
+        )
+        .is_none());
+        assert!(parse_initiative_planning_result(
+            &request,
+            Some(output),
+            true,
+            request.deadline_unix_ms.get()
+        )
+        .is_none());
+        let mut wrong = result(&request);
+        wrong.session_epoch = luca_protocol::SafeU53::new(4).expect("other epoch");
+        assert!(parse_initiative_planning_result(
+            &request,
+            Some(serde_json::to_string(&wrong).expect("wrong epoch JSON")),
+            true,
+            admitted_ms() + 1
+        )
+        .is_none());
+    }
 }
 
 fn runtime_task_delivery_draft(

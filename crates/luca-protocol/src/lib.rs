@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod awareness;
 mod brain;
 mod canonical;
 mod capability;
@@ -20,6 +21,10 @@ mod diagnostic;
 mod exchange;
 mod frame;
 mod ids;
+mod initiative;
+mod initiative_planning;
+mod initiative_pursuit;
+mod initiative_thread;
 mod managed_audience;
 mod managed_input;
 mod managed_permission;
@@ -32,6 +37,7 @@ mod relay_auth;
 mod runtime_task_delivery;
 
 pub use artifact::*;
+pub use awareness::*;
 pub use brain::*;
 pub use canonical::{
     canonical_sha256, canonicalize, parse_and_canonicalize_strict, parse_strict_json,
@@ -58,6 +64,10 @@ pub use ids::{
     BundleId, CanonicalTimestamp, Hex64, OpaqueId, ProtocolValueError, SafeU53, Sha256Ref,
     JSON_SAFE_INTEGER_MAX,
 };
+pub use initiative::*;
+pub use initiative_planning::*;
+pub use initiative_pursuit::*;
+pub use initiative_thread::*;
 pub use managed_audience::{ManagedAudienceIntentV1, MAX_MANAGED_AUDIENCE_RESIDENTS};
 pub use managed_input::{
     ManagedInputActionV1, ManagedInputDecisionV1, ManagedInputFieldV1, ManagedInputKindV1,

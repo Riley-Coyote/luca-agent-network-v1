@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, Read},
     path::{Component, Path},
     process::{Command, Stdio},
 };
@@ -159,6 +159,82 @@ pub(crate) fn read_document(root: &Path, relative_path: &str) -> Result<String, 
     String::from_utf8(bytes).map_err(|_| "repository locator is not text".to_owned())
 }
 
+/// Read exactly one granted text file with a hard allocation ceiling. This
+/// parser grants no Brain/awareness access; callers fence the read with current
+/// host permission. A changed or redirected file produces no admitted snapshot.
+pub(crate) fn read_document_bounded(
+    root: &Path,
+    relative_path: &str,
+    max_bytes: usize,
+) -> Result<String, String> {
+    if max_bytes == 0 || max_bytes as u64 > MAX_INDEX_FILE_BYTES {
+        return Err("selected document byte limit is invalid".into());
+    }
+    let relative =
+        valid_relative_path(relative_path).ok_or("selected document locator is excluded")?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|_| "selected source is unavailable".to_owned())?;
+    let joined = canonical_root.join(relative);
+    if fs::symlink_metadata(&joined)
+        .map_err(|_| "selected document unavailable")?
+        .file_type()
+        .is_symlink()
+    {
+        return Err("selected document symlink is excluded".into());
+    }
+    let canonical = joined
+        .canonicalize()
+        .map_err(|_| "selected document unavailable".to_owned())?;
+    if !canonical.starts_with(&canonical_root) {
+        return Err("selected document escaped its source".into());
+    }
+    let file =
+        fs::File::open(&canonical).map_err(|_| "selected document unavailable".to_owned())?;
+    let before = file
+        .metadata()
+        .map_err(|_| "selected document unavailable".to_owned())?;
+    let path_before =
+        fs::metadata(&canonical).map_err(|_| "selected document unavailable".to_owned())?;
+    if !before.is_file()
+        || before.len() == 0
+        || before.len() > max_bytes as u64
+        || joined.canonicalize().ok().as_ref() != Some(&canonical)
+        || !same_file_snapshot(&before, &path_before)
+    {
+        return Err("selected document is oversized or changed".into());
+    }
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    file.take(max_bytes as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "selected document unavailable".to_owned())?;
+    let after = fs::metadata(&canonical).map_err(|_| "selected document unavailable".to_owned())?;
+    if bytes.len() > max_bytes
+        || joined.canonicalize().ok().as_ref() != Some(&canonical)
+        || !same_file_snapshot(&before, &after)
+    {
+        return Err("selected document is oversized or changed".into());
+    }
+    if bytes.contains(&0) || credential_content_all(&bytes) {
+        return Err("selected document contains excluded material".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "selected document is not text".into())
+}
+
+fn same_file_snapshot(left: &fs::Metadata, right: &fs::Metadata) -> bool {
+    if left.len() != right.len() || left.modified().ok() != right.modified().ok() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if left.dev() != right.dev() || left.ino() != right.ino() {
+            return false;
+        }
+    }
+    true
+}
+
 fn valid_relative_path(value: &str) -> Option<String> {
     let path = Path::new(value);
     if value.is_empty()
@@ -207,7 +283,11 @@ fn credential_name(name: &str) -> bool {
 
 fn credential_content(bytes: &[u8]) -> bool {
     let sample = &bytes[..bytes.len().min(32 * 1024)];
-    let lower = String::from_utf8_lossy(sample).to_ascii_lowercase();
+    credential_content_all(sample)
+}
+
+fn credential_content_all(bytes: &[u8]) -> bool {
+    let lower = String::from_utf8_lossy(bytes).to_ascii_lowercase();
     [
         "-----begin private key-----",
         "-----begin rsa private key-----",
@@ -215,6 +295,10 @@ fn credential_content(bytes: &[u8]) -> bool {
         "github_token=",
         "openai_api_key=",
         "anthropic_api_key=",
+        "nsec1",
+        "sk-ant-",
+        "sk-proj-",
+        "ghp_",
     ]
     .iter()
     .any(|marker| lower.contains(marker))

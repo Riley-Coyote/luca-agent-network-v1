@@ -2626,6 +2626,8 @@ fn spawn_agent_child_unix(
         Some(runtime) => runtime,
         None => "unknown",
     };
+    #[cfg(unix)]
+    managed_cognition_client.set_initiative_adapter(runtime_family);
     let mut command = std::process::Command::new(&resolved_acp_command);
     command.current_dir(&managed_working_root);
     #[cfg(unix)]

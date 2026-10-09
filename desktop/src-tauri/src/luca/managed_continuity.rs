@@ -133,6 +133,8 @@ struct ManagedSessionContextResultV1 {
     #[serde(default)]
     quick_chat_context: Option<String>,
     first_meeting_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    awareness_context: Option<super::companion_awareness::turn_context::AwarenessTurnContextV1>,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -538,6 +540,7 @@ fn write_session_context_result(
         quick_chat_effort: None,
         quick_chat_context: None,
         first_meeting_context: None,
+        awareness_context: None,
     };
     let now_unix_ms = unix_time_millis();
     let mut attached_session_context = None;
@@ -661,6 +664,7 @@ fn write_session_context_result(
                                             quick_chat_effort: None,
                                             quick_chat_context: None,
                                             first_meeting_context: None,
+                                            awareness_context: None,
                                         }
                                     }
                                     _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
@@ -680,25 +684,35 @@ fn write_session_context_result(
     result.quick_chat_effort = quick_chat_effort;
     result.quick_chat_context = quick_chat_context;
     result.first_meeting_context = first_meeting_context;
-    let bytes = serde_json::to_vec(&result)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?;
-    if bytes.len() >= MAX_FRAME_BYTES {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "context frame exceeds bound",
-        ));
-    }
-    let remaining = intent
-        .deadline_unix_ms
-        .get()
-        .saturating_sub(unix_time_millis())
-        .clamp(1, MAX_RESOLUTION_MILLIS);
-    writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
-    let write = writer
-        .write_all(&bytes)
-        .and_then(|_| writer.write_all(b"\n"))
-        .and_then(|_| writer.flush());
-    let _ = writer.set_write_timeout(None);
+
+    // Readiness is host-owned and false until native-history consent and all
+    // derivative consumers are coherent. No-source turns retain the old wire.
+    let awareness_write = receipt_authority.as_ref().and_then(|authority| {
+        write_optional_awareness_context(
+            app, writer, intent, binding_ref, authority, &mut result,
+        )
+    });
+    let write = if let Some(write) = awareness_write {
+        write
+    } else {
+        if let Some(authority) = receipt_authority.as_ref() {
+            // Missing current body does not erase prior warm-native taint. The
+            // store's sticky marker decides clean/inherited/unknown semantics.
+            let _ = global_dispatch_store(app).ok().and_then(|store| store.lock().ok().and_then(|mut store| {
+                store.bind_turn_without_awareness_context(authority, intent.session_epoch, binding_ref, unix_time_millis() / 1000).ok()
+            }));
+        }
+        let bytes = Zeroizing::new(serde_json::to_vec(&result)
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?);
+        if bytes.len() >= MAX_FRAME_BYTES {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "context frame exceeds bound"));
+        }
+        let remaining = intent.deadline_unix_ms.get().saturating_sub(unix_time_millis()).clamp(1, MAX_RESOLUTION_MILLIS);
+        writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
+        let write = writer.write_all(&bytes).and_then(|_| writer.write_all(b"\n")).and_then(|_| writer.flush());
+        let _ = writer.set_write_timeout(None);
+        write
+    };
     if write.is_ok()
         && matches!(
             result.status,
@@ -753,6 +767,91 @@ fn write_session_context_result(
         }
     }
     write
+}
+
+#[cfg(unix)]
+fn write_optional_awareness_context(
+    app: &AppHandle,
+    writer: &mut std::os::unix::net::UnixStream,
+    intent: &ManagedSessionContextIntentV1,
+    binding_ref: &Sha256Ref,
+    expected: &super::managed_dispatch_store::ContinuityDispatchAuthority,
+    result: &mut ManagedSessionContextResultV1,
+) -> Option<std::io::Result<()>> {
+    use super::companion_awareness::{
+        source_runtime::preload_source_facts_before,
+        turn_context::{AwarenessTurnScopeV1, PreparedAwarenessTurnContextV1},
+        AwarenessHostFactsV1, AwarenessMaterialFactsV1, LiveAwarenessOwner,
+    };
+    use luca_protocol::{AwarenessMaterialStateV1, AwarenessUseV1, CanonicalTimestamp};
+    if !super::managed_dispatch_store::ordinary_turn_awareness_consumers_ready()
+        || !matches!(result.status, ManagedSessionContextStatusV1::Empty | ManagedSessionContextStatusV1::Ready | ManagedSessionContextStatusV1::Degraded) {
+        return None;
+    }
+    let state = app.state::<AppState>();
+    let now_ms = unix_time_millis();
+    let remaining = intent.deadline_unix_ms.get().checked_sub(now_ms)?;
+    if remaining < 50 { return None; }
+    let now = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)).ok()?;
+    let deadline = Instant::now().checked_add(Duration::from_millis(remaining.min(MAX_RESOLUTION_MILLIS)))?;
+    let material = preload_source_facts_before(&state, &expected.owner_pubkey, &expected.resident_pubkey, &now, deadline).ok()?;
+    let snapshot = material.snapshot();
+    if snapshot.references().is_empty() { return None; }
+    let scope = AwarenessTurnScopeV1 { request_id: intent.request_id.clone(), authority: expected.clone(), binding_ref: binding_ref.clone(), session_epoch: intent.session_epoch, deadline_unix_ms: intent.deadline_unix_ms.get() };
+    let prepared = PreparedAwarenessTurnContextV1::prepare(scope.clone(), snapshot,
+        |reference| material.resolve(reference, false),
+        |reference| {
+            let key = super::companion_awareness::AwarenessGrantKeyV1 {
+                source: super::companion_awareness::AwarenessSourceKeyV1 { owner_pubkey: reference.owner_pubkey.clone(), source_id: reference.source_id.clone(), device_id: reference.device_id.clone() },
+                resident_pubkey: reference.resident_pubkey.clone(),
+            };
+            // Persistent native history is not an ephemeral source sink. Even
+            // when future readiness is true, mere observe+egress is insufficient.
+            state.companion_awareness.snapshot(&expected.owner_pubkey, &key).is_ok_and(|authority| {
+                authority.grant.choices.retain && authority.grant.choices.provider_egress_binding.as_ref() == Some(binding_ref)
+            })
+        },
+    ).ok()??;
+    let live = LiveAwarenessOwner::authenticate(&state).ok()?;
+    if live.owner() != &expected.owner_pubkey { return None; }
+    let lease = live.lease().ok()?;
+    let dispatch = global_dispatch_store(app).ok()?;
+    let mut dispatch = dispatch.lock().ok()?;
+    let current_ms = unix_time_millis();
+    if current_ms >= intent.deadline_unix_ms.get() || Instant::now() >= deadline { return None; }
+    let current = dispatch.authorize_continuity_turn(intent.trigger_event_id.as_str(), intent.resident_pubkey.as_str(), intent.conversation_id.as_str(), intent.session_epoch.get(), current_ms / 1000).ok()?;
+    if &current != expected
+        || super::managed_cognition::active_binding_ref(&intent.resident_pubkey).ok().as_ref() != Some(binding_ref)
+        || super::managed_cognition::active_session_epoch(&intent.resident_pubkey).ok() != Some(intent.session_epoch) { return None; }
+    let now = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)).ok()?;
+    let facts = AwarenessHostFactsV1 { owner_pubkey: &expected.owner_pubkey, resident_pubkey: &expected.resident_pubkey, now: &now,
+        source_fresh: false, material_state: AwarenessMaterialStateV1::Unavailable };
+    let receipt = prepared.receipt();
+    let mut attempted = None;
+    let _ = state.companion_awareness.with_payloads_lease(&lease, &facts, &receipt.observations,
+        AwarenessUseV1 { retain: true, provider_egress_binding: Some(binding_ref), ..Default::default() },
+        |reference, retained| {
+            let current = material.resolve(reference, retained);
+            let admitted = prepared.material(reference, retained);
+            AwarenessMaterialFactsV1 { source_fresh: current.source_fresh && admitted.source_fresh, material_state: current.material_state }
+        }, Some(&receipt.context_node), |payloads| {
+            let Ok(context) = prepared.compile(&scope, &now, payloads) else { return; };
+            // Bind BEFORE the first byte. Partial writes stay conservatively
+            // tainted; app expiry does not erase native/provider history.
+            if dispatch.bind_turn_awareness_context(&current, intent.session_epoch, binding_ref, &receipt.context_node, &receipt.observations, unix_time_millis() / 1000).is_err() { return; }
+            result.awareness_context = Some(context);
+            let encoded = serde_json::to_vec(result);
+            if let Ok(encoded) = encoded {
+                let bytes = Zeroizing::new(encoded);
+                let ms = intent.deadline_unix_ms.get().saturating_sub(unix_time_millis());
+                if bytes.len() >= MAX_FRAME_BYTES || ms == 0 { result.awareness_context = None; return; }
+                attempted = Some(writer.set_write_timeout(Some(Duration::from_millis(ms.min(MAX_RESOLUTION_MILLIS))))
+                    .and_then(|_| writer.write_all(&bytes)).and_then(|_| writer.write_all(b"\n")).and_then(|_| writer.flush()));
+                let _ = writer.set_write_timeout(None);
+            }
+        });
+    if attempted.is_none() { result.awareness_context = None; }
+    attempted
 }
 
 struct OwnerBrainContextV1 {

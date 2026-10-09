@@ -4,7 +4,7 @@ use std::{
     fmt,
     io::Write,
     sync::{
-        atomic::{AtomicBool, AtomicU16},
+        atomic::{AtomicBool, AtomicU16, AtomicU64},
         Arc, Mutex, MutexGuard,
     },
 };
@@ -120,6 +120,25 @@ pub struct AppState {
     /// readiness state. Callers use typed AppState methods; the raw mutex and
     /// SQLite connection are never exposed.
     continuity_runtime: Mutex<ContinuityRuntimeState>,
+    /// Optional per-companion access authority and expiring local observations.
+    /// No adapter or background runtime is started merely by constructing state.
+    pub(crate) companion_awareness: crate::luca::companion_awareness::CompanionAwarenessRuntime,
+    /// Owned source event pump; construction alone starts no observation.
+    pub(crate) companion_sources:
+        crate::luca::companion_awareness::source_runtime::CompanionSourceRuntimeV1,
+    /// Browser pairing metadata restores off; no extension install/capture at construction.
+    #[cfg(unix)]
+    pub(crate) companion_browser:
+        crate::luca::companion_awareness::browser_runtime::CompanionBrowserRuntimeV1,
+    /// Default-off carried-work reservations, without a spawned runtime.
+    pub(crate) companion_initiative: crate::luca::companion_initiative::CompanionInitiativeRuntime,
+    pub(crate) companion_execution:
+        crate::luca::companion_initiative::control::InitiativeExecutionControlV1,
+    /// Owned default-off initiative coordinator; initialization runs metadata only.
+    pub(crate) companion_coordinator:
+        crate::luca::companion_initiative::coordinator::CompanionInitiativeCoordinatorV1,
+    /// Last explicit in-app owner activity; this is a timestamp, not input logs.
+    pub(crate) companion_last_explicit_activity_ms: AtomicU64,
     /// Expiring, process-memory-only V1.2 source previews. The cache contains
     /// sensitive relative paths but no source bodies and is never persisted.
     pub(crate) owner_brain_previews: OwnerBrainPreviewCache,
@@ -278,6 +297,16 @@ pub fn build_app_state() -> AppState {
         None => Keys::generate(),
     };
 
+    build_app_state_with_keys(keys)
+}
+
+/// Disposable test state: no environment identity or keychain is consulted.
+#[cfg(test)]
+pub(crate) fn build_isolated_test_app_state() -> AppState {
+    build_app_state_with_keys(Keys::generate())
+}
+
+fn build_app_state_with_keys(keys: Keys) -> AppState {
     AppState {
         keys: Mutex::new(keys),
         http_client: reqwest::Client::builder()
@@ -301,6 +330,16 @@ pub fn build_app_state() -> AppState {
         channel_templates_store_lock: Mutex::new(()),
         continuity_lifecycle: ContinuityLifecycleLock::new(),
         continuity_runtime: Mutex::new(ContinuityRuntimeState::Uninitialized),
+        companion_awareness: Default::default(),
+        companion_sources: Default::default(),
+        #[cfg(unix)]
+        companion_browser: Default::default(),
+        companion_initiative: Default::default(),
+        companion_execution: Default::default(),
+        companion_coordinator: Default::default(),
+        companion_last_explicit_activity_ms: AtomicU64::new(
+            chrono::Utc::now().timestamp_millis().max(0) as u64,
+        ),
         managed_agent_processes: Mutex::new(HashMap::new()),
         session_config_cache: Mutex::new(HashMap::new()),
         huddle_state: Mutex::new(HuddleState::default()),
@@ -918,6 +957,122 @@ impl AppState {
             &self.continuity_runtime,
             owner_pubkey,
             resident_pubkey,
+        )
+    }
+
+    /// Persist one explicitly authorized semantic thread in the same encrypted
+    /// resident namespace. This grants no observation or background execution.
+    pub(crate) fn commit_resident_initiative_thread(
+        &self,
+        request: crate::luca::resident_notebook::InitiativeThreadCommitRequestV1,
+    ) -> Result<
+        crate::luca::resident_notebook::InitiativeThreadCommitReceiptV1,
+        crate::luca::resident_notebook::InitiativeThreadStoreErrorV1,
+    > {
+        crate::luca::resident_notebook::commit_resident_initiative_thread(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            request,
+        )
+    }
+
+    /// Explicit notebook disclosure with immutable current-head authority.
+    /// Ordinary Wake uses the guarded lease and filters closed work beforehand.
+    pub(crate) fn read_resident_initiative_threads(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        resident_pubkey: &luca_protocol::Hex64,
+        include_history: bool,
+    ) -> Result<
+        Option<crate::luca::resident_notebook::InitiativeThreadReadSnapshotV1>,
+        crate::luca::resident_notebook::InitiativeThreadStoreErrorV1,
+    > {
+        crate::luca::resident_notebook::read_resident_initiative_threads(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            resident_pubkey,
+            include_history,
+        )
+    }
+
+    /// One exact canonical head under an already-held current owner lease.
+    /// Identity precedes continuity; the callback may acquire awareness only for
+    /// bounded final framing/local commit, never wait for native cognition.
+    pub(crate) fn consume_current_resident_initiative_thread<T>(
+        &self,
+        owner: &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+        resident: &luca_protocol::Hex64,
+        thread_id: &luca_protocol::OpaqueId,
+        expected_record: &luca_protocol::OpaqueId,
+        expected_semantic_ref: &luca_protocol::Sha256Ref,
+        consume: impl FnOnce(
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &crate::luca::resident_notebook::InitiativeThreadRevisionViewV1,
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::InitiativeThreadStoreErrorV1> {
+        crate::luca::resident_notebook::consume_current_resident_initiative_thread(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner.owner(),
+            resident,
+            thread_id,
+            expected_record,
+            expected_semantic_ref,
+            consume,
+        )
+    }
+
+    /// Synchronize body-free canonical coordinates after a disposition change.
+    /// This does not admit a closed thread to conversation or native cognition.
+    pub(crate) fn consume_current_resident_initiative_settlement<T>(
+        &self,
+        owner: &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+        resident: &luca_protocol::Hex64,
+        thread_id: &luca_protocol::OpaqueId,
+        expected_record: &luca_protocol::OpaqueId,
+        expected_semantic_ref: &luca_protocol::Sha256Ref,
+        consume: impl FnOnce(
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &crate::luca::resident_notebook::InitiativeThreadSettlementV1,
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::InitiativeThreadStoreErrorV1> {
+        crate::luca::resident_notebook::consume_current_resident_initiative_settlement(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner.owner(),
+            resident,
+            thread_id,
+            expected_record,
+            expected_semantic_ref,
+            consume,
+        )
+    }
+
+    /// Exact Own inquiry head under the already-held owner lease. The callback
+    /// can frame/commit a bounded local effect, never await native cognition.
+    pub(crate) fn consume_current_resident_own_inquiry<T>(
+        &self,
+        owner: &crate::luca::companion_awareness::LiveAwarenessLease<'_>,
+        resident: &luca_protocol::Hex64,
+        thread_id: &luca_protocol::OpaqueId,
+        expected_record: &luca_protocol::OpaqueId,
+        expected_semantic_ref: &luca_protocol::Sha256Ref,
+        consume: impl FnOnce(
+            &crate::luca::continuity_revision_authority::RevisionAuthorityTokenV1,
+            &crate::luca::resident_notebook::InitiativeThreadRevisionViewV1,
+            &mut crate::luca::resident_notebook::OwnInquiryCanonicalCommitterV1<'_>,
+        ) -> T,
+    ) -> Result<T, crate::luca::resident_notebook::InitiativeThreadStoreErrorV1> {
+        crate::luca::resident_notebook::consume_current_resident_own_inquiry(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner.owner(),
+            resident,
+            thread_id,
+            expected_record,
+            expected_semantic_ref,
+            consume,
         )
     }
 

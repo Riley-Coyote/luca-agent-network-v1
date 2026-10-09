@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Polyphonic browser awareness candidate",
+  "version": "0.1.0",
+  "minimum_chrome_version": "105",
+  "description": "Explicit, profile-paired browser references for one Polyphonic companion.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA11u3vI3lLBQODvYbkSkbcFVGnnepLzyl0O+A0WBb9Ni2bLpBOtYvnI2bYd/Xb747fkTP2wqpzNv7z0wn+yCJWZas0sy0Y2bHX4KheSTOMBylSYeB2YldWR1hWU4tyAT/ggBKglTWQbcHmBYCSxv3OHeOwvAy/cXDLOZgvom45jY3Vv72PtTfz3LBNzLO8qVDVcJxCCszgx/xxpNxrmSfd5yROVW8s7w/TsIsl1XANy76R6BV3k06Ch5WAZADanp34pyQaLvpDb9OkLvZkSeBmakHMirXsGUav0N2mO/URDrKzBif36hTh6ppoa+nC+Kt7pOdFgDMeJfXyWL9jMcbFwIDAQAB",
+  "permissions": ["storage", "nativeMessaging", "activeTab", "scripting"],
+  "optional_permissions": ["history", "bookmarks"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "incognito": "not_allowed",
+  "externally_connectable": {"ids": [], "matches": []},
+  "background": {"service_worker": "service-worker.js"},
+  "action": {"default_popup": "popup.html", "default_title": "Polyphonic browser awareness"}
+}

@@ -24,6 +24,9 @@ use super::{
     continuity_store::ContinuityStoreError,
 };
 
+mod initiative_threads;
+pub(crate) use initiative_threads::*;
+
 /// One exact resident-authored metabolism proposal. Body-bearing by design;
 /// this type never implements `Debug`.
 pub(crate) struct ResidentMetabolismCommitRequestV1 {

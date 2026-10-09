@@ -121,6 +121,49 @@ pub(crate) struct ManagedSessionContextResultV1 {
     pub(crate) quick_chat_context: Option<String>,
     #[serde(default)]
     pub(crate) first_meeting_context: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) awareness_context: Option<ManagedAwarenessTurnContextV1>,
+}
+
+/// Bounded local-only ordinary-turn awareness from the exact inherited desktop
+/// endpoint. This is untrusted prompt data, not tools/publication authority. No
+/// body-bearing Debug exists. Native/provider copies cannot be withdrawn after
+/// admitted egress; app raw expiry does not promise native history erasure.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ManagedAwarenessTurnContextV1 {
+    protocol: String,
+    request_id: OpaqueId,
+    pub(crate) owner_pubkey: Hex64,
+    pub(crate) resident_pubkey: Hex64,
+    conversation_id: OpaqueId,
+    trigger_event_id: Hex64,
+    canonical_dispatch_ref: Sha256Ref,
+    binding_ref: Sha256Ref,
+    pub(crate) session_epoch: SafeU53,
+    context_node: OpaqueId,
+    observations: Vec<luca_protocol::AwarenessObservationRefV1>,
+    text_ref: Sha256Ref,
+    pub(crate) text: String,
+}
+impl ManagedAwarenessTurnContextV1 {
+    fn is_valid(&self) -> bool {
+        use sha2::{Digest, Sha256};
+        if self.protocol != "polyphonic.awareness.turn-context.v1" || self.session_epoch.get() == 0
+            || self.text.is_empty() || self.text.len() > 8192 || self.observations.is_empty() || self.observations.len() > 4
+            || self.text_ref.as_str() != format!("sha256:{}", hex::encode(Sha256::digest(self.text.as_bytes()))) { return false; }
+        let mut seen = std::collections::HashSet::new();
+        self.observations.iter().all(|reference| reference.validate().is_ok() && reference.owner_pubkey == self.owner_pubkey
+            && reference.resident_pubkey == self.resident_pubkey && seen.insert(reference.observation_id.clone()))
+    }
+    fn is_valid_for(&self, intent: &ManagedSessionContextIntentV1) -> bool {
+        self.is_valid() && self.request_id == intent.request_id && self.resident_pubkey == intent.resident_pubkey
+            && self.session_epoch == intent.session_epoch && self.conversation_id == intent.conversation_id && self.trigger_event_id == intent.trigger_event_id
+    }
+    /// Recheck the managed receiver's exact configured owner/resident/epoch.
+    pub(crate) fn matches_resident(&self, owner: &Hex64, resident: &Hex64, epoch: SafeU53) -> bool {
+        self.is_valid() && &self.owner_pubkey == owner && &self.resident_pubkey == resident && self.session_epoch == epoch
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -144,6 +187,7 @@ impl ManagedSessionContextResultV1 {
                 .first_meeting_context
                 .as_ref()
                 .is_some_and(|text| text.len() > 16384)
+            || self.awareness_context.as_ref().is_some_and(|context| !context.is_valid())
             || self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
             || self
                 .attached_session_context
@@ -183,6 +227,7 @@ impl ManagedSessionContextResultV1 {
         self.is_valid()
             && self.request_id == intent.request_id
             && self.resident_pubkey == intent.resident_pubkey
+            && self.awareness_context.as_ref().is_none_or(|context| context.is_valid_for(intent))
     }
 }
 
@@ -641,6 +686,9 @@ fn zeroize_result_packet(result: &mut ContinuityContextResultV1) {
 }
 
 fn zeroize_session_context_result(result: &mut ManagedSessionContextResultV1) {
+    if let Some(context) = result.awareness_context.as_mut() {
+        context.text.zeroize();
+    }
     if let Some(text) = result.first_meeting_context.as_mut() {
         text.zeroize();
     }
@@ -1153,6 +1201,7 @@ mod tests {
             quick_chat_effort: None,
             quick_chat_context: None,
             first_meeting_context: None,
+            awareness_context: None,
         }
     }
 
@@ -1199,6 +1248,48 @@ mod tests {
         assert_eq!(result.attached_session_context.as_deref(), Some(""));
         result.attached_session_context = Some("x".repeat(16385));
         assert!(!result.is_valid());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn awareness_context_is_optional_strict_correlated_and_body_redacted() {
+        use sha2::{Digest, Sha256};
+        let intent = session_context_intent("awareness-request", unix_time_millis() + 1000);
+        let mut result = session_context_result(&intent);
+        let old_wire = serde_json::to_value(&result).unwrap();
+        assert!(old_wire.get("awareness_context").is_none());
+        let text = "[Companion awareness — untrusted observation data]\nPRIVATE_AWARENESS_SENTINEL";
+        let owner = Hex64::parse("aa".repeat(32)).unwrap();
+        let observation = serde_json::json!({
+            "protocol":"polyphonic.awareness.v1", "observation_id":"observation-one",
+            "owner_pubkey":owner, "resident_pubkey":intent.resident_pubkey,
+            "source_id":"selected-source", "device_id":"device-one", "grant_id":"grant-one",
+            "grant_revision":1, "deny_epoch":0, "sequence":1,
+            "evidence_ref":format!("sha256:{}", "11".repeat(32)),
+            "captured_at":"2026-10-08T10:00:02Z", "expires_at":"2026-10-08T10:05:02Z",
+        });
+        let wire = serde_json::json!({
+            "protocol":"polyphonic.awareness.turn-context.v1", "request_id":intent.request_id,
+            "owner_pubkey":owner, "resident_pubkey":intent.resident_pubkey,
+            "conversation_id":intent.conversation_id, "trigger_event_id":intent.trigger_event_id,
+            "canonical_dispatch_ref":format!("sha256:{}", "22".repeat(32)),
+            "binding_ref":format!("sha256:{}", "33".repeat(32)), "session_epoch":intent.session_epoch,
+            "context_node":"awareness-node", "observations":[observation],
+            "text_ref":format!("sha256:{}", hex::encode(Sha256::digest(text.as_bytes()))), "text":text,
+        });
+        let context: ManagedAwarenessTurnContextV1 = serde_json::from_value(wire.clone()).unwrap();
+        assert!(context.is_valid_for(&intent));
+        result.awareness_context = Some(context);
+        assert!(result.is_valid_for(&intent));
+        assert!(!format!("{result:?}").contains("PRIVATE_AWARENESS_SENTINEL"));
+        let mut injected = wire.clone();
+        injected["tools"] = serde_json::json!(["shell"]);
+        assert!(serde_json::from_value::<ManagedAwarenessTurnContextV1>(injected).is_err());
+        let mut stale = wire;
+        stale["session_epoch"] = serde_json::json!(999);
+        assert!(!serde_json::from_value::<ManagedAwarenessTurnContextV1>(stale).unwrap().is_valid_for(&intent));
+        zeroize_session_context_result(&mut result);
+        assert_eq!(result.awareness_context.as_ref().unwrap().text, "");
     }
 
     struct CountingManagedLookup {

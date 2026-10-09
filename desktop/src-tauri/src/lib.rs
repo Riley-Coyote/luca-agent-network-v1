@@ -61,6 +61,13 @@ use mesh_llm_stubs::*;
 #[cfg(all(feature = "mesh-llm", target_os = "macos"))]
 use shutdown::{hard_exit_after_mesh_shutdown, relaunch_after_mesh_shutdown};
 use shutdown::{is_restart_request, shut_down_app};
+
+/// Native messaging helper entry runs before Tauri/single-instance and does not
+/// launch another app, collect data, or adopt a caller-specified owner scope.
+#[cfg(unix)]
+pub fn browser_awareness_native_host_entry() -> Option<i32> {
+    luca::companion_awareness::browser_runtime::browser_awareness_native_host_entry()
+}
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -523,13 +530,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("luca-artifact", |ctx, request, responder| {
             let app = ctx.app_handle().clone();
             tauri::async_runtime::spawn(async move {
-                let owner = app
-                    .state::<AppState>()
-                    .signing_keys()
-                    .ok()
-                    .map(|keys| keys.public_key().to_hex());
-                let response =
-                    crate::luca::artifacts::presentation::handle(owner.as_deref(), &request);
+                let response = crate::luca::companion_awareness::artifact_access::
+                    serve_static_presentation(&app, &request);
                 responder.respond(response);
             });
         })
@@ -641,7 +643,35 @@ pub fn run() {
                 luca_protocol::Hex64::parse(owner_keys.public_key().to_hex()),
             ) {
                 (Ok(app_data_dir), Ok(owner_pubkey)) => {
-                    state.initialize_continuity_runtime(&app_data_dir, owner_pubkey, recovery_mode)
+                    state
+                        .companion_awareness
+                        .initialize(&app_data_dir, (!recovery_mode).then_some(&owner_pubkey));
+                    state.initialize_continuity_runtime(&app_data_dir, owner_pubkey, recovery_mode);
+                    if let Some(control_owner) = state.companion_awareness.control_owner() {
+                        if let Ok(directory) =
+                            state.companion_awareness.private_directory(&control_owner)
+                        {
+                            state
+                                .companion_initiative
+                                .initialize(&directory, &control_owner);
+                            // Configuration restoration and raw-byte expiration
+                            // only. No source watcher/capture/model starts here.
+                            let source_app = app_handle.clone();
+                            tauri::async_runtime::spawn_blocking(move || {
+                                let state = source_app.state::<AppState>();
+                                // Metadata recovery/idle eligibility only. Native
+                                // invocation remains explicit-policy/idle gated.
+                                let _ = state.companion_coordinator.initialize(source_app.clone());
+                                #[cfg(unix)]
+                                let _ = state.companion_browser.initialize(source_app.clone());
+                                let _ = state.companion_sources.initialize(
+                                    source_app.clone(),
+                                    crate::luca::companion_awareness::source_runtime::
+                                        desktop_source_bindings(),
+                                );
+                            });
+                        }
+                    }
                 }
                 _ => luca_log!(
                     info,
@@ -1125,6 +1155,35 @@ pub fn run() {
             revoke_permission_rule,
             get_resident_runtime_tier,
             get_resident_continuity,
+            get_companion_awareness,
+            set_companion_awareness_paused,
+            withdraw_companion_awareness_grant,
+            #[cfg(unix)]
+            list_companion_browser_profiles,
+            #[cfg(unix)]
+            pick_companion_browser_native_host,
+            #[cfg(unix)]
+            install_companion_browser_native_host,
+            #[cfg(unix)]
+            approve_companion_browser_pairing,
+            #[cfg(unix)]
+            set_companion_browser_source_choices,
+            #[cfg(unix)]
+            resume_companion_browser_source,
+            #[cfg(unix)]
+            disconnect_companion_browser_profile,
+            list_companion_selected_sources,
+            pick_companion_awareness_source,
+            set_companion_source_choices,
+            get_companion_initiative,
+            set_companion_initiative_policy,
+            retire_companion_shared_thread,
+            list_companion_native_profiles,
+            pick_companion_native_profile,
+            list_companion_machine_sources,
+            select_companion_machine_source,
+            resume_companion_machine_source,
+            remove_companion_machine_source,
             get_resident_continuity_activity,
             get_managed_turn_context_receipt,
             set_resident_continuity_enabled,

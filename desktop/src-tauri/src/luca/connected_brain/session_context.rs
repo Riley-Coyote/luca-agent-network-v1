@@ -223,6 +223,28 @@ pub(crate) fn native_session_reference(
     }))
 }
 
+/// Visible recent messages from one exact host-selected locator. This is a
+/// source-confined parser, not Brain indexing or permission to read a profile.
+/// Caller must hold current source-read authority; no directory scan occurs.
+pub(crate) fn visible_native_session_excerpts(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    source_id: &OpaqueId,
+    selected_id: &OpaqueId,
+    relative_locator: &str,
+    excluded: &HashSet<String>,
+) -> Result<Vec<String>, String> {
+    native_session_reference(
+        root,
+        kind,
+        source_id,
+        selected_id,
+        relative_locator,
+        excluded,
+    )?;
+    sessions::read_visible_tail(root, kind, relative_locator, 8)
+}
+
 pub(crate) fn session_id(source_id: &OpaqueId, relative_locator: &str) -> Result<OpaqueId, String> {
     let mut digest = Sha256::new();
     digest.update(b"polyphonic-indexed-session-context-v1\0");

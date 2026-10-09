@@ -335,6 +335,10 @@ pub(crate) struct StoredRevisionGenerationV1 {
 pub(crate) struct ImmutableScopeCaptureV1 {
     pub(crate) token: RevisionAuthorityTokenV1,
     pub(crate) active_heads: Vec<ContinuityRecordV1>,
+    /// Active head to canonical lineage root from the same validated snapshot.
+    /// Body parsers must not reconstruct lineage identity from plaintext or a
+    /// detached read that may have advanced after this capture.
+    pub(crate) active_head_lineage_roots: BTreeMap<OpaqueId, OpaqueId>,
     /// Exact active heads whose lineage authority is pinned by an owner
     /// correction. This is captured from the same immutable generation as the
     /// encrypted envelopes; callers must never reconstruct it from authorship
@@ -478,6 +482,28 @@ impl ContinuityStore {
                 &generation.token,
                 &generation.snapshot,
             )?;
+            let active_head_lineage_roots = generation
+                .snapshot
+                .lineages
+                .iter()
+                .filter(|lineage| {
+                    lineage.lifecycle == RevisionLifecycle::Active
+                        && lineage.namespace == *requested.namespace().as_protocol()
+                        && lineage.scope == *requested.as_protocol()
+                })
+                .filter_map(|lineage| {
+                    lineage
+                        .active_head_record_id
+                        .as_ref()
+                        .map(|head| (head.clone(), lineage.lineage_root_id.clone()))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if active_heads
+                .iter()
+                .any(|head| !active_head_lineage_roots.contains_key(&head.record_id))
+            {
+                return Err(ContinuityStoreError::InvalidRecord);
+            }
             let mut pinned_owner_correction_heads = generation
                 .snapshot
                 .lineages
@@ -501,6 +527,7 @@ impl ContinuityStore {
             Ok(Some(ImmutableScopeCaptureV1 {
                 token: generation.token.clone(),
                 active_heads,
+                active_head_lineage_roots,
                 pinned_owner_correction_heads,
             }))
         })

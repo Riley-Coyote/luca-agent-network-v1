@@ -5,12 +5,14 @@
 //! can cross the private cognition boundary only after explicit owner selection.
 
 use crate::{
-    CanonicalTimestamp, ContinuityError, Hex64, LocalContinuityCognitionRequestV1,
-    LocalContinuityCognitionResultV1, OpaqueId, RuntimeTaskDeliveryRequestV1,
-    RuntimeTaskDeliveryResultV1, SafeU53, Sha256Ref, CONTINUITY_PROTOCOL,
-    MAX_CONTINUITY_PACKET_BYTES, MAX_JOURNAL_ANNOTATION_BYTES, MAX_JOURNAL_BODY_BYTES,
-    MAX_JOURNAL_PROMPT_BYTES, MAX_JOURNAL_SOURCE_EVENTS, MAX_JOURNAL_TITLE_BYTES,
-    MAX_MEMORY_NOTE_BYTES, MAX_MEMORY_NOTE_SOURCE_EVENTS, MAX_SELECTED_JOURNAL_PAGES,
+    CanonicalTimestamp, ContinuityError, Hex64, InitiativePlanningRequestV1,
+    InitiativePlanningResultV1, InitiativePursuitRequestV1, InitiativePursuitResultV1,
+    LocalContinuityCognitionRequestV1, LocalContinuityCognitionResultV1, OpaqueId,
+    RuntimeTaskDeliveryRequestV1, RuntimeTaskDeliveryResultV1, SafeU53, Sha256Ref,
+    CONTINUITY_PROTOCOL, MAX_CONTINUITY_PACKET_BYTES, MAX_JOURNAL_ANNOTATION_BYTES,
+    MAX_JOURNAL_BODY_BYTES, MAX_JOURNAL_PROMPT_BYTES, MAX_JOURNAL_SOURCE_EVENTS,
+    MAX_JOURNAL_TITLE_BYTES, MAX_MEMORY_NOTE_BYTES, MAX_MEMORY_NOTE_SOURCE_EVENTS,
+    MAX_SELECTED_JOURNAL_PAGES,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -655,6 +657,12 @@ pub enum ResidentPrivateCognitionRequestV1 {
     RuntimeTaskDelivery {
         request: RuntimeTaskDeliveryRequestV1,
     },
+    /// Separately admitted, tool-free planning over current canonical carried state.
+    InitiativePlanning {
+        request: InitiativePlanningRequestV1,
+    },
+    /// Separately admitted tool-free authorship, never tool research or publication.
+    InitiativePursuit { request: InitiativePursuitRequestV1 },
 }
 
 impl ResidentPrivateCognitionRequestV1 {
@@ -665,6 +673,12 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::RuntimeTaskDelivery { request } => {
                 request.validate().map_err(|_| ContinuityError::Binding)
             }
+            Self::InitiativePlanning { request } => {
+                request.validate().map_err(|_| ContinuityError::Binding)
+            }
+            Self::InitiativePursuit { request } => {
+                request.validate().map_err(|_| ContinuityError::Binding)
+            }
         }
     }
 
@@ -673,6 +687,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => &request.job_id,
             Self::Journal { request } => &request.job_id,
             Self::RuntimeTaskDelivery { request } => &request.delivery_id,
+            Self::InitiativePlanning { request } => &request.job_id,
+            Self::InitiativePursuit { request } => &request.job_id,
         }
     }
 
@@ -681,6 +697,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => &request.owner_pubkey,
             Self::Journal { request } => &request.owner_pubkey,
             Self::RuntimeTaskDelivery { request } => &request.owner_pubkey,
+            Self::InitiativePlanning { request } => &request.owner_pubkey,
+            Self::InitiativePursuit { request } => &request.owner_pubkey,
         }
     }
 
@@ -689,6 +707,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => &request.resident_pubkey,
             Self::Journal { request } => &request.resident_pubkey,
             Self::RuntimeTaskDelivery { request } => &request.resident_pubkey,
+            Self::InitiativePlanning { request } => &request.resident_pubkey,
+            Self::InitiativePursuit { request } => &request.resident_pubkey,
         }
     }
 
@@ -697,6 +717,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => &request.binding_ref,
             Self::Journal { request } => &request.binding_ref,
             Self::RuntimeTaskDelivery { request } => &request.binding_ref,
+            Self::InitiativePlanning { request } => &request.binding_ref,
+            Self::InitiativePursuit { request } => &request.binding_ref,
         }
     }
 
@@ -705,6 +727,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => request.deadline_unix_ms,
             Self::Journal { request } => request.deadline_unix_ms,
             Self::RuntimeTaskDelivery { request } => request.deadline_unix_ms,
+            Self::InitiativePlanning { request } => request.deadline_unix_ms,
+            Self::InitiativePursuit { request } => request.deadline_unix_ms,
         }
     }
 
@@ -713,6 +737,8 @@ impl ResidentPrivateCognitionRequestV1 {
             Self::Metabolism { request } => request.max_result_bytes,
             Self::Journal { request } => request.max_result_bytes,
             Self::RuntimeTaskDelivery { request } => request.max_draft_bytes,
+            Self::InitiativePlanning { request } => request.max_result_bytes,
+            Self::InitiativePursuit { request } => request.max_result_bytes,
         }
     }
 }
@@ -729,6 +755,8 @@ impl std::fmt::Debug for ResidentPrivateCognitionRequestV1 {
                     Self::Metabolism { .. } => "metabolism",
                     Self::Journal { .. } => "journal",
                     Self::RuntimeTaskDelivery { .. } => "runtime_task_delivery",
+                    Self::InitiativePlanning { .. } => "initiative_planning",
+                    Self::InitiativePursuit { .. } => "initiative_pursuit",
                 },
             )
             .finish_non_exhaustive()
@@ -747,6 +775,14 @@ pub enum ResidentPrivateCognitionResultV1 {
     },
     RuntimeTaskDelivery {
         result: RuntimeTaskDeliveryResultV1,
+    },
+    /// Body-free decision only; never a work dispatch or publication command.
+    InitiativePlanning {
+        result: InitiativePlanningResultV1,
+    },
+    /// Authored Markdown or honest no-deliverable outcome; never a publication command.
+    InitiativePursuit {
+        result: InitiativePursuitResultV1,
     },
 }
 
@@ -769,6 +805,18 @@ impl ResidentPrivateCognitionResultV1 {
             ) => result
                 .validate_against(request)
                 .map_err(|_| ContinuityError::Binding),
+            (
+                Self::InitiativePlanning { result },
+                ResidentPrivateCognitionRequestV1::InitiativePlanning { request },
+            ) => result
+                .validate_against(request)
+                .map_err(|_| ContinuityError::Binding),
+            (
+                Self::InitiativePursuit { result },
+                ResidentPrivateCognitionRequestV1::InitiativePursuit { request },
+            ) => result
+                .validate_against(request)
+                .map_err(|_| ContinuityError::Binding),
             _ => Err(ContinuityError::Binding),
         }
     }
@@ -784,6 +832,8 @@ impl std::fmt::Debug for ResidentPrivateCognitionResultV1 {
                     Self::Metabolism { .. } => "metabolism",
                     Self::Journal { .. } => "journal",
                     Self::RuntimeTaskDelivery { .. } => "runtime_task_delivery",
+                    Self::InitiativePlanning { .. } => "initiative_planning",
+                    Self::InitiativePursuit { .. } => "initiative_pursuit",
                 },
             )
             .finish_non_exhaustive()

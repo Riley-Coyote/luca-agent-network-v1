@@ -11,6 +11,27 @@ pub async fn save_bytes_with_dialog(
     extensions: &[&str],
     data: &[u8],
 ) -> Result<bool, String> {
+    save_bytes_with_dialog_guarded(
+        app,
+        suggested_filename,
+        filter_name,
+        extensions,
+        data,
+        |write| write(),
+    )
+    .await
+}
+
+/// A queued dialog is not publication authority. The artifact caller rechecks
+/// current permission around the final synchronous write, after user selection.
+pub(crate) async fn save_bytes_with_dialog_guarded(
+    app: &AppHandle,
+    suggested_filename: &str,
+    filter_name: &str,
+    extensions: &[&str],
+    data: &[u8],
+    guard: impl FnOnce(&mut dyn FnMut() -> Result<bool, String>) -> Result<bool, String>,
+) -> Result<bool, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
@@ -29,7 +50,8 @@ pub async fn save_bytes_with_dialog(
     let dest = file_path
         .as_path()
         .ok_or_else(|| "Save dialog returned an invalid path".to_string())?;
-    std::fs::write(dest, data).map_err(|e| format!("Failed to write file: {e}"))?;
-
-    Ok(true)
+    guard(&mut || {
+        std::fs::write(dest, data).map_err(|e| format!("Failed to write file: {e}"))?;
+        Ok(true)
+    })
 }

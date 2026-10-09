@@ -5,6 +5,11 @@ opt-level = 1
 # builds and much faster macOS link. Need lldb locals? Override per-shell:
 # CARGO_PROFILE_DEV_DEBUG=2
 debug = "line-tables-only"
+# Reuse compiled dependencies without accumulating large incremental snapshots.
+incremental = false
+
+[profile.test]
+incremental = false
 
 [env]
 # CMake 4 (pinned by hermit) removed compat with projects declaring

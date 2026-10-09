@@ -543,6 +543,19 @@ impl ArtifactStore {
         self.list_page_scoped(owner_pubkey, query, None)
     }
 
+    /// Body-free existence check used to avoid exposing raw Library counts or
+    /// cursor coordinates when initiative creations require current filtering.
+    pub(crate) fn has_reserved_creation_scope(
+        &self,
+        owner_pubkey: &Hex64,
+    ) -> Result<bool, ArtifactStoreError> {
+        self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM artifacts WHERE owner_pubkey=?1 AND source_turn_id GLOB 'initiative-creation-*')",
+            params![owner_pubkey.as_str()],
+            |row| row.get(0),
+        ).map_err(|_| ArtifactStoreError::Unavailable)
+    }
+
     fn list_page_scoped(
         &self,
         owner_pubkey: &Hex64,

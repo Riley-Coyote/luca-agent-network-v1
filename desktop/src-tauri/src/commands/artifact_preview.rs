@@ -143,6 +143,11 @@ fn validate_app_artifact(
     let artifact = store
         .get_for_conversation(&binding.owner_pubkey, &binding.conversation_id, artifact_id)
         .map_err(|_| "preview artifact was not found".to_string())?;
+    // Initiative creations are local Library material, not an active managed
+    // broker turn or permission to attach a networked application preview.
+    if crate::luca::companion_awareness::artifact_access::is_initiative_creation(&artifact) {
+        return Err("preview artifact was not found".to_string());
+    }
     if artifact.kind != ArtifactKindV1::App || artifact.deleted_at.is_some() {
         return Err("preview requires an active application artifact".to_string());
     }

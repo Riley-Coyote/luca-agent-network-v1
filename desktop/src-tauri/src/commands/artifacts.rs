@@ -27,6 +27,7 @@ use crate::{
         ArtifactPreviewRecord, ArtifactReceiptRecord, ArtifactRecord, ArtifactStore,
         ArtifactVersionRecord, ArtifactWriteContext,
     },
+    luca::companion_awareness::artifact_access::{with_artifact_access, ArtifactAccess},
 };
 
 const ARTIFACTS_CHANGED_EVENT: &str = "luca://artifacts-changed";
@@ -393,21 +394,23 @@ fn source_binding_for(version: &ArtifactVersionRecord) -> Option<ArtifactSourceB
 }
 
 fn compose_artifact_view(
+    state: &AppState,
     store: &ArtifactStore,
     owner: &Hex64,
     artifact: ArtifactRecord,
 ) -> Result<ArtifactViewV1, String> {
     let id = OpaqueId::parse(artifact.artifact_id.clone())
         .map_err(|_| "artifact-schema-incompatible".to_owned())?;
-    let preview = store
-        .read(owner, &id, None, ArtifactReadModeV1::Metadata)
+    let access = ArtifactAccess::new(state, owner, store);
+    let preview = access
+        .read(&id, None, ArtifactReadModeV1::Metadata)
         .map_err(|error| error.code().to_owned())?;
     let receipt = store
         .latest_receipt(owner, &id, artifact.current_version)
         .ok();
     let active_preview = active_preview_for_artifact(owner.as_str(), artifact.artifact_id.as_str());
-    let last_preview = store
-        .last_preview(owner, &id)
+    let last_preview = access
+        .last_preview(&id)
         .map_err(|error| error.code().to_owned())?;
     let source_binding = source_binding_for(&preview.version);
     let language = language_for(&preview.version, artifact.kind);
@@ -495,7 +498,8 @@ pub async fn list_artifacts(
     app: AppHandle,
 ) -> Result<ArtifactListViewV1, String> {
     blocking(move || {
-        let owner = owner_pubkey(&app.state::<AppState>())?;
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
         let store = open_store(&app)?;
         if input.limit == 0 || input.limit > MAX_ARTIFACT_LIST_ITEMS {
             return Err("artifact-invalid".to_owned());
@@ -509,21 +513,18 @@ pub async fn list_artifacts(
             return Err("artifact-query-invalid".to_owned());
         }
         let has_cursor = input.cursor.is_some();
-        let page = store
-            .list_page(
-                &owner,
-                &ArtifactListQuery {
-                    query: input.query,
-                    kinds: input.kinds,
-                    deleted: match input.deleted {
-                        ArtifactDeletedStateV1::Active => ArtifactDeletedFilter::Active,
-                        ArtifactDeletedStateV1::Deleted => ArtifactDeletedFilter::Deleted,
-                        ArtifactDeletedStateV1::All => ArtifactDeletedFilter::All,
-                    },
-                    cursor: input.cursor,
-                    limit: input.limit,
+        let page = ArtifactAccess::new(&state, &owner, &store)
+            .list_page(&ArtifactListQuery {
+                query: input.query,
+                kinds: input.kinds,
+                deleted: match input.deleted {
+                    ArtifactDeletedStateV1::Active => ArtifactDeletedFilter::Active,
+                    ArtifactDeletedStateV1::Deleted => ArtifactDeletedFilter::Deleted,
+                    ArtifactDeletedStateV1::All => ArtifactDeletedFilter::All,
                 },
-            )
+                cursor: input.cursor,
+                limit: input.limit,
+            })
             .map_err(|error| {
                 if has_cursor && error == crate::luca::artifacts::ArtifactStoreError::InvalidRequest
                 {
@@ -535,7 +536,7 @@ pub async fn list_artifacts(
         let artifacts = page
             .artifacts
             .into_iter()
-            .map(|artifact| compose_artifact_view(&store, &owner, artifact))
+            .map(|artifact| compose_artifact_view(&state, &store, &owner, artifact))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(ArtifactListViewV1 {
             artifacts,
@@ -552,12 +553,13 @@ pub async fn get_artifact(
     app: AppHandle,
 ) -> Result<ArtifactViewV1, String> {
     blocking(move || {
-        let owner = owner_pubkey(&app.state::<AppState>())?;
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
         let store = open_store(&app)?;
-        let artifact = store
-            .get(&owner, &artifact_id(input.artifact_id)?)
+        let artifact = ArtifactAccess::new(&state, &owner, &store)
+            .get(&artifact_id(input.artifact_id)?)
             .map_err(|error| error.code().to_owned())?;
-        compose_artifact_view(&store, &owner, artifact)
+        compose_artifact_view(&state, &store, &owner, artifact)
     })
     .await
 }
@@ -569,8 +571,9 @@ pub async fn list_artifact_versions(
 ) -> Result<Vec<ArtifactVersionViewV1>, String> {
     blocking(move || {
         let owner = owner_pubkey(&app.state::<AppState>())?;
-        open_store(&app)?
-            .versions(&owner, &artifact_id(input.artifact_id)?)
+        let store = open_store(&app)?;
+        ArtifactAccess::new(&app.state::<AppState>(), &owner, &store)
+            .versions(&artifact_id(input.artifact_id)?)
             .map(|versions| versions.into_iter().map(version_view).collect())
             .map_err(|error| error.code().to_owned())
     })
@@ -586,12 +589,14 @@ pub async fn get_artifact_preview_state(
         let owner = owner_pubkey(&app.state::<AppState>())?;
         let artifact_id = artifact_id(input.artifact_id)?;
         let store = open_store(&app)?;
-        store
-            .get(&owner, &artifact_id)
+        let state = app.state::<AppState>();
+        let access = ArtifactAccess::new(&state, &owner, &store);
+        access
+            .get(&artifact_id)
             .map_err(|error| error.code().to_owned())?;
         let active_session = active_preview_for_artifact(owner.as_str(), artifact_id.as_str());
-        let last_preview = store
-            .last_preview(&owner, &artifact_id)
+        let last_preview = access
+            .last_preview(&artifact_id)
             .map_err(|error| error.code().to_owned())?;
         Ok(ArtifactPreviewStateViewV1 {
             artifact_id: artifact_id.as_str().to_owned(),
@@ -612,10 +617,13 @@ pub async fn read_artifact_preview(
         let id = artifact_id(input.artifact_id)?;
         let version = input.version.map(safe_version).transpose()?;
         let store = open_store(&app)?;
-        let metadata = store
-            .read(&owner, &id, version, ArtifactReadModeV1::Metadata)
+        let state = app.state::<AppState>();
+        let access = ArtifactAccess::new(&state, &owner, &store);
+        let metadata = access
+            .read(&id, version, ArtifactReadModeV1::Metadata)
             .map_err(|error| error.code().to_owned())?;
-        let artifact_view = compose_artifact_view(&store, &owner, metadata.artifact.clone())?;
+        let record = metadata.artifact.clone();
+        let artifact_view = compose_artifact_view(&state, &store, &owner, record)?;
         let metadata_version_view = version_view(metadata.version.clone());
         if metadata.artifact.kind == ArtifactKindV1::App {
             return Ok(ArtifactPreviewViewV1::App {
@@ -626,8 +634,8 @@ pub async fn read_artifact_preview(
         if metadata.version.media_type.starts_with("text/")
             || metadata.version.media_type == "image/svg+xml"
         {
-            let preview = store
-                .read(&owner, &id, version, ArtifactReadModeV1::BoundedText)
+            let preview = access
+                .read(&id, version, ArtifactReadModeV1::BoundedText)
                 .map_err(|error| error.code().to_owned())?;
             return text_preview(preview, artifact_view);
         }
@@ -638,8 +646,8 @@ pub async fn read_artifact_preview(
                 reason: "preview_too_large",
             });
         }
-        let preview = store
-            .read_binary(&owner, &id, version)
+        let preview = access
+            .read_binary(&id, version)
             .map_err(|error| error.code().to_owned())?;
         let content = preview
             .content
@@ -661,13 +669,12 @@ pub async fn prepare_artifact_preview(
     blocking(move || {
         let owner = owner_pubkey(&app.state::<AppState>())?;
         let store = open_store(&app)?;
-        presentation::prepare(
-            &store,
-            &owner,
-            &artifact_id(input.artifact_id)?,
-            input.version.map(safe_version).transpose()?,
-        )
-        .map_err(|error| error.code().to_owned())
+        ArtifactAccess::new(&app.state::<AppState>(), &owner, &store)
+            .prepare(
+                &artifact_id(input.artifact_id)?,
+                input.version.map(safe_version).transpose()?,
+            )
+            .map_err(|error| error.code().to_owned())
     })
     .await
 }
@@ -779,7 +786,7 @@ fn import_selected_path(
     let commit = store
         .create(&context, &args, Some(parent))
         .map_err(|error| error.code().to_owned())?;
-    commit_view(&store, &owner, commit)
+    commit_view(&state, &store, &owner, commit)
 }
 
 fn infer_artifact_kind(path: &Path) -> ArtifactKindV1 {
@@ -848,7 +855,8 @@ async fn mutate_metadata(
 ) -> Result<ArtifactViewV1, String> {
     let app_for_event = app.clone();
     let record = blocking(move || {
-        let owner = owner_pubkey(&app.state::<AppState>())?;
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
         let id = artifact_id(id)?;
         let mut store = open_store(&app)?;
         let record = operation(&mut store, &owner, &id).map_err(|error| error.code().to_owned())?;
@@ -856,7 +864,7 @@ async fn mutate_metadata(
             let _ = presentation::revoke_for_artifact(owner.as_str(), id.as_str());
             let _ = stop_preview_sessions_for_artifact(owner.as_str(), id.as_str());
         }
-        compose_artifact_view(&store, &owner, record)
+        compose_artifact_view(&state, &store, &owner, record)
     })
     .await?;
     emit_changed(&app_for_event, &record.id, reason);
@@ -870,7 +878,8 @@ pub async fn revert_artifact(
 ) -> Result<ArtifactCommitViewV1, String> {
     let app_for_event = app.clone();
     let commit = blocking(move || {
-        let owner = owner_pubkey(&app.state::<AppState>())?;
+        let state = app.state::<AppState>();
+        let owner = owner_pubkey(&state)?;
         let mut store = open_store(&app)?;
         let commit = store
             .revert(
@@ -880,7 +889,7 @@ pub async fn revert_artifact(
                 safe_version(input.expected_current_version)?,
             )
             .map_err(|error| error.code().to_owned())?;
-        commit_view(&store, &owner, commit)
+        commit_view(&state, &store, &owner, commit)
     })
     .await?;
     emit_changed(&app_for_event, &commit.artifact.id, "reverted");
@@ -893,14 +902,15 @@ pub async fn export_artifact(
     app: AppHandle,
 ) -> Result<bool, String> {
     let app_for_read = app.clone();
-    let preview = blocking(move || {
+    let (export_owner, preview) = blocking(move || {
         let owner = owner_pubkey(&app_for_read.state::<AppState>())?;
-        open_store(&app_for_read)?
+        let store = open_store(&app_for_read)?;
+        ArtifactAccess::new(&app_for_read.state::<AppState>(), &owner, &store)
             .read_binary(
-                &owner,
                 &artifact_id(input.artifact_id)?,
                 input.version.map(safe_version).transpose()?,
             )
+            .map(|preview| (owner, preview))
             .map_err(|error| error.code().to_owned())
     })
     .await?;
@@ -908,12 +918,17 @@ pub async fn export_artifact(
         .content
         .ok_or_else(|| "artifact-unsupported".to_owned())?;
     let filename = safe_filename(&preview.artifact.title);
-    super::export_util::save_bytes_with_dialog(
+    super::export_util::save_bytes_with_dialog_guarded(
         &app,
         &filename,
         "Artifact",
         &[extension_for_kind(preview.artifact.kind)],
         &bytes,
+        |write| {
+            let state = app.state::<AppState>();
+            with_artifact_access(&state, &export_owner, &preview.artifact, write)
+                .map_err(|error| error.code().to_owned())?
+        },
     )
     .await
 }
@@ -926,20 +941,22 @@ pub async fn list_artifact_receipts(
     blocking(move || {
         let owner = owner_pubkey(&app.state::<AppState>())?;
         let conversation = input.conversation_id.map(artifact_id).transpose()?;
-        open_store(&app)?
-            .receipts(&owner, conversation.as_ref(), input.limit)
+        let store = open_store(&app)?;
+        ArtifactAccess::new(&app.state::<AppState>(), &owner, &store)
+            .receipts(conversation.as_ref(), input.limit)
             .map_err(|error| error.code().to_owned())
     })
     .await
 }
 
 fn commit_view(
+    state: &AppState,
     store: &ArtifactStore,
     owner: &Hex64,
     commit: ArtifactCommit,
 ) -> Result<ArtifactCommitViewV1, String> {
     Ok(ArtifactCommitViewV1 {
-        artifact: compose_artifact_view(store, owner, commit.artifact)?,
+        artifact: compose_artifact_view(state, store, owner, commit.artifact)?,
         version: version_view(commit.version),
         receipt: commit.receipt,
         duplicate: commit.duplicate,

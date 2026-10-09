@@ -1,7 +1,7 @@
 use std::{
     collections::{HashSet, VecDeque},
     fs,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::LazyLock,
 };
@@ -288,6 +288,59 @@ pub(super) fn read_messages(
 ) -> Result<Vec<String>, String> {
     let canonical = resolved_session_path(root, kind, relative_path)?;
     parse_file(&canonical, kind)
+}
+
+/// Recent visible user/assistant messages from one selected file. Tail scanning
+/// is capped independently of transcript size; hidden reasoning/tool records
+/// keep using the existing visible-message filter and redaction.
+pub(super) fn read_visible_tail(
+    root: &Path,
+    kind: ConnectedBrainSourceKindV1,
+    relative_path: &str,
+    limit: usize,
+) -> Result<Vec<String>, String> {
+    const MAX_TAIL_BYTES: u64 = 256 * 1024;
+    if limit == 0
+        || limit > MAX_SESSION_SELECTIONS
+        || kind == ConnectedBrainSourceKindV1::Repository
+    {
+        return Err("native observation selection is invalid".into());
+    }
+    let path = resolved_session_path(root, kind, relative_path)?;
+    let mut file =
+        fs::File::open(path).map_err(|_| "native observation is unavailable".to_owned())?;
+    let length = file
+        .metadata()
+        .map_err(|_| "native observation is unavailable".to_owned())?
+        .len();
+    let start = length.saturating_sub(MAX_TAIL_BYTES);
+    file.seek(SeekFrom::Start(start))
+        .map_err(|_| "native observation is unavailable".to_owned())?;
+    let mut bytes = Vec::new();
+    file.take(MAX_TAIL_BYTES)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "native observation is unavailable".to_owned())?;
+    let mut lines = bytes.split(|byte| *byte == b'\n');
+    // A bounded tail may begin in a partial JSON/base64 record. Never parse it.
+    if start > 0 {
+        let _ = lines.next();
+    }
+    let mut selected = VecDeque::with_capacity(limit);
+    for line in lines {
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(value) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        if let Some(message) = visible_session_message(&value, kind) {
+            if selected.len() == limit {
+                selected.pop_front();
+            }
+            selected.push_back(message);
+        }
+    }
+    Ok(selected.into_iter().collect())
 }
 
 pub(super) fn resolved_session_path(
@@ -732,6 +785,12 @@ fn redact_probable_local_paths(text: &str) -> String {
     }
     redact_non_http_segment(&mut redacted, &text[cursor..]);
     redacted
+}
+
+/// Shared reference-text projection: preserve public HTTP links, but never
+/// export local filesystem locators embedded inside a granted document body.
+pub(crate) fn redact_reference_local_paths(text: &str) -> String {
+    redact_probable_local_paths(text)
 }
 
 fn redact_non_http_segment(output: &mut String, segment: &str) {
