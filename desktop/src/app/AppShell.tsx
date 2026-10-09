@@ -65,6 +65,7 @@ import { useExchangeSync } from "@/features/exchange/useExchangeSync";
 import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIngestion";
 import { useBrainReviewNavigation } from "@/features/luca/brain/useBrainReviewNavigation";
 import { usePolyphonicSurfaceNavigation } from "@/features/luca/usePolyphonicSurfaceNavigation";
+import { CompanionSetupDialog } from "@/features/luca/CompanionSetupDialog";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
 import { RepositoryConnectionProposalDialog } from "@/features/luca/brain/RepositoryConnectionProposalDialog";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
@@ -250,7 +251,7 @@ export function AppShell() {
   // guard here would drop managed-agent coverage during startup.
   useAgentObserverIngestion();
   useBrainReviewNavigation();
-  usePolyphonicSurfaceNavigation();
+  const companionNavigation = usePolyphonicSurfaceNavigation();
   // Kind 24200 is relay-ephemeral, so reconciliation runs eagerly (not
   // deferred) and unconditionally repairs the DB subscription on internal
   // builds — otherwise frames emitted before the listener opens are lost.
@@ -1208,6 +1209,7 @@ export function AppShell() {
                         )}
                         <RequestedAgentCreateDialogs />
                         <AgentManagementDialogs />
+                        <CompanionSetupDialog request={companionNavigation.companionReview} onClose={companionNavigation.closeCompanionReview} />
                         <RepositoryConnectionProposalDialog
                           ownerPubkey={identityQuery.data?.pubkey}
                         />

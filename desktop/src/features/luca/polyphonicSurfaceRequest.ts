@@ -2,6 +2,7 @@ export const POLYPHONIC_SURFACE_REQUEST = "polyphonic_surface_request" as const;
 
 export const polyphonicSurfaces = [
   "onboarding",
+  "companion",
   "runtime",
   "native_agents",
   "brain",

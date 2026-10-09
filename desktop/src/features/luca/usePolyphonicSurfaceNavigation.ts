@@ -28,6 +28,7 @@ export function usePolyphonicSurfaceNavigation() {
   const channelsRef = React.useRef(channelsQuery.data);
   const bufferedRef = React.useRef<Candidate[]>([]);
   const seenRef = React.useRef(new Set<string>());
+  const [companionReview, setCompanionReview] = React.useState<{ residentPubkey: string; conversationId: string } | null>(null);
 
   const accept = React.useEffectEvent((candidate: Candidate) => {
     const { agentPubkey, observerChannelId, request } = candidate;
@@ -45,6 +46,9 @@ export function usePolyphonicSurfaceNavigation() {
     }
     seenRef.current.add(request.requestId);
     switch (request.surface) {
+      case "companion":
+        setCompanionReview({ residentPubkey: agentPubkey, conversationId: request.channelId });
+        break;
       case "onboarding":
         window.dispatchEvent(new Event(POLYPHONIC_REOPEN_ONBOARDING_EVENT));
         break;
@@ -154,4 +158,6 @@ export function usePolyphonicSurfaceNavigation() {
       void subscription.then((unlisten) => unlisten()).catch(() => {});
     };
   }, []);
+
+  return { companionReview, closeCompanionReview: () => setCompanionReview(null) };
 }
