@@ -2818,6 +2818,16 @@ fn conversation_context_messages(context: &ConversationContext) -> &[crate::queu
 /// any message at all with `entry`'s delivered ids — the signal
 /// `gap_marker_needed` uses to decide whether this window may have skipped
 /// content the session never saw.
+fn filter_awareness_history(mut context: ConversationContext, owner: Option<&str>) -> ConversationContext {
+    let messages = match &mut context {
+        ConversationContext::Thread { messages, .. }
+        | ConversationContext::Dm { messages, .. }
+        | ConversationContext::Room { messages, .. } => messages,
+    };
+    messages.retain(|message| owner.is_some_and(|owner| owner.eq_ignore_ascii_case(&message.pubkey)));
+    context
+}
+
 fn filter_replayed_context(
     context: ConversationContext,
     entry: Option<&crate::runtime_session_map::RuntimeSessionEntry>,
@@ -3055,7 +3065,8 @@ async fn managed_session_context(
                     || result.quick_chat_effort.is_some()
                     || result.quick_chat_context.is_some()
                     || result.first_meeting_context.is_some()
-                    || result.awareness_context.is_some()) =>
+                    || result.awareness_context.is_some()
+                    || result.isolate_awareness_history) =>
         {
             Ok(Some(result))
         }
@@ -4046,13 +4057,39 @@ async fn run_prompt_task_inner(
         _ => None,
     };
     let mut context_rotated_session = false;
+    let mut isolate_awareness_history = resolved_managed_context.as_ref()
+        .is_some_and(|context| context.isolate_awareness_history);
     if let PromptSource::Channel(cid) = &source {
+        // Forget the DURABLE native pointer too: merely invalidating the warm
+        // cache would let create_session_and_apply_model resume the same history.
+        // A local sticky marker protects restart/host-channel failure as well.
+        let isolation = (|| -> Result<(), AcpError> {
+            if isolate_awareness_history && ctx.runtime_session_map.is_none() {
+                return Err(AcpError::Protocol("Private activity requires durable native-history isolation.".into()));
+            }
+            if let Some(map) = &ctx.runtime_session_map {
+                isolate_awareness_history |= map.requires_private_history(&cid.to_string())
+                    .map_err(AcpError::Protocol)?;
+                if isolate_awareness_history {
+                    map.forget_for_private_history(&cid.to_string()).map_err(AcpError::Protocol)?;
+                }
+            }
+            if isolate_awareness_history {
+                context_rotated_session = agent.state.invalidate_channel(cid);
+            }
+            Ok(())
+        })();
+        if let Err(error) = isolation {
+            send_prompt_result(&result_tx, &turn_id, agent, source,
+                PromptOutcome::Error(error), requeue_batch_if_queue(&ctx, batch.clone()));
+            return;
+        }
         let current_ref = resolved_managed_context
             .as_ref()
             .and_then(|context| context.native_roots_ref.as_ref())
             .map(|value| value.as_str().to_owned())
             .unwrap_or_else(|| "luca.default-native-context.v1".to_owned());
-        context_rotated_session = reconcile_native_context(
+        context_rotated_session |= reconcile_native_context(
             &mut agent.state,
             cid,
             current_ref,
@@ -4069,6 +4106,7 @@ async fn run_prompt_task_inner(
                 "additionalDirectoriesApplied": agent.additional_directories_supported
                     && resolved_managed_context.as_ref().is_some_and(|context| !context.additional_directories.is_empty()),
                 "rotatedSession": context_rotated_session,
+                "isolatedAwarenessHistory": isolate_awareness_history,
             }),
         );
     }
@@ -4747,6 +4785,15 @@ async fn run_prompt_task_inner(
         } else {
             None
         };
+        let conversation_context = conversation_context.map(|context| {
+            if isolate_awareness_history {
+                // Old assistant replies can contain source-derived excerpts.
+                // Keep owner-authored conversation and canonical clean memory,
+                // not an unverified replay of those generated derivatives.
+                filter_awareness_history(context, ctx.managed_final_publisher.as_ref()
+                    .map(|managed| managed.owner_pubkey.as_str()))
+            } else { context }
+        });
         let (conversation_context, gap_marker) = match conversation_context {
             Some(context) => {
                 let (filtered, had_overlap) = filter_replayed_context(
@@ -7468,6 +7515,19 @@ mod tests {
             hashes.iter().map(|value| content_digest(value)),
         );
         entry
+    }
+
+    #[test]
+    fn fresh_awareness_history_keeps_owner_messages_not_generated_source_derivatives() {
+        for context in [ConversationContext::Dm { messages: vec![
+            make_context_message("owner-event", "OWNER"), make_context_message("aware-reply", "resident")
+        ], total: 2, truncated: false }, ConversationContext::Thread { messages: vec![
+            make_context_message("owner-event", "owner"), make_context_message("other-event", "other")
+        ], total: 2, truncated: false }] {
+            let filtered = filter_awareness_history(context, Some("owner"));
+            assert_eq!(conversation_context_messages(&filtered).iter().map(|message| message.event_id.as_str()).collect::<Vec<_>>(), vec!["owner-event"]);
+            assert!(conversation_context_messages(&filter_awareness_history(filtered, None)).is_empty());
+        }
     }
 
     #[test]

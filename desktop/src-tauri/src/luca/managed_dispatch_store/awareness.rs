@@ -14,7 +14,7 @@ const MAX_CONTEXT_NODES: usize = 32;
 /// Host-code admission ceiling, not a writable configuration/JSON claim.
 /// Parent may change this only after consumer gates and native-history scope
 /// consent/isolation are genuinely implemented and independently verified.
-pub(crate) const fn ordinary_turn_awareness_consumers_ready() -> bool { false }
+pub(crate) const fn ordinary_turn_awareness_consumers_ready() -> bool { true }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -37,6 +37,10 @@ pub(crate) struct ManagedTurnAwarenessBindingV1 {
     pub(crate) context_node: Option<OpaqueId>,
     pub(crate) context_nodes: Vec<OpaqueId>,
     pub(crate) observations: Vec<AwarenessObservationRefV1>,
+    /// Host requires session/new and owner-only replay before this turn. This
+    /// is not erasure of an old provider session; that pointer is never reused.
+    #[serde(default)]
+    pub(crate) fresh_native_history: bool,
 }
 impl ManagedTurnAwarenessBindingV1 {
     pub(super) fn legacy_clean(row: &ActiveDispatch) -> Result<Self, String> {
@@ -47,7 +51,7 @@ impl ManagedTurnAwarenessBindingV1 {
             conversation_id: OpaqueId::parse(row.conversation_id.clone()).map_err(|_| "awareness conversation invalid")?,
             trigger_event_id: Hex64::parse(row.trigger_event_id.clone()).map_err(|_| "awareness trigger invalid")?,
             session_epoch: None, binding_ref: None, canonical_dispatch_ref: None,
-            context_node: None, context_nodes: Vec::new(), observations: Vec::new(),
+            context_node: None, context_nodes: Vec::new(), observations: Vec::new(), fresh_native_history: false,
         })
     }
     pub(super) fn validate(&self, row: &ActiveDispatch) -> Result<(), String> {
@@ -62,7 +66,7 @@ impl ManagedTurnAwarenessBindingV1 {
         { return Err("managed awareness binding scope or bound invalid".into()); }
         if self.mode == BindingMode::LegacyClean {
             if self.session_epoch.is_some() || self.binding_ref.is_some() || self.canonical_dispatch_ref.is_some()
-                || self.context_node.is_some() || !self.context_nodes.is_empty() || !self.observations.is_empty()
+                || self.context_node.is_some() || !self.context_nodes.is_empty() || !self.observations.is_empty() || self.fresh_native_history
             { return Err("legacy awareness marker is not clean".into()); }
             return Ok(());
         }
@@ -126,7 +130,7 @@ pub(super) fn validate_store_bindings(
         if matches!(binding.mode, BindingMode::Observed | BindingMode::Inherited) {
             let scope = scopes.iter().find(|scope| scope.matches(&binding.owner_pubkey, &binding.resident_pubkey, &binding.conversation_id))
                 .ok_or("managed awareness binding has no sticky scope")?;
-            if binding.context_nodes.iter().any(|node| !scope.nodes.contains(node)) {
+            if !binding.fresh_native_history && binding.context_nodes.iter().any(|node| !scope.nodes.contains(node)) {
                 return Err("managed awareness binding lost a context dependency".into());
             }
         }
@@ -157,7 +161,7 @@ impl ManagedDispatchStore {
         observations: &[AwarenessObservationRefV1],
         now_unix_secs: u64,
     ) -> Result<ManagedTurnAwarenessBindingV1, DispatchAuthorizationError> {
-        self.bind_awareness(authority, epoch, binding_ref, Some(node), observations, now_unix_secs)
+        self.bind_awareness(authority, epoch, binding_ref, Some(node), observations, now_unix_secs, false)
     }
 
     /// Positively records an omitted/no-context frame. Previously exposed warm
@@ -169,7 +173,26 @@ impl ManagedDispatchStore {
         binding_ref: &Sha256Ref,
         now_unix_secs: u64,
     ) -> Result<ManagedTurnAwarenessBindingV1, DispatchAuthorizationError> {
-        self.bind_awareness(authority, epoch, binding_ref, None, &[], now_unix_secs)
+        self.bind_awareness(authority, epoch, binding_ref, None, &[], now_unix_secs, false)
+    }
+
+    pub(crate) fn awareness_history_requires_isolation(&self, authority: &ContinuityDispatchAuthority) -> bool {
+        self.conversation_has_awareness_history(&authority.owner_pubkey, &authority.resident_pubkey, &authority.conversation_id)
+    }
+
+    pub(crate) fn conversation_has_awareness_history(&self, owner: &Hex64, resident: &Hex64, conversation: &OpaqueId) -> bool {
+        self.awareness_tainted_scopes.iter().any(|scope| scope.matches(owner, resident, conversation))
+    }
+
+    /// Only the inherited host/ACP session-new contract may use this. Each
+    /// isolated turn has its own dependency set; old exposure remains sticky
+    /// solely to prevent native resume and replay of source-derived replies.
+    pub(crate) fn bind_isolated_awareness_turn(
+        &mut self, authority: &ContinuityDispatchAuthority, epoch: SafeU53,
+        binding_ref: &Sha256Ref, node: Option<&OpaqueId>,
+        observations: &[AwarenessObservationRefV1], now: u64,
+    ) -> Result<ManagedTurnAwarenessBindingV1, DispatchAuthorizationError> {
+        self.bind_awareness(authority, epoch, binding_ref, node, observations, now, true)
     }
 
     fn bind_awareness(
@@ -180,6 +203,7 @@ impl ManagedDispatchStore {
         node: Option<&OpaqueId>,
         observations: &[AwarenessObservationRefV1],
         now: u64,
+        fresh_native_history: bool,
     ) -> Result<ManagedTurnAwarenessBindingV1, DispatchAuthorizationError> {
         if epoch.get() == 0 || observations.len() > MAX_OBSERVATIONS || node.is_some() == observations.is_empty() {
             return Err(DispatchAuthorizationError::Ambiguous);
@@ -192,7 +216,7 @@ impl ManagedDispatchStore {
             return Err(DispatchAuthorizationError::Terminal);
         }
         let sticky_index = self.awareness_tainted_scopes.iter().position(|scope| scope.matches(&authority.owner_pubkey, &authority.resident_pubkey, &authority.conversation_id));
-        let mut nodes = sticky_index.map(|index| self.awareness_tainted_scopes[index].nodes.clone()).unwrap_or_default();
+        let mut nodes = if fresh_native_history { Vec::new() } else { sticky_index.map(|index| self.awareness_tainted_scopes[index].nodes.clone()).unwrap_or_default() };
         if let Some(node) = node { nodes.push(node.clone()); }
         nodes.sort(); nodes.dedup();
         if nodes.len() > MAX_CONTEXT_NODES || (node.is_some() && sticky_index.is_none() && self.awareness_tainted_scopes.len() == MAX_TAINTED_SCOPES) {
@@ -203,7 +227,7 @@ impl ManagedDispatchStore {
             owner_pubkey: authority.owner_pubkey.clone(), resident_pubkey: authority.resident_pubkey.clone(),
             conversation_id: authority.conversation_id.clone(), trigger_event_id: authority.trigger_event_id.clone(),
             session_epoch: Some(epoch), binding_ref: Some(binding_ref.clone()), canonical_dispatch_ref: Some(authority.canonical_dispatch_ref.clone()),
-            context_node: node.cloned(), context_nodes: nodes.clone(), observations: observations.to_vec(),
+            context_node: node.cloned(), context_nodes: nodes.clone(), observations: observations.to_vec(), fresh_native_history,
         };
         candidate.validate(row).map_err(|_| DispatchAuthorizationError::Ambiguous)?;
         if let Some(previous) = &row.awareness_context_binding {
@@ -211,7 +235,9 @@ impl ManagedDispatchStore {
         }
         let previous_scopes = self.awareness_tainted_scopes.clone();
         if node.is_some() {
-            if let Some(index) = sticky_index { self.awareness_tainted_scopes[index].nodes = nodes; }
+            if let Some(index) = sticky_index {
+                if !fresh_native_history { self.awareness_tainted_scopes[index].nodes = nodes; }
+            }
             else { self.awareness_tainted_scopes.push(ManagedAwarenessTaintedScopeV1 { owner: authority.owner_pubkey.clone(), resident: authority.resident_pubkey.clone(), conversation: authority.conversation_id.clone(), nodes }); }
         }
         self.dispatches.get_mut(&key).ok_or(DispatchAuthorizationError::Unknown)?.awareness_context_binding = Some(candidate.clone());
@@ -255,12 +281,13 @@ impl ManagedDispatchStore {
         if binding.validate(row).is_err() { return ManagedTurnAwarenessLookupV1::Unknown; }
         let sticky = self.awareness_tainted_scopes.iter().find(|scope| scope.matches(&binding.owner_pubkey, &binding.resident_pubkey, &binding.conversation_id));
         match binding.mode {
+            BindingMode::Clean if binding.fresh_native_history => ManagedTurnAwarenessLookupV1::Untainted,
             BindingMode::LegacyClean | BindingMode::Clean if sticky.is_none() => ManagedTurnAwarenessLookupV1::Untainted,
             BindingMode::LegacyClean | BindingMode::Clean => ManagedTurnAwarenessLookupV1::Unknown,
             BindingMode::Observed | BindingMode::Inherited => {
                 let Some(sticky) = sticky else { return ManagedTurnAwarenessLookupV1::Unknown; };
                 let mut current = binding.clone();
-                current.context_nodes.extend(sticky.nodes.iter().cloned()); current.context_nodes.sort(); current.context_nodes.dedup();
+                if !binding.fresh_native_history { current.context_nodes.extend(sticky.nodes.iter().cloned()); current.context_nodes.sort(); current.context_nodes.dedup(); }
                 if current.context_nodes.len() > MAX_CONTEXT_NODES { return ManagedTurnAwarenessLookupV1::Unknown; }
                 ManagedTurnAwarenessLookupV1::Bound(Box::new(current))
             }

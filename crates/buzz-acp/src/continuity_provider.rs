@@ -123,6 +123,10 @@ pub(crate) struct ManagedSessionContextResultV1 {
     pub(crate) first_meeting_context: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) awareness_context: Option<ManagedAwarenessTurnContextV1>,
+    /// Trusted local host requests a fresh provider session and owner-only
+    /// replay. Never interpreted as permission to read a source.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) isolate_awareness_history: bool,
 }
 
 /// Bounded local-only ordinary-turn awareness from the exact inherited desktop
@@ -188,6 +192,7 @@ impl ManagedSessionContextResultV1 {
                 .as_ref()
                 .is_some_and(|text| text.len() > 16384)
             || self.awareness_context.as_ref().is_some_and(|context| !context.is_valid())
+            || (self.awareness_context.is_some() && !self.isolate_awareness_history)
             || self.protocol != MANAGED_SESSION_CONTEXT_RESULT_PROTOCOL
             || self
                 .attached_session_context
@@ -1202,6 +1207,7 @@ mod tests {
             quick_chat_context: None,
             first_meeting_context: None,
             awareness_context: None,
+            isolate_awareness_history: false,
         }
     }
 
@@ -1280,6 +1286,8 @@ mod tests {
         let context: ManagedAwarenessTurnContextV1 = serde_json::from_value(wire.clone()).unwrap();
         assert!(context.is_valid_for(&intent));
         result.awareness_context = Some(context);
+        assert!(!result.is_valid_for(&intent));
+        result.isolate_awareness_history = true;
         assert!(result.is_valid_for(&intent));
         assert!(!format!("{result:?}").contains("PRIVATE_AWARENESS_SENTINEL"));
         let mut injected = wire.clone();

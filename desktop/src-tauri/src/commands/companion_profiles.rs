@@ -41,10 +41,21 @@ pub async fn pick_companion_native_profile(resident_pubkey:String,kind:NativePro
     request_id:String,app:AppHandle)->Result<Option<CompanionAwarenessStatusV1>,String> {
     validate_choices(&choices)?;
     let (sender,receiver)=tokio::sync::oneshot::channel();
-    app.dialog().file().set_title(match kind {
+    let mut picker = app.dialog().file().set_title(match kind {
         NativeProfileKindV1::CodexSessions=>"Choose this Codex profile's sessions folder",
         NativeProfileKindV1::ClaudeProjects=>"Choose this Claude Code profile's projects folder",
-    }).pick_folder(move|selection|{let _=sender.send(selection);});
+    });
+    // Start at the familiar container when present. This checks directory
+    // metadata only; the owner still chooses the exact profile, and no history
+    // is read or granted by opening the picker.
+    if let Ok(home) = app.path().home_dir() {
+        let suggested = home.join(match kind {
+            NativeProfileKindV1::CodexSessions => ".codex/sessions",
+            NativeProfileKindV1::ClaudeProjects => ".claude/projects",
+        });
+        if suggested.is_dir() { picker = picker.set_directory(suggested); }
+    }
+    picker.pick_folder(move|selection|{let _=sender.send(selection);});
     let Some(selection)=receiver.await.map_err(|_|"native profile picker unavailable")? else{return Ok(None);};
     let selected=selection.as_path().map(Path::to_path_buf).ok_or("invalid native profile")?;
     tauri::async_runtime::spawn_blocking(move|| {

@@ -135,6 +135,8 @@ struct ManagedSessionContextResultV1 {
     first_meeting_context: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     awareness_context: Option<super::companion_awareness::turn_context::AwarenessTurnContextV1>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    isolate_awareness_history: bool,
 }
 
 /// Strict mirror of the authority-minimized ACP request. Its custom Debug
@@ -541,6 +543,7 @@ fn write_session_context_result(
         quick_chat_context: None,
         first_meeting_context: None,
         awareness_context: None,
+        isolate_awareness_history: false,
     };
     let now_unix_ms = unix_time_millis();
     let mut attached_session_context = None;
@@ -665,6 +668,7 @@ fn write_session_context_result(
                                             quick_chat_context: None,
                                             first_meeting_context: None,
                                             awareness_context: None,
+                                            isolate_awareness_history: false,
                                         }
                                     }
                                     _ => unavailable(ManagedSessionContextStatusV1::Unavailable),
@@ -684,6 +688,11 @@ fn write_session_context_result(
     result.quick_chat_effort = quick_chat_effort;
     result.quick_chat_context = quick_chat_context;
     result.first_meeting_context = first_meeting_context;
+    if let Some(authority) = &receipt_authority {
+        result.isolate_awareness_history = global_dispatch_store(app).ok()
+            .and_then(|store| store.lock().ok().map(|store| store.awareness_history_requires_isolation(authority)))
+            .unwrap_or(true);
+    }
 
     // Readiness is host-owned and false until native-history consent and all
     // derivative consumers are coherent. No-source turns retain the old wire.
@@ -699,7 +708,11 @@ fn write_session_context_result(
             // Missing current body does not erase prior warm-native taint. The
             // store's sticky marker decides clean/inherited/unknown semantics.
             let _ = global_dispatch_store(app).ok().and_then(|store| store.lock().ok().and_then(|mut store| {
-                store.bind_turn_without_awareness_context(authority, intent.session_epoch, binding_ref, unix_time_millis() / 1000).ok()
+                if result.isolate_awareness_history {
+                    store.bind_isolated_awareness_turn(authority, intent.session_epoch, binding_ref, None, &[], unix_time_millis() / 1000).ok()
+                } else {
+                    store.bind_turn_without_awareness_context(authority, intent.session_epoch, binding_ref, unix_time_millis() / 1000).ok()
+                }
             }));
         }
         let bytes = Zeroizing::new(serde_json::to_vec(&result)
@@ -810,6 +823,9 @@ fn write_optional_awareness_context(
             state.companion_awareness.recheck_native_history_choice(&expected.owner_pubkey, &key, binding_ref).is_ok()
         },
     ).ok()??;
+    if !super::companion_awareness::conversation::verified_private_conversation(
+        &state, &expected.owner_pubkey, &expected.resident_pubkey, &expected.conversation_id, deadline,
+    ) { return None; }
     let live = LiveAwarenessOwner::authenticate(&state).ok()?;
     if live.owner() != &expected.owner_pubkey { return None; }
     let lease = live.lease().ok()?;
@@ -835,7 +851,8 @@ fn write_optional_awareness_context(
             let Ok(context) = prepared.compile(&scope, &now, payloads) else { return; };
             // Bind BEFORE the first byte. Partial writes stay conservatively
             // tainted; app expiry does not erase native/provider history.
-            if dispatch.bind_turn_awareness_context(&current, intent.session_epoch, binding_ref, &receipt.context_node, &receipt.observations, unix_time_millis() / 1000).is_err() { return; }
+            if dispatch.bind_isolated_awareness_turn(&current, intent.session_epoch, binding_ref, Some(&receipt.context_node), &receipt.observations, unix_time_millis() / 1000).is_err() { return; }
+            result.isolate_awareness_history = true;
             result.awareness_context = Some(context);
             let encoded = serde_json::to_vec(result);
             if let Ok(encoded) = encoded {

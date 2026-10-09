@@ -50,9 +50,9 @@ impl Fixture {
 }
 
 #[test]
-fn exact_frame_binding_is_body_free_immutable_replay_and_not_injection_readiness() {
+fn exact_frame_binding_is_body_free_immutable_replay_and_not_injection_authority() {
     let mut fixture = Fixture::new();
-    assert!(!ordinary_turn_awareness_consumers_ready());
+    assert!(ordinary_turn_awareness_consumers_ready());
     let first = fixture.bind();
     assert_eq!(fixture.bind(), first);
     let observation = fixture.observation(1);
@@ -141,4 +141,35 @@ fn bounded_sticky_metadata_never_evicts_prior_contexts_or_accepts_duplicate_refs
     assert_eq!(fixture.store.bind_turn_awareness_context(&fixture.authority, number(7), &hash('a'), &id("one-too-many"), &[observation], 100), Err(DispatchAuthorizationError::Persistence));
     assert_eq!(fixture.store.awareness_tainted_scopes[0].nodes.len(), MAX_CONTEXT_NODES);
     assert!(fixture.store.dispatches.values().all(|row| row.awareness_context_binding.is_none()));
+}
+
+#[test]
+fn isolated_turns_keep_only_current_dependencies_and_clean_chat_survives_withdrawal() {
+    let mut fixture = Fixture::new();
+    let observation = fixture.observation(1);
+    fixture.store.bind_isolated_awareness_turn(&fixture.authority, number(7), &hash('a'),
+        Some(&id("first-isolated-context")), &[observation], 100).unwrap();
+    for index in 2..40 {
+        let trigger = event(&fixture.owner, &fixture.resident, &format!("isolated-{index}"));
+        fixture.store.stage_owner_event(&trigger, &[fixture.resident.public_key().to_hex()], 100).unwrap();
+        let authority = fixture.store.authorize_continuity_turn(&trigger.id.to_hex(), &fixture.resident.public_key().to_hex(), CHANNEL, 7, 100).unwrap();
+        let node = id(&format!("isolated-context-{index}"));
+        let observation = fixture.observation(index);
+        let observed = fixture.store.bind_isolated_awareness_turn(&authority, number(7), &hash('a'),
+            Some(&node), &[observation], 100).unwrap();
+        assert_eq!(observed.context_nodes, vec![node]);
+        assert!(matches!(fixture.store.turn_awareness_context(&authority.owner_pubkey, &authority.resident_pubkey,
+            &authority.conversation_id, &authority.trigger_event_id), ManagedTurnAwarenessLookupV1::Bound(binding) if binding.context_nodes.len() == 1));
+    }
+    fixture.store.dispatches.clear(); fixture.store.persist().unwrap();
+    fixture.store = ManagedDispatchStore::load(fixture.path.clone()).unwrap();
+    fixture.store.activate_session(&fixture.resident.public_key().to_hex(), 7).unwrap();
+    let trigger = event(&fixture.owner, &fixture.resident, "clean-after-pause");
+    fixture.store.stage_owner_event(&trigger, &[fixture.resident.public_key().to_hex()], 100).unwrap();
+    let authority = fixture.store.authorize_continuity_turn(&trigger.id.to_hex(), &fixture.resident.public_key().to_hex(), CHANNEL, 7, 100).unwrap();
+    assert!(fixture.store.awareness_history_requires_isolation(&authority));
+    fixture.store.bind_isolated_awareness_turn(&authority, number(7), &hash('a'), None, &[], 100).unwrap();
+    assert_eq!(fixture.store.turn_awareness_context(&authority.owner_pubkey, &authority.resident_pubkey,
+        &authority.conversation_id, &authority.trigger_event_id), ManagedTurnAwarenessLookupV1::Untainted);
+    assert!(fixture.store.awareness_history_requires_isolation(&authority));
 }

@@ -127,6 +127,11 @@ struct MapFile {
     #[serde(default)]
     reset_revision: u64,
     entries: BTreeMap<String, RuntimeSessionEntry>,
+    /// Body-free scopes that must never resume a source-exposed conversation.
+    /// Survives pointer eviction, explicit reset, process restart and failure
+    /// between forgetting a pointer and creating its replacement.
+    #[serde(default)]
+    private_history_scopes: std::collections::BTreeSet<String>,
 }
 
 impl Default for MapFile {
@@ -135,6 +140,7 @@ impl Default for MapFile {
             protocol: PROTOCOL.to_owned(),
             reset_revision: 0,
             entries: BTreeMap::new(),
+            private_history_scopes: Default::default(),
         }
     }
 }
@@ -278,17 +284,46 @@ impl RuntimeSessionMap {
     }
 
     pub(crate) fn forget(&self, conversation: &str) -> Result<(), String> {
+        self.forget_inner(conversation, false)
+    }
+
+    pub(crate) fn requires_private_history(&self, conversation: &str) -> Result<bool, String> {
+        let _guard = self
+            .mutex
+            .lock()
+            .map_err(|_| "native session map is busy")?;
+        let _file_guard = self.lock_file()?;
+        Ok(self
+            .read()?
+            .private_history_scopes
+            .contains(&self.key(conversation)?))
+    }
+
+    /// Persist the isolation requirement BEFORE any observed bytes are sent.
+    /// Failure is closed: callers must not reuse a provider pointer.
+    pub(crate) fn forget_for_private_history(&self, conversation: &str) -> Result<(), String> {
+        self.forget_inner(conversation, true)
+    }
+
+    fn forget_inner(&self, conversation: &str, private_history: bool) -> Result<(), String> {
         let _guard = self
             .mutex
             .lock()
             .map_err(|_| "native session map is busy")?;
         let _file_guard = self.lock_file()?;
         let mut file = self.read()?;
+        let key = self.key(conversation)?;
+        if private_history {
+            file.private_history_scopes.insert(key.clone());
+            if file.private_history_scopes.len() > MAX_ENTRIES {
+                return Err("native private-history scope capacity exceeded".into());
+            }
+        }
         file.reset_revision = file
             .reset_revision
             .checked_add(1)
             .ok_or("native session reset revision exhausted")?;
-        file.entries.remove(&self.key(conversation)?);
+        file.entries.remove(&key);
         // Write even when the entry did not exist: an in-flight session/new
         // must not resurrect the old conversation after an explicit reset.
         self.write(&file)
@@ -352,6 +387,11 @@ impl RuntimeSessionMap {
             .map_err(|_| "native session map is malformed; existing records were not changed")?;
         if file.protocol != PROTOCOL
             || file.entries.len() > MAX_ENTRIES
+            || file.private_history_scopes.len() > MAX_ENTRIES
+            || file
+                .private_history_scopes
+                .iter()
+                .any(|key| !valid_digest(key))
             || file
                 .entries
                 .iter()
@@ -452,6 +492,38 @@ mod tests {
         for field in ["transcript", "prompt", "capability", "credential"] {
             assert!(!text.contains(field));
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn private_history_reset_survives_restart_pointer_eviction_and_failed_replacement() {
+        let (map, root) = fixture();
+        map.save("observed-room", entry("source-exposed-native-session"))
+            .unwrap();
+        map.save("unrelated-room", entry("ordinary-native-session"))
+            .unwrap();
+        let (_, old_revision) = map.snapshot("observed-room").unwrap();
+        map.forget_for_private_history("observed-room").unwrap();
+        assert!(map.get("observed-room").unwrap().is_none());
+        assert!(map
+            .save_at_revision(
+                "observed-room",
+                entry("stale-in-flight-session"),
+                old_revision
+            )
+            .is_err());
+        let reopened = RuntimeSessionMap::test_fixture(map.path.clone(), "scope-a");
+        assert!(reopened.requires_private_history("observed-room").unwrap());
+        assert!(!reopened.requires_private_history("unrelated-room").unwrap());
+        assert_eq!(
+            reopened
+                .get("unrelated-room")
+                .unwrap()
+                .unwrap()
+                .provider_session_id,
+            "ordinary-native-session"
+        );
+        reopened.forget("observed-room").unwrap();
+        assert!(reopened.requires_private_history("observed-room").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Polyphonic Companion Initiative Candidate",
+  "identifier": "chat.polyphonic.desktop.companion-initiative.dev",
+  "version": "0.5.0-beta.13",
+  "bundle": {
+    "targets": ["app"],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "infoPlist": "Info.beta.plist",
+      "minimumSystemVersion": "14.0"
+    }
+  },
+  "plugins": {
+    "updater": { "endpoints": [] },
+    "deep-link": { "desktop": { "schemes": ["polyphonic-companion-initiative"] } }
+  }
+}

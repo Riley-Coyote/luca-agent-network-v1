@@ -265,10 +265,17 @@ fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives(
         Some(&binding), &now, &operation("allow-chat-history")).unwrap();
     assert_eq!(deliver().unwrap(), payload);
     assert!(!runtime.snapshot(&owner, &key).unwrap().grant.choices.retain);
+    let reply = || {
+        let lease = live.lease().unwrap();
+        runtime.admit_native_history_reply(&lease, &facts, &binding,
+            &[operation("chat-context")], &[reference.clone()], resolve)
+    };
+    assert!(reply().is_ok());
     // The sink rechecks consent after preparation, immediately before delivery.
     runtime.set_native_history_choice(&owner, &key, None, SafeU53::new(1).unwrap(), false,
         None, &now, &operation("disable-chat-history")).unwrap();
     assert!(deliver().is_err());
+    assert!(reply().is_err());
     // A new explicit confirmation still cannot resurrect expired source bytes.
     runtime.set_native_history_choice(&owner, &key, Some(&live), SafeU53::new(2).unwrap(), true,
         Some(&binding), &now, &operation("reconfirm-chat-history")).unwrap();

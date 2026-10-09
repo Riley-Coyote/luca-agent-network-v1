@@ -1,6 +1,6 @@
 # Companion initiative implementation specification
 
-Updated 2026-10-08. Implementation kickoff authorized by Riley. The combined
+Updated 2026-10-09. Implementation kickoff authorized by Riley. The combined
 desktop library compiles, canonical thread/source/coordinator checks pass, and
 one opt-in Claude private-authorship adapter roundtrip passes with synthetic
 material. I1-I8 integration and full native acceptance remain in progress. This is an isolated feature
@@ -547,3 +547,43 @@ source/work/Library/restart acceptance, and the separately identified native
 candidate. The host readiness ceiling remains false. No installed app, personal
 source, account connection, global runtime configuration or shipping/design
 worktree was changed.
+
+### Integration checkpoint (2026-10-09)
+
+- Ordinary observed conversation now requires the exact signed private owner /
+  companion audience, current runtime binding, separate native-history choice,
+  and a fresh final source-authority check. Temporary relay/source unavailability
+  remains retryable rather than losing a legitimate queued reply.
+- Source-exposed conversations do not resume an old native history pointer.
+  A durable body-free isolation marker forces fresh native sessions, including
+  after restart; replay includes owner-authored messages only. This prevents
+  reintroducing revoked context through previous assistant answers. It cannot
+  erase copies already held by a harness, model provider or conversation.
+- The ordinary-chat readiness gate is connected in this feature build. All
+  source permissions remain default-off. This is not authority to collect
+  Riley's personal browsing, sessions or screen content.
+- The approved optional conversation review now exposes browser-profile pairing
+  and app-source selection. Pairing and selection alone leave access off;
+  observation, meaningful notes, model sharing, native history and background
+  work remain separately reviewed. Browser classes are visits, explicitly
+  shared bookmarks and selected excerpts. Current text capture is one bounded
+  TextEdit/Preview sample, not universal or continuous screen recording.
+- The current generated shell lab uses production components and a labeled
+  in-memory adapter. Two browser checks pass for source selection, independent
+  destinations, browser disconnect and narrow layout; seven preview-state
+  checks and frontend typecheck pass. The 125 focused desktop companion checks
+  and 18 isolated-candidate script checks pass. Existing unused-code warnings
+  are not presented as a clean full-suite verdict. Source diff checks pass;
+  generated bundled vendor template-literal whitespace is excluded rather than
+  hand-editing the generated HTML or changing its semantics.
+- `scripts/build-companion-initiative-candidate.sh` wraps the existing guarded
+  candidate workflow with its own app name, bundle identity, URL scheme, state
+  root and source receipt. It can reuse the internal warm compile cache without
+  sharing candidate app data. Build does not install, launch, replace an app,
+  notarize or release. Run and stop address only its recorded owned process.
+
+Native selected-resident/source/work/Library/restart acceptance is still open.
+The initiative worker currently requires an eligible canonical carried or Own
+thread; no eligible thread is a quiet outcome, not invented progress. The
+candidate must not be described as a separate agent computer, an all-browser
+observer, or a completed free-curiosity loop without that acceptance evidence.

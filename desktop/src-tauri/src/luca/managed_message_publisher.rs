@@ -443,6 +443,32 @@ struct HandoffScheduler {
 }
 
 impl ManagedMessagePublisher {
+    fn admit_awareness_reply(&self, request: &ManagedMessagePublishRequestV1) -> Result<(), ManagedPublicationAuthorityError> {
+        use super::managed_dispatch_store::ManagedTurnAwarenessLookupV1;
+        let Some(scheduler) = &self.handoff_scheduler else { return Ok(()); };
+        let dispatch = luca_protocol::Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
+            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+        let lookup = {
+            let store = self.dispatch_store.lock().map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            let lookup = store.turn_awareness_context(&request.owner_pubkey, &request.resident_pubkey,
+                &request.conversation_id, &dispatch);
+            if lookup == ManagedTurnAwarenessLookupV1::Unknown
+                && !store.conversation_has_awareness_history(&request.owner_pubkey, &request.resident_pubkey, &request.conversation_id) {
+                return Ok(());
+            }
+            lookup
+        };
+        match lookup {
+            ManagedTurnAwarenessLookupV1::Untainted => Ok(()),
+            ManagedTurnAwarenessLookupV1::Unknown => Err(ManagedPublicationAuthorityError::Denied),
+            ManagedTurnAwarenessLookupV1::Bound(receipt) => super::companion_awareness::conversation::admit_reply(
+                &scheduler.app.state::<crate::app_state::AppState>(), &receipt, &scheduler.binding_ref,
+            ).map_err(|error| match error {
+                super::companion_awareness::conversation::ReplyAdmissionError::Denied => ManagedPublicationAuthorityError::Denied,
+                super::companion_awareness::conversation::ReplyAdmissionError::Unavailable => ManagedPublicationAuthorityError::Unavailable,
+            }),
+        }
+    }
     /// Stage a dispatch row for a turn this desktop never staged itself,
     /// deriving it from the turn's own signed trigger event on the relay.
     fn ensure_wake_dispatch(
@@ -1076,6 +1102,10 @@ impl ManagedMessagePublisher {
                 .mark_submitted(&entry.idempotency_key, installation_session_id, false)
                 .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
         }
+        // Admission is short and source/identity fenced, never held across the
+        // network wait. Already-accepted effects remain accepted on replay.
+        let awareness_admission = self.admit_awareness_reply(&entry.request);
+        let admission_time = std::time::Instant::now();
         let submission = {
             // This lock is deliberately held across the ordinary ingesting
             // request. A cancellation either persists before this recheck and
@@ -1093,7 +1123,13 @@ impl ManagedMessagePublisher {
                 ManagedDispatchReconciliation::Cancelled => SerializedSubmission::Cancelled,
                 ManagedDispatchReconciliation::Rejected => SerializedSubmission::Rejected,
                 ManagedDispatchReconciliation::Ready => {
-                    match self
+                    if matches!(awareness_admission, Err(ManagedPublicationAuthorityError::Unavailable)) {
+                        SerializedSubmission::Retryable
+                    } else if awareness_admission.is_err() {
+                        SerializedSubmission::Rejected
+                    } else if admission_time.elapsed() > Duration::from_millis(250) {
+                        SerializedSubmission::Retryable
+                    } else { match self
                         .transport
                         .submit_exact(&entry.signed_event_json, timeout)
                     {
@@ -1121,7 +1157,7 @@ impl ManagedMessagePublisher {
                             )?
                         }
                         ManagedRelaySubmitOutcome::Retryable => SerializedSubmission::Retryable,
-                    }
+                    } }
                 }
             }
         };
@@ -1842,6 +1878,7 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
             }
             return reserved;
         }
+        self.admit_awareness_reply(request)?;
         self.dispatch_store
             .lock()
             .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?

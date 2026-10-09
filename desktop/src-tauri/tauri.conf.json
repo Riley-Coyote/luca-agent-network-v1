@@ -52,6 +52,12 @@
   },
   "bundle": {
     "active": true,
+    "resources": {
+      "../browser-awareness-extension/manifest.json": "browser-awareness-extension/manifest.json",
+      "../browser-awareness-extension/service-worker.js": "browser-awareness-extension/service-worker.js",
+      "../browser-awareness-extension/popup.html": "browser-awareness-extension/popup.html",
+      "../browser-awareness-extension/popup.js": "browser-awareness-extension/popup.js"
+    },
     "targets": "all",
     "externalBin": [
       "binaries/buzz-acp",

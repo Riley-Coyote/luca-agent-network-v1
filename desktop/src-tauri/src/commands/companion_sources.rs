@@ -192,7 +192,7 @@ pub async fn set_companion_source_choices(
             &state,
             &live,
             &key,
-            Some(expected),
+            if expected.get() == 0 { None } else { Some(expected) },
             &choices,
             &operation_id(&request_id, "grant")?,
         )?;

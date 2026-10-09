@@ -5,13 +5,28 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
-readonly EXPECTED_BRANCH="codex/companion-delegation-2026-10-04"
-readonly SOURCE_BASE="f84aaafa53386f213b832441983838b23c32c745"
-readonly BUNDLE_ID="chat.polyphonic.desktop.companion-delegation.dev"
-readonly PRODUCT_NAME="Polyphonic Companion Delegation Candidate"
-readonly URL_SCHEME="polyphonic-companion-delegation"
-readonly PROTOCOL="polyphonic.companion-delegation-candidate.v1"
-readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.companion-delegation-candidate.conf.json"
+readonly CANDIDATE_KIND="${POLYPHONIC_COMPANION_CANDIDATE_KIND:-delegation}"
+case "$CANDIDATE_KIND" in
+    delegation)
+        readonly EXPECTED_BRANCH="codex/companion-delegation-2026-10-04"
+        readonly SOURCE_BASE="f84aaafa53386f213b832441983838b23c32c745"
+        readonly BUNDLE_ID="chat.polyphonic.desktop.companion-delegation.dev"
+        readonly PRODUCT_NAME="Polyphonic Companion Delegation Candidate"
+        readonly URL_SCHEME="polyphonic-companion-delegation"
+        readonly PROTOCOL="polyphonic.companion-delegation-candidate.v1"
+        readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.companion-delegation-candidate.conf.json"
+        ;;
+    initiative)
+        readonly EXPECTED_BRANCH="codex/companion-initiative-2026-10-07"
+        readonly SOURCE_BASE="c331b3e42ea7aa695730735c69fb9cd66bd0315e"
+        readonly BUNDLE_ID="chat.polyphonic.desktop.companion-initiative.dev"
+        readonly PRODUCT_NAME="Polyphonic Companion Initiative Candidate"
+        readonly URL_SCHEME="polyphonic-companion-initiative"
+        readonly PROTOCOL="polyphonic.companion-initiative-candidate.v1"
+        readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.companion-initiative-candidate.conf.json"
+        ;;
+    *) printf 'Candidate refused: unknown candidate identity\n' >&2; exit 1 ;;
+esac
 readonly ENTITLEMENTS_PATH="$REPO_ROOT/desktop/src-tauri/Entitlements.plist"
 readonly SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-relay)
 
@@ -45,7 +60,11 @@ validate_directory() {
     case "$path" in
         "$HOME"/.*|"$HOME/Applications"|"$HOME/Applications/"*|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/"*|"$REPO_ROOT/.git"|"$REPO_ROOT/.git/"*)
             fail "directory overlaps personal configuration or installed apps" ;;
-        "$HOME/Library/Caches/luca-build/cargo-target") fail "the shared Cargo target is not dedicated candidate storage" ;;
+        "$HOME/Library/Caches/luca-build/cargo-target")
+            # The initiative candidate deliberately reuses the warm internal
+            # compile cache. Its bundle name, PID record, data, native state,
+            # receipt and keychain namespace remain separately owned.
+            [[ "$CANDIDATE_KIND" == initiative && "$path" == "$TARGET_DIR" ]] || fail "the shared Cargo target is not dedicated candidate storage" ;;
     esac
     probe="$path"
     while [[ ! -e "$probe" && ! -L "$probe" ]]; do
@@ -63,7 +82,7 @@ assert_clean_source() {
 
 assert_source() {
     assert_clean_source "$REPO_ROOT"
-    [[ "$(git -C "$REPO_ROOT" branch --show-current)" == "$EXPECTED_BRANCH" ]] || fail "this entrypoint is restricted to the companion-delegation feature branch"
+    [[ "$(git -C "$REPO_ROOT" branch --show-current)" == "$EXPECTED_BRANCH" ]] || fail "this entrypoint is restricted to its exact companion feature branch"
     git -C "$REPO_ROOT" merge-base --is-ancestor "$SOURCE_BASE" HEAD || fail "source is not descended from shipped beta.13"
     SOURCE_REVISION=$(git -C "$REPO_ROOT" rev-parse HEAD)
 }
@@ -148,6 +167,9 @@ NODE
 }
 
 prepare_paths() {
+    if [[ "$CANDIDATE_KIND" == initiative ]]; then
+        [[ "$TARGET_DIR" != /Volumes/* && -n "$INSTANCE_ROOT" && "$INSTANCE_ROOT" != /Volumes/* ]] || fail "initiative work requires internal storage and an explicit isolated instance root"
+    fi
     validate_directory "$TARGET_DIR"
     INSTANCE_ROOT="${INSTANCE_ROOT:-$TARGET_DIR/companion-delegation-instance}"
     validate_directory "$INSTANCE_ROOT"
@@ -295,6 +317,7 @@ build_candidate() {
     [[ -x "$rust_bin/cargo" && -x "$rust_bin/rustc" && -d "$HOME/.cargo" ]] || fail "Rust 1.95.0 and the existing user Cargo cache are required"
     export PATH="$rust_bin:$PATH" CARGO_HOME="$HOME/.cargo" CARGO_TARGET_DIR="$TARGET_DIR"
     export RUSTC="$rust_bin/rustc" RUSTDOC="$rust_bin/rustdoc" CARGO_NET_OFFLINE=true
+    export CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2
     [[ "$(rustc --version)" == 'rustc 1.95.0 '* && "$(rustc -vV | /usr/bin/sed -n 's/^host: //p')" == aarch64-apple-darwin ]] || fail "unexpected Rust compiler or host architecture"
     # Scoped candidate-only compile setting; never contacts the shared dev relay.
     export BUZZ_RELAY_URL='buzz-local://on-this-device'

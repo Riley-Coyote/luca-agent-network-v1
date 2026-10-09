@@ -31,6 +31,7 @@ mod scope;
 pub(crate) mod selected_files;
 pub(crate) mod source_runtime;
 pub(crate) mod turn_context;
+pub(crate) mod conversation;
 mod store;
 #[cfg(test)]
 mod tests;
@@ -653,6 +654,36 @@ impl CompanionAwarenessRuntime {
                 .store
                 .recheck_dependency(node, facts, intended_use, resolve)?;
             Ok(effect())
+        })
+    }
+
+    /// One short admission fence for a reply derived from an ordinary native
+    /// turn. All dependencies and destination-specific consent are checked
+    /// together. The caller issues the already-admitted external effect after
+    /// releasing this lock; revocation cannot retract a request already issued.
+    pub(crate) fn admit_native_history_reply(
+        &self, lease: &LiveAwarenessLease<'_>,
+        facts: &AwarenessHostFactsV1<'_>, binding: &luca_protocol::Sha256Ref,
+        nodes: &[OpaqueId], references: &[AwarenessObservationRefV1],
+        mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+    ) -> Result<(), AwarenessStoreError> {
+        if lease.owner() != facts.owner_pubkey || nodes.is_empty() || references.is_empty() {
+            return Err(AwarenessStoreError::Invalid);
+        }
+        self.with_controller(lease.owner(), |controller| {
+            for reference in references {
+                let key = AwarenessGrantKeyV1 {
+                    source: AwarenessSourceKeyV1 { owner_pubkey: reference.owner_pubkey.clone(), source_id: reference.source_id.clone(), device_id: reference.device_id.clone() },
+                    resident_pubkey: reference.resident_pubkey.clone(),
+                };
+                controller.store.recheck_native_history_choice(&key, binding)?;
+            }
+            for node in nodes {
+                controller.store.recheck_dependency(node, facts,
+                    AwarenessUseV1 { provider_egress_binding: Some(binding), ..Default::default() },
+                    &mut resolve)?;
+            }
+            Ok(())
         })
     }
 

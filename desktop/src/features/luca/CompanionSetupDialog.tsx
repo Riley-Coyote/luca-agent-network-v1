@@ -17,10 +17,16 @@ import {
   setCompanionSource,
   pauseCompanionAwareness,
   setCompanionWork,
+  selectCompanionMachineSource,
+  pickCompanionBrowserProfile,
+  connectCompanionBrowser,
+  revealCompanionBrowserExtension,
+  disconnectCompanionBrowser,
   type CompanionGrant,
   type CompanionHistory,
   type SourceChoices,
 } from "@/shared/api/companion";
+import { CompanionSourceSetup } from "./CompanionSourceSetup";
 
 type Loaded = Awaited<ReturnType<typeof companionState>>;
 const initialChoices: SourceChoices = {
@@ -37,6 +43,11 @@ const nativeApi = {
   setCompanionSource,
   pauseCompanionAwareness,
   setCompanionWork,
+  selectCompanionMachineSource,
+  pickCompanionBrowserProfile,
+  connectCompanionBrowser,
+  revealCompanionBrowserExtension,
+  disconnectCompanionBrowser,
 };
 export type CompanionSetupApi = typeof nativeApi;
 
@@ -128,7 +139,9 @@ export function CompanionSetupPanel({
         setError(
           typeof cause === "string"
             ? cause
-            : "Could not update this choice. Refresh and try again.",
+            : cause instanceof Error
+              ? cause.message
+              : "Could not update this choice. Refresh and try again.",
         );
         void companionState(request.residentPubkey)
           .then((value) => {
@@ -181,9 +194,33 @@ export function CompanionSetupPanel({
     setSelected(null);
     setHistory(null);
   }
-  const grant = loaded?.awareness.grants.find(
-    (grant) => grant.source.source_id === selected,
-  );
+  const grants: CompanionGrant[] = loaded
+    ? [
+        ...loaded.awareness.grants,
+        ...loaded.selections
+          .filter(
+            (value) =>
+              value.class.startsWith("browser_") &&
+              !loaded.awareness.grants.some(
+                (grant) => grant.source.source_id === value.sourceId,
+              ),
+          )
+          .map((value) => ({
+            source: { source_id: value.sourceId, state: "unknown" },
+            grant: {
+              grant_revision: 0,
+              state: "not_granted",
+              choices: {
+                observe: false,
+                promote: false,
+                retain: false,
+                provider_egress_binding: null,
+              },
+            },
+          })),
+      ]
+    : [];
+  const grant = grants.find((grant) => grant.source.source_id === selected);
   const sourceName = (sourceId: string) => {
     const selection = loaded?.selections.find(
       (value) => value.sourceId === sourceId,
@@ -194,7 +231,16 @@ export function CompanionSetupPanel({
         ? "Claude Code work"
         : selection?.class === "selected_file"
           ? "Selected file"
-          : "Granted source";
+          : ((
+              {
+                app_metadata: "App names",
+                accessibility_text: "Document text",
+                screen_text: "Visible document text",
+                browser_visit: "Browser visits",
+                browser_bookmark: "Shared bookmarks",
+                browser_excerpt: "Selected page excerpts",
+              } as Record<string, string>
+            )[selection?.class ?? ""] ?? "Selected source");
   };
   return (
     <Dialog
@@ -277,7 +323,44 @@ export function CompanionSetupPanel({
                   A file
                 </Button>
               </div>
-              {loaded.awareness.grants.map((source) => (
+              {request ? (
+                <CompanionSourceSetup
+                  key={request.residentPubkey}
+                  api={api}
+                  pending={pending}
+                  operate={operate}
+                />
+              ) : null}
+              {loaded.browsers
+                .filter((profile) => profile.enabled)
+                .map((profile) => (
+                  <div
+                    key={profile.profile_instance_id}
+                    className="flex items-center justify-between gap-3 text-xs text-muted-foreground"
+                  >
+                    <span>
+                      {profile.bridge_ready
+                        ? "Paired browser · connector ready"
+                        : "Paired browser · connector unavailable"}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() =>
+                        void operate((resident) =>
+                          api.disconnectCompanionBrowser(
+                            resident,
+                            profile.profile_instance_id,
+                          ),
+                        )
+                      }
+                    >
+                      Disconnect browser
+                    </Button>
+                  </div>
+                ))}
+              {grants.map((source) => (
                 <div
                   key={source.source.source_id}
                   className="flex items-center justify-between gap-3 border-t border-border/40 py-3"
@@ -287,11 +370,13 @@ export function CompanionSetupPanel({
                       {sourceName(source.source.source_id)}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {source.grant.state !== "active"
-                        ? "Withdrawn"
-                        : source.grant.choices.observe
-                          ? "Observation chosen"
-                          : "Selected · observation off"}
+                      {source.grant.state === "not_granted"
+                        ? "Paired · access off"
+                        : source.grant.state !== "active"
+                          ? "Withdrawn"
+                          : source.grant.choices.observe
+                            ? "Observation chosen"
+                            : "Selected · observation off"}
                     </p>
                   </div>
                   <Button
@@ -486,7 +571,7 @@ export function CompanionSetupPanel({
               ) : null}
             </section>
             <p className="text-xs leading-5 text-muted-foreground">
-              Browser and screen access need their separate connector/system
+              Browser and document text need their separate connector/system
               permission. Social accounts and iMessage are not connected. Brain
               is optional.
             </p>

@@ -1162,6 +1162,7 @@ pub fn run() {
             withdraw_companion_awareness_grant,
             #[cfg(unix)]
             list_companion_browser_profiles,
+            reveal_companion_browser_extension,
             #[cfg(unix)]
             pick_companion_browser_native_host,
             #[cfg(unix)]

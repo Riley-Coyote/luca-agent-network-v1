@@ -16,13 +16,28 @@ const source = "a".repeat(40);
 const sidecars = ["buzz-acp", "buzz-agent", "buzz-dev-mcp", "git-credential-nostr", "buzz", "buzz-relay"];
 const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
 
-function shell(code, args = []) {
+function shell(code, args = [], env = {}) {
   return spawnSync("bash", ["-c", `source ${quote(script)}\n${code}`, "fixture", ...args], {
     encoding: "utf8",
     cwd: repository,
+    env: { ...process.env, ...env },
     timeout: 10_000,
   });
 }
+
+test("initiative identity is distinct and can reuse only the warm compile cache", () => {
+  const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "initiative" };
+  const overlay = join(repository, "desktop/src-tauri/tauri.companion-initiative-candidate.conf.json");
+  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [overlay], env);
+  assert.equal(identity.status, 0, identity.stderr);
+  const cache = join(process.env.HOME, "Library/Caches/luca-build/cargo-target");
+  assert.equal(shell('TARGET_DIR="$1"; validate_directory "$1"', [cache], env).status, 0);
+  assert.notEqual(shell('TARGET_DIR=/private/tmp/other-target; validate_directory "$1"', [cache], env).status, 0);
+  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=""; prepare_paths', [cache], env).status, 0);
+  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT="$1"; prepare_paths', [cache], env).status, 0);
+  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=/Volumes/LaCie/candidate; prepare_paths', [cache], env).status, 0);
+  assert.notEqual(shell('true', [], { POLYPHONIC_COMPANION_CANDIDATE_KIND: "unexpected" }).status, 0);
+});
 
 function temporary(run) {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "companion-candidate-fixture-"));

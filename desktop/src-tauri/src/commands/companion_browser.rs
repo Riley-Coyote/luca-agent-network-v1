@@ -5,6 +5,7 @@ use luca_protocol::{OpaqueId,Sha256Ref,SafeU53};
 use serde::Serialize;
 use tauri::{AppHandle,Manager};
 use tauri_plugin_dialog::{DialogExt,MessageDialogButtons};
+use tauri_plugin_opener::OpenerExt;
 use super::{companion::{managed_resident,projection,CompanionAwarenessStatusV1},companion_sources::{CompanionSourceChoicesInputV1,validate_choices,put_choices,operation_id}};
 use crate::{app_state::AppState,luca::companion_awareness::{
     browser_bridge::{BrowserEventKindV1,BrowserBridgeError},
@@ -20,6 +21,19 @@ pub struct CompanionBrowserInstallSelectionV1 {selection_id:String,browser:Brows
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct CompanionBrowserPairApprovalV1 {code:String,expires_in_seconds:u64}
+
+/// Reveal only the bundled connector. No renderer-supplied path, extension
+/// installation, Chrome permission or observation is performed here.
+#[tauri::command]
+pub async fn reveal_companion_browser_extension(app:AppHandle)->Result<(),String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let directory = app.path().resolve("browser-awareness-extension", tauri::path::BaseDirectory::Resource)
+            .map_err(|_| "Bundled browser connector unavailable.")?;
+        if !directory.join("manifest.json").is_file() { return Err("Bundled browser connector unavailable.".into()); }
+        app.opener().open_path(directory.to_string_lossy(), None::<&str>)
+            .map_err(|_| "Could not show the bundled browser connector.".to_owned())
+    }).await.map_err(|_|"Bundled browser connector unavailable.".to_owned())?
+}
 
 #[tauri::command]
 pub async fn list_companion_browser_profiles(resident_pubkey:String,app:AppHandle)->Result<Vec<BrowserPairControlV1>,String> {
