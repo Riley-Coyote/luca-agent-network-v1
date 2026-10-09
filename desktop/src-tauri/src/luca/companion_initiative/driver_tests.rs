@@ -178,6 +178,25 @@ fn prepared(
         _ => panic!("expected private prepared data"),
     }
 }
+
+#[test]
+fn maximum_planning_deadline_is_valid_with_fractional_admission_time() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = InitiativeStore::open(&database(&temp)).unwrap();
+    let mut scope = scope();
+    scope.control.now_unix_ms += 999;
+    enable(&mut store, &scope);
+    let host = SentinelHost::new();
+    let mut tick = input(&scope, &host, "fractional-maximum");
+    tick.cycle.budget.decision_ms = MAX_INITIATIVE_PLANNING_DURATION_MS;
+    tick.cycle.deadline_unix_ms = scope.control.now_unix_ms + MAX_INITIATIVE_PLANNING_DURATION_MS;
+    let current = capture_admission(&host, &scope, &tick.cycle.thread_id, &[], None).unwrap();
+    let InitiativePreparationV1::Prepared(prepared) = prepare_planning(&mut store, &scope, tick, current).unwrap()
+        else { panic!("expected admitted maximum-duration plan"); };
+    prepared.request().validate().unwrap();
+    assert_eq!(prepared.request().deadline_unix_ms.get(),
+        scope.control.now_unix_ms / 1000 * 1000 + MAX_INITIATIVE_PLANNING_DURATION_MS);
+}
 fn result(
     prepared: &PreparedInitiativePlanningV1,
     choice: InitiativePlanningOutcomeV1,

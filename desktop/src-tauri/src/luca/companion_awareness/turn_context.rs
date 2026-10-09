@@ -147,6 +147,29 @@ struct ObservationView<'a> {
     excerpt: String,
     truncated: bool,
 }
+
+/// Project the same source-confined view for a disposable private pursuit.
+/// The caller must hold current raw-source/egress admission; this pure function
+/// verifies the bytes and class, not consent or authority. No raw archival
+/// retention or native-conversation history is implied by private evidence.
+pub(crate) fn project_initiative_evidence(
+    reference: &AwarenessObservationRefV1,
+    scope: &SourceMaterialScopeV1,
+    payload: &[u8],
+) -> Result<luca_protocol::InitiativePlanningEvidenceV1, AwarenessStoreError> {
+    if reference.validate().is_err()
+        || reference.evidence_ref.as_str() != format!("sha256:{}", hex::encode(Sha256::digest(payload))) {
+        return Err(AwarenessStoreError::Invalid);
+    }
+    let view = project(reference, scope, payload)?;
+    let evidence = luca_protocol::InitiativePlanningEvidenceV1 {
+        observation: reference.clone(),
+        excerpt: encode_bounded(&view, luca_protocol::MAX_INITIATIVE_PLANNING_EXCERPT_BYTES)?,
+    };
+    evidence.validate().map_err(|_| AwarenessStoreError::Invalid)?;
+    Ok(evidence)
+}
+
 fn project<'a>(reference: &'a AwarenessObservationRefV1, scope: &SourceMaterialScopeV1, payload: &[u8]) -> Result<ObservationView<'a>, AwarenessStoreError> {
     let value: serde_json::Value = serde_json::from_slice(payload).map_err(|_| AwarenessStoreError::Invalid)?;
     let protocol = value.get("protocol").and_then(serde_json::Value::as_str).ok_or(AwarenessStoreError::Invalid)?;

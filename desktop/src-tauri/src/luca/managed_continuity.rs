@@ -783,7 +783,7 @@ fn write_optional_awareness_context(
         turn_context::{AwarenessTurnScopeV1, PreparedAwarenessTurnContextV1},
         AwarenessHostFactsV1, AwarenessMaterialFactsV1, LiveAwarenessOwner,
     };
-    use luca_protocol::{AwarenessMaterialStateV1, AwarenessUseV1, CanonicalTimestamp};
+    use luca_protocol::{AwarenessMaterialStateV1, CanonicalTimestamp};
     if !super::managed_dispatch_store::ordinary_turn_awareness_consumers_ready()
         || !matches!(result.status, ManagedSessionContextStatusV1::Empty | ManagedSessionContextStatusV1::Ready | ManagedSessionContextStatusV1::Degraded) {
         return None;
@@ -807,9 +807,7 @@ fn write_optional_awareness_context(
             };
             // Persistent native history is not an ephemeral source sink. Even
             // when future readiness is true, mere observe+egress is insufficient.
-            state.companion_awareness.snapshot(&expected.owner_pubkey, &key).is_ok_and(|authority| {
-                authority.grant.choices.retain && authority.grant.choices.provider_egress_binding.as_ref() == Some(binding_ref)
-            })
+            state.companion_awareness.recheck_native_history_choice(&expected.owner_pubkey, &key, binding_ref).is_ok()
         },
     ).ok()??;
     let live = LiveAwarenessOwner::authenticate(&state).ok()?;
@@ -828,13 +826,12 @@ fn write_optional_awareness_context(
         source_fresh: false, material_state: AwarenessMaterialStateV1::Unavailable };
     let receipt = prepared.receipt();
     let mut attempted = None;
-    let _ = state.companion_awareness.with_payloads_lease(&lease, &facts, &receipt.observations,
-        AwarenessUseV1 { retain: true, provider_egress_binding: Some(binding_ref), ..Default::default() },
+    let _ = state.companion_awareness.with_native_history_payloads_lease(&lease, &facts, &receipt.observations, binding_ref,
         |reference, retained| {
             let current = material.resolve(reference, retained);
             let admitted = prepared.material(reference, retained);
             AwarenessMaterialFactsV1 { source_fresh: current.source_fresh && admitted.source_fresh, material_state: current.material_state }
-        }, Some(&receipt.context_node), |payloads| {
+        }, &receipt.context_node, |payloads| {
             let Ok(context) = prepared.compile(&scope, &now, payloads) else { return; };
             // Bind BEFORE the first byte. Partial writes stay conservatively
             // tainted; app expiry does not erase native/provider history.

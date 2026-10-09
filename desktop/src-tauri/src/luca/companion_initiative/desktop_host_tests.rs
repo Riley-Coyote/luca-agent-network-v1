@@ -43,10 +43,3 @@ fn current_head_and_authority_are_not_model_or_context_claims() {
     view.current_head_record_id=Some(view.record_id.clone());view.author_kind=id("owner");assert!(canonical_seed(&scope,&token,&view).is_err());
     view.author_kind=id("resident");view.canonical_revision_ref=hash("e");assert!(canonical_seed(&scope,&token,&view).is_err());
 }
-#[test]
-fn evidence_must_be_actual_admitted_text_not_a_claimed_plan() {
-    let payload=serde_json::to_vec(&serde_json::json!({"text":"UNTRUSTED source evidence", "work_status":"unknown"})).unwrap();
-    assert!(evidence_matches(&payload,"UNTRUSTED source"));
-    assert!(!evidence_matches(&payload,"I ran a new research task"));
-    assert!(!evidence_matches(&payload,""));
-}

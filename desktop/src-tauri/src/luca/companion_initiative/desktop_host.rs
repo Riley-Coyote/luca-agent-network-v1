@@ -163,9 +163,11 @@ impl InitiativeExecutionHostV1<ManagedInitiativeCancellation> for DesktopInitiat
             if let Some(node) = prepared.dependency_node() {
                 let references = prepared.request().evidence.iter().map(|evidence| evidence.observation.clone()).collect::<Vec<_>>();
                 let facts = AwarenessHostFactsV1 { owner_pubkey: &scope.control.owner_pubkey, resident_pubkey: &self.resident, now: &now, source_fresh: false, material_state: AwarenessMaterialStateV1::Unavailable };
-                state.companion_awareness.with_payloads_lease(lease, &facts, &references, AwarenessUseV1 { retain: true, provider_egress_binding: Some(&scope.binding_ref), ..Default::default() },
+                state.companion_awareness.with_payloads_lease(lease, &facts, &references, AwarenessUseV1 { provider_egress_binding: Some(&scope.binding_ref), ..Default::default() },
                     |reference, retained| source.as_ref().map(|facts| facts.resolve(reference, retained)).unwrap_or(AwarenessMaterialFactsV1 { source_fresh:false,material_state:AwarenessMaterialStateV1::Unavailable }), Some(node), |payloads| {
-                        if !prepared.request().evidence.iter().zip(payloads).all(|(evidence, payload)| evidence_matches(payload, &evidence.excerpt)) { return Err(InitiativeExecutorErrorV1::Invalid); }
+                        if !prepared.request().evidence.iter().zip(payloads).all(|(evidence, payload)| source.as_ref().is_some_and(|source| {
+                            super::observed_evidence::matches(source.snapshot(), &evidence.observation, payload, &evidence.excerpt)
+                        })) { return Err(InitiativeExecutorErrorV1::Invalid); }
                         ledger()
                     }).map_err(|_| InitiativeExecutorErrorV1::Unavailable)?
             } else { ledger() }
@@ -238,15 +240,6 @@ impl InitiativeExecutionHostV1<ManagedInitiativeCancellation> for DesktopInitiat
         let _ = state.companion_initiative.with_control(scope, |store| store.interrupt_private_cycle(scope, job));
     }
 }
-fn evidence_matches(payload: &[u8], excerpt: &str) -> bool {
-    if excerpt.is_empty() { return false; }
-    if std::str::from_utf8(payload).is_ok_and(|text| text.starts_with(excerpt)) { return true; }
-    serde_json::from_slice::<serde_json::Value>(payload).ok().is_some_and(|value| {
-        value.get("text").and_then(serde_json::Value::as_str).is_some_and(|text| text.contains(excerpt))
-            || value.get("excerpts").and_then(serde_json::Value::as_array).is_some_and(|excerpts| excerpts.iter().any(|text| text.as_str().is_some_and(|text| text.contains(excerpt))))
-    })
-}
-
 /// Narrow canonical settlement after a completed private decision. Does not
 /// retry a model, reopen a suppressed inquiry or treat Created as completion.
 pub(crate) fn settle_disposition(app: &AppHandle, scope: &InitiativeControlScopeV1, job: &OpaqueId, expected_head: &InitiativeThreadHeadV1, expected_ref: &Sha256Ref) -> Result<bool, InitiativeExecutorErrorV1> {

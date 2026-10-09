@@ -447,12 +447,13 @@ synthetic native adapter authorship roundtrip passes; full desktop execution
 and exact live-resident proof remain pending.
 
 The current Codex ACP path does not provide a verified all-tools-off contract.
-New private initiative planning/authorship therefore rejects that path; existing
-Codex chat, delegation, reflection and journal behavior are unchanged. A separate
-owned app-server permission-profile path is source-supported for scoped native
-work, but requires its own exact-version/sandbox/environment/MCP proof. Riley
-has been asked whether to include that separately scoped work path. It must not
-be advertised as tool-free or enabled by silently changing native permissions.
+Its separately owned app-server permission-profile path now supports scoped
+private initiative planning/authorship, with a synthetic native sandbox and
+structured-result assay passing against the installed version. It is not the
+tool-free Claude path or a full selected-resident desktop acceptance proof.
+Existing Codex chat, delegation, reflection and journal behavior are unchanged.
+Riley approved implementing this separately scoped path; it must not be enabled
+by silently changing native permissions or advertised as an isolated computer.
 
 MCP connection grants and tools-list health do not prove background account-read
 authority. See `ACCOUNT_CONNECTOR_BOUNDARY.md`; no automatic social/text feed
@@ -513,3 +514,36 @@ local archival retention remains unsupported; native-history consent is a
 separate sink-specific authority, not a silent reinterpretation of the frozen
 awareness grants. Preserve unknown/revoked/expired dependency denial and keep
 normal conversation usable when awareness is paused or unavailable.
+
+### Continuation after restart (2026-10-08)
+
+- The ordinary-turn compiler now uses the separate native-history choice,
+  rechecked under the same source-admission/frame lock. It no longer requires
+  unsupported raw-local archival retention. A disposable controller test proves
+  Observe/model-sharing alone is insufficient, explicit history consent admits
+  the current source, OFF blocks the next sink, and expired bytes stay denied.
+- The live initiative coordinator no longer always passes empty evidence. It
+  selects up to four already-captured, current, exact-resident observations whose
+  grants permit promotion and the current model binding. It does not capture a
+  source or widen access to fill this list. No available evidence means useful
+  canonical carried work remains eligible, rather than a failed conversation.
+- Private planning/pursuit consumes ephemeral source evidence without requiring
+  raw archival retention. The final native-frame barrier reproduces the exact
+  bounded class/ref/hash/capture-time projection, rather than accepting substring
+  matching. A retained creation still needs the existing separate promotion
+  barrier; a private evidence read does not itself create a memory or artifact.
+- Setup source reviews and pending saves are generation-scoped, so late replies
+  cannot apply another source/resident's review or continue an old save in a new
+  dialog. The approved layout is unchanged. The generated lab remains a labeled
+  in-memory simulation and was refreshed in this feature tree after restart.
+- The 124 focused desktop companion checks and frontend typecheck pass. The
+  maximum-planning-deadline regression now explicitly covers fractional wall
+  clocks; no frozen deadline or budget was extended. These are source/sentinel
+  checks, not full native candidate acceptance or permission to collect data.
+
+Still open: coherent warm-native-history reset/replay and final publication
+privacy handling, ordinary-chat readiness, complete selected-resident native
+source/work/Library/restart acceptance, and the separately identified native
+candidate. The host readiness ceiling remains false. No installed app, personal
+source, account connection, global runtime configuration or shipping/design
+worktree was changed.

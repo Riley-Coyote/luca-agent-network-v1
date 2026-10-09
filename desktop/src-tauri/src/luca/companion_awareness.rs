@@ -514,6 +514,38 @@ impl CompanionAwarenessRuntime {
         context_node: Option<&OpaqueId>,
         sink: impl FnOnce(&[zeroize::Zeroizing<Vec<u8>>]) -> T,
     ) -> Result<T, AwarenessStoreError> {
+        self.with_payloads_for_sink_lease(lease, facts, references, intended_use, &mut resolve, context_node, None, sink)
+    }
+
+    /// Ordinary conversation is a separately approved native-history sink,
+    /// not a raw local archive. Consent is rechecked under the same lock as
+    /// source admission and framing; a stale preparation cannot widen it.
+    pub(crate) fn with_native_history_payloads_lease<T>(
+        &self,
+        lease: &LiveAwarenessLease<'_>,
+        facts: &AwarenessHostFactsV1<'_>,
+        references: &[AwarenessObservationRefV1],
+        binding: &luca_protocol::Sha256Ref,
+        mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+        context_node: &OpaqueId,
+        sink: impl FnOnce(&[zeroize::Zeroizing<Vec<u8>>]) -> T,
+    ) -> Result<T, AwarenessStoreError> {
+        self.with_payloads_for_sink_lease(lease, facts, references,
+            AwarenessUseV1 { provider_egress_binding: Some(binding), ..Default::default() },
+            &mut resolve, Some(context_node), Some(binding), sink)
+    }
+
+    fn with_payloads_for_sink_lease<T>(
+        &self,
+        lease: &LiveAwarenessLease<'_>,
+        facts: &AwarenessHostFactsV1<'_>,
+        references: &[AwarenessObservationRefV1],
+        intended_use: AwarenessUseV1<'_>,
+        resolve: &mut impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+        context_node: Option<&OpaqueId>,
+        native_history_binding: Option<&luca_protocol::Sha256Ref>,
+        sink: impl FnOnce(&[zeroize::Zeroizing<Vec<u8>>]) -> T,
+    ) -> Result<T, AwarenessStoreError> {
         if lease.owner() != facts.owner_pubkey || references.is_empty() || references.len() > 4 {
             return Err(AwarenessStoreError::Invalid);
         }
@@ -534,6 +566,9 @@ impl CompanionAwarenessRuntime {
                         device_id: reference.device_id.clone(),
                     }, resident_pubkey: reference.resident_pubkey.clone(),
                 };
+                if let Some(binding) = native_history_binding {
+                    controller.store.recheck_native_history_choice(&key, binding)?;
+                }
                 let authority = controller.store.snapshot(&key)?;
                 let payload = controller.buffer.with_payload(
                     &authority_snapshot(&authority, &current), reference, intended_use,
@@ -545,8 +580,8 @@ impl CompanionAwarenessRuntime {
             }
             if let Some(node) = context_node {
                 let parents = references.iter().map(|reference| reference.observation_id.clone()).collect::<Vec<_>>();
-                controller.store.register_dependent(node, AwarenessDependentKindV1::Context, &parents, facts, &mut resolve)?;
-                controller.store.recheck_dependency(node, facts, intended_use, &mut resolve)?;
+                controller.store.register_dependent(node, AwarenessDependentKindV1::Context, &parents, facts, &mut *resolve)?;
+                controller.store.recheck_dependency(node, facts, intended_use, &mut *resolve)?;
             }
             Ok(sink(&payloads))
         })

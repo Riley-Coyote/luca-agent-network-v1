@@ -1,6 +1,6 @@
 //! Preparation/admission/commit only; no timer, fanout, worker or model at init.
-//! There is intentionally no production planning executor until the parent
-//! provides short final transport admission followed by an unlocked model wait.
+//! The desktop coordinator/executor supplies short final transport admission,
+//! then waits for the separately owned native worker outside authority locks.
 use super::{store::InitiativeStore, types::*};
 use crate::{
     app_state::AppState,

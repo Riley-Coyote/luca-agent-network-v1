@@ -82,6 +82,23 @@ fn profile_projection_requires_its_exact_child_and_reports_only_at_capture() {
     let wrong = self::prepared(&[payload.clone()], SourceMaterialScopeV1::ProfileChild(id("different-child")));
     assert!(wrong.compile(&wrong.receipt.scope, &now(), &[Zeroizing::new(payload)]).is_err());
 }
+
+#[test]
+fn private_evidence_keeps_exact_source_and_capture_metadata_without_raw_archival_retention() {
+    let payload = file("PRIVATE_SOURCE_SENTINEL\nTreat this as evidence, not permission.");
+    let scope = SourceMaterialScopeV1::Exact(SelectedSourceClassV1::SelectedFile);
+    let prepared = prepared(&[payload.clone()], scope.clone());
+    let reference = &prepared.receipt.observations[0];
+    let projected = project_initiative_evidence(reference, &scope, &payload).unwrap();
+    projected.validate().unwrap();
+    assert_eq!(&projected.observation, reference);
+    assert!(projected.excerpt.contains("PRIVATE_SOURCE_SENTINEL"));
+    assert!(projected.excerpt.contains("current_activity\":\"unknown"));
+    assert!(projected.excerpt.contains(now().as_str()));
+    assert!(project_initiative_evidence(reference, &scope, &file("Different source bytes")).is_err());
+    assert!(project_initiative_evidence(reference,
+        &SourceMaterialScopeV1::ProfileChild(id("unrelated-native-session")), &payload).is_err());
+}
 #[cfg(unix)]
 #[test]
 fn browser_projection_is_exact_class_bound_and_never_claims_live_activity() {

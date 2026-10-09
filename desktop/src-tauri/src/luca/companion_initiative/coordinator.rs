@@ -200,17 +200,21 @@ fn run_due_inner(app:&AppHandle,shared:&Arc<Shared>)->Result<InitiativeCoordinat
     let attempts=state.companion_initiative.with_control(&scope.control,|store|store.latest_attempt_for_threads(&scope.control))?;
     heads.sort_by(|left,right|head_priority(&attempts,&left.thread.thread_id,&left.thread.updated_at,&right.thread.thread_id,&right.thread.updated_at));
     let Some(head)=heads.into_iter().next()else{return Ok(InitiativeCoordinatorOutcomeV1::Quiet(InitiativeQuietReasonV1::Unavailable));};
-    let host=DesktopInitiativeExecutionHostV1::new(app.clone(),resident.clone(),head.thread.thread_id.clone(),&[]);
-    let current=capture_admission(&host,&scope,&head.thread.thread_id,&[],None)?;
+    let job=OpaqueId::parse(format!("initiative-job-{}",uuid::Uuid::new_v4())).map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
+    // Missing/unavailable awareness never prevents useful canonical work.
+    // No fresh source is fetched merely to fill an evidence quota.
+    let (evidence, dependency_node) = super::observed_evidence::prepare(&state, &scope, &job)
+        .unwrap_or_else(|_| (Vec::new(), None));
+    let host=DesktopInitiativeExecutionHostV1::new(app.clone(),resident.clone(),head.thread.thread_id.clone(),&evidence);
+    let current=capture_admission(&host,&scope,&head.thread.thread_id,&evidence,dependency_node.as_ref())?;
     let dependency_ref=current.dependency_ref().clone();
     let canonical=current.semantic().revision_ref().map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
     let revision=state.companion_initiative.with_control(&scope.control,|store|Ok(store.thread(&scope.control,&head.thread.thread_id)?.map(|thread|thread.revision)))?.unwrap_or(SafeU53::new(1).map_err(|_|InitiativeExecutorErrorV1::Invalid)?);
-    let job=OpaqueId::parse(format!("initiative-job-{}",uuid::Uuid::new_v4())).map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
     let request=OpaqueId::parse(format!("initiative-cycle-{}",uuid::Uuid::new_v4())).map_err(|_|InitiativeExecutorErrorV1::Invalid)?;
     let cycle=InitiativeCycleInputV1 {job_id:job.clone(),request_id:request,thread_id:head.thread.thread_id.clone(),expected_thread_revision:revision,canonical_revision_ref:canonical.clone(),dependency_ref,
         origin_conversation_id:None,budget:InitiativeTimeBudgetV1 {decision_ms:DECISION_MS,work_ms:WORK_MS,return_ms:0},deadline_unix_ms:scope.control.now_unix_ms.checked_add(DECISION_MS+WORK_MS).ok_or(InitiativeExecutorErrorV1::Invalid)?,continued_from:None};
     let live=LiveAwarenessOwner::authenticate(&state).map_err(|_|InitiativeExecutorErrorV1::Unavailable)?;
-    let preparation=state.companion_initiative.with_live(&live,&scope.control,|store|Ok(prepare_planning(store,&scope,InitiativeTickInputV1 {cycle,idle_for_ms:idle,evidence:Vec::new(),dependency_node:None},current)))??;
+    let preparation=state.companion_initiative.with_live(&live,&scope.control,|store|Ok(prepare_planning(store,&scope,InitiativeTickInputV1 {cycle,idle_for_ms:idle,evidence,dependency_node},current)))??;
     let prepared=match preparation {
         InitiativePreparationV1::Quiet(reason)=>return Ok(InitiativeCoordinatorOutcomeV1::Quiet(reason)),
         InitiativePreparationV1::PreemptionRequested(_)=>{let _=state.companion_execution.preempt(&scope.control);return Ok(InitiativeCoordinatorOutcomeV1::Quiet(InitiativeQuietReasonV1::RecentActivity));},

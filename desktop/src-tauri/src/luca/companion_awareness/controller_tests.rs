@@ -208,3 +208,72 @@ fn recovery_cannot_create_or_select_an_unrelated_control_identity() {
         .is_err());
     assert_eq!(runtime.control_owner(), Some(principal('a')));
 }
+
+#[test]
+fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives() {
+    let directory = tempfile::tempdir().unwrap();
+    let state = build_isolated_test_app_state();
+    let live = LiveAwarenessOwner::authenticate(&state).unwrap();
+    let owner = live.owner().clone();
+    let resident = principal('b');
+    let runtime = CompanionAwarenessRuntime::default();
+    runtime.initialize(directory.path(), Some(&owner));
+    runtime.set_paused(&owner, &resident, Some(&live), None, false, &time(), &operation("resume-chat-test")).unwrap();
+    let source = AwarenessSourceKeyV1 {
+        owner_pubkey: owner.clone(), source_id: operation("chat-source"),
+        device_id: runtime.device(&owner).unwrap(),
+    };
+    runtime.register_source(&live, &source, &operation("register-chat-source")).unwrap();
+    runtime.set_source_health(&live, &source, SafeU53::new(1).unwrap(), AwarenessSourceStateV1::Current, &operation("chat-source-current")).unwrap();
+    let binding = Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
+    let grant = AwarenessGrantV1 {
+        protocol: AWARENESS_PROTOCOL.into(), grant_id: operation("chat-grant"),
+        owner_pubkey: owner.clone(), resident_pubkey: resident.clone(),
+        source_id: source.source_id.clone(), device_id: source.device_id.clone(),
+        grant_revision: SafeU53::new(1).unwrap(), deny_epoch: SafeU53::new(0).unwrap(),
+        state: AwarenessGrantStateV1::Active,
+        choices: AwarenessChoicesV1 { observe: true, retain: false, promote: false, provider_egress_binding: Some(binding.clone()) },
+    };
+    runtime.put_grant(&live, &grant, None, &operation("grant-chat-source")).unwrap();
+    let key = AwarenessGrantKeyV1 { source, resident_pubkey: resident.clone() };
+    let payload = b"DISPOSABLE_CONVERSATION_SENTINEL".to_vec();
+    let now = CanonicalTimestamp::parse("2026-10-08T10:00:02Z").unwrap();
+    let reference = AwarenessObservationRefV1 {
+        protocol: AWARENESS_PROTOCOL.into(), observation_id: operation("chat-observation"),
+        owner_pubkey: owner.clone(), resident_pubkey: resident.clone(),
+        source_id: key.source.source_id.clone(), device_id: key.source.device_id.clone(),
+        grant_id: grant.grant_id.clone(), grant_revision: grant.grant_revision, deny_epoch: grant.deny_epoch,
+        sequence: SafeU53::new(1).unwrap(),
+        evidence_ref: Sha256Ref::parse(format!("sha256:{}", hex::encode(Sha256::digest(&payload)))).unwrap(),
+        captured_at: CanonicalTimestamp::parse("2026-10-08T10:00:01Z").unwrap(),
+        expires_at: CanonicalTimestamp::parse("2026-10-08T10:05:00Z").unwrap(),
+    };
+    let facts = AwarenessHostFactsV1 { owner_pubkey: &owner, resident_pubkey: &resident, now: &now,
+        source_fresh: true, material_state: AwarenessMaterialStateV1::Available };
+    let resolve = |_: &AwarenessObservationRefV1, _: bool| AwarenessMaterialFactsV1 {
+        source_fresh: true, material_state: AwarenessMaterialStateV1::Available,
+    };
+    runtime.admit(&live, &facts, reference.clone(), payload.clone()).unwrap();
+    let deliver = || {
+        let lease = live.lease().unwrap();
+        runtime.with_native_history_payloads_lease(&lease, &facts, &[reference.clone()], &binding,
+            resolve, &operation("chat-context"), |bytes| bytes[0].to_vec())
+    };
+    // Observe + model-sharing alone cannot cross a persistent native sink.
+    assert!(deliver().is_err());
+    runtime.set_native_history_choice(&owner, &key, Some(&live), SafeU53::new(0).unwrap(), true,
+        Some(&binding), &now, &operation("allow-chat-history")).unwrap();
+    assert_eq!(deliver().unwrap(), payload);
+    assert!(!runtime.snapshot(&owner, &key).unwrap().grant.choices.retain);
+    // The sink rechecks consent after preparation, immediately before delivery.
+    runtime.set_native_history_choice(&owner, &key, None, SafeU53::new(1).unwrap(), false,
+        None, &now, &operation("disable-chat-history")).unwrap();
+    assert!(deliver().is_err());
+    // A new explicit confirmation still cannot resurrect expired source bytes.
+    runtime.set_native_history_choice(&owner, &key, Some(&live), SafeU53::new(2).unwrap(), true,
+        Some(&binding), &now, &operation("reconfirm-chat-history")).unwrap();
+    let expired = CanonicalTimestamp::parse("2026-10-08T10:05:01Z").unwrap();
+    let lease = live.lease().unwrap();
+    assert!(runtime.with_native_history_payloads_lease(&lease, &AwarenessHostFactsV1 { now: &expired, ..facts },
+        &[reference], &binding, resolve, &operation("expired-chat-context"), |_| ()).is_err());
+}
