@@ -26,6 +26,9 @@ const MAX_RECORD_BYTES: usize = 4096;
 pub(crate) use super::types::*;
 #[path="profile_children.rs"]
 mod profile_children;
+#[path = "native_history.rs"]
+mod native_history;
+pub(crate) use native_history::{NativeHistoryChoiceV1, NATIVE_HISTORY_DISCLOSURE_REVISION};
 /// Narrow SQLite authority. It stores metadata/deny edges, never semantic memory.
 pub(crate) struct AwarenessStore {
     connection: Connection,

@@ -62,7 +62,7 @@ pub(crate) struct ManagedCognitionClient {
     binding_ref: Sha256Ref,
     invalidated: AtomicBool,
     /// Adapter policy, not proof that a model pursuit has succeeded.
-    initiative_tool_free_adapter: AtomicBool,
+    initiative_supported_adapter: AtomicBool,
     #[cfg(unix)]
     channel: Mutex<Channel>,
     #[cfg(unix)]
@@ -171,7 +171,7 @@ pub(crate) fn create_endpoint(
         session_epoch,
         binding_ref,
         invalidated: AtomicBool::new(false),
-        initiative_tool_free_adapter: AtomicBool::new(false),
+        initiative_supported_adapter: AtomicBool::new(false),
         channel: Mutex::new(Channel {
             reader: BufReader::new(reader),
             writer: desktop,
@@ -191,11 +191,11 @@ fn clients() -> &'static Mutex<std::collections::HashMap<String, Arc<ManagedCogn
 }
 
 impl ManagedCognitionClient {
-    /// Host runtime resolution supplies this fact. Unknown or Codex adapters
-    /// cannot inherit Claude's independently implemented no-tools policy.
+    /// Host runtime resolution supplies eligibility, not an execution certificate.
+    /// Claude has a tool-free lane; Codex has a separately checked scoped lane.
     pub(crate) fn set_initiative_adapter(&self, runtime_family: &str) {
-        self.initiative_tool_free_adapter
-            .store(runtime_family == "claude_code", Ordering::Release);
+        self.initiative_supported_adapter
+            .store(runtime_family == "claude_code" || (cfg!(target_os="macos") && runtime_family == "codex"), Ordering::Release);
     }
 }
 
@@ -206,7 +206,7 @@ pub(crate) fn initiative_adapter_supported(resident: &luca_protocol::Hex64) -> b
         .and_then(|clients| clients.get(resident.as_str()).cloned())
         .is_some_and(|client| {
             !client.invalidated.load(Ordering::Acquire)
-                && client.initiative_tool_free_adapter.load(Ordering::Acquire)
+                && client.initiative_supported_adapter.load(Ordering::Acquire)
         })
 }
 

@@ -91,7 +91,7 @@ pub fn set_companion_initiative_policy(
     let (policy,_cancelled)=if widening {
         let live=LiveAwarenessOwner::authenticate(&state).map_err(|error|error.to_string())?;
         if !crate::luca::managed_cognition::initiative_adapter_supported(&resident) {
-            return Err("This companion's current native adapter has no supported tool-free background path.".into());
+            return Err("This companion's current native adapter has no supported background path.".into());
         }
         state.companion_initiative.with_live(&live,&scope,|store|store.set_policy(&scope,&request,expected,next))
     } else {

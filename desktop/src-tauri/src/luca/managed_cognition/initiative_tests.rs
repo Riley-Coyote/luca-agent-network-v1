@@ -63,7 +63,7 @@ fn client(
             session_epoch: SafeU53::new(3).expect("epoch"),
             binding_ref: request.binding_ref().clone(),
             invalidated: AtomicBool::new(false),
-            initiative_tool_free_adapter: AtomicBool::new(true),
+            initiative_supported_adapter: AtomicBool::new(true),
             channel: Mutex::new(Channel {
                 reader: BufReader::new(reader),
                 writer: socket,

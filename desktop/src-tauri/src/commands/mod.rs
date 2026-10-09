@@ -22,6 +22,7 @@ mod channel_window;
 mod channels;
 mod clipboard;
 mod companion;
+mod companion_history;
 #[cfg(unix)]
 mod companion_browser;
 mod companion_sources;
@@ -102,6 +103,7 @@ pub use channel_window::*;
 pub use channels::*;
 pub use clipboard::*;
 pub use companion::*;
+pub use companion_history::*;
 #[cfg(unix)]
 pub use companion_browser::*;
 pub use companion_sources::*;

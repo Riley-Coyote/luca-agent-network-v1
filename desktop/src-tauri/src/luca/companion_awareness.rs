@@ -48,6 +48,7 @@ use buffer::EphemeralAwarenessBuffer;
 pub(crate) use live_owner::{LiveAwarenessLease, LiveAwarenessOwner};
 use scope::ControlScope;
 use store::AwarenessStore;
+pub(crate) use store::{NativeHistoryChoiceV1, NATIVE_HISTORY_DISCLOSURE_REVISION};
 pub(crate) use store::{
     AwarenessDependentKindV1, AwarenessGrantKeyV1, AwarenessGrantListV1, AwarenessHostFactsV1,
     AwarenessMaterialFactsV1, AwarenessMutationReceiptV1, AwarenessResidentStateV1,
@@ -303,6 +304,42 @@ impl CompanionAwarenessRuntime {
             return Err(AwarenessStoreError::Invalid);
         }
         self.with_controller(owner, |controller| controller.store.snapshot(key))
+    }
+
+    /// Exact saved native-history destination choice. Does not read source data.
+    pub(crate) fn native_history_choice(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1,
+    ) -> Result<Option<NativeHistoryChoiceV1>, AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        self.with_controller(owner, |controller| controller.store.native_history_choice(key))
+    }
+
+    /// Separate native destination consent. Only widening needs a live owner;
+    /// OFF remains possible during keychain recovery without a running model.
+    pub(crate) fn set_native_history_choice(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1, live: Option<&LiveAwarenessOwner<'_>>,
+        expected: SafeU53, allowed: bool, binding: Option<&luca_protocol::Sha256Ref>,
+        now: &CanonicalTimestamp, operation: &OpaqueId,
+    ) -> Result<(NativeHistoryChoiceV1, bool), AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        let apply = || self.with_controller(owner, |controller| {
+            if key.source.device_id != controller.scope.device { return Err(AwarenessStoreError::Invalid); }
+            controller.store.set_native_history_choice(key, expected, allowed, binding, now, operation)
+        });
+        if allowed {
+            let live = live.ok_or(AwarenessStoreError::Invalid)?;
+            if live.owner() != owner { return Err(AwarenessStoreError::Invalid); }
+            live.with_current(apply)
+        } else { apply() }
+    }
+
+    /// Saved consent must still match the source's exact current runtime/grant.
+    /// This is not a current material/capture/transport or publication permit.
+    pub(crate) fn recheck_native_history_choice(
+        &self, owner: &Hex64, key: &AwarenessGrantKeyV1, binding: &luca_protocol::Sha256Ref,
+    ) -> Result<(), AwarenessStoreError> {
+        if owner != &key.source.owner_pubkey { return Err(AwarenessStoreError::Invalid); }
+        self.with_controller(owner, |controller| controller.store.recheck_native_history_choice(key, binding))
     }
 
     /// Next durable exact-grant sequence. The source driver serializes capture;

@@ -42,9 +42,9 @@ fn only_recognized_private_v1_authority_gets_additive_empty_child_table() {
     let path=root.join(AWARENESS_STORE_FILENAME);let mut store=AwarenessStore::open(&path).unwrap();
     let source=AwarenessSourceKeyV1 {owner_pubkey:Hex64::parse("11".repeat(32)).unwrap(),source_id:id("existing-source"),device_id:id("internal-device")};
     store.register_source(&source,&id("existing-register")).unwrap();
-    store.connection.execute_batch("DROP TABLE awareness_profile_children; PRAGMA user_version=1;").unwrap();
+    store.connection.execute_batch("DROP TABLE awareness_native_history; DROP TABLE awareness_profile_children; PRAGMA user_version=1;").unwrap();
     drop(store);let reopened=AwarenessStore::open(&path).unwrap();
     assert_eq!(reopened.source_snapshot(&source).unwrap().1,number(1));
     assert!(reopened.profile_children(&source.owner_pubkey,&Hex64::parse("22".repeat(32)).unwrap()).unwrap().is_empty());
-    assert_eq!(reopened.connection.pragma_query_value(None,"user_version",|row|row.get::<_,i64>(0)).unwrap(),2);
+    assert_eq!(reopened.connection.pragma_query_value(None,"user_version",|row|row.get::<_,i64>(0)).unwrap(),3);
 }

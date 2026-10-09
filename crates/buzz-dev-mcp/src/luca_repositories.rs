@@ -27,6 +27,7 @@ const RUNTIME_TASK_BROKER_DEADLINE: Duration = Duration::from_secs(15 * 60 + 60)
 #[serde(rename_all = "snake_case")]
 enum ReviewSurface {
     Onboarding,
+    Companion,
     Runtime,
     NativeAgents,
     Brain,
@@ -551,7 +552,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "polyphonic_open",
-        description = "Request an owner review screen in Polyphonic from this conversation. Use surface brain only when the owner wants an optional retained Brain connection for projects or previous chats. One-off machine/file access uses normal native tools and permissions; external runtime delegation uses list_runtime_task_sessions and propose_runtime_task, without requiring Brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
+        description = "Request an owner review screen in Polyphonic from this conversation. Use surface companion to help the owner configure optional work/browser awareness, activity in conversation, or bounded background work during natural chat after harness connection; this opens concise controls for this companion without restarting onboarding. Ask what they want before opening it, and do not claim permissions were saved until the host confirms. Use surface brain only when the owner wants an optional retained Brain connection for projects or previous chats. One-off machine/file access uses normal native tools and permissions; external runtime delegation uses list_runtime_task_sessions and propose_runtime_task, without requiring Brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
     )]
     async fn polyphonic_open(
         &self,

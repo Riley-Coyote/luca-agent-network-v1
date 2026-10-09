@@ -15,7 +15,7 @@ use luca_protocol::{
     derive_initiative_thread_ref, CanonicalTimestamp, InitiativeDispositionV1,
     InitiativePlanningEvidenceV1, InitiativePlanningRequestV1, InitiativePlanningResultV1,
     InitiativeSemanticThreadV1, InitiativeThreadV1, InitiativeTransitionCauseV1, OpaqueId, SafeU53,
-    Sha256Ref, INITIATIVE_PLANNING_PROTOCOL, INITIATIVE_PROTOCOL,
+    Sha256Ref, INITIATIVE_PLANNING_PROTOCOL, INITIATIVE_PROTOCOL, MAX_INITIATIVE_PLANNING_DURATION_MS,
 };
 
 /// Frozen balanced default: foreground conversation and recent activity win.
@@ -442,7 +442,10 @@ pub(crate) fn prepare_planning(
         .control
         .now_unix_ms
         .checked_add(input.cycle.budget.decision_ms)
-        .map(|deadline| deadline.min(input.cycle.deadline_unix_ms))
+        .map(|deadline| deadline.min(input.cycle.deadline_unix_ms)
+            // Canonical timestamps have whole-second precision. Never make a
+            // maximum-length request exceed its frozen interval by a fraction.
+            .min((scope.control.now_unix_ms / 1000 * 1000).saturating_add(MAX_INITIATIVE_PLANNING_DURATION_MS)))
         .ok_or(InitiativeDriverErrorV1::Budget)?;
     let request = InitiativePlanningRequestV1 {
         protocol: INITIATIVE_PLANNING_PROTOCOL.into(),

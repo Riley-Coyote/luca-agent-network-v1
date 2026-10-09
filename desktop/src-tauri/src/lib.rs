@@ -1156,6 +1156,8 @@ pub fn run() {
             get_resident_runtime_tier,
             get_resident_continuity,
             get_companion_awareness,
+            get_companion_native_history_choice,
+            set_companion_native_history_choice,
             set_companion_awareness_paused,
             withdraw_companion_awareness_grant,
             #[cfg(unix)]

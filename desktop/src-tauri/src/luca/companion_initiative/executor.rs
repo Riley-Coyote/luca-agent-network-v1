@@ -342,7 +342,8 @@ fn pursuit_request(
                 .work_ms
                 .min(MAX_INITIATIVE_PURSUIT_DURATION_MS),
         )
-        .map(|n| n.min(job.input.deadline_unix_ms))
+        .map(|n| n.min(job.input.deadline_unix_ms)
+            .min((scope.control.now_unix_ms / 1000 * 1000).saturating_add(MAX_INITIATIVE_PURSUIT_DURATION_MS)))
         .ok_or(InitiativeExecutorErrorV1::Invalid)?;
     for evidence in &prepared.request().evidence {
         let expires =

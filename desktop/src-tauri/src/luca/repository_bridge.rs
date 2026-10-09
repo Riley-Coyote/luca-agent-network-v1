@@ -706,6 +706,20 @@ fn list_repositories(
     })
 }
 
+fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext) -> serde_json::Value {
+    (|| -> Option<serde_json::Value> {
+        let awareness = state.companion_awareness.resident_state(&context.owner_pubkey, &context.resident_pubkey).ok()?;
+        let grants = state.companion_awareness.list_grants(&context.owner_pubkey, &context.resident_pubkey, 64).ok()?;
+        let scope = crate::luca::companion_initiative::host_scope::home_scope(state, &context.owner_pubkey, &context.resident_pubkey).ok()?;
+        let work = state.companion_initiative.with_control(&scope, |store| store.policy(&scope)).ok()?;
+        Some(serde_json::json!({"availability":"ready","awarenessPaused":awareness.paused,
+            "awarenessRevision":awareness.revision,"selectedGrantCount":grants.entries.len(),
+            "backgroundEnabled":work.enabled,"backgroundPaused":work.paused,"backgroundRevision":work.revision,
+            "activityInChatReady":crate::luca::managed_dispatch_store::ordinary_turn_awareness_consumers_ready(),
+            "reviewSurface":"companion","effect":"status_only","observedBodiesIncluded":false}))
+    })().unwrap_or_else(||serde_json::json!({"availability":"unavailable","effect":"status_only","observedBodiesIncluded":false}))
+}
+
 fn operator_status(
     app: &AppHandle,
     context: &BrokerContext,
@@ -779,6 +793,7 @@ fn operator_status(
             "openclaw": openclaw_candidates,
         },
         "brain": brain,
+        "companion": companion_status(&state, context),
         "recoveryBackup": {
             "state": "not_observable",
             "reason": "Polyphonic does not retain exported-backup destinations or passphrases."
@@ -793,11 +808,12 @@ fn operator_status(
         "ownerReviewSurfaces": [
             "open_onboarding", "review_native_agents", "create_or_update_agent",
             "review_brain", "open_profile", "open_recovery", "open_access_settings",
-            "configure_runtime"
+            "configure_runtime", "review_companion"
         ],
         "reviewNavigation": {
             "tool": if record.native_runtime_binding.is_some() { None } else { Some("polyphonic_open") },
             "existingWorkSurface": "brain",
+            "companionSetupSurface": "companion",
             "effect": "owner_review_only",
             "connectsOrImports": false,
         },

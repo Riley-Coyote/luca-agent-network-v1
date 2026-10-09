@@ -6,6 +6,7 @@ use super::*;
 #[serde(rename_all = "snake_case")]
 enum ReviewSurface {
     Onboarding,
+    Companion,
     Runtime,
     NativeAgents,
     Brain,
@@ -74,6 +75,7 @@ mod tests {
     fn review_navigation_accepts_only_fixed_surfaces_without_authority_or_paths() {
         for surface in [
             "onboarding",
+            "companion",
             "runtime",
             "native_agents",
             "brain",

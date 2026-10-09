@@ -13,6 +13,7 @@ mod engram_fetch;
 pub mod exchange_cache;
 mod filter;
 mod local_cognition;
+mod scoped_codex_initiative;
 pub mod luca_final_publisher;
 mod managed_mcp_provider;
 mod managed_presentation;
@@ -4517,6 +4518,9 @@ async fn run_isolated_codex_continuity_task(
     turn_id: String,
     spawn: CodexContinuitySpawnSpec,
 ) -> (PromptOutcome, Option<String>) {
+    if scoped_codex_initiative::is_scoped_request(&source) {
+        return scoped_codex_initiative::run(&spawn, &binding, &source, &ctx, &mut control_rx).await;
+    }
     let native_tools = match discover_codex_native_tools(&spawn, &mut control_rx).await {
         Ok(tools) => tools,
         Err(IsolatedContinuitySetupError::Cancelled) => return (PromptOutcome::Cancelled, None),

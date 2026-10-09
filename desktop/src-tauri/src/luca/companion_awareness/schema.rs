@@ -8,7 +8,13 @@ use std::{
 
 pub(crate) const AWARENESS_STORE_FILENAME: &str = "companion-awareness-v1.sqlite3";
 const APPLICATION_ID: i64 = 0x50415731;
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
+const HISTORY_SCHEMA: &str = "CREATE TABLE awareness_native_history (
+ owner TEXT NOT NULL, resident TEXT NOT NULL, source TEXT NOT NULL, device TEXT NOT NULL,
+ revision INTEGER NOT NULL CHECK(revision>0), choice BLOB NOT NULL CHECK(length(choice)<=4096),
+ PRIMARY KEY(owner,resident,source,device),
+ FOREIGN KEY(owner,resident,source,device) REFERENCES awareness_grants(owner,resident,source,device)
+) STRICT;";
 const PROFILE_SCHEMA:&str="CREATE TABLE awareness_profile_children (
  owner TEXT NOT NULL, resident TEXT NOT NULL, observation_id TEXT NOT NULL,
  child_ref TEXT NOT NULL, exclusion_token TEXT NOT NULL CHECK(length(exclusion_token)=71),
@@ -97,11 +103,13 @@ pub(super) fn open_database(path: &Path) -> Result<Connection, AwarenessStoreErr
     )?;
     connection.execute_batch("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON; PRAGMA trusted_schema=OFF; PRAGMA temp_store=MEMORY; PRAGMA synchronous=FULL;")?;
     if !existed {
-        connection.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA} {PROFILE_SCHEMA} PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"))?;
+        connection.execute_batch(&format!("BEGIN IMMEDIATE; {SCHEMA} {PROFILE_SCHEMA} {HISTORY_SCHEMA} PRAGMA application_id={APPLICATION_ID}; PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"))?;
     } else if existing_version==1 {
         // Only the already recognized private v1 authority is extended. Unknown
         // databases are never adopted and old observations gain no child claim.
-        connection.execute_batch(&format!("BEGIN IMMEDIATE; {PROFILE_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"))?;
+        connection.execute_batch(&format!("BEGIN IMMEDIATE; {PROFILE_SCHEMA} {HISTORY_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"))?;
+    } else if existing_version == 2 {
+        connection.execute_batch(&format!("BEGIN IMMEDIATE; {HISTORY_SCHEMA} PRAGMA user_version={SCHEMA_VERSION}; COMMIT;"))?;
     }
     validate_schema(&connection)?;
     Ok(connection)
@@ -164,7 +172,7 @@ fn validate_schema(connection: &Connection) -> Result<(), AwarenessStoreError> {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .map_err(|_| AwarenessStoreError::Schema)?;
-    if id != APPLICATION_ID || !matches!(version,1|2) {
+    if id != APPLICATION_ID || !matches!(version,1|2|3) {
         return Err(AwarenessStoreError::Schema);
     }
     let exceptional: i64 = connection
@@ -192,14 +200,24 @@ fn validate_schema(connection: &Connection) -> Result<(), AwarenessStoreError> {
             "awareness_residents",
             "awareness_sources",
         ];
-    if version==2 {expected.push("awareness_profile_children");expected.sort();}
+    if version >= 2 {expected.push("awareness_profile_children");}
+    if version >= 3 {expected.push("awareness_native_history");}
+    expected.sort();
     if names.iter().map(String::as_str).ne(expected) {
         return Err(AwarenessStoreError::Schema);
     }
-    if version==2 {
+    if version>=2 {
         let mut statement=connection.prepare("PRAGMA table_info(awareness_profile_children)")?;
         let columns=statement.query_map([],|row|row.get::<_,String>(1))?.collect::<Result<Vec<_>,_>>()?;
         if columns.join(",")!="owner,resident,observation_id,child_ref,exclusion_token,reference_ref" {return Err(AwarenessStoreError::Schema);}
+    }
+    if version >= 3 {
+        let mut statement = connection.prepare("PRAGMA table_info(awareness_native_history)")?;
+        let columns = statement.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if columns.join(",") != "owner,resident,source,device,revision,choice" {
+            return Err(AwarenessStoreError::Schema);
+        }
     }
     for (table, columns) in [
         (

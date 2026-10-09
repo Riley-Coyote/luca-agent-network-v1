@@ -458,12 +458,58 @@ MCP connection grants and tools-list health do not prove background account-read
 authority. See `ACCOUNT_CONNECTOR_BOUNDARY.md`; no automatic social/text feed
 or second MCP framework has been created.
 
-### Outstanding product decisions
+### Approved continuation (2026-10-08)
+
+Checkpoint: the destination-specific native-history authority and owner commands
+compile, with five focused consent/restart/revocation checks and all 122 native
+companion checks passing. The new Codex private lane uses a named native
+permission profile, default-denied reads, its own temporary writable folder,
+no command network, ephemeral threads and separately disabled inherited tool
+surfaces. A no-model native assay proves inside reads/writes and outside denial;
+one synthetic real Codex authorship roundtrip passes with exact private-result
+correlation. It uses native structured output after an initial unstructured
+response failed closed. These are native adapter assays, not full desktop
+selected-resident/source/Library/restart acceptance. The existing Claude
+tool-free path and legacy public/delegated work are unchanged.
+
+The chat review seam now has a fixed `companion` surface. A single optional
+dialog reuses existing controls, keeps source selection separate from permission,
+and offers independent observation, meaningful-note, model-sharing, native-history
+and background-work choices. Its isolated sample is at `experience=companion-setup`
+in the generated shell lab; it makes no native calls. First-meeting and Luca
+working guidance describe this conversational setup without a new required
+chapter or a default-harness change. Live observation injection remains OFF:
+the final consumer/privacy connections and complete native candidate are still
+open. Passing the new consent UI or adapter roundtrip does not close I6/I8.
+
+The real-clock native assay exposed maximum deadlines exceeding the frozen
+interval by the milliseconds omitted from canonical timestamps. Planning/work
+deadlines now clamp against the whole-second admission ceiling; budgets are
+not extended and no frozen contract was changed.
+
+Riley approved restricted owned Codex background work and a separately explained,
+default-off native-history choice. This approves implementing those controls,
+not enabling collection against Riley's personal data. Codex planning/work in
+this lane may use native tools inside an enforced scratch scope; it must not be
+advertised as the existing tool-free Claude private-cognition path. Preserve
+the exact resident/account/model binding, deny ungranted reads and outward
+effects, disable inherited MCP/plugin/descendant capabilities, and prove the
+native boundary before advertising support. A folder or a prompt alone is not
+an isolated computer. Per-agent virtual computers remain a later direction.
+
+Companion setup should happen mainly in the real conversation with Luca after
+the existing default-harness/subscription connection is ready. Do not add a
+mandatory multistep onboarding sequence. Luca explains the choices in their own
+words, asks one useful question at a time, and uses the existing scoped desktop
+review/navigation seam. A chat answer or suggested-answer button may request a
+review but never grants machine access, retention, provider egress or background
+execution by itself. Keep owner-native pickers and concise explicit confirmations
+for widening access; offer a fuller opt-in setup without making it a prerequisite
+for useful conversation. The same settings remain reachable later.
 
 Ordinary-chat observation injection stays disabled behind the host readiness
-gate. Raw local archival retention remains unsupported; it is not equivalent to
-consent for a native harness to retain context in conversation history. Riley
-has been asked to approve a separately explained, default-off native-history
-choice, and separately to include restricted owned Codex scratch work. Neither
-an unanswered question nor a preselected suggestion is approval. Independent
-source/canonical/Claude adapter work can proceed while those choices are open.
+gate until its consent and downstream consumers are actually connected. Raw
+local archival retention remains unsupported; native-history consent is a
+separate sink-specific authority, not a silent reinterpretation of the frozen
+awareness grants. Preserve unknown/revoked/expired dependency denial and keep
+normal conversation usable when awareness is paused or unavailable.
