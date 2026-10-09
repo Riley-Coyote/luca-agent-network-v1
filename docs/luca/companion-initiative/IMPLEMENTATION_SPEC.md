@@ -690,7 +690,7 @@ refunded to manufacture a passing run.
 
 Inspection found an 8 KiB private-lane persona guard despite desktop assembly
 providing five resident documents. This disposable Luca's normal assembly is
-approximately 14 KiB. Codex rejected it before creating its private worker;
+approximately 14 KiB. Codex's private worker would reject this normal assembly;
 Claude authorship had the same undersized guard. Both paths now share a bounded
 96 KiB resident-voice limit compatible with desktop assembly. The independent
 64 KiB encoded-prompt cap, result sizes, deadlines, sandbox, network and tool
@@ -704,3 +704,22 @@ checks exact result correlation and cleans up its owned process. These prove
 private runtime roundtrips, not a successful automatic desktop/Library loop.
 The refreshed candidate and a separate disposable acceptance context must still
 verify that loop without mutating the first failed record or its cadence.
+
+### Native acceptance: dispatch gate mismatch (2026-10-09)
+
+The separately named retry profile retained a synthetic open question through
+normal chat. Background work was enabled through the native permission review;
+observation grants and captured observations both remained zero. Genuine idle
+triggered one job at 14:02:04 UTC, which became Interrupted 42 ms later with no
+verified model decision. That failed record and cadence are also preserved.
+
+The native worker's admission gate still accepted only Claude, although the
+desktop advertised both Claude and the separately enforced macOS Codex lane.
+It rejected Codex before invoking that lane, explaining why the direct Codex
+assay passed while automatic execution stopped immediately. Admission now
+accepts managed Claude and managed Codex on macOS only. Codex still routes
+exclusively into the scoped worker: no legacy tool-free claim, broad sandbox,
+unknown runtime or unmanaged worker is admitted. Regression coverage checks
+the actual dispatch predicate, alongside exact result/cancellation boundaries.
+Automatic desktop/Library acceptance remains open until a fresh native run
+verifies the corrected path.

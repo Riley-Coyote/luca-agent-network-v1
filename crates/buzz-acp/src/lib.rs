@@ -4106,11 +4106,12 @@ fn dispatch_private_cognition(
     let runtime = config::normalize_agent_command_identity(&config.agent_command);
     let isolated_codex = config.identity.is_managed() && runtime == "codex-acp";
     let isolated_claude = config.identity.is_managed() && runtime == "claude-agent-acp";
-    // Codex's existing overlay excludes MCP/plugins, not every built-in tool.
-    // New initiative work must never infer tool-free authority from a denied
-    // approval or a read-only sandbox. Legacy reflection/journal stays unchanged.
+    // Claude initiative is tool-free; managed Codex initiative instead routes
+    // exclusively through its enforced, owned-workspace macOS lane. Never
+    // infer tool-free authority from the legacy MCP/plugin overlay or denied
+    // approvals. Legacy reflection/journal stays unchanged.
     if is_initiative_request(&request)
-        && !initiative_tool_isolation_supported(&runtime, config.identity.is_managed())
+        && !initiative_runtime_scope_supported(&runtime, config.identity.is_managed())
     {
         let _ = reply_tx.send(local_cognition::CognitionReply::Unavailable(
             "tool_isolation_unsupported",
@@ -4269,8 +4270,10 @@ fn is_initiative_request(request: &luca_protocol::ResidentPrivateCognitionReques
     )
 }
 
-fn initiative_tool_isolation_supported(runtime: &str, managed: bool) -> bool {
-    managed && runtime == "claude-agent-acp"
+fn initiative_runtime_scope_supported(runtime: &str, managed: bool) -> bool {
+    managed
+        && (runtime == "claude-agent-acp"
+            || (cfg!(target_os = "macos") && runtime == "codex-acp"))
 }
 
 /// The disposable native ACP process used for a managed resident's private
@@ -5039,14 +5042,19 @@ mod initiative_pursuit_result_tests {
             now
         )
         .is_none());
-        for runtime in ["codex-acp", "hermes", "openclaw", "unknown"] {
-            assert!(!initiative_tool_isolation_supported(runtime, true));
+        for runtime in ["hermes", "openclaw", "unknown"] {
+            assert!(!initiative_runtime_scope_supported(runtime, true));
         }
-        assert!(initiative_tool_isolation_supported(
+        assert_eq!(
+            initiative_runtime_scope_supported("codex-acp", true),
+            cfg!(target_os = "macos")
+        );
+        assert!(!initiative_runtime_scope_supported("codex-acp", false));
+        assert!(initiative_runtime_scope_supported(
             "claude-agent-acp",
             true
         ));
-        assert!(!initiative_tool_isolation_supported(
+        assert!(!initiative_runtime_scope_supported(
             "claude-agent-acp",
             false
         ));
