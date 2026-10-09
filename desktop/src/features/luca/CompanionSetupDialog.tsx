@@ -194,6 +194,10 @@ export function CompanionSetupPanel({
     setSelected(null);
     setHistory(null);
   }
+  const backgroundWorkEnabled = loaded?.work.policy.enabled === true;
+  const backgroundWorkPaused =
+    loaded?.work.policy.paused === true ||
+    loaded?.work.executionPaused === true;
   const grants: CompanionGrant[] = loaded
     ? [
         ...loaded.awareness.grants,
@@ -511,6 +515,12 @@ export function CompanionSetupPanel({
                 Your conversations take priority. Results stay quietly in
                 Library; no automatic messages or account access.
               </p>
+              {backgroundWorkEnabled && backgroundWorkPaused ? (
+                <p className="text-xs leading-5 text-muted-foreground">
+                  Background work is paused. Resuming observation won’t restart
+                  it.
+                </p>
+              ) : null}
               {reviewWork ? (
                 <div className="space-y-3 rounded-xl border border-border/50 p-4">
                   <p className="text-sm leading-6">
@@ -554,15 +564,17 @@ export function CompanionSetupPanel({
                   variant="outline"
                   disabled={pending}
                   onClick={() =>
-                    loaded.work.policy.enabled
+                    backgroundWorkEnabled && !backgroundWorkPaused
                       ? void operate((resident, data) =>
                           setCompanionWork(resident, data.work, false, true),
                         )
                       : setReviewWork(true)
                   }
                 >
-                  {loaded.work.policy.enabled
-                    ? "Turn background work off"
+                  {backgroundWorkEnabled
+                    ? backgroundWorkPaused
+                      ? "Resume background work"
+                      : "Turn background work off"
                     : "Review background work"}
                 </Button>
               )}

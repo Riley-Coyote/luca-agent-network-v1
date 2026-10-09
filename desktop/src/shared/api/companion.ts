@@ -23,6 +23,7 @@ export type CompanionAwareness = {
 };
 export type CompanionWork = {
   availability: string;
+  executionPaused: boolean;
   nativeChannelAvailable: boolean;
   actualModelExecutionVerified: boolean;
   policy: {

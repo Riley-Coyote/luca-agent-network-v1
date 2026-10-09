@@ -30,6 +30,19 @@ pub(crate) struct InitiativeExecutionControlV1 {
     pending: Mutex<HashMap<JobKey, Tracked>>,
 }
 impl InitiativeExecutionControlV1 {
+    /// Body-free effective pause status. Saved policy alone does not represent
+    /// a later keyless Pause; observation Resume does not clear this gate.
+    pub(crate) fn is_paused(
+        &self,
+        scope: &InitiativeControlScopeV1,
+    ) -> Result<bool, InitiativeStoreErrorV1> {
+        Ok(self
+            .gate
+            .lock()
+            .map_err(|_| InitiativeStoreErrorV1::Unavailable)?
+            .denied
+            .contains(&(scope.owner_pubkey.clone(), scope.resident_pubkey.clone())))
+    }
     /// Acquire after canonical authority, before awareness/ledger. Pause marks
     /// denial through this same short gate before it returns. No model wait.
     pub(crate) fn with_running<T>(
@@ -235,14 +248,19 @@ mod tests {
             foreground_active: false,
             outreach_authorized: false,
         };
+        assert!(!control.is_paused(&scope.control).unwrap());
         assert!(control.with_running(&scope, || Ok(())).is_ok());
         assert_eq!(control.pause(&scope.control).unwrap(), 0);
+        assert!(control.is_paused(&scope.control).unwrap());
         assert!(control.with_running(&scope, || Ok(())).is_err());
         let mut other = scope.clone();
         other.control.resident_pubkey = Hex64::parse("e".repeat(64)).unwrap();
+        assert!(!control.is_paused(&other.control).unwrap());
         control.resume(&other.control).unwrap();
+        assert!(control.is_paused(&scope.control).unwrap());
         assert!(control.with_running(&scope, || Ok(())).is_err());
         control.resume(&scope.control).unwrap();
+        assert!(!control.is_paused(&scope.control).unwrap());
         assert!(control.with_running(&scope, || Ok(())).is_ok());
     }
 }

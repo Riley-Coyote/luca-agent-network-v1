@@ -656,3 +656,23 @@ Only this disposable resident has background work enabled. Its clean canonical
 unfinished thread survived restart. A real pursuit still needs the frozen
 15-minute Mac/in-app idle floor; no simulated clock or direct ledger mutation
 is used to close the background/Library gate.
+
+### Native acceptance: independent execution Pause (2026-10-09)
+
+The owner authorized the genuine idle test while Claude continued working. The
+disposable resident's background policy was enabled, but the preceding awareness
+Pause had also closed its process-local execution gate. The native controls
+were explicitly re-armed through off, review and Allow background work;
+observation remained paused, with no personal source or permission enabled.
+
+The status projection now reports that execution gate independently of saved
+policy. An enabled but stopped resident offers Resume background work and the
+existing explicit permission review. Observation Resume does not clear the work
+gate; declining the review does not clear it either. Every work enable/Resume
+rechecks live owner authentication, even when saved policy is already enabled.
+
+The exact-resident native gate check, frontend typecheck, E2E build and all three
+focused setup-lab checks pass. The updated lab is an in-memory simulation using
+the production controls; its paused-state screenshot was visually reviewed.
+The timed native test continues on the previous signed candidate; these status
+changes require a separately refreshed candidate before native verification.

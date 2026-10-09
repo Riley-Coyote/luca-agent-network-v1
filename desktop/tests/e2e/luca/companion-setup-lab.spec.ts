@@ -100,3 +100,53 @@ test("browser pairing does not grant access and disconnect removes all classes",
     dialog.getByText("Paired · access off", { exact: true }),
   ).toHaveCount(0);
 });
+
+test("effective work Pause requires explicit Resume without resuming observation", async ({
+  page,
+}) => {
+  const dialog = await openSample(page);
+  await dialog.getByRole("button", { name: "A file", exact: true }).click();
+  await dialog.getByRole("button", { name: "Review access" }).click();
+  await dialog.getByRole("switch", { name: "Observe new activity" }).click();
+  await dialog.getByRole("button", { name: "Confirm these choices" }).click();
+  await dialog
+    .getByRole("button", { name: "Resume selected awareness" })
+    .click();
+  await dialog.getByRole("button", { name: "Review background work" }).click();
+  await dialog.getByRole("button", { name: "Allow background work" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Turn background work off" }),
+  ).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Pause awareness" }).click();
+  const resume = dialog.getByRole("button", { name: "Resume background work" });
+  await expect(resume).toBeVisible();
+  await expect(
+    dialog.getByText("Background work is paused.", { exact: false }),
+  ).toBeVisible();
+  await resume.click();
+  await dialog.getByRole("button", { name: "Not now", exact: true }).click();
+  await expect(resume).toBeVisible();
+  // Resuming readers must not silently widen the independent execution gate.
+  await dialog
+    .getByRole("button", { name: "Resume selected awareness" })
+    .click();
+  await expect(resume).toBeVisible();
+  await dialog.getByRole("button", { name: "Pause awareness" }).click();
+  await waitForAnimations(page);
+  await dialog.screenshot({
+    path: "test-results/companion-setup-work-paused.png",
+  });
+
+  await resume.click();
+  await dialog.getByRole("button", { name: "Allow background work" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Turn background work off" }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByRole("button", { name: "Resume selected awareness" }),
+  ).toBeVisible();
+  await expect(
+    dialog.getByText("Background work is paused.", { exact: false }),
+  ).toHaveCount(0);
+});

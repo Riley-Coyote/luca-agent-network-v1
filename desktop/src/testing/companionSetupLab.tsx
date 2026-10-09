@@ -24,6 +24,7 @@ function createSampleApi(): CompanionSetupApi {
   };
   let work: CompanionWork = {
     availability: "ready",
+    executionPaused: false,
     nativeChannelAvailable: true,
     actualModelExecutionVerified: false,
     policy: {
@@ -209,6 +210,8 @@ function createSampleApi(): CompanionSetupApi {
       return copy(awareness);
     },
     pauseCompanionAwareness: async (_resident, _old, paused) => {
+      // Match the native stop gate: observation Resume is not work Resume.
+      if (paused) work = { ...work, executionPaused: true };
       awareness = {
         ...awareness,
         paused,
@@ -220,6 +223,7 @@ function createSampleApi(): CompanionSetupApi {
     setCompanionWork: async (_resident, _old, enabled, paused) => {
       work = {
         ...work,
+        executionPaused: !enabled || paused,
         policy: {
           ...work.policy,
           revision: work.policy.revision + 1,

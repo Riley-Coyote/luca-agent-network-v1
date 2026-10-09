@@ -19,6 +19,8 @@ use tauri::{AppHandle, Manager};
 pub struct CompanionInitiativeStatusV1 {
     availability: &'static str,
     policy: InitiativePolicyV1,
+    /// The process-local stop gate may be paused independently of saved policy.
+    execution_paused: bool,
     /// Availability is not proof of a successful autonomous pursuit.
     native_channel_available: bool,
     actual_model_execution_verified: bool,
@@ -83,7 +85,11 @@ pub fn set_companion_initiative_policy(
     next.enabled = input.enabled;
     next.paused = input.paused || !input.enabled;
     next.allow_local_creations = input.allow_local_creations;
-    let widening = (next.enabled && !current.enabled) || (!next.paused && current.paused)
+    // Every explicit enable/Resume authenticates live identity, even when the
+    // durable policy was already enabled but a later Pause denied execution.
+    let widening = (next.enabled && !next.paused)
+        || (next.enabled && !current.enabled)
+        || (!next.paused && current.paused)
         || (next.allow_local_creations && !current.allow_local_creations);
     if !next.enabled || next.paused {
         state.companion_execution.pause(&scope).map_err(error)?;
@@ -112,6 +118,7 @@ pub fn set_companion_initiative_policy(
     Ok(CompanionInitiativeStatusV1 {
         availability: "ready",
         policy,
+        execution_paused: state.companion_execution.is_paused(&scope).map_err(error)?,
         native_channel_available: crate::luca::managed_cognition::active_binding_ref(&resident)
             .is_ok(),
         actual_model_execution_verified: false,
@@ -208,6 +215,7 @@ fn status(
     Ok(CompanionInitiativeStatusV1 {
         availability: "ready",
         policy,
+        execution_paused: state.companion_execution.is_paused(&scope).map_err(error)?,
         native_channel_available: crate::luca::managed_cognition::active_binding_ref(resident)
             .is_ok(),
         actual_model_execution_verified: false,
