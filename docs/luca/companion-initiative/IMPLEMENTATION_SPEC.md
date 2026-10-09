@@ -1,11 +1,13 @@
 # Companion initiative implementation specification
 
-Updated 2026-10-09. Implementation kickoff authorized by Riley. The combined
-desktop library compiles, canonical thread/source/coordinator checks pass, and
-one opt-in Claude private-authorship adapter roundtrip passes with synthetic
-material. I1-I8 integration and full native acceptance remain in progress. This is an isolated feature
-build, not installed or released behavior. Observation, background cognition and new account access
-remain disabled until the owner grants them in the app.
+Updated 2026-10-09. Implementation authorized by Riley. The combined desktop
+candidate builds and passes focused native/frontend checks. Real Codex-backed
+conversation verifies granted synthetic source delivery, Pause, fresh native
+history and consent-preserving restart. Background pursuit/Library acceptance
+and separately permitted browser/OS capture proof remain open. This is an
+isolated feature build, not installed or released behavior. Observation,
+background cognition and new account access remain disabled until the owner
+grants them in the app.
 
 ## Product outcome
 
@@ -635,3 +637,22 @@ on startup nor changes the saved grant. Browser status is exact-resident and
 requires active ingress, not merely a retained pairing. The 128 focused native
 checks and frontend typecheck pass; the revised candidate's native restart and
 background/Library acceptance remain pending.
+
+### Native acceptance: consent-preserving restart (2026-10-09)
+
+The signed candidate built from `d6b09ff6a5c7a6f7f85bdf4ecd1187692492af4f`
+was quit with observation consent saved unpaused, then reopened into the same
+disposable profile. Accepted observation metadata stayed unchanged while the
+reader was stopped. The real native review offered Resume immediately. One
+click started the reader and admitted a fresh sequence; Pause stopped it again.
+Consent was neither silently enabled on startup nor removed by the restart.
+
+Strict/deep signature verification and the two focused browser checks pass;
+the browser build was regenerated after native packaging before those checks.
+Native proof uses the separately identified bundle and its signed isolated
+environment. No installed application or personal source was changed.
+
+Only this disposable resident has background work enabled. Its clean canonical
+unfinished thread survived restart. A real pursuit still needs the frozen
+15-minute Mac/in-app idle floor; no simulated clock or direct ledger mutation
+is used to close the background/Library gate.
