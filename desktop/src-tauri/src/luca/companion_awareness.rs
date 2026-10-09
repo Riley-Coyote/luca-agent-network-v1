@@ -355,7 +355,15 @@ impl CompanionAwarenessRuntime {
         }
         live.with_current(|| {
             self.with_controller(live.owner(), |controller| {
-                controller.store.next_sequence(key)
+                let durable = controller.store.next_sequence(key)?;
+                let grant = controller.store.snapshot(key)?.grant;
+                let watermark = controller.buffer.sequence_watermark(
+                    live.owner(), &key.resident_pubkey, &grant.grant_id,
+                ).map_or(0, SafeU53::get);
+                // A rejected durable admission must not trap later real source
+                // changes behind the buffer's correctly retained replay fence.
+                let next = watermark.checked_add(1).ok_or(AwarenessStoreError::Capacity)?;
+                SafeU53::new(durable.get().max(next)).map_err(|_| AwarenessStoreError::Capacity)
             })
         })
     }

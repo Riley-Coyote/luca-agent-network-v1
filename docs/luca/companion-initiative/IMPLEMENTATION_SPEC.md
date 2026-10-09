@@ -587,3 +587,24 @@ The initiative worker currently requires an eligible canonical carried or Own
 thread; no eligible thread is a quiet outcome, not invented progress. The
 candidate must not be described as a separate agent computer, an all-browser
 observer, or a completed free-curiosity loop without that acceptance evidence.
+
+### Native acceptance: Resume recovery (2026-10-09)
+
+The separately identified, locally signed candidate completed real first-run
+setup with Codex and opened the optional companion controls through a normal
+Luca conversation. Only a disposable synthetic file was selected. Selection
+left observation off, and observation, model sharing and activity-in-chat were
+confirmed independently. No personal browser, session or screen permission was
+enabled; the installed application and shipping/design checkout remain intact.
+
+This caught a native timing defect not represented by the preview: a capture in
+the exact whole second of Resume was correctly rejected by the freshness floor,
+but its in-process replay watermark then blocked later sequence allocation.
+Allocation now respects both durable accepted sequences and that watermark.
+The owned pending collector also defers its first read past the same-second
+floor with a one-shot clock delay, without polling unchanged content or relaxing
+withdrawal. Regression cases cover rejection recovery and this initial delay.
+
+Full native source delivery, background result and restart acceptance still
+remain to be verified on the refreshed candidate. A successful source/build
+check is not presented as that end-to-end result.

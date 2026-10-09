@@ -193,6 +193,49 @@ fn unchanged_content_is_freshly_admitted_after_pause_resume_evicted_context() {
 }
 
 #[test]
+fn rejected_resume_second_does_not_poison_later_changed_file_capture() {
+    let fixture = Fixture::new();
+    fs::write(fixture.root.join("selected.txt"), "RESUME_BOUNDARY_SENTINEL").unwrap();
+    let source =
+        SelectedFileHandleV1::source_id_for_selection(&fixture.root, "selected.txt").unwrap();
+    let key = fixture.grant(source, true);
+    let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+    let control = fixture.runtime.resident_state(live.owner(), &fixture.resident).unwrap();
+    fixture.runtime.set_paused(
+        live.owner(), &fixture.resident, Some(&live), Some(control.revision), false,
+        &now(), &id("resume-at-capture-second"),
+    ).unwrap();
+    let handle =
+        SelectedFileHandleV1::new(key.clone(), fixture.root.clone(), "selected.txt".into()).unwrap();
+    let mut adapter = SelectedFilesAdapter::new(handle);
+    adapter.set_enabled(true);
+    let sequence = fixture.runtime.next_sequence(&live, &key).unwrap();
+    assert_eq!(sequence, number(1));
+    assert_eq!(
+        adapter.sample(&fixture.state, &fixture.runtime, &now(), sequence),
+        Err(AwarenessStoreError::Denied(luca_protocol::AwarenessError::Stale)),
+    );
+    // Rejected payloads remain absent, but their in-process replay watermark
+    // must be respected when allocating the next real change's sequence.
+    assert_eq!(fixture.runtime.next_sequence(&live, &key).unwrap(), number(2));
+    fs::write(fixture.root.join("selected.txt"), "NEW_CHANGE_AFTER_RESUME").unwrap();
+    adapter.mark_changed();
+    let fresh_at = CanonicalTimestamp::parse("2026-10-08T10:00:03Z").unwrap();
+    let fresh = admitted(adapter.sample(
+        &fixture.state, &fixture.runtime, &fresh_at,
+        fixture.runtime.next_sequence(&live, &key).unwrap(),
+    ).unwrap());
+    assert_eq!(fresh.sequence, number(2));
+    let facts = AwarenessHostFactsV1 {
+        owner_pubkey: live.owner(), resident_pubkey: &fixture.resident, now: &fresh_at,
+        source_fresh: true, material_state: AwarenessMaterialStateV1::Available,
+    };
+    let body = fixture.runtime.with_payload(&live, &facts, &fresh, Default::default(),
+        |bytes| String::from_utf8(bytes.to_vec()).unwrap()).unwrap();
+    assert!(body.contains("NEW_CHANGE_AFTER_RESUME"));
+}
+
+#[test]
 fn default_off_and_ungranted_unknown_source_do_not_read_or_admit() {
     let fixture = Fixture::new();
     fs::write(

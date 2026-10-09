@@ -65,6 +65,19 @@ impl fmt::Debug for EphemeralAwarenessBuffer {
     }
 }
 impl EphemeralAwarenessBuffer {
+    /// A validated capture can advance this replay watermark before its durable
+    /// admission is rejected (for example, at the exact Resume clock boundary).
+    /// Payload invalidation deliberately does not rewind it. Host allocation
+    /// must respect both this process watermark and the durable accepted stream.
+    pub(crate) fn sequence_watermark(
+        &self,
+        owner: &Hex64,
+        resident: &Hex64,
+        grant: &OpaqueId,
+    ) -> Option<SafeU53> {
+        self.sequences.get(&(owner.clone(), resident.clone(), grant.clone())).copied()
+    }
+
     /// Admit current, non-excluded bytes under one exact source/grant reference.
     /// Evidence is SHA-256 of these exact bytes; a different payload is rejected.
     pub(crate) fn insert(

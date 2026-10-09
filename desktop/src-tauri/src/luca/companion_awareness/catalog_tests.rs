@@ -267,6 +267,35 @@ fn denied_resume_starts_no_collector_and_saved_selections_do_not_supply_grants()
 }
 
 #[test]
+fn first_resume_capture_defers_at_the_privacy_clock_boundary_then_goes_quiet() {
+    let fixture = Fixture::new();
+    let mut catalog = catalog(&fixture);
+    let selected = selection(&fixture, "resume.txt", true);
+    let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+    catalog.select(&live, selected.clone()).unwrap();
+    let control = fixture.runtime.resident_state(live.owner(), &fixture.resident).unwrap();
+    fixture.runtime.set_paused(
+        live.owner(), &fixture.resident, Some(&live), Some(control.revision), false,
+        &now(), &id("resume-whole-second"),
+    ).unwrap();
+    let mut collectors = collectors(&fixture);
+    let (wake, _events) = mpsc::sync_channel(1);
+    collectors.resume(&catalog, &live, &fixture.runtime, selected.key(), HashSet::new(), wake).unwrap();
+    assert!(collectors.sample_pending(&fixture.state, &fixture.runtime, &now(), |_| None).unwrap().is_empty());
+    assert!(collectors.next_sample_delay().unwrap() > Duration::ZERO);
+    assert_eq!(fixture.runtime.snapshot(live.owner(), selected.key()).unwrap().source.state, AwarenessSourceStateV1::Unknown);
+    assert!(buffered(&fixture).contains("entries: 0"));
+    // Deterministically represent the owned one-shot timer firing next second.
+    collectors.owned[0].pending.lock().unwrap().mark(Instant::now().checked_sub(CHANGE_DEBOUNCE).unwrap());
+    let fresh_at = luca_protocol::CanonicalTimestamp::parse("2026-10-08T10:00:03Z").unwrap();
+    let probes = collectors.sample_pending(&fixture.state, &fixture.runtime, &fresh_at, |_| None).unwrap();
+    assert_eq!(probes.len(), 1);
+    let fresh = admitted(probes.into_iter().next().unwrap().outcome.unwrap());
+    assert_eq!(fresh.sequence, number(1));
+    assert!(collectors.next_sample_delay().is_none());
+}
+
+#[test]
 fn scoped_stop_and_resume_are_fresh_serialized_and_quiet_between_changes() {
     // The only actual notify registrations in this fixture are these two
     // disposable sentinel files. No runtime profile or personal path is used.

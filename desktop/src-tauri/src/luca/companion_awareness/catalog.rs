@@ -802,6 +802,22 @@ impl SelectedSourceCollectorsV1 {
                 return Err(AwarenessStoreError::Unavailable);
             }
         };
+        let control = runtime.resident_state(&self.owner, &self.resident)?;
+        if !control.paused && control.changed_at.as_ref() == Some(now) {
+            // Resume uses a conservative whole-second freshness floor. Defer
+            // this one pending capture before reading anything, rather than
+            // treating the same-second sample as a failed source. This is a
+            // one-shot metadata/clock delay, not polling unchanged content.
+            let instant = Instant::now();
+            for owned in &self.owned {
+                let mut pending = owned.pending.lock()
+                    .map_err(|_| AwarenessStoreError::Unavailable)?;
+                if pending.delay(instant) == Some(Duration::ZERO) {
+                    pending.mark(instant);
+                }
+            }
+            return Ok(Vec::new());
+        }
         let mut probes = Vec::new();
         let mut index = 0;
         while index < self.owned.len() {
