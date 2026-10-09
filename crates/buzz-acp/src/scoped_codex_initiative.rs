@@ -4,6 +4,7 @@
 //! the owned ephemeral scratch folder is writable/readable beyond OS defaults.
 
 use super::*;
+use crate::pool::MAX_INITIATIVE_PERSONA_BYTES;
 use luca_protocol::{
     InitiativePlanningResultV1, InitiativePursuitResultV1, ResidentPrivateCognitionRequestV1,
 };
@@ -13,6 +14,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 const PROFILE: &str = "polyphonic-companion-private";
 const MAX_NATIVE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_FINAL_BYTES: usize = 32 * 1024;
+fn resident_voice_fits_bound(persona: Option<&str>) -> bool {
+    persona.is_none_or(|value| value.len() <= MAX_INITIATIVE_PERSONA_BYTES)
+}
 
 pub(super) fn is_scoped_request(source: &PromptSource) -> bool {
     matches!(source, PromptSource::Continuity(request) if matches!(request.as_ref(),
@@ -46,22 +50,44 @@ pub(super) async fn run(
             _ => return (isolated_continuity_failure(), None),
         };
         let now = unix_ms();
-        if deadline <= now || ctx.system_prompt.as_ref().is_some_and(|p| p.len() > 8192) {
+        if deadline <= now {
+            return (isolated_continuity_failure(), None);
+        }
+        if !resident_voice_fits_bound(ctx.system_prompt.as_deref()) {
+            tracing::warn!("scoped Codex initiative rejected an oversized resident voice");
             return (isolated_continuity_failure(), None);
         }
         let workspace = match Scratch::create() {
             Ok(value) => value,
-            Err(_) => return (isolated_continuity_failure(), None),
+            Err(_) => {
+                tracing::warn!("scoped Codex initiative scratch setup unavailable");
+                return (isolated_continuity_failure(), None);
+            }
         };
         let mut native = match Native::spawn(spawn, &workspace) {
             Ok(value) => value,
-            Err(_) => return (isolated_continuity_failure(), None),
+            Err(_) => {
+                tracing::warn!("scoped Codex initiative native worker setup unavailable");
+                return (isolated_continuity_failure(), None);
+            }
         };
         let outcome = tokio::select! {
             biased;
             _ = control => (PromptOutcome::Cancelled,None),
             result = tokio::time::timeout(Duration::from_millis(deadline-now), execute(&mut native,&workspace,binding,request,ctx.system_prompt.as_deref())) => {
-                match result { Ok(Ok(output))=>(PromptOutcome::Ok(acp::StopReason::EndTurn),Some(output)), _=>(isolated_continuity_failure(),None) }
+                match result {
+                    Ok(Ok(output)) => (PromptOutcome::Ok(acp::StopReason::EndTurn), Some(output)),
+                    Ok(Err(reason)) => {
+                        // execute returns only fixed host-authored failure codes;
+                        // never log native frames, prompts, stderr or model prose.
+                        tracing::warn!(reason = %reason, "scoped Codex initiative unavailable");
+                        (isolated_continuity_failure(), None)
+                    }
+                    Err(_) => {
+                        tracing::warn!("scoped Codex initiative deadline elapsed");
+                        (isolated_continuity_failure(), None)
+                    }
+                }
             }
         };
         // Cleanup precedes returning the original warm resident to the pool.
@@ -70,6 +96,7 @@ pub(super) async fn run(
             let _ = std::fs::remove_dir_all(&workspace.root);
         }
         if !reaped {
+            tracing::warn!("scoped Codex initiative worker cleanup unverified");
             return (isolated_continuity_failure(), None);
         }
         outcome

@@ -1,5 +1,17 @@
 use super::*;
 
+#[test]
+fn scoped_voice_preserves_normal_document_assembly_and_rejects_overflow() {
+    assert!(resident_voice_fits_bound(None));
+    // A default resident's five assembled documents already exceed 8 KiB.
+    let assembled = pool::initiative_pursuit_tests::assembled_persona();
+    assert!(resident_voice_fits_bound(Some(&assembled)));
+    let full = "v".repeat(MAX_INITIATIVE_PERSONA_BYTES);
+    assert!(resident_voice_fits_bound(Some(&full)));
+    let oversized = format!("{full}v");
+    assert!(!resident_voice_fits_bound(Some(&oversized)));
+}
+
 #[tokio::test]
 #[ignore = "explicit native model use: POLYPHONIC_CODEX_INITIATIVE_SMOKE_ADAPTER required"]
 async fn scoped_codex_native_private_roundtrip() {
@@ -42,7 +54,13 @@ async fn scoped_codex_native_private_roundtrip() {
     let PromptSource::Continuity(request) = source else {
         unreachable!()
     };
-    let result=tokio::time::timeout(Duration::from_secs(180),execute(&mut native,&scratch,&binding,&request,Some("You are a synthetic private Polyphonic assay resident, not the user's Luca. Do not claim personal history or access."))).await;
+    let persona = pool::initiative_pursuit_tests::assembled_persona();
+    assert!(resident_voice_fits_bound(Some(&persona)));
+    let result = tokio::time::timeout(
+        Duration::from_secs(180),
+        execute(&mut native, &scratch, &binding, &request, Some(&persona)),
+    )
+    .await;
     let reaped = native.stop().await;
     assert!(reaped, "owned native worker must be reaped");
     std::fs::remove_dir_all(&scratch.root).unwrap();

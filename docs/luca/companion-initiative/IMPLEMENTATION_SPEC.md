@@ -3,7 +3,8 @@
 Updated 2026-10-09. Implementation authorized by Riley. The combined desktop
 candidate builds and passes focused native/frontend checks. Real Codex-backed
 conversation verifies granted synthetic source delivery, Pause, fresh native
-history and consent-preserving restart. Background pursuit/Library acceptance
+history and consent-preserving restart. Genuine idle admission is verified;
+background pursuit/Library acceptance
 and separately permitted browser/OS capture proof remain open. This is an
 isolated feature build, not installed or released behavior. Observation,
 background cognition and new account access remain disabled until the owner
@@ -676,3 +677,30 @@ focused setup-lab checks pass. The updated lab is an in-memory simulation using
 the production controls; its paused-state screenshot was visually reviewed.
 The timed native test continues on the previous signed candidate; these status
 changes require a separately refreshed candidate before native verification.
+
+### Native acceptance: real idle admission and resident voice bound (2026-10-09)
+
+The genuine 15-minute Mac/in-app idle floor triggered one native background job
+at 13:02:44 UTC. It became Interrupted 32 ms later, before a verified private
+model result. No creation was retained; the native Library visibly contained
+zero artifacts. Observation remained paused and its accepted sequence stayed
+unchanged. Reserved model stages are a budget reservation, not proof of model
+execution. The failed job and its four-hour cadence are preserved, not reset or
+refunded to manufacture a passing run.
+
+Inspection found an 8 KiB private-lane persona guard despite desktop assembly
+providing five resident documents. This disposable Luca's normal assembly is
+approximately 14 KiB. Codex rejected it before creating its private worker;
+Claude authorship had the same undersized guard. Both paths now share a bounded
+96 KiB resident-voice limit compatible with desktop assembly. The independent
+64 KiB encoded-prompt cap, result sizes, deadlines, sandbox, network and tool
+restrictions are unchanged. Fixed, body-free failure reasons are logged without
+resident instructions, observations, model prose or native frames.
+
+Seven focused unit checks pass, including normal multi-document voice and
+overflow rejection. Explicit real-model assays with a full-sized synthetic
+voice pass for both scoped Codex and tool-free, nonpersisting Claude. Each
+checks exact result correlation and cleans up its owned process. These prove
+private runtime roundtrips, not a successful automatic desktop/Library loop.
+The refreshed candidate and a separate disposable acceptance context must still
+verify that loop without mutating the first failed record or its cadence.

@@ -67,8 +67,8 @@ async fn roundtrip(client: &mut AcpClient, directory: &std::path::Path) -> Resul
         .ok_or("missing private metadata")?;
     // Claude's supported system-prompt extension is metadata, not the standard
     // ACP top-level field. This persona is invented, never a user's agent data.
-    const PERSONA: &str = "You are a private synthetic Polyphonic assay resident. You enjoy clear, small design questions. You have no personal owner history and must not claim otherwise.";
-    metadata["systemPrompt"] = serde_json::json!(PERSONA);
+    let persona = initiative_pursuit_tests::assembled_persona();
+    metadata["systemPrompt"] = serde_json::json!(&persona);
     let session = client
         .session_new_full_with_meta(
             directory.to_str().ok_or("scratch encoding")?,
@@ -130,10 +130,10 @@ async fn roundtrip(client: &mut AcpClient, directory: &std::path::Path) -> Resul
         .revision_ref()
         .map_err(|_| "canonical synthetic thread")?;
     request.binding_ref = Sha256Ref::parse(format!("sha256:{}", canonical_sha256(
-        &serde_json::json!({"command": "explicit-installed-claude-acp", "model": model, "persona": PERSONA})
+        &serde_json::json!({"command": "explicit-installed-claude-acp", "model": model, "persona": &persona})
     ).map_err(|_| "synthetic binding")?)).map_err(|_| "synthetic binding encoding")?;
     request.max_result_bytes = SafeU53::new(24_576).map_err(|_| "result bound")?;
-    let prompt = build_initiative_pursuit_prompt(&request, now_ms, Some(PERSONA))
+    let prompt = build_initiative_pursuit_prompt(&request, now_ms, Some(&persona))
         .map_err(|_| "bounded authored-work prompt")?;
     client.begin_final_message_capture();
     let stop = client
