@@ -3,9 +3,9 @@
 Updated 2026-10-09. Implementation authorized by Riley. The combined desktop
 candidate builds and passes focused native/frontend checks. Real Codex-backed
 conversation verifies granted synthetic source delivery, Pause, fresh native
-history and consent-preserving restart. Genuine idle admission is verified;
-background pursuit/Library acceptance
-and separately permitted browser/OS capture proof remain open. This is an
+history and consent-preserving restart. Genuine idle admission, automatic
+planning and bounded pursuit are verified with a valid no-change result.
+Native Library creation and separately permitted browser/OS capture proof remain open. This is an
 isolated feature build, not installed or released behavior. Observation,
 background cognition and new account access remain disabled until the owner
 grants them in the app.
@@ -723,3 +723,35 @@ unknown runtime or unmanaged worker is admitted. Regression coverage checks
 the actual dispatch predicate, alongside exact result/cancellation boundaries.
 Automatic desktop/Library acceptance remains open until a fresh native run
 verifies the corrected path.
+
+### Native acceptance: automatic planning and pursuit (2026-10-09)
+
+The signed, strictly verified candidate from
+`a625e1c64b82e6779d61edeb932aa7d0127b0cad` used the separate
+`companion-initiative-scoped-dispatch-2026-10-09` disposable profile. Normal
+conversation retained a synthetic unfinished question; the native review
+enabled only bounded background work. Observation grants and captured
+observations stayed at zero. No installed app, personal source, Claude work,
+global runtime setting or previous failed job/cadence was changed.
+
+After genuine Mac/in-app idle exceeded 15 minutes, the normal worker admitted
+one job at 14:35:16.556 UTC. A validated planning decision chose pursue; the
+separately framed private pursuit completed at 14:35:38.456 UTC with a validated
+no-change result. The durable job is
+`initiative-job-8405ec8b-3441-4497-89c9-923a572a42ef`. Its completed private
+pursuit and exact result reference, not just the reserved model budget, prove
+the full automatic execution path. No required creation or output quota was
+added to obtain this result.
+
+The public dispatch count stayed at two published replies from the ordinary
+test conversation. The native conversation showed no unsolicited return, and
+Library visibly reported zero artifacts, consistent with no-change. Quit and
+reopen retained exactly one completed job, its original completion timestamp
+and the same result reference, without replay or refund. The candidate was
+then quit again and its owned desktop process was confirmed absent.
+
+This closes the automatic planning/pursuit and completed-job restart checks.
+It does not prove native creation retention/opening in Library, private-inquiry
+retention, the effective execution-Pause/Resume UI or separately permitted
+browser/OS capture. Those remain explicitly open; the two failed runs remain
+preserved as failed evidence rather than being rewritten as successes.
