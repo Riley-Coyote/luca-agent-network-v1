@@ -38,8 +38,14 @@ fn cold_or_stopped_raw_browser_context_is_unavailable_while_retained_root_stays_
     let pairing=pair();let key=pairing.key(&owner(),&device(),BrowserEventKindV1::Visit).unwrap();let now=CanonicalTimestamp::parse("2026-10-08T10:00:02Z").unwrap();
     let reference=AwarenessObservationRefV1 {protocol:luca_protocol::AWARENESS_PROTOCOL.into(),observation_id:id("observation").unwrap(),owner_pubkey:owner(),resident_pubkey:pairing.resident,source_id:key.source.source_id.clone(),device_id:device(),grant_id:id("grant").unwrap(),grant_revision:SafeU53::new(1).unwrap(),deny_epoch:SafeU53::new(0).unwrap(),sequence:SafeU53::new(1).unwrap(),evidence_ref:config::secret_ref("SYNTHETIC_BROWSER_BODY").unwrap(),captured_at:now.clone(),expires_at:CanonicalTimestamp::parse("2026-10-08T10:05:02Z").unwrap()};
     let mut snapshot=BrowserMaterialSnapshotV1 {active:false,keys:vec![(key.clone(),BrowserEventKindV1::Visit)],collecting:Vec::new(),records:vec![reference.clone()],now};
+    assert!(snapshot.collecting_keys().is_empty());
     assert!(snapshot.references().is_empty());assert_eq!(snapshot.resolve(&reference,false).material_state,AwarenessMaterialStateV1::Unavailable);
     assert_eq!(snapshot.resolve(&reference,true).material_state,AwarenessMaterialStateV1::Available);
-    snapshot.active=true;snapshot.collecting.push(key);assert!(snapshot.resolve(&reference,false).source_fresh);
+    snapshot.active=true;snapshot.collecting.push(key.clone());assert!(snapshot.resolve(&reference,false).source_fresh);
+    assert_eq!(snapshot.collecting_keys(), vec![key.clone()]);
+    let mut unrelated = key;
+    unrelated.resident_pubkey = Hex64::parse("cc".repeat(32)).unwrap();
+    snapshot.collecting.push(unrelated);
+    assert_eq!(snapshot.collecting_keys().len(), 1);
     let mut wrong=reference;wrong.evidence_ref=config::secret_ref("other").unwrap();assert_eq!(snapshot.resolve(&wrong,false).material_state,AwarenessMaterialStateV1::Unavailable);
 }

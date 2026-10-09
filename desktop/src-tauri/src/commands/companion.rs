@@ -20,6 +20,8 @@ use crate::{app_state::AppState, managed_agents::load_managed_agent_public_keys}
 pub struct CompanionAwarenessStatusV1 {
     availability: &'static str,
     paused: bool,
+    /// Body-free process status, not permission or evidence of a fresh sample.
+    collection_running: bool,
     revision: u64,
     changed_at: Option<String>,
     grants: Vec<AwarenessStoredAuthorityV1>,
@@ -37,6 +39,7 @@ pub fn get_companion_awareness(
         return Ok(CompanionAwarenessStatusV1 {
             availability: "unavailable",
             paused: true,
+            collection_running: false,
             revision: 0,
             changed_at: None,
             grants: Vec::new(),
@@ -238,9 +241,35 @@ pub(super) fn projection(
         .companion_awareness
         .list_grants(owner, resident, 64)
         .map_err(error)?;
+    // Saved consent is not watcher startup. After restart, offer explicit Resume
+    // even when the durable control was unpaused in the previous process.
+    let now = current_canonical_timestamp()?;
+    let mut collecting = state
+        .companion_sources
+        .snapshot(owner, resident, &now)
+        .map(|snapshot| snapshot.collecting)
+        .unwrap_or_default();
+    #[cfg(unix)]
+    if let Ok(snapshot) = state.companion_browser.snapshot(owner, resident, &now) {
+        collecting.extend(snapshot.collecting_keys());
+    }
+    let collection_running = !current.paused
+        && grants.entries.iter().any(|authority| {
+            authority.grant.state == luca_protocol::AwarenessGrantStateV1::Active
+                && authority.grant.choices.observe
+                && collecting.contains(&AwarenessGrantKeyV1 {
+                    source: AwarenessSourceKeyV1 {
+                        owner_pubkey: owner.clone(),
+                        source_id: authority.source.source_id.clone(),
+                        device_id: authority.source.device_id.clone(),
+                    },
+                    resident_pubkey: resident.clone(),
+                })
+        });
     Ok(CompanionAwarenessStatusV1 {
         availability: "ready",
         paused: current.paused,
+        collection_running,
         revision: current.revision.get(),
         changed_at: current.changed_at.map(|value| value.as_str().to_owned()),
         grants: grants.entries,
@@ -268,4 +297,26 @@ fn safe(value: u64) -> Result<SafeU53, String> {
 }
 fn error(error: AwarenessStoreError) -> String {
     error.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::luca::companion_awareness::selected_files::tests::{
+        id, Fixture,
+    };
+
+    #[test]
+    fn companion_status_does_not_treat_saved_resume_as_running_collection() {
+        let fixture = Fixture::new();
+        let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+        let runtime = &fixture.state.companion_awareness;
+        runtime.initialize(&fixture.root, Some(live.owner()));
+        fixture.grant(id("saved-test-source"), true);
+        let status = projection(&fixture.state, live.owner(), &fixture.resident).unwrap();
+        assert!(!status.paused);
+        assert!(!status.collection_running);
+        assert!(status.grants[0].grant.choices.observe);
+        assert_eq!(serde_json::to_value(status).unwrap()["collectionRunning"], false);
+    }
 }

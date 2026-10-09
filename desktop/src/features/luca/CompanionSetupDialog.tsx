@@ -491,12 +491,14 @@ export function CompanionSetupPanel({
                       pauseCompanionAwareness(
                         resident,
                         data.awareness,
-                        !data.awareness.paused,
+                        !data.awareness.paused &&
+                          data.awareness.collectionRunning,
                       ),
                     )
                   }
                 >
-                  {loaded.awareness.paused
+                  {loaded.awareness.paused ||
+                  !loaded.awareness.collectionRunning
                     ? "Resume selected awareness"
                     : "Pause awareness"}
                 </Button>

@@ -189,6 +189,12 @@ impl Drop for CompanionBrowserRuntimeV1 {fn drop(&mut self) {self.shutdown();}}
 /// No bodies/tokens/URLs; caller uses these alongside final grant/deny/egress.
 pub(crate) struct BrowserMaterialSnapshotV1 {active:bool,keys:Vec<(AwarenessGrantKeyV1,BrowserEventKindV1)>,collecting:Vec<AwarenessGrantKeyV1>,records:Vec<AwarenessObservationRefV1>,now:CanonicalTimestamp}
 impl BrowserMaterialSnapshotV1 {
+    /// Current exact-resident reader status only; no samples or authority.
+    pub(crate) fn collecting_keys(&self) -> Vec<AwarenessGrantKeyV1> {
+        if !self.active { return Vec::new(); }
+        self.keys.iter().filter(|(key, _)| self.collecting.contains(key))
+            .map(|(key, _)| key.clone()).collect()
+    }
     /// Exact locally stored principal/device/pairing/policy class, not a payload
     /// claim. Raw binding additionally requires the whole remembered reference.
     pub(crate) fn binding(&self,reference:&AwarenessObservationRefV1)->Option<BrowserEventKindV1> {

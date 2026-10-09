@@ -496,4 +496,4 @@ pub(super) fn encode_bounded(value: &impl Serialize) -> Result<Vec<u8>, Awarenes
 
 #[cfg(test)]
 #[path = "selected_files_tests.rs"]
-pub(super) mod tests;
+pub(crate) mod tests;

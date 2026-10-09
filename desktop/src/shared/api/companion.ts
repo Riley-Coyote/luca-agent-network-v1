@@ -16,6 +16,7 @@ export type CompanionGrant = {
 export type CompanionAwareness = {
   availability: string;
   paused: boolean;
+  collectionRunning: boolean;
   revision: number;
   grants: CompanionGrant[];
   truncated: boolean;

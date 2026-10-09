@@ -17,6 +17,7 @@ function createSampleApi(): CompanionSetupApi {
   let awareness: CompanionAwareness = {
     availability: "ready",
     paused: true,
+    collectionRunning: false,
     revision: 0,
     grants: [],
     truncated: false,
@@ -208,7 +209,12 @@ function createSampleApi(): CompanionSetupApi {
       return copy(awareness);
     },
     pauseCompanionAwareness: async (_resident, _old, paused) => {
-      awareness = { ...awareness, paused, revision: awareness.revision + 1 };
+      awareness = {
+        ...awareness,
+        paused,
+        collectionRunning: !paused,
+        revision: awareness.revision + 1,
+      };
       return copy(awareness);
     },
     setCompanionWork: async (_resident, _old, enabled, paused) => {

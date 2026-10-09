@@ -608,3 +608,30 @@ withdrawal. Regression cases cover rejection recovery and this initial delay.
 Full native source delivery, background result and restart acceptance still
 remain to be verified on the refreshed candidate. A successful source/build
 check is not presented as that end-to-end result.
+
+### Native acceptance: source delivery and withdrawal (2026-10-09)
+
+The refreshed isolated candidate admitted the selected synthetic file after an
+explicit Resume and then admitted its changed contents. A normal Luca turn,
+without file tools, correctly named the changed fictional mascot. The signed
+reply was visible in the conversation; its durable dispatch was Observed with
+one observation and fresh native history. After Pause, another file change was
+not captured. The next signed reply truthfully lacked the note's contents; its
+dispatch was Clean with no observations and fresh native history. Earlier
+assistant answers were not replayed into that native turn.
+
+Bounded background work was explicitly enabled only for this disposable
+resident. A harmless unfinished idea from the clean chat completed a native
+handoff and created an encrypted canonical open-thread record. This is a
+carried-work seed, not evidence that a background pursuit has run or produced a
+Library result. The real worker still requires 15 minutes of genuine Mac and
+Polyphonic inactivity; no idle clock, budget or privacy rule was bypassed.
+
+The native review also exposed a restart-status mismatch: saved unpaused
+consent survived, but readers correctly restarted off. The body-free status now
+separates current reader activity from saved consent, so the review offers
+Resume immediately when collection is stopped. It neither activates readers
+on startup nor changes the saved grant. Browser status is exact-resident and
+requires active ingress, not merely a retained pairing. The 128 focused native
+checks and frontend typecheck pass; the revised candidate's native restart and
+background/Library acceptance remain pending.

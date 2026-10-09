@@ -49,6 +49,13 @@ test("source selection keeps observation and each sharing destination off", asyn
   await expect(history).toBeEnabled();
   await expect(history).not.toBeChecked();
   await dialog.getByRole("button", { name: "Confirm these choices" }).click();
+  await dialog
+    .getByRole("button", { name: "Resume selected awareness" })
+    .click();
+  await dialog.getByRole("button", { name: "Pause awareness" }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Resume selected awareness" }),
+  ).toBeVisible();
   await dialog.getByRole("button", { name: "Review access" }).click();
   await expect(history).not.toBeChecked();
   await expect(
