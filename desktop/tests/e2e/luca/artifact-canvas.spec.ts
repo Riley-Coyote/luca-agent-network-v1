@@ -183,6 +183,7 @@ test("only the active conversation can auto-present and dismissal is turn-stable
 }) => {
   await page.setViewportSize({ width: 1680, height: 1000 });
   await page.goto("/?e2e=mock#/artifacts");
+  await expect(page.getByTestId("artifact-library-screen")).toBeVisible();
   await page.evaluate((conversationId) => {
     window.__BUZZ_E2E_EMIT_TAURI_EVENT__?.("luca://canvas-present", {
       artifactId: "threshold-study",
@@ -241,3 +242,40 @@ test("only the active conversation can auto-present and dismissal is turn-stable
   }, GENERAL_CHANNEL_ID);
   await expect(page.getByTestId("artifact-canvas")).toHaveCount(0);
 });
+
+for (const width of [800, 1024, 1440]) {
+  test(`Library close control stays visible and keyboard accessible at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/?e2e=mock#/artifacts");
+    const opener = page
+      .locator(".artifact-library-row__main")
+      .filter({ hasText: "threshold-study.html" });
+    await expect(opener).toBeVisible();
+    await opener.click();
+
+    const canvas = page.getByTestId("artifact-canvas");
+    const close = page.getByRole("button", {
+      name: "Close Canvas",
+      exact: true,
+    });
+    await expect(close).toBeVisible();
+    await expect(close).toBeFocused();
+    await waitForAnimations(page);
+    const bounds = await close.boundingBox();
+    if (!bounds) throw new Error("Close Canvas has no visible bounds");
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(900);
+    await close.press("Escape");
+    await expect(canvas).toBeHidden();
+    await expect(opener).toBeFocused();
+
+    await opener.click();
+    await close.click();
+    await expect(canvas).toBeHidden();
+    await expect(opener).toBeFocused();
+  });
+}
