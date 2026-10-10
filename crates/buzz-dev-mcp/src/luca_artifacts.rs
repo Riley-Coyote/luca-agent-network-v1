@@ -16,7 +16,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
 use zeroize::Zeroizing;
@@ -188,42 +188,90 @@ struct ArtifactBrokerClient {
     capability: Arc<Zeroizing<String>>,
     capability_generation: u64,
     conversation_id: String,
-    turn_id: String,
-    dispatch_receipt_id: String,
-    cancellation_epoch: u64,
+    binding: ArtifactBrokerBinding,
+}
+
+#[derive(Clone)]
+enum ArtifactBrokerBinding {
+    // The trusted ACP gate resolves and freezes the active owner turn per call.
+    TurnGate,
+    ExactTurn {
+        turn_id: String,
+        dispatch_receipt_id: String,
+        cancellation_epoch: u64,
+    },
 }
 
 impl ArtifactBrokerClient {
     fn from_environment() -> Result<Self, String> {
-        let artifact_mode = std::env::var("LUCA_ARTIFACT_MODE").ok();
-        let repository_mode = std::env::var("LUCA_REPOSITORY_MODE").ok();
-        let communications_mode = std::env::var("LUCA_COMMUNICATIONS_MODE").ok();
+        Self::from_lookup(|name| std::env::var(name).ok())
+    }
+
+    fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Self, String> {
+        let artifact_mode = lookup("LUCA_ARTIFACT_MODE");
+        let repository_mode = lookup("LUCA_REPOSITORY_MODE");
+        let communications_mode = lookup("LUCA_COMMUNICATIONS_MODE");
         let enabled = [
             artifact_mode.as_deref() == Some("1"),
             repository_mode.as_deref() == Some("1"),
             communications_mode.as_deref() == Some("1"),
         ];
-        if enabled.into_iter().filter(|value| *value).count() != 1 {
+        if !enabled[0] || enabled.into_iter().filter(|value| *value).count() != 1 {
             return Err("Luca MCP personalities are mutually exclusive".into());
         }
 
-        let endpoint = std::env::var("LUCA_ARTIFACT_ENDPOINT")
-            .map(PathBuf::from)
-            .map_err(|_| "artifact broker endpoint is unavailable".to_owned())?;
-        let capability = Zeroizing::new(
-            std::env::var("LUCA_ARTIFACT_CAPABILITY")
-                .map_err(|_| "artifact broker capability is unavailable".to_owned())?,
-        );
-        let capability_generation = positive_safe_u53("LUCA_ARTIFACT_CAPABILITY_GENERATION")?;
-        let cancellation_epoch = positive_safe_u53("LUCA_ARTIFACT_CANCELLATION_EPOCH")?;
-        let conversation_id = required_bounded_env("LUCA_ARTIFACT_CONVERSATION_ID", 1024)?;
-        let turn_id = required_bounded_env("LUCA_ARTIFACT_TURN_ID", 1024)?;
-        let dispatch_receipt_id = required_bounded_env("LUCA_ARTIFACT_DISPATCH_RECEIPT_ID", 1024)?;
-        if !endpoint.is_absolute()
-            || capability.len() != 71
-            || !capability.starts_with("sha256:")
-            || !capability[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
-        {
+        let endpoint = PathBuf::from(required_bounded_env(
+            &lookup,
+            "LUCA_ARTIFACT_ENDPOINT",
+            4096,
+        )?);
+        let capability = Zeroizing::new(required_bounded_env(
+            &lookup,
+            "LUCA_ARTIFACT_CAPABILITY",
+            71,
+        )?);
+        let capability_generation =
+            positive_safe_u53(&lookup, "LUCA_ARTIFACT_CAPABILITY_GENERATION")?;
+        let conversation_id = required_bounded_env(&lookup, "LUCA_ARTIFACT_CONVERSATION_ID", 1024)?;
+        let binding = match lookup("LUCA_ARTIFACT_TURN_GATE").as_deref() {
+            Some("1") => {
+                if capability.len() != 64
+                    || !capability.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    || [
+                        "LUCA_ARTIFACT_TURN_ID",
+                        "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID",
+                        "LUCA_ARTIFACT_CANCELLATION_EPOCH",
+                    ]
+                    .iter()
+                    .any(|name| lookup(name).is_some())
+                {
+                    return Err("artifact turn-gate bootstrap is invalid".into());
+                }
+                ArtifactBrokerBinding::TurnGate
+            }
+            None => {
+                if capability.len() != 71
+                    || !capability.starts_with("sha256:")
+                    || !capability[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return Err("artifact broker bootstrap is invalid".into());
+                }
+                ArtifactBrokerBinding::ExactTurn {
+                    turn_id: required_bounded_env(&lookup, "LUCA_ARTIFACT_TURN_ID", 1024)?,
+                    dispatch_receipt_id: required_bounded_env(
+                        &lookup,
+                        "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID",
+                        1024,
+                    )?,
+                    cancellation_epoch: positive_safe_u53(
+                        &lookup,
+                        "LUCA_ARTIFACT_CANCELLATION_EPOCH",
+                    )?,
+                }
+            }
+            _ => return Err("artifact turn-gate bootstrap is invalid".into()),
+        };
+        if !endpoint.is_absolute() {
             return Err("artifact broker bootstrap is invalid".into());
         }
         Ok(Self {
@@ -231,9 +279,7 @@ impl ArtifactBrokerClient {
             capability: Arc::new(capability),
             capability_generation,
             conversation_id,
-            turn_id,
-            dispatch_receipt_id,
-            cancellation_epoch,
+            binding,
         })
     }
 
@@ -243,14 +289,26 @@ impl ArtifactBrokerClient {
         arguments: T,
     ) -> Result<CallToolResult, ErrorData> {
         let operation_request_id = mint_operation_request_id();
+        let (turn_id, dispatch_receipt_id, cancellation_epoch) = match &self.binding {
+            ArtifactBrokerBinding::TurnGate => (None, None, None),
+            ArtifactBrokerBinding::ExactTurn {
+                turn_id,
+                dispatch_receipt_id,
+                cancellation_epoch,
+            } => (
+                Some(turn_id.as_str()),
+                Some(dispatch_receipt_id.as_str()),
+                Some(*cancellation_epoch),
+            ),
+        };
         let frame = BrokerFrameV1 {
             protocol: BROKER_PROTOCOL,
             capability: self.capability.as_str(),
             capability_generation: self.capability_generation,
             conversation_id: &self.conversation_id,
-            turn_id: &self.turn_id,
-            dispatch_receipt_id: &self.dispatch_receipt_id,
-            cancellation_epoch: self.cancellation_epoch,
+            turn_id,
+            dispatch_receipt_id,
+            cancellation_epoch,
             operation_request_id: &operation_request_id,
             operation,
             arguments,
@@ -270,6 +328,7 @@ impl ArtifactBrokerClient {
             let response = self.exchange(&bytes).await?;
             response.validate(operation, &operation_request_id, self)?;
             if response.diagnostic_code.as_deref() == Some("turn_not_active")
+                && matches!(self.binding, ArtifactBrokerBinding::ExactTurn { .. })
                 && retries < TURN_REGISTRATION_RETRIES
             {
                 retries += 1;
@@ -278,7 +337,12 @@ impl ArtifactBrokerClient {
             }
             break response;
         };
-        let result = serde_json::to_string(&response.result)
+        let result = if !response.ok && response.result.is_null() {
+            serde_json::json!({"diagnostic_code": response.diagnostic_code})
+        } else {
+            response.result
+        };
+        let result = serde_json::to_string(&result)
             .map_err(|_| internal_error("artifact result could not be encoded"))?;
         let content = vec![Content::text(result)];
         if response.ok {
@@ -302,9 +366,8 @@ impl ArtifactBrokerClient {
                 .await
                 .map_err(|_| internal_error("artifact broker request failed"))?;
             let mut response = Vec::new();
-            stream
-                .take((MAX_BROKER_FRAME_BYTES + 1) as u64)
-                .read_to_end(&mut response)
+            BufReader::new(stream.take((MAX_BROKER_FRAME_BYTES + 1) as u64))
+                .read_until(b'\n', &mut response)
                 .await
                 .map_err(|_| internal_error("artifact broker response failed"))?;
             if response.len() > MAX_BROKER_FRAME_BYTES || !response.ends_with(b"\n") {
@@ -324,9 +387,12 @@ struct BrokerFrameV1<'a, T> {
     capability: &'a str,
     capability_generation: u64,
     conversation_id: &'a str,
-    turn_id: &'a str,
-    dispatch_receipt_id: &'a str,
-    cancellation_epoch: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    turn_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    dispatch_receipt_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cancellation_epoch: Option<u64>,
     operation_request_id: &'a str,
     operation: &'static str,
     arguments: T,
@@ -339,11 +405,11 @@ struct BrokerResponseV1 {
     ok: bool,
     request_id: String,
     operation: String,
-    capability_generation: u64,
-    conversation_id: String,
-    turn_id: String,
-    dispatch_receipt_id: String,
-    cancellation_epoch: u64,
+    capability_generation: Option<u64>,
+    conversation_id: Option<String>,
+    turn_id: Option<String>,
+    dispatch_receipt_id: Option<String>,
+    cancellation_epoch: Option<u64>,
     #[serde(default)]
     diagnostic_code: Option<String>,
     result: Value,
@@ -356,14 +422,54 @@ impl BrokerResponseV1 {
         request_id: &str,
         client: &ArtifactBrokerClient,
     ) -> Result<(), ErrorData> {
+        let binding_valid = match &client.binding {
+            ArtifactBrokerBinding::ExactTurn {
+                turn_id,
+                dispatch_receipt_id,
+                cancellation_epoch,
+            } => {
+                self.capability_generation == Some(client.capability_generation)
+                    && self.conversation_id.as_deref() == Some(client.conversation_id.as_str())
+                    && self.turn_id.as_deref() == Some(turn_id.as_str())
+                    && self.dispatch_receipt_id.as_deref() == Some(dispatch_receipt_id.as_str())
+                    && self.cancellation_epoch == Some(*cancellation_epoch)
+            }
+            ArtifactBrokerBinding::TurnGate => {
+                let forwarded = self.capability_generation == Some(client.capability_generation)
+                    && self.conversation_id.as_deref() == Some(client.conversation_id.as_str())
+                    && self
+                        .turn_id
+                        .as_deref()
+                        .is_some_and(|value| bounded_text(value, 1024))
+                    && self
+                        .dispatch_receipt_id
+                        .as_deref()
+                        .is_some_and(|value| bounded_text(value, 1024))
+                    && self.cancellation_epoch.is_some_and(is_positive_safe_u53);
+                // A gate refusal has no turn to bind. Accept only its closed
+                // set of failures, never an unbound success or partial binding.
+                let gate_refusal = !self.ok
+                    && self.result.is_null()
+                    && self.capability_generation.is_none()
+                    && self.conversation_id.is_none()
+                    && self.turn_id.is_none()
+                    && self.dispatch_receipt_id.is_none()
+                    && self.cancellation_epoch.is_none()
+                    && matches!(
+                        self.diagnostic_code.as_deref(),
+                        Some(
+                            "no_active_owner_turn"
+                                | "invalid_capability"
+                                | "artifact_broker_unavailable"
+                        )
+                    );
+                forwarded || gate_refusal
+            }
+        };
         if self.protocol != TOOL_PROTOCOL
             || self.request_id != request_id
             || self.operation != operation
-            || self.capability_generation != client.capability_generation
-            || self.conversation_id != client.conversation_id
-            || self.turn_id != client.turn_id
-            || self.dispatch_receipt_id != client.dispatch_receipt_id
-            || self.cancellation_epoch != client.cancellation_epoch
+            || !binding_valid
         {
             return Err(internal_error(
                 "artifact broker response binding is invalid",
@@ -514,20 +620,32 @@ impl ServerHandler for LucaArtifactsMcp {
     }
 }
 
-fn positive_safe_u53(name: &str) -> Result<u64, String> {
-    let value = required_bounded_env(name, 32)?
+fn positive_safe_u53(lookup: &impl Fn(&str) -> Option<String>, name: &str) -> Result<u64, String> {
+    let value = required_bounded_env(lookup, name, 32)?
         .parse::<u64>()
         .map_err(|_| "artifact broker bootstrap is invalid".to_owned())?;
-    if value == 0 || value > 9_007_199_254_740_991 {
+    if !is_positive_safe_u53(value) {
         return Err("artifact broker bootstrap is invalid".into());
     }
     Ok(value)
 }
 
-fn required_bounded_env(name: &str, max_len: usize) -> Result<String, String> {
+fn is_positive_safe_u53(value: u64) -> bool {
+    value > 0 && value <= 9_007_199_254_740_991
+}
+
+fn bounded_text(value: &str, max_len: usize) -> bool {
+    !value.is_empty() && value.len() <= max_len && !value.contains(['\0', '\n', '\r'])
+}
+
+fn required_bounded_env(
+    lookup: &impl Fn(&str) -> Option<String>,
+    name: &str,
+    max_len: usize,
+) -> Result<String, String> {
     let value =
-        std::env::var(name).map_err(|_| "artifact broker bootstrap is unavailable".to_owned())?;
-    if value.is_empty() || value.len() > max_len || value.contains(['\0', '\n', '\r']) {
+        lookup(name).ok_or_else(|| "artifact broker bootstrap is unavailable".to_owned())?;
+    if !bounded_text(&value, max_len) {
         return Err("artifact broker bootstrap is invalid".into());
     }
     Ok(value)
@@ -655,9 +773,171 @@ mod tests {
             capability: Arc::new(Zeroizing::new(format!("sha256:{}", "a".repeat(64)))),
             capability_generation: generation,
             conversation_id: "conversation-1".into(),
-            turn_id: "turn-1".into(),
-            dispatch_receipt_id: "dispatch-1".into(),
-            cancellation_epoch: 7,
+            binding: ArtifactBrokerBinding::ExactTurn {
+                turn_id: "turn-1".into(),
+                dispatch_receipt_id: "dispatch-1".into(),
+                cancellation_epoch: 7,
+            },
+        }
+    }
+
+    fn gate_environment(endpoint: &str) -> std::collections::HashMap<String, String> {
+        [
+            ("LUCA_ARTIFACT_MODE", "1".to_owned()),
+            ("LUCA_ARTIFACT_TURN_GATE", "1".to_owned()),
+            ("LUCA_ARTIFACT_ENDPOINT", endpoint.to_owned()),
+            ("LUCA_ARTIFACT_CAPABILITY", "b".repeat(64)),
+            ("LUCA_ARTIFACT_CAPABILITY_GENERATION", "9".to_owned()),
+            ("LUCA_ARTIFACT_CONVERSATION_ID", "conversation-1".to_owned()),
+        ]
+        .into_iter()
+        .map(|(name, value)| (name.to_owned(), value))
+        .collect()
+    }
+
+    #[test]
+    fn conversation_projection_bootstraps_without_turn_authority() {
+        let environment = gate_environment("/tmp/artifact-gate.sock");
+        let client =
+            ArtifactBrokerClient::from_lookup(|name| environment.get(name).cloned()).unwrap();
+        assert!(matches!(client.binding, ArtifactBrokerBinding::TurnGate));
+        assert_eq!(client.capability_generation, 9);
+        assert_eq!(client.conversation_id, "conversation-1");
+
+        for (name, value) in [
+            ("LUCA_ARTIFACT_TURN_GATE", "unknown"),
+            ("LUCA_ARTIFACT_TURN_ID", "turn-1"),
+            ("LUCA_ARTIFACT_DISPATCH_RECEIPT_ID", "dispatch-1"),
+            ("LUCA_ARTIFACT_CANCELLATION_EPOCH", "7"),
+            ("LUCA_ARTIFACT_CAPABILITY", "invalid"),
+            ("LUCA_ARTIFACT_CAPABILITY_GENERATION", "0"),
+            ("LUCA_ARTIFACT_ENDPOINT", "relative.sock"),
+            ("LUCA_REPOSITORY_MODE", "1"),
+        ] {
+            let mut invalid = environment.clone();
+            invalid.insert(name.to_owned(), value.to_owned());
+            assert!(
+                ArtifactBrokerClient::from_lookup(|name| invalid.get(name).cloned()).is_err(),
+                "{name}"
+            );
+        }
+        let mut legacy = environment;
+        legacy.remove("LUCA_ARTIFACT_TURN_GATE");
+        assert!(ArtifactBrokerClient::from_lookup(|name| legacy.get(name).cloned()).is_err());
+        legacy.insert(
+            "LUCA_ARTIFACT_CAPABILITY".into(),
+            format!("sha256:{}", "a".repeat(64)),
+        );
+        legacy.insert("LUCA_ARTIFACT_TURN_ID".into(), "turn-1".into());
+        legacy.insert(
+            "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID".into(),
+            "dispatch-1".into(),
+        );
+        legacy.insert("LUCA_ARTIFACT_CANCELLATION_EPOCH".into(), "7".into());
+        let client = ArtifactBrokerClient::from_lookup(|name| legacy.get(name).cloned()).unwrap();
+        assert!(matches!(
+            client.binding,
+            ArtifactBrokerBinding::ExactTurn { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn conversation_gate_roundtrip_reads_one_frame_without_waiting_for_eof() {
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = directory.path().join("gate.sock");
+        let environment = gate_environment(endpoint.to_str().unwrap());
+        let client =
+            ArtifactBrokerClient::from_lookup(|name| environment.get(name).cloned()).unwrap();
+        let listener = tokio::net::UnixListener::bind(endpoint).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            stream.read_line(&mut line).await.unwrap();
+            let frame: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(frame["protocol"], BROKER_PROTOCOL);
+            assert_eq!(frame["conversation_id"], "conversation-1");
+            assert_eq!(frame["capability"], "b".repeat(64));
+            for field in ["turn_id", "dispatch_receipt_id", "cancellation_epoch"] {
+                assert!(frame.get(field).is_none());
+            }
+            let response = serde_json::json!({
+                "protocol": TOOL_PROTOCOL, "ok": true,
+                "request_id": frame["operation_request_id"], "operation": frame["operation"],
+                "capability_generation": 9, "conversation_id": "conversation-1",
+                "turn_id": "host-current-turn", "dispatch_receipt_id": "host-current-dispatch",
+                "cancellation_epoch": 12, "result": {"artifacts": []}
+            });
+            let mut bytes = serde_json::to_vec(&response).unwrap();
+            bytes.push(b'\n');
+            stream.get_mut().write_all(&bytes).await.unwrap();
+            // Real gates stay open for another frame. The client must finish
+            // and close its socket without requiring the server to close first.
+            line.clear();
+            assert_eq!(stream.read_line(&mut line).await.unwrap(), 0);
+        });
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            client.call("artifact_list", serde_json::json!({"limit": 1})),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_ne!(result.is_error, Some(true));
+        server.await.unwrap();
+    }
+
+    #[test]
+    fn gate_responses_require_bound_success_or_explicit_closed_failure() {
+        let environment = gate_environment("/tmp/artifact-gate.sock");
+        let client =
+            ArtifactBrokerClient::from_lookup(|name| environment.get(name).cloned()).unwrap();
+        let valid = serde_json::json!({
+            "protocol": TOOL_PROTOCOL, "ok": true,
+            "request_id": "request-1", "operation": "artifact_list",
+            "capability_generation": 9, "conversation_id": "conversation-1",
+            "turn_id": "host-turn", "dispatch_receipt_id": "host-dispatch",
+            "cancellation_epoch": 12, "result": {"artifacts": []}
+        });
+        let validate = |value: Value| {
+            serde_json::from_value::<BrokerResponseV1>(value)
+                .unwrap()
+                .validate("artifact_list", "request-1", &client)
+        };
+        assert!(validate(valid.clone()).is_ok());
+        for (field, value) in [
+            ("capability_generation", serde_json::json!(8)),
+            ("conversation_id", serde_json::json!("other")),
+            ("turn_id", Value::Null),
+            ("dispatch_receipt_id", serde_json::json!("")),
+            ("cancellation_epoch", serde_json::json!(0)),
+            ("request_id", serde_json::json!("other")),
+            ("operation", serde_json::json!("artifact_create")),
+        ] {
+            let mut invalid = valid.clone();
+            invalid[field] = value;
+            assert!(validate(invalid).is_err(), "{field}");
+        }
+        let refusal = serde_json::json!({
+            "protocol": TOOL_PROTOCOL, "ok": false,
+            "request_id": "request-1", "operation": "artifact_list",
+            "diagnostic_code": "no_active_owner_turn", "result": null
+        });
+        assert!(validate(refusal.clone()).is_ok());
+        let legacy = broker_client(PathBuf::from("/tmp/legacy.sock"), 9);
+        assert!(serde_json::from_value::<BrokerResponseV1>(refusal.clone())
+            .unwrap()
+            .validate("artifact_list", "request-1", &legacy)
+            .is_err());
+        for (field, value) in [
+            ("ok", serde_json::json!(true)),
+            ("result", serde_json::json!({"artifacts": []})),
+            ("conversation_id", serde_json::json!("conversation-1")),
+            ("diagnostic_code", serde_json::json!("unknown")),
+        ] {
+            let mut invalid = refusal.clone();
+            invalid[field] = value;
+            assert!(validate(invalid).is_err(), "{field}");
         }
     }
 

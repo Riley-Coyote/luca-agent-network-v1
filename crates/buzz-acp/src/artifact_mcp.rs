@@ -209,6 +209,10 @@ impl ArtifactMcpConfig {
                     value: "1".into(),
                 },
                 EnvVar {
+                    name: "LUCA_ARTIFACT_TURN_GATE".into(),
+                    value: "1".into(),
+                },
+                EnvVar {
                     name: "LUCA_ARTIFACT_ENDPOINT".into(),
                     value: gate.socket_path_string(),
                 },
@@ -625,12 +629,16 @@ mod tests {
         let conversation_id = OpaqueId::parse("conversation-1").unwrap();
         let server = config.server_for_conversation(&gate, &conversation_id);
 
-        // Exactly the conversation-scoped shape: mode, endpoint, capability,
+        // Exactly the conversation-scoped shape: mode, turn gate, endpoint, capability,
         // capability generation, conversation id. No turn, receipt or epoch —
         // the gate resolves those per call from the open owner turn.
-        assert_eq!(server.env.len(), 5);
+        assert_eq!(server.env.len(), 6);
         let names: Vec<&str> = server.env.iter().map(|var| var.name.as_str()).collect();
         assert!(names.contains(&"LUCA_ARTIFACT_MODE"));
+        assert!(server
+            .env
+            .iter()
+            .any(|var| var.name == "LUCA_ARTIFACT_TURN_GATE" && var.value == "1"));
         assert!(names.contains(&"LUCA_ARTIFACT_ENDPOINT"));
         assert!(names.contains(&"LUCA_ARTIFACT_CAPABILITY"));
         assert!(names.contains(&"LUCA_ARTIFACT_CAPABILITY_GENERATION"));

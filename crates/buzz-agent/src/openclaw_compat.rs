@@ -848,29 +848,41 @@ fn validate_mcp_servers(servers: &[McpServerStdio]) -> Result<(), String> {
                         .is_some_and(|value| is_safe_positive_u53(value))
             }
             name if valid_artifact_server_name(name) => {
-                server.env.len() == ARTIFACT_ENV_KEYS.len()
+                let binding_valid = if env.get("LUCA_ARTIFACT_TURN_GATE") == Some(&"1") {
+                    server.env.len() == 6
+                        && env.len() == 6
+                        && env
+                            .get("LUCA_ARTIFACT_ENDPOINT")
+                            .is_some_and(|value| valid_artifact_gate_endpoint(value))
+                        && env.get("LUCA_ARTIFACT_CAPABILITY").is_some_and(|value| {
+                            value.len() == 64 && value.bytes().all(is_lower_hex)
+                        })
+                } else {
+                    server.env.len() == ARTIFACT_ENV_KEYS.len()
+                        && env
+                            .get("LUCA_ARTIFACT_ENDPOINT")
+                            .is_some_and(|value| valid_broker_endpoint(value, "luca-ab-"))
+                        && env
+                            .get("LUCA_ARTIFACT_CAPABILITY")
+                            .is_some_and(|value| is_sha256_ref(value))
+                        && env
+                            .get("LUCA_ARTIFACT_TURN_ID")
+                            .is_some_and(|value| is_opaque_id(value))
+                        && env
+                            .get("LUCA_ARTIFACT_DISPATCH_RECEIPT_ID")
+                            .is_some_and(|value| is_opaque_id(value))
+                        && env
+                            .get("LUCA_ARTIFACT_CANCELLATION_EPOCH")
+                            .is_some_and(|value| is_safe_positive_u53(value))
+                };
+                binding_valid
                     && env.get("LUCA_ARTIFACT_MODE") == Some(&"1")
-                    && env
-                        .get("LUCA_ARTIFACT_ENDPOINT")
-                        .is_some_and(|value| valid_broker_endpoint(value, "luca-ab-"))
-                    && env
-                        .get("LUCA_ARTIFACT_CAPABILITY")
-                        .is_some_and(|value| is_sha256_ref(value))
                     && env
                         .get("LUCA_ARTIFACT_CAPABILITY_GENERATION")
                         .is_some_and(|value| is_safe_positive_u53(value))
                     && env
                         .get("LUCA_ARTIFACT_CONVERSATION_ID")
                         .is_some_and(|value| is_opaque_id(value))
-                    && env
-                        .get("LUCA_ARTIFACT_TURN_ID")
-                        .is_some_and(|value| is_opaque_id(value))
-                    && env
-                        .get("LUCA_ARTIFACT_DISPATCH_RECEIPT_ID")
-                        .is_some_and(|value| is_opaque_id(value))
-                    && env
-                        .get("LUCA_ARTIFACT_CANCELLATION_EPOCH")
-                        .is_some_and(|value| is_safe_positive_u53(value))
             }
             _ => false,
         };
@@ -938,6 +950,20 @@ fn valid_broker_endpoint(value: &str, directory_prefix: &str) -> bool {
         && session_epoch.bytes().all(|byte| byte.is_ascii_digit())
         && endpoint_nonce.len() == 16
         && endpoint_nonce.bytes().all(is_lower_hex)
+}
+
+fn valid_artifact_gate_endpoint(value: &str) -> bool {
+    let path = Path::new(value);
+    let nonce = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("luca-atg-"));
+    path.is_absolute()
+        && value.len() <= 103
+        && path.parent().and_then(Path::parent) == Some(Path::new("/tmp"))
+        && path.file_name().is_some_and(|name| name == "gate.sock")
+        && nonce.is_some_and(|value| value.len() == 32 && value.bytes().all(is_lower_hex))
 }
 
 fn is_safe_positive_u53(value: &str) -> bool {
@@ -1227,7 +1253,10 @@ fn build_command(
     for key in COMMUNICATIONS_ENV_KEYS {
         command.env_remove(key);
     }
-    for key in ARTIFACT_ENV_KEYS {
+    for key in ARTIFACT_ENV_KEYS
+        .into_iter()
+        .chain(["LUCA_ARTIFACT_TURN_GATE"])
+    {
         command.env_remove(key);
     }
     command
@@ -2169,6 +2198,51 @@ exit 1
             value: "/private".into(),
         });
         assert!(validate_mcp_servers(&[invalid]).is_err());
+    }
+
+    #[test]
+    fn conversation_artifact_projection_accepts_only_the_scoped_gate_shape() {
+        let mut gate = artifact_server(&"c".repeat(64));
+        gate.env.retain(|entry| {
+            !matches!(
+                entry.name.as_str(),
+                "LUCA_ARTIFACT_TURN_ID"
+                    | "LUCA_ARTIFACT_DISPATCH_RECEIPT_ID"
+                    | "LUCA_ARTIFACT_CANCELLATION_EPOCH"
+            )
+        });
+        gate.env.push(EnvVar {
+            name: "LUCA_ARTIFACT_TURN_GATE".into(),
+            value: "1".into(),
+        });
+        gate.env
+            .iter_mut()
+            .find(|entry| entry.name == "LUCA_ARTIFACT_ENDPOINT")
+            .unwrap()
+            .value = "/tmp/luca-atg-11111111111111111111111111111111/gate.sock".into();
+        assert!(validate_mcp_servers(std::slice::from_ref(&gate)).is_ok());
+        for (name, value) in [
+            ("LUCA_ARTIFACT_ENDPOINT", "/tmp/arbitrary.sock"),
+            ("LUCA_ARTIFACT_CAPABILITY", "sha256:bad"),
+            ("LUCA_ARTIFACT_TURN_GATE", "2"),
+        ] {
+            let mut invalid = gate.clone();
+            invalid
+                .env
+                .iter_mut()
+                .find(|entry| entry.name == name)
+                .unwrap()
+                .value = value.into();
+            assert!(validate_mcp_servers(&[invalid]).is_err());
+        }
+        for name in ["LUCA_ARTIFACT_TURN_ID", "WORKING_ROOT"] {
+            let mut invalid = gate.clone();
+            invalid.env.push(EnvVar {
+                name: name.into(),
+                value: "override".into(),
+            });
+            assert!(validate_mcp_servers(&[invalid]).is_err());
+        }
     }
 
     #[test]
