@@ -13050,6 +13050,36 @@ export function maybeInstallE2eTauriMocks() {
         }
         return structuredClone(mockLucaMcpRegistry);
       }
+      // Read-only companion defaults for the real Agents settings entry in
+      // browser fixtures. No source access or background work is active.
+      case "get_companion_awareness":
+        return {
+          availability: "ready",
+          paused: true,
+          collectionRunning: false,
+          revision: 0,
+          grants: [],
+          truncated: false,
+        };
+      case "get_companion_initiative":
+        return {
+          availability: "ready",
+          executionPaused: false,
+          nativeChannelAvailable: false,
+          actualModelExecutionVerified: false,
+          policy: {
+            revision: 0,
+            enabled: false,
+            paused: true,
+            allow_local_creations: false,
+            allow_outreach: false,
+          },
+        };
+      case "list_companion_selected_sources":
+      case "list_companion_native_profiles":
+      case "list_companion_machine_sources":
+      case "list_companion_browser_profiles":
+        return [];
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
       case "discover_native_residents":

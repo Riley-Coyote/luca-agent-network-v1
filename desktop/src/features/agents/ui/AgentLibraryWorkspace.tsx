@@ -15,6 +15,7 @@ import {
 
 import { ResidentDocumentsSection } from "@/features/agents/documents/ResidentDocumentsSection";
 import { ResidentPlaceSection } from "@/features/agents/place/ResidentPlaceSection";
+import { CompanionSetupDialog } from "@/features/luca/CompanionSetupDialog";
 import {
   useManagedAgentLogQuery,
   useSetManagedAgentAutoRestartMutation,
@@ -529,9 +530,15 @@ function SettingsSection({
 
   return (
     <div
-      className="divide-y divide-border/55 border-y border-border/55"
+      className="@container divide-y divide-border/55 border-y border-border/55"
       data-testid="agent-settings"
     >
+      {managedAgent ? (
+        <CompanionSettingsSection
+          key={managedAgent.pubkey}
+          residentPubkey={managedAgent.pubkey}
+        />
+      ) : null}
       {resident.pubkey ? (
         <LedgerSection eyebrow="Appearance" title="Your character">
           <CharacterAppearancePicker
@@ -729,17 +736,63 @@ function SettingsSection({
   );
 }
 
+function CompanionSettingsSection({
+  residentPubkey,
+}: {
+  residentPubkey: string;
+}) {
+  const [request, setRequest] = React.useState<{
+    residentPubkey: string;
+  } | null>(null);
+
+  return (
+    <LedgerSection
+      className="sm:grid-cols-1 @lg:grid-cols-[160px_minmax(0,1fr)]"
+      eyebrow="Companion"
+      title="Awareness and initiative"
+    >
+      <p className="text-sm leading-6 text-muted-foreground">
+        Manage activity sources, privacy, and background work. Review or change
+        the choices from setup here, without starting a conversation.
+      </p>
+      <CompanionSetupDialog
+        closeLabel="Back to agent"
+        onClose={() => setRequest(null)}
+        request={request}
+        trigger={
+          <Button
+            className="mt-4 max-w-full whitespace-normal"
+            data-testid="agent-companion-settings"
+            onClick={() => setRequest({ residentPubkey })}
+            size="sm"
+            variant="outline"
+          >
+            <Settings2 /> Companion settings
+          </Button>
+        }
+      />
+    </LedgerSection>
+  );
+}
+
 function LedgerSection({
   children,
+  className,
   eyebrow,
   title,
 }: {
   children: React.ReactNode;
+  className?: string;
   eyebrow: string;
   title: string;
 }) {
   return (
-    <section className="grid gap-5 py-6 sm:grid-cols-[160px_minmax(0,1fr)]">
+    <section
+      className={cn(
+        "grid gap-5 py-6 sm:grid-cols-[160px_minmax(0,1fr)]",
+        className,
+      )}
+    >
       <div>
         <p className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
           {eyebrow}

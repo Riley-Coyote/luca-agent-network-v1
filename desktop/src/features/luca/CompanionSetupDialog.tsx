@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/shared/ui/dialog";
 import { Switch } from "@/shared/ui/switch";
 import {
@@ -51,11 +52,13 @@ const nativeApi = {
 };
 export type CompanionSetupApi = typeof nativeApi;
 
-/** One owner-reviewed control surface opened from chat. It does not restart
+/** One owner-reviewed control surface opened from chat or agent settings. It does not restart
  * onboarding, choose a harness/model, or turn a chat answer into a grant. */
 type SetupProps = {
-  request: { residentPubkey: string; conversationId: string } | null;
+  request: { residentPubkey: string } | null;
   onClose: () => void;
+  trigger?: React.ReactElement;
+  closeLabel?: string;
   api?: CompanionSetupApi;
   simulation?: boolean;
 };
@@ -72,6 +75,8 @@ export function CompanionSetupDialog(props: SetupProps) {
 export function CompanionSetupPanel({
   request,
   onClose,
+  trigger,
+  closeLabel = "Back to our conversation",
   api = nativeApi,
   simulation = false,
   name,
@@ -93,6 +98,7 @@ export function CompanionSetupPanel({
   const [history, setHistory] = React.useState<CompanionHistory | null>(null);
   const [includeHistory, setIncludeHistory] = React.useState(false);
   const [reviewWork, setReviewWork] = React.useState(false);
+  const titleRef = React.useRef<HTMLHeadingElement>(null);
   const generation = React.useRef(0);
   const reviewGeneration = React.useRef(0);
 
@@ -253,12 +259,21 @@ export function CompanionSetupPanel({
         if (!open && !pending) onClose();
       }}
     >
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent
         className="max-h-[85dvh] max-w-xl overflow-y-auto"
         aria-describedby="companion-setup-description"
+        onOpenAutoFocus={(event) => {
+          // Settings arrive asynchronously. Keep initial focus in this panel,
+          // not on the Quick Chat launcher hosted inside every dialog.
+          event.preventDefault();
+          titleRef.current?.focus();
+        }}
       >
         <DialogHeader>
-          <DialogTitle>With {name}</DialogTitle>
+          <DialogTitle ref={titleRef} tabIndex={-1} className="outline-none">
+            With {name}
+          </DialogTitle>
           <DialogDescription id="companion-setup-description">
             Choose what your companion can follow and work on. Nothing is
             required to keep chatting; these choices can be changed later.
@@ -590,7 +605,7 @@ export function CompanionSetupPanel({
               is optional.
             </p>
             <Button variant="ghost" disabled={pending} onClick={onClose}>
-              Back to our conversation
+              {closeLabel}
             </Button>
           </div>
         ) : null}

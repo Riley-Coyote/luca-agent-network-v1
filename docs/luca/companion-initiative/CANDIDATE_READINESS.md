@@ -112,3 +112,24 @@ The next signed candidate uses Riley's existing walkthrough profile without
 resetting it. Real personal-source consent, follow/restart behavior and an image
 in a live model conversation remain explicit walkthrough checks; lower-level
 tests are not a claim of that native end-to-end proof. Publication remains gated.
+
+## Manual companion management — 2026-10-11
+
+- Agents → select a resident → Settings now has a visible Companion settings
+  entry above Appearance. It opens the existing owner-reviewed setup controls
+  for that resident, including when stopped and without an existing chat.
+  Merely opening it does not start a resident or grant access.
+- The same panel remains available from chat. Agent settings has a contextual
+  Back to agent action, initial focus stays inside the panel, and dismissal
+  restores focus to the entry button. The new section responds to its pane's
+  width without changing the other settings layouts.
+- Frontend typecheck/build, scoped lint and six browser checks passed: direct
+  access, resident switching, stopped/no-chat access, keyboard/compact layout,
+  unavailable-state reopening, and the existing setup permission regressions.
+  These use fixture IPC; they do not enable personal observation or replace
+  the native owner walkthrough.
+- Three additional agent-library checks passed for workspace/Notebook
+  navigation, stopped native startup, and start-on-open settings.
+- No agent configuration rules changed: runtime/model configuration and grant
+  authority still use their existing implementations. Nothing was published;
+  the signed local candidate is refreshed separately with the same test profile.
