@@ -66,6 +66,7 @@ import { useAgentObserverIngestion } from "@/features/agents/useAgentObserverIng
 import { useBrainReviewNavigation } from "@/features/luca/brain/useBrainReviewNavigation";
 import { usePolyphonicSurfaceNavigation } from "@/features/luca/usePolyphonicSurfaceNavigation";
 import { CompanionSetupDialog } from "@/features/luca/CompanionSetupDialog";
+import { CompanionAppControl } from "@/features/luca/CompanionAppControl";
 import { AgentManagementDialogs } from "@/features/agents/ui/AgentManagementDialogs";
 import { RepositoryConnectionProposalDialog } from "@/features/luca/brain/RepositoryConnectionProposalDialog";
 import { RequestedAgentCreateDialogs } from "@/features/agents/ui/RequestedAgentCreateDialogs";
@@ -1210,6 +1211,7 @@ export function AppShell() {
                         <RequestedAgentCreateDialogs />
                         <AgentManagementDialogs />
                         <CompanionSetupDialog request={companionNavigation.companionReview} onClose={companionNavigation.closeCompanionReview} />
+                        <CompanionAppControl control={companionNavigation.appControl.visible} onStop={companionNavigation.appControl.stop} />
                         <RepositoryConnectionProposalDialog
                           ownerPubkey={identityQuery.data?.pubkey}
                         />

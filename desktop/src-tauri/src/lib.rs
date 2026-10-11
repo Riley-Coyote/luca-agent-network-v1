@@ -1230,6 +1230,7 @@ pub fn run() {
             revoke_owner_brain_source,
             reconfirm_owner_brain_source,
             list_luca_mcp_registry,
+            crate::luca::surface_control::resolve_polyphonic_app_control,
             save_luca_mcp_connection,
             test_luca_mcp_connection,
             delete_luca_mcp_connection,

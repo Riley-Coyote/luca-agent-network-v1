@@ -28,7 +28,7 @@ use luca_protocol::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 
 mod operations;
 mod resident_directory;
@@ -371,7 +371,7 @@ fn handle_frame(
         return Err("repository broker capability is stale".into());
     }
     if frame.operation == RepositoryToolOperationV1::OperatorOpenSurface {
-        return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments);
+        return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments, active, caller);
     }
     if matches!(frame.operation, RepositoryToolOperationV1::ConfigureCompanion | RepositoryToolOperationV1::ReadConversationImage) {
         let mut probe = caller.try_clone().map_err(|_| "Companion caller unavailable.")?;

@@ -1,0 +1,86 @@
+/* Approved Soft halo: same restrained edge as the study; no layout changes. */
+.polyphonic-control-halo {
+  position: fixed;
+  z-index: 95;
+  inset: 3px;
+  border-radius: 11px;
+  border: 1px solid rgb(255 255 255 / 0.36);
+  box-shadow: inset 0 0 24px rgb(255 255 255 / 0.1224);
+  pointer-events: none;
+  animation: polyphonic-control-breathe 3.6s ease-in-out infinite;
+}
+@keyframes polyphonic-control-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.polyphonic-control-badge {
+  position: fixed;
+  z-index: 96;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 7px 9px 7px 13px;
+  border-radius: 999px;
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 6px 28px rgb(0 0 0 / 0.22);
+  -webkit-app-region: no-drag;
+}
+.polyphonic-control-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.polyphonic-control-badge button {
+  flex: none;
+  min-height: 28px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid hsl(var(--border));
+  transition: background-color 140ms ease-out;
+}
+.polyphonic-control-badge button:active {
+  background: hsl(var(--accent));
+}
+.polyphonic-control-badge button:focus-visible {
+  outline: 2px solid hsl(var(--foreground));
+  outline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .polyphonic-control-badge button:hover {
+    background: hsl(var(--accent));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .polyphonic-control-halo {
+    animation: none;
+    opacity: 1;
+  }
+  .polyphonic-control-badge button {
+    transition: none;
+  }
+}
+@media (max-width: 760px) {
+  .polyphonic-control-badge {
+    top: 70px;
+    gap: 8px;
+  }
+}
+/* Native glass is not required: the badge always has an opaque readable base. */
+@media (forced-colors: active) {
+  .polyphonic-control-halo {
+    border-color: Highlight;
+    box-shadow: none;
+  }
+}

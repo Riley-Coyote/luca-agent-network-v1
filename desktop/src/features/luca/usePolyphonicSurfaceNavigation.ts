@@ -12,11 +12,13 @@ import {
   parsePolyphonicSurfaceRequest,
   type PolyphonicSurfaceRequest,
 } from "./polyphonicSurfaceRequest";
+import { useCompanionAppControl } from "./CompanionAppControl";
 
 type Candidate = {
   agentPubkey: string;
   observerChannelId: string | null;
   request: PolyphonicSurfaceRequest;
+  controlRequestId?: string;
 };
 
 /** Authenticate a conversation-bound resident request, then open its surface. */
@@ -28,7 +30,11 @@ export function usePolyphonicSurfaceNavigation() {
   const channelsRef = React.useRef(channelsQuery.data);
   const bufferedRef = React.useRef<Candidate[]>([]);
   const seenRef = React.useRef(new Set<string>());
-  const [companionReview, setCompanionReview] = React.useState<{ residentPubkey: string; conversationId: string } | null>(null);
+  const [companionReview, setCompanionReview] = React.useState<{
+    residentPubkey: string;
+    conversationId: string;
+  } | null>(null);
+  const appControl = useCompanionAppControl();
 
   const accept = React.useEffectEvent((candidate: Candidate) => {
     const { agentPubkey, observerChannelId, request } = candidate;
@@ -45,40 +51,56 @@ export function usePolyphonicSurfaceNavigation() {
       return;
     }
     seenRef.current.add(request.requestId);
-    switch (request.surface) {
-      case "companion":
-        setCompanionReview({ residentPubkey: agentPubkey, conversationId: request.channelId });
-        break;
-      case "onboarding":
-        window.dispatchEvent(new Event(POLYPHONIC_REOPEN_ONBOARDING_EVENT));
-        break;
-      case "runtime":
-        void goSettings("agents", {
-          settingsAgent: agentPubkey,
-          settingsAgentTab: "runtime",
-        });
-        break;
-      case "native_agents":
-        void goAgents({ reviewNative: true });
-        break;
-      case "brain":
-        void goBrain();
-        break;
-      case "profile":
-        void goSettings("profile");
-        break;
-      case "appearance":
-        void goSettings("appearance");
-        break;
-      case "recovery":
-        void goSettings("security");
-        break;
-      case "access":
-        void goSettings("agents", {
-          settingsAgent: agentPubkey,
-          settingsAgentTab: "capabilities",
-        });
-        break;
+    const navigate = async () => {
+      switch (request.surface) {
+        case "companion":
+          setCompanionReview({
+            residentPubkey: agentPubkey,
+            conversationId: request.channelId,
+          });
+          break;
+        case "onboarding":
+          window.dispatchEvent(new Event(POLYPHONIC_REOPEN_ONBOARDING_EVENT));
+          break;
+        case "runtime":
+          await goSettings("agents", {
+            settingsAgent: agentPubkey,
+            settingsAgentTab: "runtime",
+          });
+          break;
+        case "native_agents":
+          await goAgents({ reviewNative: true });
+          break;
+        case "brain":
+          await goBrain();
+          break;
+        case "profile":
+          await goSettings("profile");
+          break;
+        case "appearance":
+          await goSettings("appearance");
+          break;
+        case "recovery":
+          await goSettings("security");
+          break;
+        case "access":
+          await goSettings("agents", {
+            settingsAgent: agentPubkey,
+            settingsAgentTab: "capabilities",
+          });
+          break;
+      }
+    };
+    if (candidate.controlRequestId) {
+      const name =
+        managedAgentsRef.current?.find(
+          (agent) => agent.pubkey.toLowerCase() === agentPubkey.toLowerCase(),
+        )?.name || "Your companion";
+      void appControl.run(candidate.controlRequestId, name, navigate);
+    } else {
+      // Legacy authenticated relay navigation has no native cancellation lease.
+      // Do not present a Stop control that cannot enforce its promise.
+      void navigate();
     }
   });
 
@@ -127,13 +149,18 @@ export function usePolyphonicSurfaceNavigation() {
         if (
           !request ||
           typeof value.agentPubkey !== "string" ||
-          value.observerChannelId !== request.channelId
+          value.observerChannelId !== request.channelId ||
+          (value.controlRequestId !== undefined &&
+            value.controlRequestId !== request.requestId)
         )
           return;
         const candidate = {
           agentPubkey: value.agentPubkey,
           observerChannelId: request.channelId,
           request,
+          ...(value.controlRequestId === request.requestId
+            ? { controlRequestId: request.requestId }
+            : {}),
         };
         if (
           classifyAgentManagementOrigin(
@@ -159,5 +186,9 @@ export function usePolyphonicSurfaceNavigation() {
     };
   }, []);
 
-  return { companionReview, closeCompanionReview: () => setCompanionReview(null) };
+  return {
+    companionReview,
+    closeCompanionReview: () => setCompanionReview(null),
+    appControl,
+  };
 }

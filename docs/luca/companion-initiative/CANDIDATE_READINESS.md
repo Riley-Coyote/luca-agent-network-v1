@@ -102,11 +102,11 @@ and the ordinary new-user experience.
   the generated shell-lab build passed. Source diff checks exclude the generated
   lab's pre-existing/vendor inline-string whitespace; those strings were not
   rewritten for lint cosmetics.
-- The app-control edge/badge is an isolated `experience=companion-control` study,
-  not a shipped overlay. Three presets, bounded controls, saved variations,
+- The initial app-control edge/badge was an isolated `experience=companion-control`
+  study. Three presets, bounded controls, saved variations,
   Stop/settings-only states, reduced motion, keyboard operation and compact
   layout were exercised in the browser. Native control lifecycle/Stop integration
-  awaits Riley's direction; the study does not operate the app or grant access.
+  initially awaited Riley's direction; the study does not operate the app or grant access.
 
 The next signed candidate uses Riley's existing walkthrough profile without
 resetting it. Real personal-source consent, follow/restart behavior and an image
@@ -133,3 +133,37 @@ tests are not a claim of that native end-to-end proof. Publication remains gated
 - No agent configuration rules changed: runtime/model configuration and grant
   authority still use their existing implementations. Nothing was published;
   the signed local candidate is refreshed separately with the same test profile.
+
+## Approved Soft halo integration — 2026-10-11
+
+- Riley selected Soft halo: a neutral 1px edge, 24px inset glow, slow opacity
+  breathing, resident identity and an accessible Stop badge. Reduced motion is
+  steady; the edge never intercepts input and the badge remains opaque/readable.
+  This carries the existing approved lab treatment into production components,
+  following the Emil design-engineering guidance without redesigning the shell.
+- Supported native `polyphonic_open` navigation now has an exact owner/resident/
+  conversation/session/turn-bound, 15-second request. Only the main owner
+  webview can begin/complete/stop it. A brief automatic handoff offers Stop before
+  opening the requested surface. Completion is acknowledged rather than assumed
+  from emitting an event. Timeout, caller disconnect and terminal turns fail closed.
+- Stop prevents pending navigation and further native navigation retries in the
+  same turn. It does not undo an already-opened page or cancel unrelated model
+  work. New owner turns can navigate normally. Settings mutations continue using
+  typed tools and chat receipts; they do not trigger the halo.
+- Scope is deliberately truthful: external computer-use MCPs do not currently
+  provide a Polyphonic-owned start/stop lifecycle. Their cursor/control is not
+  covered by this indicator. Legacy relay navigation also has no cancellation
+  lease and therefore does not display a misleading Stop control.
+- Verification: typecheck and build:e2e passed; 12 focused native tests and eight
+  browser checks passed. Browser coverage includes normal completion, a late
+  Begin after Stop, host disconnect, failed authorization, unauthorized requests,
+  settings-panel regressions, keyboard and compact/reduced-motion behavior. The
+  production component was visually inspected in browser screenshots. Browser
+  IPC is synthetic, not proof of a live resident/native window round trip.
+- First browser run hit intermittent blank-page asset loads with the Python test
+  server; the unchanged settings specs also failed there. The verified run used
+  a Vite preview server and one worker. Existing compiler/chunk warnings remain.
+- The signed isolated candidate is prepared for Riley's existing walkthrough;
+  installed apps, personal permissions and the public update feed are untouched.
+  Live-model navigation and Stop remain owner walkthrough checks, not a release
+  approval or a claim of universal computer-control coverage.

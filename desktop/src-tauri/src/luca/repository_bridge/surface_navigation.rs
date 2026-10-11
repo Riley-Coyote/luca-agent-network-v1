@@ -27,6 +27,8 @@ pub(super) fn request(
     context: &BrokerContext,
     conversation_id: &OpaqueId,
     arguments: Value,
+    active: &Arc<AtomicBool>,
+    caller: &UnixStream,
 ) -> Result<RepositoryBrokerResponseV1, String> {
     let args: OpenSurfaceArgs = serde_json::from_value(arguments)
         .map_err(|_| "review surface arguments are invalid".to_owned())?;
@@ -39,9 +41,38 @@ pub(super) fn request(
     // The broker has already verified the live, conversation-scoped capability.
     // Resolve identity from that scope, never from model-supplied parameters.
     let request_id = uuid::Uuid::new_v4().to_string();
-    app.emit(
-        "polyphonic-native-surface-request",
+    let dispatch_store = crate::luca::managed_dispatch_store::global_dispatch_store(app)?;
+    let turn = dispatch_store
+        .lock()
+        .map_err(|_| "App control is unavailable.")?
+        .resolve_unique_cancellable(
+            context.owner_pubkey.as_str(),
+            conversation_id.as_str(),
+            context.resident_pubkey.as_str(),
+        )
+        .map_err(|_| "App navigation requires one active conversation turn.")?;
+    if turn.session_epoch != context.session_epoch.get() {
+        return Err("App control session has changed.".into());
+    }
+    let mut probe = caller
+        .try_clone()
+        .map_err(|_| "App control caller is unavailable.")?;
+    probe
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .map_err(|_| "App control caller cannot be monitored.")?;
+    let status = crate::luca::surface_control::request(
+        app,
+        crate::luca::surface_control::ControlScope {
+            owner: context.owner_pubkey.as_str().into(),
+            resident: context.resident_pubkey.as_str().into(),
+            conversation: conversation_id.as_str().into(),
+            epoch: context.session_epoch.get(),
+            dispatch: turn.dispatch_receipt_id,
+        },
+        Arc::clone(active),
+        &request_id,
         serde_json::json!({
+            "controlRequestId": request_id,
             "agentPubkey": context.resident_pubkey.as_str(),
             "observerChannelId": conversation_id.as_str(),
             "request": {
@@ -51,17 +82,20 @@ pub(super) fn request(
                 "surface": args.surface,
             },
         }),
-    )
-    .map_err(|_| "the desktop could not receive the review request".to_owned())?;
+        || crate::luca::resident_proposals::caller_disconnected(&mut probe),
+    )?;
+    let completed = status == crate::luca::surface_control::ControlStatus::Completed;
     Ok(RepositoryBrokerResponseV1 {
         protocol: BROKER_PROTOCOL,
-        ok: true,
+        ok: completed,
         content: serde_json::json!({
             "requestId": request_id,
             "requested": true,
+            "opened": completed,
+            "status": status,
             "connected": false,
             "imported": false,
-            "message": "Review requested in Polyphonic. The owner must review and confirm any connection or change.",
+            "message": if completed { "Review opened in Polyphonic. Opening it did not save settings or grant permission." } else { "App navigation was stopped or failed. Continue in chat; do not retry this turn." },
         }).to_string(),
         receipt: None,
     })
