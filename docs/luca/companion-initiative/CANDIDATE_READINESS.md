@@ -75,3 +75,40 @@ Social connectors, iMessage, agent teams, new design directions and always-on wo
 while the Mac is asleep remain deferred. No full-suite repetition after each
 small patch; prioritize privacy, data loss, duplicate actions, misleading controls
 and the ordinary new-user experience.
+
+## Walkthrough corrections — 2026-10-11
+
+- `configure_companion` now supports chat-led Claude Code/Codex following:
+  metadata-only discovery of the standard profile containers, one host-owned
+  approval for visible activity and sharing with the current model, then saved
+  choices and live reader startup. No normal folder picker, Brain connection,
+  old-history import, raw archive, note retention, browser access, or automatic
+  background-work enablement is bundled with this action. Missing/unusual
+  profiles still use the advanced controls.
+- Awareness Pause/Resume and background Enable/Pause/Resume/Disable use direct
+  typed operations and truthful chat receipts. Widening requires approval;
+  intervening owner settings changes invalidate a pending approval. Other
+  settings are not claimed writable unless an existing tool supports them.
+- Explicit chat-following profiles can resume after a normal app/resident
+  restart, but only with the same active owner, current model binding, saved
+  source/history consent, and unpaused state. A changed model binding or a
+  withdrawn grant never silently acquires renewed approval.
+- `read_conversation_image` validates the owner's signed attachment in the
+  current conversation, fetches same-relay protected media inside the desktop,
+  and returns actual MCP image content. It exposes no credential or arbitrary
+  URL proxy and never searches personal screenshot folders.
+- Focused checks: 132 companion, 19 first-meeting, 30 media, 1 exact-conversation
+  image-authority, 112 MCP and 94 protocol tests passed. Frontend typecheck and
+  the generated shell-lab build passed. Source diff checks exclude the generated
+  lab's pre-existing/vendor inline-string whitespace; those strings were not
+  rewritten for lint cosmetics.
+- The app-control edge/badge is an isolated `experience=companion-control` study,
+  not a shipped overlay. Three presets, bounded controls, saved variations,
+  Stop/settings-only states, reduced motion, keyboard operation and compact
+  layout were exercised in the browser. Native control lifecycle/Stop integration
+  awaits Riley's direction; the study does not operate the app or grant access.
+
+The next signed candidate uses Riley's existing walkthrough profile without
+resetting it. Real personal-source consent, follow/restart behavior and an image
+in a live model conversation remain explicit walkthrough checks; lower-level
+tests are not a claim of that native end-to-end proof. Publication remains gated.

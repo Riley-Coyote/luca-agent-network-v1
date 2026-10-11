@@ -41,6 +41,25 @@ pub(super) fn family(kind: NativeProfileKindV1) -> &'static str {
 }
 
 impl CompanionSourceRuntimeV1 {
+    /// Restart only chat-approved following. This never creates grants, changes
+    /// a paused state, rebinds provider consent, or starts other source classes.
+    pub(crate) fn restore_following(&self, app:&AppHandle, resident:&Hex64) -> Result<(),AwarenessStoreError> {
+        let state=app.state::<AppState>();
+        let live=LiveAwarenessOwner::authenticate(&state)?;
+        if state.companion_awareness.resident_state(live.owner(),resident)?.paused {return Ok(());}
+        let binding=crate::luca::managed_cognition::active_binding_ref(resident).map_err(|_|AwarenessStoreError::Unavailable)?;
+        for registration in self.list_profiles(live.owner(),resident)? {
+            if !registration.follow_on_launch {continue;}
+            let key=registration.selection.grant_key();
+            if state.companion_awareness.recheck_native_history_choice(live.owner(),key,&binding).is_err() {continue;}
+            let now=crate::luca::continuity_jobs::current_canonical_timestamp().map_err(|_|AwarenessStoreError::Unavailable)?;
+            if self.snapshot(live.owner(),resident,&now)?.collecting.contains(key) {continue;}
+            // resume_profile rechecks live identity, Pause, current source/grant,
+            // locator health and private-session exclusions before any capture.
+            self.resume_profile(&live,registration.selection)?;
+        }
+        Ok(())
+    }
     /// Save only an explicitly chosen container/class. Does not register a source,
     /// grant, read, watch or resume it. Parent source/grant commands remain separate.
     pub(crate) fn select_profile(&self, live: &LiveAwarenessOwner<'_>, registration: NativeProfileRegistrationV1)

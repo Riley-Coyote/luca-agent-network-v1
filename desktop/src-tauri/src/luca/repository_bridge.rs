@@ -33,6 +33,7 @@ use tauri::{AppHandle, Emitter, Manager};
 mod operations;
 mod resident_directory;
 mod surface_navigation;
+mod conversation_images;
 
 const BROKER_PROTOCOL: &str = "luca.repository.broker.v1";
 const MAX_BROKER_FRAME_BYTES: usize = 768 * 1024;
@@ -371,6 +372,22 @@ fn handle_frame(
     }
     if frame.operation == RepositoryToolOperationV1::OperatorOpenSurface {
         return surface_navigation::request(app, context, &frame.conversation_id, frame.arguments);
+    }
+    if matches!(frame.operation, RepositoryToolOperationV1::ConfigureCompanion | RepositoryToolOperationV1::ReadConversationImage) {
+        let mut probe = caller.try_clone().map_err(|_| "Companion caller unavailable.")?;
+        probe.set_read_timeout(Some(Duration::from_millis(50))).map_err(|_| "Companion caller cannot be monitored.")?;
+        let scope = crate::luca::resident_proposals::ResidentProposalScope {
+            owner: context.owner_pubkey.clone(), resident: context.resident_pubkey.clone(),
+            session_epoch: context.session_epoch, binding: context.binding_ref.clone(),
+            conversation: frame.conversation_id, active: Arc::clone(active),
+        };
+        let content = if frame.operation == RepositoryToolOperationV1::ConfigureCompanion {
+            crate::commands::companion_configuration::configure(app, scope, frame.arguments,
+                || crate::luca::resident_proposals::caller_disconnected(&mut probe))?
+        } else {
+            conversation_images::read(app, &scope, frame.arguments)?
+        };
+        return Ok(RepositoryBrokerResponseV1 { protocol: BROKER_PROTOCOL, ok: true, content, receipt: None });
     }
     if frame.operation == RepositoryToolOperationV1::ListResidentRuntimes {
         return crate::luca::resident_proposals::consent::list_resident_runtimes(
@@ -716,7 +733,8 @@ fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext)
             "awarenessRevision":awareness.revision,"selectedGrantCount":grants.entries.len(),
             "backgroundEnabled":work.enabled,"backgroundPaused":work.paused,"backgroundRevision":work.revision,
             "activityInChatReady":crate::luca::managed_dispatch_store::ordinary_turn_awareness_consumers_ready(),
-            "reviewSurface":"companion","effect":"status_only","observedBodiesIncluded":false}))
+            "configurationTool":"configure_companion","reviewSurface":"companion",
+            "reviewPurpose":"advanced_controls_only","effect":"status_only","observedBodiesIncluded":false}))
     })().unwrap_or_else(||serde_json::json!({"availability":"unavailable","effect":"status_only","observedBodiesIncluded":false}))
 }
 
@@ -816,6 +834,14 @@ fn operator_status(
             "companionSetupSurface": "companion",
             "effect": "owner_review_only",
             "connectsOrImports": false,
+        },
+        "directCompanionSettings": {
+            "tool": "configure_companion",
+            "actions": ["follow", "pause_awareness", "resume_awareness", "enable_background", "pause_background", "resume_background", "disable_background"],
+            "followHarnesses": ["claude_code", "codex"],
+            "effect": "host_approved_change_with_chat_receipt",
+            "normalProfileSetupNeedsFolderPicker": false,
+            "otherSettings": "Use existing supported typed tools; do not claim unsupported changes."
         },
     }))
     .map_err(|_| "operator status response is invalid".to_string())?;

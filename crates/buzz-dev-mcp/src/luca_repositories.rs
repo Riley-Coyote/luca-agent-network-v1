@@ -10,6 +10,7 @@ use rmcp::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use base64::Engine;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -41,6 +42,27 @@ enum ReviewSurface {
 #[serde(deny_unknown_fields)]
 struct OpenSurfaceParams {
     surface: ReviewSurface,
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum CompanionAction { Follow, PauseAwareness, ResumeAwareness, EnableBackground, PauseBackground, ResumeBackground, DisableBackground }
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum FollowHarness { ClaudeCode, Codex }
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ConfigureCompanionParams {
+    action: CompanionAction,
+    /// Select only the harnesses the owner asked to follow. Omit for other actions.
+    #[serde(default)]
+    harnesses: Vec<FollowHarness>,
+}
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct ConversationImageParams {
+    /// Exact URL of an image attached by the owner in the current conversation.
+    url: String,
 }
 
 #[derive(Clone)]
@@ -120,12 +142,13 @@ impl RepositoryBrokerClient {
                 .await
                 .map_err(|_| internal_error("repository broker request failed"))?;
             let mut response = Vec::new();
+            let response_limit = if operation == "read_conversation_image" {12 * 1024 * 1024} else {MAX_BROKER_FRAME_BYTES};
             stream
-                .take((MAX_BROKER_FRAME_BYTES + 1) as u64)
+                .take((response_limit + 1) as u64)
                 .read_to_end(&mut response)
                 .await
                 .map_err(|_| internal_error("repository broker response failed"))?;
-            if response.len() > MAX_BROKER_FRAME_BYTES || !response.ends_with(b"\n") {
+            if response.len() > response_limit || !response.ends_with(b"\n") {
                 return Err(internal_error("repository broker response is invalid"));
             }
             serde_json::from_slice::<BrokerResponseV1>(&response)
@@ -135,6 +158,12 @@ impl RepositoryBrokerClient {
         .map_err(|_| internal_error("repository broker request timed out"))??;
         if response.protocol != BROKER_PROTOCOL {
             return Err(internal_error("repository broker response is invalid"));
+        }
+        if response.ok && operation == "read_conversation_image" {
+            let image: Value = serde_json::from_str(&response.content).map_err(|_| internal_error("Invalid attachment response"))?;
+            let raw = base64::engine::general_purpose::STANDARD.decode(image["image_base64"].as_str().ok_or_else(|| internal_error("Missing attachment bytes"))?)
+                .map_err(|_| internal_error("Invalid attachment bytes"))?;
+            return crate::view_image::from_bytes(&raw, crate::view_image::DEFAULT_MAX_DIM, "the owner's conversation attachment");
         }
         let content = vec![Content::text(response.content)];
         if response.ok {
@@ -485,6 +514,16 @@ impl LucaRepositoriesMcp {
         })
     }
 
+    #[tool(name = "configure_companion", description = "Apply companion settings directly from chat when the owner asks. To follow Claude Code and/or Codex, use action follow and the requested harnesses: the host locates their profiles, presents ONE clear in-chat approval covering visible session activity and sharing with your current model, saves the choices and starts following. No folder picker or settings page is needed for normal profiles. Does not import old history, connect Brain, retain raw activity, or enable background work. Missing/unusual profiles require advanced controls, never guessing a path. Pause/resume awareness and enable/pause/resume/disable background work are also supported directly. Widening access requires host approval; pauses apply immediately. Report the actual result briefly in chat, including incomplete entries. Never navigate to settings unless asked or a reported exception requires it.")]
+    async fn configure_companion(&self, Parameters(params): Parameters<ConfigureCompanionParams>) -> Result<CallToolResult, ErrorData> {
+        self.client.call_with_deadline("configure_companion", params, RESIDENT_PROPOSAL_DEADLINE).await
+    }
+
+    #[tool(name = "read_conversation_image", description = "See an image the owner attached in this conversation. Pass its exact attachment URL. The desktop verifies the signed message and fetches protected media without giving you credentials; the result includes actual image pixels. Use this for Polyphonic screenshots/photos instead of unauthenticated URL fetching or searching the owner's folders. If unavailable, report that and ask for reattachment; never claim to see an image you did not receive.")]
+    async fn read_conversation_image(&self, Parameters(params): Parameters<ConversationImageParams>) -> Result<CallToolResult, ErrorData> {
+        self.client.call("read_conversation_image", params).await
+    }
+
     #[tool(
         name = "repositories",
         description = "List repositories connected to Luca and authorized for this resident session."
@@ -552,7 +591,7 @@ impl LucaRepositoriesMcp {
 
     #[tool(
         name = "polyphonic_open",
-        description = "Request an owner review screen in Polyphonic from this conversation. Use surface companion to help the owner configure optional work/browser awareness, activity in conversation, or bounded background work during natural chat after harness connection; this opens concise controls for this companion without restarting onboarding. Ask what they want before opening it, and do not claim permissions were saved until the host confirms. Use surface brain only when the owner wants an optional retained Brain connection for projects or previous chats. One-off machine/file access uses normal native tools and permissions; external runtime delegation uses list_runtime_task_sessions and propose_runtime_task, without requiring Brain. This never connects, imports, installs, or approves anything; the owner reviews the screen. No paths, credentials, resident IDs, or channel IDs are needed."
+        description = "Open a Polyphonic review surface only when the owner asks to see it or advanced setup is needed. For following Claude Code/Codex, pausing or resuming awareness, or changing background-work settings, prefer configure_companion: it applies the requested change directly and returns a chat receipt. Use surface companion only for advanced per-source controls or unusual profile locations. Use surface brain only for optional retained Brain connections. One-off machine access and runtime delegation do not require Brain. Opening a surface does not save settings or grant permission."
     )]
     async fn polyphonic_open(
         &self,
@@ -741,6 +780,7 @@ mod tests {
         assert_eq!(
             names,
             vec![
+                "configure_companion",
                 "list_resident_runtimes",
                 "list_runtime_task_sessions",
                 "polyphonic_open",
@@ -748,6 +788,7 @@ mod tests {
                 "propose_repository_connection",
                 "propose_resident",
                 "propose_runtime_task",
+                "read_conversation_image",
                 "read_runtime_task_result",
                 "repo_apply_patch",
                 "repo_commit",
@@ -837,8 +878,82 @@ mod tests {
             .expect("review tool");
         let description = tool.description.as_deref().unwrap();
         assert!(description.contains("optional retained Brain connection"));
-        assert!(description.contains("normal native tools and permissions"));
-        assert!(description.contains("without requiring Brain"));
+        assert!(description.contains("One-off machine access and runtime delegation do not require Brain"));
+        assert!(description.contains("prefer configure_companion"));
+    }
+
+    #[test]
+    fn chat_setup_and_images_have_small_host_scoped_schemas() {
+        let tools = LucaRepositoriesMcp::tool_router().list_all();
+        for name in ["configure_companion", "read_conversation_image"] {
+            let tool = tools.iter().find(|tool| tool.name == name).unwrap();
+            let schema = serde_json::to_value(&tool.input_schema).unwrap();
+            assert_eq!(schema["additionalProperties"], false);
+            for field in ["owner", "resident", "conversation_id", "path", "grants", "binding"] {
+                assert!(schema["properties"].get(field).is_none(), "{name}: {field}");
+            }
+        }
+        assert!(serde_json::from_value::<ConfigureCompanionParams>(serde_json::json!({"action":"follow","harnesses":["all"]})).is_err());
+        assert!(serde_json::from_value::<ConversationImageParams>(serde_json::json!({"url":"https://example.com/image.png","path":"/private"})).is_err());
+    }
+
+    #[tokio::test]
+    async fn protected_attachment_reply_becomes_pixels_not_base64_text() {
+        use image::{ExtendedColorType, ImageEncoder};
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = directory.path().join("broker.sock");
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&[34, 55, 89, 255], 1, 1, ExtendedColorType::Rgba8).unwrap();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&png);
+        let broker = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut line = String::new();
+            BufReader::new(&mut stream).read_line(&mut line).await.unwrap();
+            let frame: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(frame["operation"], "read_conversation_image");
+            assert_eq!(frame["conversation_id"], "attachment-room");
+            assert_eq!(frame["arguments"], serde_json::json!({"url":"https://relay.example/media/attached.png"}));
+            let response = serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":true,
+                "content":serde_json::json!({"image_base64":encoded}).to_string()}).to_string()+"\n";
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let server = LucaRepositoriesMcp {
+            client: Arc::new(RepositoryBrokerClient {endpoint, capability:format!("sha256:{}","a".repeat(64)), conversation_id:"attachment-room".into()}),
+            tool_router: LucaRepositoriesMcp::tool_router(),
+        };
+        let result=server.read_conversation_image(Parameters(ConversationImageParams {url:"https://relay.example/media/attached.png".into()})).await.unwrap();
+        assert_ne!(result.is_error, Some(true));
+        let image=result.content.iter().find_map(|c|c.as_image()).expect("actual MCP image");
+        assert_eq!(image.mime_type,"image/png");
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(&image.data).unwrap(),png);
+        broker.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn chat_configuration_returns_the_host_decision_without_a_second_review() {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint=directory.path().join("broker.sock");
+        let listener=tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let broker=tokio::spawn(async move {
+            let (mut stream,_)=listener.accept().await.unwrap();
+            let mut line=String::new();
+            BufReader::new(&mut stream).read_line(&mut line).await.unwrap();
+            let frame:Value=serde_json::from_str(&line).unwrap();
+            assert_eq!(frame["operation"],"configure_companion");
+            assert_eq!(frame["arguments"],serde_json::json!({"action":"follow","harnesses":["claude_code","codex"]}));
+            let response=serde_json::json!({"protocol":BROKER_PROTOCOL,"ok":true,"content":"{\"status\":\"not_changed\"}"}).to_string()+"\n";
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+        let server=LucaRepositoriesMcp {client:Arc::new(RepositoryBrokerClient {endpoint,capability:format!("sha256:{}","a".repeat(64)),conversation_id:"setup-room".into()}),tool_router:LucaRepositoriesMcp::tool_router()};
+        let result=server.configure_companion(Parameters(ConfigureCompanionParams {action:CompanionAction::Follow,harnesses:vec![FollowHarness::ClaudeCode,FollowHarness::Codex]})).await.unwrap();
+        let encoded=serde_json::to_value(result).unwrap();
+        let receipt:Value=serde_json::from_str(encoded["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(receipt["status"],"not_changed");
+        broker.await.unwrap();
     }
 
     #[test]

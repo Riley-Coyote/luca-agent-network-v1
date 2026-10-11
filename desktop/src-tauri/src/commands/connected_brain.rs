@@ -228,6 +228,8 @@ fn operation_value(operation: RepositoryToolOperationV1) -> &'static str {
         RepositoryToolOperationV1::ListResidentRuntimes => "list_resident_runtimes",
         RepositoryToolOperationV1::ProposeRepositoryConnection => "propose_repository_connection",
         RepositoryToolOperationV1::OperatorOpenSurface => "polyphonic_open",
+        RepositoryToolOperationV1::ConfigureCompanion => "configure_companion",
+        RepositoryToolOperationV1::ReadConversationImage => "read_conversation_image",
         RepositoryToolOperationV1::ProposeRuntimeTask => "propose_runtime_task",
         RepositoryToolOperationV1::ListRuntimeTaskSessions => "list_runtime_task_sessions",
         RepositoryToolOperationV1::ReadRuntimeTaskResult => "read_runtime_task_result",

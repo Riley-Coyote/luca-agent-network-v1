@@ -58,6 +58,18 @@ fn validate_download_url(url: &str, relay_base: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Host-only attachment read after the conversation broker has verified the
+/// owner's signed attachment. Credentials remain inside this fetcher.
+pub(crate) async fn read_conversation_image_bytes(url: &str, state: &State<'_, AppState>) -> Result<Vec<u8>, String> {
+    validate_download_url(url, &relay_api_base_url_with_override(state))?;
+    let bytes = fetch_blob_bytes_with_cap(url, state, 8 * 1024 * 1024).await?;
+    let mime = detect_and_validate_mime(&bytes)?;
+    if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") {
+        return Err("This attachment is not a supported image.".into());
+    }
+    Ok(bytes)
+}
+
 /// Download an image from a URL and save it via a native save-file dialog.
 #[tauri::command]
 pub async fn download_image(

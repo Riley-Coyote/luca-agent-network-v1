@@ -669,6 +669,12 @@ pub fn run() {
                                     crate::luca::companion_awareness::source_runtime::
                                         desktop_source_bindings(),
                                 );
+                                // Both startup orders are valid: source runtime
+                                // first or resident first. Only saved chat-approved
+                                // following is eligible; every authority is rechecked.
+                                for resident in crate::luca::managed_cognition::active_residents() {
+                                    let _ = state.companion_sources.restore_following(&source_app, &resident);
+                                }
                             });
                         }
                     }

@@ -3433,6 +3433,9 @@ fn spawn_agent_child_unix(
         adapter_availability: spawned_adapter_availability,
     };
     resident_start_guard.commit();
+    // Restore only after startup is committed, with unchanged grants and model
+    // binding. This never starts a reader for an aborted resident launch.
+    let _ = tauri::Manager::state::<crate::app_state::AppState>(app).companion_sources.restore_following(app, &resident_pubkey);
     crate::luca::runtime_tasks::queue_runtime_task_delivery_recovery(app);
     Ok(process)
 }

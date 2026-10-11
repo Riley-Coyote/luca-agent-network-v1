@@ -72,7 +72,7 @@ pub async fn set_companion_awareness_paused(
     .map_err(|_| "companion awareness controls unavailable".to_owned())?
 }
 
-fn set_awareness_paused(
+pub(super) fn set_awareness_paused(
     app: &AppHandle,
     resident_pubkey: &str,
     paused: bool,
@@ -241,8 +241,8 @@ pub(super) fn projection(
         .companion_awareness
         .list_grants(owner, resident, 64)
         .map_err(error)?;
-    // Saved consent is not watcher startup. After restart, offer explicit Resume
-    // even when the durable control was unpaused in the previous process.
+    // Saved consent is not watcher startup. Chat-approved following can restore
+    // after restart, but report collection only when a reader actually started.
     let now = current_canonical_timestamp()?;
     let mut collecting = state
         .companion_sources

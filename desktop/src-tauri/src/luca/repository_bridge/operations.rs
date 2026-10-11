@@ -121,7 +121,9 @@ pub(super) fn prepare(
 ) -> Result<PreparedRepositoryOperationV1, String> {
     match operation {
         RepositoryToolOperationV1::OperatorStatus
-        | RepositoryToolOperationV1::OperatorOpenSurface => {
+        | RepositoryToolOperationV1::OperatorOpenSurface
+        | RepositoryToolOperationV1::ConfigureCompanion
+        | RepositoryToolOperationV1::ReadConversationImage => {
             Err("operator status is handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeRepositoryConnection => {
@@ -224,7 +226,9 @@ pub(super) fn execute(
 ) -> Result<RepositoryOperationResultV1, String> {
     match operation {
         RepositoryToolOperationV1::OperatorStatus
-        | RepositoryToolOperationV1::OperatorOpenSurface => {
+        | RepositoryToolOperationV1::OperatorOpenSurface
+        | RepositoryToolOperationV1::ConfigureCompanion
+        | RepositoryToolOperationV1::ReadConversationImage => {
             Err("operator status is handled by the broker".into())
         }
         RepositoryToolOperationV1::ProposeRepositoryConnection => {

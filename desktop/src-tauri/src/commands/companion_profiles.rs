@@ -70,7 +70,7 @@ pub async fn pick_companion_native_profile(resident_pubkey:String,kind:NativePro
         let source=NativeProfileSelectionV1::source_id_for_selection(live.owner(),&resident,&device,&root,kind,class).map_err(error)?;
         let key=AwarenessGrantKeyV1 {source:AwarenessSourceKeyV1 {owner_pubkey:live.owner().clone(),source_id:source,device_id:device},resident_pubkey:resident.clone()};
         let selection=NativeProfileSelectionV1::new(key.clone(),root,kind,class).map_err(error)?;
-        state.companion_sources.select_profile(&live,NativeProfileRegistrationV1 {selection,profile_config:None}).map_err(error)?;
+        state.companion_sources.select_profile(&live,NativeProfileRegistrationV1 {selection,profile_config:None,follow_on_launch:false}).map_err(error)?;
         match state.companion_awareness.source_snapshot(live.owner(),&key.source) {
             Ok(_)=>{},Err(AwarenessStoreError::Missing)=>{
                 state.companion_awareness.register_source(&live,&key.source,&operation_id(&request_id,"register")?).map_err(error)?;

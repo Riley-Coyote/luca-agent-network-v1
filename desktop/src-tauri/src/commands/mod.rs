@@ -28,6 +28,7 @@ mod companion_browser;
 mod companion_sources;
 mod companion_initiative;
 mod companion_profiles;
+pub(crate) mod companion_configuration;
 mod companion_machine;
 mod connected_brain;
 mod continuity;
@@ -44,7 +45,7 @@ mod luca_inbox;
 mod managed_permissions;
 mod mcp_settings;
 pub(crate) mod media;
-mod media_download;
+pub(crate) mod media_download;
 mod media_transcode;
 #[cfg(feature = "mesh-llm")]
 pub(crate) mod mesh_llm;

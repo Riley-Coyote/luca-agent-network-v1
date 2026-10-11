@@ -28,6 +28,26 @@
       // shows the same scene every single time.
       (() => {
         const cells = new Map();
+        // Keep all app state synthetic. Only explicitly owned design choices
+        // may survive reload on the localhost preview; file:// stays isolated.
+        const designKeys = new Set([
+          "ui-design-lab.polyphonic.control-signal.v1",
+        ]);
+        let designStorage;
+        if (
+          /^https?:$/.test(location.protocol) &&
+          ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname)
+        ) {
+          try {
+            designStorage = window.localStorage;
+            for (const key of designKeys) {
+              const value = designStorage.getItem(key);
+              if (value !== null) cells.set(key, value);
+            }
+          } catch {
+            designStorage = undefined;
+          }
+        }
         const shim = {
           get length() {
             return cells.size;
@@ -42,9 +62,14 @@
             return [...cells.keys()][index] ?? null;
           },
           removeItem(key) {
+            if (designKeys.has(String(key))) designStorage?.removeItem(String(key));
             cells.delete(String(key));
           },
           setItem(key, value) {
+            if (designKeys.has(String(key))) {
+              if (!designStorage) throw new Error("Design persistence unavailable; copy the brief instead.");
+              designStorage.setItem(String(key), String(value));
+            }
             cells.set(String(key), String(value));
           },
         };

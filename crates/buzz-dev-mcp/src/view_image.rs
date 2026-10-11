@@ -92,7 +92,13 @@ pub async fn run(state: &SharedState, p: ViewImageParams) -> Result<CallToolResu
         .clamp(MIN_MAX_DIM, MAX_MAX_DIM);
 
     let (raw, source_label) = load_source(state, &p).await?;
-    let prepared = prepare(&raw, max_dim).map_err(invalid_params)?;
+    from_bytes(&raw, max_dim, &source_label)
+}
+
+/// Prepare host-authorized bytes without a second network or filesystem read.
+pub(crate) fn from_bytes(raw: &[u8], max_dim: u32, source_label: &str) -> Result<CallToolResult, ErrorData> {
+    if raw.len() > MAX_SOURCE_BYTES { return Err(invalid_params("Image exceeds the source limit.".into())); }
+    let prepared = prepare(raw, max_dim).map_err(invalid_params)?;
 
     let encoded = base64::engine::general_purpose::STANDARD.encode(&prepared.bytes);
     let header = format!(

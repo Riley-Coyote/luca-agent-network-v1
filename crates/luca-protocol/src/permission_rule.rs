@@ -198,6 +198,8 @@ pub const POLYPHONIC_PRE_ALLOWED_TOOLS: &[(&str, &str)] = &[
     ("luca-repositories", "list_resident_runtimes"),
     ("luca-repositories", "list_runtime_task_sessions"),
     ("luca-repositories", "read_runtime_task_result"),
+    // Owner-attached images only; the desktop verifies conversation scope.
+    ("luca-repositories", "read_conversation_image"),
     ("luca-repositories", "repo_tree"),
     ("luca-repositories", "repo_search"),
     ("luca-repositories", "repo_read"),
@@ -223,6 +225,7 @@ pub const POLYPHONIC_BROKER_GUARDED_TOOLS: &[(&str, &str)] = &[
     ("luca-repositories", "propose_resident"),
     ("luca-repositories", "propose_runtime_task"),
     ("luca-repositories", "propose_repository_connection"),
+    ("luca-repositories", "configure_companion"),
 ];
 
 /// Tools that write inside the owner's own project or house surfaces. They may
@@ -559,6 +562,9 @@ mod tests {
 
     #[test]
     fn inventories_name_only_tools_that_exist() {
+        assert!(POLYPHONIC_BROKER_GUARDED_TOOLS.contains(&("luca-repositories", "configure_companion")));
+        assert!(!POLYPHONIC_PRE_ALLOWED_TOOLS.contains(&("luca-repositories", "configure_companion")));
+        assert!(POLYPHONIC_PRE_ALLOWED_TOOLS.contains(&("luca-repositories", "read_conversation_image")));
         // Copied from crates/buzz-dev-mcp/src/{lib,luca_repositories,
         // luca_artifacts,luca_communications}.rs and buzz-acp's
         // ARTIFACT_TOOL_NAMES. A typo in an inventory above fails here.
@@ -583,6 +589,8 @@ mod tests {
             "polyphonic_open",
             "propose_runtime_task",
             "read_runtime_task_result",
+            "read_conversation_image",
+            "configure_companion",
             "repo_tree",
             "repo_search",
             "repo_read",

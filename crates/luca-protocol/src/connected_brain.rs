@@ -485,6 +485,10 @@ pub enum RepositoryToolOperationV1 {
     ProposeRepositoryConnection,
     /// Request a fixed owner review surface; does not approve any change.
     OperatorOpenSurface,
+    /// Apply an exact companion setup request after host-owned consent.
+    ConfigureCompanion,
+    /// Read an image attached by the owner in this conversation, without exposing media credentials.
+    ReadConversationImage,
     ProposeRuntimeTask,
     /// Read exact, granted native-session candidates; creates no work.
     ListRuntimeTaskSessions,

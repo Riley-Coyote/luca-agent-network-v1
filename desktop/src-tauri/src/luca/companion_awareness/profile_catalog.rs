@@ -17,6 +17,8 @@ const MAX_BYTES:usize=256*1024;
 pub(crate) struct NativeProfileRegistrationV1 {
     pub(crate) selection:NativeProfileSelectionV1,
     pub(crate) profile_config:Option<PathBuf>,
+    /// Set only by the explicit chat-led follow approval. Not itself a grant.
+    pub(crate) follow_on_launch:bool,
 }
 impl std::fmt::Debug for NativeProfileRegistrationV1 {
     fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {
@@ -28,7 +30,8 @@ impl std::fmt::Debug for NativeProfileRegistrationV1 {
 #[derive(Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SavedProfile {resident:Hex64,source:OpaqueId,root:PathBuf,kind:NativeProfileKindV1,
-    class:NativeProfileObservationClassV1,profile_config:Option<PathBuf>}
+    class:NativeProfileObservationClassV1,profile_config:Option<PathBuf>,
+    #[serde(default)] follow_on_launch:bool}
 #[derive(Clone,PartialEq,Eq,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {protocol:String,owner:Hex64,device:OpaqueId,revision:SafeU53,profiles:Vec<SavedProfile>}
@@ -40,7 +43,7 @@ impl Manifest {
         if let Some(config)=&p.profile_config {pure_locator(config)?;}
         Ok(NativeProfileRegistrationV1 {selection:NativeProfileSelectionV1::new(AwarenessGrantKeyV1 {
             source:AwarenessSourceKeyV1 {owner_pubkey:self.owner.clone(),source_id:p.source.clone(),device_id:self.device.clone()},
-            resident_pubkey:p.resident.clone()},p.root.clone(),p.kind,p.class)?,profile_config:p.profile_config.clone()})
+            resident_pubkey:p.resident.clone()},p.root.clone(),p.kind,p.class)?,profile_config:p.profile_config.clone(),follow_on_launch:p.follow_on_launch})
     }
     fn validate(&self,owner:&Hex64,device:&OpaqueId)->Result<(),AwarenessStoreError> {
         if self.protocol!=PROTOCOL || &self.owner!=owner || &self.device!=device || self.revision.get()==0 || self.profiles.len()>MAX_PROFILES {
@@ -90,9 +93,12 @@ impl NativeProfileCatalogV1 {
             revision:SafeU53::new(1).map_err(|_|AwarenessStoreError::Invalid)?,profiles:Vec::new()});
         let key=registration.selection.grant_key();
         let entry=SavedProfile {resident:key.resident_pubkey.clone(),source:key.source.source_id.clone(),root:registration.selection.transcript_root().to_path_buf(),
-            kind:registration.selection.kind(),class:registration.selection.class(),profile_config:registration.profile_config};
+            kind:registration.selection.kind(),class:registration.selection.class(),profile_config:registration.profile_config,follow_on_launch:registration.follow_on_launch};
         if let Some(prior)=next.profiles.iter().find(|p|p.resident==entry.resident && p.source==entry.source) {
-            return if prior==&entry {Ok(())} else {Err(AwarenessStoreError::Conflict)};
+            if prior==&entry {return Ok(());}
+            let mut same_locator=prior.clone();same_locator.follow_on_launch=entry.follow_on_launch;
+            if same_locator!=entry {return Err(AwarenessStoreError::Conflict);}
+            next.profiles.retain(|p|p.resident!=entry.resident || p.source!=entry.source);
         }
         if next.profiles.len()==MAX_PROFILES {return Err(AwarenessStoreError::Capacity);}
         if self.saved.is_some(){next.revision=SafeU53::new(next.revision.get().checked_add(1).ok_or(AwarenessStoreError::Capacity)?).map_err(|_|AwarenessStoreError::Capacity)?;}

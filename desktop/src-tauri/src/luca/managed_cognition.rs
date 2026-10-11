@@ -228,6 +228,14 @@ pub(crate) fn unregister(resident_pubkey: &str) {
     }
 }
 
+/// Host-only metadata, used to restore explicitly approved companion feeds
+/// when source startup completes after a resident has already started.
+pub(crate) fn active_residents() -> Vec<luca_protocol::Hex64> {
+    clients().lock().map(|registry| registry.values()
+        .filter(|client| !client.invalidated.load(Ordering::Acquire))
+        .map(|client| client.resident_pubkey.clone()).collect()).unwrap_or_default()
+}
+
 pub(crate) fn active_binding_ref(
     resident_pubkey: &luca_protocol::Hex64,
 ) -> Result<Sha256Ref, ManagedCognitionError> {

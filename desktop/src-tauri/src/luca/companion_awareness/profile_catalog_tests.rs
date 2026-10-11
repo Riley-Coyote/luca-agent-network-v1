@@ -9,7 +9,7 @@ fn registration(f:&Fixture,class:NativeProfileObservationClassV1)->NativeProfile
     let source=NativeProfileSelectionV1::source_id_for_selection(live.owner(),&f.resident,&device,&root,NativeProfileKindV1::CodexSessions,class).unwrap();
     NativeProfileRegistrationV1 {selection:NativeProfileSelectionV1::new(AwarenessGrantKeyV1 {
         source:AwarenessSourceKeyV1 {owner_pubkey:live.owner().clone(),source_id:source,device_id:device},resident_pubkey:f.resident.clone()},
-        root,NativeProfileKindV1::CodexSessions,class).unwrap(),profile_config:None}
+        root,NativeProfileKindV1::CodexSessions,class).unwrap(),profile_config:None,follow_on_launch:false}
 }
 #[test]
 fn explicit_profile_metadata_restores_off_without_grant_or_scope_widening() {
@@ -38,4 +38,24 @@ fn foreign_or_aliased_profile_catalogue_is_not_adopted() {
     assert_eq!(fs::read(&path).unwrap(),b"FOREIGN_PROFILE_SENTINEL");
     let alias=f.root.join("alias");
     #[cfg(unix)] {std::os::unix::fs::symlink(&directory,&alias).unwrap();assert!(NativeProfileCatalogV1::open(&alias,live.owner(),&device).is_err());}
+}
+
+#[test]
+fn follow_choice_is_explicit_durable_and_does_not_create_authority() {
+    let f=Fixture::new();let live=LiveAwarenessOwner::authenticate(&f.state).unwrap();
+    let directory=f.runtime.private_directory(live.owner()).unwrap();let device=f.runtime.device(live.owner()).unwrap();
+    let mut registration=registration(&f,NativeProfileObservationClassV1::VisibleExcerpts);
+    let mut catalog=NativeProfileCatalogV1::open(&directory,live.owner(),&device).unwrap();
+    catalog.select(&live,registration.clone()).unwrap();
+    assert!(!catalog.profiles(&f.resident).unwrap()[0].follow_on_launch);
+    registration.follow_on_launch=true;
+    catalog.select(&live,registration.clone()).unwrap();
+    let restored=NativeProfileCatalogV1::open(&directory,live.owner(),&device).unwrap();
+    assert_eq!(restored.profiles(&f.resident).unwrap(),vec![registration]);
+    assert!(f.runtime.list_grants(live.owner(),&f.resident,64).unwrap().entries.is_empty());
+    // Existing manifests from before chat-led setup cannot opt in by migration.
+    let mut raw:serde_json::Value=serde_json::from_slice(&fs::read(directory.join(PROFILE_CATALOG_FILENAME)).unwrap()).unwrap();
+    raw["profiles"][0].as_object_mut().unwrap().remove("follow_on_launch");
+    let old:Manifest=serde_json::from_value(raw).unwrap();
+    assert!(!old.profiles[0].follow_on_launch);
 }

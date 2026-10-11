@@ -34,8 +34,15 @@ import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { maybeInstallE2eTauriMocks } from "@/testing/e2eBridge";
-import { CompanionExperienceLab, COMPANION_LAB_STORAGE_KEY } from "@/testing/companionLab";
+import {
+  CompanionExperienceLab,
+  COMPANION_LAB_STORAGE_KEY,
+} from "@/testing/companionLab";
 import { CompanionSetupLab } from "@/testing/companionSetupLab";
+import {
+  CompanionControlLab,
+  CONTROL_LAB_KEY,
+} from "@/testing/companionControlLab";
 import {
   LAB_DM_ID,
   LAB_DM_TRANSCRIPT,
@@ -58,8 +65,14 @@ import "@/shared/styles/globals.css";
 
 const RELAY_URL = "ws://localhost:3000";
 const ROOM_ORDER: LabRoomKey[] = ["fieldNotes", "polyphonic", "drafts"];
-const COMPANION_STUDY = new URLSearchParams(window.location.search).get("experience") === "companion";
-const COMPANION_SETUP_STUDY = new URLSearchParams(window.location.search).get("experience") === "companion-setup";
+const COMPANION_STUDY =
+  new URLSearchParams(window.location.search).get("experience") === "companion";
+const COMPANION_SETUP_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "companion-setup";
+const COMPANION_CONTROL_STUDY =
+  new URLSearchParams(window.location.search).get("experience") ===
+  "companion-control";
 
 type MockChannelRow = { id: string; is_member?: boolean };
 
@@ -78,9 +91,12 @@ function seedStorage() {
   const store = window.localStorage;
   // This isolated study owns one stable design namespace. Preserve only that
   // namespace on this route; existing shell-lab reset keys stay unchanged.
-  const companionStudy = COMPANION_STUDY ? store.getItem(COMPANION_LAB_STORAGE_KEY) : null;
+  const companionStudy = store.getItem(COMPANION_LAB_STORAGE_KEY);
+  const controlStudy = store.getItem(CONTROL_LAB_KEY);
   store.clear();
-  if (companionStudy !== null) store.setItem(COMPANION_LAB_STORAGE_KEY, companionStudy);
+  if (companionStudy !== null)
+    store.setItem(COMPANION_LAB_STORAGE_KEY, companionStudy);
+  if (controlStudy !== null) store.setItem(CONTROL_LAB_KEY, controlStudy);
 
   // One build serves every palette: `?theme=graphite` (or any id from
   // SYNTAX_THEMES) picks the theme; otherwise use the application default.
@@ -302,6 +318,7 @@ function renderApp() {
                     <App />
                     {COMPANION_STUDY ? <CompanionExperienceLab /> : null}
                     {COMPANION_SETUP_STUDY ? <CompanionSetupLab /> : null}
+                    {COMPANION_CONTROL_STUDY ? <CompanionControlLab /> : null}
                     <NostrBindConsentDialog />
                   </UpdaterProvider>
                   <Toaster />
