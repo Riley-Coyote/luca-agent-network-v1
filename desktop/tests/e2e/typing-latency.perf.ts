@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
+import { withPerformanceProfile } from "../helpers/performanceProfile";
 
 /**
  * Composer typing-latency benchmark.
@@ -13,9 +14,10 @@ import { installMockBridge } from "../helpers/bridge";
  * METRIC: the browser's Event Timing API (`PerformanceObserver` type
  * "event") — each entry's `duration` is input timestamp → next paint, the
  * engine-level definition of keystroke responsiveness (8ms granularity).
- * We record entries for `input` events with durationThreshold 16ms and
- * report median/p95/max plus the count of >50ms (frame-budget-blowing)
- * keystrokes. Longtask totals are captured per scenario as a second axis.
+ * We record `input` and `keydown` entries with durationThreshold 16ms and
+ * report median/p95/max plus the count of entries over 50ms. These are
+ * thresholded event samples, not one sample per keystroke or a whole-session
+ * INP score. Longtask totals are captured per scenario as a second axis.
  *
  * SCENARIOS (same 80-char typing burst, 4x CPU throttle):
  *   quiet — no agent traffic.
@@ -27,9 +29,14 @@ import { installMockBridge } from "../helpers/bridge";
  * is the signal. Run it (from desktop/):
  *   pnpm build
  *   npx playwright test --config=playwright.perf.config.ts typing-latency.perf.ts
+ * Set POLYPHONIC_PERF_UNTHROTTLED=1 for normal CPU speed and
+ * POLYPHONIC_PERF_TYPING_SCOPE=basic for just quiet/busy typing. The default
+ * retains the full stress suite, including observer storms and long threads.
  */
 
-const THROTTLE_RATE = 4;
+// Keep the historical stress run by default, but allow a normal-speed baseline
+// on the same machine before interpreting stress results as everyday latency.
+const THROTTLE_RATE = process.env.POLYPHONIC_PERF_UNTHROTTLED === "1" ? 1 : 4;
 const TYPED_TEXT =
   "The quick brown fox jumps over the lazy dog while agents keep working away";
 const KEY_DELAY_MS = 60;
@@ -51,9 +58,11 @@ async function resetWindowMetrics(page: import("@playwright/test").Page) {
     const store = window as unknown as {
       __INPUT_EVENTS__: number[];
       __LONGTASKS__: number[];
+      __TYPING_METRICS_START__: number;
     };
     store.__INPUT_EVENTS__ = [];
     store.__LONGTASKS__ = [];
+    store.__TYPING_METRICS_START__ = performance.now();
   });
 }
 
@@ -93,6 +102,7 @@ async function typeBurst(
   const input = (scope ?? page).getByTestId("message-input").last();
   await input.click();
   await input.pressSequentially(TYPED_TEXT, { delay: KEY_DELAY_MS });
+  await expect(input).toHaveText(TYPED_TEXT);
   // Let trailing event-timing entries (reported after paint) flush.
   await page.waitForTimeout(500);
   await input.press("Meta+A");
@@ -104,18 +114,18 @@ function log(label: string, report: LatencyReport) {
   /* eslint-disable no-console */
   console.log(`\n=== TYPING LATENCY: ${label} ===`);
   console.log(`CPU throttle:            ${THROTTLE_RATE}x`);
-  console.log(`input events >=16ms:     ${report.count}`);
+  console.log(`input/key events >=16ms: ${report.count}`);
   console.log(`median duration:         ${report.median.toFixed(0)}ms`);
   console.log(`p95 duration:            ${report.p95.toFixed(0)}ms`);
   console.log(`max duration:            ${report.max.toFixed(0)}ms`);
-  console.log(`keystrokes >50ms:        ${report.over50}`);
+  console.log(`event entries >50ms:     ${report.over50}`);
   console.log(`longtask total:          ${report.longtaskTotal.toFixed(0)}ms`);
   /* eslint-enable no-console */
 }
 
 test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(240_000);
   await installMockBridge(page);
   await page.goto("/");
@@ -127,19 +137,25 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
     const store = window as unknown as {
       __INPUT_EVENTS__?: number[];
       __LONGTASKS__?: number[];
+      __TYPING_METRICS_START__?: number;
     };
     store.__INPUT_EVENTS__ = [];
     store.__LONGTASKS__ = [];
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        if (entry.name === "input" || entry.name === "keydown") {
+        if (
+          entry.startTime >= (store.__TYPING_METRICS_START__ ?? 0) &&
+          (entry.name === "input" || entry.name === "keydown")
+        ) {
           store.__INPUT_EVENTS__?.push(entry.duration);
         }
       }
     }).observe({ type: "event", buffered: true, durationThreshold: 16 });
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        store.__LONGTASKS__?.push(entry.duration);
+        if (entry.startTime >= (store.__TYPING_METRICS_START__ ?? 0)) {
+          store.__LONGTASKS__?.push(entry.duration);
+        }
       }
     }).observe({ type: "longtask", buffered: true });
   });
@@ -167,7 +183,9 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
 
   // ---- Scenario A: quiet ----
   await resetWindowMetrics(page);
-  await typeBurst(page);
+  await withPerformanceProfile(page, testInfo, "typing-quiet", () =>
+    typeBurst(page),
+  );
   const quiet = await readWindowMetrics(page);
   log("quiet channel", quiet);
 
@@ -229,6 +247,11 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
       window.clearInterval(timer);
     }
   });
+
+  if (process.env.POLYPHONIC_PERF_TYPING_SCOPE === "basic") {
+    await client.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+    return;
+  }
 
   // ---- Scenario C: observer-frame storm ----
   // Pre-fill 6 agents' observer buffers (1200 events each), then append one
@@ -436,7 +459,9 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
   await page.waitForTimeout(1000);
 
   await resetWindowMetrics(page);
-  await typeBurst(page);
+  await withPerformanceProfile(page, testInfo, "typing-streaming", () =>
+    typeBurst(page),
+  );
   const streaming = await readWindowMetrics(page);
   log(
     "3 streaming agents (150-line replies, edit every 120ms each)",
@@ -451,11 +476,17 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
   });
 
   // ---- Scenario F: typing in a long thread (the real-world repro) ----
-  // Field report: a 68-reply thread with active agents is near-unusable to
-  // type in (median 408ms, p95 8s+ per keystroke in WKWebView), while a
-  // fresh thread in the same channel is instant — cost scales with the open
-  // thread's reply count. Seed a 68-reply thread, open it, and type; then
+  // A prior field report identified 68-reply threads as a typing hotspot.
+  // The current app opens these inline, not in the retired separate thread
+  // panel. Measure the actual inline conversation and its composer, then
   // repeat with agents streaming replies into the thread.
+  // Keep this fixture separate from the streaming stress transcript above so
+  // its root stays reachable through the same summary control a user opens.
+  await page.getByTestId("channel-general").click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await expect(
+    page.getByTestId("message-timeline").getByTestId("message-row").first(),
+  ).toBeVisible();
   const rootId = await page.evaluate(() => {
     const w = window as unknown as {
       __BUZZ_E2E_EMIT_MOCK_MESSAGE__?: (input: {
@@ -465,16 +496,16 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
         createdAt?: number;
       }) => { id: string };
     };
-    const base = Math.floor(Date.now() / 1000) - 300;
+    const base = Math.floor(Date.now() / 1000) - 69;
     const root = w.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
-      channelName: "agents",
+      channelName: "general",
       content: "**Deploy thread** — agents report here",
       createdAt: base,
     });
     if (!root) return null;
     for (let index = 0; index < 68; index += 1) {
       w.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
-        channelName: "agents",
+        channelName: "general",
         content: [
           `**Reply ${index}** from agent`,
           "```rust",
@@ -489,14 +520,23 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
     return root.id;
   });
   expect(rootId).not.toBeNull();
-  await page.waitForTimeout(1500);
-
-  const threadSummary = page.getByTestId("message-thread-summary").last();
-  await threadSummary.scrollIntoViewIfNeeded();
-  await threadSummary.click();
-  const threadPanel = page.getByTestId("message-thread-panel");
-  await expect(threadPanel).toBeVisible();
+  await page
+    .getByTestId("message-timeline")
+    .locator(
+      `[data-testid="message-thread-summary"][data-thread-head-id="${rootId}"]`,
+    )
+    .click();
+  const threadPanel = page.getByRole("region", {
+    name: "Channel messages and composer",
+    exact: true,
+  });
+  await expect(
+    threadPanel.getByRole("button", { name: "Show all messages" }),
+  ).toBeVisible();
   await expect(threadPanel.getByTestId("message-row").first()).toBeVisible();
+  await expect(
+    threadPanel.getByText("Reply 67", { exact: false }),
+  ).toBeVisible();
   await page.waitForTimeout(1000);
 
   // F1: long thread, no traffic.
@@ -525,7 +565,7 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
       const replyTimer = window.setInterval(() => {
         replyIndex += 1;
         const reply = w.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
-          channelName: "agents",
+          channelName: "general",
           content: `**Live reply ${replyIndex}**\n\n- working…`,
           parentEventId: rootEventId ?? undefined,
         });
@@ -539,7 +579,7 @@ test("MEASURE: composer keystroke latency, quiet vs agent-busy channel", async (
         line += 1;
         chunks.push(`const s${line} = await step(${line});`);
         w.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
-          channelName: "agents",
+          channelName: "general",
           content: `${chunks.join("\n")}\n\`\`\``,
           kind: 40003,
           extraTags: [["e", lastReplyId]],

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
+import { withPerformanceProfile } from "../helpers/performanceProfile";
 
 /**
  * Warm-channel-switch benchmark.
@@ -46,7 +47,7 @@ import { installMockBridge } from "../helpers/bridge";
  */
 
 const MEASURED_SWITCHES = 8;
-const THROTTLE_RATE = 4;
+const THROTTLE_RATE = process.env.POLYPHONIC_PERF_UNTHROTTLED === "1" ? 1 : 4;
 const MARKDOWN_MESSAGE_COUNT = 60;
 
 /** One representative agent-style message: fence, table, list, mention,
@@ -115,7 +116,10 @@ async function measureSwitch(
   input: { targetTestId: string; targetTitle: string; rowSelector: string },
 ): Promise<SwitchSample> {
   return page.evaluate(async (args) => {
-    const store = window as unknown as { __LONGTASKS__: number[] };
+    const store = window as unknown as {
+      __LONGTASKS__: number[];
+      __LONGTASKS_START__: number;
+    };
     store.__LONGTASKS__ = [];
     const link = document.querySelector<HTMLElement>(
       `[data-testid="${args.targetTestId}"]`,
@@ -123,6 +127,7 @@ async function measureSwitch(
     if (!link) throw new Error(`missing sidebar link ${args.targetTestId}`);
 
     const start = performance.now();
+    store.__LONGTASKS_START__ = start;
     link.click();
 
     await new Promise<void>((resolve, reject) => {
@@ -208,7 +213,7 @@ async function runScenario(
 
 test("MEASURE: warm channel-switch cost (plain 300-row + markdown-heavy)", async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(300_000);
   await installMockBridge(page);
   await page.goto("/");
@@ -218,11 +223,18 @@ test("MEASURE: warm channel-switch cost (plain 300-row + markdown-heavy)", async
 
   // Arm the longtask observer; addInitScript applies on next navigation.
   await page.addInitScript(() => {
-    const store = window as unknown as { __LONGTASKS__?: number[] };
+    const store = window as unknown as {
+      __LONGTASKS__?: number[];
+      __LONGTASKS_START__?: number;
+    };
     store.__LONGTASKS__ = [];
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
-        store.__LONGTASKS__?.push(entry.duration);
+        // Observer callbacks may deliver tasks from before the switch after
+        // its counters were cleared. Do not attribute those to this sample.
+        if (entry.startTime >= (store.__LONGTASKS_START__ ?? 0)) {
+          store.__LONGTASKS__?.push(entry.duration);
+        }
       }
     }).observe({ type: "longtask", buffered: true });
   });
@@ -270,18 +282,30 @@ test("MEASURE: warm channel-switch cost (plain 300-row + markdown-heavy)", async
   const client = await page.context().newCDPSession(page);
   await client.send("Emulation.setCPUThrottlingRate", { rate: THROTTLE_RATE });
 
-  const plain = await runScenario(page, {
-    label: "plain-text ~50-row window (deep-history)",
-    targetTestId: "channel-deep-history",
-    targetTitle: "deep-history",
-    rowSelector: '[data-message-id^="mock-deep-history-"]',
-  });
-  const markdown = await runScenario(page, {
-    label: `markdown-heavy x${MARKDOWN_MESSAGE_COUNT} (random)`,
-    targetTestId: "channel-random",
-    targetTitle: "random",
-    rowSelector: "[data-message-id]",
-  });
+  const plain = await withPerformanceProfile(
+    page,
+    testInfo,
+    "switch-plain",
+    () =>
+      runScenario(page, {
+        label: "plain-text ~50-row window (deep-history)",
+        targetTestId: "channel-deep-history",
+        targetTitle: "deep-history",
+        rowSelector: '[data-message-id^="mock-deep-history-"]',
+      }),
+  );
+  const markdown = await withPerformanceProfile(
+    page,
+    testInfo,
+    "switch-markdown",
+    () =>
+      runScenario(page, {
+        label: `markdown-heavy x${MARKDOWN_MESSAGE_COUNT} (random)`,
+        targetTestId: "channel-random",
+        targetTitle: "random",
+        rowSelector: "[data-message-id]",
+      }),
+  );
 
   await client.send("Emulation.setCPUThrottlingRate", { rate: 1 });
 

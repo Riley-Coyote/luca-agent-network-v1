@@ -1,4 +1,5 @@
-type TransitionHost = Pick<Document, "startViewTransition">;
+type TransitionHost = Pick<Document, "startViewTransition"> &
+  Partial<Pick<Document, "visibilityState">>;
 type StartViewTransition = TransitionHost["startViewTransition"];
 
 const installations = new WeakMap<
@@ -7,17 +8,23 @@ const installations = new WeakMap<
 >();
 
 /**
- * A superseded animation may reject ready even though its update still succeeds.
- * Keep callback failures (including AbortError) and other readiness failures
- * observable on the returned promise; the native lifecycle promises stay intact.
+ * Superseded or hidden-window animations may reject ready while navigation
+ * still succeeds. Hidden documents use InvalidStateError in the native API.
+ * Keep actual callback failures and visible-document readiness failures
+ * observable; the native lifecycle promises stay intact.
  */
 export async function observeNavigationTransitionReady(
   transition: Pick<ViewTransition, "ready" | "updateCallbackDone">,
+  wasHidden: () => boolean = () => false,
 ): Promise<void> {
   try {
     await transition.ready;
   } catch (error) {
-    if (!(error instanceof DOMException) || error.name !== "AbortError") {
+    if (
+      !(error instanceof DOMException) ||
+      (error.name !== "AbortError" &&
+        !(error.name === "InvalidStateError" && wasHidden()))
+    ) {
       throw error;
     }
     await transition.updateCallbackDone;
@@ -51,10 +58,15 @@ export function installNavigationViewTransitions(
     this: Document,
     ...args: Parameters<StartViewTransition>
   ) {
+    const isHidden = () => this.visibilityState === "hidden";
+    const hiddenAtStart = isHidden();
     const transition = original.apply(this, args);
     // Unexpected failures remain rejected and reach the normal browser error
     // surface. Only a skipped ready with a successful update is consumed.
-    void observeNavigationTransitionReady(transition);
+    void observeNavigationTransitionReady(
+      transition,
+      () => hiddenAtStart || isHidden(),
+    );
     return transition;
   };
   const restore = () => {

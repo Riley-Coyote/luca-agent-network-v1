@@ -43,8 +43,8 @@ test("composer toolbar tooltip dismisses when cursor leaves the trigger", async 
 
   await expectTooltipDismissesOnLeave(
     page,
-    page.getByTestId("message-insert-mention"),
-    "Mention someone",
+    page.getByRole("button", { name: "Add to message", exact: true }),
+    "Add to message",
   );
 });
 
@@ -56,7 +56,10 @@ test("formatting sub-toolbar tooltip dismisses when cursor leaves the trigger", 
   await expect(page.getByTestId("chat-title")).toHaveText("general");
 
   // Open the formatting sub-toolbar (Bold / Italic / lists / Quote …).
-  await page.getByRole("button", { name: "Toggle formatting" }).first().click();
+  await page
+    .getByRole("button", { name: "Add to message", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Formatting", exact: true }).click();
 
   const bold = page.getByRole("button", { name: "Bold" });
   await expect(bold).toBeVisible();

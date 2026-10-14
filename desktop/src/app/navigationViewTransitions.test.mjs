@@ -57,6 +57,77 @@ test("a skipped ready is handled only after the original update succeeds", async
   assert.equal(settled, true);
 });
 
+test("a hidden-window skip waits for the navigation update to succeed", async () => {
+  const update = deferred();
+  let completed = false;
+  const observed = observeNavigationTransitionReady(
+    {
+      ready: Promise.reject(
+        new DOMException("Document visibility is hidden", "InvalidStateError"),
+      ),
+      updateCallbackDone: update.promise,
+    },
+    () => true,
+  ).then(() => {
+    completed = true;
+  });
+  await Promise.resolve();
+  assert.equal(completed, false);
+  update.resolve();
+  await observed;
+  assert.equal(completed, true);
+});
+
+test("a hidden-window skip does not hide a failed navigation update", async () => {
+  const failure = new Error("route failed to load");
+  const update = deferred();
+  const observed = observeNavigationTransitionReady(
+    {
+      ready: Promise.reject(new DOMException("Hidden", "InvalidStateError")),
+      updateCallbackDone: update.promise,
+    },
+    () => true,
+  );
+  const rejection = assert.rejects(observed, (error) => error === failure);
+  update.reject(failure);
+  await rejection;
+});
+
+test("a hidden document does not excuse unrelated readiness failures", async () => {
+  const failure = new Error("snapshot failed");
+  await assert.rejects(
+    observeNavigationTransitionReady(
+      { ready: Promise.reject(failure), updateCallbackDone: Promise.resolve() },
+      () => true,
+    ),
+    (error) => error === failure,
+  );
+});
+
+for (const hiddenAtStart of [true, false]) {
+  test(`native hidden skip is observed with hidden at start=${hiddenAtStart}`, async () => {
+    const ready = deferred();
+    const native = { ...transition(), ready: ready.promise };
+    const host = {
+      visibilityState: hiddenAtStart ? "hidden" : "visible",
+      startViewTransition() {
+        return native;
+      },
+    };
+    const restore = installNavigationViewTransitions(host);
+    assert.equal(
+      host.startViewTransition(() => {}),
+      native,
+    );
+    // Hidden at start can recover before ready rejects; a foreground
+    // transition can also be skipped when the window subsequently hides.
+    host.visibilityState = hiddenAtStart ? "visible" : "hidden";
+    ready.reject(new DOMException("Hidden document", "InvalidStateError"));
+    await new Promise((resolve) => setImmediate(resolve));
+    restore();
+  });
+}
+
 for (const error of [
   new Error("callback failed"),
   new DOMException("duplicate transition name", "InvalidStateError"),

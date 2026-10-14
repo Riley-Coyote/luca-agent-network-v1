@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 
 mod discovery;
 mod index;
+mod refresh_queue;
 pub(crate) mod repository;
 mod session_context;
 mod sessions;

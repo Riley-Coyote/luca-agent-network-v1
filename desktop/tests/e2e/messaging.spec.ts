@@ -151,9 +151,11 @@ test("send a message and see it in timeline", async ({ page }) => {
   await page.getByTestId("send-message").click();
 
   await expect(page.getByTestId("message-timeline")).toContainText(message);
-  await expect(page.getByTestId("message-row").last()).toContainText(
-    "npub1mock...",
-  );
+  const sentRow = page.getByTestId("message-row").last();
+  // resolveUserLabel presents self-authored messages as "You", not the obsolete
+  // truncated mock npub. Keep ownership explicit as well as checking delivery.
+  await expect(sentRow).toHaveAttribute("data-message-side", "own");
+  await expect(sentRow).toHaveAttribute("aria-label", /^You,/);
 });
 
 test("long autolink wraps without widening the timeline", async ({ page }) => {
@@ -1138,7 +1140,7 @@ test("composer is focused after switching to a different channel", async ({
   await expect(input).toBeFocused();
 });
 
-test("thread composer is focused after clicking the reply icon", async ({
+test("composer is focused after choosing a directed reply", async ({
   page,
 }) => {
   await page.goto("/");
@@ -1159,14 +1161,16 @@ test("thread composer is focused after clicking the reply icon", async ({
   await rootMessage.hover();
   await rootMessage.getByRole("button", { name: "Reply" }).click();
 
-  const threadPanel = page.getByTestId("message-thread-panel");
-  await expect(threadPanel).toBeVisible();
-
-  const threadInput = threadPanel.getByTestId("message-input");
-  await expect(threadInput).toBeFocused();
+  // Replies now use the main composer, with a visible target rather than a
+  // separate Buzz-era thread drawer. The focus guarantee remains the same.
+  await expect(page.getByTestId("message-thread-panel")).toHaveCount(0);
+  await expect(page.getByTestId("reply-target")).toContainText(
+    "Replying to You",
+  );
+  await expect(mainInput).toBeFocused();
 
   await page.keyboard.type("typed-into-thread");
-  await expect(threadInput).toHaveText("typed-into-thread");
+  await expect(mainInput).toHaveText("typed-into-thread");
 });
 
 test("thread refetch preserves a live reply and reaction received in flight", async ({

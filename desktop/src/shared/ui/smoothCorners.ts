@@ -1,4 +1,13 @@
 import * as React from "react";
+import { createSmoothCornerScheduler } from "./smoothCornerScheduler";
+
+// Document-local DOM work only; no conversation content is retained. Each
+// unmount cancels its measurement. All reads precede writes in the next frame,
+// avoiding one forced layout per code block/control on a conversation switch.
+const cornerScheduler = createSmoothCornerScheduler(
+  (callback) => window.requestAnimationFrame(callback),
+  (frame) => window.cancelAnimationFrame(frame),
+);
 
 export const SMOOTH_CORNER_SMOOTHING = 0.6;
 
@@ -98,8 +107,7 @@ function parseCornerRadius(value: string, width: number, height: number) {
   );
 }
 
-function getLayoutSize(element: HTMLElement) {
-  const style = window.getComputedStyle(element);
+function getLayoutSize(element: HTMLElement, style: CSSStyleDeclaration) {
   const width = Number.parseFloat(style.width);
   const height = Number.parseFloat(style.height);
 
@@ -137,8 +145,8 @@ function readCornerRadii(
   element: HTMLElement,
   width: number,
   height: number,
+  style: CSSStyleDeclaration,
 ): CornerRadii {
-  const style = window.getComputedStyle(element);
   const inlineStyle = element.style;
 
   return {
@@ -419,38 +427,39 @@ export function useSmoothCorners<T extends HTMLElement>(
     const savedClipPath = element.style.clipPath;
     const savedWebkitClipPath =
       element.style.getPropertyValue("-webkit-clip-path");
-    let animationFrame = 0;
+    let disposed = false;
     let lastClipPath = "";
 
-    const sync = () => {
-      const { width, height } = getLayoutSize(element);
+    const measure = () => {
+      if (disposed || !element.isConnected) return;
+      const style = window.getComputedStyle(element);
+      const { width, height } = getLayoutSize(element, style);
       if (width <= 0 || height <= 0) return;
 
       const clipPath = generateSmoothCornerClipPath(
         width,
         height,
-        readCornerRadii(element, width, height),
+        readCornerRadii(element, width, height, style),
         smoothing,
       );
 
       if (clipPath === lastClipPath) return;
 
-      element.style.clipPath = clipPath;
-      element.style.setProperty("-webkit-clip-path", clipPath);
-      element.dataset.smoothCorners = "";
-      element.dataset.smoothCornersSmoothing = String(smoothing);
-      lastClipPath = clipPath;
+      return () => {
+        if (disposed || !element.isConnected) return;
+        element.style.clipPath = clipPath;
+        element.style.setProperty("-webkit-clip-path", clipPath);
+        element.dataset.smoothCorners = "";
+        element.dataset.smoothCornersSmoothing = String(smoothing);
+        lastClipPath = clipPath;
+      };
     };
 
     const scheduleSync = () => {
-      if (animationFrame) return;
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = 0;
-        sync();
-      });
+      cornerScheduler.schedule(measure);
     };
 
-    sync();
+    scheduleSync();
 
     const mutationObserver = new MutationObserver(scheduleSync);
     mutationObserver.observe(element, {
@@ -467,9 +476,8 @@ export function useSmoothCorners<T extends HTMLElement>(
     }
 
     return () => {
-      if (animationFrame) {
-        window.cancelAnimationFrame(animationFrame);
-      }
+      disposed = true;
+      cornerScheduler.cancel(measure);
       mutationObserver.disconnect();
       resizeObserver?.disconnect();
       if (!resizeObserver) {

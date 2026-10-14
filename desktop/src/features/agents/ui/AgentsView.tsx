@@ -185,6 +185,9 @@ export function AgentsView({
     }
     return library[0] ?? null;
   }, [library, selectedPersonaId, selectedPubkey]);
+  // A removed/stale selection must not strand compact windows in an empty
+  // detail pane. Keep the list available without silently selecting an agent.
+  const showRoster = showMobileRoster || !selectedResident;
   const selectedManagedAgent = React.useMemo(
     () =>
       selectedResident?.pubkey
@@ -315,13 +318,14 @@ export function AgentsView({
           <div
             className={
               isSinglePaneLibrary
-                ? showMobileRoster
+                ? showRoster
                   ? "flex min-h-0 w-full"
                   : "hidden min-h-0"
                 : "flex min-h-0"
             }
           >
             <AgentLibraryRoster
+              fillPane={isSinglePaneLibrary}
               filter={filter}
               onAdd={() => setIsAddOpen(true)}
               onFilterChange={setFilter}
@@ -412,15 +416,27 @@ export function AgentsView({
               />
             </div>
           ) : (
-            <div className="hidden min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center md:flex">
+            <div
+              className={
+                isSinglePaneLibrary
+                  ? "hidden"
+                  : "flex min-h-0 min-w-0 flex-1 items-center justify-center px-8 text-center"
+              }
+            >
               <div className="max-w-sm">
-                <h2 className="text-lg font-medium">No residents yet</h2>
+                <h2 className="text-lg font-medium">
+                  {library.length > 0 ? "Choose an agent" : "No residents yet"}
+                </h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Import an agent already on this Mac or create a new resident.
+                  {library.length > 0
+                    ? "The previously selected agent is no longer available. Choose another from the list."
+                    : "Import an agent already on this Mac or create a new resident."}
                 </p>
-                <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
-                  Add agent
-                </Button>
+                {library.length === 0 ? (
+                  <Button className="mt-5" onClick={() => setIsAddOpen(true)}>
+                    Add agent
+                  </Button>
+                ) : null}
               </div>
             </div>
           )}

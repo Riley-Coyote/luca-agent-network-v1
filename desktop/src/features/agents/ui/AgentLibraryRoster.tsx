@@ -26,6 +26,7 @@ function isMockPreview(): boolean {
 }
 
 export function AgentLibraryRoster({
+  fillPane = false,
   filter,
   onAdd,
   onFilterChange,
@@ -39,6 +40,7 @@ export function AgentLibraryRoster({
   showAdd = true,
   showFooter = true,
 }: {
+  fillPane?: boolean;
   filter: AgentLibraryFilter;
   onAdd: () => void;
   onFilterChange: (filter: AgentLibraryFilter) => void;
@@ -52,6 +54,9 @@ export function AgentLibraryRoster({
   showAdd?: boolean;
   showFooter?: boolean;
 }) {
+  const rosterId = React.useId();
+  const filterId = (value: AgentLibraryFilter) => `${rosterId}-${value}`;
+  const panelId = `${rosterId}-results`;
   const visible = React.useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
     return residents.filter((resident) => {
@@ -74,7 +79,13 @@ export function AgentLibraryRoster({
   }, [filter, query, residents]);
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-border/60 bg-card/45 md:w-[292px] md:border-r">
+    <aside
+      aria-label="Agent library"
+      className={cn(
+        "flex min-h-0 w-full shrink-0 flex-col border-border/60 bg-card/45",
+        !fillPane && "md:w-[292px] md:border-r",
+      )}
+    >
       <header className="space-y-4 border-b border-border/55 px-4 pb-4 pt-11 md:pt-5">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -101,7 +112,7 @@ export function AgentLibraryRoster({
             </Button>
           ) : null}
         </div>
-        <div className="relative block">
+        <label className="relative block" htmlFor={`${rosterId}-search`}>
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -109,31 +120,70 @@ export function AgentLibraryRoster({
           <span className="sr-only">Search agents</span>
           <Input
             className="h-9 border-border/50 bg-background/35 pl-9"
+            id={`${rosterId}-search`}
             onChange={(event) => onQueryChange(event.target.value)}
             placeholder="Search agents"
             value={query}
           />
-        </div>
-        <div aria-label="Filter agents" className="flex gap-1" role="tablist">
+        </label>
+        <div
+          aria-label="Filter agents"
+          className="flex gap-1"
+          onKeyDown={(event) => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key))
+              return;
+            const tabs = Array.from(
+              event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                '[role="tab"]',
+              ),
+            );
+            const current = tabs.indexOf(event.target as HTMLButtonElement);
+            if (current < 0) return;
+            event.preventDefault();
+            const next =
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? tabs.length - 1
+                  : (current +
+                      (event.key === "ArrowRight" ? 1 : -1) +
+                      tabs.length) %
+                    tabs.length;
+            tabs[next]?.focus();
+            tabs[next]?.click();
+          }}
+          role="tablist"
+        >
           <RosterFilter
             active={filter === "all"}
+            id={filterId("all")}
             label="All"
             onClick={() => onFilterChange("all")}
+            panelId={panelId}
           />
           <RosterFilter
             active={filter === "running"}
+            id={filterId("running")}
             label="Running"
             onClick={() => onFilterChange("running")}
+            panelId={panelId}
           />
           <RosterFilter
             active={filter === "attention"}
+            id={filterId("attention")}
             label="Attention"
             onClick={() => onFilterChange("attention")}
+            panelId={panelId}
           />
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
+      <div
+        aria-labelledby={filterId(filter)}
+        className="min-h-0 flex-1 overflow-y-auto py-2"
+        id={panelId}
+        role="tabpanel"
+      >
         {visible.length > 0 ? (
           <div className="space-y-0.5 px-2">
             {visible.map((resident) => (
@@ -175,15 +225,20 @@ export function AgentLibraryRoster({
 
 function RosterFilter({
   active,
+  id,
   label,
   onClick,
+  panelId,
 }: {
   active: boolean;
+  id: string;
   label: string;
   onClick: () => void;
+  panelId: string;
 }) {
   return (
     <button
+      aria-controls={panelId}
       aria-selected={active}
       className={cn(
         "min-h-7 rounded-md px-2.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring",
@@ -191,8 +246,10 @@ function RosterFilter({
           ? "bg-muted text-foreground"
           : "text-muted-foreground hover:bg-muted/45 hover:text-foreground",
       )}
+      id={id}
       onClick={onClick}
       role="tab"
+      tabIndex={active ? 0 : -1}
       type="button"
     >
       {label}

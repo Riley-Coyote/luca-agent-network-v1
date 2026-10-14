@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{mpsc, Arc, Mutex},
-    time::Duration,
+    time::Instant,
 };
 
 use luca_protocol::{ConnectedBrainSourceStatusV1, Hex64, OpaqueId};
@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::{app_state::AppState, luca::owner_brain_store};
 
-const REFRESH_DEBOUNCE: Duration = Duration::from_millis(750);
+use super::refresh_queue::RefreshQueue;
 
 /// Directory names whose churn is tooling noise, never knowledge.
 ///
@@ -61,6 +61,7 @@ impl Default for ConnectedBrainWatcherState {
 struct ConnectedBrainWatcherRuntime {
     _watcher: RecommendedWatcher,
     roots: Arc<Mutex<BTreeMap<PathBuf, OpaqueId>>>,
+    queue: Arc<Mutex<RefreshQueue<OpaqueId>>>,
 }
 
 pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), String> {
@@ -83,14 +84,20 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
         return Ok(());
     }
     let roots = Arc::new(Mutex::new(BTreeMap::<PathBuf, OpaqueId>::new()));
+    let queue = Arc::new(Mutex::new(RefreshQueue::default()));
     let callback_roots = Arc::clone(&roots);
-    let (refresh_tx, refresh_rx) = mpsc::channel::<OpaqueId>();
-    let callback_tx = refresh_tx.clone();
+    let callback_queue = Arc::clone(&queue);
+    // Changes live in the coalesced queue, not in one allocation per event.
+    // A single pending wake-up is enough even during large filesystem bursts.
+    let (refresh_tx, refresh_rx) = mpsc::sync_channel::<()>(1);
     let watcher = RecommendedWatcher::new(
         move |event: notify::Result<notify::Event>| {
             let Ok(event) = event else {
                 return;
             };
+            if event.kind.is_access() {
+                return;
+            }
             let Ok(roots) = callback_roots.lock() else {
                 return;
             };
@@ -104,21 +111,31 @@ pub(crate) fn start_connected_source_watcher(app: AppHandle) -> Result<(), Strin
                     })
                 })
                 .collect::<BTreeSet<_>>();
-            for source_id in source_ids {
-                let _ = callback_tx.send(source_id);
+            if source_ids.is_empty() {
+                return;
+            }
+            if let Ok(mut queue) = callback_queue.lock() {
+                let now = Instant::now();
+                for source_id in source_ids {
+                    queue.record_change(source_id, now);
+                }
+                let _ = refresh_tx.try_send(());
             }
         },
         Config::default(),
     )
     .map_err(|_| "connected Brain watcher could not start".to_owned())?;
     let worker_app = app.clone();
+    let worker_queue = Arc::clone(&queue);
+    let worker_roots = Arc::clone(&roots);
     std::thread::Builder::new()
         .name("luca-connected-brain-refresh".to_owned())
-        .spawn(move || refresh_worker(worker_app, refresh_rx))
+        .spawn(move || refresh_worker(worker_app, refresh_rx, worker_queue, worker_roots))
         .map_err(|_| "connected Brain refresh worker could not start".to_owned())?;
     *runtime_guard = Some(ConnectedBrainWatcherRuntime {
         _watcher: watcher,
         roots,
+        queue,
     });
     drop(runtime_guard);
     std::thread::Builder::new()
@@ -198,6 +215,11 @@ pub(crate) fn unregister_connected_source(
             .map_err(|_| "connected source watcher could not stop".to_owned())?;
         roots.remove(&root);
     }
+    runtime
+        .queue
+        .lock()
+        .map_err(|_| "connected Brain refresh queue is unavailable".to_owned())?
+        .forget(source_id);
     Ok(())
 }
 
@@ -246,30 +268,72 @@ fn reconcile_connected_sources(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn refresh_worker(app: AppHandle, receiver: mpsc::Receiver<OpaqueId>) {
-    while let Ok(first) = receiver.recv() {
-        let mut pending = BTreeSet::from([first]);
-        while let Ok(next) = receiver.recv_timeout(REFRESH_DEBOUNCE) {
-            pending.insert(next);
-        }
+fn refresh_worker(
+    app: AppHandle,
+    receiver: mpsc::Receiver<()>,
+    queue: Arc<Mutex<RefreshQueue<OpaqueId>>>,
+    roots: Arc<Mutex<BTreeMap<PathBuf, OpaqueId>>>,
+) {
+    loop {
+        let pending = match queue.lock() {
+            Ok(mut queue) => queue.take_ready(Instant::now()),
+            Err(_) => return,
+        };
         for source_id in pending {
-            refresh_one_source(&app, &source_id);
+            let succeeded = refresh_one_source(&app, &source_id);
+            // A disconnect may finish while indexing. Do not recreate retry
+            // state for a source the owner has removed. Lock order matches the
+            // filesystem callback and unregister path (roots, then queue).
+            let Ok(roots) = roots.lock() else {
+                return;
+            };
+            if roots.values().any(|existing| existing == &source_id) {
+                let Ok(mut queue) = queue.lock() else {
+                    return;
+                };
+                queue.record_result(source_id, Instant::now(), succeeded);
+            }
+        }
+        let deadline = match queue.lock() {
+            Ok(queue) => queue.next_deadline(),
+            Err(_) => return,
+        };
+        match deadline {
+            Some(deadline) => {
+                match receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+                    Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                }
+            }
+            None => {
+                if receiver.recv().is_err() {
+                    return;
+                }
+            }
         }
     }
 }
 
-fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) {
+fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) -> bool {
     let state = app.state::<AppState>();
+    // Report only the stage: source paths, file content and arbitrary provider
+    // errors must never leak into the operational log.
+    let mut stage = "owner";
     let result = (|| {
         let owner = active_owner(&state)?;
+        stage = "source";
         let candidate = state
             .read_connected_brain_candidate(&owner, source_id)
             .map_err(|error| error.code().to_owned())?;
+        stage = "index";
         let build = state.build_connected_brain_index(&owner, source_id, &candidate)?;
+        stage = "authority";
         let authorities = resident_authorities(app, &state)?;
+        stage = "persist";
         state
             .connect_brain_source(owner.clone(), candidate, build, &authorities)
             .map_err(|error| error.code().to_owned())?;
+        stage = "status";
         state
             .set_connected_brain_status(&owner, source_id, ConnectedBrainSourceStatusV1::Current)
             .map_err(|error| error.code().to_owned())
@@ -277,9 +341,10 @@ fn refresh_one_source(app: &AppHandle, source_id: &OpaqueId) {
     if result.is_err() {
         luca_log!(
             warn,
-            "buzz-desktop: background Brain refresh failed; keeping the last verified index"
+            "buzz-desktop: background Brain refresh failed at {stage}; keeping the last verified index and backing off"
         );
     }
+    result.is_ok()
 }
 
 fn resident_authorities(
