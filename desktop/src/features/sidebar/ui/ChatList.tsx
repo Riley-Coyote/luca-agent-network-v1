@@ -1,4 +1,5 @@
 import * as React from "react";
+import { standaloneConversations } from "@/features/sidebar/lib/agentRailState";
 import { MessageCircle, MessagesSquare, Plus } from "lucide-react";
 
 import {
@@ -57,7 +58,7 @@ export type ChatRowProps = {
   item: ChatListItem;
   /** Where the row lives, for tests; defaults to the rail's channel-<name>. */
   testId?: string;
-  /** A quiet second line under the label — the agent column's project tag. */
+  /** A quiet second line under the label — an inline session's project tag. */
   tag?: string | null;
   selectedChannelId: string | null;
   unreadChannelIds: ReadonlySet<string>;
@@ -81,7 +82,7 @@ export const RAIL_ROW_CLASS = cn(
   RAIL_FOCUS_CLASS,
 );
 
-/** The rail's small controls — the "+" buttons and the column's close. */
+/** The rail's small controls — the "+" buttons and disclosures. */
 export const RAIL_CONTROL_CLASS = cn(
   "flex items-center justify-center rounded-md text-ink-faint transition-colors",
   "hover:bg-sidebar-accent hover:text-sidebar-foreground",
@@ -124,7 +125,7 @@ export type ChatRowMenuProps = {
   onMarkChannelUnread: (channelId: string) => void;
 };
 
-// Memoised: a column toggle, or a new message somewhere else, must not
+// Memoised: an agent disclosure, or a new message somewhere else, must not
 // re-render every row in the rail. Each prop is a primitive, a collection the
 // shell keeps stable, or a stable callback, so the bail-out holds.
 export const ChatRow = React.memo(function ChatRow({
@@ -155,6 +156,7 @@ export const ChatRow = React.memo(function ChatRow({
       data-sidebar="menu-button"
       data-channel-id={channel.id}
       data-testid={testId ?? `channel-${channel.name}`}
+      title={label}
       onClick={() => onSelectChannel(channel.id)}
       type="button"
     >
@@ -193,7 +195,9 @@ export const ChatRow = React.memo(function ChatRow({
           <span
             aria-hidden
             className={UNREAD_DOT_CLASS}
-            data-testid={`channel-unread-${channel.name}`}
+            data-testid={
+              testId ? `${testId}-unread` : `channel-unread-${channel.name}`
+            }
           />
         ) : liveLabel ? (
           <span className="truncate text-2xs text-ink-faint">{liveLabel}…</span>
@@ -356,13 +360,17 @@ export function ChatList({
   projects,
   selectedProjectId,
   agents,
-  selectedAgentPubkey,
-  onSelectAgent,
+  primaryPubkey,
+  agentStorageKey,
+  onOpenAgent,
+  onNewSession,
 }: {
   /** The residents the rail lists, in display order. */
   agents: readonly AgentRailAgent[];
-  selectedAgentPubkey: string | null;
-  onSelectAgent: (pubkey: string) => void;
+  primaryPubkey: string | null;
+  agentStorageKey: string;
+  onOpenAgent: (pubkey: string) => void;
+  onNewSession?: (pubkey: string) => void;
   items: readonly ChatListItem[];
   projectByChannelId: ReadonlyMap<string, RoomProject>;
   projects: readonly RoomProject[];
@@ -413,19 +421,10 @@ export function ChatList({
     }
     return map;
   }, [agents, items, unreadChannelIds]);
-  // A chat with any managed resident in it belongs in that resident's column,
-  // judged on the whole membership — not the few marks the row can wear.
-  const unaffiliatedDirectMessages = React.useMemo(() => {
-    const knownAgents = new Set(
-      agents.map((agent) => agent.pubkey.toLowerCase()),
-    );
-    return directMessages.filter(
-      (item) =>
-        !item.participants.some((pubkey) =>
-          knownAgents.has(pubkey.toLowerCase()),
-        ),
-    );
-  }, [agents, directMessages]);
+  const unaffiliatedDirectMessages = React.useMemo(
+    () => standaloneConversations(directMessages, agents, primaryPubkey),
+    [agents, directMessages, primaryPubkey],
+  );
   const groupsByProjectId = React.useMemo(
     () =>
       new Map(
@@ -515,9 +514,18 @@ export function ChatList({
           activityByPubkey={activityByPubkey}
           agents={agents}
           onCreateAgent={onCreateAgent}
-          onSelectAgent={onSelectAgent}
-          selectedAgentPubkey={selectedAgentPubkey}
+          key={agentStorageKey}
+          storageKey={agentStorageKey}
+          primaryPubkey={primaryPubkey}
+          items={items}
+          projectByChannelId={projectByChannelId}
+          onOpenAgent={onOpenAgent}
+          onNewSession={onNewSession}
+          {...rowProps}
         />
+        {unaffiliatedDirectMessages.length > 0 && (
+          <RailSectionHeader title="Conversations" />
+        )}
         {unaffiliatedDirectMessages.map((item) => (
           <ChatRow item={item} key={item.channel.id} {...rowProps} />
         ))}

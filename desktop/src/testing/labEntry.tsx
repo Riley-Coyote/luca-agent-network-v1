@@ -17,6 +17,7 @@
  * Scene content lives in `labScene.ts`. This file is the machinery.
  */
 
+import { RailStudy, RAIL_STUDY_KEY } from "@/testing/railStudy";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -93,7 +94,12 @@ function seedStorage() {
   // namespace on this route; existing shell-lab reset keys stay unchanged.
   const companionStudy = store.getItem(COMPANION_LAB_STORAGE_KEY);
   const controlStudy = store.getItem(CONTROL_LAB_KEY);
+  const railStudy = store.getItem(RAIL_STUDY_KEY);
+  const railRecovery = store.getItem(`${RAIL_STUDY_KEY}.recovery`);
   store.clear();
+  if (railStudy !== null) store.setItem(RAIL_STUDY_KEY, railStudy);
+  if (railRecovery !== null)
+    store.setItem(`${RAIL_STUDY_KEY}.recovery`, railRecovery);
   if (companionStudy !== null)
     store.setItem(COMPANION_LAB_STORAGE_KEY, companionStudy);
   if (controlStudy !== null) store.setItem(CONTROL_LAB_KEY, controlStudy);
@@ -162,6 +168,8 @@ function configureBridge() {
       managedAgents: Object.values(LAB_RESIDENTS).map((resident) => ({
         agentCommand: resident.harness,
         name: resident.name,
+        personaId:
+          resident.pubkey === LAB_RESIDENTS.luca.pubkey ? "builtin:fizz" : null,
         pubkey: resident.pubkey,
         status: "running",
       })),
@@ -316,6 +324,11 @@ function renderApp() {
                 <PoofBurstProvider>
                   <UpdaterProvider>
                     <App />
+                    {new URLSearchParams(window.location.search).get(
+                      "experience",
+                    ) === "inline-sessions" ? (
+                      <RailStudy />
+                    ) : null}
                     {COMPANION_STUDY ? <CompanionExperienceLab /> : null}
                     {COMPANION_SETUP_STUDY ? <CompanionSetupLab /> : null}
                     {COMPANION_CONTROL_STUDY ? <CompanionControlLab /> : null}

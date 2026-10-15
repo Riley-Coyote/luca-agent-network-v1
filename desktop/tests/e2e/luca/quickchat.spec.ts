@@ -5,7 +5,12 @@ import { waitForAnimations } from "../../helpers/animations";
 test.beforeEach(async ({ page }) => {
   await installMockBridge(page, {
     managedAgents: [
-      { name: "Luca", pubkey: "a".repeat(64), status: "running" },
+      {
+        name: "Luca",
+        personaId: "builtin:fizz",
+        pubkey: "a".repeat(64),
+        status: "running",
+      },
       { name: "Sol", pubkey: "b".repeat(64), status: "running" },
     ],
   });
@@ -73,6 +78,11 @@ test("new chat keeps the previous room and full conversation opens the current r
   page,
 }) => {
   await page.getByTestId("quickchat-launcher").click();
+  await page.getByTestId("quickchat-agent-picker").click();
+  await page
+    .getByTestId("quickchat-panel")
+    .getByRole("button", { name: /^Sol/ })
+    .click();
   await page.getByTestId("quickchat-input").fill("First private quick chat");
   await page.getByTestId("quickchat-send").click();
   await expect(page.getByTestId("quickchat-input")).toHaveValue("");
@@ -82,7 +92,7 @@ test("new chat keeps the previous room and full conversation opens the current r
         k.startsWith("luca:quickchat:v1:"),
       )?.[1],
   );
-  const firstId = JSON.parse(first ?? "{}").rooms["a".repeat(64)].channelId;
+  const firstId = JSON.parse(first ?? "{}").rooms["b".repeat(64)].channelId;
   await page
     .getByRole("button", { name: "Quick Chat options", exact: true })
     .click();
@@ -99,7 +109,7 @@ test("new chat keeps the previous room and full conversation opens the current r
         k.startsWith("luca:quickchat:v1:"),
       )?.[1],
   );
-  expect(JSON.parse(second ?? "{}").rooms["a".repeat(64)].channelId).not.toBe(
+  expect(JSON.parse(second ?? "{}").rooms["b".repeat(64)].channelId).not.toBe(
     firstId,
   );
   await page
@@ -357,12 +367,8 @@ test("a remembered ladder offers every level the runtime advertised", async ({
     };
   });
   await page.getByTestId("quickchat-launcher").click();
-  // A conversation must exist before the panel can ask about its runtime; the
-  // point of the remembered ladder is that this run never took a turn in it.
-  const input = page.getByTestId("quickchat-input");
-  await input.fill("Open a conversation");
-  await page.getByTestId("quickchat-send").click();
-  await expect(input).toHaveValue("");
+  // Opening primary Quick Chat resolves the canonical DM, so a remembered
+  // ladder is available without sending a new turn just to create a room.
   await page.getByTestId("quickchat-agent-picker").click();
   const panel = page.getByTestId("quickchat-panel");
   const slider = page.getByTestId("quickchat-effort");

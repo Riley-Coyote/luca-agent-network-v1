@@ -1,3 +1,4 @@
+import { resolveQuickChatSelection } from "./selection";
 import { useRelaySelfQuery } from "@/features/moderation/hooks";
 import { projectQuickChatMessages } from "./messages";
 import * as React from "react";
@@ -11,6 +12,7 @@ import {
 import {
   useChannelsQuery,
   useCreateChannelMutation,
+  useOpenDmMutation,
 } from "@/features/channels/hooks";
 import { useConversationPresentation } from "@/features/channels/ui/useConversationPresentation";
 import { useResidentStopControl } from "@/features/channels/ui/useResidentStopControl";
@@ -37,6 +39,7 @@ import {
   readQuickChat,
   updateQuickChatRoom,
   type QuickChatState,
+  type QuickChatRoom,
 } from "./store";
 import type {
   QuickChatViewModel,
@@ -75,6 +78,7 @@ export function useQuickChat({
   const agents = useManagedAgentsQuery();
   const channels = useChannelsQuery();
   const create = useCreateChannelMutation();
+  const openDm = useOpenDmMutation();
   const attach = useAttachManagedAgentToChannelMutation(null);
   const owner = identity.data?.pubkey ?? "";
   const scope = quickChatStorageKey(
@@ -120,21 +124,23 @@ export function useQuickChat({
     name: agent.name,
     detail: agent.status,
   }));
-  const selectedPubkey = residents.some(
-    (r) => r.pubkey === state.selectedPubkey,
-  )
-    ? state.selectedPubkey
-    : (registry.data?.residents.find(
-        (r) =>
-          r.personaId === "persona:luca" &&
-          residents.some((a) => a.pubkey === r.residentPubkey),
-      )?.residentPubkey ??
-      residents.find((r) => r.name.toLowerCase() === "luca")?.pubkey ??
-      null);
+  const { primaryPubkey, selectedPubkey, ambiguous } =
+    resolveQuickChatSelection(
+      registry.data?.residents,
+      residents,
+      state.selectedPubkey,
+    );
+  const isPrimary = selectedPubkey !== null && selectedPubkey === primaryPubkey;
+  const updateRoom = React.useCallback(
+    (s: QuickChatState, pubkey: string, patch: Partial<QuickChatRoom>) =>
+      updateQuickChatRoom(s, pubkey, patch, pubkey === primaryPubkey),
+    [primaryPubkey],
+  );
   const selectedRef = React.useRef(selectedPubkey);
   selectedRef.current = selectedPubkey;
   const room = selectedPubkey
-    ? (state.rooms[selectedPubkey] ?? emptyRoom())
+    ? ((isPrimary ? state.companionRooms : state.rooms)[selectedPubkey] ??
+      emptyRoom())
     : emptyRoom();
   const channel = channels.data?.find((c) => c.id === room.channelId) ?? null;
   const history = useChannelMessagesQuery(channel);
@@ -196,6 +202,39 @@ export function useQuickChat({
       pendingEffort.current = null;
     }
   }, [scope]);
+  const openPrimaryDm = openDm.mutateAsync;
+  React.useEffect(() => {
+    if (!open || !isPrimary || !selectedPubkey) return;
+    let cancelled = false;
+    void openPrimaryDm({ pubkeys: [selectedPubkey] })
+      .then((dm) => {
+        if (!cancelled)
+          change(
+            (s) =>
+              updateRoom(s, selectedPubkey, { channelId: dm.id, ready: true }),
+            scope,
+          );
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setError(
+            error instanceof Error
+              ? error.message
+              : "Could not open Luca's conversation.",
+          );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    open,
+    isPrimary,
+    selectedPubkey,
+    openPrimaryDm,
+    change,
+    updateRoom,
+    scope,
+  ]);
   const active = [...presentation.managedActivity.values()].some(
     (a) =>
       !a.settled && !["failed", "stopped", "needs_attention"].includes(a.phase),
@@ -234,7 +273,9 @@ export function useQuickChat({
         .then((value) => {
           if (!current) return;
           const saved =
-            stateRef.current.value.rooms[selectedPubkey] ?? emptyRoom();
+            (isPrimary
+              ? stateRef.current.value.companionRooms
+              : stateRef.current.value.rooms)[selectedPubkey] ?? emptyRoom();
           const choice =
             value.supported && saved.effortChosen
               ? value.values[
@@ -253,7 +294,7 @@ export function useQuickChat({
             );
             if (index >= 0)
               change((s) =>
-                updateQuickChatRoom(s, selectedPubkey, {
+                updateRoom(s, selectedPubkey, {
                   effortPosition: (3 * index) / (value.values.length - 1),
                 }),
               );
@@ -273,7 +314,16 @@ export function useQuickChat({
     return () => {
       current = false;
     };
-  }, [selectedPubkey, room.channelId, open, active, change, capabilityVersion]);
+  }, [
+    selectedPubkey,
+    room.channelId,
+    open,
+    active,
+    change,
+    capabilityVersion,
+    updateRoom,
+    isPrimary,
+  ]);
   React.useEffect(() => {
     const receive = (event: Event) => {
       const detail = (
@@ -378,32 +428,44 @@ export function useQuickChat({
     setSending(true);
     setError(null);
     try {
-      const id = await prepareQuickChatRoom(
-        room,
-        async () =>
-          (
-            await create.mutateAsync({
-              name: `Quick Chat · ${agent.name}`,
-              channelType: "stream",
-              visibility: "private",
-            })
-          ).id,
-        (id) => {
-          if (!alive.current || stateRef.current.scope !== capturedScope)
-            throw new Error("Quick Chat account changed.");
-          return attach.mutateAsync({
-            channelId: id,
-            agent,
-            role: "bot",
-            ensureRunning: true,
-          });
-        },
-        (patch) =>
-          change(
-            (s) => updateQuickChatRoom(s, targetPubkey, patch),
-            capturedScope,
-          ),
-      );
+      const id = isPrimary
+        ? (await openDm.mutateAsync({ pubkeys: [targetPubkey] })).id
+        : await prepareQuickChatRoom(
+            room,
+            async () =>
+              (
+                await create.mutateAsync({
+                  name: `Quick Chat · ${agent.name}`,
+                  channelType: "stream",
+                  visibility: "private",
+                })
+              ).id,
+            (id) => {
+              if (!alive.current || stateRef.current.scope !== capturedScope)
+                throw new Error("Quick Chat account changed.");
+              return attach.mutateAsync({
+                channelId: id,
+                agent,
+                role: "bot",
+                ensureRunning: true,
+              });
+            },
+            (patch) =>
+              change((s) => updateRoom(s, targetPubkey, patch), capturedScope),
+          );
+      if (!alive.current || stateRef.current.scope !== capturedScope) return;
+      if (isPrimary) {
+        await attach.mutateAsync({
+          channelId: id,
+          agent,
+          role: "bot",
+          ensureRunning: true,
+        });
+        change(
+          (s) => updateRoom(s, targetPubkey, { channelId: id, ready: true }),
+          capturedScope,
+        );
+      }
       if (!alive.current || stateRef.current.scope !== capturedScope) return;
       const target = await getChannelDetails(id);
       if (!alive.current || stateRef.current.scope !== capturedScope) return;
@@ -462,8 +524,9 @@ export function useQuickChat({
       }
       change(
         (s) =>
-          s.rooms[targetPubkey]?.draft === capturedDraft
-            ? updateQuickChatRoom(s, targetPubkey, { draft: "" })
+          (isPrimary ? s.companionRooms : s.rooms)[targetPubkey]?.draft ===
+          capturedDraft
+            ? updateRoom(s, targetPubkey, { draft: "" })
             : s,
         capturedScope,
       );
@@ -498,10 +561,14 @@ export function useQuickChat({
     draft: room.draft,
     setDraft: (draft) => {
       if (selectedPubkey)
-        change((s) => updateQuickChatRoom(s, selectedPubkey, { draft }));
+        change((s) => updateRoom(s, selectedPubkey, { draft }));
     },
     busy: sending || active,
-    error: error ?? (history.error ? history.error.message : null),
+    error:
+      error ??
+      (ambiguous
+        ? "The resident registry contains more than one primary Luca. Resolve the duplicate identity before using Quick Chat."
+        : (registry.error?.message ?? history.error?.message ?? null)),
     send,
     stop: () => {
       if (effort.pending) {
@@ -514,8 +581,20 @@ export function useQuickChat({
       }
       if (selectedPubkey) void control.stopResidents([selectedPubkey]);
     },
+    canStartNewChat: !isPrimary && Boolean(selectedPubkey),
+    earlierChat:
+      isPrimary && selectedPubkey
+        ? (state.rooms[selectedPubkey] ?? null)
+        : null,
+    openEarlierConversation: () => {
+      const earlier = selectedPubkey ? state.rooms[selectedPubkey] : null;
+      if (earlier?.channelId) {
+        onOpenConversation(earlier.channelId);
+        setOpen(false);
+      }
+    },
     newChat: () => {
-      if (selectedPubkey && !sendLock.current) {
+      if (!isPrimary && selectedPubkey && !sendLock.current) {
         captureEpoch.current += 1;
         setCapturing(false);
         change((s) => newQuickChat(s, selectedPubkey));
@@ -605,7 +684,7 @@ export function useQuickChat({
       });
       if (selectedPubkey)
         change((s) =>
-          updateQuickChatRoom(s, selectedPubkey, {
+          updateRoom(s, selectedPubkey, {
             effortPosition: Math.max(0, Math.min(3, position)),
             effortChosen: true,
           }),
@@ -617,7 +696,7 @@ export function useQuickChat({
     scrollTop: room.scrollTop,
     setScrollTop: (scrollTop) => {
       if (selectedPubkey)
-        change((s) => updateQuickChatRoom(s, selectedPubkey, { scrollTop }));
+        change((s) => updateRoom(s, selectedPubkey, { scrollTop }));
     },
   };
 }

@@ -11,6 +11,7 @@ export type QuickChatState = {
   width: number;
   height: number;
   rooms: Record<string, QuickChatRoom>;
+  companionRooms: Record<string, QuickChatRoom>;
 };
 export const emptyRoom = (): QuickChatRoom => ({
   channelId: null,
@@ -25,6 +26,7 @@ export const emptyQuickChat = (): QuickChatState => ({
   width: 420,
   height: 560,
   rooms: {},
+  companionRooms: {},
 });
 export function quickChatStorageKey(owner: string, community: string) {
   return `luca:quickchat:v1:${encodeURIComponent(community)}:${owner.toLowerCase()}`;
@@ -36,26 +38,32 @@ export function readQuickChat(
   try {
     const raw = JSON.parse(storage.getItem(key) ?? "null");
     if (!raw || typeof raw !== "object") return emptyQuickChat();
-    const rooms: Record<string, QuickChatRoom> = {};
-    for (const [pubkey, value] of Object.entries(raw.rooms ?? {})) {
-      const room = value as Partial<QuickChatRoom> | null;
-      if (!room || !/^[a-f0-9]{64}$/i.test(pubkey)) continue;
-      rooms[pubkey] = {
-        effortChosen: room.effortChosen === true,
-        effortPosition:
-          typeof room.effortPosition === "number" &&
-          Number.isFinite(room.effortPosition)
-            ? Math.max(0, Math.min(3, room.effortPosition))
-            : 1,
-        channelId: typeof room.channelId === "string" ? room.channelId : null,
-        ready: room.ready === true,
-        draft: typeof room.draft === "string" ? room.draft : "",
-        scrollTop:
-          typeof room.scrollTop === "number" && Number.isFinite(room.scrollTop)
-            ? Math.max(0, room.scrollTop)
-            : 0,
-      };
-    }
+    const readRooms = (input: unknown) => {
+      const rooms: Record<string, QuickChatRoom> = {};
+      for (const [pubkey, value] of Object.entries(
+        input && typeof input === "object" ? input : {},
+      )) {
+        const room = value as Partial<QuickChatRoom> | null;
+        if (!room || !/^[a-f0-9]{64}$/i.test(pubkey)) continue;
+        rooms[pubkey] = {
+          effortChosen: room.effortChosen === true,
+          effortPosition:
+            typeof room.effortPosition === "number" &&
+            Number.isFinite(room.effortPosition)
+              ? Math.max(0, Math.min(3, room.effortPosition))
+              : 1,
+          channelId: typeof room.channelId === "string" ? room.channelId : null,
+          ready: room.ready === true,
+          draft: typeof room.draft === "string" ? room.draft : "",
+          scrollTop:
+            typeof room.scrollTop === "number" &&
+            Number.isFinite(room.scrollTop)
+              ? Math.max(0, room.scrollTop)
+              : 0,
+        };
+      }
+      return rooms;
+    };
     return {
       selectedPubkey:
         typeof raw.selectedPubkey === "string" ? raw.selectedPubkey : null,
@@ -65,7 +73,8 @@ export function readQuickChat(
       height: Number.isFinite(raw.height)
         ? Math.max(380, Math.min(1000, raw.height))
         : 560,
-      rooms,
+      rooms: readRooms(raw.rooms),
+      companionRooms: readRooms(raw.companionRooms),
     };
   } catch {
     return emptyQuickChat();
@@ -75,12 +84,14 @@ export function updateQuickChatRoom(
   state: QuickChatState,
   pubkey: string,
   patch: Partial<QuickChatRoom>,
+  companion = false,
 ): QuickChatState {
+  const collection = companion ? "companionRooms" : "rooms";
   return {
     ...state,
-    rooms: {
-      ...state.rooms,
-      [pubkey]: { ...(state.rooms[pubkey] ?? emptyRoom()), ...patch },
+    [collection]: {
+      ...state[collection],
+      [pubkey]: { ...(state[collection]?.[pubkey] ?? emptyRoom()), ...patch },
     },
   };
 }

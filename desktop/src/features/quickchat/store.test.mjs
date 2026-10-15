@@ -88,3 +88,29 @@ test("invalid persisted state falls back without blocking chat", () => {
     {},
   );
 });
+
+test("canonical companion storage preserves earlier Quick Chat history and drafts across restart", () => {
+  let state = updateQuickChatRoom(emptyQuickChat(), resident, {
+    channelId: "earlier-private-room",
+    draft: "unsent earlier draft",
+    ready: true,
+  });
+  state = updateQuickChatRoom(
+    state,
+    resident,
+    { channelId: "canonical-dm", draft: "current draft", ready: true },
+    true,
+  );
+  const restored = readQuickChat(
+    { getItem: () => JSON.stringify(state) },
+    "scope",
+  );
+  assert.equal(restored.rooms[resident].channelId, "earlier-private-room");
+  assert.equal(restored.rooms[resident].draft, "unsent earlier draft");
+  assert.equal(restored.companionRooms[resident].channelId, "canonical-dm");
+  assert.equal(restored.companionRooms[resident].draft, "current draft");
+  assert.equal(
+    newQuickChat(restored, "b".repeat(64)).companionRooms[resident].channelId,
+    "canonical-dm",
+  );
+});

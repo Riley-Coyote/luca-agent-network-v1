@@ -44,6 +44,9 @@ export type QuickChatViewModel = {
   error: string | null;
   send: () => Promise<void>;
   stop: () => void;
+  canStartNewChat: boolean;
+  earlierChat: { channelId: string | null; draft: string } | null;
+  openEarlierConversation: () => void;
   newChat: () => void;
   openFullConversation: () => void;
   openAgentSetup: () => void;

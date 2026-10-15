@@ -6041,6 +6041,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn canonical_pair_dm_survives_reopen_and_owner_workspace_changes() {
+        let path = std::env::temp_dir().join(format!("canonical-dm-{}.sqlite", Uuid::new_v4()));
+        let path_string = path.to_string_lossy().into_owned();
+        let owner = vec![1_u8; 32];
+        let resident = vec![2_u8; 32];
+        let other_owner = vec![3_u8; 32];
+        let pool = connect(&path_string).await.unwrap();
+        let community = ensure_configured_community(&pool, "canonical.example")
+            .await
+            .unwrap()
+            .id;
+        let foreign = ensure_configured_community(&pool, "foreign.example")
+            .await
+            .unwrap()
+            .id;
+        let first = open_dm(&pool, community, &[&resident], &owner, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .0;
+        for _ in 0..8 {
+            let (again, created) = open_dm(&pool, community, &[&resident, &owner], &owner, None)
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!created);
+            assert_eq!(again.id, first.id);
+        }
+        let other = open_dm(&pool, community, &[&resident], &other_owner, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .0;
+        let elsewhere = open_dm(&pool, foreign, &[&resident], &owner, None)
+            .await
+            .unwrap()
+            .unwrap()
+            .0;
+        assert_ne!(other.id, first.id);
+        assert_ne!(elsewhere.id, first.id);
+        hide_dm(&pool, community, first.id, &owner).await.unwrap();
+        pool.close().await;
+        let reopened = connect(&path_string).await.unwrap();
+        let (again, created) = open_dm(&reopened, community, &[&resident], &owner, None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!created);
+        assert_eq!(again.id, first.id);
+        assert_eq!(
+            list_dms_for_user(&reopened, community, &owner, 10, None)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
+        reopened.close().await;
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[tokio::test]
     async fn reaction_helpers_preserve_dedupe_aggregation_and_tenant_scope() {
         let pool = connect("sqlite::memory:").await.unwrap();
         let community = ensure_configured_community(&pool, "reactions.example")

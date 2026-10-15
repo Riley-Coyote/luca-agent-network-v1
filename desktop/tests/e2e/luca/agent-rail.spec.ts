@@ -1,710 +1,237 @@
 import { expect, test } from "@playwright/test";
-
 import { installMockBridge } from "../../helpers/bridge";
 import { waitForAnimations } from "../../helpers/animations";
-
-/**
- * The rail after the restructure: PROJECTS, then AGENTS (one row per
- * resident), then runtimes. Choosing a resident returns to the conversation
- * and opens the agent column — every conversation they are part of. That
- * column and the project room navigator are both "the second column": only
- * one is ever open.
- */
-
-const ATLAS_PUBKEY = "a".repeat(64);
-const BEX_PUBKEY = "b".repeat(64);
-
+const LUCA = "a".repeat(64),
+  ATLAS = "b".repeat(64),
+  LOWER = "c".repeat(64);
 test.beforeEach(async ({ page }) => {
+  page.on("pageerror", (error) => console.log("PAGE ERROR", error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error")
+      console.log("BROWSER ERROR", message.text());
+  });
   await installMockBridge(page, {
     managedAgents: [
-      { name: "Atlas", pubkey: ATLAS_PUBKEY, status: "running" },
-      { name: "Bex", pubkey: BEX_PUBKEY, status: "running" },
+      {
+        name: "Luca",
+        pubkey: LUCA,
+        personaId: "builtin:fizz",
+        status: "running",
+      },
+      {
+        name: "Atlas",
+        pubkey: ATLAS,
+        status: "running",
+        channelNames: ["engineering", "general"],
+      },
+      { name: "luca", pubkey: LOWER, status: "running" },
     ],
+  });
+  await page.goto("/?e2e=mock");
+  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible({
+    timeout: 20000,
   });
 });
 
-test("the rail reads Projects and Agents, and lists residents rather than chats", async ({
+test("primary Luca has its own direct row and same-name identities remain distinct", async ({
   page,
 }) => {
-  await page.goto("/?e2e=mock");
-
-  const rail = page.getByTestId("app-sidebar");
-  const rooms = page.getByTestId("chat-channels");
-  const agents = page.getByTestId("chat-direct-messages");
-  await expect(rooms.getByText("Projects", { exact: true })).toBeVisible();
-  await expect(agents.getByText("Agents", { exact: true })).toBeVisible();
-  await expect(rail.getByText("Channels", { exact: true })).toHaveCount(0);
-  await expect(rail.getByText("Direct messages", { exact: true })).toHaveCount(
-    0,
+  const primary = page.getByTestId("primary-companion").getByRole("button");
+  await expect(primary).toHaveCount(1);
+  await expect(primary).not.toHaveAttribute("aria-expanded");
+  const lower = page
+    .locator(`[data-agent-pubkey="${LOWER}"]`)
+    .getByRole("button");
+  await expect(lower).toHaveAttribute("aria-expanded", "false");
+  expect((await primary.boundingBox())?.y ?? Infinity).toBeLessThan(
+    (await page.getByTestId("agent-rail-atlas").boundingBox())?.y ?? -Infinity,
   );
+  await primary.dblclick();
+  await expect(page).toHaveURL(/#\/channels\//);
+  const canonical = new URL(page.url()).hash;
+  await page.getByTestId("open-agents-view").click();
+  await primary.click();
+  await expect.poll(() => new URL(page.url()).hash).toBe(canonical);
+  await expect(page.getByTestId("agent-chats-column")).toHaveCount(0);
+  await expect(primary).toHaveAttribute("aria-current", "page");
+});
 
-  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
-  await expect(page.getByTestId("agent-rail-bex")).toBeVisible();
-  // A direct message with a person, not a resident, keeps its own row.
-  await expect(page.getByTestId("channel-alice-tyler")).toBeVisible();
+test("inline sessions switch directly, persist expansion and support keyboard collapse", async ({
+  page,
+}) => {
+  const agent = page.getByTestId("agent-rail-atlas");
+  await agent.press("ArrowRight");
+  const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+  await expect(sessions).toBeVisible();
+  await sessions.getByRole("button", { name: /^engineering/ }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
+  await sessions.getByRole("button", { name: /^general/ }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
+  await page.getByTestId("open-agents-view").click();
+  await expect(sessions).toBeVisible();
+  await page.reload();
+  await expect(sessions).toBeVisible();
+  await sessions.getByRole("button", { name: /^general/ }).press("ArrowLeft");
+  await expect(agent).toBeFocused();
+  await expect(sessions).toHaveCount(0);
+  await page.reload();
+  await expect(agent).toHaveAttribute("aria-expanded", "false");
+});
+
+test("non-primary sessions are private, distinct and immediately selectable", async ({
+  page,
+}) => {
+  await page.getByTestId("agent-rail-atlas").click();
+  const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+  for (const title of [
+    "First design session",
+    "A very long second session title for checking truncation in a narrow rail",
+  ]) {
+    await sessions
+      .getByRole("button", { name: "New session", exact: true })
+      .click();
+    await page.getByLabel("Session name").fill(title);
+    await page
+      .getByRole("button", { name: "Start session", exact: true })
+      .click();
+    await expect(page.getByTestId("chat-title")).toHaveText(title);
+    await expect(
+      sessions.getByRole("button", { name: new RegExp(`^${title}`) }),
+    ).toBeVisible();
+  }
+  await sessions.getByRole("button", { name: /^First design session/ }).click();
+  await expect(page.getByTestId("chat-title")).toHaveText(
+    "First design session",
+  );
+  const rows = await page.evaluate(async () =>
+    window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__?.("get_channels"),
+  );
+  const created = (
+    rows as Array<{ name: string; visibility: string; id: string }>
+  ).filter((row) => row.name.includes("session"));
+  expect(created).toHaveLength(2);
+  expect(new Set(created.map((row) => row.id)).size).toBe(2);
+  expect(created.every((row) => row.visibility === "private")).toBe(true);
+  await waitForAnimations(page);
+  await page.screenshot({ path: "test-results/inline-agent-sessions.png" });
+});
+
+test("Luca Quick Chat reuses main conversation and preserves separate drafts", async ({
+  page,
+}) => {
+  const primary = page.getByTestId("primary-companion").getByRole("button");
+  await primary.click();
+  await expect(page).toHaveURL(/#\/channels\//);
+  const id = new URL(page.url()).hash.split("/").pop();
+  const composer = page.locator('[contenteditable="true"]').first();
+  await composer.fill("Main conversation draft");
+  await page.getByTestId("quickchat-launcher").click();
+  await page.getByTestId("quickchat-input").fill("Quick Chat draft");
+  await page
+    .getByRole("button", { name: "Quick Chat options", exact: true })
+    .click();
+  await expect(page.getByTestId("quickchat-new-chat")).toHaveCount(0);
+  await page.getByTestId("quickchat-open-full").click();
+  await expect.poll(() => new URL(page.url()).hash.split("/").pop()).toBe(id);
+  await expect(composer).toHaveText("Main conversation draft");
+  await page.getByTestId("quickchat-launcher").click();
+  await expect(page.getByTestId("quickchat-input")).toHaveValue(
+    "Quick Chat draft",
+  );
+});
+
+test("phone keeps sessions inline and closes the sheet after selection", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
+  await page.getByTestId("agent-rail-atlas").click();
+  const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+  await expect(sessions).toBeVisible();
+  await sessions.getByRole("button", { name: /^engineering/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Sidebar", exact: true }),
+  ).toBeHidden();
+  await expect(page.getByTestId("chat-title")).toHaveText("engineering");
   await expect(page.getByTestId("agent-chats-column")).toHaveCount(0);
 });
 
-test("a resident's column offers the direct thread until it exists, then lists it by name", async ({
+test("narrow rail contains long titles without horizontal scrolling", async ({
   page,
 }) => {
-  await page.goto("/?e2e=mock");
-
+  await page.setViewportSize({ width: 1000, height: 900 });
   await page.getByTestId("agent-rail-atlas").click();
-  const column = page.getByTestId("agent-chats-column");
-  await expect(column).toBeVisible();
-  await expect(column.getByRole("heading")).toHaveCount(0);
-  await expect(column).toContainText("Atlas");
-
-  const start = page.getByTestId("agent-column-new-chat");
-  await expect(start).toHaveText(/Chat with Atlas/);
-  await start.click();
-
-  // The canonical pair thread now exists, so the offer is gone and the thread
-  // is a row wearing the resident's own name.
-  await expect(start).toHaveCount(0);
-  await expect(page).toHaveURL(/#\/channels\//);
-  await expect(
-    column.locator('[data-testid^="agent-column-chat-"]'),
-  ).toHaveCount(1);
-  await expect(
-    column.locator('[data-testid^="agent-column-chat-"]'),
-  ).toContainText("Atlas");
-
-  // Bex's column does not borrow Atlas's thread, and the loose rows below
-  // the rail never show a chat that belongs to a resident.
-  await page.getByTestId("agent-rail-bex").click();
-  await expect(column).toContainText("Bex");
-  await expect(
-    column.locator('[data-testid^="agent-column-chat-"]'),
-  ).toHaveCount(0);
-  await expect(page.getByTestId("agent-column-new-chat")).toHaveText(
-    /Chat with Bex/,
-  );
-  await expect(page.getByTestId("channel-alice-tyler")).toBeVisible();
-
-  // Choosing the open resident again closes the column.
-  await page.getByTestId("agent-rail-bex").click();
-  await expect(column).toHaveCount(0);
-});
-
-test("the agent column and the project room navigator never open together", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock&projectDemo=1");
-
-  await page.getByTestId("project-row-luca").click();
-  const navigator = page.getByTestId("project-room-navigator");
-  await expect(navigator).toBeVisible();
-
-  await page.getByTestId("agent-rail-atlas").click();
-  const column = page.getByTestId("agent-chats-column");
-  await expect(column).toBeVisible();
-  await expect(navigator).toHaveCount(0);
-  // The conversation itself stays put; only the navigator stepped aside.
-  await expect(page.getByTestId("chat-title")).toBeVisible();
-
-  await page.getByTestId("project-row-luca").click();
-  await expect(column).toHaveCount(0);
-  await expect(navigator).toBeVisible();
-});
-
-test("an empty project returns to the remembered conversation when a resident is chosen", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock&projectDemo=1");
-
-  await page.getByTestId("channel-watercooler").click();
-  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-  const rememberedConversation = new URL(page.url()).hash;
-
-  await page.getByTestId("project-row-field-unit").click();
-  await expect(page).toHaveURL(/#\/projects\/field-unit$/);
-  const heading = page.getByRole("heading", {
-    name: /has no conversations yet/i,
-  });
-  await expect(heading).toBeVisible();
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(page.getByTestId("agent-chats-column")).toBeVisible();
-  await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
-  await expect
-    .poll(() => new URL(page.url()).hash)
-    .toBe(rememberedConversation);
-  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-  await expect(heading).toHaveCount(0);
-});
-
-for (const [destination, testId, route] of [
-  ["Library", "open-artifacts-view", "artifacts"],
-  ["Agents", "open-agents-view", "agents"],
-  ["Activity", "open-activity-view", "pulse"],
-  ["Brain", "open-brain-setup", "brain"],
-] as const) {
-  test(`${destination} returns to the last conversation when a resident is chosen`, async ({
-    page,
-  }) => {
-    await page.goto("/?e2e=mock");
-    await page.getByTestId("channel-watercooler").click();
-    await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-    const rememberedConversation = new URL(page.url()).hash;
-
-    await page.getByTestId(testId).click();
-    await expect(page).toHaveURL(new RegExp(`#/${route}(?:\\?|$)`));
-    await page.getByTestId("agent-rail-atlas").click();
-
-    await expect
-      .poll(() => new URL(page.url()).hash)
-      .toBe(rememberedConversation);
-    await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-    await expect(page.getByTestId("agent-chats-column")).toContainText("Atlas");
-  });
-}
-
-test("without a remembered chat a resident returns to compose without creating a thread", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-  await expect(page).toHaveURL(/#\/messages\/new/);
-
-  await page.getByTestId("open-agents-view").click();
-  await expect(page).toHaveURL(/#\/agents$/);
-  await page.getByTestId("agent-rail-atlas").click();
-
-  await expect(page).toHaveURL(/#\/messages\/new$/);
-  await expect(page.getByTestId("agent-chats-column")).toContainText("Atlas");
-  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
-  await expect(
-    page
-      .getByTestId("agent-chats-column")
-      .locator('[data-testid^="agent-column-chat-"]'),
-  ).toHaveCount(0);
-});
-
-test("leaving for another destination closes the column; arriving in a chat keeps it", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  const column = page.getByTestId("agent-chats-column");
-  await expect(column).toBeVisible();
-
-  // Picking a chat from inside the column is what the column is for.
-  await page.getByTestId("agent-column-new-chat").click();
-  await expect(page).toHaveURL(/#\/channels\//);
-  await expect(column).toBeVisible();
-
-  // Going somewhere else entirely is a change of destination.
-  await page
-    .locator('[data-sidebar="menu-button"]', { hasText: "Brain" })
-    .first()
+  const sessions = page.getByRole("group", { name: "Sessions with Atlas" });
+  await sessions
+    .getByRole("button", { name: "New session", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: "Brain" })).toBeVisible();
-  await expect(column).toHaveCount(0);
-
-  // This is a new destination choice, even if Atlas was the last open column.
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(page).toHaveURL(/#\/channels\//);
-  await expect(column).toContainText("Atlas");
-});
-
-test("on a phone the column takes the rail's place and backs out of it", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?e2e=mock");
-
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  await page.getByTestId("agent-rail-atlas").click();
-  const column = page.getByTestId("agent-chats-column");
-  await expect(column).toBeVisible();
-  const box = await column.boundingBox();
-  expect(box?.x ?? 1).toBeLessThanOrEqual(1);
-
-  await column.getByRole("button", { name: "Back to agents" }).click();
-  await expect(column).toHaveCount(0);
-  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
-});
-
-// Two regressions Codex reproduced in review (agent-rail-review.spec.ts,
-// folded in here so the rail has one spec).
-
-test("starting a resident's thread on a phone reveals the conversation", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?e2e=mock");
-
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
-  await expect(page).toHaveURL(/#\/channels\//);
-  // The sheet steps aside for the thread it just opened, exactly as it does
-  // when an existing row is chosen.
-  await expect(
-    page.getByRole("dialog", { name: "Sidebar", exact: true }),
-  ).toBeHidden({ timeout: 1500 });
-});
-
-test("column rows keep the rail's context actions", async ({ page }) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
-  const row = page
-    .getByTestId("agent-chats-column")
-    .locator('[data-testid^="agent-column-chat-"]');
-  await expect(row).toHaveCount(1);
-  await expect(row).toHaveAttribute("data-channel-id", /.+/);
-  await row.click({ button: "right" });
-  await expect(
-    page.getByRole("menuitem", { name: /mark.*unread/i }),
-  ).toBeVisible({ timeout: 1500 });
-});
-
-test("a thread that fails to open says so and leaves the column in place", async ({
-  page,
-}) => {
-  await installMockBridge(page, {
-    managedAgents: [{ name: "Atlas", pubkey: ATLAS_PUBKEY, status: "running" }],
-    openDmErrors: ["Runtime unavailable."],
-  });
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/?e2e=mock");
-
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
-
-  await expect(page.getByText("Couldn't open the conversation")).toBeVisible();
-  await expect(page.getByText("Runtime unavailable.")).toBeVisible();
-  await expect(page).not.toHaveURL(/#\/channels\//);
-  await expect(page.getByTestId("agent-chats-column")).toBeVisible();
-  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
-  await expect(
-    page.getByRole("dialog", { name: "Sidebar", exact: true }),
-  ).toBeVisible();
-});
-
-test("collapsing the rail keeps the resident's column as the pane", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
-  const column = page.getByTestId("agent-chats-column");
-  const row = column.locator('[data-testid^="agent-column-chat-"]');
-  await expect(row).toHaveCount(1);
-
-  // Put the rail away: the column stays, at the left edge, and still works.
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
-  await expect(column).toBeVisible();
-  await expect.poll(async () => (await column.boundingBox())?.x ?? -1).toBe(8);
-  await waitForAnimations(page);
-  const joinedSurface = () =>
-    column.evaluate((el) => {
-      const card = document.querySelector(
-        '[data-testid="conversation-workspace-grid"] > [data-luca-card]:first-child',
-      );
-      if (!card) throw new Error("Leading conversation pane missing");
-      const ground = document.querySelector(".buzz-huddle-app-surface");
-      if (!ground) throw new Error("Shell ground missing");
-      const a = el.getBoundingClientRect();
-      const b = card.getBoundingClientRect();
-      const selectorStyle = getComputedStyle(el);
-      const paneStyle = getComputedStyle(card);
-      return {
-        top: a.top - b.top,
-        bottom: a.bottom - b.bottom,
-        gap: b.left - a.right,
-        outerRadius: selectorStyle.borderTopLeftRadius,
-        innerRadii: [
-          selectorStyle.borderTopRightRadius,
-          selectorStyle.borderBottomRightRadius,
-          paneStyle.borderTopLeftRadius,
-          paneStyle.borderBottomLeftRadius,
-        ],
-        seamBorders: [
-          selectorStyle.borderRightWidth,
-          paneStyle.borderLeftWidth,
-        ],
-        shadows: [selectorStyle.boxShadow, paneStyle.boxShadow],
-        trailingDivider: getComputedStyle(el, "::after").width,
-        railSeam: {
-          width: getComputedStyle(el, "::before").width,
-          image: getComputedStyle(el, "::before").backgroundImage,
-          opacity: getComputedStyle(el, "::before").opacity,
-        },
-        surface: selectorStyle.backgroundColor,
-        otherSurface: paneStyle.backgroundColor,
-        floor: getComputedStyle(ground).backgroundColor,
-      };
-    });
-  /**
-   * The column is GROUND, not card: it takes the rail's own tone, so what the
-   * conversation card slides over when the column opens is floor. The two
-   * still meet flush — no gap, no double edge, no second radius — but the
-   * seam between them is the tone step itself, not a painted hairline. The
-   * only line the column draws is on its LEADING edge, against the rail, and
-   * that one is a gradient that fades out at both ends.
-   */
-  const assertColumnOnTheFloor = async (railVisible: boolean) => {
-    const geometry = await joinedSurface();
-    expect(geometry.top).toBe(0);
-    expect(geometry.bottom).toBe(0);
-    expect(geometry.gap).toBe(0);
-    expect(geometry.outerRadius).not.toBe("0px");
-    expect(geometry.innerRadii).toEqual(["0px", "0px", "0px", "0px"]);
-    expect(geometry.seamBorders).toEqual(["0px", "0px"]);
-    expect(geometry.shadows).toEqual(["none", "none"]);
-    expect(geometry.trailingDivider).toBe("auto");
-    expect(geometry.surface).toBe(geometry.floor);
-    expect(geometry.surface).not.toBe(geometry.otherSurface);
-    expect(geometry.railSeam.width).toBe("1px");
-    expect(geometry.railSeam.image).toContain("linear-gradient");
-    // No rail beside it, no seam to draw.
-    expect(geometry.railSeam.opacity).toBe(railVisible ? "1" : "0");
-  };
-  await assertColumnOnTheFloor(false);
-  // The column's header sits below the window-controls strip, as the rail's
-  // first row does — nothing of it hides under the traffic lights or the nav.
-  const chrome = await page.getByTestId("app-top-chrome").boundingBox();
-  const header = await column.locator("header").boundingBox();
-  expect(header?.y ?? -1).toBeGreaterThanOrEqual(
-    (chrome?.y ?? 0) + (chrome?.height ?? 0) - 1,
-  );
-  await row.click({ button: "right" });
-  await expect(
-    page.getByRole("menuitem", { name: /mark.*unread/i }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
-
-  // Bring the rail back: it returns beside the column, which never left.
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
-  await expect(column).toBeVisible();
-  await expect
-    .poll(async () => (await column.boundingBox())?.x ?? -1)
-    .toBeGreaterThan(100);
-  await waitForAnimations(page);
-  await assertColumnOnTheFloor(true);
-  await column.getByRole("button", { name: "Close chats with Atlas" }).click();
-  await expect(column).toHaveCount(0);
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  await waitForAnimations(page);
-  const lips = await page
-    .locator('[data-testid="conversation-workspace-grid"] [data-luca-card]')
-    .first()
-    .evaluate((el) => {
-      const b = el.getBoundingClientRect();
-      return [b.left, b.top, innerWidth - b.right, innerHeight - b.bottom];
-    });
-  expect(lips).toEqual([8, 8, 8, 8]);
-});
-
-test("with the rail collapsed, hovering the column's edge peeks the rail beside it", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  const column = page.getByTestId("agent-chats-column");
-  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
-
-  await page.getByTestId("sidebar-peek-edge").hover();
-  await expect(page.getByTestId("agent-rail-atlas")).toBeVisible();
-  await expect
-    .poll(async () => (await column.boundingBox())?.x ?? -1)
-    .toBeGreaterThan(100);
-
-  // Leaving the sidebar altogether puts the rail away again; the column
-  // returns to the edge and the collapse was never undone.
-  await page.mouse.move(1000, 400);
-  await expect(page.getByTestId("agent-rail-atlas")).toBeHidden();
-  await expect.poll(async () => (await column.boundingBox())?.x ?? -1).toBe(8);
-});
-
-test("the rail still scrolls while a resident's column is open", async ({
-  page,
-}) => {
-  // Short enough that the rail's list must scroll.
-  await page.setViewportSize({ width: 1280, height: 520 });
-  await page.goto("/?e2e=mock&projectDemo=1");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(page.getByTestId("agent-chats-column")).toBeVisible();
-
-  const anchor = page.getByTestId("app-sidebar-scroll-anchor");
-  const viewport = await page.viewportSize();
-  const anchorBox = await anchor.boundingBox();
-  // The rail is sized to the window, not to its content.
-  expect(anchorBox?.height ?? 0).toBeLessThanOrEqual(viewport?.height ?? 0);
-
-  await page.getByTestId("agent-rail-atlas").hover();
-  await page.mouse.wheel(0, 400);
-  await expect
-    .poll(() =>
-      anchor.evaluate((el) =>
-        Math.max(
-          0,
-          ...Array.from(el.querySelectorAll<HTMLElement>("*")).map(
-            (node) => node.scrollTop,
-          ),
-        ),
-      ),
-    )
-    .toBeGreaterThan(0);
-});
-
-test("both second-column headers sit at the height of the rail's first row", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock&projectDemo=1");
-  const railFirstRow = await page
-    .getByTestId("sidebar-pinned-header")
-    .evaluate((el) => {
-      const first = el.querySelector("button, input, [role='button']");
-      return (first ?? el).getBoundingClientRect().top;
-    });
-
-  // Rail open: the agent column's header lines up with the rail's search row.
-  await page.getByTestId("agent-rail-atlas").click();
-  const columnHeader = page.getByTestId("agent-chats-column").locator("header");
-  await expect
-    .poll(async () =>
-      Math.abs(((await columnHeader.boundingBox())?.y ?? -99) - railFirstRow),
-    )
-    .toBeLessThanOrEqual(6);
-
-  // Same for the project navigator's title.
-  await page.getByTestId("project-row-luca").click();
-  const navigatorHeader = page
-    .getByTestId("project-room-navigator")
-    .locator("header");
-  await expect(navigatorHeader).toBeVisible();
-  // Polled: the plane is still arriving when the navigator first reports visible.
-  await expect
-    .poll(async () =>
-      Math.abs(
-        ((
-          await navigatorHeader.locator("[data-luca-header-meta]").boundingBox()
-        )?.y ?? -99) - railFirstRow,
-      ),
-    )
-    .toBeLessThanOrEqual(8);
-
-  // Collapse the rail: the navigator is now the leading surface and its
-  // title is clear of the strip where the window controls and nav live.
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  const chrome = await page.getByTestId("app-top-chrome").boundingBox();
-  await expect
-    .poll(
-      async () =>
-        (await navigatorHeader.locator("[data-luca-header-meta]").boundingBox())
-          ?.y ?? -1,
-    )
-    .toBeGreaterThanOrEqual((chrome?.y ?? 0) + (chrome?.height ?? 0) - 1);
-});
-
-test("Escape closes a keyboard-opened column and returns focus to the resident's row", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-  // From a room, not the compose view: its recipient popover is still leaving
-  // when the column opens, and a leaving Radix layer claims the first Escape.
-  await page.getByTestId("channel-watercooler").click();
-  await expect(page.getByTestId("chat-title")).toHaveText("watercooler");
-
-  const atlas = page.getByTestId("agent-rail-atlas");
-  const column = page.getByTestId("agent-chats-column");
-  const focusInsideColumn = () =>
-    page.evaluate(
-      () =>
-        document.activeElement?.closest(
-          '[data-testid="agent-chats-column"]',
-        ) !== null,
+  await page
+    .getByLabel("Session name")
+    .fill(
+      "A very long session title that should never widen the main navigation rail",
     );
-  await atlas.focus();
-  await page.keyboard.press("Enter");
-  await expect(column).toBeVisible();
-  // Opened from the keyboard, the column takes focus at its first control
-  // once the rows have landed.
-  await expect.poll(focusInsideColumn).toBe(true);
-
-  await page.keyboard.press("Escape");
-  await expect(column).toHaveCount(0);
-  await expect(atlas).toBeFocused();
-});
-
-test("a pointer open leaves focus where it was", async ({ page }) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(page.getByTestId("agent-column-new-chat")).toBeVisible();
-  expect(
-    await page.evaluate(
-      () =>
-        document.activeElement?.closest(
-          '[data-testid="agent-chats-column"]',
-        ) !== null,
-    ),
-  ).toBe(false);
-});
-
-test("the column arrives and leaves on the compositor, and holds still under reduced motion", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-
-  const atlas = page.getByTestId("agent-rail-atlas");
-  const column = page.getByTestId("agent-chats-column");
-  await atlas.click();
-  await expect(column).toHaveAttribute("data-panel-open", "true");
-  const transitions = await column.evaluate((el) => ({
-    column: getComputedStyle(el).transitionProperty,
-    mover: el.parentElement
-      ? getComputedStyle(el.parentElement).transitionProperty
-      : "",
-  }));
-  // The column itself holds still — the pane's edge is what uncovers it,
-  // so a fade on top of that would be a second arrival. The mover slides by
-  // transform. Nothing here animates `left` or `width`.
-  expect(transitions.column).not.toMatch(/opacity/);
-  expect(transitions.column).not.toMatch(/translate/);
-  expect(transitions.mover).toMatch(/transform|translate/);
-  expect(transitions.mover).not.toMatch(/left|width/);
-
-  // Closing keeps the column through its exit, then lets it go.
-  await atlas.click();
-  await expect(column).toHaveAttribute("data-panel-open", "false");
-  await expect(column).toHaveCount(0);
-
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await atlas.click();
-  await expect(column).toHaveAttribute("data-panel-open", "true");
-  expect(
-    await column.evaluate((el) => el.getAnimations({ subtree: true }).length),
-  ).toBe(0);
-});
-
-test("the keyboard opens a column row's menu", async ({ page }) => {
-  await page.goto("/?e2e=mock");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await page.getByTestId("agent-column-new-chat").click();
-  const row = page
-    .getByTestId("agent-chats-column")
-    .locator('[data-testid^="agent-column-chat-"]')
-    .first();
-  await expect(row).toBeVisible();
-  await row.focus();
-  // The keyboard's menu key reaches the row as a `contextmenu` event from the
-  // browser (Shift+F10 is not one on macOS); this is what that event does.
-  await row.dispatchEvent("contextmenu");
-  await expect(
-    page.getByRole("menuitem", { name: /mark.*unread/i }),
-  ).toBeVisible({ timeout: 1500 });
-});
-
-test("a runtime and a resident's column never open together", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-  const column = page.getByTestId("agent-chats-column");
-  const runtimePanel = page.getByTestId("runtime-sessions-panel");
-
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(column).toHaveAttribute("data-panel-open", "true");
-
-  // A runtime replaces the column.
-  await page.getByTestId("runtime-rail-claude_code").click();
-  await expect(runtimePanel).toBeVisible();
-  await expect(column).toHaveCount(0);
-
-  // And a resident replaces the runtime panel.
-  await page.getByTestId("agent-rail-atlas").click();
-  await expect(column).toHaveAttribute("data-panel-open", "true");
-  await expect(runtimePanel).toHaveCount(0);
-});
-
-test("the rail slides by transform and the reading plane travels with it, and the phone sheet is on the drawer curve", async ({
-  page,
-}) => {
-  await page.goto("/?e2e=mock");
-
-  const container = page.getByTestId("app-sidebar");
-  const styles = () =>
-    container.evaluate((el) => {
-      const gap = el.previousElementSibling;
-      const gapStyle = gap ? getComputedStyle(gap) : null;
-      return {
-        container: getComputedStyle(el).transitionProperty,
-        containerDuration: getComputedStyle(el).transitionDuration,
-        containerEasing: getComputedStyle(el).transitionTimingFunction,
-        gapProperty: gapStyle?.transitionProperty ?? "",
-        gapDuration: gapStyle?.transitionDuration ?? "",
-        gapEasing: gapStyle?.transitionTimingFunction ?? "",
-        gapWidth: gap ? gap.getBoundingClientRect().width : -1,
-        translate: getComputedStyle(el).translate,
-      };
-    });
-  const tokens = await page.evaluate(() => {
-    const root = getComputedStyle(document.documentElement);
-    return {
-      duration: root.getPropertyValue("--motion-duration-standard").trim(),
-      easing: root.getPropertyValue("--motion-ease-standard").trim(),
-    };
+  await page
+    .getByRole("button", { name: "Start session", exact: true })
+    .click();
+  await expect(page.getByTestId("chat-title")).toContainText(
+    "A very long session",
+  );
+  const handle = page.getByRole("button", {
+    name: "Resize or toggle sidebar",
+    exact: true,
   });
-  const resting = await styles();
-  expect(resting.container).toMatch(/transform|translate/);
-  expect(resting.container).not.toMatch(/left|right/);
-  // The gap is the rail's footprint under the reading plane, so the plane's
-  // leading edge and the rail's trailing edge are one line: the same
-  // duration and the same curve as the rail's own slide. Snapping it
-  // teleported the conversation while the rail slid out from under it.
-  expect(resting.gapProperty).toMatch(/width/);
-  const toMs = (value: string) =>
-    value.trim().endsWith("ms")
-      ? Number.parseFloat(value)
-      : Number.parseFloat(value) * 1000;
-  expect(toMs(resting.gapDuration)).toBe(toMs(tokens.duration));
-  // The token is authored as `.25`; the computed value normalises to `0.25`.
-  const curve = (value: string) =>
-    value.replace(/\s+/g, "").replace(/(^|[(,])\./g, "$10.");
-  expect(curve(resting.gapEasing)).toBe(curve(tokens.easing));
-  expect(resting.gapWidth).toBeGreaterThan(0);
-
-  // Collapse: the container leaves by translate and the gap closes with it,
-  // arriving at zero at the end of the slide rather than at its start.
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  await expect.poll(async () => (await styles()).translate).toMatch(/^-\d+px/);
-  await expect.poll(async () => (await styles()).gapWidth).toBe(0);
-  await page.getByRole("button", { name: "Toggle Sidebar" }).first().click();
-  await expect
-    .poll(async () => (await styles()).translate)
-    .toMatch(/^(none|0px)/);
-
-  // Reduced motion: the gap is instant again, so the slide adds nothing the
-  // owner asked not to see.
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  // `transition-property: none` is the thing that stops it; the duration
-  // longhand keeps its value either way, so that is not the probe.
-  expect((await styles()).gapProperty).toBe("none");
-  await page.emulateMedia({ reducedMotion: null });
-
-  // The phone sheet arrives on the house drawer curve.
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Toggle Sidebar" }).click();
-  const sheet = page.getByRole("dialog", { name: "Sidebar", exact: true });
-  await expect(sheet).toBeVisible();
-  const motion = await sheet.evaluate((el) => ({
-    duration: getComputedStyle(el).animationDuration,
-    easing: getComputedStyle(el).animationTimingFunction,
+  const box = await handle.boundingBox();
+  if (!box) throw new Error("Missing resize handle");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(194, box.y + box.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await waitForAnimations(page);
+  const geometry = await sessions.evaluate((el) => ({
+    width: el.clientWidth,
+    content: el.scrollWidth,
+    x: el.getBoundingClientRect().x,
   }));
-  expect(motion.duration).toBe("0.26s");
-  expect(motion.easing).toBe("cubic-bezier(0.32, 0.72, 0, 1)");
+  expect(geometry.content).toBeLessThanOrEqual(geometry.width + 1);
+  expect(geometry.x).toBeGreaterThanOrEqual(0);
+  await expect(page.getByTestId("agent-chats-column")).toHaveCount(0);
+  await page.screenshot({
+    path: "test-results/inline-agent-sessions-narrow.png",
+  });
+});
+
+test("earlier Luca Quick Chat and its unsent draft remain accessible", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    const key = `luca:quickchat:v1:${encodeURIComponent(localStorage.getItem("buzz-active-community-id") ?? "default")}:${"deadbeef".repeat(8)}`;
+    localStorage.setItem(
+      key,
+      JSON.stringify({
+        selectedPubkey: "a".repeat(64),
+        rooms: {
+          ["a".repeat(64)]: {
+            channelId: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+            ready: true,
+            draft: "Keep this earlier unsent draft",
+          },
+        },
+      }),
+    );
+  });
+  await page.reload();
+  await page.getByTestId("quickchat-launcher").click();
+  await page
+    .getByRole("button", { name: "Quick Chat options", exact: true })
+    .click();
+  await page.getByText("Earlier Quick Chat", { exact: true }).click();
+  await expect(page.getByLabel("Earlier unsent draft")).toHaveValue(
+    "Keep this earlier unsent draft",
+  );
+  await expect(page.getByTestId("quickchat-input")).toHaveValue("");
+  await expect(page.getByTestId("quickchat-new-chat")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Open earlier conversation", exact: true })
+    .click();
+  await expect(page.getByTestId("chat-title")).toHaveText("general");
 });

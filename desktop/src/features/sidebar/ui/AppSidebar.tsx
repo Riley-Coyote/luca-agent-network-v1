@@ -1,6 +1,8 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
-import { readLastConversation } from "@/app/navigation/lastConversation";
+import { AgentSessionDialog } from "@/features/sidebar/ui/AgentSessionDialog";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
+import { agentRailStorageKey } from "@/features/sidebar/lib/agentRailState";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
@@ -9,7 +11,6 @@ import { useResidentMoteWarmup } from "@/features/luca/residents/ResidentMote";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useDeferredLoad } from "@/shared/hooks/useDeferredStartup";
 import { useStableCallback } from "@/shared/hooks/useStableReference";
-import { PanelPresence } from "@/shared/layout/PanelPresence";
 import {
   useChannelSections,
   type ChannelSection,
@@ -51,17 +52,7 @@ import {
 } from "@/features/onboarding/onboardingBackgroundImport";
 import { cn } from "@/shared/lib/cn";
 import { SidebarSection } from "@/features/sidebar/ui/SidebarSection";
-import {
-  setSelectedAgentPubkey,
-  toggleSelectedAgentPubkey,
-  useSelectedAgentPubkey,
-} from "@/features/sidebar/lib/agentColumn";
-import { AgentChatsColumn } from "@/features/sidebar/ui/AgentChatsColumn";
-import {
-  buildChatListItems,
-  ChatList,
-  chatsWithAgent,
-} from "@/features/sidebar/ui/ChatList";
+import { buildChatListItems, ChatList } from "@/features/sidebar/ui/ChatList";
 import { CreateRoomProjectDialog } from "@/features/projects/ui/CreateRoomProjectDialog";
 import { runProjectCreationTransaction } from "@/features/projects/lib/projectCreationTransaction";
 import { addChannelMembers } from "@/shared/api/tauri";
@@ -79,7 +70,6 @@ import { runtimeConnectionKey } from "@/features/runtime-sessions/runtimeSession
  *  can be compared side by side before anything is deleted. */
 const USE_CHAT_LIST = true;
 
-const closeAgentColumn = () => setSelectedAgentPubkey(null);
 import {
   ChannelGroupSection,
   CustomChannelSection,
@@ -231,9 +221,14 @@ export function AppSidebar({
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
   const managedAgentsQuery = useManagedAgentsQuery();
-  // The AGENTS rail lists residents, not chats. Choosing one opens the agent
-  // column; choosing it again closes it.
-  const selectedAgentPubkey = useSelectedAgentPubkey();
+  const primaryPubkey = useCanonicalLucaPubkey();
+  const [newSessionPubkey, setNewSessionPubkey] = React.useState<string | null>(
+    null,
+  );
+  const newSessionAgent = managedAgentsQuery.data?.find(
+    (agent) =>
+      agent.pubkey === newSessionPubkey && agent.pubkey !== primaryPubkey,
+  );
   // Agents chosen during setup are brought in behind the first conversation.
   // They are in the rail from the first moment, in the state the rail already
   // has for a resident that exists but is not up yet, and their row becomes an
@@ -265,37 +260,7 @@ export function AppSidebar({
       a.name.localeCompare(b.name),
     );
   }, [managedAgentsQuery.data, pendingImports]);
-  const selectedAgent = React.useMemo(
-    () =>
-      selectedAgentPubkey
-        ? (railAgents.find(
-            (agent) =>
-              agent.pubkey.toLowerCase() === selectedAgentPubkey.toLowerCase(),
-          ) ?? null)
-        : null,
-    [railAgents, selectedAgentPubkey],
-  );
-  // Residents exist, so a thread with one is likely: warm the companion's
-  // renderer at idle rather than on that click.
   useResidentMoteWarmup(railAgents.length > 0);
-  // A column for a resident who is no longer here closes itself — but only
-  // once the roster has actually loaded, so a slow query cannot flicker it
-  // away on the way in.
-  React.useEffect(() => {
-    if (!selectedAgentPubkey || managedAgentsQuery.isPending) return;
-    if (!selectedAgent) setSelectedAgentPubkey(null);
-  }, [managedAgentsQuery.isPending, selectedAgent, selectedAgentPubkey]);
-  // Leaving for another destination closes the column. Arriving in a
-  // conversation keeps it: that is what the column is for. A rail resident
-  // click navigates directly to the remembered chat or compose view.
-  const previousViewRef = React.useRef(selectedView);
-  React.useEffect(() => {
-    const previous = previousViewRef.current;
-    previousViewRef.current = selectedView;
-    if (previous === selectedView) return;
-    if (selectedView === "channel" || selectedView === "messages") return;
-    setSelectedAgentPubkey(null);
-  }, [selectedView]);
   const projectResidentOptions = React.useMemo(
     () =>
       [...(managedAgentsQuery.data ?? [])]
@@ -657,9 +622,6 @@ export function AppSidebar({
 
   const handleSelectRuntime = React.useCallback(
     (runtime: RuntimeConnectionStatusV1) => {
-      // One second column at a time: a runtime replaces whichever agent
-      // column was open.
-      setSelectedAgentPubkey(null);
       if (selectedView !== "messages") {
         pendingRuntimeSelectionRef.current = runtime;
         selectedRuntimeRef.current = null;
@@ -679,7 +641,7 @@ export function AppSidebar({
     [isMobile, onNewMessage, selectedView, setOpenMobile],
   );
 
-  // Stable handlers for the rail's memoised rows and the column: the shell
+  // Stable handlers for the rail's memoised rows: the shell
   // hands this component fresh arrows on every render, and a row must not
   // re-render because of them.
   const selectChannelFromRail = useStableCallback((channelId: string) => {
@@ -689,9 +651,6 @@ export function AppSidebar({
   const selectProjectFromRail = useStableCallback(
     (projectId: string, preferredRoomId: string | null) => {
       if (isMobile) setOpenMobile(false);
-      // One second column at a time: a project replaces whichever agent
-      // column was open.
-      setSelectedAgentPubkey(null);
       onSelectProject(projectId, preferredRoomId);
     },
   );
@@ -699,93 +658,47 @@ export function AppSidebar({
     () => setIsCreateProjectOpen(true),
     [],
   );
-  const selectAgentFromRail = useStableCallback((pubkey: string) => {
-    // An agent still being brought in has no record to open yet. Its row is
-    // there so the owner can see it coming, and it becomes selectable the
-    // moment it is real.
-    if (pubkey.startsWith(PENDING_NATIVE_IMPORT_PREFIX)) return;
-    // ...and an agent replaces whichever runtime panel was open.
+  const createAgentFromRail = useStableCallback(() => onCreateAgent());
+  const openingAgent = React.useRef(new Set<string>());
+  const openAgentFromRail = useStableCallback((pubkey: string) => {
+    if (
+      pubkey.startsWith(PENDING_NATIVE_IMPORT_PREFIX) ||
+      openingAgent.current.has(pubkey)
+    )
+      return;
     pendingRuntimeSelectionRef.current = null;
     selectedRuntimeRef.current = null;
     setSelectedRuntime(null);
-    if (selectedView === "channel" || selectedView === "messages") {
-      toggleSelectedAgentPubkey(pubkey);
-      return;
-    }
-
-    // The rail is a conversation shortcut even when a workspace is open.
-    // Navigate directly so an intermediate Home view cannot close the column.
-    setSelectedAgentPubkey(pubkey);
-    const lastConversationId = readLastConversation(
-      new Set(channels.map((channel) => channel.id)),
-    );
-    if (lastConversationId) {
-      onSelectChannel(lastConversationId);
-    } else {
-      onNewMessage();
-    }
-  });
-  const createAgentFromRail = useStableCallback(() => onCreateAgent());
-  const startAgentChat = useStableCallback(() => {
-    if (!selectedAgent) return;
-    // Like choosing a row: once the thread is open, the phone's sheet gets
-    // out of the way of the conversation it just started.
+    openingAgent.current.add(pubkey);
     void (async () => {
       try {
-        await onOpenDm({ pubkeys: [selectedAgent.pubkey] });
+        // The relay's owner/participant key is the durable get-or-create map.
+        await onOpenDm({ pubkeys: [pubkey] });
+        if (isMobile) setOpenMobile(false);
       } catch {
-        // The shell has already told the owner; the column and the sheet
-        // stay exactly where they were.
-        return;
+        /* AppShell reports the error and leaves navigation intact. */
+      } finally {
+        openingAgent.current.delete(pubkey);
       }
-      if (isMobile) setOpenMobile(false);
     })();
   });
-  const columnItems = React.useMemo(
-    () =>
-      selectedAgent ? chatsWithAgent(chatListItems, selectedAgent.pubkey) : [],
-    [chatListItems, selectedAgent],
+  const agentStorageKey = agentRailStorageKey(
+    currentPubkey ?? "",
+    activeCommunity?.relayUrl ?? "",
+    activeCommunity?.id ?? "",
   );
-  // With an agent chosen the rail grows by one column; the rail's own width
-  // is still what the provider published, so nothing inside it reflows — the
-  // column simply appears beside it.
-  const hasAgentColumn = Boolean(selectedAgent) && !isMobile;
-  const rootStyle = React.useMemo(
-    () =>
-      ({
-        "--agent-column-width": "232px",
-        // Rail + column while the rail is open; the column alone when the
-        // owner has put the rail away — the column stays as the pane.
-        "--sidebar-width": hasAgentColumn
-          ? sidebarOpen
-            ? "calc(var(--sidebar-rail-width) + var(--agent-column-width))"
-            : "var(--agent-column-width)"
-          : undefined,
-      }) as React.CSSProperties,
-    [hasAgentColumn, sidebarOpen],
-  );
-
-  const agentColumn = selectedAgent ? (
-    <AgentChatsColumn
-      agent={selectedAgent}
-      items={columnItems}
-      mobile={isMobile}
-      onClose={closeAgentColumn}
-      onMarkChannelRead={onMarkChannelRead}
-      onMarkChannelUnread={onMarkChannelUnread}
-      onNewChat={startAgentChat}
-      onSelectChannel={selectChannelFromRail}
-      projectByChannelId={roomProjects}
-      railHidden={!sidebarOpen && !isMobile}
-      selectedChannelId={selectedChannelId}
-      unreadChannelIds={unreadChannelIds}
-      workingByChannelId={activeWorkingByChannelId}
-    />
-  ) : null;
 
   return React.createElement(
     React.Fragment,
     null,
+    newSessionAgent ? (
+      <AgentSessionDialog
+        key={`${activeCommunity?.id}:${currentPubkey}:${newSessionAgent.pubkey}`}
+        agent={newSessionAgent}
+        onClose={() => setNewSessionPubkey(null)}
+        onCreated={selectChannelFromRail}
+      />
+    ) : null,
     <Sidebar
       className="!border-r-0"
       // Full rail or nothing — the industry standard, and what Claude, ChatGPT,
@@ -796,34 +709,10 @@ export function AppSidebar({
       // defeats the point of an identity mark.
       collapsible="offcanvas"
       data-testid="app-sidebar"
-      rootStyle={rootStyle}
-      railCompanionOpen={hasAgentColumn}
       variant="sidebar"
     >
-      {isMobile ? (
-        agentColumn
-      ) : (
-        // On the desktop the column arrives and leaves under PanelPresence:
-        // it stays through its exit, Escape closes it, and focus returns to
-        // the rail row that opened it. In the phone sheet it simply replaces
-        // the rail, with no motion to retain.
-        <PanelPresence onClose={closeAgentColumn}>{agentColumn}</PanelPresence>
-      )}
       <div
-        className={cn(
-          // The rail fills the sidebar's height (flex-1 + min-h-0 is what lets
-          // its list scroll) and keeps its own width even while the column
-          // widens the sidebar beside it.
-          "relative flex min-h-0 w-(--sidebar-rail-width) flex-1 shrink flex-col overflow-hidden",
-          // In the mobile sheet the column takes the rail's place outright;
-          // with the rail collapsed on desktop, likewise — the column is the pane.
-          selectedAgent && (isMobile || !sidebarOpen) && "hidden",
-          // …until the owner peeks: then the rail slides in beside the column.
-          selectedAgent &&
-            !isMobile &&
-            !sidebarOpen &&
-            "group-data-[peek=companion]:flex",
-        )}
+        className="relative flex min-h-0 w-(--sidebar-rail-width) flex-1 shrink flex-col overflow-hidden"
         data-testid="app-sidebar-scroll-anchor"
       >
         <AppSidebarPinnedHeader
@@ -912,8 +801,10 @@ export function AppSidebar({
                         unreadChannelIds={unreadChannelIds}
                         workingByChannelId={activeWorkingByChannelId}
                         agents={railAgents}
-                        selectedAgentPubkey={selectedAgentPubkey}
-                        onSelectAgent={selectAgentFromRail}
+                        primaryPubkey={primaryPubkey}
+                        agentStorageKey={agentStorageKey}
+                        onOpenAgent={openAgentFromRail}
+                        onNewSession={setNewSessionPubkey}
                       />
                       <RuntimeRailSection
                         onSelect={handleSelectRuntime}

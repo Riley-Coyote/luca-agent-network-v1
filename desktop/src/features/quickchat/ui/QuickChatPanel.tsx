@@ -239,16 +239,18 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
       </header>
       {menu && (
         <div className="qc-menu text-xs">
-          <button
-            type="button"
-            data-testid="quickchat-new-chat"
-            onClick={() => {
-              model.newChat();
-              setMenu(false);
-            }}
-          >
-            New chat
-          </button>
+          {model.canStartNewChat && (
+            <button
+              type="button"
+              data-testid="quickchat-new-chat"
+              onClick={() => {
+                model.newChat();
+                setMenu(false);
+              }}
+            >
+              New chat
+            </button>
+          )}
           <button
             type="button"
             data-testid="quickchat-open-full"
@@ -259,6 +261,28 @@ export function QuickChatPanel({ model }: { model: QuickChatViewModel }) {
           >
             Open full conversation
           </button>
+          {model.earlierChat &&
+            (model.earlierChat.channelId || model.earlierChat.draft) && (
+              <details data-testid="quickchat-earlier">
+                <summary>Earlier Quick Chat</summary>
+                {model.earlierChat.channelId && (
+                  <button type="button" onClick={model.openEarlierConversation}>
+                    Open earlier conversation
+                  </button>
+                )}
+                {model.earlierChat.draft && (
+                  <label>
+                    Saved unsent draft
+                    <textarea
+                      aria-label="Earlier unsent draft"
+                      readOnly
+                      value={model.earlierChat.draft}
+                      className="w-full bg-background p-2 text-xs"
+                    />
+                  </label>
+                )}
+              </details>
+            )}
           <label>
             <input
               type="checkbox"
