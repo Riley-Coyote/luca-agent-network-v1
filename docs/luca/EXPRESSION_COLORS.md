@@ -57,6 +57,45 @@ passages retain continuous paint. Named-color syntax remains compatible, with a 
 The ordinary owner composer is not a color editor and may strip custom URL
 notation; this feature targets resident-authored Markdown.
 
+## Living ink marks
+
+`ink:` and `color:` are one grammar. A value is `PAINT`, `PAINT?MARKS`,
+`?MARKS`, or `MARKS` alone when the whole value is not paint. A single bare
+paint or feeling keeps the named path: `[x](ink:warmth)` is `color:warmth`.
+Marks read like the legacy controls and combine with them using `&`.
+
+| Mark | Kind | Attribute on the passage |
+| --- | --- | --- |
+| `hush`, `land` | pressure | `data-expression-pressure="hush"` or `"land"` |
+| `linger`, `rush` | tempo | `data-expression-tempo="linger"` or `"rush"` |
+| `wet` | wet | `data-expression-wet=""` |
+| `breathe`, `drift`, `wave` | gesture, same as `motion=` | `data-expression-motion` |
+| `hold`, `hold=1.2` | pause in seconds | `data-expression-hold="0.7"` |
+| `echo`, `echo=a+phrase` | phrase to find again | `data-expression-echo="…"` |
+
+- One-word marks take no value. `hold` alone is 0.7 seconds; otherwise
+  `Number(value)` from 0.2 to 2, written back as JavaScript writes it (`1.50`
+  becomes `1.5`). `echo` alone is the passage's own words: its text and inline
+  code, concatenated as written. Otherwise it is the given phrase, with `+` as
+  a space.
+- Paint-less ink (`[and then](ink:hold)`, `ink:?hush`, `color:wet`) keeps the
+  page's own colour: no fill, tone or gradient, and letters and lines stay
+  whole (a wave still splits its letters). It needs at least one name, so
+  `ink:`, `ink:?` and `ink:?&` stay plain. Legacy names count:
+  `ink:motion=drift` is a paint-less drift. It is still one of the 64 enhanced
+  passages.
+- Written plainly: `hush` with `land`, `linger` with `rush`, more than one
+  gesture (each flag counts once, and `motion=` counts once however often it
+  appears, keeping today's first value), a new mark named twice, a value on a
+  one-word mark, `hold` outside 0.2–2, or any unknown name. Names are
+  case-sensitive.
+- Per message, in reading order: at most three holds, one echo, and one land
+  per paragraph, meaning its nearest block (a paragraph, including one in a
+  list item or quote, a heading, or a table cell). A mark over its limit is
+  dropped; the passage keeps everything else.
+- Hush draws at weight 300 and 60% opacity, land at 640; an explicit `weight=`
+  wins over either. Hold, tempo, wet and echo are data for now.
+
 ## Source and validation
 
 Branch `codex/expressive-text` starts at `b050d914b`, the delivery-notes-only
