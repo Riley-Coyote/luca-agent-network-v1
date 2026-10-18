@@ -117,15 +117,25 @@ type Phase = "idle" | "running" | "settling";
  */
 export function useStreamingWordEffect(
   rootRef: React.RefObject<HTMLElement | null>,
-  options: { active: boolean; effect: StreamingTextEffect },
+  options: {
+    active: boolean;
+    effect: StreamingTextEffect;
+    /** The reply may hold a breath (living ink's `hold`). */
+    holds?: boolean;
+  },
 ): StreamingWordState {
-  const { active, effect } = options;
+  const { active, effect, holds = false } = options;
   const reducedMotion = usePrefersReducedMotion();
-  // With nothing allowed to move, words still take clocks, so that a held
-  // breath can keep its pause; they simply show the moment they arrive.
+  // Sticky: a hold that is still waiting when the stream ends must still be
+  // let go, so the row keeps its clocks until every word has shown.
+  const holdsRef = React.useRef(false);
+  if (holds) holdsRef.current = true;
+  // With nothing allowed to move, a reply streams plain — unless it holds a
+  // breath: then its words take clocks, so the pause can stay, and simply
+  // show the moment they arrive.
   const animation =
     (reducedMotion ? null : streamingWordAnimation(effect)) ??
-    STREAMING_WORD_STILL;
+    (holdsRef.current ? STREAMING_WORD_STILL : null);
   const still = animation === STREAMING_WORD_STILL;
 
   const [phase, setPhase] = React.useState<Phase>("idle");

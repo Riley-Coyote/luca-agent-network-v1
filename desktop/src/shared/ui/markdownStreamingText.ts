@@ -77,6 +77,18 @@ export const STREAMING_GAP_MIN_MS = 4;
 export const STREAMING_LINGER_LETTER_MS = 48;
 export const STREAMING_RUSH_GAP_MS = 8;
 
+/**
+ * Whether a reply may hold a breath: a cheap look for living ink's `hold`, so
+ * a reply that streams plain under Reduce Motion stays plain unless it does.
+ * A false yes only costs the reply its word spans.
+ */
+export function inkMayHold(content: string): boolean {
+  return (
+    content.includes("hold") &&
+    (content.includes("(ink:") || content.includes("(color:"))
+  );
+}
+
 /** What living ink asks of one word's clock. */
 export type StreamingWordInk = {
   /** A held breath before this word, when it is the first of its passage. */

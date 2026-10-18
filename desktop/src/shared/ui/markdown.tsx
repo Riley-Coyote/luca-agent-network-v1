@@ -120,7 +120,10 @@ import {
 } from "./markdown/runtimeContext";
 import { AgentSnapshotCard } from "./markdown/AgentSnapshotCard";
 import { resolveFileCard, resolveSnapshotCard } from "./markdownFileCard";
-import { STREAMING_EFFECT_ATTRIBUTE } from "./markdownStreamingText";
+import {
+  STREAMING_EFFECT_ATTRIBUTE,
+  inkMayHold,
+} from "./markdownStreamingText";
 import { inkHeardEqual } from "@/shared/lib/inkHeard";
 import type { MarkdownProps, MarkdownRuntime } from "./markdown/types";
 import { useStreamingWordEffect } from "./useStreamingWordEffect";
@@ -1884,6 +1887,7 @@ function MarkdownInner({
   const streamingWords = useStreamingWordEffect(rootRef, {
     active: streaming,
     effect: streamingTextEffect,
+    holds: streaming && inkMayHold(content),
   });
   const { channels: rawChannels } = useChannelNavigation();
   const channels = useStableArray(rawChannels);

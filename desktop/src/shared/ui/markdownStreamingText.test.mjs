@@ -4,6 +4,7 @@ import test from "node:test";
 import rehypeStreamingWords, {
   createStreamingWordSchedule,
   DEFAULT_STREAMING_TEXT_EFFECT,
+  inkMayHold,
   STREAMING_BLOCK_PAUSE_MS,
   STREAMING_GAP_FIRST_MS,
   STREAMING_GAP_STEADY_MS,
@@ -400,6 +401,24 @@ test("a lingering word is written on from left to right, then left plain", () =>
   assert.equal(node.style["-webkit-mask-image"], undefined);
   assert.equal(node.style.opacity, "");
   assert.equal(node.style.filter, "none");
+});
+
+test("only a reply that may hold a breath leaves the plain stream", () => {
+  for (const content of [
+    "[and then](ink:hold)",
+    "[x](color:care?hold=1.2&hush)",
+    "[x](ink:care?hold",
+  ]) {
+    assert.equal(inkMayHold(content), true, content);
+  }
+  for (const content of [
+    "plain words",
+    "hold on, I'll check",
+    "[x](ink:care?hush)",
+    "[x](https://example.com/hold)",
+  ]) {
+    assert.equal(inkMayHold(content), false, content);
+  }
 });
 
 // --- the rehype pass -------------------------------------------------------
