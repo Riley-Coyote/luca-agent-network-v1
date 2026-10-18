@@ -25,6 +25,15 @@ case "$CANDIDATE_KIND" in
         readonly PROTOCOL="polyphonic.companion-initiative-candidate.v1"
         readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.companion-initiative-candidate.conf.json"
         ;;
+    living-ink)
+        readonly EXPECTED_BRANCH="claude/living-ink-companion"
+        readonly SOURCE_BASE="6dbb49a64728695262d74179605bee72015f4669"
+        readonly BUNDLE_ID="chat.polyphonic.desktop.living-ink.dev"
+        readonly PRODUCT_NAME="Polyphonic Living Ink Candidate"
+        readonly URL_SCHEME="polyphonic-living-ink"
+        readonly PROTOCOL="polyphonic.living-ink-candidate.v1"
+        readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.living-ink-candidate.conf.json"
+        ;;
     *) printf 'Candidate refused: unknown candidate identity\n' >&2; exit 1 ;;
 esac
 readonly ENTITLEMENTS_PATH="$REPO_ROOT/desktop/src-tauri/Entitlements.plist"
