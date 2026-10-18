@@ -19,6 +19,13 @@ const skipped = (node: ExpressionNode) =>
   ["code", "inlineCode", "image", "html"].includes(node.type);
 const paint = (rgb: RGB) => `--expression-fill:${formatExpressionColor(rgb)}`;
 
+/** The passage's own words: its text descendants, inline code as written. */
+function ownWords(node: ExpressionNode): string {
+  if (node.type === "text" || node.type === "inlineCode")
+    return node.value ?? "";
+  return node.children?.map(ownWords).join("") ?? "";
+}
+
 function span(
   children: ExpressionNode[],
   properties: Record<string, string>,
@@ -36,6 +43,7 @@ export function buildExpressionTree(
   spec: ExpressionSpec,
   budget: { remaining: number },
 ) {
+  const painted = spec.stops.length > 0;
   let count = 0,
     lines = 1,
     runs = 0;
@@ -58,7 +66,9 @@ export function buildExpressionTree(
     child.children?.forEach(measure);
   }
   node.children?.forEach(measure);
-  let axis = spec.motion === "wave" ? "letters" : spec.axis;
+  // Without paint there is nothing to spread across letters or lines; a wave
+  // still needs its letters.
+  let axis = spec.motion === "wave" ? "letters" : painted ? spec.axis : "flow";
   if (
     (axis === "letters" && (count > budget.remaining || complexShaping)) ||
     (axis === "lines" && runs > budget.remaining)
@@ -66,15 +76,17 @@ export function buildExpressionTree(
     axis = "flow";
   const motion =
     spec.motion === "wave" && axis !== "letters" ? "drift" : spec.motion;
-  let style = paint(spec.stops[0]);
-  if (spec.weight !== undefined) style += `;--expression-weight:${spec.weight}`;
+  const declarations = painted ? [paint(spec.stops[0])] : [];
+  if (spec.weight !== undefined)
+    declarations.push(`--expression-weight:${spec.weight}`);
   if (spec.tracking !== undefined)
-    style += `;--expression-tracking:${spec.tracking}em`;
-  style += `;--expression-duration:${spec.duration}s`;
-  const properties: Record<string, string> = {
-    "data-expression-tone": "",
-    style,
-  };
+    declarations.push(`--expression-tracking:${spec.tracking}em`);
+  declarations.push(`--expression-duration:${spec.duration}s`);
+  const style = declarations.join(";");
+  // Paint-less ink keeps the page's colour: no tone, no fill, no gradient.
+  const properties: Record<string, string> = painted
+    ? { "data-expression-tone": "", style }
+    : { style };
   if (motion) properties["data-expression-motion"] = motion;
   if (spec.weight !== undefined) properties["data-expression-weight"] = "";
   if (spec.tracking !== undefined) properties["data-expression-tracking"] = "";
@@ -85,6 +97,14 @@ export function buildExpressionTree(
     properties["data-expression-gradient"] = "";
     properties.style += `;--expression-gradient:linear-gradient(90deg,${samples.map(formatExpressionColor).join(",")})`;
   }
+  // Living ink marks ride on the passage as data; only pressure is drawn yet.
+  if (spec.pressure) properties["data-expression-pressure"] = spec.pressure;
+  if (spec.hold !== undefined)
+    properties["data-expression-hold"] = String(spec.hold);
+  if (spec.tempo) properties["data-expression-tempo"] = spec.tempo;
+  if (spec.wet) properties["data-expression-wet"] = "";
+  if (spec.echo !== undefined)
+    properties["data-expression-echo"] = spec.echo || ownWords(node);
   if (axis !== "flow") {
     let index = 0,
       line = 0;
@@ -104,12 +124,14 @@ export function buildExpressionTree(
           parts.map((value) => {
             const progress =
               (axis === "lines" ? line : index) / Math.max(1, total - 1);
-            const style = `${paint(mixExpressionColors(spec.stops, progress))};--expression-delay:${(((index % 24) / 24) * 0.6).toFixed(3)}s`;
+            const delay = `--expression-delay:${(((index % 24) / 24) * 0.6).toFixed(3)}s`;
             index++;
             return span([{ type: "text", value }], {
-              "data-expression-tone": "",
+              ...(painted ? { "data-expression-tone": "" } : {}),
               ...(motion === "wave" ? { "data-expression-glyph": "" } : {}),
-              style,
+              style: painted
+                ? `${paint(mixExpressionColors(spec.stops, progress))};${delay}`
+                : delay,
             });
           }),
           {},

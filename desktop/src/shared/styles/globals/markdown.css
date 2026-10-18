@@ -321,6 +321,16 @@
 [data-expression-tone] em {
   color: var(--expression-fill);
 }
+/* Pressure sits on the passage, so streamed words inherit it and their own
+   opacity multiplies with it. It comes before the weight rule: weight= wins. */
+[data-expression-pressure="hush"] {
+  font-weight: 300;
+  opacity: 0.6;
+}
+[data-expression-pressure="land"] {
+  font-weight: 640;
+}
+/* Hold, tempo, wet and echo are data only for now; nothing draws them yet. */
 [data-expression-weight] {
   font-weight: var(--expression-weight);
 }
@@ -361,8 +371,9 @@
     text-shadow: none;
   }
   50% {
+    /* Paint-less ink has no fill; its halo is the page's own colour. */
     text-shadow: 0 0 0.35em
-      color-mix(in srgb, var(--expression-fill) 35%, transparent);
+      color-mix(in srgb, var(--expression-fill, currentColor) 35%, transparent);
   }
 }
 @keyframes expression-drift {
@@ -395,6 +406,7 @@
 }
 
 @media (forced-colors: active) {
+  [data-expression-motion],
   [data-expression-motion="wave"] [data-expression-glyph] {
     animation: none;
   }
