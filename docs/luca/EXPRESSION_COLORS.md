@@ -95,7 +95,38 @@ Marks read like the legacy controls and combine with them using `&`.
   list item or quote, a heading, or a table cell). A mark over its limit is
   dropped; the passage keeps everything else.
 - Hush draws at weight 300 and 60% opacity, land at 640; an explicit `weight=`
-  wins over either. Hold, tempo, wet and echo are data for now.
+  wins over either.
+
+## How the desktop draws the marks
+
+- While a reply streams, an unfinished ink link waits off the page until its
+  closing parenthesis arrives (`openInkLinkStart` in `progressiveMarkdown.ts`),
+  so the notation never shows and the passage arrives as itself. A closed ink
+  link parses at once, even across soft line breaks.
+- Hold, linger and rush shape the word clock (`markdownStreamingText.ts`,
+  `useStreamingWordEffect.ts`). A hold waits before its passage's first word,
+  measured from the word before it, and everything after waits too; a stream
+  that already paused that long adds nothing. A lingering word is written on
+  left to right behind a soft mask edge at 48 ms a letter, and the next word
+  waits for it. A rushed passage starts its words 8 ms apart. Neither is
+  tightened by a backlog. With Reduce Motion, or the streaming effect off,
+  words appear as they arrive and nothing moves, but holds keep their pause.
+- Wet ink is split into word spans (`data-expression-wet-word`, each with its
+  text in `data-ink-text`). Painted wet passages sit 14% deeper (gradients keep
+  their own colour). A gloss on each word lies where the room's one light
+  falls (`inkLight.ts`): the pointer, followed with a soft lag, and a slow
+  wander after 2.6 s at rest. Rows before the owner's latest message carry
+  `data-ink-answered` (from `buildTimelineItems`), and there the gloss fades
+  and the colour returns. No gloss under Reduce Motion or forced colours, or
+  while the row is still streaming.
+- Echo is read from each reply's body by the same remark pipeline
+  (`inkHeardOf`) and given to the nearest owner message before it, whose
+  parse lights the phrase's first whole-word, case-insensitive match
+  (`rehypeInkHeard`): the reply's paint mixed 80% into the text colour, with a
+  1px underline at 70%. Paint-less echo keeps only the underline. It warms in
+  once, for an echo first seen within 1.5 s and a reply under five minutes
+  old. Code is never lit.
+- Thread panels do not yet dry wet ink or show echoes; the main timeline does.
 
 ## Source and validation
 
