@@ -76,8 +76,9 @@ Marks read like the legacy controls and combine with them using `&`.
 - One-word marks take no value. `hold` alone is 0.7 seconds; otherwise
   `Number(value)` from 0.2 to 2, written back as JavaScript writes it (`1.50`
   becomes `1.5`). `echo` alone is the passage's own words: its text and inline
-  code, concatenated as written. Otherwise it is the given phrase, with `+` as
-  a space.
+  code as written, with each line break read as one space (none at the start
+  or end, and one for a run of breaks). Otherwise it is the given phrase, with
+  `+` as a space.
 - Paint-less ink (`[and then](ink:hold)`, `ink:?hush`, `color:wet`) keeps the
   page's own colour: no fill, tone or gradient, and letters and lines stay
   whole (a wave still splits its letters). It needs at least one name, so

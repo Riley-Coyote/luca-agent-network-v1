@@ -474,8 +474,17 @@ test("echo carries the passage's own words, or the phrase it names", () => {
     ["[words](ink:echo=caf%C3%A9)", "café"],
     // Letters split after the phrase is read.
     ["[ab](ink:rose~cyan?axis=letters&echo)", "ab"],
-    // Only text and inline code are words: a break or an image adds nothing.
-    ["[first\nsecond](ink:echo)", "firstsecond"],
+    // A line break reads as one space: none at the ends, one for a run.
+    ["[first\nsecond](ink:echo)", "first second"],
+    ["[**a**\n*b*](ink:echo)", "a b"],
+    ["[a\n\\\nb](ink:echo)", "a b"],
+    ["[a\\\n\\\n\\\nb](ink:echo)", "a b"],
+    ["[\nfirst](ink:echo)", "first"],
+    ["[\\\nfirst](ink:echo)", "first"],
+    ["[first\n](ink:echo)", "first"],
+    ["[first\\\n](ink:echo)", "first"],
+    ["[\\\na\\\n\\\nb\\\n](ink:echo)", "a b"],
+    // Only text, inline code and breaks are words: an image adds nothing.
     ["[![alt](x.png) text](ink:echo)", " text"],
     [`[w](ink:echo=${"a".repeat(507)})`, "a".repeat(507)],
   ]) {
