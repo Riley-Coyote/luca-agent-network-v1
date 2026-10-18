@@ -600,20 +600,22 @@ test("paint-less passages count among the 64 enhanced passages", () => {
   assert.match(html, / <span>last<\/span><\/p>$/);
 });
 
+/** A spec with nothing in it; each case names only what it adds. */
+const EMPTY_SPEC = {
+  stops: [],
+  axis: "flow",
+  motion: undefined,
+  duration: 3.6,
+  weight: undefined,
+  tracking: undefined,
+  pressure: undefined,
+  tempo: undefined,
+  hold: undefined,
+  wet: false,
+  echo: undefined,
+};
+
 test("the parser reads each living ink form into its spec", () => {
-  const none = {
-    stops: [],
-    axis: "flow",
-    motion: undefined,
-    duration: 3.6,
-    weight: undefined,
-    tracking: undefined,
-    pressure: undefined,
-    tempo: undefined,
-    hold: undefined,
-    wet: false,
-    echo: undefined,
-  };
   for (const [value, spec] of [
     ["hold", { hold: 0.7 }],
     ["?hush", { pressure: "hush" }],
@@ -639,7 +641,129 @@ test("the parser reads each living ink form into its spec", () => {
     ],
     ["warmth?", { stops: [parseExpressionColor("#ffad1f")] }],
   ]) {
-    assert.deepEqual(parse(value), { ...none, ...spec }, value);
+    assert.deepEqual(parse(value), { ...EMPTY_SPEC, ...spec }, value);
+  }
+});
+
+/** One stop of paint as the lesson writes it: a feeling, a colour, hex or HSL. */
+const stop = (paint) =>
+  parseExpressionColor(EXPRESSION_COLORS[expressionColor(paint)] ?? paint);
+
+/**
+ * Every example in the residents' lesson, and how it must read: a spec for
+ * each ink value in it, paint as the lesson names it. The two templates name
+ * the parts, so written as they stand they show plain words.
+ */
+const LESSON_EXAMPLES = {
+  "[words](ink:paint?marks)": null,
+  "[words](ink:marks)": null,
+  "[the small things](ink:care?echo)": { stops: ["care"], echo: "" },
+  "[worth keeping](ink:care?echo=the+small+things)": {
+    stops: ["care"],
+    echo: "the small things",
+  },
+  "[I almost didn't say this.](ink:care?hold&hush)": {
+    stops: ["care"],
+    hold: 0.7,
+    pressure: "hush",
+  },
+  "[It works.](ink:hope?land)": { stops: ["hope"], pressure: "land" },
+  "[Thank you for asking me what I'd want.](ink:care?hold=1.1&linger)": {
+    stops: ["care"],
+    hold: 1.1,
+    tempo: "linger",
+  },
+  "[Then it all clicked at once.](ink:joy?rush)": {
+    stops: ["joy"],
+    tempo: "rush",
+  },
+  "[The light is the material.](ink:wonder?wet)": {
+    stops: ["wonder"],
+    wet: true,
+  },
+  "[and then](ink:hold)": { hold: 0.7 },
+  "[a small current](ink:calm~curiosity?wave)": {
+    stops: ["calm", "curiosity"],
+    motion: "wave",
+  },
+  "[A possibility taking shape](ink:#ff52ad~#955cff~#36cfff)": {
+    stops: ["#ff52ad", "#955cff", "#36cfff"],
+  },
+  "[quietly present](ink:hsl(210,90%,65%)?breathe&weight=450)": {
+    stops: ["hsl(210,90%,65%)"],
+    motion: "breathe",
+    weight: 450,
+  },
+  "(ink:blue~violet~rose?axis=lines)": {
+    stops: ["blue", "violet", "rose"],
+    axis: "lines",
+  },
+  "[m](ink:#ff52ad)[e](ink:#a56aff)": [
+    { stops: ["#ff52ad"] },
+    { stops: ["#a56aff"] },
+  ],
+};
+
+/** Code in the lesson that is punctuation or a bare number, not a value. */
+const LESSON_SIGNS = ["color:", "~", "?", "&", "+", "750", "0.12", "∘ · ⋅"];
+
+test("every example in the residents' lesson reads as the lesson says", () => {
+  const prompt = readFileSync(
+    new URL(
+      "../../../../../crates/buzz-acp/src/luca_managed_prompt.md",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const lesson = prompt
+    .slice(prompt.indexOf("## Visual expression"))
+    .split("\n## ")[0];
+  const spans = lesson.split("`").filter((_, i) => i % 2);
+  const examples = spans.filter((span) => /\((?:ink|color):/.test(span));
+  assert.deepEqual(
+    examples.toSorted(),
+    Object.keys(LESSON_EXAMPLES).toSorted(),
+  );
+  // Each paint, mark or fine-type value it names on its own reads too.
+  for (const span of spans) {
+    if (!examples.includes(span) && !LESSON_SIGNS.includes(span))
+      assert.ok(parse(span), span);
+  }
+  const text = (html) => html.replace(/<[^>]*>/g, "");
+  for (const example of examples) {
+    const intended = LESSON_EXAMPLES[example];
+    if (intended === null) {
+      assert.equal(render(example), "<p><span>words</span></p>", example);
+      continue;
+    }
+    const values = [
+      ...example.matchAll(/\((?:ink|color):((?:[^()\s]|\([^()\s]*\))*)\)/g),
+    ].map(([, value]) => value);
+    const specs = [intended].flat();
+    assert.equal(values.length, specs.length, example);
+    for (const [i, spec] of specs.entries()) {
+      assert.deepEqual(
+        parse(values[i]),
+        { ...EMPTY_SPEC, ...spec, stops: (spec.stops ?? []).map(stop) },
+        example,
+      );
+    }
+    if (!example.startsWith("[")) continue;
+    // The words come first: with the ink taken away they read the same.
+    const words = [...example.matchAll(/\[([^\]]*)\]/g)]
+      .map(([, word]) => word)
+      .join("");
+    const html = render(example);
+    assert.equal(text(html), text(render(words)), example);
+    assert.match(html, /data-expression-/, example);
+    assert.doesNotMatch(html, /href|ink:/, example);
+    for (const spec of specs) {
+      if (spec.echo !== undefined)
+        assert.ok(
+          html.includes(` data-expression-echo="${spec.echo || words}"`),
+          example,
+        );
+    }
   }
 });
 
