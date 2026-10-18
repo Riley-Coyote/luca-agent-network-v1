@@ -28,8 +28,8 @@ import {
   type VisitThreshold,
 } from "@/features/messages/lib/visitSpans";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
-import { normalizePubkey } from "@/shared/lib/pubkey";
-import { inkHeardOf, type InkHeard } from "@/shared/lib/inkHeard";
+import type { InkHeard } from "@/shared/lib/inkHeard";
+import { inkAnnotations } from "@/features/messages/lib/inkAnnotations";
 
 /**
  * Visit annotations shared by every row kind: where the row sits in a visit
@@ -384,73 +384,25 @@ export function buildTimelineItems(
   }
 
   annotateVisitSpans(items);
-  annotateInkAnswered(items, context?.ownerPubkey);
-  annotateInkHeard(items, context?.ownerPubkey);
+  annotateInk(items, context?.ownerPubkey);
   return { items };
 }
 
-/** An echo warms in once, for a moment after it first appears. */
-const INK_HEARD_FRESH_MS = 1500;
-/** Only a reply this recent can still be landing. */
-const INK_HEARD_RECENT_SECONDS = 300;
-const inkHeardFirstSeen = new Map<string, number>();
-
-function inkHeardFresh(key: string, replyCreatedAt: number): boolean {
-  const now = Date.now();
-  if (now / 1000 - replyCreatedAt > INK_HEARD_RECENT_SECONDS) return false;
-  const first = inkHeardFirstSeen.get(key) ?? now;
-  if (!inkHeardFirstSeen.has(key)) {
-    inkHeardFirstSeen.set(key, now);
-    if (inkHeardFirstSeen.size > 500) {
-      const oldest = inkHeardFirstSeen.keys().next().value;
-      if (oldest !== undefined) inkHeardFirstSeen.delete(oldest);
-    }
-  }
-  return now - first < INK_HEARD_FRESH_MS;
-}
-
-/** Gives each owner message the echoes of the replies that answer it. */
-function annotateInkHeard(items: TimelineItem[], ownerPubkey?: string) {
-  if (!ownerPubkey) return;
-  const owner = normalizePubkey(ownerPubkey);
-  let answered: Extract<TimelineItem, { kind: "message" }> | null = null;
-  for (const item of items) {
-    if (item.kind !== "message") continue;
-    const { message } = item.entry;
-    if (message.pubkey && normalizePubkey(message.pubkey) === owner) {
-      answered = item;
-      continue;
-    }
-    if (!answered) continue;
-    const heard = inkHeardOf(message.body);
-    if (!heard) continue;
-    const key = `${answered.entry.message.id}:${message.id}:${heard.phrase}`;
-    answered.inkHeard = [
-      ...(answered.inkHeard ?? []),
-      { ...heard, fresh: inkHeardFresh(key, message.createdAt) },
-    ];
-  }
-}
-
-/** Marks every message row before the owner's latest message as answered. */
-function annotateInkAnswered(items: TimelineItem[], ownerPubkey?: string) {
-  if (!ownerPubkey) return;
-  const owner = normalizePubkey(ownerPubkey);
-  let latest = -1;
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (
-      item.kind === "message" &&
-      item.entry.message.pubkey &&
-      normalizePubkey(item.entry.message.pubkey) === owner
-    ) {
-      latest = index;
-      break;
-    }
-  }
-  for (let index = 0; index < latest; index += 1) {
-    const item = items[index];
-    if (item.kind === "message") item.inkAnswered = true;
+/** Marks dried wet ink and lit echoes on the message rows (see inkAnnotations). */
+function annotateInk(items: TimelineItem[], ownerPubkey?: string) {
+  const rows = items.filter(
+    (item): item is Extract<TimelineItem, { kind: "message" }> =>
+      item.kind === "message",
+  );
+  const { answered, heard } = inkAnnotations(
+    rows.map((item) => item.entry.message),
+    ownerPubkey,
+  );
+  for (const item of rows) {
+    const { id } = item.entry.message;
+    if (answered.has(id)) item.inkAnswered = true;
+    const lit = heard.get(id);
+    if (lit) item.inkHeard = lit;
   }
 }
 
