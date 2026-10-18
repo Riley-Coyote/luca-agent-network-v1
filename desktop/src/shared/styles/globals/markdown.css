@@ -330,7 +330,119 @@
 [data-expression-pressure="land"] {
   font-weight: 640;
 }
-/* Hold, tempo, wet and echo are data only for now; nothing draws them yet. */
+/* Wet ink is still open: the mind isn't sure yet, or it's the person's to
+   change. Painted words sit a shade deeper, as a wet surface does, and a
+   narrow gloss lies along each word where the room's one light falls (see
+   inkLight.ts). When the person answers, the gloss fades and the ink goes
+   matte. Hold and tempo are the stream's (useStreamingWordEffect). */
+[data-expression-wet][data-expression-tone]:not([data-expression-gradient]),
+[data-expression-wet][data-expression-tone]:not([data-expression-gradient])
+  strong,
+[data-expression-wet][data-expression-tone]:not([data-expression-gradient]) em,
+[data-expression-wet] [data-expression-tone] {
+  color: color-mix(in oklab, var(--expression-fill) 86%, black);
+  transition: color 1.6s ease;
+}
+[data-ink-answered]
+  [data-expression-wet][data-expression-tone]:not([data-expression-gradient]),
+[data-ink-answered]
+  [data-expression-wet][data-expression-tone]:not([data-expression-gradient])
+  strong,
+[data-ink-answered]
+  [data-expression-wet][data-expression-tone]:not([data-expression-gradient])
+  em,
+[data-ink-answered] [data-expression-wet] [data-expression-tone] {
+  color: var(--expression-fill);
+}
+[data-expression-wet-word] {
+  display: inline-block;
+  position: relative;
+}
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  [data-expression-wet-word]::after {
+    content: attr(data-ink-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    white-space: pre;
+    color: transparent;
+    pointer-events: none;
+    user-select: none;
+    background-image: linear-gradient(
+      104deg,
+      transparent calc(var(--ink-light, -9999px) - 1.1em),
+      rgb(255 249 238 / 0.85) var(--ink-light, -9999px),
+      transparent calc(var(--ink-light, -9999px) + 1.1em)
+    );
+    background-clip: text;
+    -webkit-background-clip: text;
+    transition: opacity 1.6s ease;
+  }
+  /* The stream owns a word's entrance; the gloss comes once it has landed. */
+  [data-md-stream-effect] [data-expression-wet-word]::after,
+  [data-ink-answered] [data-expression-wet-word]::after {
+    opacity: 0;
+  }
+}
+/* Wet ink is alive only to the light; with Reduce Motion it is a deeper tone. */
+@media (prefers-reduced-motion: reduce) {
+  [data-expression-wet-word]::after {
+    display: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-expression-wet-word]::after {
+    display: none;
+  }
+}
+/* Echo: the person's words a reply answers warm in the reply's ink and keep a
+   hairline of it, a thread back to what was heard (see inkHeard.ts). They
+   warm in once, as the reply lands; paint-less ink keeps only the thread. */
+@property --ink-heard-tint {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 80%;
+}
+@property --ink-heard-thread {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 70%;
+}
+[data-ink-heard] {
+  color: color-mix(
+    in oklab,
+    var(--ink-heard, currentColor) var(--ink-heard-tint),
+    currentColor
+  );
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+  text-decoration-color: color-mix(
+    in oklab,
+    var(--ink-heard, currentColor) var(--ink-heard-thread),
+    transparent
+  );
+}
+[data-ink-heard="fresh"] {
+  animation: ink-heard-warm 1.2s ease 1 both;
+}
+@keyframes ink-heard-warm {
+  from {
+    --ink-heard-tint: 0%;
+    --ink-heard-thread: 0%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-ink-heard="fresh"] {
+    animation: none;
+  }
+}
+@media (forced-colors: active) {
+  [data-ink-heard] {
+    color: inherit;
+    text-decoration-color: currentColor;
+  }
+}
 [data-expression-weight] {
   font-weight: var(--expression-weight);
 }

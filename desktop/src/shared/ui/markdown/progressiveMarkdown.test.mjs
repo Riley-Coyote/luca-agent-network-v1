@@ -3,10 +3,12 @@ import test from "node:test";
 
 import {
   advanceProgressiveMarkdownSnapshot,
+  openInkLinkStart,
   progressiveMarkdownTailIsStructurallyStable,
   progressiveMarkdownTailMode,
   splitProgressiveMarkdown,
   splitProgressiveMarkdownBlocks,
+  streamingTailShown,
 } from "./progressiveMarkdown.ts";
 
 test("keeps one unfinished paragraph literal", () => {
@@ -161,4 +163,64 @@ test("keeps ordinary and syntactically open tails literal", () => {
   ]) {
     assert.equal(progressiveMarkdownTailMode(content), "markdown", content);
   }
+});
+
+test("an unfinished ink link waits off the page until it closes", () => {
+  const link = "[I almost didn't say this.](ink:care?hold&hush)";
+  // Every moment of the link arriving, character by character.
+  for (let end = 1; end < link.length; end += 1) {
+    const tail = `Well. ${link.slice(0, end)}`;
+    assert.equal(streamingTailShown(tail), "Well. ", tail);
+  }
+  assert.equal(streamingTailShown(`Well. ${link}`), `Well. ${link}`);
+  assert.equal(streamingTailShown(`Well. ${link} And`), `Well. ${link} And`);
+});
+
+test("the paint's own parentheses do not close the link", () => {
+  const tail = "[quietly](ink:hsl(210,90%,65%)?breathe";
+  assert.equal(openInkLinkStart(tail), 0);
+  assert.equal(openInkLinkStart(`${tail})`), -1);
+  assert.equal(openInkLinkStart("[x](color:hsl(210,90%,65%)"), 0);
+});
+
+test("color: is held the same way, and so is a link still choosing its scheme", () => {
+  assert.equal(openInkLinkStart("a [so much](color:warmth~ca"), 2);
+  for (const written of ["", "i", "in", "ink", "c", "co", "colo", "color"]) {
+    assert.equal(openInkLinkStart(`a [b](${written}`), 2, written);
+  }
+});
+
+test("any other bracket shows as it comes", () => {
+  for (const tail of [
+    "see [1] and more",
+    "[a link](https://example.com",
+    "[a link](inkwell",
+    "[note] (later)",
+    "![image](ink:hold",
+    "\\[escaped](ink:hold",
+    "`[in code](ink:hold` then",
+    "[spaced](ink:care? hold",
+  ]) {
+    assert.equal(openInkLinkStart(tail), -1, tail);
+    assert.equal(streamingTailShown(tail), tail, tail);
+  }
+});
+
+test("a bracket still waiting for its first word, or its parenthesis, is held", () => {
+  assert.equal(openInkLinkStart("Then ["), 5);
+  assert.equal(openInkLinkStart("Then [the words"), 5);
+  assert.equal(openInkLinkStart("Then [the words]"), 5);
+  assert.equal(openInkLinkStart("Then [the words] and"), -1);
+});
+
+test("an earlier closed link shows while a later one is still open", () => {
+  const tail = "[It works.](ink:hope?land) Then [and";
+  assert.equal(streamingTailShown(tail), "[It works.](ink:hope?land) Then ");
+});
+
+test("a closed ink passage across lines parses as soon as it closes", () => {
+  const rows = "[first\nsecond\nthird](ink:blue~violet~rose?axis=lines)";
+  assert.equal(progressiveMarkdownTailMode(rows), "markdown");
+  assert.equal(openInkLinkStart(rows.slice(0, -1)), 0);
+  assert.equal(progressiveMarkdownTailMode("just\nlines"), "literal");
 });

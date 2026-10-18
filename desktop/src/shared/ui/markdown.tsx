@@ -121,6 +121,7 @@ import {
 import { AgentSnapshotCard } from "./markdown/AgentSnapshotCard";
 import { resolveFileCard, resolveSnapshotCard } from "./markdownFileCard";
 import { STREAMING_EFFECT_ATTRIBUTE } from "./markdownStreamingText";
+import { inkHeardEqual } from "@/shared/lib/inkHeard";
 import type { MarkdownProps, MarkdownRuntime } from "./markdown/types";
 import { useStreamingWordEffect } from "./useStreamingWordEffect";
 import { SpoilerInline } from "./markdown/SpoilerInline";
@@ -1863,6 +1864,7 @@ function MarkdownInner({
   content,
   customEmoji,
   imetaByUrl,
+  inkHeard,
   interactive = true,
   agentMentionPubkeysByName,
   mediaInset = false,
@@ -1998,6 +2000,7 @@ function MarkdownInner({
         mentionNames={mentionNames}
         streamWords={streamWords}
         variant={parseVariant}
+        withholdOpenInk={streaming}
       />
     ) : (
       renderCachedMarkdown({
@@ -2005,6 +2008,7 @@ function MarkdownInner({
         components: componentSet.components,
         content: processedContent,
         customEmoji,
+        inkHeard,
         mentionNames,
         searchQuery,
         variant: parseVariant,
@@ -2079,6 +2083,7 @@ export const Markdown = React.memo(
     prev.imetaByUrl === next.imetaByUrl &&
     prev.configNudgeAuthorPubkey === next.configNudgeAuthorPubkey &&
     prev.searchQuery === next.searchQuery &&
+    inkHeardEqual(prev.inkHeard, next.inkHeard) &&
     prev.progressive === next.progressive &&
     prev.streaming === next.streaming &&
     prev.streamingTextEffect === next.streamingTextEffect &&

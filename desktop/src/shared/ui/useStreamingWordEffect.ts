@@ -4,11 +4,51 @@ import {
   createStreamingWordSchedule,
   STREAMING_SETTLE_GRACE_MS,
   STREAMING_WORD_SELECTOR,
+  STREAMING_WORD_STILL,
   type StreamingTextEffect,
+  type StreamingWordInk,
   streamingWordAnimation,
   streamingWordProgress,
+  writeOnWord,
 } from "./markdownStreamingText";
 import "./markdownStreamingText.css";
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** The passage whose hold or pace a word's clock answers to. */
+const INK_TIMING_SELECTOR = "[data-expression-hold], [data-expression-tempo]";
+
+/**
+ * What living ink asks of this word: a hold if it is the first word of a held
+ * passage, and its passage's pace. When nothing may move, only the hold is
+ * kept — it is time, not motion.
+ */
+function inkOf(
+  root: Element,
+  word: Element,
+  still: boolean,
+): StreamingWordInk | undefined {
+  const passage = word.closest(INK_TIMING_SELECTOR);
+  if (!passage || !root.contains(passage)) return undefined;
+  const hold = passage.getAttribute("data-expression-hold");
+  const holds =
+    hold !== null && passage.querySelector(STREAMING_WORD_SELECTOR) === word;
+  const tempo = still ? null : passage.getAttribute("data-expression-tempo");
+  if (!holds && tempo !== "linger" && tempo !== "rush") return undefined;
+  return {
+    holdMs: holds ? Number(hold) * 1000 : undefined,
+    tempo: tempo === "linger" || tempo === "rush" ? tempo : undefined,
+    letters: Array.from(graphemes.segment(word.textContent ?? "")).length,
+  };
+}
+
+/** A lingering word is written on; the rest take the row's own effect. */
+function lingers(word: Element): boolean {
+  return (
+    word.closest(INK_TIMING_SELECTOR)?.getAttribute("data-expression-tempo") ===
+    "linger"
+  );
+}
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -81,7 +121,12 @@ export function useStreamingWordEffect(
 ): StreamingWordState {
   const { active, effect } = options;
   const reducedMotion = usePrefersReducedMotion();
-  const animation = reducedMotion ? null : streamingWordAnimation(effect);
+  // With nothing allowed to move, words still take clocks, so that a held
+  // breath can keep its pause; they simply show the moment they arrive.
+  const animation =
+    (reducedMotion ? null : streamingWordAnimation(effect)) ??
+    STREAMING_WORD_STILL;
+  const still = animation === STREAMING_WORD_STILL;
 
   const [phase, setPhase] = React.useState<Phase>("idle");
   const scheduleRef = React.useRef(createStreamingWordSchedule());
@@ -143,7 +188,15 @@ export function useStreamingWordEffect(
         const startsBlock =
           lastBlockIndexRef.current >= 0 &&
           blockIndex !== lastBlockIndexRef.current;
-        schedule.startAtMs(i, text, startsBlock, nowMs, words.length - i);
+        schedule.startAtMs(
+          i,
+          text,
+          startsBlock,
+          nowMs,
+          words.length - i,
+          inkOf(root, word, still),
+          current,
+        );
         lastBlockIndexRef.current = blockIndex;
         // A word that just took a fresh clock is in flight again, whatever the
         // settle cursor believed.
@@ -157,8 +210,13 @@ export function useStreamingWordEffect(
           ? schedule.assignedAtMs(i, word.textContent ?? "")
           : null;
         if (!word || startedAt === null) continue;
-        const progress = streamingWordProgress(startedAt, nowMs);
-        current.apply(word, progress);
+        const progress = streamingWordProgress(
+          startedAt,
+          nowMs,
+          schedule.assignedDurationMs(i),
+        );
+        if (!still && lingers(word)) writeOnWord(word, progress);
+        else current.apply(word, progress);
         if (progress >= 1 && i === firstUnsettled) firstUnsettled = i + 1;
       }
       firstUnsettledRef.current = firstUnsettled;
@@ -171,7 +229,7 @@ export function useStreamingWordEffect(
         schedule.assignedCount() >= words.length
       );
     },
-    [animation, rootRef],
+    [animation, rootRef, still],
   );
 
   // Paint synchronously after every commit that could have added words, so a
@@ -212,8 +270,8 @@ export function useStreamingWordEffect(
   }, [resolvedPhase]);
 
   if (resolvedPhase === "idle") {
-    // A message that never streamed (history, "off", reduced motion) takes
-    // the ordinary idle path — no spans, ever. One that did keeps its spans
+    // A message that never streamed (history) takes the ordinary idle path —
+    // no spans, ever. One that did keeps its spans
     // now that every word has settled and the attribute is gone; they carry
     // no styles the plain markup wouldn't also carry (see `settle()`), so
     // this is the same box either way, just never swapped for a different

@@ -19,6 +19,7 @@ export function TimelineRowShell({
   return (
     <div
       className={cn("px-0", useContentVisibility && "timeline-row-cv")}
+      data-ink-answered={item.inkAnswered ? "" : undefined}
       data-luca-reading-plane
       data-timeline-item-key={getTimelineItemKey(item)}
       data-visit-active-guests={item.activeVisitGuests?.join(",")}

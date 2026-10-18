@@ -68,6 +68,23 @@ export const STREAMING_SETTLE_GRACE_MS = 300;
 export const STREAMING_TAIL_BUDGET_MS = 1200;
 /** However large the backlog, words never start closer together than this. */
 export const STREAMING_GAP_MIN_MS = 4;
+/**
+ * Living ink's pace, as the phone writes it: a lingering word is written on a
+ * letter at a time, about one every 48ms, and the next word waits for it; a
+ * rushed passage lands two words at a time, so in one sweep. Neither is
+ * tightened by a backlog — the slowness or the rush is the mind's own.
+ */
+export const STREAMING_LINGER_LETTER_MS = 48;
+export const STREAMING_RUSH_GAP_MS = 8;
+
+/** What living ink asks of one word's clock. */
+export type StreamingWordInk = {
+  /** A held breath before this word, when it is the first of its passage. */
+  holdMs?: number;
+  tempo?: "linger" | "rush";
+  /** The word's length in graphemes, which a lingering word is written at. */
+  letters: number;
+};
 
 function clamp01(value: number): number {
   if (value < 0) return 0;
@@ -135,15 +152,17 @@ export function streamingWordGapMs(index: number, backlog = 1): number {
 export function streamingWordProgress(
   startedAtMs: number,
   nowMs: number,
+  durationMs = STREAMING_WORD_MS,
 ): number {
-  return STREAMING_EASE(clamp01((nowMs - startedAtMs) / STREAMING_WORD_MS));
+  if (durationMs <= 0) return nowMs >= startedAtMs ? 1 : 0;
+  return STREAMING_EASE(clamp01((nowMs - startedAtMs) / durationMs));
 }
 
 export type StreamingWordAnimation = {
   readonly unit: "word";
   readonly durationMs: number;
   /** Shared ramp — the two effects differ only in `apply`. */
-  readonly gapMs: (index: number) => number;
+  readonly gapMs: (index: number, backlog?: number) => number;
   /**
    * Kept for effects that may want it later; neither current effect reserves
    * row space today. Nothing that affects layout may animate — a transform's
@@ -162,6 +181,27 @@ function blurred(node: HTMLElement): boolean {
 }
 
 function settle(node: HTMLElement): void {
+  node.style.opacity = "";
+  node.style.filter = "none";
+  node.style.transform = "none";
+}
+
+/**
+ * A lingering word is written on rather than bloomed: the ink runs left to
+ * right through it behind a soft leading edge, so its letters arrive one after
+ * another while the word stays one box with its own kerning. Nothing moves.
+ */
+export function writeOnWord(node: HTMLElement, progress: number): void {
+  if (progress >= 1) {
+    node.style.removeProperty("mask-image");
+    node.style.removeProperty("-webkit-mask-image");
+    settle(node);
+    return;
+  }
+  const edge = -30 + 130 * progress;
+  const mask = `linear-gradient(90deg, #000 ${edge.toFixed(1)}%, transparent ${(edge + 30).toFixed(1)}%)`;
+  node.style.setProperty("mask-image", mask);
+  node.style.setProperty("-webkit-mask-image", mask);
   node.style.opacity = "";
   node.style.filter = "none";
   node.style.transform = "none";
@@ -236,9 +276,61 @@ export function streamingWordAnimation(
   return effect === "off" ? null : STREAMING_WORD_ANIMATIONS[effect];
 }
 
+/**
+ * With Reduce Motion on, or the effect off, a word shows the moment it
+ * arrives and nothing moves. A hold is time, not motion, so it stays: the
+ * held passage, and everything after it, waits out its breath.
+ */
+export const STREAMING_WORD_STILL: StreamingWordAnimation = {
+  unit: "word",
+  durationMs: 0,
+  gapMs: () => 0,
+  spacedRow: false,
+  apply(node, progress) {
+    if (progress >= 1) settle(node);
+    else node.style.opacity = "0";
+  },
+  reset(node) {
+    node.style.opacity = "0";
+  },
+};
+
+/** How a word's clock is paced: its gap to the next word and its own length. */
+export type StreamingWordPace = Pick<
+  StreamingWordAnimation,
+  "durationMs" | "gapMs"
+>;
+
+const STREAMING_PACE: StreamingWordPace = {
+  durationMs: STREAMING_WORD_MS,
+  gapMs: streamingWordGapMs,
+};
+
+/** One word's gap and length, with its living ink. */
+function inkPace(
+  pace: StreamingWordPace,
+  index: number,
+  backlog: number,
+  ink: StreamingWordInk | undefined,
+): { durationMs: number; gapMs: number } {
+  if (ink?.tempo === "linger") {
+    const writing = Math.max(1, ink.letters) * STREAMING_LINGER_LETTER_MS;
+    return {
+      durationMs: writing + STREAMING_LINGER_LETTER_MS,
+      gapMs: writing + STREAMING_LINGER_LETTER_MS,
+    };
+  }
+  if (ink?.tempo === "rush") {
+    return { durationMs: pace.durationMs, gapMs: STREAMING_RUSH_GAP_MS };
+  }
+  return { durationMs: pace.durationMs, gapMs: pace.gapMs(index, backlog) };
+}
+
 export type StreamingWordStart = {
-  /** When this word's own 320ms begins. */
+  /** When this word's own transition begins. */
   atMs: number;
+  /** How long that transition runs. */
+  durationMs: number;
   /** The word that clock belongs to. */
   text: string;
 };
@@ -263,9 +355,13 @@ export type StreamingWordSchedule = {
     startsBlock: boolean,
     nowMs: number,
     backlog?: number,
+    ink?: StreamingWordInk,
+    pace?: StreamingWordPace,
   ): number;
   /** The clock assigned to this index for this word, or null if it has none. */
   assignedAtMs(index: number, text: string): number | null;
+  /** How long the transition assigned to this index runs. */
+  assignedDurationMs(index: number): number;
   /** How many leading indices have been assigned a clock. */
   assignedCount(): number;
   /** The latest clock assigned so far — the stream's own settle deadline. */
@@ -296,7 +392,15 @@ export function createStreamingWordSchedule(): StreamingWordSchedule {
   let latestMs = 0;
 
   return {
-    startAtMs(index, text, startsBlock, nowMs, backlog = 1) {
+    startAtMs(
+      index,
+      text,
+      startsBlock,
+      nowMs,
+      backlog = 1,
+      ink,
+      pace = STREAMING_PACE,
+    ) {
       const known = startAt[index];
       if (known && sameWord(known.text, text)) {
         known.text = text;
@@ -304,12 +408,14 @@ export function createStreamingWordSchedule(): StreamingWordSchedule {
       }
 
       // A word cannot start before it exists, and never bunches against the
-      // word ahead of it: whichever comes later wins.
+      // word ahead of it: whichever comes later wins. A held breath waits at
+      // the passage's edge, after the word before it has started; if the
+      // stream itself already paused that long, it adds nothing more.
       const earliestMs =
         nextFreeMs === null
           ? nowMs
           : nextFreeMs + (startsBlock ? STREAMING_BLOCK_PAUSE_MS : 0);
-      let assigned = Math.max(nowMs, earliestMs);
+      let assigned = Math.max(nowMs, earliestMs + (ink?.holdMs ?? 0));
       // A word never overtakes its neighbours. When a provisional tail is
       // re-tokenised, one word can need a fresh clock while the words after it
       // are already running on theirs; left alone it would land after the rest
@@ -318,14 +424,18 @@ export function createStreamingWordSchedule(): StreamingWordSchedule {
       if (ahead) assigned = Math.min(assigned, ahead.atMs);
       const behind = startAt[index - 1];
       if (behind) assigned = Math.max(assigned, behind.atMs);
-      startAt[index] = { atMs: assigned, text };
-      nextFreeMs = assigned + streamingWordGapMs(index, backlog);
+      const timing = inkPace(pace, index, backlog, ink);
+      startAt[index] = { atMs: assigned, durationMs: timing.durationMs, text };
+      nextFreeMs = assigned + timing.gapMs;
       if (assigned > latestMs) latestMs = assigned;
       return assigned;
     },
     assignedAtMs(index, text) {
       const known = startAt[index];
       return known && sameWord(known.text, text) ? known.atMs : null;
+    },
+    assignedDurationMs(index) {
+      return startAt[index]?.durationMs ?? STREAMING_WORD_MS;
     },
     assignedCount() {
       return startAt.length;

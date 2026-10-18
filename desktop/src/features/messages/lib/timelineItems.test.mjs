@@ -613,3 +613,75 @@ test("owner return hydrates into its original row after the internal receipt and
     "synthesis",
   );
 });
+
+// --- living ink ------------------------------------------------------------
+
+function inkRows(bodies) {
+  return bodies.map(([pubkey, body], index) =>
+    entry({
+      id: `ink-${index}`,
+      createdAt: dayAt(2026, 6, 14, 12, index),
+      pubkey,
+      body,
+    }),
+  );
+}
+
+const messageItems = (items) => items.filter((item) => item.kind === "message");
+
+test("wet ink dries once the owner answers: every row before their latest message", () => {
+  const { items } = buildTimelineItems(
+    inkRows([
+      ["owner", "hello"],
+      ["resident", "[maybe](ink:wet)"],
+      ["owner", "yes"],
+      ["resident", "[still open](ink:wet)"],
+    ]),
+    null,
+    [],
+    { ownerPubkey: "OWNER" },
+  );
+  assert.deepEqual(
+    messageItems(items).map((item) => item.inkAnswered ?? false),
+    [true, true, false, false],
+  );
+  // Without an owner, nothing is answered.
+  const unknown = buildTimelineItems(
+    inkRows([
+      ["a", "x"],
+      ["b", "y"],
+    ]),
+    null,
+  );
+  assert.ok(messageItems(unknown.items).every((item) => !item.inkAnswered));
+});
+
+test("an echo lights the owner message the reply answers, the nearest before it", () => {
+  const { items } = buildTimelineItems(
+    inkRows([
+      ["owner", "I keep forgetting the small things."],
+      ["resident", "[worth keeping](ink:care?echo=the+small+things)"],
+      ["owner", "It looks so calming."],
+      ["resident", "[So calming](ink:calm?echo) is the idea."],
+      ["resident", "No echo here."],
+    ]),
+    null,
+    [],
+    { ownerPubkey: "owner" },
+  );
+  const rows = messageItems(items);
+  assert.deepEqual(
+    rows.map((item) =>
+      item.inkHeard?.map(({ phrase, colour }) => ({ phrase, colour })),
+    ),
+    [
+      [{ phrase: "the small things", colour: "#ff4f91" }],
+      undefined,
+      [{ phrase: "So calming", colour: "#16ccef" }],
+      undefined,
+      undefined,
+    ],
+  );
+  // An echo from an old reply is not fresh: it does not warm in again.
+  assert.equal(rows[0].inkHeard[0].fresh, false);
+});

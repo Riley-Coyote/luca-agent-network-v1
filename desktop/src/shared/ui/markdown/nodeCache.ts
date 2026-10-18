@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import remarkMessageLinks from "@/features/messages/lib/remarkMessageLinks";
 import rehypeImageGallery from "@/shared/lib/rehypeImageGallery";
 import rehypeSearchHighlight from "@/shared/lib/rehypeSearchHighlight";
+import rehypeInkHeard, { type InkHeard } from "@/shared/lib/inkHeard";
 import remarkChannelLinks from "@/shared/lib/remarkChannelLinks";
 import remarkCustomEmoji, {
   type CustomEmoji,
@@ -67,6 +68,8 @@ export type MarkdownParseInputs = {
   components: Components;
   content: string;
   customEmoji?: CustomEmoji[];
+  /** Words a reply echoes, lit where they first appear in this message. */
+  inkHeard?: readonly InkHeard[];
   mentionNames?: string[];
   searchQuery?: string;
   /**
@@ -92,6 +95,9 @@ function buildMarkdownElement(input: MarkdownParseInputs): React.ReactElement {
   markdownParseCount += 1;
   // biome-ignore lint/suspicious/noExplicitAny: PluggableList type not directly importable
   const rehypePlugins: any[] = [rehypeImageGallery];
+  if (input.inkHeard?.length) {
+    rehypePlugins.push([rehypeInkHeard, { heard: input.inkHeard }]);
+  }
   if (input.searchQuery && input.searchQuery.trim().length >= 2) {
     rehypePlugins.push([rehypeSearchHighlight, { query: input.searchQuery }]);
   }
@@ -155,6 +161,14 @@ export function renderCachedMarkdown(
     listSegment(
       input.customEmoji?.map(
         (emoji) => segment(emoji.shortcode) + segment(emoji.url),
+      ),
+    ) +
+    listSegment(
+      input.inkHeard?.map(
+        (heard) =>
+          segment(heard.phrase) +
+          segment(heard.colour ?? "") +
+          segment(heard.fresh ? "fresh" : ""),
       ),
     ) +
     input.content;

@@ -10,6 +10,7 @@ import {
   type ProgressiveMarkdownBlock,
   type ProgressiveMarkdownSnapshot,
   progressiveMarkdownTailMode,
+  streamingTailShown,
 } from "./progressiveMarkdown";
 
 export type ProgressiveMarkdownRendererProps = Omit<
@@ -17,6 +18,8 @@ export type ProgressiveMarkdownRendererProps = Omit<
   "content" | "searchQuery"
 > & {
   content: string;
+  /** While words are still arriving, an unfinished ink link waits off the page. */
+  withholdOpenInk?: boolean;
 };
 
 /**
@@ -72,6 +75,7 @@ export function progressiveMarkdownRendererPropsEqual(
     previous.content === next.content &&
     previous.components === next.components &&
     previous.streamWords === next.streamWords &&
+    previous.withholdOpenInk === next.withholdOpenInk &&
     customEmojiEqual(previous.customEmoji, next.customEmoji) &&
     previous.variant === next.variant &&
     shallowArrayEqual(previous.channelNames, next.channelNames) &&
@@ -193,16 +197,20 @@ function ProgressiveMarkdownTail({
 export const ProgressiveMarkdownRenderer = React.memo(
   function ProgressiveMarkdownRenderer({
     content,
+    withholdOpenInk = false,
     ...parseInputs
   }: ProgressiveMarkdownRendererProps) {
     const snapshot = useProgressiveMarkdownSnapshot(content);
+    const trailing = withholdOpenInk
+      ? streamingTailShown(snapshot.trailing)
+      : snapshot.trailing;
     return (
       <>
         <CompletedProgressiveMarkdownBlocks
           {...parseInputs}
           blocks={snapshot.blocks}
         />
-        <ProgressiveMarkdownTail {...parseInputs} content={snapshot.trailing} />
+        <ProgressiveMarkdownTail {...parseInputs} content={trailing} />
       </>
     );
   },

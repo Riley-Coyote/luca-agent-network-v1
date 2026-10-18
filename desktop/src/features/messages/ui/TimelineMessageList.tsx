@@ -31,6 +31,8 @@ import { canManageMessageForCurrentUser } from "@/features/messages/lib/canManag
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { attachInkLight } from "@/shared/ui/inkLight";
+import type { InkHeard } from "@/shared/lib/inkHeard";
 import { DayDivider } from "./DayDivider";
 import { ExchangeReceiptRow } from "@/features/exchange/ui/ExchangeReceiptRow";
 import type { ExchangeEntry } from "@/features/exchange/exchangeStore";
@@ -186,6 +188,17 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   onVirtualizerScrollerChange,
 }: TimelineMessageListProps) {
   const activityAlignmentRef = useWorkingResidentNameAlignment();
+  const timelineRef = React.useCallback(
+    (element: HTMLDivElement | null) => {
+      const aligned = activityAlignmentRef(element);
+      const lit = attachInkLight(element);
+      return () => {
+        if (typeof aligned === "function") aligned();
+        if (typeof lit === "function") lit();
+      };
+    },
+    [activityAlignmentRef],
+  );
   const entries = React.useMemo(
     () =>
       mainEntries ??
@@ -314,6 +327,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
               isContinuation={item.isContinuation}
               isFollowedByContinuation={item.isFollowedByContinuation}
               isFollowingThreadById={isFollowingThreadById}
+              inkHeard={item.inkHeard}
               isUnread={isMessageUnreadById?.(item.entry.message.id)}
               playEntrance={item.entry.message.id === entranceMessageId}
               onEntranceComplete={onEntranceMessageComplete}
@@ -394,7 +408,7 @@ export const TimelineMessageList = React.memo(function TimelineMessageList({
   }
 
   return (
-    <div className="flex flex-col" ref={activityAlignmentRef}>
+    <div className="flex flex-col" ref={timelineRef}>
       {dayGroups.map((group) => (
         <section
           className={cn(
@@ -462,8 +476,10 @@ function VirtualizedTimelineRows({
     (element: HTMLDivElement | null) => {
       hostRef.current = element;
       const cleanup = activityAlignmentRef(element);
+      const lit = attachInkLight(element);
       return () => {
         if (typeof cleanup === "function") cleanup();
+        if (typeof lit === "function") lit();
         hostRef.current = null;
       };
     },
@@ -898,6 +914,7 @@ type MessageRowItemProps = Pick<
   entry: MainTimelineEntry;
   footer: React.ReactNode;
   authorVisiting?: boolean;
+  inkHeard?: readonly InkHeard[];
   collapseLongBody?: boolean;
   quickReactions?: boolean;
   isContinuation?: boolean;
@@ -918,6 +935,7 @@ function MessageRowItem({
   highlightedMessageId,
   huddleMemberPubkeys,
   huddleMemberPubkeysPending,
+  inkHeard,
   isContinuation = false,
   isFollowedByContinuation = false,
   isFollowingThreadById,
@@ -970,6 +988,7 @@ function MessageRowItem({
           hoverBackground={false}
           huddleMemberPubkeys={huddleMemberPubkeys}
           huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+          inkHeard={inkHeard}
           isFollowingThread={
             isFollowingThreadById
               ? isFollowingThreadById(message.id)
@@ -1041,6 +1060,7 @@ function MessageRowItem({
         highlighted={message.id === highlightedMessageId || isSearchActive}
         huddleMemberPubkeys={huddleMemberPubkeys}
         huddleMemberPubkeysPending={huddleMemberPubkeysPending}
+        inkHeard={inkHeard}
         isContinuation={isContinuation}
         isUnread={isUnread}
         layoutVariant={isFocusedThreadLayout ? "thread-reply" : "default"}

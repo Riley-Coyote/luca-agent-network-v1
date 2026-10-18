@@ -1,5 +1,6 @@
 import type { ParsedMessageLink } from "@/features/messages/lib/messageLink";
 import type { Channel } from "@/shared/api/types";
+import type { InkHeard } from "@/shared/lib/inkHeard";
 import type { CustomEmoji } from "@/shared/lib/remarkCustomEmoji";
 import type { StreamingTextEffect } from "../markdownStreamingText";
 import type { VideoReviewContext } from "../VideoPlayer";
@@ -63,6 +64,8 @@ export type MarkdownProps = {
   mentionPubkeysByName?: Record<string, string>;
   mediaInset?: boolean;
   searchQuery?: string;
+  /** Words a reply echoes, lit in the reply's ink (see inkHeard.ts). */
+  inkHeard?: readonly InkHeard[];
   /** Parse only completed blocks while an in-flight public response grows. */
   streaming?: boolean;
   /**

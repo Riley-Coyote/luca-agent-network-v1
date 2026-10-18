@@ -144,8 +144,13 @@ function hasClosedTerminalFence(content: string): boolean {
   return lines.slice(1).some((line) => closesFence(line, opening));
 }
 
+/** A closed living ink link, whose words may run across soft line breaks. */
+const CLOSED_INK_LINK =
+  /\[[^\]]+\]\((?:ink|color):[^\s()]*(?:\([^\s()]*\)[^\s()]*)*\)/;
+
 function hasCompleteInlineMarkdown(content: string): boolean {
   return (
+    CLOSED_INK_LINK.test(content) ||
     /`[^`\n]+`/.test(content) ||
     /\*\*[^\n]+\*\*/.test(content) ||
     /__[^\n]+__/.test(content) ||
@@ -183,6 +188,95 @@ export function progressiveMarkdownTailMode(
   );
   if (hasTableDelimiter) return "markdown";
   return hasCompleteInlineMarkdown(trailing) ? "markdown" : "literal";
+}
+
+const INK_SCHEMES = ["ink:", "color:"] as const;
+/** Past this much link text, a bracket is read as words, not a passage. */
+const INK_WITHHELD_TEXT_LIMIT = 1024;
+/** The parser reads at most 512 characters of notation. */
+const INK_WITHHELD_VALUE_LIMIT = 512;
+
+type InkLinkState = "open" | "closed" | "not";
+
+/** Whether the `[` at `open` starts a living ink link, still open or closed. */
+function inkLinkState(tail: string, open: number): InkLinkState {
+  let close = open + 1;
+  let depth = 0;
+  for (; close < tail.length; close += 1) {
+    const character = tail[close];
+    if (character === "\\") {
+      close += 1;
+    } else if (character === "[") {
+      depth += 1;
+    } else if (character === "]") {
+      if (depth === 0) break;
+      depth -= 1;
+    }
+    if (close - open > INK_WITHHELD_TEXT_LIMIT) return "not";
+  }
+  // No `]` yet, or nothing after it yet: it may still become ink.
+  if (close >= tail.length - 1) return "open";
+  if (tail[close + 1] !== "(") return "not";
+  const start = close + 2;
+  const written = tail.slice(start, start + 6);
+  const scheme = INK_SCHEMES.find((name) => written.startsWith(name));
+  if (!scheme) {
+    const unfinished = start + written.length === tail.length;
+    return unfinished && INK_SCHEMES.some((name) => name.startsWith(written))
+      ? "open"
+      : "not";
+  }
+  // One level of parentheses belongs to the paint, as in `hsl(…)`.
+  let nested = 0;
+  for (let at = start + scheme.length; at < tail.length; at += 1) {
+    const character = tail[at];
+    if (character === "(") nested += 1;
+    else if (character === ")") {
+      if (nested === 0) return "closed";
+      nested -= 1;
+    } else if (/\s/.test(character)) return "not";
+    if (at - start > INK_WITHHELD_VALUE_LIMIT + scheme.length) return "not";
+  }
+  return "open";
+}
+
+/**
+ * Where an unfinished living ink link starts in a streaming tail, or -1.
+ *
+ * `[words](ink:hold)` is plain text until its closing parenthesis arrives:
+ * the bracket, then the words, then the notation would each show for a
+ * moment before the parse paints them. Holding the link back until it closes
+ * keeps the notation off the page and lets its words arrive as the passage
+ * they are, so a hold can wait at their edge. Only a link that can still
+ * become ink is held; any other bracket shows as it comes.
+ */
+export function openInkLinkStart(tail: string): number {
+  for (let at = 0; at < tail.length; at += 1) {
+    const character = tail[at];
+    if (character === "\\") {
+      at += 1;
+    } else if (character === "`") {
+      // Inside a closed code span a bracket is code, never a link.
+      let run = 1;
+      while (tail[at + run] === "`") run += 1;
+      const end = tail.indexOf("`".repeat(run), at + run);
+      if (end !== -1) at = end + run - 1;
+      else at += run - 1;
+    } else if (
+      character === "[" &&
+      tail[at - 1] !== "!" &&
+      inkLinkState(tail, at) === "open"
+    ) {
+      return at;
+    }
+  }
+  return -1;
+}
+
+/** The part of a streaming tail that may show now. */
+export function streamingTailShown(tail: string): string {
+  const start = openInkLinkStart(tail);
+  return start < 0 ? tail : tail.slice(0, start);
 }
 
 /** Compatibility predicate used by geometry-focused tests and callers. */

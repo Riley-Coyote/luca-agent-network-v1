@@ -12,10 +12,14 @@ import rehypeStreamingWords, {
   STREAMING_WORD_ANIMATIONS,
   STREAMING_WORD_ATTRIBUTE,
   STREAMING_WORD_CLASS,
+  STREAMING_LINGER_LETTER_MS,
+  STREAMING_RUSH_GAP_MS,
   STREAMING_WORD_MS,
+  STREAMING_WORD_STILL,
   streamingWordAnimation,
   streamingWordGapMs,
   streamingWordProgress,
+  writeOnWord,
 } from "./markdownStreamingText.ts";
 
 function fakeNode(kind = "") {
@@ -255,6 +259,147 @@ test("off has no animation, and bloom is the default", () => {
   );
   assert.equal(DEFAULT_STREAMING_TEXT_EFFECT, "bloom");
   assert.deepEqual([...STREAMING_TEXT_EFFECTS], ["bloom", "diffusion", "off"]);
+});
+
+// --- living ink's pace ----------------------------------------------------
+
+test("a hold waits at its passage's edge, and everything after it waits too", () => {
+  const schedule = createStreamingWordSchedule();
+  const plain = startsOf(6).starts;
+  const starts = [];
+  for (let i = 0; i < 6; i += 1) {
+    starts.push(
+      schedule.startAtMs(
+        i,
+        `w${i}`,
+        false,
+        0,
+        1,
+        i === 3 ? { holdMs: 700, letters: 2 } : undefined,
+      ),
+    );
+  }
+  for (let i = 0; i < 3; i += 1) assert.equal(starts[i], plain[i]);
+  for (let i = 3; i < 6; i += 1) assert.equal(starts[i], plain[i] + 700);
+});
+
+test("a hold at the very start waits before the first word", () => {
+  const schedule = createStreamingWordSchedule();
+  assert.equal(
+    schedule.startAtMs(0, "and", false, 1_000, 1, {
+      holdMs: 1_200,
+      letters: 3,
+    }),
+    2_200,
+  );
+});
+
+test("a hold adds nothing when the stream already paused that long", () => {
+  const schedule = createStreamingWordSchedule();
+  const first = schedule.startAtMs(0, "Hello.", false, 0);
+  // The held passage only arrives two seconds later: the pause has happened.
+  const held = schedule.startAtMs(1, "and", false, 2_000, 1, {
+    holdMs: 700,
+    letters: 3,
+  });
+  assert.equal(first, 0);
+  assert.equal(held, 2_000);
+  // A shorter stall is topped up to the full breath.
+  const again = createStreamingWordSchedule();
+  again.startAtMs(0, "Hello.", false, 0);
+  assert.equal(
+    again.startAtMs(1, "and", false, 300, 1, { holdMs: 700, letters: 3 }),
+    STREAMING_GAP_FIRST_MS + 700,
+  );
+});
+
+test("a lingering word is written a letter at a time, and the next word waits for it", () => {
+  const schedule = createStreamingWordSchedule();
+  const first = schedule.startAtMs(0, "slowly", false, 0, 40, {
+    tempo: "linger",
+    letters: 6,
+  });
+  const second = schedule.startAtMs(1, "now", false, 0, 39, {
+    tempo: "linger",
+    letters: 3,
+  });
+  // A backlog tightens ordinary words, never a lingering one.
+  assert.equal(second - first, 7 * STREAMING_LINGER_LETTER_MS);
+  assert.equal(schedule.assignedDurationMs(0), 7 * STREAMING_LINGER_LETTER_MS);
+  assert.equal(schedule.assignedDurationMs(1), 4 * STREAMING_LINGER_LETTER_MS);
+});
+
+test("a rushed passage lands two words at a time", () => {
+  const schedule = createStreamingWordSchedule();
+  const starts = [0, 1, 2, 3].map((i) =>
+    schedule.startAtMs(i, `w${i}`, false, 0, 1, { tempo: "rush", letters: 2 }),
+  );
+  assert.deepEqual(gapsOf(starts), [
+    STREAMING_RUSH_GAP_MS,
+    STREAMING_RUSH_GAP_MS,
+    STREAMING_RUSH_GAP_MS,
+  ]);
+  assert.equal(schedule.assignedDurationMs(0), STREAMING_WORD_MS);
+});
+
+test("an ordinary word keeps the ordinary duration", () => {
+  const { schedule } = startsOf(2);
+  assert.equal(schedule.assignedDurationMs(0), STREAMING_WORD_MS);
+  assert.equal(schedule.assignedDurationMs(9), STREAMING_WORD_MS);
+});
+
+test("with nothing allowed to move, words show as they arrive and a hold still waits", () => {
+  const schedule = createStreamingWordSchedule();
+  const pace = STREAMING_WORD_STILL;
+  assert.equal(schedule.startAtMs(0, "a", false, 0, 9, undefined, pace), 0);
+  assert.equal(schedule.startAtMs(1, "b", false, 0, 8, undefined, pace), 0);
+  assert.equal(
+    schedule.startAtMs(2, "c", false, 0, 7, { holdMs: 700, letters: 1 }, pace),
+    700,
+  );
+  assert.equal(schedule.startAtMs(3, "d", false, 0, 6, undefined, pace), 700);
+  assert.equal(schedule.assignedDurationMs(3), 0);
+  // An instant transition: hidden before its start, settled from it.
+  assert.equal(streamingWordProgress(700, 699, 0), 0);
+  assert.equal(streamingWordProgress(700, 700, 0), 1);
+  const node = fakeNode();
+  STREAMING_WORD_STILL.apply(node, 0);
+  assert.equal(node.style.opacity, "0");
+  STREAMING_WORD_STILL.apply(node, 1);
+  assert.equal(node.style.opacity, "");
+  assert.equal(node.style.transform, "none");
+});
+
+function maskedNode() {
+  const style = {};
+  style.setProperty = (name, value) => {
+    style[name] = value;
+  };
+  style.removeProperty = (name) => {
+    delete style[name];
+  };
+  return { style };
+}
+
+test("a lingering word is written on from left to right, then left plain", () => {
+  const node = maskedNode();
+  writeOnWord(node, 0);
+  assert.equal(
+    node.style["mask-image"],
+    "linear-gradient(90deg, #000 -30.0%, transparent 0.0%)",
+  );
+  assert.equal(node.style["-webkit-mask-image"], node.style["mask-image"]);
+  writeOnWord(node, 0.5);
+  assert.equal(
+    node.style["mask-image"],
+    "linear-gradient(90deg, #000 35.0%, transparent 65.0%)",
+  );
+  assert.equal(node.style.transform, "none");
+  writeOnWord(node, 1);
+  assert.equal(node.style["mask-image"], undefined);
+  assert.equal(node.style["-webkit-mask-image"], undefined);
+  assert.equal(node.style.opacity, "");
+  assert.equal(node.style.filter, "none");
 });
 
 // --- the rehype pass -------------------------------------------------------

@@ -221,9 +221,14 @@ test("each living ink mark lands on its passage in finalized and provisional tex
       ["breathe", 'data-expression-motion="breathe"'],
       ["drift", 'data-expression-motion="drift"'],
     ]) {
+      // Wet ink's words each carry their own copy of the gloss.
+      const words =
+        value === "wet"
+          ? '<span data-expression-wet-word="" data-ink-text="soft">soft</span> <span data-expression-wet-word="" data-ink-text="words">words</span>'
+          : "soft words";
       assert.equal(
         render(`[soft words](ink:${value})`, streaming),
-        `<p><span ${style} ${attributes}>soft words</span></p>`,
+        `<p><span ${style} ${attributes}>${words}</span></p>`,
         value,
       );
     }
@@ -239,7 +244,7 @@ test("marks follow today's attributes on painted passages, in a fixed order", ()
     render(
       "[w](ink:#f5a?hold=1.5&land&linger&wet&echo=again&pace=medium&weight=450)",
     ),
-    '<p><span data-expression-tone="" style="--expression-fill:#ff55aa;--expression-weight:450;--expression-duration:2.4s" data-expression-weight="" data-expression-pressure="land" data-expression-hold="1.5" data-expression-tempo="linger" data-expression-wet="" data-expression-echo="again">w</span></p>',
+    '<p><span data-expression-tone="" style="--expression-fill:#ff55aa;--expression-weight:450;--expression-duration:2.4s" data-expression-weight="" data-expression-pressure="land" data-expression-hold="1.5" data-expression-tempo="linger" data-expression-wet="" data-expression-echo="again"><span data-expression-wet-word="" data-ink-text="w">w</span></span></p>',
   );
   assert.match(
     render("[w](ink:rose~cyan?drift&hush)"),
@@ -260,7 +265,7 @@ test("paint-less ink keeps the page's own colour", () => {
       ],
       [
         "[words](color:wet)",
-        '<p><span style="--expression-duration:3.6s" data-expression-wet="">words</span></p>',
+        '<p><span style="--expression-duration:3.6s" data-expression-wet=""><span data-expression-wet-word="" data-ink-text="words">words</span></span></p>',
       ],
       [
         "[words](ink:?land&weight=500&tracking=0.02)",
@@ -269,7 +274,7 @@ test("paint-less ink keeps the page's own colour", () => {
       // No paint to spread, so letters and lines stay whole.
       [
         "[ab](ink:?axis=letters&wet)",
-        '<p><span style="--expression-duration:3.6s" data-expression-wet="">ab</span></p>',
+        '<p><span style="--expression-duration:3.6s" data-expression-wet=""><span data-expression-wet-word="" data-ink-text="ab">ab</span></span></p>',
       ],
       [
         "[a\nb](ink:axis=lines&rush)",
@@ -575,7 +580,7 @@ test("lands: one per nearest block (paragraph, list item, heading, table cell)",
   });
   assert.match(
     kept,
-    /<span data-expression-tone="" style="--expression-fill:#ff4f91;--expression-duration:3\.6s" data-expression-wet="">d<\/span>/,
+    /<span data-expression-tone="" style="--expression-fill:#ff4f91;--expression-duration:3\.6s" data-expression-wet=""><span data-expression-wet-word="" data-ink-text="d">d<\/span><\/span>/,
   );
 });
 
@@ -596,7 +601,7 @@ test("echo: one per message, in reading order; a dropped echo keeps the rest", (
 
 test("paint-less passages count among the 64 enhanced passages", () => {
   const html = render(`${repeat(64, () => "[x](ink:wet)")} [last](color:#fff)`);
-  assert.equal((html.match(/data-expression-wet/g) ?? []).length, 64);
+  assert.equal((html.match(/data-expression-wet=/g) ?? []).length, 64);
   assert.match(html, / <span>last<\/span><\/p>$/);
 });
 

@@ -51,6 +51,7 @@ import { formatFullDateTime } from "@/features/messages/lib/dateFormatters";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { type InkHeard, inkHeardEqual } from "@/shared/lib/inkHeard";
 import { useChannelNavigation } from "@/shared/context/ChannelNavigationContext";
 import { parseImetaTags } from "@/features/messages/lib/parseImeta";
 import {
@@ -206,6 +207,7 @@ export const MessageRow = React.memo(
     onUnfollowThread,
     profiles,
     searchQuery,
+    inkHeard,
     quotedParent = null,
     collapseLongBody = true,
     quickReactions = true,
@@ -260,6 +262,8 @@ export const MessageRow = React.memo(
     playEntrance?: boolean;
     profiles?: UserProfileLookup;
     searchQuery?: string;
+    /** Words of this message that a reply echoes, lit in the reply's ink. */
+    inkHeard?: readonly InkHeard[];
     /** The message this one replies to, shown as a quote above the body.
      *  Present only in the quote-reply presentation. */
     quotedParent?: {
@@ -587,6 +591,7 @@ export const MessageRow = React.memo(
                 (Boolean(message.managedPresentation.finalMessageId) &&
                   !message.managedPresentation.streaming)
               }
+              inkHeard={inkHeard}
               searchQuery={searchQuery}
               snapshotSharedBy={snapshotSharedBy}
               streaming={message.managedPresentation?.streaming ?? false}
@@ -1459,6 +1464,7 @@ export const MessageRow = React.memo(
     prev.profiles === next.profiles &&
     prev.agentNamesEnabled === next.agentNamesEnabled &&
     prev.searchQuery === next.searchQuery &&
+    inkHeardEqual(prev.inkHeard, next.inkHeard) &&
     prev.videoReviewContext === next.videoReviewContext,
 );
 

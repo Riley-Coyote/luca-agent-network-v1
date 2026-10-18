@@ -38,6 +38,45 @@ function span(
   };
 }
 
+/**
+ * Wet ink is still open, and a narrow gloss lies along it where the light
+ * falls. Each word carries its own copy of the gloss (its words, in
+ * `data-ink-text`, drawn over it), so the light finds every word however the
+ * line wraps. The words count against the message's span budget; past it, the
+ * passage keeps its wet tone without the gloss.
+ */
+function splitWetWords(node: ExpressionNode, budget: { remaining: number }) {
+  let words = 0;
+  function count(child: ExpressionNode) {
+    if (skipped(child)) return;
+    if (child.type === "text")
+      words += (child.value ?? "").split(/\s+/).filter(Boolean).length;
+    child.children?.forEach(count);
+  }
+  node.children?.forEach(count);
+  if (words === 0 || words > budget.remaining) return;
+  budget.remaining -= words;
+  function wrap(child: ExpressionNode): ExpressionNode[] {
+    if (skipped(child)) return [child];
+    if (child.type === "text") {
+      return (child.value ?? "")
+        .split(/(\s+)/)
+        .filter(Boolean)
+        .map((part) =>
+          /^\s+$/.test(part)
+            ? { type: "text", value: part }
+            : span([{ type: "text", value: part }], {
+                "data-expression-wet-word": "",
+                "data-ink-text": part,
+              }),
+        );
+    }
+    if (child.children) child.children = child.children.flatMap(wrap);
+    return [child];
+  }
+  node.children = node.children?.flatMap(wrap);
+}
+
 /** Transform only text; a shared message budget bounds generated DOM during streaming. */
 export function buildExpressionTree(
   node: ExpressionNode,
@@ -45,6 +84,7 @@ export function buildExpressionTree(
   budget: { remaining: number },
 ) {
   const painted = spec.stops.length > 0;
+  if (spec.wet) splitWetWords(node, budget);
   let count = 0,
     lines = 1,
     runs = 0;
