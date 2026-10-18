@@ -19,8 +19,9 @@ const skipped = (node: ExpressionNode) =>
   ["code", "inlineCode", "image", "html"].includes(node.type);
 const paint = (rgb: RGB) => `--expression-fill:${formatExpressionColor(rgb)}`;
 
-/** The passage's own words: its text descendants, inline code as written. */
+/** The passage's own words: its text and inline code as written, a break as "\n". */
 function ownWords(node: ExpressionNode): string {
+  if (node.type === "break") return "\n";
   if (node.type === "text" || node.type === "inlineCode")
     return node.value ?? "";
   return node.children?.map(ownWords).join("") ?? "";
@@ -103,8 +104,13 @@ export function buildExpressionTree(
     properties["data-expression-hold"] = String(spec.hold);
   if (spec.tempo) properties["data-expression-tempo"] = spec.tempo;
   if (spec.wet) properties["data-expression-wet"] = "";
+  // A line break reads as one space: none at the ends, one for a run.
   if (spec.echo !== undefined)
-    properties["data-expression-echo"] = spec.echo || ownWords(node);
+    properties["data-expression-echo"] =
+      spec.echo ||
+      ownWords(node)
+        .replace(/^\n+|\n+$/g, "")
+        .replace(/\n+/g, " ");
   if (axis !== "flow") {
     let index = 0,
       line = 0;
