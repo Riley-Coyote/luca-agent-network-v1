@@ -1,9 +1,10 @@
 //! Owner settings entry to the same discovered-profile follow operation as chat.
 //! No renderer paths, permission choices, runtime binding, or conversation scope.
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, WebviewWindow, WindowEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tokio_util::sync::CancellationToken;
 
 use super::{
     companion::{managed_resident, projection, CompanionAwarenessStatusV1},
@@ -87,6 +88,20 @@ fn review_unchanged(
     Ok(())
 }
 
+async fn await_parented_approval(
+    receiver: tokio::sync::oneshot::Receiver<Result<bool, String>>,
+    closed: &CancellationToken,
+) -> Result<bool, String> {
+    tokio::select! {
+        biased;
+        _ = closed.cancelled() => Ok(false),
+        result = receiver => {
+            let approved = result.map_err(|_| "Companion approval is unavailable. Nothing changed.")??;
+            Ok(approved && !closed.is_cancelled())
+        }
+    }
+}
+
 /// Discover one harness profile and follow only after a native owner approval.
 /// Cancellation leaves selections, grants, history consent, and watchers alone.
 #[tauri::command]
@@ -94,7 +109,22 @@ pub async fn follow_companion_work(
     resident_pubkey: String,
     kind: NativeProfileKindV1,
     app: AppHandle,
+    window: WebviewWindow,
 ) -> Result<Option<CompanionAwarenessStatusV1>, String> {
+    // Tauri injects the actual caller; no renderer-supplied label can choose
+    // another parent. A close request invalidates even a late Yes callback.
+    let closed = Arc::new(CancellationToken::new());
+    let window_closed = Arc::downgrade(&closed);
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            WindowEvent::CloseRequested { .. } | WindowEvent::Destroyed
+        ) {
+            if let Some(closed) = window_closed.upgrade() {
+                closed.cancel();
+            }
+        }
+    });
     let harness = match kind {
         NativeProfileKindV1::CodexSessions => Harness::Codex,
         NativeProfileKindV1::ClaudeProjects => Harness::ClaudeCode,
@@ -116,29 +146,54 @@ pub async fn follow_companion_work(
     // Only the native human response can approve. Cancellation/disconnection
     // returns before selection, grants, history choices, or watchers are changed.
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    app.dialog()
-        .message(format!(
-            "{}\n\nCompanion: {}\nProfile: {}",
-            follow_disclosure(harness),
-            before.display_name,
-            before.root.display()
-        ))
-        .title(format!("Follow {} work", harness.label()))
-        .buttons(MessageDialogButtons::YesNo)
-        .show(move |approved| {
-            let _ = sender.send(approved);
-        });
-    let approved = receiver
-        .await
-        .map_err(|_| "Companion approval is unavailable. Nothing changed.")?;
+    let message = format!(
+        "{}\n\nCompanion: {}\nProfile: {}",
+        follow_disclosure(harness),
+        before.display_name,
+        before.root.display()
+    );
+    let parent = window.clone();
+    let presentation_closed = closed.clone();
+    app.run_on_main_thread(move || {
+        if presentation_closed.is_cancelled() || !parent.is_visible().unwrap_or(false) {
+            let _ = sender.send(Ok(false));
+            return;
+        }
+        // A missing parent must not fall back to rfd's unparented macOS
+        // CFUserNotification path, which can remain invisible and wait forever.
+        #[cfg(target_os = "macos")]
+        if parent.ns_window().is_err() {
+            let _ = sender.send(Err(
+                "The approval window is unavailable. Nothing changed.".into()
+            ));
+            return;
+        }
+        parent
+            .dialog()
+            .message(message)
+            .parent(&parent)
+            .title(format!("Follow {} work", harness.label()))
+            .buttons(MessageDialogButtons::YesNo)
+            .show(move |approved| {
+                let _ = sender.send(Ok(approved));
+            });
+    })
+    .map_err(|_| "The approval window is unavailable. Nothing changed.")?;
+    let approved = await_parented_approval(receiver, &closed).await?;
     if !approved {
         return Ok(None);
     }
     tauri::async_runtime::spawn_blocking(move || {
+        if closed.is_cancelled() || !window.is_visible().unwrap_or(false) {
+            return Ok(None);
+        }
         // Re-authenticate owner and managed membership, the runtime epoch and
         // binding, exact discovered container, and all control/grant revisions.
         let after = prepare(&app, &resident_pubkey, harness)?;
         review_unchanged(approved, &before, &after)?;
+        if closed.is_cancelled() {
+            return Ok(None);
+        }
         follow_approved(&app, &after.target, harness, after.root, &before.expected)?;
         projection(
             &app.state::<AppState>(),
@@ -155,6 +210,35 @@ pub async fn follow_companion_work(
 mod tests {
     use super::*;
     use luca_protocol::{Hex64, SafeU53, Sha256Ref};
+
+    #[tokio::test]
+    async fn parent_close_cancels_pending_approval_and_rejects_late_yes() {
+        let closed = CancellationToken::new();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        closed.cancel();
+        assert!(!await_parented_approval(receiver, &closed).await.unwrap());
+        assert!(sender.send(Ok(true)).is_err());
+
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        sender.send(Ok(true)).unwrap();
+        assert!(!await_parented_approval(receiver, &closed).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn live_parent_still_requires_an_explicit_successful_yes_callback() {
+        let closed = CancellationToken::new();
+        for answer in [true, false] {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            sender.send(Ok(answer)).unwrap();
+            assert_eq!(
+                await_parented_approval(receiver, &closed).await.unwrap(),
+                answer
+            );
+        }
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        drop(sender);
+        assert!(await_parented_approval(receiver, &closed).await.is_err());
+    }
 
     fn review() -> FollowReview {
         use crate::luca::companion_awareness::selected_files::tests::Fixture;
