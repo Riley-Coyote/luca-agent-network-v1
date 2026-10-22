@@ -223,6 +223,15 @@ pub(crate) fn load_managed_agent_public_keys(
         .collect()
 }
 
+/// Presentation metadata for native consent, without hydrating resident keys.
+pub(crate) fn load_managed_agent_display_name(app: &AppHandle, pubkey: &luca_protocol::Hex64) -> Result<Option<String>, String> {
+    use zeroize::Zeroize;
+    let mut records = load_agent_store(app)?;
+    for record in &mut records { record.private_key_nsec.zeroize(); }
+    Ok(records.into_iter().find(|record| record.pubkey == pubkey.as_str())
+        .map(|record| record.display_name.unwrap_or(record.name)))
+}
+
 /// Load the key-less agent *definitions* (former personas) from the unified
 /// store. The persona compatibility shim (`load_personas`) presents these in
 /// the legacy shape via `to_definition_view`.

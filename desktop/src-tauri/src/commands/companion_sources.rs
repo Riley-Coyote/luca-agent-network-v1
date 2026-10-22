@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use luca_protocol::{
-    AwarenessChoicesV1, AwarenessGrantStateV1, AwarenessGrantV1, OpaqueId, SafeU53,
+    AwarenessChoicesV1, AwarenessGrantStateV1, AwarenessGrantV1, OpaqueId, SafeU53, Sha256Ref,
     AWARENESS_PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
@@ -192,7 +192,11 @@ pub async fn set_companion_source_choices(
             &state,
             &live,
             &key,
-            if expected.get() == 0 { None } else { Some(expected) },
+            if expected.get() == 0 {
+                None
+            } else {
+                Some(expected)
+            },
             &choices,
             &operation_id(&request_id, "grant")?,
         )?;
@@ -210,6 +214,41 @@ pub(super) fn put_choices(
     choices: &CompanionSourceChoicesInputV1,
     operation: &OpaqueId,
 ) -> Result<(), String> {
+    put_choices_inner(state, live, key, expected, choices, operation, None)
+}
+
+/// Follow consent names one exact runtime and source epoch. Do not retarget a
+/// grant if the runtime or source was changed while that approval was pending.
+pub(super) fn put_choices_bound(
+    state: &AppState,
+    live: &LiveAwarenessOwner<'_>,
+    key: &AwarenessGrantKeyV1,
+    expected: Option<SafeU53>,
+    choices: &CompanionSourceChoicesInputV1,
+    operation: &OpaqueId,
+    binding: &Sha256Ref,
+    deny_epoch: SafeU53,
+) -> Result<(), String> {
+    put_choices_inner(
+        state,
+        live,
+        key,
+        expected,
+        choices,
+        operation,
+        Some((binding, deny_epoch)),
+    )
+}
+
+fn put_choices_inner(
+    state: &AppState,
+    live: &LiveAwarenessOwner<'_>,
+    key: &AwarenessGrantKeyV1,
+    expected: Option<SafeU53>,
+    choices: &CompanionSourceChoicesInputV1,
+    operation: &OpaqueId,
+    approved: Option<(&Sha256Ref, SafeU53)>,
+) -> Result<(), String> {
     let (source, _) = state
         .companion_awareness
         .source_snapshot(live.owner(), &key.source)
@@ -220,11 +259,18 @@ pub(super) fn put_choices(
         Err(failure) => return Err(error(failure)),
     };
     let provider = if choices.provider_egress {
-        Some(
+        let current =
             managed_cognition::active_binding_ref(&key.resident_pubkey).map_err(|_| {
                 "Start this companion before allowing its current runtime to receive context."
-            })?,
-        )
+            })?;
+        if let Some((binding, _)) = approved {
+            if &current != binding {
+                return Err("The companion runtime changed. Review this choice again.".into());
+            }
+            Some(binding.clone())
+        } else {
+            Some(current)
+        }
     } else {
         None
     };
@@ -243,7 +289,7 @@ pub(super) fn put_choices(
         device_id: key.source.device_id.clone(),
         grant_revision: SafeU53::new(expected.map_or(1, |value| value.get().saturating_add(1)))
             .map_err(|_| "invalid companion revision")?,
-        deny_epoch: source.deny_epoch,
+        deny_epoch: approved.map_or(source.deny_epoch, |(_, epoch)| epoch),
         state: AwarenessGrantStateV1::Active,
         choices: AwarenessChoicesV1 {
             observe: choices.observe,
@@ -262,7 +308,9 @@ pub(super) fn put_choices(
         .after_grant_withdrawal(live.owner(), key)
         .map_err(error)?;
     #[cfg(unix)]
-    let _ = state.companion_browser.after_grant_withdrawal(live.owner(), key);
+    let _ = state
+        .companion_browser
+        .after_grant_withdrawal(live.owner(), key);
     if choices.observe
         && !state
             .companion_awareness
@@ -319,42 +367,93 @@ fn error(error: AwarenessStoreError) -> String {
     error.to_string()
 }
 
-pub(super) fn resume_selected_key(state: &AppState, live: &LiveAwarenessOwner<'_>, key: &AwarenessGrantKeyV1)
-    -> Result<(), String> {
+pub(super) fn resume_selected_key(
+    state: &AppState,
+    live: &LiveAwarenessOwner<'_>,
+    key: &AwarenessGrantKeyV1,
+) -> Result<(), String> {
     #[cfg(unix)]
     if key.source.source_id.as_str().starts_with("browser-source:") {
-        return state.companion_browser.resume_source(live,key).map_err(|error|error.to_string());
+        return state
+            .companion_browser
+            .resume_source(live, key)
+            .map_err(|error| error.to_string());
     }
-    if state.companion_sources.selected(live.owner(), &key.resident_pubkey).ok().into_iter().flatten()
+    if state
+        .companion_sources
+        .selected(live.owner(), &key.resident_pubkey)
+        .ok()
+        .into_iter()
+        .flatten()
         .any(|selection| selection.key() == key)
     {
-        return state.companion_sources.resume(live, key, Default::default()).map_err(error);
+        return state
+            .companion_sources
+            .resume(live, key, Default::default())
+            .map_err(error);
     }
-    if state.companion_sources.list_machines(live.owner(), &key.resident_pubkey).ok().into_iter().flatten()
+    if state
+        .companion_sources
+        .list_machines(live.owner(), &key.resident_pubkey)
+        .ok()
+        .into_iter()
+        .flatten()
         .any(|selection| selection.key() == key)
     {
-        return state.companion_sources.resume_machine(live, key).map_err(error);
+        return state
+            .companion_sources
+            .resume_machine(live, key)
+            .map_err(error);
     }
-    let selected = state.companion_sources.list_profiles(live.owner(), &key.resident_pubkey).map_err(error)?
-        .into_iter().find(|registration| registration.selection.grant_key() == key)
+    let selected = state
+        .companion_sources
+        .list_profiles(live.owner(), &key.resident_pubkey)
+        .map_err(error)?
+        .into_iter()
+        .find(|registration| registration.selection.grant_key() == key)
         .ok_or("Source is not selected for this companion.")?;
-    state.companion_sources.resume_profile(live, selected.selection).map_err(error)
+    state
+        .companion_sources
+        .resume_profile(live, selected.selection)
+        .map_err(error)
 }
 
-fn selected_key(state: &AppState, owner: &luca_protocol::Hex64, resident: &luca_protocol::Hex64, source: &OpaqueId)
-    -> Result<AwarenessGrantKeyV1, String> {
+fn selected_key(
+    state: &AppState,
+    owner: &luca_protocol::Hex64,
+    resident: &luca_protocol::Hex64,
+    source: &OpaqueId,
+) -> Result<AwarenessGrantKeyV1, String> {
     #[cfg(unix)]
     if source.as_str().starts_with("browser-source:") {
-        return super::companion_browser::browser_key(state,owner,resident,source);
+        return super::companion_browser::browser_key(state, owner, resident, source);
     }
-    if let Some(selection) = state.companion_sources.selected(owner, resident).ok().into_iter().flatten()
+    if let Some(selection) = state
+        .companion_sources
+        .selected(owner, resident)
+        .ok()
+        .into_iter()
+        .flatten()
         .find(|selection| &selection.key().source.source_id == source)
-    { return Ok(selection.key().clone()); }
-    if let Some(selection) = state.companion_sources.list_machines(owner, resident).ok().into_iter().flatten()
+    {
+        return Ok(selection.key().clone());
+    }
+    if let Some(selection) = state
+        .companion_sources
+        .list_machines(owner, resident)
+        .ok()
+        .into_iter()
+        .flatten()
         .find(|selection| &selection.key().source.source_id == source)
-    { return Ok(selection.key().clone()); }
-    state.companion_sources.list_profiles(owner, resident).map_err(error)?
-        .into_iter().find(|registration| &registration.selection.grant_key().source.source_id == source)
+    {
+        return Ok(selection.key().clone());
+    }
+    state
+        .companion_sources
+        .list_profiles(owner, resident)
+        .map_err(error)?
+        .into_iter()
+        .find(|registration| &registration.selection.grant_key().source.source_id == source)
         .map(|registration| registration.selection.grant_key().clone())
         .ok_or_else(|| "Source is not selected for this companion.".to_owned())
 }

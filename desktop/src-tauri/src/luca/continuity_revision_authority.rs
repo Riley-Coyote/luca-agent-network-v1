@@ -2229,8 +2229,11 @@ fn load_records(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| ContinuityStoreError::Unavailable)?;
+    // The serialized envelopes include metadata and JSON punctuation. Use
+    // the canonical budget here; the ciphertext-only budget is checked on
+    // the decoded records below, exactly as in the pure revision ledger.
     if !(0..=MAX_REVISION_SNAPSHOT_RECORDS as i64).contains(&count)
-        || !(0..=MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES as i64).contains(&bytes)
+        || !(0..=MAX_REVISION_SNAPSHOT_CANONICAL_BYTES as i64).contains(&bytes)
     {
         return Err(ContinuityStoreError::SnapshotBoundExceeded);
     }
@@ -2240,6 +2243,7 @@ fn load_records(
              WHERE owner_pubkey=?1 ORDER BY record_id",
         )
         .map_err(|_| ContinuityStoreError::Unavailable)?;
+    let mut encoded_ciphertext_bytes = 0usize;
     let rows: Vec<ContinuityRecordV1> = statement
         .query_map([owner.as_str()], |row| row.get::<_, Vec<u8>>(0))
         .map_err(|_| ContinuityStoreError::Unavailable)?
@@ -2250,6 +2254,10 @@ fn load_records(
             }
             let record: ContinuityRecordV1 =
                 serde_json::from_slice(&raw).map_err(|_| ContinuityStoreError::InvalidRecord)?;
+            encoded_ciphertext_bytes = encoded_ciphertext_bytes
+                .checked_add(record.ciphertext_b64.len())
+                .filter(|bytes| *bytes <= MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES)
+                .ok_or(ContinuityStoreError::SnapshotBoundExceeded)?;
             if canonicalize(&record).map_err(|_| ContinuityStoreError::InvalidRecord)? != raw
                 || !record_row_matches(connection, &record)?
             {

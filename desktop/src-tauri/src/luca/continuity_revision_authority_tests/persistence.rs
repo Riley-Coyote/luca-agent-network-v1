@@ -1,5 +1,83 @@
 use super::*;
 
+fn record_load_budget_fixture(count: usize, ciphertext_bytes: usize) -> (TempDir, ContinuityStore) {
+    let temp = TempDir::new().unwrap();
+    let mut store = open(&temp);
+    let transaction = store.connection.transaction().unwrap();
+    for index in 0..count {
+        let mut value = record(&format!("record-budget-{index:03}"), 0, None);
+        // Canonical synthetic base64 is sufficient for this encrypted-envelope
+        // loader test: no keys are accessed and no body is decrypted.
+        value.ciphertext_b64 = "A".repeat(ciphertext_bytes);
+        value.validate().unwrap();
+        let encoded = canonicalize(&value).unwrap();
+        assert!(encoded.len() <= MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES);
+        insert_record(&transaction, &value, &encoded).unwrap();
+    }
+    transaction.commit().unwrap();
+    drop(store);
+    let reopened = open(&temp);
+    (temp, reopened)
+}
+
+#[test]
+fn record_load_budget_allows_envelope_overhead_above_ciphertext_limit() {
+    let (_temp, store) = record_load_budget_fixture(64, 1024 * 1024 - 4);
+    let envelope_bytes: i64 = store
+        .connection
+        .query_row(
+            "SELECT SUM(length(envelope_json)) FROM continuity_records",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(envelope_bytes > MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES as i64);
+    assert!(envelope_bytes < MAX_REVISION_SNAPSHOT_CANONICAL_BYTES as i64);
+    let changes_before = store.connection.total_changes();
+    let loaded = load_records(&store.connection, &hex('1'), 64).unwrap();
+    assert_eq!(loaded.len(), 64);
+    assert_eq!(
+        loaded
+            .iter()
+            .map(|record| record.ciphertext_b64.len())
+            .sum::<usize>(),
+        MAX_REVISION_SNAPSHOT_ENCODED_CIPHERTEXT_BYTES - 256,
+    );
+    assert_eq!(store.connection.total_changes(), changes_before);
+}
+
+#[test]
+fn record_load_budget_rejects_actual_ciphertext_over_limit() {
+    let (_temp, store) = record_load_budget_fixture(65, 1024 * 1024);
+    let changes_before = store.connection.total_changes();
+    assert!(matches!(
+        load_records(&store.connection, &hex('1'), 65),
+        Err(ContinuityStoreError::SnapshotBoundExceeded),
+    ));
+    assert_eq!(store.connection.total_changes(), changes_before);
+}
+
+#[test]
+fn record_load_budget_rejects_canonical_over_limit_before_json_decode() {
+    let (_temp, store) = record_load_budget_fixture(97, 4);
+    // Each blob remains below the individual envelope cap. Their aggregate
+    // exceeds 96 MiB and must be rejected before attempting malformed JSON.
+    assert!(1024 * 1024 < MAX_SERIALIZED_ENCRYPTED_RECORD_BYTES);
+    store
+        .connection
+        .execute(
+            "UPDATE continuity_records SET envelope_json=zeroblob(?1)",
+            [1024 * 1024],
+        )
+        .unwrap();
+    let changes_before = store.connection.total_changes();
+    assert!(matches!(
+        load_records(&store.connection, &hex('1'), 97),
+        Err(ContinuityStoreError::SnapshotBoundExceeded),
+    ));
+    assert_eq!(store.connection.total_changes(), changes_before);
+}
+
 #[test]
 fn first_create_reopen_stale_cas_and_exact_replay_are_atomic() {
     let temp = TempDir::new().unwrap();

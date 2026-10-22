@@ -13,6 +13,7 @@ import { Switch } from "@/shared/ui/switch";
 import {
   companionState,
   companionHistory,
+  followCompanionWork,
   pickCompanionSource,
   setCompanionHistory,
   setCompanionSource,
@@ -39,6 +40,7 @@ const initialChoices: SourceChoices = {
 const nativeApi = {
   companionState,
   companionHistory,
+  followCompanionWork,
   pickCompanionSource,
   setCompanionHistory,
   setCompanionSource,
@@ -84,6 +86,7 @@ export function CompanionSetupPanel({
   const {
     companionState,
     companionHistory,
+    followCompanionWork,
     pickCompanionSource,
     setCompanionHistory,
     setCompanionSource,
@@ -300,9 +303,9 @@ export function CompanionSetupPanel({
             <section className="space-y-3">
               <h3 className="text-sm font-medium">Keep up with your work</h3>
               <p className="text-xs leading-5 text-muted-foreground">
-                Choose a source first. Permission is reviewed separately. Native
-                sessions are followed after new changes, not scanned as a whole
-                history.
+                Choose Codex or Claude Code to find its profile and review one
+                permission request. Only new and changed sessions are followed;
+                old history is not imported.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button
@@ -311,7 +314,7 @@ export function CompanionSetupPanel({
                   disabled={pending}
                   onClick={() =>
                     void operate((resident) =>
-                      pickCompanionSource(resident, "codex_sessions"),
+                      followCompanionWork(resident, "codex_sessions"),
                     )
                   }
                 >
@@ -323,7 +326,7 @@ export function CompanionSetupPanel({
                   disabled={pending}
                   onClick={() =>
                     void operate((resident) =>
-                      pickCompanionSource(resident, "claude_projects"),
+                      followCompanionWork(resident, "claude_projects"),
                     )
                   }
                 >
@@ -342,6 +345,41 @@ export function CompanionSetupPanel({
                   A file
                 </Button>
               </div>
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer">
+                  Advanced: choose a profile folder
+                </summary>
+                <p className="mt-2 leading-5">
+                  For custom installations. Selecting a folder keeps access off
+                  until you review it.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() =>
+                      void operate((resident) =>
+                        pickCompanionSource(resident, "codex_sessions"),
+                      )
+                    }
+                  >
+                    Choose Codex folder
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={pending}
+                    onClick={() =>
+                      void operate((resident) =>
+                        pickCompanionSource(resident, "claude_projects"),
+                      )
+                    }
+                  >
+                    Choose Claude Code folder
+                  </Button>
+                </div>
+              </details>
               {request ? (
                 <CompanionSourceSetup
                   key={request.residentPubkey}

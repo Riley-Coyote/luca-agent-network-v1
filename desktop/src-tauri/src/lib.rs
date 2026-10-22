@@ -1189,6 +1189,7 @@ pub fn run() {
             retire_companion_shared_thread,
             list_companion_native_profiles,
             pick_companion_native_profile,
+            follow_companion_work,
             list_companion_machine_sources,
             select_companion_machine_source,
             resume_companion_machine_source,

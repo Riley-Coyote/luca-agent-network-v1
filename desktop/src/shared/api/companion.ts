@@ -206,6 +206,13 @@ export function setCompanionHistory(
     },
   });
 }
+/** Host discovers one native profile and asks for approval before following it. */
+export function followCompanionWork(residentPubkey: string, kind: ProfileKind) {
+  return invokeTauri<CompanionAwareness | null>("follow_companion_work", {
+    residentPubkey,
+    kind,
+  });
+}
 export function pickCompanionSource(
   residentPubkey: string,
   kind: ProfileKind | "file",

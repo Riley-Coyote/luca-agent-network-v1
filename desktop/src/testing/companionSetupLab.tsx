@@ -47,6 +47,50 @@ function createSampleApi(): CompanionSetupApi {
   const copy = <T,>(value: T): T => structuredClone(value);
   return {
     companionState: async () => copy({ awareness, work, selections, browsers }),
+    followCompanionWork: async (_resident, kind) => {
+      // Simulated consent only. The production command owns a native dialog.
+      const label = kind === "codex_sessions" ? "Codex" : "Claude Code";
+      if (
+        !window.confirm(
+          `Sample only: follow ${label} visible activity with this companion's current model? No old-history import, Brain, or background work.`,
+        )
+      )
+        return null;
+      const sourceId = `sample-follow-${kind}`;
+      if (selections.some((selection) => selection.sourceId === sourceId))
+        return copy(awareness);
+      selections.push({ sourceId, kind, class: "visible_excerpts" });
+      awareness = {
+        ...awareness,
+        paused: false,
+        collectionRunning: true,
+        revision: awareness.revision + 1,
+        grants: [
+          ...awareness.grants,
+          {
+            source: { source_id: sourceId, state: "healthy" },
+            grant: {
+              grant_revision: 1,
+              state: "active",
+              choices: {
+                observe: true,
+                promote: false,
+                retain: false,
+                provider_egress_binding: "sample-binding",
+              },
+            },
+          },
+        ],
+      };
+      histories.set(sourceId, {
+        choice: { revision: 1, allowed: true },
+        currentBindingConfirmed: true,
+        consumersReady: true,
+        disclosureRevision: 1,
+        disclosure,
+      });
+      return copy(awareness);
+    },
     selectCompanionMachineSource: async (_resident, className) => {
       const sourceId = `sample-machine-${selections.length + 1}`;
       selections.push({ sourceId, class: className });

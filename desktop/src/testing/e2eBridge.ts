@@ -13080,6 +13080,11 @@ export function maybeInstallE2eTauriMocks() {
       case "list_companion_machine_sources":
       case "list_companion_browser_profiles":
         return [];
+      // Browser routing proof only: native consent/picker is treated as cancel.
+      // This fixture never grants access or claims native discovery succeeded.
+      case "follow_companion_work":
+      case "pick_companion_native_profile":
+        return null;
       case "discover_acp_providers":
         return handleDiscoverAcpRuntimes(activeConfig);
       case "discover_native_residents":

@@ -133,6 +133,56 @@ test("keyboard entry follows the selected resident and restores focus at compact
   await expect(entry).toBeFocused();
 });
 
+test("work buttons request native discovery; manual folder selection stays explicit", async ({
+  page,
+}) => {
+  await openSettings(page);
+  await page.getByRole("button", { name: "Companion settings" }).click();
+  const dialog = page.getByRole("dialog", { name: "With Mara" });
+  await dialog.getByRole("button", { name: "Codex work", exact: true }).click();
+  await expect(
+    dialog.getByRole("button", { name: "Claude Code work", exact: true }),
+  ).toBeEnabled();
+  await dialog
+    .getByRole("button", { name: "Claude Code work", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("button", { name: "Codex work", exact: true }),
+  ).toBeEnabled();
+  const calls = await companionCalls(page);
+  expect(
+    calls
+      .filter(({ command }) => command === "follow_companion_work")
+      .map(({ payload }) => payload),
+  ).toEqual([
+    { residentPubkey: MARA, kind: "codex_sessions" },
+    { residentPubkey: MARA, kind: "claude_projects" },
+  ]);
+  expect(
+    calls.some(({ command }) => /^(pick_|set_|select_|resume_)/.test(command)),
+  ).toBe(false);
+  await expect(
+    dialog.getByRole("button", { name: "Choose Codex folder" }),
+  ).toBeHidden();
+  await dialog
+    .getByText("Advanced: choose a profile folder", { exact: true })
+    .click();
+  await dialog.getByRole("button", { name: "Choose Codex folder" }).click();
+  const manual = (await companionCalls(page)).find(
+    ({ command }) => command === "pick_companion_native_profile",
+  );
+  expect(manual?.payload).toMatchObject({
+    residentPubkey: MARA,
+    kind: "codex_sessions",
+    choices: {
+      observe: false,
+      promote: false,
+      providerEgress: false,
+      retainRaw: false,
+    },
+  });
+});
+
 test("an unavailable companion can be dismissed and reopened without losing the agent page", async ({
   page,
 }) => {

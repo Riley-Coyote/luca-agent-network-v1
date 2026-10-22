@@ -18,7 +18,7 @@ use crate::{
     },
 };
 use luca_protocol::{
-    canonical_sha256, CapabilityKind, CapabilityResourceV1, CapabilityRisk,
+    canonical_sha256, CapabilityKind, CapabilityResourceV1, CapabilityRisk, Hex64,
     ManagedPermissionRequestV2, OpaqueId, SafeU53, Sha256Ref, MANAGED_PERMISSION_V2_PROTOCOL,
 };
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ use tauri::{AppHandle, Manager};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum Harness {
+pub(super) enum Harness {
     ClaudeCode,
     Codex,
 }
@@ -42,12 +42,152 @@ impl Harness {
             Self::Codex => NativeProfileKindV1::CodexSessions,
         }
     }
-    fn label(self) -> &'static str {
+    pub(super) fn label(self) -> &'static str {
         match self {
             Self::ClaudeCode => "Claude Code",
             Self::Codex => "Codex",
         }
     }
+}
+
+/// Shared follow target, not conversation authority. Each caller must obtain
+/// its own host-owned approval; settings never invents a conversation scope.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FollowTarget {
+    pub owner: Hex64,
+    pub resident: Hex64,
+    pub binding: Sha256Ref,
+    pub session_epoch: SafeU53,
+}
+impl From<&ResidentProposalScope> for FollowTarget {
+    fn from(scope: &ResidentProposalScope) -> Self {
+        Self {
+            owner: scope.owner.clone(),
+            resident: scope.resident.clone(),
+            binding: scope.binding.clone(),
+            session_epoch: scope.session_epoch,
+        }
+    }
+}
+
+pub(super) fn follow_disclosure(harness: Harness) -> String {
+    Request {
+        action: Action::Follow,
+        harnesses: vec![harness],
+    }
+    .disclosure()
+}
+
+pub(super) fn discovered_root(app: &AppHandle, harness: Harness) -> Result<PathBuf, String> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|_| "Home folder unavailable.")?;
+    transcript_root(
+        &home,
+        harness,
+        std::env::var(match harness {
+            Harness::ClaudeCode => "CLAUDE_CONFIG_DIR",
+            Harness::Codex => "CODEX_HOME",
+        })
+        .ok()
+        .as_deref(),
+    )
+}
+
+pub(super) fn follow_approval_state(
+    state: &AppState,
+    target: &FollowTarget,
+) -> Result<String, String> {
+    approval_state(state, target, Action::Follow)
+}
+
+/// Exact CAS bases captured before owner review. A later Pause, withdrawal, or
+/// sharing change must never become a fresh base that Follow silently replaces.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct FollowExpected {
+    key: AwarenessGrantKeyV1,
+    grant_revision: Option<SafeU53>,
+    deny_epoch: Option<SafeU53>,
+    history_revision: SafeU53,
+    resident_revision: SafeU53,
+    paused: bool,
+    promote: bool,
+}
+impl FollowExpected {
+    fn after_owned_resume(&mut self, resumed: Option<(SafeU53, SafeU53)>) {
+        if let Some((previous, current)) = resumed {
+            if self.paused && self.resident_revision == previous {
+                self.paused = false;
+                self.resident_revision = current;
+            }
+        }
+    }
+}
+
+pub(super) fn follow_expected(
+    state: &AppState,
+    target: &FollowTarget,
+    harness: Harness,
+    root: &Path,
+) -> Result<FollowExpected, String> {
+    let device = state
+        .companion_awareness
+        .device(&target.owner)
+        .map_err(err)?;
+    let source = NativeProfileSelectionV1::source_id_for_selection(
+        &target.owner,
+        &target.resident,
+        &device,
+        root,
+        harness.kind(),
+        NativeProfileObservationClassV1::VisibleExcerpts,
+    )
+    .map_err(err)?;
+    let key = AwarenessGrantKeyV1 {
+        source: AwarenessSourceKeyV1 {
+            owner_pubkey: target.owner.clone(),
+            source_id: source,
+            device_id: device,
+        },
+        resident_pubkey: target.resident.clone(),
+    };
+    let deny_epoch = match state
+        .companion_awareness
+        .source_snapshot(&target.owner, &key.source)
+    {
+        Ok((source, _)) => Some(source.deny_epoch),
+        Err(AwarenessStoreError::Missing) => None,
+        Err(e) => return Err(err(e)),
+    };
+    let prior = match state.companion_awareness.snapshot(&target.owner, &key) {
+        Ok(snapshot) => Some(snapshot.grant),
+        Err(AwarenessStoreError::Missing) => None,
+        Err(e) => return Err(err(e)),
+    };
+    let history_revision = state
+        .companion_awareness
+        .native_history_choice(&target.owner, &key)
+        .map_err(err)?
+        .map_or(
+            SafeU53::new(0).map_err(|_| "Invalid history revision.")?,
+            |choice| choice.revision,
+        );
+    let resident = state
+        .companion_awareness
+        .resident_state(&target.owner, &target.resident)
+        .map_err(err)?;
+    Ok(FollowExpected {
+        key,
+        deny_epoch,
+        history_revision,
+        resident_revision: resident.revision,
+        paused: resident.paused,
+        grant_revision: prior.as_ref().map(|grant| grant.grant_revision),
+        promote: prior.is_some_and(|grant| {
+            grant.state == luca_protocol::AwarenessGrantStateV1::Active && grant.choices.promote
+        }),
+    })
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -137,9 +277,9 @@ fn discover_profiles(
     for harness in harnesses {
         match transcript_root(home, *harness, configured(*harness).as_deref()) {
             Ok(root) => roots.push((*harness, root)),
-            Err(message) => unavailable.push(
-                json!({"harness":harness,"status":"incomplete","message":message}),
-            ),
+            Err(message) => {
+                unavailable.push(json!({"harness":harness,"status":"incomplete","message":message}))
+            }
         }
     }
     (roots, unavailable)
@@ -162,6 +302,7 @@ pub(crate) fn configure(
         .map_err(|_| "Invalid companion configuration request.")?;
     request.validate()?;
     verify_origin(app, &scope)?;
+    let target = FollowTarget::from(&scope);
     let state = app.state::<AppState>();
     let home = app
         .path()
@@ -187,11 +328,15 @@ pub(crate) fn configure(
     if request.action == Action::Follow
         && roots
             .iter()
-            .all(|(h, root)| already_following(&state, &scope, *h, root))
+            .all(|(h, root)| already_following(&state, &target, *h, root))
     {
         return Ok(json!({"status":if unavailable.is_empty() {"already_following"} else {"incomplete"},"harnesses":request.harnesses,"results":unavailable,
             "message":"These profiles are already being followed with the approved sharing choices. Nothing was changed."}).to_string());
     }
+    let follow_states = roots
+        .iter()
+        .map(|(harness, root)| follow_expected(&state, &target, *harness, root))
+        .collect::<Result<Vec<_>, _>>()?;
     let widening = matches!(
         request.action,
         Action::Follow
@@ -200,7 +345,7 @@ pub(crate) fn configure(
             | Action::ResumeBackground
     );
     if widening {
-        let before_review = approval_state(&state, &scope, request.action)?;
+        let before_review = approval_state(&state, &target, request.action)?;
         let fingerprint = Sha256Ref::parse(format!(
             "sha256:{}",
             canonical_sha256(&json!([
@@ -242,7 +387,7 @@ pub(crate) fn configure(
         }
         // A settings change made while the review was open wins over this
         // request. Never silently undo a user's intervening Pause or withdrawal.
-        if approval_state(&state, &scope, request.action)? != before_review {
+        if approval_state(&state, &target, request.action)? != before_review {
             return Ok(json!({"status":"not_changed","message":"Companion settings changed while approval was open. No setup was applied; ask again if you still want this change."}).to_string());
         }
     }
@@ -253,14 +398,24 @@ pub(crate) fn configure(
     let mut results = unavailable;
     match request.action {
         Action::Follow => {
-            for (harness, root) in roots {
+            let mut owned_resume = None;
+            for ((harness, root), mut expected) in roots.into_iter().zip(follow_states) {
                 if cancelled() {
                     return Ok(json!({"status":"interrupted","results":results,"message":"Setup stopped. Only the completed entries were applied."}).to_string());
                 }
                 verify_origin(app, &scope)?;
-                match follow(app,&scope,harness,root) {
-                    Ok(())=>results.push(json!({"harness":harness,"status":"following","message":"Following new and changed sessions; recent visible excerpts can inform our conversation."})),
-                    Err(error)=>results.push(json!({"harness":harness,"status":"incomplete","message":error})),
+                // Only our first successful follow may advance the shared
+                // paused-state CAS base for a second approved harness.
+                expected.after_owned_resume(owned_resume);
+                match follow_approved(app, &target, harness, root, &expected) {
+                    Ok(resumed) => {
+                        if resumed.is_some() {
+                            owned_resume = resumed;
+                        }
+                        results.push(json!({"harness":harness,"status":"following","message":"Following new and changed sessions; recent visible excerpts can inform our conversation."}));
+                    }
+                    Err(error) => results
+                        .push(json!({"harness":harness,"status":"incomplete","message":error})),
                 }
             }
         }
@@ -314,42 +469,35 @@ pub(crate) fn configure(
         "message":"Report only the applied changes briefly in chat. Do not open a settings page. Advanced controls remain available on request."}).to_string())
 }
 
-fn follow(
+pub(super) fn follow_approved(
     app: &AppHandle,
-    scope: &ResidentProposalScope,
+    scope: &FollowTarget,
     harness: Harness,
     root: PathBuf,
-) -> Result<(), String> {
+    expected: &FollowExpected,
+) -> Result<Option<(SafeU53, SafeU53)>, String> {
     let state = app.state::<AppState>();
+    if &follow_expected(&state, scope, harness, &root)? != expected {
+        return Err("Companion permissions changed. Review this choice again.".into());
+    }
     if already_following(&state, scope, harness, &root) {
-        return Ok(());
+        return Ok(None);
     }
     let live = LiveAwarenessOwner::authenticate(&state).map_err(err)?;
     if live.owner() != &scope.owner {
         return Err("The active owner changed.".into());
     }
-    let device = state
-        .companion_awareness
-        .device(&scope.owner)
-        .map_err(err)?;
+    if crate::luca::managed_cognition::active_binding_ref(&scope.resident)
+        .ok()
+        .as_ref()
+        != Some(&scope.binding)
+        || crate::luca::managed_cognition::active_session_epoch(&scope.resident).ok()
+            != Some(scope.session_epoch)
+    {
+        return Err("The companion runtime changed. Review this choice again.".into());
+    }
     let class = NativeProfileObservationClassV1::VisibleExcerpts;
-    let source = NativeProfileSelectionV1::source_id_for_selection(
-        &scope.owner,
-        &scope.resident,
-        &device,
-        &root,
-        harness.kind(),
-        class,
-    )
-    .map_err(err)?;
-    let key = AwarenessGrantKeyV1 {
-        source: AwarenessSourceKeyV1 {
-            owner_pubkey: scope.owner.clone(),
-            source_id: source,
-            device_id: device,
-        },
-        resident_pubkey: scope.resident.clone(),
-    };
+    let key = expected.key.clone();
     let selection =
         NativeProfileSelectionV1::new(key.clone(), root, harness.kind(), class).map_err(err)?;
     // Reuse an advanced selection's private metadata instead of overwriting it.
@@ -386,41 +534,30 @@ fn follow(
         Err(e) => return Err(err(e)),
     }
     let result = (|| {
-        let prior = match state.companion_awareness.snapshot(&scope.owner, &key) {
-            Ok(s) => Some(s.grant),
-            Err(AwarenessStoreError::Missing) => None,
-            Err(e) => return Err(err(e)),
-        };
-        super::companion_sources::put_choices(
+        super::companion_sources::put_choices_bound(
             &state,
             &live,
             &key,
-            prior.as_ref().map(|grant| grant.grant_revision),
+            expected.grant_revision,
             &super::companion_sources::CompanionSourceChoicesInputV1 {
                 observe: true,
-                promote: prior.as_ref().is_some_and(|grant| {
-                    grant.state == luca_protocol::AwarenessGrantStateV1::Active
-                        && grant.choices.promote
-                }),
+                promote: expected.promote,
                 provider_egress: true,
                 retain_raw: false,
             },
             &id("follow-grant")?,
+            &scope.binding,
+            expected
+                .deny_epoch
+                .unwrap_or(SafeU53::new(0).map_err(|_| "Invalid source epoch.")?),
         )?;
-        let old = state
-            .companion_awareness
-            .native_history_choice(&scope.owner, &key)
-            .map_err(err)?;
         state
             .companion_awareness
             .set_native_history_choice(
                 &scope.owner,
                 &key,
                 Some(&live),
-                old.map_or(
-                    SafeU53::new(0).map_err(|_| "Invalid history revision.")?,
-                    |c| c.revision,
-                ),
+                expected.history_revision,
                 true,
                 Some(&scope.binding),
                 &current_canonical_timestamp()?,
@@ -431,21 +568,34 @@ fn follow(
             .companion_awareness
             .resident_state(&scope.owner, &scope.resident)
             .map_err(err)?;
-        if resident.paused {
+        if resident.revision != expected.resident_revision || resident.paused != expected.paused {
+            return Err(
+                "Companion awareness changed during setup. Review this choice again.".into(),
+            );
+        }
+        let resumed = if expected.paused {
             // Resume only the requested feed, not every previously paused source.
-            state
+            let receipt = state
                 .companion_awareness
                 .set_paused(
                     &scope.owner,
                     &scope.resident,
                     Some(&live),
-                    expected_revision(resident.revision),
+                    expected_revision(expected.resident_revision),
                     false,
                     &current_canonical_timestamp()?,
                     &id("follow-resume")?,
                 )
                 .map_err(err)?;
-        }
+            Some((
+                expected.resident_revision,
+                receipt
+                    .resident_revision
+                    .ok_or("Missing awareness revision.")?,
+            ))
+        } else {
+            None
+        };
         state
             .companion_sources
             .resume_profile(&live, selection.clone())
@@ -477,7 +627,7 @@ fn follow(
             .select_profile(&live, registration)
             .map_err(err)?;
         let _ = state.companion_coordinator.foreground_activity(app);
-        Ok(())
+        Ok(resumed)
     })();
     if result.is_err() {
         let _ = state
@@ -486,9 +636,9 @@ fn follow(
     }
     result
 }
-fn already_following(
+pub(super) fn already_following(
     state: &AppState,
-    scope: &ResidentProposalScope,
+    scope: &FollowTarget,
     harness: Harness,
     root: &Path,
 ) -> bool {
@@ -548,7 +698,7 @@ fn id(prefix: &str) -> Result<OpaqueId, String> {
 /// invalidate consent, but owner control/grant/history revisions do.
 fn approval_state(
     state: &AppState,
-    scope: &ResidentProposalScope,
+    scope: &FollowTarget,
     action: Action,
 ) -> Result<String, String> {
     let value = if matches!(action, Action::Follow | Action::ResumeAwareness) {
@@ -647,11 +797,8 @@ mod tests {
     fn discovery_keeps_available_profiles_and_reports_missing_harnesses() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".claude/projects")).unwrap();
-        let (roots, missing) = discover_profiles(
-            dir.path(),
-            &[Harness::ClaudeCode, Harness::Codex],
-            |_| None,
-        );
+        let (roots, missing) =
+            discover_profiles(dir.path(), &[Harness::ClaudeCode, Harness::Codex], |_| None);
         assert_eq!(roots.len(), 1);
         assert_eq!(roots[0].0, Harness::ClaudeCode);
         assert_eq!(missing.len(), 1);
@@ -671,6 +818,95 @@ mod tests {
         assert_eq!(
             expected_revision(SafeU53::new(9).unwrap()).map(SafeU53::get),
             Some(9),
+        );
+    }
+    #[test]
+    fn approval_snapshot_changes_after_pause_grant_or_history_changes() {
+        use crate::luca::companion_awareness::selected_files::tests::{
+            id as fixture_id, now, Fixture,
+        };
+        let fixture = Fixture::new();
+        let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+        let runtime = &fixture.state.companion_awareness;
+        runtime.initialize(&fixture.root, Some(live.owner()));
+        let target = FollowTarget {
+            owner: live.owner().clone(),
+            resident: fixture.resident.clone(),
+            binding: Sha256Ref::parse(format!("sha256:{}", "ab".repeat(32))).unwrap(),
+            session_epoch: SafeU53::new(1).unwrap(),
+        };
+        let before = follow_approval_state(&fixture.state, &target).unwrap();
+        let key = fixture.grant(fixture_id("review-source"), true);
+        let after_grant = follow_approval_state(&fixture.state, &target).unwrap();
+        assert_ne!(before, after_grant);
+        runtime
+            .set_native_history_choice(
+                live.owner(),
+                &key,
+                None,
+                SafeU53::new(0).unwrap(),
+                false,
+                None,
+                &now(),
+                &fixture_id("review-history-off"),
+            )
+            .unwrap();
+        let after_history = follow_approval_state(&fixture.state, &target).unwrap();
+        assert_ne!(after_grant, after_history);
+        let resident = runtime
+            .resident_state(live.owner(), &fixture.resident)
+            .unwrap();
+        runtime
+            .set_paused(
+                live.owner(),
+                &fixture.resident,
+                None,
+                expected_revision(resident.revision),
+                true,
+                &now(),
+                &fixture_id("review-pause"),
+            )
+            .unwrap();
+        assert_ne!(
+            after_history,
+            follow_approval_state(&fixture.state, &target).unwrap()
+        );
+    }
+    #[test]
+    fn dual_follow_carries_only_its_own_exact_resume_revision() {
+        use crate::luca::companion_awareness::selected_files::tests::Fixture;
+        let fixture = Fixture::new();
+        let live = LiveAwarenessOwner::authenticate(&fixture.state).unwrap();
+        fixture
+            .state
+            .companion_awareness
+            .initialize(&fixture.root, Some(live.owner()));
+        let target = FollowTarget {
+            owner: live.owner().clone(),
+            resident: fixture.resident.clone(),
+            binding: Sha256Ref::parse(format!("sha256:{}", "ab".repeat(32))).unwrap(),
+            session_epoch: SafeU53::new(1).unwrap(),
+        };
+        let mut second =
+            follow_expected(&fixture.state, &target, Harness::Codex, &fixture.root).unwrap();
+        second.paused = true;
+        second.resident_revision = SafeU53::new(3).unwrap();
+        let original = second.clone();
+        second.after_owned_resume(Some((SafeU53::new(2).unwrap(), SafeU53::new(3).unwrap())));
+        assert_eq!(second, original, "a different revision must not be adopted");
+        second.after_owned_resume(Some((SafeU53::new(3).unwrap(), SafeU53::new(4).unwrap())));
+        assert!(!second.paused);
+        assert_eq!(second.resident_revision.get(), 4);
+        assert_eq!(second.grant_revision, original.grant_revision);
+        assert_eq!(second.history_revision, original.history_revision);
+        assert_eq!(second.deny_epoch, original.deny_epoch);
+        // A subsequent owner Pause would have a newer revision; only 4 is the
+        // approved base, so both the entry comparison and resume CAS reject it.
+        let after_first = second.clone();
+        second.after_owned_resume(Some((SafeU53::new(4).unwrap(), SafeU53::new(5).unwrap())));
+        assert_eq!(
+            second, after_first,
+            "already-resumed state is never rebased"
         );
     }
     #[test]
