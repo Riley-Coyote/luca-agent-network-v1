@@ -93,6 +93,18 @@
   --mn-text-micro: var(--type-micro-size);
 }
 
+/* MESSAGE TEXT. Settings → Appearance moves the reading step alone, so message
+   copy can sit smaller or larger than the chrome around it. The values stay in
+   rem, so the ⌘+/− text scale still multiplies both; leading is a ratio, so it
+   follows the size without a second token. */
+:root[data-luca-shell][data-message-text="small"] {
+  --type-body-size: 0.875rem;
+}
+
+:root[data-luca-shell][data-message-text="large"] {
+  --type-body-size: 1.125rem;
+}
+
 /* ------------------------------------------------------------------
  * ROLE CLASSES. Applying a step means applying all three of its tokens; these
  * exist so a component cannot take the size and leave the leading behind.

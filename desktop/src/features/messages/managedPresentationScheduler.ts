@@ -1,4 +1,5 @@
 export const MANAGED_PRESENTATION_PAINT_INTERVAL_MS = 40;
+export const MANAGED_PRESENTATION_FRAME_TIMEOUT_MS = 250;
 
 export type ManagedPresentationSchedulerClock = {
   cancelAnimationFrame: (handle: number) => void;
@@ -37,7 +38,9 @@ function defaultClock(): ManagedPresentationSchedulerClock {
 
 /**
  * One scheduler shared by every resident presentation row. It owns at most one
- * paint wake timer, one animation-frame request, and one nearest-deadline timer.
+ * paint wake timer, one animation-frame request with a bounded fallback, and
+ * one nearest-deadline timer. WebKit can suspend frames in an occluded window;
+ * authenticated response text must not remain stuck behind that frame forever.
  */
 export class ManagedPresentationScheduler {
   private readonly clock: ManagedPresentationSchedulerClock;
@@ -46,6 +49,7 @@ export class ManagedPresentationScheduler {
   private deadlineCallback: (() => void) | null = null;
   private deadlineTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
   private frameHandle: number | null = null;
+  private frameTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
   private lastCommitAt = Number.NEGATIVE_INFINITY;
   private paintRequested = false;
   private wakeTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -85,10 +89,12 @@ export class ManagedPresentationScheduler {
     if (this.frameHandle !== null) {
       this.clock.cancelAnimationFrame(this.frameHandle);
     }
+    if (this.frameTimeout !== null) this.clock.clearTimeout(this.frameTimeout);
     this.deadlineAt = null;
     this.deadlineCallback = null;
     this.deadlineTimer = null;
     this.frameHandle = null;
+    this.frameTimeout = null;
     this.lastCommitAt = Number.NEGATIVE_INFINITY;
     this.paintRequested = false;
     this.wakeTimer = null;
@@ -122,8 +128,17 @@ export class ManagedPresentationScheduler {
 
   private scheduleFrame(): void {
     if (!this.paintRequested || this.frameHandle !== null) return;
-    this.frameHandle = this.clock.requestAnimationFrame(() => {
+    let committed = false;
+    const paint = () => {
+      if (committed) return;
+      committed = true;
+      if (this.frameHandle !== null) {
+        this.clock.cancelAnimationFrame(this.frameHandle);
+      }
       this.frameHandle = null;
+      if (this.frameTimeout !== null)
+        this.clock.clearTimeout(this.frameTimeout);
+      this.frameTimeout = null;
       if (!this.paintRequested) return;
       const now = this.clock.now();
       const wait =
@@ -135,7 +150,12 @@ export class ManagedPresentationScheduler {
       this.paintRequested = false;
       this.lastCommitAt = now;
       if (this.commitPaint(now)) this.requestPaint();
-    });
+    };
+    this.frameHandle = this.clock.requestAnimationFrame(paint);
+    this.frameTimeout = this.clock.setTimeout(
+      paint,
+      MANAGED_PRESENTATION_FRAME_TIMEOUT_MS,
+    );
   }
 
   private fireDeadline(): void {

@@ -337,3 +337,252 @@ test("rewriteRelayUrl: still passes external Blossom URLs through unchanged", as
     globalThis.window = previousWindow;
   }
 });
+
+async function withRoutingContext(context, run) {
+  const previousWindow = globalThis.window;
+  globalThis.window = {
+    __TAURI_INTERNALS__: {
+      invoke(command) {
+        if (command === "get_media_proxy_port") return Promise.resolve(54321);
+        if (command === "get_media_routing_context")
+          return Promise.resolve(context);
+        return Promise.reject(new Error(`Unexpected command: ${command}`));
+      },
+    },
+  };
+  try {
+    const media = await import(`./mediaUrl.ts?routing=${Math.random()}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await run(media);
+  } finally {
+    globalThis.window = previousWindow;
+  }
+}
+
+test("local recovery: stale port uses guarded native route without changing saved URL", async () => {
+  await withRoutingContext(
+    { relayOrigin: "http://127.0.0.1:61234", supervisedLocal: true },
+    (media) => {
+      const saved = `http://127.0.0.1:51477/media/${HASH}.png`;
+      assert.equal(
+        media.rewriteRelayUrl(saved),
+        `http://127.0.0.1:54321/media/${HASH}.png?buzz_local_recovery=1`,
+      );
+      assert.equal(saved, `http://127.0.0.1:51477/media/${HASH}.png`);
+      assert.equal(
+        media.rewriteRelayUrl(`http://127.0.0.1:61234/media/${HASH}.png`),
+        `http://127.0.0.1:54321/media/${HASH}.png`,
+      );
+      assert.equal(
+        media.rewriteRelayUrl(`http://localhost:51477/media/${HASH}.thumb.jpg`),
+        `http://127.0.0.1:54321/media/${HASH}.thumb.jpg?buzz_local_recovery=1`,
+      );
+    },
+  );
+});
+
+test("local recovery: unavailable authority and remote communities never dial the stale port", async () => {
+  const stale = `http://127.0.0.1:51477/media/${HASH}.png`;
+  for (const context of [
+    { relayOrigin: "http://127.0.0.1:61234", supervisedLocal: false },
+    { relayOrigin: "https://community.example", supervisedLocal: false },
+  ]) {
+    await withRoutingContext(context, (media) => {
+      assert.equal(media.rewriteRelayUrl(stale), "about:blank");
+      const exact = `${context.relayOrigin}/media/${HASH}.png`;
+      assert.equal(
+        media.rewriteRelayUrl(exact),
+        `http://127.0.0.1:54321/media/${HASH}.png`,
+      );
+      const external = `https://external.example/media/${HASH}.png`;
+      assert.equal(media.rewriteRelayUrl(external), external);
+    });
+  }
+});
+
+test("local recovery: rejects credentials, query, traversal and non-content-addressed paths", async () => {
+  await withRoutingContext(
+    { relayOrigin: "http://127.0.0.1:61234", supervisedLocal: true },
+    (media) => {
+      for (const raw of [
+        `http://user:secret@127.0.0.1:51477/media/${HASH}.png`,
+        `http://@127.0.0.1:51477/media/${HASH}.png`,
+        `http://127.0.0.1:51477/media/${HASH}.png?token=secret`,
+        `http://127.0.0.1:51477/media/${HASH}.png#fragment`,
+        `http://127.0.0.1:51477/other/../media/${HASH}.png`,
+        `http://127.0.0.1:51477/media/%2e%2e/${HASH}.png`,
+        `http://127.0.0.1:51477/media/${HASH}.png/extra`,
+        `http://127.0.0.1:51477/media/short.png`,
+        `http://127.0.0.1:51477/media/${HASH}.html`,
+        `http://192.168.1.1/media/${HASH}.png`,
+      ]) {
+        assert.ok(
+          !media.rewriteRelayUrl(raw).includes("buzz_local_recovery"),
+          raw,
+        );
+      }
+    },
+  );
+});
+
+test("local recovery: reset discards the supervised hint immediately", async () => {
+  await withRoutingContext(
+    { relayOrigin: "http://127.0.0.1:61234", supervisedLocal: true },
+    (media) => {
+      media.resetMediaCaches();
+      assert.equal(
+        media.rewriteRelayUrl(`http://127.0.0.1:51477/media/${HASH}.png`),
+        "about:blank",
+      );
+    },
+  );
+});
+
+test("local recovery: subscribed cold/reset renders become guarded routes when context is ready", async () => {
+  const previousWindow = globalThis.window;
+  let pending = deferred();
+  globalThis.window = {
+    __TAURI_INTERNALS__: {
+      invoke(command) {
+        if (command === "get_media_routing_context") return pending.promise;
+        if (command === "get_media_proxy_port") return Promise.resolve(54321);
+        return Promise.reject(new Error(`Unexpected command: ${command}`));
+      },
+    },
+  };
+  try {
+    const media = await import(`./mediaUrl.ts?delayed=${Math.random()}`);
+    const saved = `http://127.0.0.1:51477/media/${HASH}.png`;
+    const rendered = [media.rewriteRelayUrl(saved)];
+    const unsubscribe = media.subscribeRelayOrigin(() =>
+      rendered.push(media.rewriteRelayUrl(saved)),
+    );
+    assert.equal(rendered.at(-1), "about:blank");
+    pending.resolve({
+      relayOrigin: "http://127.0.0.1:61234",
+      supervisedLocal: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(rendered.at(-1), /buzz_local_recovery=1$/);
+    assert.ok(!rendered.at(-1).includes(":51477"));
+
+    pending = deferred();
+    media.resetMediaCaches();
+    assert.equal(rendered.at(-1), "about:blank");
+    pending.resolve({
+      relayOrigin: "http://127.0.0.1:61235",
+      supervisedLocal: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.match(rendered.at(-1), /buzz_local_recovery=1$/);
+    unsubscribe();
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("routing snapshot: a deferred proxy port refreshes the same-origin protocol fallback", async () => {
+  const previousWindow = globalThis.window;
+  const port = deferred();
+  const origin = "http://127.0.0.1:61234";
+  globalThis.window = {
+    __TAURI_INTERNALS__: {
+      invoke(command) {
+        if (command === "get_media_routing_context")
+          return Promise.resolve({
+            relayOrigin: origin,
+            supervisedLocal: true,
+          });
+        if (command === "get_media_proxy_port") return port.promise;
+        return Promise.reject(new Error(`Unexpected command: ${command}`));
+      },
+    },
+  };
+  try {
+    const media = await import(`./mediaUrl.ts?port=${Math.random()}`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const saved = `http://127.0.0.1:51477/media/${HASH}.png`;
+    const before = media.getMediaRoutingSnapshot();
+    assert.equal(before.relayOrigin, origin);
+    assert.equal(before.proxyPort, null);
+    assert.equal(
+      media.rewriteRelayUrl(saved),
+      `buzz-media://localhost/media/${HASH}.png?buzz_local_recovery=1`,
+    );
+    const renders = [];
+    const unsubscribe = media.subscribeRelayOrigin(() =>
+      renders.push(media.rewriteRelayUrl(saved)),
+    );
+    port.resolve(54321);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(renders, [
+      `http://127.0.0.1:54321/media/${HASH}.png?buzz_local_recovery=1`,
+    ]);
+    const after = media.getMediaRoutingSnapshot();
+    assert.notEqual(after, before);
+    assert.equal(after.relayOrigin, before.relayOrigin);
+    assert.equal(after.proxyPort, 54321);
+    assert.equal(media.getMediaRoutingSnapshot(), after);
+    unsubscribe();
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});
+
+test("routing snapshot: same-origin hint and reset changes publish without changing origin API", async () => {
+  const previousWindow = globalThis.window;
+  let context = deferred();
+  const origin = "http://127.0.0.1:61234";
+  globalThis.window = {
+    __TAURI_INTERNALS__: {
+      invoke(command) {
+        if (command === "get_media_routing_context") return context.promise;
+        if (command === "get_media_proxy_port") return Promise.resolve(54321);
+        return Promise.reject(new Error(`Unexpected command: ${command}`));
+      },
+    },
+  };
+  try {
+    const media = await import(`./mediaUrl.ts?hint=${Math.random()}`);
+    media.beginRelayOriginFetch()(origin);
+    const saved = `http://127.0.0.1:51477/media/${HASH}.png`;
+    const before = media.getMediaRoutingSnapshot();
+    assert.equal(before.supervisedLocal, false);
+    const snapshots = [];
+    const unsubscribe = media.subscribeRelayOrigin(() =>
+      snapshots.push(media.getMediaRoutingSnapshot()),
+    );
+    context.resolve({ relayOrigin: origin, supervisedLocal: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.ok(
+      snapshots.some(
+        (snapshot) =>
+          snapshot.relayOrigin === origin &&
+          snapshot.supervisedLocal &&
+          snapshot.proxyPort === null,
+      ),
+    );
+    assert.equal(media.getCachedRelayOrigin(), origin);
+    assert.match(media.rewriteRelayUrl(saved), /buzz_local_recovery=1$/);
+
+    context = deferred();
+    media.resetMediaCaches();
+    assert.deepEqual(snapshots.at(-1), {
+      relayOrigin: null,
+      proxyPort: null,
+      supervisedLocal: false,
+    });
+    assert.equal(media.rewriteRelayUrl(saved), "about:blank");
+    context.resolve({ relayOrigin: origin, supervisedLocal: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(media.getMediaRoutingSnapshot(), {
+      relayOrigin: origin,
+      proxyPort: 54321,
+      supervisedLocal: true,
+    });
+    assert.equal(media.getCachedRelayOrigin(), origin);
+    unsubscribe();
+  } finally {
+    globalThis.window = previousWindow;
+  }
+});

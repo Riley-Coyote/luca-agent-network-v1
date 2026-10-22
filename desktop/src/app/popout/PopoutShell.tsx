@@ -9,6 +9,7 @@ import { PopoutConversationPicker } from "@/app/popout/PopoutConversationPicker"
 import { POPOUT_OPEN_IN_MAIN_EVENT } from "@/app/popout/popoutMode";
 import { usePopoutConversations } from "@/app/popout/usePopoutConversations";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
+import { useMessageTextSizeRoot } from "@/features/messages/lib/messageTextSizePreference";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { ResidentHarnessProvider } from "@/features/agents/ResidentHarnessContext";
 import { ArtifactCanvasProvider } from "@/features/artifacts/ArtifactCanvasProvider";
@@ -144,10 +145,12 @@ function useWindowDragStrip(stripRef: React.RefObject<HTMLElement | null>) {
  * first message.
  */
 export function PopoutShell({ children }: { children: React.ReactNode }) {
-  // The two webview manners the main window also keeps: ⌘+/− scales the text,
-  // and a wheel that reaches the end of the conversation stops there instead
-  // of rubber-banding the whole window.
+  // The webview manners the main window also keeps: ⌘+/− scales the text,
+  // message copy reads at the size chosen in Appearance, and a wheel that
+  // reaches the end of the conversation stops there instead of rubber-banding
+  // the whole window.
   useWebviewZoomShortcuts();
+  useMessageTextSizeRoot();
   useWebviewScrollBoundaryLock();
   const { isPinned, togglePin } = usePopoutPin();
   const location = useLocation();

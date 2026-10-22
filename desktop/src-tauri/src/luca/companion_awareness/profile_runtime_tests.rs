@@ -38,3 +38,37 @@ fn complete_purpose_reader_rejects_partial_unknown_and_late_records() {
     fs::write(&path,good.replace("continuity_internal","unknown_purpose")).unwrap();assert!(read_complete_exclusions(&root,"codex",deadline()).is_err());
     fs::write(&path,good).unwrap();assert!(read_complete_exclusions(&root,"codex",Instant::now()).is_err());
 }
+
+#[test]
+#[cfg(target_os = "macos")]
+fn native_watcher_delivers_changed_session_without_a_scan_or_project_selection() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().canonicalize().unwrap();
+    let profile = selection(&root, '2');
+    let child = format!("2026/10/08/rollout-2026-10-08T10-00-00-{UUID}.jsonl");
+    fs::create_dir_all(root.join("2026/10/08")).unwrap();
+    let (commands, received) = mpsc::sync_channel(16);
+    let (wake, _events) = mpsc::sync_channel(1);
+    let shared = Arc::new(Shared {
+        facts: Arc::new(Mutex::new(MaterialBook::default())),
+        priority: Mutex::new(VecDeque::new()),
+        closing: AtomicBool::new(false),
+        wake,
+        machine_stops: Arc::new(MachineSourceStopsV1::default()),
+    });
+    let fault = Arc::new(AtomicBool::new(false));
+    let _watcher = start_watcher(&profile, &commands, &shared, &fault).unwrap();
+    fs::write(root.join(&child), "DISPOSABLE_NOTIFICATION_SENTINEL\n").unwrap();
+    let deadline = Instant::now() + Duration::from_secs(15);
+    loop {
+        let event = received
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("native session change must reach the collector");
+        if let Command::ProfileChanged(key, relative) = event.command {
+            assert_eq!(&key, profile.grant_key());
+            assert_eq!(relative, child);
+            assert!(!fault.load(Ordering::Acquire));
+            break;
+        }
+    }
+}

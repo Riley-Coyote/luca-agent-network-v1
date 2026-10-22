@@ -30,6 +30,7 @@ import { useAppShellLifecycleEffects } from "@/app/useAppShellLifecycleEffects";
 import { useThreadActivityFeedItems } from "@/app/useThreadActivityFeedItems";
 import { useTauriWindowDrag } from "@/app/useTauriWindowDrag";
 import { useWebviewZoomShortcuts } from "@/app/useWebviewZoomShortcuts";
+import { useMessageTextSizeRoot } from "@/features/messages/lib/messageTextSizePreference";
 import {
   channelsQueryKey,
   useChannelsQuery,
@@ -131,6 +132,7 @@ const LazySettingsScreen = React.lazy(async () => {
 
 export function AppShell() {
   useWebviewZoomShortcuts();
+  useMessageTextSizeRoot();
   useTauriWindowDrag();
   useWebviewScrollBoundaryLock();
 

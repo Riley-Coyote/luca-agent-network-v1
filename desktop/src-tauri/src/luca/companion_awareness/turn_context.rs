@@ -144,6 +144,8 @@ struct ObservationView<'a> {
     captured_at: &'a CanonicalTimestamp,
     status_at_capture: &'static str,
     current_activity: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    harness: Option<&'static str>,
     excerpt: String,
     truncated: bool,
 }
@@ -174,6 +176,8 @@ fn project<'a>(reference: &'a AwarenessObservationRefV1, scope: &SourceMaterialS
     let value: serde_json::Value = serde_json::from_slice(payload).map_err(|_| AwarenessStoreError::Invalid)?;
     let protocol = value.get("protocol").and_then(serde_json::Value::as_str).ok_or(AwarenessStoreError::Invalid)?;
     let mut status_at_capture = "unknown";
+    let mut harness = None;
+    let mut source_truncated = false;
     let text = match scope {
         SourceMaterialScopeV1::Exact(super::catalog::SelectedSourceClassV1::SelectedFile) => {
             if protocol != "polyphonic.awareness.selected-file.v1" { return Err(AwarenessStoreError::Invalid); }
@@ -186,6 +190,8 @@ fn project<'a>(reference: &'a AwarenessObservationRefV1, scope: &SourceMaterialS
                 if value.get("session_ref").and_then(serde_json::Value::as_str) != Some(child.as_str()) { return Err(AwarenessStoreError::Invalid); }
             }
             status_at_capture = match value.get("work_status").and_then(serde_json::Value::as_str) { Some("open") => "open", Some("active") => "active", Some("idle") => "idle", _ => "unknown" };
+            harness = match value.get("provider").and_then(serde_json::Value::as_str) { Some("codex" | "codex_sessions") => Some("Codex"), Some("claude_code" | "claude_projects") => Some("Claude Code"), _ => None };
+            source_truncated = value.get("excerpt_truncated").and_then(serde_json::Value::as_bool).unwrap_or(false);
             value.get("excerpts").and_then(serde_json::Value::as_array).ok_or(AwarenessStoreError::Invalid)?.iter().map(|excerpt| excerpt.as_str().ok_or(AwarenessStoreError::Invalid)).collect::<Result<Vec<_>, _>>()?.join("\n")
         }
         SourceMaterialScopeV1::Machine(class) => {
@@ -211,7 +217,7 @@ fn project<'a>(reference: &'a AwarenessObservationRefV1, scope: &SourceMaterialS
         }
     };
     let mut view = ObservationView { observation_id: &reference.observation_id, source_id: &reference.source_id, evidence_ref: &reference.evidence_ref, captured_at: &reference.captured_at,
-        status_at_capture, current_activity: "unknown", excerpt: clip(&text, MAX_EXCERPT_BYTES), truncated: text.len() > MAX_EXCERPT_BYTES };
+        status_at_capture, current_activity: "unknown", harness, excerpt: clip(&text, MAX_EXCERPT_BYTES), truncated: source_truncated || text.len() > MAX_EXCERPT_BYTES };
     // Encoded controls/escaping can exceed UTF-8 length; bound the real JSON
     // row too, without splitting characters or claiming a complete observation.
     while serde_json::to_vec(&view).map_err(|_| AwarenessStoreError::Invalid)?.len() > 1700 {

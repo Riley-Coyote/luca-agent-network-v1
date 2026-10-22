@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { beginRelayOriginFetch, resetMediaCaches } from "../lib/mediaUrl.ts";
 import { resolveFileCard, resolveSnapshotCard } from "./markdownFileCard.ts";
 
 // A generic-file URL (non-media extension) does not match the relay-media
@@ -246,22 +247,39 @@ test("resolveSnapshotCard: uppercase .AGENT.JSON classifies as snapshot card", (
 // ── snapshot card thumbnails ─────────────────────────────────────────────────
 
 test("resolveSnapshotCard: keeps canonical PNG URL for actions", () => {
-  const card = resolveSnapshotCard(
-    { m: "image/png", size: 2048, filename: "bot.agent.png", x: SHA256 },
-    PNG_URL,
-    "",
-  );
-  assert.ok(card !== null);
-  assert.equal(card.href, PNG_URL);
-  assert.ok(
-    card.thumb != null,
-    "PNG card must have a thumb set from its own URL",
-  );
-  assert.notEqual(
-    card.thumb,
-    card.href,
-    "only the display thumbnail may use the local media proxy",
-  );
+  resetMediaCaches();
+  try {
+    const entry = {
+      m: "image/png",
+      size: 2048,
+      filename: "bot.agent.png",
+      x: SHA256,
+    };
+    const unresolvedCard = resolveSnapshotCard(entry, PNG_URL, "");
+    assert.ok(unresolvedCard !== null);
+    assert.equal(unresolvedCard.href, PNG_URL);
+    assert.equal(
+      unresolvedCard.thumb,
+      PNG_URL,
+      "an unresolved relay origin must leave remote thumbnails unproxied",
+    );
+
+    beginRelayOriginFetch()("https://relay.example");
+    const card = resolveSnapshotCard(entry, PNG_URL, "");
+    assert.ok(card !== null);
+    assert.equal(card.href, PNG_URL);
+    assert.ok(
+      card.thumb != null,
+      "PNG card must have a thumb set from its own URL",
+    );
+    assert.notEqual(
+      card.thumb,
+      card.href,
+      "only the display thumbnail may use the local media proxy",
+    );
+  } finally {
+    resetMediaCaches();
+  }
 });
 
 test("resolveSnapshotCard: .agent.json without thumb field yields undefined thumb", () => {

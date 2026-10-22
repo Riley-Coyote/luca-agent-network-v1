@@ -86,6 +86,12 @@ impl LocalRelayRuntime {
             .map_err(|error| format!("inspect local relay: {error}"))
     }
 
+    fn owns_live_media_route(&mut self, owner_pubkey: &str, relay_base: &str) -> bool {
+        self.owner_pubkey == owner_pubkey
+            && crate::relay::relay_http_base_url(self.url()) == relay_base
+            && self.is_running().unwrap_or(false)
+    }
+
     fn stop(&mut self) {
         // The relay handles SIGTERM with a WebSocket drain. It is our child, so
         // waiting here prevents a restart from inheriting a stale listener.
@@ -217,6 +223,24 @@ pub(crate) fn relay_url(runtime: &RuntimeState) -> Option<String> {
         .lock()
         .ok()
         .and_then(|runtime| runtime.as_ref().map(|runtime| runtime.url().to_string()))
+}
+
+/// A media-routing hint is valid only for this live child and desktop owner.
+/// A user-configured loopback community is not a supervised local workspace.
+pub(crate) fn supervised_media_root(
+    app: &AppHandle,
+    runtime: &RuntimeState,
+    owner_pubkey: &str,
+    relay_base: &str,
+) -> Option<PathBuf> {
+    let mut guard = runtime.lock().ok()?;
+    let running = guard.as_mut()?;
+    if !running.owns_live_media_route(owner_pubkey, relay_base) {
+        return None;
+    }
+    local_data_dir(app, owner_pubkey)
+        .ok()
+        .map(|path| path.join("media"))
 }
 
 fn local_data_dir(app: &AppHandle, owner_pubkey: &str) -> Result<PathBuf, String> {
@@ -455,6 +479,26 @@ mod tests {
 
         runtime.child.wait().expect("wait for test child");
         assert!(!runtime.is_running().expect("inspect exited child"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn media_route_requires_matching_owner_endpoint_and_live_child() {
+        let child = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let mut runtime = super::LocalRelayRuntime {
+            child,
+            url: "ws://127.0.0.1:4317".to_string(),
+            owner_pubkey: "current-owner".to_string(),
+        };
+        let current = runtime.owns_live_media_route("current-owner", "http://127.0.0.1:4317");
+        let other_owner = runtime.owns_live_media_route("other-owner", "http://127.0.0.1:4317");
+        let other_endpoint = runtime.owns_live_media_route("current-owner", "http://127.0.0.1:4318");
+        runtime.child.kill().unwrap();
+        runtime.child.wait().unwrap();
+        assert!(current);
+        assert!(!other_owner);
+        assert!(!other_endpoint);
+        assert!(!runtime.owns_live_media_route("current-owner", "http://127.0.0.1:4317"));
     }
 
     #[test]

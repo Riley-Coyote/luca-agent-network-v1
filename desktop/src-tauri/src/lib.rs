@@ -772,7 +772,7 @@ pub fn run() {
             // Start the localhost media streaming proxy. Uses the shared HTTP
             // client so WARP tunnelling applies. The port is stored in AppState
             // and exposed to the frontend via the `get_media_proxy_port` command.
-            let proxy_client = state.http_client.clone();
+            let proxy_client = state.media_fetch_client.clone();
             let proxy_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 let port = media_proxy::spawn_media_proxy(proxy_client, proxy_handle.clone()).await;
@@ -1275,6 +1275,7 @@ pub fn run() {
             save_png_data_url,
             download_file,
             fetch_media_bytes,
+            commands::media_download::get_media_routing_context,
             copy_image_to_clipboard,
             copy_text_to_clipboard,
             fetch_snapshot_bytes,

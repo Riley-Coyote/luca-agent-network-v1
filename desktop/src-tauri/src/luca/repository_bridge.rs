@@ -727,14 +727,36 @@ fn companion_status(state: &crate::app_state::AppState, context: &BrokerContext)
     (|| -> Option<serde_json::Value> {
         let awareness = state.companion_awareness.resident_state(&context.owner_pubkey, &context.resident_pubkey).ok()?;
         let grants = state.companion_awareness.list_grants(&context.owner_pubkey, &context.resident_pubkey, 64).ok()?;
+        let profiles = state.companion_sources.list_profiles(&context.owner_pubkey, &context.resident_pubkey).ok()?;
+        let now = crate::luca::continuity_jobs::current_canonical_timestamp().ok()?;
+        let live = state.companion_sources.snapshot(&context.owner_pubkey, &context.resident_pubkey, &now).ok()?;
+        let references = live.references();
+        let sources = profiles.iter().map(|profile| {
+            let key = profile.selection.grant_key();
+            let grant = grants.entries.iter().find(|entry| entry.grant.source_id == key.source.source_id && entry.grant.device_id == key.source.device_id);
+            let active = grant.is_some_and(|entry| entry.grant.state == luca_protocol::AwarenessGrantStateV1::Active);
+            let observing = active && grant.is_some_and(|entry| entry.grant.choices.observe);
+            let sharing = state.companion_awareness.recheck_native_history_choice(&context.owner_pubkey, key, &context.binding_ref).is_ok();
+            let last = references.iter().filter(|r| r.source_id == key.source.source_id && r.device_id == key.source.device_id).map(|r| r.captured_at.as_str()).max();
+            serde_json::json!({"harness": match profile.selection.kind() {
+                crate::luca::companion_awareness::native_profile::NativeProfileKindV1::ClaudeProjects => "claude_code",
+                crate::luca::companion_awareness::native_profile::NativeProfileKindV1::CodexSessions => "codex",
+            }, "observationAllowed":observing,
+                "followingNow":observing && !awareness.paused && live.collecting.contains(key),
+                "keepNotesAllowed":active && grant.is_some_and(|entry| entry.grant.choices.promote),
+                "activityInChatAllowed":sharing,"resumeOnLaunch":profile.follow_on_launch,
+                "latestAvailableObservationAt":last})
+        }).collect::<Vec<_>>();
         let scope = crate::luca::companion_initiative::host_scope::home_scope(state, &context.owner_pubkey, &context.resident_pubkey).ok()?;
         let work = state.companion_initiative.with_control(&scope, |store| store.policy(&scope)).ok()?;
         Some(serde_json::json!({"availability":"ready","awarenessPaused":awareness.paused,
             "awarenessRevision":awareness.revision,"selectedGrantCount":grants.entries.len(),
+            "sources":sources,"sourceListTruncated":grants.truncated,
             "backgroundEnabled":work.enabled,"backgroundPaused":work.paused,"backgroundRevision":work.revision,
             "activityInChatReady":crate::luca::managed_dispatch_store::ordinary_turn_awareness_consumers_ready(),
             "configurationTool":"configure_companion","reviewSurface":"companion",
-            "reviewPurpose":"advanced_controls_only","effect":"status_only","observedBodiesIncluded":false}))
+            "reviewPurpose":"advanced_controls_only","effect":"status_only","observedBodiesIncluded":false,
+            "statusExplanation":"observedBodiesIncluded=false means this status response contains no private excerpts, NOT that sharing is disabled. Use per-source activityInChatAllowed and followingNow. keepNotesAllowed is permission, not proof a note was created. No latestAvailableObservationAt means no unexpired sample is currently buffered, not necessarily a failed watcher."}))
     })().unwrap_or_else(||serde_json::json!({"availability":"unavailable","effect":"status_only","observedBodiesIncluded":false}))
 }
 

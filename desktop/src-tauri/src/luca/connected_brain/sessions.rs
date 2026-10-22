@@ -319,6 +319,7 @@ pub(super) fn read_visible_tail(
         let _ = lines.next();
     }
     let mut selected = VecDeque::with_capacity(limit);
+    let mut previous_codex_user: Option<(String, bool)> = None;
     for line in lines {
         if line.is_empty() {
             continue;
@@ -326,7 +327,32 @@ pub(super) fn read_visible_tail(
         let Ok(value) = serde_json::from_slice::<Value>(line) else {
             continue;
         };
-        if let Some(message) = visible_session_message(&value, kind) {
+        let response_user = kind == ConnectedBrainSourceKindV1::CodexHistory
+            && value["type"] == "response_item"
+            && value["payload"]["role"] == "user";
+        let event_user = kind == ConnectedBrainSourceKindV1::CodexHistory
+            && value["type"] == "event_msg"
+            && value["payload"]["type"] == "user_message";
+        // Exec transcripts may omit user_message events. Keep this fallback
+        // local to activity tails: Brain's persisted visible ordinals must not
+        // change, and older transcripts often contain both representations.
+        let message = visible_session_message(&value, kind).or_else(|| {
+            response_user
+                .then(|| codex_response_user_message(&value).and_then(sanitize_visible_text))
+                .flatten()
+        });
+        if let Some(message) = message {
+            if response_user || event_user {
+                if previous_codex_user.as_ref().is_some_and(|(text, was_response)| {
+                    text == &message && *was_response != response_user
+                }) {
+                    previous_codex_user = None;
+                    continue;
+                }
+                previous_codex_user = Some((message.clone(), response_user));
+            } else {
+                previous_codex_user = None;
+            }
             if selected.len() == limit {
                 selected.pop_front();
             }
@@ -656,16 +682,30 @@ fn codex_visible_message(value: &Value) -> Option<String> {
     }
 }
 
+fn codex_response_user_message(value: &Value) -> Option<String> {
+    let payload = value.get("payload")?;
+    if value.get("type")?.as_str()? != "response_item"
+        || payload.get("type")?.as_str()? != "message"
+        || payload.get("role")?.as_str()? != "user"
+    {
+        return None;
+    }
+    let text = strict_visible_blocks(payload.get("content")?, &["input_text"])?;
+    strip_codex_ambient_prefix(&text)
+}
+
 fn claude_visible_message(value: &Value) -> Option<String> {
     let kind = value.get("type")?.as_str()?;
     if !matches!(kind, "user" | "assistant") {
         return None;
     }
     let message = value.get("message")?;
+    let desktop_transport = value.get("entrypoint").and_then(Value::as_str) == Some("claude-desktop");
     if claude_record_is_hidden(value)
         || claude_record_is_hidden(message)
         || (kind == "user"
-            && (claude_record_is_sdk_prompt(value) || claude_record_is_sdk_prompt(message)))
+            && (claude_record_is_sdk_prompt(value, desktop_transport)
+                || claude_record_is_sdk_prompt(message, desktop_transport)))
     {
         return None;
     }
@@ -686,11 +726,11 @@ fn claude_record_is_hidden(value: &Value) -> bool {
         .any(|field| value.get(*field).and_then(Value::as_bool) == Some(true))
 }
 
-fn claude_record_is_sdk_prompt(value: &Value) -> bool {
-    ["promptSource", "prompt_source"]
+fn claude_record_is_sdk_prompt(value: &Value, desktop_transport: bool) -> bool {
+    (!desktop_transport && ["promptSource", "prompt_source"]
         .iter()
         .filter_map(|field| value.get(*field).and_then(Value::as_str))
-        .any(is_sdk_label)
+        .any(is_sdk_label))
         || value
             .get("entrypoint")
             .and_then(Value::as_str)
@@ -968,6 +1008,28 @@ mod tests {
     }
 
     #[test]
+    fn activity_tail_reads_exec_questions_without_duplicate_legacy_events() {
+        let root = tempdir().unwrap();
+        let question = "Design a pocket weather journal named Copper Meadow.";
+        let user = json!({"type":"response_item","payload":{
+            "type":"message","role":"user","content":[{"type":"input_text","text":question}]}});
+        let event = json!({"type":"event_msg","payload":{"type":"user_message","message":question}});
+        let answer = json!({"type":"response_item","payload":{
+            "type":"message","role":"assistant","phase":"final_answer",
+            "content":[{"type":"output_text","text":"Copper Meadow"}]}});
+        for records in [
+            vec![user.clone(), answer.clone()],
+            vec![event.clone(), user.clone(), answer.clone()],
+            vec![user, event, answer],
+        ] {
+            let body = records.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+            fs::write(root.path().join("rollout-test.jsonl"), body).unwrap();
+            assert_eq!(read_visible_tail(root.path(), ConnectedBrainSourceKindV1::CodexHistory,
+                "rollout-test.jsonl", 4).unwrap(), vec![question, "Copper Meadow"]);
+        }
+    }
+
+    #[test]
     fn codex_allowlist_excludes_ambient_records_and_redacts_local_paths() {
         let ambient_user = json!({
             "type": "response_item",
@@ -981,6 +1043,21 @@ mod tests {
             }
         });
         assert_eq!(parse_codex_fixture(&ambient_user), None);
+
+        let exec_user = json!({"type":"response_item","payload":{
+            "type":"message","role":"user","content":[{"type":"input_text",
+            "text":"Design a pocket weather journal named Copper Meadow."}]}});
+        assert_eq!(codex_response_user_message(&exec_user).and_then(sanitize_visible_text).as_deref(),
+            Some("Design a pocket weather journal named Copper Meadow."));
+        assert_eq!(parse_codex_fixture(&exec_user), None, "Brain ordinals stay unchanged");
+        for text in ["# AGENTS.md instructions\nPrivate instructions", "<environment_context>private</environment_context>", "password=private"] {
+            let mut hidden = exec_user.clone();
+            hidden["payload"]["content"][0]["text"] = json!(text);
+            assert_eq!(codex_response_user_message(&hidden).and_then(sanitize_visible_text), None);
+        }
+        let mut mixed = exec_user.clone();
+        mixed["payload"]["content"].as_array_mut().unwrap().push(json!({"type":"input_image","image_url":"private"}));
+        assert_eq!(codex_response_user_message(&mixed).and_then(sanitize_visible_text), None);
 
         let visible_user = json!({
             "type": "event_msg",

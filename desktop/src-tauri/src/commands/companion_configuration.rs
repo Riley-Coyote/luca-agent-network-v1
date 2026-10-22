@@ -125,6 +125,31 @@ fn err(error: AwarenessStoreError) -> String {
     error.to_string()
 }
 
+// Discovery is metadata-only and reports each requested harness separately.
+// One unavailable installation must not prevent another from being reviewed.
+fn discover_profiles(
+    home: &Path,
+    harnesses: &[Harness],
+    mut configured: impl FnMut(Harness) -> Option<String>,
+) -> (Vec<(Harness, PathBuf)>, Vec<Value>) {
+    let mut roots = Vec::new();
+    let mut unavailable = Vec::new();
+    for harness in harnesses {
+        match transcript_root(home, *harness, configured(*harness).as_deref()) {
+            Ok(root) => roots.push((*harness, root)),
+            Err(message) => unavailable.push(
+                json!({"harness":harness,"status":"incomplete","message":message}),
+            ),
+        }
+    }
+    (roots, unavailable)
+}
+
+fn expected_revision(revision: SafeU53) -> Option<SafeU53> {
+    // Revision zero describes an absent resident row, not a stored revision.
+    (revision.get() > 0).then_some(revision)
+}
+
 /// Called only by the conversation capability broker. Opening a settings page
 /// is never required. The returned receipt is actual state, not model optimism.
 pub(crate) fn configure(
@@ -133,7 +158,7 @@ pub(crate) fn configure(
     arguments: Value,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<String, String> {
-    let request: Request = serde_json::from_value(arguments)
+    let mut request: Request = serde_json::from_value(arguments)
         .map_err(|_| "Invalid companion configuration request.")?;
     request.validate()?;
     verify_origin(app, &scope)?;
@@ -143,24 +168,28 @@ pub(crate) fn configure(
         .home_dir()
         .map_err(|_| "Home folder unavailable.")?;
     // Metadata only. No transcript enumeration or reads occur before approval.
-    let roots = request
-        .harnesses
-        .iter()
-        .map(|h| {
-            let configured = std::env::var(match h {
-                Harness::ClaudeCode => "CLAUDE_CONFIG_DIR",
-                Harness::Codex => "CODEX_HOME",
-            })
-            .ok();
-            transcript_root(&home, *h, configured.as_deref()).map(|p| (*h, p))
+    let (roots, unavailable) = discover_profiles(&home, &request.harnesses, |h| {
+        std::env::var(match h {
+            Harness::ClaudeCode => "CLAUDE_CONFIG_DIR",
+            Harness::Codex => "CODEX_HOME",
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .ok()
+    });
+    if request.action == Action::Follow {
+        if roots.is_empty() {
+            return Ok(json!({"status":"incomplete","results":unavailable,
+                "message":"No available profiles were found. Nothing changed. Start a session in the requested harness or use advanced controls for a custom installation."}).to_string());
+        }
+        // Name only detected profiles in the approval. Missing profiles are
+        // returned as incomplete, never silently granted or called connected.
+        request.harnesses = roots.iter().map(|(harness, _)| *harness).collect();
+    }
     if request.action == Action::Follow
         && roots
             .iter()
             .all(|(h, root)| already_following(&state, &scope, *h, root))
     {
-        return Ok(json!({"status":"already_following","harnesses":request.harnesses,
+        return Ok(json!({"status":if unavailable.is_empty() {"already_following"} else {"incomplete"},"harnesses":request.harnesses,"results":unavailable,
             "message":"These profiles are already being followed with the approved sharing choices. Nothing was changed."}).to_string());
     }
     let widening = matches!(
@@ -221,7 +250,7 @@ pub(crate) fn configure(
         return Err("Configuration cancelled before application.".into());
     }
     verify_origin(app, &scope)?;
-    let mut results = Vec::new();
+    let mut results = unavailable;
     match request.action {
         Action::Follow => {
             for (harness, root) in roots {
@@ -410,7 +439,7 @@ fn follow(
                     &scope.owner,
                     &scope.resident,
                     Some(&live),
-                    Some(resident.revision),
+                    expected_revision(resident.revision),
                     false,
                     &current_canonical_timestamp()?,
                     &id("follow-resume")?,
@@ -613,6 +642,36 @@ mod tests {
             .ends_with(".claude/projects"));
         assert!(transcript_root(dir.path(), Harness::Codex, None).is_err());
         assert!(transcript_root(dir.path(), Harness::ClaudeCode, Some("relative")).is_err());
+    }
+    #[test]
+    fn discovery_keeps_available_profiles_and_reports_missing_harnesses() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".claude/projects")).unwrap();
+        let (roots, missing) = discover_profiles(
+            dir.path(),
+            &[Harness::ClaudeCode, Harness::Codex],
+            |_| None,
+        );
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].0, Harness::ClaudeCode);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0]["harness"], "codex");
+        assert_eq!(missing[0]["status"], "incomplete");
+        let (roots, missing) = discover_profiles(dir.path(), &[Harness::Codex], |_| None);
+        assert!(roots.is_empty());
+        assert_eq!(missing.len(), 1);
+    }
+    #[test]
+    fn first_follow_uses_absent_row_revision_without_weakening_later_cas() {
+        assert_eq!(expected_revision(SafeU53::new(0).unwrap()), None);
+        assert_eq!(
+            expected_revision(SafeU53::new(1).unwrap()).map(SafeU53::get),
+            Some(1),
+        );
+        assert_eq!(
+            expected_revision(SafeU53::new(9).unwrap()).map(SafeU53::get),
+            Some(9),
+        );
     }
     #[test]
     fn consent_discloses_destination_and_does_not_bundle_unrelated_access() {

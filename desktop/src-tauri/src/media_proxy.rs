@@ -12,6 +12,7 @@ use tokio::net::TcpListener;
 
 use crate::app_state::AppState;
 use crate::commands::media::mint_media_get_auth;
+use crate::commands::media_download::routing::{resolve_proxy_url, LOCAL_RECOVERY_QUERY};
 use crate::relay;
 
 /// Defense-in-depth cap: refuse to buffer responses larger than this into RAM.
@@ -48,7 +49,11 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
     // Resolve relay URL dynamically so workspace switches take effect immediately.
     let app_state = state.app_handle.state::<AppState>();
     let base_url = relay::relay_api_base_url_with_override(&app_state);
-    let upstream_url = format!("{base_url}{path_and_query}");
+    let upstream_url = match resolve_proxy_url(path_and_query, &app_state, &base_url) {
+        Ok(url) => url,
+        Err(_) => return (StatusCode::NOT_FOUND, "local attachment unavailable").into_response(),
+    };
+    let local_recovery = path_and_query.ends_with(&format!("?{LOCAL_RECOVERY_QUERY}"));
 
     let has_range = req.headers().contains_key("range");
 
@@ -76,6 +81,10 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
         }
     };
 
+    if resp.status().is_redirection() {
+        return (StatusCode::BAD_GATEWAY, "media redirect refused").into_response();
+    }
+
     let status =
         StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
 
@@ -100,6 +109,11 @@ async fn proxy_handler(AxumState(state): AxumState<ProxyState>, req: Request) ->
                 headers.insert(*key, v);
             }
         }
+    }
+    if local_recovery {
+        // Recovery must recheck profile authority on every request, never use
+        // a cached approval after switching desktop identities/workspaces.
+        headers.insert("cache-control", HeaderValue::from_static("no-store"));
     }
 
     // OOM guard for non-range full GETs (same 20 MB cap as the protocol handler).
@@ -180,11 +194,15 @@ pub async fn handle_buzz_media(
     }
 
     let has_range = request.headers().contains_key("range");
-    let upstream_url = format!("{base}{path_and_query}");
+    let upstream_url = match resolve_proxy_url(path_and_query, &state, &base) {
+        Ok(url) => url,
+        Err(_) => return error_response(404, "local attachment unavailable"),
+    };
+    let local_recovery = path_and_query.ends_with(&format!("?{LOCAL_RECOVERY_QUERY}"));
 
     // Forward Range header if present — enables video seeking through the proxy.
     let mut upstream = state
-        .http_client
+        .media_fetch_client
         .get(&upstream_url)
         .timeout(std::time::Duration::from_secs(60));
 
@@ -204,6 +222,9 @@ pub async fn handle_buzz_media(
 
     match result {
         Ok(resp) => {
+            if resp.status().is_redirection() {
+                return error_response(502, "media redirect refused");
+            }
             let status = resp.status().as_u16();
             let content_type = resp
                 .headers()
@@ -239,6 +260,11 @@ pub async fn handle_buzz_media(
                 .get("cache-control")
                 .and_then(|v| v.to_str().ok())
                 .map(|s| s.to_string());
+            let cache_control = if local_recovery {
+                Some("no-store".to_string())
+            } else {
+                cache_control
+            };
             let etag = resp
                 .headers()
                 .get("etag")

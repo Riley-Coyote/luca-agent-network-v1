@@ -16,6 +16,14 @@ use crate::commands::{
 };
 use crate::relay::{classify_request_error, relay_api_base_url_with_override, relay_error_message};
 
+pub(crate) mod routing;
+
+/// Read-only renderer hint; every recovered request rechecks native authority.
+#[tauri::command]
+pub fn get_media_routing_context(state: State<'_, AppState>) -> routing::MediaRoutingContext {
+    routing::context(&state)
+}
+
 /// Maximum download size: 50 MiB. Prevents OOM from oversized responses.
 const MAX_DOWNLOAD_BYTES: u64 = 50 * 1024 * 1024;
 
@@ -31,6 +39,10 @@ const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60)
 fn validate_download_url(url: &str, relay_base: &str) -> Result<(), String> {
     let parsed = url::Url::parse(url).map_err(|_| "invalid URL".to_string())?;
     let base = url::Url::parse(relay_base).map_err(|_| "invalid relay base URL".to_string())?;
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("download URL must not contain credentials".to_string());
+    }
 
     // Scheme must be https (allow http for localhost dev servers).
     match parsed.scheme() {
@@ -61,7 +73,6 @@ fn validate_download_url(url: &str, relay_base: &str) -> Result<(), String> {
 /// Host-only attachment read after the conversation broker has verified the
 /// owner's signed attachment. Credentials remain inside this fetcher.
 pub(crate) async fn read_conversation_image_bytes(url: &str, state: &State<'_, AppState>) -> Result<Vec<u8>, String> {
-    validate_download_url(url, &relay_api_base_url_with_override(state))?;
     let bytes = fetch_blob_bytes_with_cap(url, state, 8 * 1024 * 1024).await?;
     let mime = detect_and_validate_mime(&bytes)?;
     if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/webp" | "image/gif") {
@@ -78,8 +89,6 @@ pub async fn download_image(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     // SSRF protection: only allow downloads from the relay's /media/ path.
-    let relay_base = relay_api_base_url_with_override(&state);
-    validate_download_url(&url, &relay_base)?;
 
     // Infer filename from the URL path (e.g. "abcdef123.jpg" from a Blossom URL).
     let filename = url::Url::parse(&url)
@@ -125,8 +134,6 @@ pub async fn download_file(
     state: State<'_, AppState>,
 ) -> Result<bool, String> {
     // SSRF protection: only allow downloads from the relay's /media/ path.
-    let relay_base = relay_api_base_url_with_override(&state);
-    validate_download_url(&url, &relay_base)?;
 
     // The imeta filename is the only human-readable name we have; sanitize it
     // so directory traversal / control characters can never reach the dialog.
@@ -168,8 +175,6 @@ pub async fn fetch_media_bytes(
     url: String,
     state: State<'_, AppState>,
 ) -> Result<tauri::ipc::Response, String> {
-    let relay_base = relay_api_base_url_with_override(&state);
-    validate_download_url(&url, &relay_base)?;
 
     let bytes = fetch_blob_bytes(&url, &state).await?;
     detect_and_validate_mime(&bytes)?;
@@ -191,8 +196,6 @@ pub async fn copy_image_to_clipboard(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let relay_base = relay_api_base_url_with_override(&state);
-    validate_download_url(&url, &relay_base)?;
 
     let bytes = fetch_blob_bytes(&url, &state).await?;
     detect_and_validate_mime(&bytes)?;
@@ -293,16 +296,19 @@ async fn fetch_blob_bytes_with_cap(
     state: &State<'_, AppState>,
     cap: u64,
 ) -> Result<Vec<u8>, String> {
+    // Resolve immediately before fetching. Never contact a former loopback
+    // port, and do not treat the renderer's cached routing hint as authority.
+    let relay_base = relay_api_base_url_with_override(state);
+    let url = routing::resolve_download_url(url, state, &relay_base)?;
     // Fetch bytes via the no-redirect media client (goes through WARP tunnel).
     // A no-redirect client keeps the minted media auth token from being
     // forwarded across origins by a relay-issued 3xx (redirect-hop SSRF); a
     // 3xx is returned verbatim and rejected by the `is_success` check below.
-    let mut req = state.media_fetch_client.get(url).timeout(DOWNLOAD_TIMEOUT);
+    let mut req = state.media_fetch_client.get(&url).timeout(DOWNLOAD_TIMEOUT);
 
     // Every caller pre-validates `url` against the relay origin via
     // `validate_download_url`, satisfying the mint_media_get_auth safety
     // contract (the token never leaves the relay origin).
-    let relay_base = relay_api_base_url_with_override(state);
     if let Some(auth) = mint_media_get_auth(state, &relay_base) {
         req = req.header("authorization", auth);
     }
@@ -805,6 +811,12 @@ mod tests {
         let result = validate_download_url("https://evil.example.com/media/abc123.jpg", RELAY_BASE);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("relay origin"));
+    }
+
+    #[test]
+    fn test_validate_download_url_rejects_embedded_credentials_even_on_relay_origin() {
+        assert!(validate_download_url("https://user:secret@relay.example.com/media/a.png", RELAY_BASE).is_err());
+        assert!(validate_download_url("http://user:secret@127.0.0.1:4317/media/a.png", "http://127.0.0.1:4317").is_err());
     }
 
     #[test]

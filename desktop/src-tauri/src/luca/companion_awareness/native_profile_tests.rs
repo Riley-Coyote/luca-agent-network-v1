@@ -496,9 +496,22 @@ fn claude_root_sessions_work_but_sidechain_sdk_and_unsupported_children_do_not()
         .payload(&first)
         .to_string()
         .contains("CLAUDE_ROOT_VISIBLE_SENTINEL"));
+    let mut desktop = visible.clone();
+    desktop["entrypoint"] = serde_json::json!("claude-desktop");
+    desktop["promptSource"] = serde_json::json!("sdk");
+    desktop["message"]["content"] = serde_json::json!("CLAUDE_DESKTOP_VISIBLE_SENTINEL");
+    fs::write(&path, desktop.to_string()).unwrap();
+    adapter.mark_changed(&claude_locator(FIRST_ID)).unwrap();
+    let admitted = sampled_reference(adapter.sample_one(
+        &fixture.state, &fixture.runtime, &now(), Some(&purpose), None,
+    ).unwrap());
+    assert!(fixture.payload(&admitted).to_string().contains("CLAUDE_DESKTOP_VISIBLE_SENTINEL"));
     for flag in [
         serde_json::json!({"isSidechain":true}),
         serde_json::json!({"promptSource":"sdk"}),
+        serde_json::json!({"entrypoint":"sdk-ts", "promptSource":"sdk"}),
+        serde_json::json!({"entrypoint":"claude-desktop", "promptSource":"sdk", "isSidechain":true}),
+        serde_json::json!({"entrypoint":"claude-desktop", "promptSource":"sdk", "isMeta":true}),
     ] {
         let mut private = visible.clone();
         private

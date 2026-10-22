@@ -31,6 +31,7 @@ import {
 } from "@/shared/lib/linkPreview";
 import { useResolvedLinkPreviews } from "@/shared/lib/useResolvedLinkPreviews";
 import { rewriteRelayUrl } from "@/shared/lib/mediaUrl";
+import { useRelayOrigin } from "@/shared/lib/useRelayOrigin";
 import { AttachmentGroup } from "@/shared/ui/attachment";
 import { ConfigNudgeCard } from "@/shared/ui/config-nudge-attachment";
 import { LinkPreviewAttachment } from "@/shared/ui/link-preview-attachment";
@@ -1594,6 +1595,8 @@ function createMarkdownComponents(mediaInset = false): Components {
     ),
     hr: () => <hr className="border-border/80" />,
     img: function MarkdownImage({ alt, src }) {
+      // Re-resolve after native routing becomes ready or a workspace changes.
+      useRelayOrigin();
       const { imetaByUrl, interactive } = useMarkdownRuntime();
       const entry = src ? imetaByUrl?.get(src) : undefined;
       const isVideo = src ? isVideoMedia(src, entry?.m) : false;
@@ -1753,6 +1756,7 @@ function createMarkdownComponents(mediaInset = false): Components {
       alt?: string;
     }) {
       const { interactive } = useMarkdownRuntime();
+      useRelayOrigin();
       const resolvedSrc = src ? rewriteRelayUrl(src) : src;
       if (!resolvedSrc) {
         return <span>{alt}</span>;

@@ -589,7 +589,7 @@ struct HiddenNativeFlags {
     entrypoint: Option<String>,
 }
 impl HiddenNativeFlags {
-    fn private(&self) -> bool {
+    fn private(&self, desktop_transport: bool) -> bool {
         [
             self.sidechain,
             self.meta,
@@ -597,14 +597,14 @@ impl HiddenNativeFlags {
             self.summary,
         ]
         .contains(&Some(true))
-            || self
-                .prompt_source
-                .iter()
-                .chain(self.entrypoint.iter())
-                .any(|label| {
+            || self.entrypoint.iter().any(|label| {
                     let label = label.trim().to_ascii_lowercase();
                     label == "sdk" || label.starts_with("sdk-") || label.starts_with("sdk_")
                 })
+            || (!desktop_transport && self.prompt_source.iter().any(|label| {
+                let label = label.trim().to_ascii_lowercase();
+                label == "sdk" || label.starts_with("sdk-") || label.starts_with("sdk_")
+            }))
     }
 }
 #[derive(Deserialize)]
@@ -662,8 +662,12 @@ fn validate_native_header(
             NativeProfileKindV1::ClaudeProjects => {
                 let row: ClaudeHeader =
                     serde_json::from_slice(&line).map_err(|_| AwarenessStoreError::Invalid)?;
-                if row.flags.private()
-                    || row.message.as_ref().is_some_and(HiddenNativeFlags::private)
+                // Claude Desktop transports ordinary human turns through its SDK.
+                // Only this explicit entrypoint is eligible; unknown SDK jobs,
+                // sidechains and hidden records remain excluded.
+                let desktop_transport = row.flags.entrypoint.as_deref() == Some("claude-desktop");
+                if row.flags.private(desktop_transport)
+                    || row.message.as_ref().is_some_and(|flags| flags.private(desktop_transport))
                     || row.kind.is_empty()
                     || row.kind == "session_meta"
                     || row.session_id.as_deref().is_some_and(|id| id != native_id)

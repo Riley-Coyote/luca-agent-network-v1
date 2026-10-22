@@ -11,6 +11,12 @@ incremental = false
 [profile.test]
 incremental = false
 
+[profile.release.build-override]
+# The pinned Rust/LLVM can misalign stripped proc-macro dylibs, rejected by
+# macOS 27 (rust-lang/rust#157750). Keep host build helpers unstripped; shipped
+# binaries retain their normal release settings. Remove after a toolchain bump.
+strip = "none"
+
 [env]
 # CMake 4 (pinned by hermit) removed compat with projects declaring
 # cmake_minimum_required < 3.5; audiopus_sys's vendored opus declares 3.1.

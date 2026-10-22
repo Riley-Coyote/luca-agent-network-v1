@@ -13,6 +13,7 @@ import {
 } from "./managedPresentationProtocol.ts";
 import {
   MANAGED_PRESENTATION_PAINT_INTERVAL_MS,
+  MANAGED_PRESENTATION_FRAME_TIMEOUT_MS,
   ManagedPresentationScheduler,
 } from "./managedPresentationScheduler.ts";
 
@@ -240,6 +241,40 @@ describe("managed presentation primitives", () => {
       deadlines += 1;
     });
     scheduler.reset();
+    assert.equal(clock.timers.size, 0);
+  });
+
+  it("publishes when WebKit suspends frames and ignores a late frame callback", () => {
+    const clock = new FakeClock();
+    let commits = 0;
+    const scheduler = new ManagedPresentationScheduler(() => {
+      commits += 1;
+      return false;
+    }, clock.api);
+    scheduler.requestPaint();
+    const lateFrame = [...clock.animationFrames.values()][0];
+    clock.advance(MANAGED_PRESENTATION_FRAME_TIMEOUT_MS - 1);
+    assert.equal(commits, 0);
+    clock.advance(1);
+    assert.equal(commits, 1);
+    assert.equal(clock.animationFrames.size, 0);
+    assert.equal(clock.timers.size, 0);
+    lateFrame(clock.currentTime);
+    assert.equal(commits, 1);
+  });
+
+  it("cancels the suspended-frame fallback on reset", () => {
+    const clock = new FakeClock();
+    let commits = 0;
+    const scheduler = new ManagedPresentationScheduler(() => {
+      commits += 1;
+      return false;
+    }, clock.api);
+    scheduler.requestPaint();
+    scheduler.reset();
+    clock.advance(MANAGED_PRESENTATION_FRAME_TIMEOUT_MS);
+    assert.equal(commits, 0);
+    assert.equal(clock.animationFrames.size, 0);
     assert.equal(clock.timers.size, 0);
   });
 });

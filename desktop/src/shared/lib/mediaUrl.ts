@@ -20,7 +20,17 @@ import { invoke } from "@tauri-apps/api/core";
 // Matches: https://anything.com/media/{64-hex}.{ext}
 // Also matches thumbnails: /media/{64-hex}.thumb.jpg
 const RELAY_MEDIA_RE =
-  /^(?:https?:\/\/[^/]+)\/media\/([\da-f]{64}(?:\.thumb)?\.(?:jpg|png|gif|webp|mp4|webm|mov)(?:\?.*)?)$/;
+  /^(?:https?:\/\/[^/?#]+)\/media\/([\da-f]{64}(?:\.thumb)?\.(?:jpg|png|gif|webp|mp4|webm|mov)(?:\?[^#]*)?)$/;
+
+interface MediaRoutingContext {
+  relayOrigin: string;
+  supervisedLocal: boolean;
+}
+
+// A display hint only. Native proxy rechecks the live owner and profile-local
+// content hash on every recovery request, including after workspace changes.
+let cachedSupervisedLocal = false;
+const LOCAL_RECOVERY_QUERY = "buzz_local_recovery=1";
 
 /** Cached proxy port — fetched once from the Tauri backend. */
 let cachedPort: number | null = null;
@@ -31,6 +41,23 @@ let portPromise: Promise<number | null> | null = null;
  * canonicalized via {@link canonicalOrigin} so comparisons are stable.
  */
 let cachedRelayOrigin: string | null = null;
+
+type MediaRoutingSnapshot = Readonly<{
+  relayOrigin: string | null;
+  proxyPort: number | null;
+  supervisedLocal: boolean;
+}>;
+
+let routingSnapshot: MediaRoutingSnapshot = Object.freeze({
+  relayOrigin: null,
+  proxyPort: null,
+  supervisedLocal: false,
+});
+
+/** Stable snapshot for React; the origin-only getter remains available. */
+export function getMediaRoutingSnapshot(): MediaRoutingSnapshot {
+  return routingSnapshot;
+}
 
 /**
  * Canonicalize a URL to its origin with a lowercased scheme/host.
@@ -60,10 +87,21 @@ function canonicalOrigin(url: string): string | null {
  */
 let cacheGeneration = 0;
 
-/** `useSyncExternalStore` listeners for relay-origin changes. */
+/** `useSyncExternalStore` listeners for origin and routing-readiness changes. */
 const relayOriginListeners = new Set<() => void>();
 
 function notifyRelayOriginListeners(): void {
+  if (
+    routingSnapshot.relayOrigin === cachedRelayOrigin &&
+    routingSnapshot.proxyPort === cachedPort &&
+    routingSnapshot.supervisedLocal === cachedSupervisedLocal
+  )
+    return;
+  routingSnapshot = Object.freeze({
+    relayOrigin: cachedRelayOrigin,
+    proxyPort: cachedPort,
+    supervisedLocal: cachedSupervisedLocal,
+  });
   for (const listener of relayOriginListeners) listener();
 }
 
@@ -79,7 +117,6 @@ function notifyRelayOriginListeners(): void {
 function setRelayOrigin(origin: string | null, generation: number): void {
   if (generation !== cacheGeneration) return;
   const canonical = origin === null ? null : canonicalOrigin(origin);
-  if (cachedRelayOrigin === canonical) return;
   cachedRelayOrigin = canonical;
   notifyRelayOriginListeners();
 }
@@ -97,7 +134,7 @@ export function beginRelayOriginFetch(): (origin: string | null) => void {
 }
 
 /**
- * Subscribe to relay-origin changes. Returns a stable unsubscribe function
+ * Subscribe to relay-origin or routing-readiness changes. Returns a stable unsubscribe function
  * (the same closure identity for the life of the subscription), as
  * `useSyncExternalStore` requires.
  */
@@ -171,11 +208,26 @@ async function fetchProxyPort(): Promise<number | null> {
     if (!cachedRelayOrigin) {
       const publishRelayOrigin = beginRelayOriginFetch();
       try {
-        const url = await withDeadline(
-          invoke<string>("get_relay_http_url"),
-          deadline,
-        );
-        if (url !== null) publishRelayOrigin(canonicalOrigin(url));
+        let context: MediaRoutingContext | null;
+        try {
+          context = await withDeadline(
+            invoke<MediaRoutingContext>("get_media_routing_context"),
+            deadline,
+          );
+        } catch {
+          // Older native hosts can still proxy exact-origin relay media, but
+          // never authorize stale-local recovery from an unverified URL alone.
+          const url = await withDeadline(
+            invoke<string>("get_relay_http_url"),
+            deadline,
+          );
+          context =
+            url === null ? null : { relayOrigin: url, supervisedLocal: false };
+        }
+        if (context !== null && generation === cacheGeneration) {
+          cachedSupervisedLocal = context.supervisedLocal === true;
+          publishRelayOrigin(context.relayOrigin);
+        }
       } catch {
         // invoke failed (e.g. Tauri IPC not ready yet) — keep retrying
       }
@@ -189,6 +241,7 @@ async function fetchProxyPort(): Promise<number | null> {
         );
         if (port !== null && port > 0 && generation === cacheGeneration) {
           cachedPort = port;
+          notifyRelayOriginListeners();
         }
       } catch {
         // invoke failed (e.g. Tauri IPC not ready yet) — keep retrying
@@ -220,19 +273,17 @@ if (typeof window !== "undefined") {
  * Reset module-level caches so the next render re-fetches the proxy port
  * and relay origin for the new community.
  *
- * Bumps the origin generation so any in-flight fetch from the previous
- * community is discarded on resolution, and notifies subscribers only if the
- * origin actually changes (a reset from an already-null origin is a no-op for
- * listeners).
+ * Bumps the generation so any in-flight fetch from the previous community is
+ * discarded on resolution. Subscribers see any change to origin, proxy port,
+ * or supervised-local hint; resetting an already-empty snapshot is a no-op.
  */
 export function resetMediaCaches(): void {
   cacheGeneration += 1;
   cachedPort = null;
   portPromise = null;
-  if (cachedRelayOrigin !== null) {
-    cachedRelayOrigin = null;
-    notifyRelayOriginListeners();
-  }
+  cachedSupervisedLocal = false;
+  cachedRelayOrigin = null;
+  notifyRelayOriginListeners();
 }
 
 /**
@@ -264,29 +315,52 @@ export function mediaProxyUrl(port: number, mediaPath: string): string {
  */
 export function rewriteRelayUrl(url: string): string {
   const m = RELAY_MEDIA_RE.exec(url);
-  if (!m) return url;
-
-  // Only proxy URLs that belong to our relay. External Blossom URLs
-  // (different origin) pass through unchanged — they work fine via WKWebView.
-  // If the relay origin isn't cached yet, fall through to the rewrite path
-  // as a safe default (relay URLs need the proxy to avoid Cloudflare 403s).
-  // Compare canonicalized origins: hosts are case-insensitive, and the relay
-  // always returns lowercased media URLs even when the saved community URL
-  // was typed with uppercase (e.g. wss://PENDING-SEED.communities.buzz.xyz).
-  if (cachedRelayOrigin) {
-    const urlOrigin = canonicalOrigin(url);
-    if (urlOrigin !== cachedRelayOrigin) {
-      return url;
-    }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
   }
-
-  if (cachedPort && cachedPort > 0) {
-    return mediaProxyUrl(cachedPort, m[1]);
+  const loopback =
+    parsed.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
+  if (
+    parsed.username ||
+    parsed.password ||
+    url.slice(0, url.indexOf("/media/")).includes("@")
+  ) {
+    return "about:blank";
+  }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: reject inputs the URL parser would silently normalize.
+  if (!m || /[\u0000-\u0020\\]/.test(url) || parsed.hash) {
+    return loopback ? "about:blank" : url;
   }
 
   if (!portPromise && typeof window !== "undefined") {
     portPromise = fetchProxyPort();
   }
 
-  return `buzz-media://localhost/media/${m[1]}`;
+  // Only proxy URLs that belong to our relay. External Blossom URLs
+  // (different origin) pass through unchanged — they work fine via WKWebView.
+  // An unresolved native context is never permission to proxy arbitrary media.
+  // Compare canonicalized origins: hosts are case-insensitive, and the relay
+  // always returns lowercased media URLs even when the saved community URL
+  // was typed with uppercase (e.g. wss://PENDING-SEED.communities.buzz.xyz).
+  // Do not ask the WebView to contact an arbitrary former loopback port while
+  // native context is unavailable or this is a remote community.
+  if (!cachedRelayOrigin) return loopback ? "about:blank" : url;
+  const staleLocal =
+    parsed.origin !== cachedRelayOrigin &&
+    cachedSupervisedLocal &&
+    loopback &&
+    !parsed.search;
+  if (parsed.origin !== cachedRelayOrigin && !staleLocal)
+    return loopback ? "about:blank" : url;
+  const path = staleLocal ? `${m[1]}?${LOCAL_RECOVERY_QUERY}` : m[1];
+
+  if (cachedPort && cachedPort > 0) {
+    return mediaProxyUrl(cachedPort, path);
+  }
+
+  return `buzz-media://localhost/media/${path}`;
 }

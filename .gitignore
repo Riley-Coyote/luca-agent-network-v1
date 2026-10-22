@@ -36,6 +36,7 @@ blob-report/
 
 # Node modules (pnpm workspace hoists to root)
 node_modules/
+.pnpm-store/
 
 # Root npm lockfiles are accidental; desktop uses pnpm in /desktop.
 /package-lock.json

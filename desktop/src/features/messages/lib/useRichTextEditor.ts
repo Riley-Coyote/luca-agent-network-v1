@@ -499,7 +499,7 @@ export function useRichTextEditor({
         attributes: {
           autocapitalize: "none",
           autocorrect: "off",
-          class: `${MESSAGE_MARKDOWN_CLASS} min-h-0 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-0 text-base leading-[1.68] text-foreground shadow-none focus-visible:ring-0 caret-foreground outline-hidden max-w-none`,
+          class: `${MESSAGE_MARKDOWN_CLASS} min-h-0 resize-none overflow-y-hidden border-0 bg-transparent px-0 py-0 text-[length:var(--type-body-size,1rem)] leading-[1.68] text-foreground shadow-none focus-visible:ring-0 caret-foreground outline-hidden max-w-none`,
           "data-testid": "message-input",
           spellcheck: "true",
         },

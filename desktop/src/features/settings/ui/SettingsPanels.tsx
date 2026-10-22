@@ -37,6 +37,11 @@ import {
   setStreamingTextEffect,
   useStreamingTextEffect,
 } from "@/features/messages/lib/streamingTextPreference";
+import {
+  setMessageTextSize,
+  useMessageTextSize,
+  type MessageTextSize,
+} from "@/features/messages/lib/messageTextSizePreference";
 import type { StreamingTextEffect } from "@/shared/ui/markdownStreamingText";
 import { RuntimeRailPinsSettings } from "@/features/runtime-sessions/RuntimeRailPinsSettings";
 import { cn } from "@/shared/lib/cn";
@@ -656,6 +661,13 @@ const STREAMING_TEXT_CHOICES = [
   string,
 ])[];
 
+/** Label for each message-text size. */
+const MESSAGE_TEXT_CHOICES = [
+  ["small", "Small"],
+  ["default", "Default"],
+  ["large", "Large"],
+] as const satisfies readonly (readonly [MessageTextSize, string])[];
+
 function ConversationAppearanceSettings({
   currentPubkey,
 }: {
@@ -664,6 +676,7 @@ function ConversationAppearanceSettings({
   const agentNamesInMessages = useAgentNamesInMessages(currentPubkey);
   const chatMarks = useChatMarkAppearance(currentPubkey);
   const streamingText = useStreamingTextEffect(currentPubkey);
+  const messageTextSize = useMessageTextSize();
 
   return (
     <div className="mt-8">
@@ -773,6 +786,35 @@ function ConversationAppearanceSettings({
                 disabled={!currentPubkey}
                 key={value}
                 onClick={() => setStreamingTextEffect(currentPubkey, value)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </fieldset>
+        </SettingsOptionRow>
+        <SettingsOptionRow className="flex-wrap border-t border-border/30">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">Message text</p>
+            <p className="text-sm font-normal text-muted-foreground">
+              Resizes messages and the composer only. ⌘+ and ⌘− still scale the
+              whole app.
+            </p>
+          </div>
+          <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
+            <legend className="sr-only">Message text</legend>
+            {MESSAGE_TEXT_CHOICES.map(([value, label]) => (
+              <button
+                aria-pressed={messageTextSize === value}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                  messageTextSize === value
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                data-testid={`message-text-${value}`}
+                key={value}
+                onClick={() => setMessageTextSize(value)}
                 type="button"
               >
                 {label}

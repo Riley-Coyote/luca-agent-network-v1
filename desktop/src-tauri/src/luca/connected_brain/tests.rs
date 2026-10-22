@@ -191,6 +191,20 @@ fn claude_parser_excludes_thinking_tools_and_credentials() {
         None
     );
     assert_eq!(sessions::parse_claude_fixture(&sdk_cli_plain_prompt), None);
+    let mut desktop_user = native_user.clone();
+    desktop_user["promptSource"] = json!("sdk");
+    desktop_user["entrypoint"] = json!("claude-desktop");
+    desktop_user["message"]["promptSource"] = json!("sdk");
+    assert_eq!(sessions::parse_claude_fixture(&desktop_user).as_deref(),
+        Some("Keep this ordinary native Claude request visible."));
+    desktop_user["isSidechain"] = json!(true);
+    assert_eq!(sessions::parse_claude_fixture(&desktop_user), None);
+    desktop_user["isSidechain"] = json!(false);
+    desktop_user["message"]["entrypoint"] = json!("sdk-ts");
+    assert_eq!(sessions::parse_claude_fixture(&desktop_user), None);
+    desktop_user["entrypoint"] = json!("unrecognized-client");
+    desktop_user["message"].as_object_mut().unwrap().remove("entrypoint");
+    assert_eq!(sessions::parse_claude_fixture(&desktop_user), None);
     assert_eq!(
         sessions::parse_claude_fixture(&unlabelled_prompt_envelope),
         None
