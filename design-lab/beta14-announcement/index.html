@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polyphonic beta.14</title>
+<link rel="stylesheet" href="announcement.css">
+<script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+</head>
+<body>
+<a class="skip" href="#f1">Skip to the first frame</a>
+
+<!-- Private workspace bar: never part of an exported frame. -->
+<header class="workbar" aria-label="Release state">
+  <span class="workbar-mark" aria-hidden="true"></span>
+  <p><strong>Private draft.</strong> Beta.14 isn't published. Every frame says "coming" until Riley says it shipped.</p>
+  <nav aria-label="Frames">
+    <a href="#f1">01</a><a href="#f2">02</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- 01 · the hero ------------------------------------------------------- -->
+<section class="frame-wrap" id="f1" aria-label="Frame 1: One conversation to come back to">
+  <div class="frame hero" data-frame="01-one-conversation" data-gaze="1000,430">
+    <div class="hero-light" aria-hidden="true"></div>
+    <div class="hero-type">
+      <p class="label">Polyphonic <span>·</span> beta.14 <span>·</span> coming soon</p>
+      <h1>One conversation<br>to come back to.</h1>
+      <p class="lede">Luca now lives in one conversation, there whenever you return. Your other agents keep their sessions right under their names.</p>
+    </div>
+    <div class="hero-mote" aria-hidden="true">
+      <mote-3d species="mote" tint="#b8b8b8" expression="ambient" no-caustic></mote-3d>
+    </div>
+  </div>
+</section>
+
+<!-- 02 · the first message ---------------------------------------------- -->
+<section class="frame-wrap" id="f2" aria-label="Frame 2: Luca, waiting for your first word">
+  <div class="frame shot" data-frame="02-first-message">
+    <div class="shot-type">
+      <p class="label">New in this update</p>
+      <h2>Open a conversation,<br>and someone’s there.</h2>
+      <p class="lede">Before the first word, Luca waits in the open. It watches you write, then steps aside when you send.</p>
+    </div>
+    <figure class="window shot-window">
+      <img src="captures/first-message.png" alt="Polyphonic with Luca’s empty conversation open: the sidebar on the left with Luca selected, and in the middle Luca’s black sphere with two eyes above its name, over the message box.">
+    </figure>
+  </div>
+</section>
+
+</main>
+<script type="module" src="./vendor/mote3d.js"></script>
+</body>
+</html>
