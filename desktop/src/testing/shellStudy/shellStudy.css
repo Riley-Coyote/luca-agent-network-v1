@@ -1,0 +1,1104 @@
+/* ------------------------------------------------------------------
+ * THE SHELL STUDY (ShellStudy.tsx; docs/luca/rail-system/SHELL_STUDY.md).
+ *
+ * The grid, in points: the lip is the window's top 48 (its words centred on
+ * 24, with the traffic lights); the places are a column of 52 under it, their
+ * icons on the first light's axis (26); the conversations rail is 220 beside
+ * them; the card takes the rest, 8 from the window's right and bottom edges,
+ * with no header of its own. Collapsing the rail slides the card over it.
+ *
+ * Two voices: the system sans for everything you read, Fragment Mono capitals
+ * for the rail's structure. Four sizes in the frame: 11 (labels), 13 (the
+ * lip, sessions, tabs), 14 (homes), 16 (the conversation itself).
+ *
+ * The frame's words wear three tones (--shell-ink, -muted, -faint): on the
+ * black frame they are the app's own ink; on the glass frame, a warm white
+ * that reads over the desktop with the veil's help.
+ * ------------------------------------------------------------------ */
+
+.shell {
+  --lip: 48px;
+  --places: 52px;
+  --rail: 220px;
+  --edge: 8px;
+  --slide: 460ms cubic-bezier(0.32, 0.72, 0, 1);
+  --shell-ink: hsl(var(--mn-ink));
+  --shell-muted: hsl(var(--mn-ink-muted));
+  --shell-faint: hsl(var(--mn-ink-faint));
+  --shell-plate: hsl(var(--mn-ink) / 0.06);
+  --shell-thread: hsl(var(--mn-ink) / 0.16);
+  color: var(--shell-ink);
+  inset: 0;
+  overflow: hidden;
+  position: fixed;
+  user-select: none;
+}
+
+.shell[data-direction="glass"] {
+  --shell-ink: rgb(250 248 243 / 0.96);
+  --shell-muted: rgb(250 248 243 / 0.76);
+  --shell-faint: rgb(250 248 243 / 0.56);
+  --shell-plate: rgb(255 255 255 / 0.1);
+  --shell-thread: rgb(255 255 255 / 0.22);
+}
+
+/* The black frame's floor. Natively the floor is the window's (the glass
+ * sits on it, beneath the page), so the page leaves it clear. */
+.shell[data-direction="black"]:not([data-native]) {
+  background: #000;
+}
+
+.shell[data-native] {
+  background: transparent;
+}
+
+/* ── the browser's stand-in for the glass frame ───────────────────────
+ * A browser can't see the desktop, so a dusk sky stands in for it, under
+ * our own web glass (clear: the backdrop blurred a hair, plus 8% white, held
+ * by a hairline rim brightest on top). The lab panel says so. */
+.shell-desktop,
+.shell-frame,
+.shell-veil {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.shell[data-direction="black"] :is(.shell-desktop, .shell-frame, .shell-veil) {
+  display: none;
+}
+
+.shell-desktop {
+  background:
+    radial-gradient(
+      60% 50% at 78% 82%,
+      rgb(242 170 104 / 0.85),
+      transparent 70%
+    ),
+    radial-gradient(40% 35% at 18% 70%, rgb(126 104 168 / 0.7), transparent 70%),
+    linear-gradient(180deg, #16223f 0%, #2d3561 38%, #8c5a74 68%, #e19a6b 100%);
+}
+
+.shell-frame {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  background: rgb(255 255 255 / 0.08);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.45),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.12);
+}
+
+/* The veil: darkness in front of the glass, so the frame's words read over a
+ * bright desktop. None, soft or deep, from the lab panel. */
+.shell-veil {
+  background: rgb(0 0 0 / var(--shell-veil, 0));
+}
+
+.shell[data-veil="soft"] {
+  --shell-veil: 0.22;
+}
+
+.shell[data-veil="deep"] {
+  --shell-veil: 0.42;
+}
+
+/* ── the marks ─────────────────────────────────────────────────────── */
+.shell-marks {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.shell-mark {
+  border-radius: 999px;
+  left: 0;
+  position: absolute;
+  top: 0;
+  visibility: hidden;
+  will-change: transform;
+}
+
+/* Our web glass, standing in for Apple's on the black frame in a browser:
+ * the 8% lift, a breath more where the light enters at the top, and a rim
+ * that is the light itself. */
+.shell-mark--glass {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.1),
+    rgb(255 255 255 / 0.06)
+  );
+}
+
+.shell-mark--glass::before {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / calc(0.42 + var(--wet, 0) * 0.3)),
+    rgb(255 255 255 / 0.1) 30%,
+    rgb(255 255 255 / 0.02) 55%,
+    rgb(255 255 255 / 0)
+  );
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  padding: 0.5px;
+  position: absolute;
+}
+
+/* The card's own black, on the glass frame: its surface and grain, lit along
+ * the top as the card is (brighter while it moves), and the soft shadow the
+ * light from above leaves under it on the glass. */
+.shell-mark--ink {
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-size: 256px 256px;
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / calc(0.12 + var(--wet, 0) * 0.28)),
+    0 0 0 0.5px rgb(255 255 255 / 0.06),
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 6px 16px rgb(0 0 0 / 0.22);
+}
+
+/* ── the lip ───────────────────────────────────────────────────────── */
+.shell-lip {
+  height: var(--lip);
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  z-index: 4;
+}
+
+.shell-lights {
+  display: flex;
+  gap: 8px;
+  left: 20px;
+  position: absolute;
+  top: 18px;
+}
+
+.shell-lights span {
+  background: #ff5f57;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.18);
+  height: 12px;
+  width: 12px;
+}
+
+.shell-lights span:nth-child(2) {
+  background: #febc2e;
+}
+
+.shell-lights span:nth-child(3) {
+  background: #28c840;
+}
+
+.shell-lip-button {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--shell-muted);
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 28px;
+}
+
+.shell-lip-button svg {
+  height: 16px;
+  stroke-width: 1.75;
+  width: 16px;
+}
+
+.shell-lip-button:hover:not(:disabled) {
+  background: var(--shell-plate);
+  color: var(--shell-ink);
+}
+
+.shell-lip-button:disabled {
+  color: var(--shell-faint);
+  opacity: 0.5;
+}
+
+.shell-toggle {
+  left: 84px;
+  position: absolute;
+  top: 10px;
+}
+
+/* The part of the lip over the card: it moves with the card. */
+.shell-lip-card {
+  bottom: 0;
+  left: var(--card-left);
+  position: absolute;
+  right: var(--edge);
+  top: 0;
+  transition: left var(--slide);
+}
+
+.shell-history {
+  display: flex;
+  gap: 2px;
+  left: max(8px, calc(120px - var(--card-left)));
+  position: absolute;
+  top: 10px;
+  transition: left var(--slide);
+}
+
+/* The open conversation's name, on the card's own axis: the axis its
+ * messages and composer are centred on. */
+.shell-title {
+  align-items: baseline;
+  color: var(--shell-ink);
+  display: flex;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  gap: 6px;
+  left: 50%;
+  letter-spacing: -0.003em;
+  line-height: var(--lip);
+  max-width: calc(100% - 200px);
+  overflow: hidden;
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.shell-title-home {
+  color: var(--shell-muted);
+  font-weight: 450;
+}
+
+.shell-title-rule {
+  color: var(--shell-faint);
+  font-weight: 400;
+}
+
+/* Tabs: the open conversations, after back and forward. */
+.shell-tabs {
+  display: flex;
+  gap: 2px;
+  left: calc(max(8px, calc(120px - var(--card-left))) + 66px);
+  overflow: hidden;
+  position: absolute;
+  right: 8px;
+  top: 9px;
+  transition: left var(--slide);
+}
+
+.shell-tab {
+  align-items: center;
+  border-radius: 999px;
+  display: flex;
+  flex: 0 1 auto;
+  height: 30px;
+  max-width: 200px;
+  min-width: 64px;
+  position: relative;
+}
+
+.shell-tab:hover:not([data-selected]) {
+  background: var(--shell-plate);
+}
+
+/* A tab is as wide as its name. On hover its close button takes the right
+ * end, and the name fades out beneath it, as a browser's tabs do. */
+.shell-tab-open {
+  border-radius: inherit;
+  color: var(--shell-muted);
+  flex: 1;
+  font-size: 0.8125rem;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 14px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-tab:is(:hover, :focus-within) .shell-tab-open {
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    #000 calc(100% - 34px),
+    transparent calc(100% - 22px)
+  );
+  mask-image: linear-gradient(
+    90deg,
+    #000 calc(100% - 34px),
+    transparent calc(100% - 22px)
+  );
+}
+
+.shell-tab[data-selected] .shell-tab-open {
+  color: var(--shell-ink);
+}
+
+.shell-tab-close {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--shell-faint);
+  display: flex;
+  height: 18px;
+  justify-content: center;
+  opacity: 0;
+  position: absolute;
+  right: 6px;
+  transition: opacity 120ms;
+  width: 18px;
+}
+
+.shell-tab-close svg {
+  height: 12px;
+  stroke-width: 2;
+  width: 12px;
+}
+
+.shell-tab:hover .shell-tab-close,
+.shell-tab-close:focus-visible {
+  opacity: 1;
+}
+
+.shell-tab-close:hover {
+  background: var(--shell-plate);
+  color: var(--shell-ink);
+}
+
+/* ── the places ────────────────────────────────────────────────────── */
+.shell-places {
+  align-items: center;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  left: 0;
+  padding: 8px 0 14px;
+  position: absolute;
+  top: var(--lip);
+  width: var(--places);
+  z-index: 2;
+}
+
+.shell-places-group {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell-places-end {
+  margin-top: auto;
+}
+
+.shell-place {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--shell-muted);
+  display: flex;
+  height: 32px;
+  justify-content: center;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 32px;
+}
+
+.shell-place svg {
+  height: 17px;
+  stroke-width: 1.6;
+  width: 17px;
+}
+
+.shell-place:hover:not([data-current]) {
+  background: var(--shell-plate);
+  color: var(--shell-ink);
+}
+
+.shell-place[data-current] {
+  color: var(--shell-ink);
+}
+
+.shell-avatar {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.14);
+  border-radius: 999px;
+  color: var(--shell-ink);
+  display: flex;
+  font-size: 0.75rem;
+  font-weight: 550;
+  height: 26px;
+  justify-content: center;
+  margin-top: 6px;
+  width: 26px;
+}
+
+/* ── the conversations rail ────────────────────────────────────────── */
+.shell-rail {
+  bottom: 0;
+  left: var(--places);
+  position: absolute;
+  top: var(--lip);
+  width: var(--rail);
+  z-index: 2;
+}
+
+.shell-rail-scroll {
+  inset: 0;
+  overflow-y: auto;
+  padding: 8px 8px 24px;
+  position: absolute;
+  scrollbar-width: none;
+}
+
+.shell-rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.shell-section {
+  margin-top: 18px;
+}
+
+.shell-section-head {
+  align-items: center;
+  color: var(--shell-faint);
+  display: flex;
+  height: 28px;
+  justify-content: space-between;
+  padding: 0 6px 0 10px;
+}
+
+.shell-add {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--shell-faint);
+  display: flex;
+  height: 22px;
+  justify-content: center;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 22px;
+}
+
+.shell-add svg {
+  height: 14px;
+  stroke-width: 1.75;
+  width: 14px;
+}
+
+.shell-add:hover {
+  background: var(--shell-plate);
+  color: var(--shell-ink);
+}
+
+/* A home: Luca, a project, an agent, a fleet. The whole row is one button
+ * (the hit, beneath); the chevron and the + sit above it. */
+.shell-row {
+  align-items: center;
+  border-radius: 999px;
+  display: flex;
+  height: 32px;
+  padding: 0 5px 0 10px;
+  position: relative;
+}
+
+.shell-row:hover:not([data-active]) {
+  background: var(--shell-plate);
+}
+
+.shell-row-hit {
+  border-radius: inherit;
+  inset: 0;
+  position: absolute;
+}
+
+.shell-row-name {
+  color: var(--shell-muted);
+  font-size: 0.875rem;
+  letter-spacing: -0.006em;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: relative;
+  text-overflow: ellipsis;
+  transition: color 120ms;
+  white-space: nowrap;
+}
+
+.shell-row:hover .shell-row-name,
+.shell-row[data-active] .shell-row-name {
+  color: var(--shell-ink);
+}
+
+.shell-chevron {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--shell-faint);
+  display: flex;
+  flex: none;
+  height: 20px;
+  justify-content: center;
+  margin-left: 1px;
+  position: relative;
+  width: 18px;
+}
+
+.shell-chevron svg {
+  height: 12px;
+  stroke-width: 2;
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+  width: 12px;
+}
+
+.shell-chevron[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.shell-chevron:hover {
+  color: var(--shell-ink);
+}
+
+/* One trailing slot: the unread dot, or "working", or (on hover and focus)
+ * the +. Never two at once; the + wins. */
+.shell-row-end {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: flex-end;
+  margin-left: auto;
+  min-width: 22px;
+  pointer-events: none;
+  position: relative;
+}
+
+.shell-row-end > * {
+  pointer-events: auto;
+}
+
+.shell-row-add {
+  display: none;
+}
+
+.shell-row:is(:hover, :focus-within) .shell-row-add {
+  display: flex;
+}
+
+.shell-row:is(:hover, :focus-within) .shell-signal {
+  display: none;
+}
+
+.shell-signal {
+  align-items: center;
+  display: flex;
+  padding-right: 6px;
+}
+
+.shell-dot {
+  border-radius: 999px;
+  display: block;
+  height: 6px;
+  width: 6px;
+}
+
+.shell-working {
+  color: var(--shell-faint);
+  font-size: 0.6875rem;
+  letter-spacing: 0.01em;
+}
+
+.shell-working::after {
+  content: "…";
+}
+
+/* A home's sessions, on a thread, the way Claude Code nests a session's
+ * tasks: quieter than their home, and the open one lit. */
+.shell-sessions {
+  border: 0;
+  margin: 1px 0 6px 11px;
+  min-width: 0;
+  padding-left: 13px;
+  position: relative;
+}
+
+.shell-sessions::before {
+  background: var(--shell-thread);
+  bottom: 6px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 6px;
+  width: 1px;
+}
+
+.shell-session {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--shell-faint);
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 8px;
+  height: 28px;
+  justify-content: space-between;
+  padding-right: 10px;
+  position: relative;
+  text-align: left;
+  transition: color 120ms;
+  width: 100%;
+}
+
+.shell-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-session:hover {
+  color: var(--shell-muted);
+}
+
+.shell-session[data-current] {
+  color: var(--shell-ink);
+}
+
+/* The open session's stretch of the thread, lit to its words' tone. */
+.shell-session[data-current]::before {
+  background: var(--shell-ink);
+  bottom: 6px;
+  content: "";
+  left: -13px;
+  position: absolute;
+  top: 6px;
+  width: 1px;
+}
+
+@media (prefers-contrast: more) {
+  .shell-session[data-current]::before {
+    left: -13.5px;
+    width: 2px;
+  }
+}
+
+/* Focus: the row's own edge brightening in place, as in the app's rail. */
+.shell
+:is(
+  .shell-row-hit,
+  .shell-session,
+  .shell-place,
+  .shell-add,
+  .shell-chevron,
+  .shell-lip-button,
+  .shell-tab-open,
+  .shell-tab-close
+):focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--shell-ink) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* ── the card ──────────────────────────────────────────────────────── */
+.shell-card {
+  bottom: var(--edge);
+  display: flex;
+  flex-direction: column;
+  left: var(--card-left);
+  position: absolute;
+  right: var(--edge);
+  top: var(--lip);
+  transition: left var(--slide);
+  user-select: text;
+  z-index: 3;
+}
+
+/* On the glass the card floats: the light from above leaves a soft shadow
+ * under it. */
+:root .shell[data-direction="glass"] .shell-card[data-luca-card] {
+  box-shadow:
+    var(--mn-card-edge),
+    0 2px 6px rgb(0 0 0 / 0.22),
+    0 22px 56px rgb(0 0 0 / 0.34);
+}
+
+.shell-conversation {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.shell-reading {
+  flex: 1;
+  overflow-y: auto;
+  padding: 22px 28px 28px;
+}
+
+.shell-reading > :not(.shell-day) {
+  margin-inline: auto;
+  max-width: 560px;
+}
+
+.shell-day {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  margin: 0 -28px 8px;
+  position: relative;
+}
+
+.shell-day::before {
+  background: hsl(var(--mn-ink) / 0.07);
+  content: "";
+  height: 1px;
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 50%;
+}
+
+.shell-day span {
+  background: hsl(var(--mn-surface));
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.1);
+  color: hsl(var(--mn-ink-faint));
+  padding: 4px 11px;
+  position: relative;
+}
+
+.shell-message {
+  margin-top: 22px;
+}
+
+.shell-message header {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+}
+
+.shell-author {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.shell-message time {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.shell-message p {
+  color: hsl(var(--mn-ink));
+  font-size: 1rem;
+  letter-spacing: -0.003em;
+  line-height: 1.74;
+  margin-top: 2px;
+}
+
+.shell-mine {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.shell-mine p {
+  background: var(--mn-plate-strong);
+  border-radius: 20px;
+  color: hsl(var(--mn-ink));
+  font-size: 1rem;
+  letter-spacing: -0.003em;
+  line-height: 1.6;
+  max-width: 82%;
+  padding: 10px 16px;
+}
+
+.shell-empty {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.875rem;
+  margin-top: 28vh;
+  text-align: center;
+}
+
+.shell-composer {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.045);
+  border-radius: 23px;
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.06);
+  display: flex;
+  flex: none;
+  gap: 6px;
+  height: 46px;
+  margin: 0 auto 24px;
+  padding: 0 7px;
+  width: min(560px, calc(100% - 56px));
+}
+
+.shell-composer:focus-within {
+  box-shadow: inset 0 0 0 0.5px hsl(var(--mn-ink) / 0.16);
+}
+
+.shell-composer input {
+  background: transparent;
+  color: hsl(var(--mn-ink));
+  flex: 1;
+  font-size: 1rem;
+  min-width: 0;
+  outline: none;
+}
+
+.shell-composer input::placeholder {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.shell-composer-add,
+.shell-send {
+  align-items: center;
+  border-radius: 999px;
+  display: flex;
+  flex: none;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.shell-composer-add {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.shell-send {
+  background: hsl(var(--mn-ink) / 0.1);
+  color: hsl(var(--mn-ink));
+}
+
+:is(.shell-composer-add, .shell-send) svg {
+  height: 16px;
+  stroke-width: 1.75;
+  width: 16px;
+}
+
+/* A place's page: a list on the card's axis. */
+.shell-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px 28px;
+}
+
+.shell-page-group {
+  margin: 0 auto 32px;
+  max-width: 640px;
+}
+
+.shell-page-group h2 {
+  color: hsl(var(--mn-ink-faint));
+  margin-bottom: 6px;
+}
+
+.shell-page-group li {
+  align-items: baseline;
+  border-bottom: 1px solid hsl(var(--mn-ink) / 0.06);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) auto 84px;
+  padding: 13px 0;
+}
+
+.shell-page-title {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+}
+
+.shell-page-detail {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+}
+
+.shell-page-note {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ── search ────────────────────────────────────────────────────────── */
+.shell-search-scrim {
+  align-items: flex-start;
+  background: rgb(0 0 0 / 0.24);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding-top: 120px;
+  position: fixed;
+  z-index: 10;
+}
+
+.shell-search {
+  background: hsl(var(--mn-surface));
+  border-radius: 16px;
+  box-shadow:
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.12),
+    0 24px 64px rgb(0 0 0 / 0.55);
+  padding: 6px;
+  width: min(520px, calc(100% - 32px));
+}
+
+.shell-search input {
+  background: transparent;
+  border-bottom: 1px solid hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+  font-size: 1rem;
+  height: 44px;
+  outline: none;
+  padding: 0 12px;
+  width: 100%;
+}
+
+.shell-search ul {
+  padding: 6px 0 2px;
+}
+
+.shell-search li button {
+  border-radius: 10px;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.875rem;
+  padding: 8px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.shell-search li button[data-chosen] {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+}
+
+.shell-search-none {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.875rem;
+  padding: 8px 12px;
+}
+
+/* ── the lab's own controls ────────────────────────────────────────── */
+.shell-lab {
+  background: rgb(14 14 14 / 0.97);
+  border-radius: 14px;
+  bottom: 16px;
+  box-shadow:
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.12),
+    0 14px 36px rgb(0 0 0 / 0.5);
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  padding: 10px 12px 12px;
+  position: absolute;
+  right: 16px;
+  user-select: none;
+  width: 252px;
+  z-index: 5;
+}
+
+.shell-lab-head {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.shell-lab-hide {
+  align-items: center;
+  border-radius: 999px;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
+.shell-lab-hide svg {
+  height: 12px;
+  width: 12px;
+}
+
+.shell-lab-row {
+  align-items: center;
+  display: flex;
+  height: 30px;
+  justify-content: space-between;
+}
+
+.shell-segment {
+  background: hsl(var(--mn-ink) / 0.06);
+  border-radius: 999px;
+  display: flex;
+  padding: 2px;
+}
+
+.shell-segment button {
+  border-radius: 999px;
+  color: hsl(var(--mn-ink-muted));
+  padding: 3px 10px;
+}
+
+.shell-segment button[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.14);
+  color: hsl(var(--mn-ink));
+}
+
+.shell-lab-note {
+  color: hsl(var(--mn-ink-faint));
+  line-height: 1.45;
+  margin-top: 8px;
+}
+
+.shell-lab-pill {
+  background: rgb(14 14 14 / 0.97);
+  border-radius: 999px;
+  bottom: 16px;
+  box-shadow: 0 0 0 0.5px hsl(var(--mn-ink) / 0.12);
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  position: absolute;
+  right: 16px;
+  z-index: 5;
+}
+
+.shell
+  :is(
+    .shell-segment button,
+    .shell-lab-hide,
+    .shell-lab-pill,
+    .shell-search li button
+  ):focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: -1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell
+    :is(
+      .shell-card,
+      .shell-lip-card,
+      .shell-history,
+      .shell-tabs,
+      .shell-chevron svg
+    ) {
+    transition: none;
+  }
+}
+
+/* In a smaller window the controls would cover the composer's end: they sit
+ * above it instead. */
+@media (max-width: 1280px) {
+  .shell :is(.shell-lab, .shell-lab-pill) {
+    bottom: 84px;
+  }
+}

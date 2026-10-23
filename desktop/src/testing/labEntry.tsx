@@ -18,6 +18,7 @@
  */
 
 import { RailStudy, RAIL_STUDY_KEY } from "@/testing/railStudy";
+import { ShellStudy, SHELL_STUDY_KEY } from "@/testing/shellStudy/ShellStudy";
 import React from "react";
 import ReactDOM from "react-dom/client";
 
@@ -77,6 +78,10 @@ const COMPANION_SETUP_STUDY =
 const COMPANION_CONTROL_STUDY =
   new URLSearchParams(window.location.search).get("experience") ===
   "companion-control";
+/** `?experience=shell`: the shell study (places, the rail, the lip and the
+ *  glass) in place of the app; docs/luca/rail-system/SHELL_STUDY.md. */
+const SHELL_STUDY =
+  new URLSearchParams(window.location.search).get("experience") === "shell";
 /** `?dm=first` opens Luca's conversation before its first message, and
  *  `?dm=open` opens it as the scene left it. Without it the lab opens a room. */
 const DM_SCENE = new URLSearchParams(window.location.search).get("dm");
@@ -102,7 +107,9 @@ function seedStorage() {
   const controlStudy = store.getItem(CONTROL_LAB_KEY);
   const railStudy = store.getItem(RAIL_STUDY_KEY);
   const railRecovery = store.getItem(`${RAIL_STUDY_KEY}.recovery`);
+  const shellStudy = store.getItem(SHELL_STUDY_KEY);
   store.clear();
+  if (shellStudy !== null) store.setItem(SHELL_STUDY_KEY, shellStudy);
   if (railStudy !== null) store.setItem(RAIL_STUDY_KEY, railStudy);
   if (railRecovery !== null)
     store.setItem(`${RAIL_STUDY_KEY}.recovery`, railRecovery);
@@ -413,7 +420,7 @@ function renderApp() {
               <EmojiBurstProvider>
                 <PoofBurstProvider>
                   <UpdaterProvider>
-                    <App />
+                    {SHELL_STUDY ? <ShellStudy /> : <App />}
                     {new URLSearchParams(window.location.search).get(
                       "experience",
                     ) === "inline-sessions" ? (
@@ -439,7 +446,8 @@ async function boot() {
   seedStorage();
   configureBridge();
   maybeInstallE2eTauriMocks();
-  await buildScene();
+  // The shell study draws its own sample conversations; it needs no scene.
+  if (!SHELL_STUDY) await buildScene();
   renderApp();
 }
 

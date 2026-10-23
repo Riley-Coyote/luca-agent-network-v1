@@ -2,11 +2,16 @@ import AppKit
 import WebKit
 
 // The glass lab: Polyphonic's own page, from the dev server, in front of Apple's glass. It checks and films the native
-// rail glass without the app, a profile or anyone's keyboard: a borderless window one level below normal windows, on
-// the screen without the menu bar when there is one, never key and never clickable (the Liquid Glass Workbench's film
-// window). Its glass has the relaxed look of a window not in use, so judge the look in the app, in front.
+// rail glass without the app, a profile or anyone's keyboard.
 //
-//   glass-lab [url]   default http://localhost:1488/scripts/shell-lab.template.html?scene=ad
+//   glass-lab [url]            the film window: borderless, one level below normal windows, on the screen without the
+//                              menu bar when there is one, never key and never clickable (the Liquid Glass
+//                              Workbench's film window). Its glass has the relaxed look of a window not in use.
+//   glass-lab --window [url]   a real window to use: a title bar with working traffic lights over the page (as the
+//                              app's Overlay title bar), resizable. It opens behind every other window and stays
+//                              there until it is brought forward (its Dock icon, or `open -a` on its bundle): it never
+//                              takes the keyboard by itself.
+//   default url: http://localhost:1488/scripts/shell-lab.template.html?scene=ad
 //
 // Commands, as JSON through DistributedNotificationCenter `chat.polyphonic.glass-lab.command`
 // (scripts/native-glass-lab.sh post '<json>'):
@@ -14,59 +19,135 @@ import WebKit
 //   {"page": "hide" | "show"}   the glass alone, or with the page over it
 //   {"size": [w, h]}            resizes the lab, keeping its top edge
 //   {"quit": true}
+// The page can move the window by its own title bar: window.webkit.messageHandlers.glassLab.postMessage("drag") from a
+// mousedown there.
 
 @main
 enum GlassLab {
     @MainActor static func main() {
         setvbuf(stdout, nil, _IOLBF, 0)
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        let address = CommandLine.arguments.dropFirst().first ?? "http://localhost:1488/scripts/shell-lab.template.html?scene=ad"
+        let arguments = CommandLine.arguments.dropFirst()
+        let titled = arguments.contains("--window")
+        app.setActivationPolicy(titled ? .regular : .accessory)
+        let address = arguments.first { !$0.hasPrefix("--") }
+            ?? "http://localhost:1488/scripts/shell-lab.template.html?scene=ad"
         guard let url = URL(string: address) else { fatalError("glass-lab: not a URL: \(address)") }
-        let lab = Lab(url: url)
+        let lab = Lab(url: url, titled: titled)
+        app.delegate = lab
         withExtendedLifetime(lab) { app.run() }
     }
 }
 
 @MainActor
-final class Lab: NSObject, WKNavigationDelegate {
-    private let window: LabWindow
+final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScriptMessageHandler {
+    private let window: NSWindow
     private let webView: WKWebView
+    private let titled: Bool
     private var attached = false
+    /// Where the traffic lights sit in a titled lab: the centre of the page's top lip, and the first light's left edge.
+    private let lightsCentre: CGFloat = 24
+    private let lightsLeft: CGFloat = 20
 
-    init(url: URL) {
-        let size = CGSize(width: 1440, height: 900)
-        window = LabWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
-                           backing: .buffered, defer: false)
-        webView = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: WKWebViewConfiguration())
+    init(url: URL, titled: Bool) {
+        self.titled = titled
+        let screen = NSScreen.screens.dropFirst().first ?? NSScreen.screens.first
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1512, height: 944)
+        let size = CGSize(width: min(1440, visible.width - 48), height: min(900, visible.height - 48))
+        let rect = NSRect(origin: .zero, size: size)
+        if titled {
+            window = NSWindow(contentRect: rect, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        } else {
+            window = LabWindow(contentRect: rect, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        }
+        let configuration = WKWebViewConfiguration()
+        if titled {
+            // Tells the page the window draws real traffic lights, so it draws none of its own.
+            configuration.userContentController.addUserScript(WKUserScript(
+                source: "window.__POLYPHONIC_GLASS_LAB__ = 'window';", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        webView = WKWebView(frame: rect, configuration: configuration)
         super.init()
+        webView.configuration.userContentController.add(self, name: "glassLab")
         window.title = "Polyphonic Glass Lab"
         window.isOpaque = false
         window.backgroundColor = .clear
-        window.hasShadow = false
-        window.ignoresMouseEvents = true
         window.isReleasedWhenClosed = false
-        window.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
-        window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         window.appearance = NSAppearance(named: .darkAqua)
-        let content = NSView(frame: NSRect(origin: .zero, size: size))
+        if titled {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            window.minSize = NSSize(width: 800, height: 500)
+        } else {
+            window.hasShadow = false
+            window.ignoresMouseEvents = true
+            window.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
+            window.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        }
+        let content = NSView(frame: rect)
         webView.autoresizingMask = [.width, .height]
         // The page draws nothing where the glass shows; the glass and its floor sit beneath it, as in the app.
         webView.setValue(false, forKey: "drawsBackground")
         webView.navigationDelegate = self
         content.addSubview(webView)
         window.contentView = content
-        let screen = NSScreen.screens.dropFirst().first ?? NSScreen.screens.first
-        if let visible = screen?.visibleFrame {
-            window.setFrameOrigin(NSPoint(x: visible.minX + 24, y: visible.maxY - size.height - 24))
+        window.setFrameOrigin(NSPoint(x: visible.minX + 24, y: visible.maxY - size.height - 24))
+        if titled {
+            placeLights()
+            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged), name: NSWindow.didResizeNotification,
+                                                   object: window)
+            NotificationCenter.default.addObserver(self, selector: #selector(windowChanged),
+                                                   name: NSWindow.didExitFullScreenNotification, object: window)
+            // Behind everything, not key: it waits to be brought forward.
+            window.orderBack(nil)
+        } else {
+            window.orderFrontRegardless()
         }
-        window.orderFrontRegardless()
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(command(_:)),
                                                             name: Notification.Name("chat.polyphonic.glass-lab.command"),
                                                             object: nil, suspensionBehavior: .deliverImmediately)
         webView.load(URLRequest(url: url))
-        print("glass-lab: window \(window.windowNumber), loading \(url.absoluteString)")
+        print("glass-lab: window \(window.windowNumber), \(titled ? "titled, behind" : "film"), loading \(url.absoluteString)")
     }
+
+    // MARK: the app
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // Brought forward on purpose (its Dock icon, `open -a`): now it may have the keyboard.
+        guard titled else { return }
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { titled }
+
+    // MARK: the title bar
+
+    /// The traffic lights centred in the page's top lip, as the app's `trafficLightPosition` places them: the title bar
+    /// grows to hold them, and each light keeps its spacing.
+    private func placeLights() {
+        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap(window.standardWindowButton)
+        guard let close = buttons.first, let bar = close.superview?.superview else { return }
+        let top = lightsCentre - close.frame.height / 2
+        var frame = bar.frame
+        frame.size.height = close.frame.height + top
+        frame.origin.y = window.frame.height - frame.height
+        bar.frame = frame
+        let spacing = buttons.count > 1 ? buttons[1].frame.minX - close.frame.minX : 20
+        for (index, button) in buttons.enumerated() {
+            button.setFrameOrigin(NSPoint(x: lightsLeft + CGFloat(index) * spacing, y: 0))
+        }
+    }
+
+    @objc private func windowChanged() { placeLights() }
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // The page's own title bar was pressed: the window moves with the pointer, as a title bar does.
+        guard message.body as? String == "drag", let event = NSApp.currentEvent, event.type == .leftMouseDown else { return }
+        window.performDrag(with: event)
+    }
+
+    // MARK: the page
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !attached else { return }
@@ -74,6 +155,18 @@ final class Lab: NSObject, WKNavigationDelegate {
             attached = PolyphonicGlass.attach(to: webView)
         }
         print("glass-lab: page loaded, glass \(attached ? "attached" : "unavailable")")
+        if titled { probe() }
+    }
+
+    /// Which view a click in the page's top lip reaches: the page must get it, not the title bar.
+    private func probe() {
+        guard let frameView = window.contentView?.superview else { return }
+        for x in [98.0, 300.0, window.frame.width / 2] {
+            let point = NSPoint(x: x, y: window.frame.height - lightsCentre)
+            // The window's root view sits at the window's origin, so window points are its superview's points.
+            let hit = frameView.hitTest(point)
+            print("glass-lab: a click at (\(Int(x)), \(Int(lightsCentre))) from the top reaches \(hit.map { String(describing: type(of: $0)) } ?? "nothing")")
+        }
     }
 
     @objc private func command(_ note: Notification) {
