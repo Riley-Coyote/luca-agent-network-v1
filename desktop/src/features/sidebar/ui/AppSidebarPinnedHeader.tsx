@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import { RailGlass } from "@/features/sidebar/ui/RailGlass";
 import {
   preloadActivitySurface,
   preloadAgentsSurface,
@@ -119,9 +120,11 @@ export function AppSidebarPrimaryMenu({
   return (
     <SidebarHeader
       className="cursor-default select-none px-2 pb-0 pt-0"
+      data-rail-glass=""
       data-tauri-drag-region
       data-testid="sidebar-primary-menu"
     >
+      <RailGlass />
       <SidebarMenu className="pb-2">
         <SidebarMenuItem>
           <SidebarMenuButton

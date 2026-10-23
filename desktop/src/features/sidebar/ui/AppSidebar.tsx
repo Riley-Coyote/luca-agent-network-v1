@@ -38,6 +38,7 @@ import {
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
+import { RailGlass } from "@/features/sidebar/ui/RailGlass";
 import {
   assignRoomProject,
   createEmptyRoomProject,
@@ -773,8 +774,10 @@ export function AppSidebar({
           >
             <div
               className="flex w-full flex-col gap-1 px-[3px]"
+              data-rail-glass=""
               data-testid="sidebar-scroll-content"
             >
+              <RailGlass />
               {isLoading ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}

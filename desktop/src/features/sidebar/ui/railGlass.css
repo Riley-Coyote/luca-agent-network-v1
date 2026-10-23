@@ -1,0 +1,161 @@
+/* ------------------------------------------------------------------
+ * THE RAIL'S GLASS SELECTION — the material. Its states and motion are in
+ * RailGlass.tsx.
+ *
+ * Our clear glass, in the page: Apple's real glass cannot be drawn by a
+ * browser. Its numbers are the ones our web glass was matched to Apple's by
+ * (the liquid-glass skill): over a backdrop, clear glass is that backdrop
+ * plus 8% white, held by a hairline rim that is brightest on top, because the
+ * light comes from above. No frost, no bevel, no glow, no border: on the
+ * rail's black the glass is told by its rim and its motion, and on paper by
+ * the rim and the soft shadow the light leaves under it.
+ * ------------------------------------------------------------------ */
+
+/* A part of the rail that carries the glass. The glass sits inside it,
+ * behind its rows, so the rows' words always paint above it. */
+:root[data-luca-shell] [data-rail-glass] {
+  isolation: isolate;
+  position: relative;
+}
+
+:root[data-luca-shell] .luca-rail-glass {
+  border-radius: 999px;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  visibility: hidden;
+  will-change: transform;
+  z-index: -1;
+}
+
+/* The rim: a hairline (one device pixel on a Retina screen), cut out of a
+ * gradient that is bright where the light lands on the top edge and faint
+ * down the sides. While the glass moves it catches more of the light: the
+ * same hairline, brighter, as `--rail-glass-wet` rises (::after). */
+:root[data-luca-shell] .luca-rail-glass::before,
+:root[data-luca-shell] .luca-rail-glass::after {
+  border-radius: inherit;
+  content: "";
+  inset: 0;
+  padding: 0.5px;
+  pointer-events: none;
+  position: absolute;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+:root[data-luca-shell] .luca-rail-glass::after {
+  opacity: var(--rail-glass-wet, 0);
+}
+
+/* On the black floor: the 8% lift, a breath more where the light enters at
+ * the top than where it leaves at the bottom, and a rim that is the light
+ * itself, bright along the top and gone by the bottom. An even ring would be
+ * a border. */
+:root[data-luca-shell].dark .luca-rail-glass {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.1),
+    rgb(255 255 255 / 0.06)
+  );
+}
+
+:root[data-luca-shell].dark .luca-rail-glass::before {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.42),
+    rgb(255 255 255 / 0.1) 30%,
+    rgb(255 255 255 / 0.02) 55%,
+    rgb(255 255 255 / 0)
+  );
+}
+
+:root[data-luca-shell].dark .luca-rail-glass::after {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 0.32),
+    rgb(255 255 255 / 0) 60%
+  );
+}
+
+/* On paper: the glass lifts the floor to white, its top edge is lost in the
+ * light, so the rim is the shade along its sides and underneath, and the
+ * light from above leaves a soft shadow below it. */
+:root[data-luca-shell]:not(.dark) .luca-rail-glass {
+  background: rgb(255 255 255 / 0.92);
+  box-shadow:
+    0 1px 1.5px hsl(var(--mn-ink) / 0.07),
+    0 3px 8px -3px hsl(var(--mn-ink) / 0.14);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-rail-glass::before {
+  background: linear-gradient(
+    to bottom,
+    hsl(var(--mn-ink) / 0.03),
+    hsl(var(--mn-ink) / 0.09) 60%,
+    hsl(var(--mn-ink) / 0.13)
+  );
+}
+
+:root[data-luca-shell]:not(.dark) .luca-rail-glass::after {
+  background: linear-gradient(
+    to bottom,
+    rgb(255 255 255 / 1),
+    rgb(255 255 255 / 0) 60%
+  );
+}
+
+/* Every shape in a glass part of the rail is the glass's own: a press and
+ * an open row are capsules too, so nothing there has two kinds of corner. */
+:root[data-luca-shell]
+  [data-rail-glass]
+  :is([data-sidebar="menu-button"], [data-sidebar="menu-sub-button"]) {
+  border-radius: 999px;
+}
+
+/* The selected row shows the glass, not a fill of its own; keyboard focus on
+ * it is a ring at the capsule's edge rather than a second fill. */
+:root[data-luca-shell]
+  [data-rail-glass]
+  :is(
+    [data-sidebar="menu-button"],
+    [data-sidebar="menu-sub-button"]
+  )[data-active="true"] {
+  background: transparent;
+}
+
+:root[data-luca-shell]
+  [data-rail-glass]
+  :is(
+    [data-sidebar="menu-button"],
+    [data-sidebar="menu-sub-button"]
+  )[data-active="true"]:focus-visible {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-focus));
+}
+
+/* Reduce Transparency: no glass, the quiet fill the rail had before. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-luca-shell] .luca-rail-glass {
+    background: hsl(var(--mn-ink) / 0.08);
+    box-shadow: none;
+  }
+
+  :root[data-luca-shell] .luca-rail-glass::before,
+  :root[data-luca-shell] .luca-rail-glass::after {
+    display: none;
+  }
+}
+
+/* Increase Contrast: the rim is drawn whole. */
+@media (prefers-contrast: more) {
+  :root[data-luca-shell] .luca-rail-glass::before {
+    background: hsl(var(--mn-ink) / 0.5);
+  }
+}
