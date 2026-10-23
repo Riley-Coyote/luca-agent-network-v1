@@ -747,6 +747,38 @@ impl AppState {
         )
     }
 
+    /// Read the source-scoped authority generation used to guard a background
+    /// refresh outcome against newer owner lifecycle actions.
+    pub(crate) fn connected_brain_source_generation(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+    ) -> Result<luca_protocol::Sha256Ref, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::read_connected_source_generation(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+        )
+    }
+
+    /// Fail closed only when the source generation that failed is still the
+    /// active owner authority. Newer refreshes and disconnects always win.
+    pub(crate) fn mark_connected_brain_needs_attention_if_generation(
+        &self,
+        owner_pubkey: &luca_protocol::Hex64,
+        source_id: &luca_protocol::OpaqueId,
+        expected_generation: &luca_protocol::Sha256Ref,
+    ) -> Result<bool, OwnerBrainStoreError> {
+        crate::luca::owner_brain_store::mark_connected_source_needs_attention_if_generation(
+            &self.continuity_lifecycle,
+            &self.continuity_runtime,
+            owner_pubkey,
+            source_id,
+            expected_generation,
+        )
+    }
+
     /// Disconnect immediately and physically forget current encrypted postings.
     pub(crate) fn disconnect_connected_brain_source(
         &self,

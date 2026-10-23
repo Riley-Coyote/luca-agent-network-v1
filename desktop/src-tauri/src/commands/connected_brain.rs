@@ -258,11 +258,32 @@ fn receipt_status_value(status: RepositoryToolReceiptStatusV1) -> &'static str {
 fn source_view(
     summary: owner_brain_store::ConnectedBrainSourceSummaryV1,
 ) -> ConnectedBrainSourceViewV1 {
+    source_view_with_capacity(summary, false)
+}
+
+fn projected_source_status(
+    persisted: ConnectedBrainSourceStatusV1,
+    capacity_blocked: bool,
+) -> ConnectedBrainSourceStatusV1 {
+    if capacity_blocked && persisted != ConnectedBrainSourceStatusV1::Disconnected {
+        ConnectedBrainSourceStatusV1::NeedsAttention
+    } else {
+        persisted
+    }
+}
+
+fn source_view_with_capacity(
+    summary: owner_brain_store::ConnectedBrainSourceSummaryV1,
+    capacity_blocked: bool,
+) -> ConnectedBrainSourceViewV1 {
     ConnectedBrainSourceViewV1 {
         source_id: summary.source.source_id.as_str().to_owned(),
         source_kind: kind_value(summary.source.source_kind),
         display_name: summary.source.display_name,
-        status: status_value(summary.source.status),
+        status: status_value(projected_source_status(
+            summary.source.status,
+            capacity_blocked,
+        )),
         item_count: summary.item_count.get(),
         entry_count: summary.entry_count.get(),
         last_refreshed_at: summary
@@ -278,6 +299,7 @@ fn inventory(
     discoveries: Vec<connected_brain::ConnectedBrainDiscoveryViewV1>,
     catalog: owner_brain_store::ConnectedBrainCatalogV1,
 ) -> ConnectedBrainInventoryV1 {
+    let capacity_blocked = connected_brain::capacity_blocked_source_ids(state);
     let source_ids = catalog
         .sources
         .iter()
@@ -286,7 +308,14 @@ fn inventory(
     ConnectedBrainInventoryV1 {
         consent_copy: CONNECTION_CONSENT,
         discoveries,
-        sources: catalog.sources.into_iter().map(source_view).collect(),
+        sources: catalog
+            .sources
+            .into_iter()
+            .map(|summary| {
+                let blocked = capacity_blocked.contains(&summary.source.source_id);
+                source_view_with_capacity(summary, blocked)
+            })
+            .collect(),
         recall_grants: catalog
             .recall_grants
             .into_iter()
@@ -658,6 +687,7 @@ pub async fn connect_connected_brain_source(
             let candidate =
                 connected_brain::take_candidate(&state.connected_brain_discovery, &discovery_id)?;
             let source_id = connected_brain::source_id_for_candidate(&candidate)?;
+            let _ = connected_brain::begin_connected_source_owner_refresh(&state, &source_id);
             if let Some(proposal) = &proposal {
                 proposal.bind_candidate(&source_id, candidate.source_kind)?;
             }
@@ -703,6 +733,7 @@ pub async fn refresh_connected_brain_source(
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let owner = owner_pubkey(&state)?;
+        let _ = connected_brain::begin_connected_source_owner_refresh(&state, &source_id);
         let authorities = resident_authorities(&app, &state)?;
         let candidate = state
             .read_connected_brain_candidate(&owner, &source_id)
@@ -833,6 +864,26 @@ mod tests {
                 Ok(false)
             );
         }
+    }
+
+    #[test]
+    fn capacity_projection_is_attention_only_and_never_revives_disconnects() {
+        assert_eq!(
+            projected_source_status(ConnectedBrainSourceStatusV1::Current, true),
+            ConnectedBrainSourceStatusV1::NeedsAttention
+        );
+        assert_eq!(
+            projected_source_status(ConnectedBrainSourceStatusV1::Unavailable, true),
+            ConnectedBrainSourceStatusV1::NeedsAttention
+        );
+        assert_eq!(
+            projected_source_status(ConnectedBrainSourceStatusV1::Disconnected, true),
+            ConnectedBrainSourceStatusV1::Disconnected
+        );
+        assert_eq!(
+            projected_source_status(ConnectedBrainSourceStatusV1::Current, false),
+            ConnectedBrainSourceStatusV1::Current
+        );
     }
 }
 

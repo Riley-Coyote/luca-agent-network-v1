@@ -9,11 +9,111 @@ use luca_protocol::{
 };
 
 use super::connected::{
-    catalog_from_generation, connected_generation, connected_source_by_id, ensure_connected_grants,
-    find_connected_manifest, find_repository_grant, repository_grant_lineage_id,
-    restore_connected_grants, ConnectedBrainResidentAuthorityV1, CONNECTED_INDEX_PAGE_RECORD,
-    CONNECTED_SOURCE_RECORD, REPOSITORY_WORK_GRANT_RECORD,
+    catalog_from_generation, connected_generation, connected_source_by_id,
+    connected_source_generation, ensure_connected_grants, find_connected_manifest,
+    find_repository_grant, repository_grant_lineage_id, restore_connected_grants,
+    ConnectedBrainResidentAuthorityV1, CONNECTED_INDEX_PAGE_RECORD, CONNECTED_SOURCE_RECORD,
+    REPOSITORY_WORK_GRANT_RECORD,
 };
+
+pub(crate) fn read_connected_source_generation(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+) -> Result<Sha256Ref, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let mut state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime_mut(&mut state, owner_pubkey)?;
+    connected_source_generation_with_runtime(runtime, source_id)
+}
+
+pub(crate) fn mark_connected_source_needs_attention_if_generation(
+    lifecycle: &ContinuityLifecycleLock,
+    runtime_state: &Mutex<ContinuityRuntimeState>,
+    owner_pubkey: &Hex64,
+    source_id: &OpaqueId,
+    expected_generation: &Sha256Ref,
+) -> Result<bool, OwnerBrainStoreError> {
+    let _guard = lifecycle
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let root = load_root_key()?;
+    let mut state = runtime_state
+        .lock()
+        .map_err(|_| OwnerBrainStoreError::Unavailable)?;
+    let runtime = ready_runtime_mut(&mut state, owner_pubkey)?;
+    mark_connected_source_needs_attention_if_generation_with_runtime(
+        &root,
+        runtime,
+        source_id,
+        expected_generation,
+    )
+}
+
+fn connected_source_generation_with_runtime(
+    runtime: &ContinuityRuntime,
+    source_id: &OpaqueId,
+) -> Result<Sha256Ref, OwnerBrainStoreError> {
+    let owner = runtime.owner_pubkey.clone();
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&owner)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&owner, key_version)?;
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner)
+        .map_err(map_store_read_error)?
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    connected_source_generation(&generation, &namespace, source_id)
+}
+
+pub(super) fn mark_connected_source_needs_attention_if_generation_with_runtime(
+    root: &ContinuityMasterKey,
+    runtime: &mut ContinuityRuntime,
+    source_id: &OpaqueId,
+    expected_generation: &Sha256Ref,
+) -> Result<bool, OwnerBrainStoreError> {
+    let owner = runtime.owner_pubkey.clone();
+    let key_version = runtime
+        .store
+        .active_owner_key_version(&owner)
+        .map_err(map_store_read_error)?;
+    let namespace = owner_brain_namespace(&owner, key_version)?;
+    let namespace_key =
+        derive_namespace_key(root, &namespace).map_err(|_| OwnerBrainStoreError::Invalid)?;
+    let generation = runtime
+        .store
+        .load_revision_generation(&owner)
+        .map_err(map_store_read_error)?
+        .ok_or(OwnerBrainStoreError::Invalid)?;
+    if connected_source_generation(&generation, &namespace, source_id)? != *expected_generation {
+        return Ok(false);
+    }
+    let manifest =
+        find_connected_manifest(&generation, &namespace, namespace_key.as_bytes(), source_id)?
+            .ok_or(OwnerBrainStoreError::Invalid)?;
+    match manifest.source.status {
+        ConnectedBrainSourceStatusV1::Current => {
+            set_connected_status_with_runtime(
+                root,
+                runtime,
+                source_id,
+                ConnectedBrainSourceStatusV1::NeedsAttention,
+            )?;
+            Ok(true)
+        }
+        ConnectedBrainSourceStatusV1::NeedsAttention => Ok(true),
+        ConnectedBrainSourceStatusV1::Connecting
+        | ConnectedBrainSourceStatusV1::Unavailable
+        | ConnectedBrainSourceStatusV1::Disconnected => Ok(false),
+    }
+}
 
 pub(crate) fn set_connected_source_status(
     lifecycle: &ContinuityLifecycleLock,
@@ -242,7 +342,7 @@ pub(super) fn purge_orphaned_index_pages(
     Ok(())
 }
 
-fn set_connected_status_with_runtime(
+pub(super) fn set_connected_status_with_runtime(
     root: &ContinuityMasterKey,
     runtime: &mut ContinuityRuntime,
     source_id: &OpaqueId,

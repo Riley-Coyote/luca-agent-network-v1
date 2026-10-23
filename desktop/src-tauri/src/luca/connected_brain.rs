@@ -32,8 +32,8 @@ pub(crate) use session_context::{
 pub(crate) use sessions::redact_reference_local_paths;
 pub(crate) use sessions::SessionReadBudget;
 pub(crate) use watcher::{
-    register_connected_source, start_connected_source_watcher, unregister_connected_source,
-    ConnectedBrainWatcherState,
+    begin_connected_source_owner_refresh, capacity_blocked_source_ids, register_connected_source,
+    start_connected_source_watcher, unregister_connected_source, ConnectedBrainWatcherState,
 };
 
 const DISCOVERY_TTL: Duration = Duration::from_secs(15 * 60);

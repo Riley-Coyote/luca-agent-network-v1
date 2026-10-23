@@ -143,6 +143,157 @@ fn bounded_sticky_metadata_never_evicts_prior_contexts_or_accepts_duplicate_refs
     assert!(fixture.store.dispatches.values().all(|row| row.awareness_context_binding.is_none()));
 }
 
+fn lease_for(
+    fixture: &Fixture,
+) -> (
+    crate::luca::companion_awareness::turn_context::AwarenessTurnReceiptV1,
+    NativeReplyLeaseV1,
+) {
+    use crate::luca::companion_awareness::{
+        source_runtime::{synthetic_reply_lease, SourceMaterialBindingV1, SourceMaterialScopeV1},
+        turn_context::{AwarenessTurnReceiptV1, AwarenessTurnScopeV1},
+    };
+    let observation = fixture.observation(1);
+    let receipt = AwarenessTurnReceiptV1 {
+        scope: AwarenessTurnScopeV1 {
+            request_id: id("synthetic-frame"),
+            authority: fixture.authority.clone(),
+            binding_ref: hash('a'),
+            session_epoch: number(7),
+            deadline_unix_ms: 110_000,
+        },
+        context_node: id("leased-context"),
+        observations: vec![observation.clone()],
+    };
+    let lease = synthetic_reply_lease(
+        &receipt,
+        &[SourceMaterialBindingV1 {
+            reference: observation.clone(),
+            scope: SourceMaterialScopeV1::ProfileChild(id("native-child")),
+        }],
+        1900,
+        &observation.captured_at,
+    );
+    (receipt, lease)
+}
+
+#[test]
+fn admitted_reply_lease_is_dispatch_scoped_finite_and_not_restored() {
+    let mut fixture = Fixture::new();
+    let (turn, lease) = lease_for(&fixture);
+    fixture
+        .store
+        .bind_leased_awareness_turn(&turn, &lease, 100)
+        .unwrap();
+    let key = (
+        fixture.trigger.id.to_hex(),
+        fixture.resident.public_key().to_hex(),
+    );
+    let receipt = fixture.store.dispatches[&key]
+        .awareness_context_binding
+        .clone()
+        .unwrap();
+    assert!(fixture.store.awareness_reply_lease(&receipt, 500).is_ok()); // original capture expired at400
+    assert!(fixture.store.awareness_reply_lease(&receipt, 1900).is_err());
+    for field in 0..7 {
+        let mut wrong = receipt.clone();
+        match field {
+            0 => wrong.binding_ref = Some(hash('b')),
+            1 => wrong.session_epoch = Some(number(8)),
+            2 => wrong.owner_pubkey = Hex64::parse("dd".repeat(32)).unwrap(),
+            3 => wrong.conversation_id = id("other-chat"),
+            4 => wrong.canonical_dispatch_ref = Some(hash('d')),
+            5 => wrong.observations[0].evidence_ref = hash('e'),
+            _ => wrong.context_nodes.push(id("other-context")),
+        }
+        assert!(
+            fixture.store.awareness_reply_lease(&wrong, 500).is_err(),
+            "field {field}"
+        );
+    }
+    fixture.store.persist().unwrap();
+    assert!(!fs::read_to_string(&fixture.path)
+        .unwrap()
+        .contains("awareness_reply_lease"));
+    let mut restored = ManagedDispatchStore::load(fixture.path.clone()).unwrap();
+    restored
+        .activate_session(&fixture.resident.public_key().to_hex(), 7)
+        .unwrap();
+    assert!(restored.awareness_reply_lease(&receipt, 500).is_err());
+    let mut wrong_turn = turn.clone();
+    wrong_turn.scope.session_epoch = number(8);
+    assert!(fixture
+        .store
+        .bind_leased_awareness_turn(&wrong_turn, &lease, 100)
+        .is_err());
+}
+
+#[test]
+fn failed_reservations_and_terminal_dispatches_release_reply_authority_only() {
+    let mut fixture = Fixture::new();
+    let (turn, lease) = lease_for(&fixture);
+    fixture
+        .store
+        .bind_leased_awareness_turn(&turn, &lease, 100)
+        .unwrap();
+    fixture
+        .store
+        .discard_awareness_reply_lease(&fixture.authority);
+    assert!(!lease.current_unix_secs(101));
+    let key = (
+        fixture.trigger.id.to_hex(),
+        fixture.resident.public_key().to_hex(),
+    );
+    assert!(fixture.store.dispatches[&key]
+        .awareness_context_binding
+        .is_some());
+    // A committed receipt without a live reservation cannot gain one on restart.
+    assert!(fixture.store.dispatches[&key]
+        .awareness_reply_lease
+        .is_none());
+    let mut fixture = Fixture::new();
+    let (turn, lease) = lease_for(&fixture);
+    fixture
+        .store
+        .bind_leased_awareness_turn(&turn, &lease, 100)
+        .unwrap();
+    fixture
+        .store
+        .bind_communication_turn_start(
+            &fixture.trigger.id.to_hex(),
+            &fixture.resident.public_key().to_hex(),
+            CHANNEL,
+            7,
+            100,
+        )
+        .unwrap();
+    let final_id = "ee".repeat(32);
+    fixture
+        .store
+        .begin_submission(
+            &fixture.trigger.id.to_hex(),
+            &fixture.resident.public_key().to_hex(),
+            7,
+            &final_id,
+        )
+        .unwrap();
+    fixture
+        .store
+        .mark_published(
+            &fixture.trigger.id.to_hex(),
+            &fixture.resident.public_key().to_hex(),
+            &final_id,
+        )
+        .unwrap();
+    assert!(!lease.current_unix_secs(101));
+    let row = &fixture.store.dispatches[&(
+        fixture.trigger.id.to_hex(),
+        fixture.resident.public_key().to_hex(),
+    )];
+    assert_eq!(row.published_event_id.as_deref(), Some(final_id.as_str()));
+    assert_eq!(row.submitted_event_id, row.published_event_id);
+}
+
 #[test]
 fn isolated_turns_keep_only_current_dependencies_and_clean_chat_survives_withdrawal() {
     let mut fixture = Fixture::new();

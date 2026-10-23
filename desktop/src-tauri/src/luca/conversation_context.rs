@@ -1221,6 +1221,8 @@ pub(crate) fn pick_conversation_context_folder(
             })?;
         let parsed_source_id = OpaqueId::parse(existing_source_id.clone())
             .map_err(|_| "working folder source is invalid".to_owned())?;
+        let _ =
+            super::connected_brain::begin_connected_source_owner_refresh(&state, &parsed_source_id);
         let candidate = super::connected_brain::discover_in_added_root(&selected)?
             .into_iter()
             .find(|candidate| same_directory(&candidate.canonical_root, &selected))

@@ -2,11 +2,11 @@
 //!
 //! Exact signed owner events authorize turns; relay chronology does not.
 mod awareness;
+use crate::data_dir::BuzzPathExt;
 pub(crate) use awareness::{
     ordinary_turn_awareness_consumers_ready, ManagedAwarenessTaintedScopeV1,
     ManagedTurnAwarenessBindingV1, ManagedTurnAwarenessLookupV1,
 };
-use crate::data_dir::BuzzPathExt;
 use std::{
     collections::{HashMap, HashSet},
     io::Write,
@@ -133,6 +133,10 @@ pub(crate) struct ActiveDispatch {
     /// Unknown, not an assertion that this native scope never received sources.
     #[serde(default)]
     pub(crate) awareness_context_binding: Option<ManagedTurnAwarenessBindingV1>,
+    /// Live-process reply proof only. Restart never reconstructs this lease.
+    #[serde(skip)]
+    pub(crate) awareness_reply_lease:
+        Option<super::companion_awareness::source_runtime::NativeReplyLeaseV1>,
 }
 
 /// Body-free receipt for the exact context packet delivered to local managed
@@ -366,8 +370,12 @@ impl ManagedDispatchStore {
                 return Err("managed dispatch store schema or row count is invalid".into());
             }
             let legacy = persisted.schema != STORE_SCHEMA;
-            if legacy && (!persisted.awareness_tainted_scopes.is_empty()
-                || persisted.dispatches.iter().any(|row| row.awareness_context_binding.is_some()))
+            if legacy
+                && (!persisted.awareness_tainted_scopes.is_empty()
+                    || persisted
+                        .dispatches
+                        .iter()
+                        .any(|row| row.awareness_context_binding.is_some()))
             {
                 return Err("legacy dispatch schema cannot claim awareness metadata".into());
             }
@@ -384,7 +392,8 @@ impl ManagedDispatchStore {
                     dispatch.causal_root_event_id = Some(dispatch.trigger_event_id.clone());
                 }
                 if legacy {
-                    dispatch.awareness_context_binding = Some(ManagedTurnAwarenessBindingV1::legacy_clean(&dispatch)?);
+                    dispatch.awareness_context_binding =
+                        Some(ManagedTurnAwarenessBindingV1::legacy_clean(&dispatch)?);
                 }
                 validate_dispatch(&dispatch)?;
                 let key = (
@@ -1289,6 +1298,7 @@ impl ManagedDispatchStore {
                 context_binding: context_binding.clone(),
                 turn_context_receipt: None,
                 awareness_context_binding: None,
+                awareness_reply_lease: None,
             };
             if let Some(existing) = self.dispatches.get(&key) {
                 if existing.trigger_event_id != candidate.trigger_event_id
@@ -1408,6 +1418,7 @@ impl ManagedDispatchStore {
             context_binding: None,
             turn_context_receipt: None,
             awareness_context_binding: None,
+            awareness_reply_lease: None,
         };
         let previous = self.dispatches.clone();
         self.dispatches.insert(key.clone(), candidate);
@@ -2415,6 +2426,13 @@ impl ManagedDispatchStore {
     }
 
     fn prune(&mut self, now_unix_secs: u64) {
+        for row in self.dispatches.values_mut() {
+            if now_unix_secs >= row.expires_at {
+                if let Some(lease) = row.awareness_reply_lease.take() {
+                    lease.cancel();
+                }
+            }
+        }
         if self.dispatches.len() <= MAX_DISPATCHES {
             return;
         }
@@ -2447,6 +2465,18 @@ impl ManagedDispatchStore {
     }
 
     fn persist(&self) -> Result<(), String> {
+        // A terminal row cannot authorize a new final. Accepted encrypted
+        // outbox delivery does not consult this transient reply lease again.
+        for row in self.dispatches.values() {
+            if !matches!(
+                row.state,
+                ManagedDispatchState::Pending | ManagedDispatchState::Active
+            ) {
+                if let Some(lease) = &row.awareness_reply_lease {
+                    lease.cancel();
+                }
+            }
+        }
         if self.dispatches.len() > MAX_DISPATCHES {
             return Err("managed dispatch store exceeds row limit".into());
         }

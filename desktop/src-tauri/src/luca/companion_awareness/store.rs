@@ -10,6 +10,7 @@
 
 use std::path::Path;
 
+use super::source_runtime::NativeReplyLeaseV1;
 use luca_protocol::{
     canonical_sha256, recheck_awareness_eligibility, AwarenessAuthoritySnapshotV1,
     AwarenessChoicesV1, AwarenessError, AwarenessGrantStateV1, AwarenessGrantV1,
@@ -24,10 +25,10 @@ const MAX_NODES: i64 = 16_384;
 const MAX_PARENTS: usize = 32;
 const MAX_RECORD_BYTES: usize = 4096;
 pub(crate) use super::types::*;
-#[path="profile_children.rs"]
-mod profile_children;
 #[path = "native_history.rs"]
 mod native_history;
+#[path = "profile_children.rs"]
+mod profile_children;
 pub(crate) use native_history::{NativeHistoryChoiceV1, NATIVE_HISTORY_DISCLOSURE_REVISION};
 /// Narrow SQLite authority. It stores metadata/deny edges, never semantic memory.
 pub(crate) struct AwarenessStore {
@@ -395,7 +396,14 @@ impl AwarenessStore {
             facts.resident_pubkey,
             &observation.observation_id,
         )?;
-        check_current(&self.connection, observation, facts, intended_use, true)
+        check_current(
+            &self.connection,
+            observation,
+            facts,
+            intended_use,
+            true,
+            None,
+        )
     }
 
     /// Register only dependency IDs of existing host objects. This is not a
@@ -433,6 +441,7 @@ impl AwarenessStore {
                     promote: kind == AwarenessDependentKindV1::Promoted,
                     ..Default::default()
                 },
+                None,
                 &mut resolve,
             )?;
         }
@@ -482,7 +491,37 @@ impl AwarenessStore {
         intended_use: AwarenessUseV1<'_>,
         mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
     ) -> Result<(), AwarenessStoreError> {
-        check_dependency(&self.connection, node, facts, intended_use, &mut resolve)
+        check_dependency(
+            &self.connection,
+            node,
+            facts,
+            intended_use,
+            None,
+            &mut resolve,
+        )
+    }
+
+    /// Reply-only dependency check for an exact live dispatch lease. This is
+    /// neither raw re-admission nor a retained/promoted derivative path.
+    pub(crate) fn recheck_leased_reply_dependency(
+        &self,
+        node: &OpaqueId,
+        facts: &AwarenessHostFactsV1<'_>,
+        binding: &luca_protocol::Sha256Ref,
+        lease: &NativeReplyLeaseV1,
+        mut resolve: impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
+    ) -> Result<(), AwarenessStoreError> {
+        check_dependency(
+            &self.connection,
+            node,
+            facts,
+            AwarenessUseV1 {
+                provider_egress_binding: Some(binding),
+                ..Default::default()
+            },
+            Some(lease),
+            &mut resolve,
+        )
     }
 
     /// Saved creations must bind a genuine promoted node, never an ephemeral
@@ -666,6 +705,7 @@ fn check_current(
     facts: &AwarenessHostFactsV1<'_>,
     intended_use: AwarenessUseV1<'_>,
     raw: bool,
+    reply_lease: Option<&NativeReplyLeaseV1>,
 ) -> Result<(), AwarenessStoreError> {
     observation.validate()?;
     let control = load_resident(connection, facts.owner_pubkey, facts.resident_pubkey)?;
@@ -701,13 +741,33 @@ fn check_current(
         material_state: facts.material_state,
         now: facts.now,
     };
-    if raw {
+    if raw && reply_lease.is_none() {
         return recheck_awareness_eligibility(&authority, observation, intended_use)
             .map_err(Into::into);
     }
-    // Retained dependency checks deliberately do not re-admit expired raw bytes.
+    // Only the opaque exact native turn lease substitutes its dispatch deadline
+    // for capture TTL. Keep the actual clock, raw Pause/Resume floors above and
+    // every current authority check below. No raw bytes are read or prolonged.
+    if let Some(lease) = reply_lease {
+        if !raw
+            || intended_use.retain
+            || intended_use.promote
+            || !lease.allows(observation, facts.now)
+        {
+            return Err(AwarenessError::Expired.into());
+        }
+    }
+    source.validate()?;
+    grant.validate()?;
     if observation.owner_pubkey != *facts.owner_pubkey
         || observation.resident_pubkey != *facts.resident_pubkey
+        || source.owner_pubkey != *facts.owner_pubkey
+        || grant.owner_pubkey != *facts.owner_pubkey
+        || grant.resident_pubkey != *facts.resident_pubkey
+        || observation.source_id != source.source_id
+        || grant.source_id != source.source_id
+        || observation.device_id != source.device_id
+        || grant.device_id != source.device_id
         || observation.grant_id != grant.grant_id
     {
         return Err(AwarenessError::Binding.into());
@@ -721,7 +781,9 @@ fn check_current(
     // Retained permission is not sensor liveness: a closed browser cannot erase
     // legitimate canonical promotion. Explicit Disabled/withdrawal, grant/epoch,
     // exclusion, and canonical material availability still deny retained use.
-    if source.state == AwarenessSourceStateV1::Disabled {
+    if source.state == AwarenessSourceStateV1::Disabled
+        || (raw && (source.state != AwarenessSourceStateV1::Current || !facts.source_fresh))
+    {
         return Err(AwarenessError::SourceNotCurrent.into());
     }
     if grant.state != AwarenessGrantStateV1::Active {
@@ -803,6 +865,7 @@ fn check_dependency(
     node: &OpaqueId,
     facts: &AwarenessHostFactsV1<'_>,
     intended_use: AwarenessUseV1<'_>,
+    reply_lease: Option<&NativeReplyLeaseV1>,
     resolve: &mut impl FnMut(&AwarenessObservationRefV1, bool) -> AwarenessMaterialFactsV1,
 ) -> Result<(), AwarenessStoreError> {
     require_node(connection, facts.owner_pubkey, facts.resident_pubkey, node)?;
@@ -834,6 +897,9 @@ fn check_dependency(
     let mut roots = 0;
     for row in rows {
         let (id, kind, quarantined, retained) = row?;
+        if retained && reply_lease.is_some() {
+            return Err(AwarenessStoreError::Invalid);
+        }
         if quarantined == 1 {
             return Err(AwarenessStoreError::Quarantined);
         }
@@ -865,6 +931,7 @@ fn check_dependency(
                     ..intended_use
                 },
                 !retained,
+                reply_lease.filter(|lease| lease.binding(&observation).is_some()),
             )?;
         }
     }

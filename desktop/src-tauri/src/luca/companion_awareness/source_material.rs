@@ -13,8 +13,16 @@ use luca_protocol::{
 use std::{
     collections::{BTreeMap, HashSet, VecDeque},
     path::Path,
+    sync::Weak,
     time::{Duration, Instant},
 };
+
+#[path = "reply_lease.rs"]
+mod reply_lease;
+#[cfg(test)]
+pub(crate) use reply_lease::synthetic_reply_lease;
+pub(crate) use reply_lease::NativeReplyLeaseV1;
+use reply_lease::ReplyLeaseInner;
 
 /// Exact scope or the separately typed profile's opaque child identity.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +43,9 @@ pub(crate) struct SourceMaterialBindingV1 {
 pub(super) struct MaterialRecord {
     pub(super) binding: SourceMaterialBindingV1,
     pub(super) raw_current: bool,
+    // Ordinary supersession is not withdrawal of an already admitted reply.
+    // This body-free fact is never sufficient to consume raw material again.
+    pub(super) reply_current: bool,
     pub(super) state: AwarenessMaterialStateV1,
 }
 #[derive(Default)]
@@ -43,6 +54,7 @@ pub(super) struct MaterialBook {
     pub(super) known_exact: Vec<(AwarenessGrantKeyV1, SelectedSourceClassV1)>,
     pub(super) active: Vec<AwarenessGrantKeyV1>,
     pub(super) records: VecDeque<MaterialRecord>,
+    pub(super) reply_leases: Vec<Weak<ReplyLeaseInner>>,
 }
 /// Preload before effect locks. No bytes, credentials or live authority.
 #[derive(Clone)]
@@ -117,15 +129,19 @@ impl SourceMaterialSnapshotV1 {
             return unavailable();
         }
         match &binding.scope {
-            SourceMaterialScopeV1::Exact(_) | SourceMaterialScopeV1::Machine(_) => AwarenessMaterialFactsV1 {
-                source_fresh: true,
-                material_state: AwarenessMaterialStateV1::Available,
-            },
+            SourceMaterialScopeV1::Exact(_) | SourceMaterialScopeV1::Machine(_) => {
+                AwarenessMaterialFactsV1 {
+                    source_fresh: true,
+                    material_state: AwarenessMaterialStateV1::Available,
+                }
+            }
             SourceMaterialScopeV1::ProfileChild(_) => {
                 current_child(&binding, false).unwrap_or_else(unavailable)
             }
             #[cfg(unix)]
-            SourceMaterialScopeV1::Browser(_) => current_child(&binding,false).unwrap_or_else(unavailable),
+            SourceMaterialScopeV1::Browser(_) => {
+                current_child(&binding, false).unwrap_or_else(unavailable)
+            }
         }
     }
     fn raw_current(&self, record: &MaterialRecord) -> bool {
@@ -174,13 +190,16 @@ impl MaterialBook {
         self.records.push_back(MaterialRecord {
             binding: SourceMaterialBindingV1 { reference, scope },
             raw_current,
+            reply_current: raw_current,
             state: AwarenessMaterialStateV1::Available,
         });
     }
     pub(super) fn invalidate(&mut self, stop: &StopScope) {
+        self.invalidate_reply_leases(|binding| stop.matches(&observation_key(&binding.reference)));
         for record in &mut self.records {
             if stop.matches(&observation_key(&record.binding.reference)) {
                 record.raw_current = false;
+                record.reply_current = false;
             }
         }
     }
@@ -190,11 +209,16 @@ impl MaterialBook {
         child: &OpaqueId,
         state: AwarenessMaterialStateV1,
     ) {
+        self.invalidate_reply_leases(|binding| {
+            observation_key(&binding.reference) == *key
+                && binding.scope == SourceMaterialScopeV1::ProfileChild(child.clone())
+        });
         for record in &mut self.records {
             if observation_key(&record.binding.reference) == *key
                 && record.binding.scope == SourceMaterialScopeV1::ProfileChild(child.clone())
             {
                 record.raw_current = false;
+                record.reply_current = false;
                 record.state = state;
             }
         }
@@ -204,9 +228,11 @@ impl MaterialBook {
         key: &AwarenessGrantKeyV1,
         state: AwarenessMaterialStateV1,
     ) {
+        self.invalidate_reply_leases(|binding| observation_key(&binding.reference) == *key);
         for record in &mut self.records {
             if observation_key(&record.binding.reference) == *key {
                 record.raw_current = false;
+                record.reply_current = false;
                 record.state = state;
             }
         }
@@ -330,103 +356,271 @@ pub(crate) struct RetainedSourceFactsV1 {
     profiles: Vec<RetainedProfile>,
     deadline: Instant,
     #[cfg(unix)]
-    browser:Option<crate::luca::companion_awareness::browser_runtime::BrowserMaterialSnapshotV1>,
+    browser: Option<crate::luca::companion_awareness::browser_runtime::BrowserMaterialSnapshotV1>,
 }
 impl RetainedSourceFactsV1 {
     /// Combined body-free source candidates prepared before any effect lease.
-    pub(crate) fn snapshot(&self)->&SourceMaterialSnapshotV1 {&self.raw}
+    pub(crate) fn snapshot(&self) -> &SourceMaterialSnapshotV1 {
+        &self.raw
+    }
     /// IO/lock-free final resolver. Fresh exclusions override old raw snapshots;
     /// retained derivatives use durable FULL-ref child correlation, not raw TTL.
     /// The caller separately proves canonical ownership/current grant/deny.
-    pub(crate) fn resolve(&self, reference:&AwarenessObservationRefV1, retained:bool) -> AwarenessMaterialFactsV1 {
-        if Instant::now()>=self.deadline {return unavailable();}
-        #[cfg(unix)]
-        if let Some(browser)=&self.browser {
-            if browser.binding(reference).is_some() {return browser.resolve(reference,retained);}
+    pub(crate) fn resolve(
+        &self,
+        reference: &AwarenessObservationRefV1,
+        retained: bool,
+    ) -> AwarenessMaterialFactsV1 {
+        self.resolve_for_use(reference, retained)
+    }
+    /// The exact live dispatch may finish its admitted native snapshot after
+    /// capture expiry/book eviction. Current exclusions and irreversible source
+    /// invalidation still deny; non-native and retained semantics are unchanged.
+    pub(crate) fn resolve_admitted_reply(
+        &self,
+        reference: &AwarenessObservationRefV1,
+        retained: bool,
+        lease: &NativeReplyLeaseV1,
+    ) -> AwarenessMaterialFactsV1 {
+        if retained
+            || !lease.contains(reference)
+            || Instant::now() >= self.deadline
+            || !lease.current(&self.raw.now)
+        {
+            return unavailable();
         }
-        if matches!(self.raw.binding(reference).map(|b|b.scope),Some(SourceMaterialScopeV1::Machine(_))) {
-            return if retained {unavailable()} else {self.raw.resolve(reference,false,|_,_|None)};
+        let Some(binding) = lease.binding(reference) else {
+            return self.resolve(reference, false);
+        };
+        if !lease.allows(reference, &self.raw.now)
+            || !self.raw.collecting.contains(&observation_key(reference))
+        {
+            return unavailable();
         }
-        let current = self.exact.iter().find(|e|e.key==observation_key(reference)).map(|e|e.facts)
-            .or_else(||self.profiles.iter().find(|p|p.binding.reference==*reference).map(|p|p.facts))
+        let current =
+            match &binding.scope {
+                SourceMaterialScopeV1::Exact(class) => {
+                    if !self.raw.known_exact.iter().any(|(key, current)| {
+                        key == &observation_key(reference) && current == class
+                    }) {
+                        return unavailable();
+                    }
+                    self.exact
+                        .iter()
+                        .find(|entry| entry.key == observation_key(reference))
+                        .map(|entry| entry.facts)
+                }
+                SourceMaterialScopeV1::ProfileChild(child) => self
+                    .profiles
+                    .iter()
+                    .find(|entry| {
+                        entry.binding.reference == *reference
+                            && &entry.binding.child.child_ref == child
+                    })
+                    .map(|entry| entry.facts),
+                _ => None,
+            }
             .unwrap_or_else(unavailable);
-        if current.material_state!=AwarenessMaterialStateV1::Available || retained {return current;}
+        AwarenessMaterialFactsV1 {
+            source_fresh: current.material_state == AwarenessMaterialStateV1::Available,
+            material_state: current.material_state,
+        }
+    }
+    fn resolve_for_use(
+        &self,
+        reference: &AwarenessObservationRefV1,
+        retained: bool,
+    ) -> AwarenessMaterialFactsV1 {
+        if Instant::now() >= self.deadline {
+            return unavailable();
+        }
+        #[cfg(unix)]
+        if let Some(browser) = &self.browser {
+            if browser.binding(reference).is_some() {
+                return browser.resolve(reference, retained);
+            }
+        }
+        if matches!(
+            self.raw.binding(reference).map(|b| b.scope),
+            Some(SourceMaterialScopeV1::Machine(_))
+        ) {
+            return if retained {
+                unavailable()
+            } else {
+                self.raw.resolve(reference, false, |_, _| None)
+            };
+        }
+        let current = self
+            .exact
+            .iter()
+            .find(|e| e.key == observation_key(reference))
+            .map(|e| e.facts)
+            .or_else(|| {
+                self.profiles
+                    .iter()
+                    .find(|p| p.binding.reference == *reference)
+                    .map(|p| p.facts)
+            })
+            .unwrap_or_else(unavailable);
+        if current.material_state != AwarenessMaterialStateV1::Available || retained {
+            return current;
+        }
         // Current exclusions alone never establish current raw bytes.
-        self.raw.resolve(reference,false,|binding,_| {
-            let profile=self.profiles.iter().find(|p|p.binding.reference==*reference)?;
-            if binding.scope!=SourceMaterialScopeV1::ProfileChild(profile.binding.child.child_ref.clone()) {return None;}
-            Some(AwarenessMaterialFactsV1 {source_fresh:true,material_state:current.material_state})
+        self.raw.resolve(reference, false, |binding, _| {
+            let profile = self
+                .profiles
+                .iter()
+                .find(|p| p.binding.reference == *reference)?;
+            if binding.scope
+                != SourceMaterialScopeV1::ProfileChild(profile.binding.child.child_ref.clone())
+            {
+                return None;
+            }
+            Some(AwarenessMaterialFactsV1 {
+                source_fresh: true,
+                material_state: current.material_state,
+            })
         })
     }
 }
 /// Existing Library preload seam; all metadata/exclusion work shares <=1s.
 /// No native transcript, actor queue wait, signing key or model is touched.
-pub(crate) fn preload_retained_source_facts(state:&AppState,owner:&Hex64,resident:&Hex64,now:&CanonicalTimestamp)
-    -> Result<RetainedSourceFactsV1,AwarenessStoreError> {
-    let deadline=Instant::now().checked_add(Duration::from_secs(1)).ok_or(AwarenessStoreError::Unavailable)?;
-    preload_source_facts_before(state,owner,resident,now,deadline)
+pub(crate) fn preload_retained_source_facts(
+    state: &AppState,
+    owner: &Hex64,
+    resident: &Hex64,
+    now: &CanonicalTimestamp,
+) -> Result<RetainedSourceFactsV1, AwarenessStoreError> {
+    let deadline = Instant::now()
+        .checked_add(Duration::from_secs(1))
+        .ok_or(AwarenessStoreError::Unavailable)?;
+    preload_source_facts_before(state, owner, resident, now, deadline)
 }
 /// Deadline-bounded ordinary-turn/Library preload BEFORE effect leases. Reads
 /// only explicit private selection manifests, body-free child correlations and
 /// Polyphonic's complete purpose ledger; never native bodies or profile scans.
 /// The caller's original deadline is preserved and additionally capped at 1s.
-pub(crate) fn preload_source_facts_before(state:&AppState,owner:&Hex64,resident:&Hex64,now:&CanonicalTimestamp,original_deadline:Instant)
-    -> Result<RetainedSourceFactsV1,AwarenessStoreError> {
-    use crate::luca::companion_awareness::{catalog::SelectedSourceCatalogV1,profile_catalog::NativeProfileCatalogV1};
-    let deadline=original_deadline.min(Instant::now().checked_add(Duration::from_secs(1)).ok_or(AwarenessStoreError::Unavailable)?);
-    if Instant::now()>=deadline {return Err(AwarenessStoreError::Unavailable);}
-    let runtime=&state.companion_awareness;
-    let directory=runtime.private_directory(owner)?;let device=runtime.device(owner)?;
-    let selected=SelectedSourceCatalogV1::open(&directory,owner,&device)?.selections(resident)?;
-    let profiles=NativeProfileCatalogV1::open(&directory,owner,&device)?.profiles(resident)?;
-    let correlations=runtime.profile_child_bindings(owner,resident)?;
-    let mut raw=state.companion_sources.snapshot(owner,resident,now)?;
-    raw.known_exact=selected.iter().map(|s|(s.key().clone(),s.class())).collect();
+pub(crate) fn preload_source_facts_before(
+    state: &AppState,
+    owner: &Hex64,
+    resident: &Hex64,
+    now: &CanonicalTimestamp,
+    original_deadline: Instant,
+) -> Result<RetainedSourceFactsV1, AwarenessStoreError> {
+    use crate::luca::companion_awareness::{
+        catalog::SelectedSourceCatalogV1, profile_catalog::NativeProfileCatalogV1,
+    };
+    let deadline = original_deadline.min(
+        Instant::now()
+            .checked_add(Duration::from_secs(1))
+            .ok_or(AwarenessStoreError::Unavailable)?,
+    );
+    if Instant::now() >= deadline {
+        return Err(AwarenessStoreError::Unavailable);
+    }
+    let runtime = &state.companion_awareness;
+    let directory = runtime.private_directory(owner)?;
+    let device = runtime.device(owner)?;
+    let selected =
+        SelectedSourceCatalogV1::open(&directory, owner, &device)?.selections(resident)?;
+    let profiles = NativeProfileCatalogV1::open(&directory, owner, &device)?.profiles(resident)?;
+    let correlations = runtime.profile_child_bindings(owner, resident)?;
+    let mut raw = state.companion_sources.snapshot(owner, resident, now)?;
+    raw.known_exact = selected
+        .iter()
+        .map(|s| (s.key().clone(), s.class()))
+        .collect();
     #[cfg(unix)]
-    let browser=state.companion_browser.snapshot(owner,resident,now).ok();
+    let browser = state.companion_browser.snapshot(owner, resident, now).ok();
     #[cfg(unix)]
-    if let Some(snapshot)=&browser {
+    if let Some(snapshot) = &browser {
         for reference in snapshot.references() {
-            if let Some(kind)=snapshot.binding(&reference) {
-                raw.records.push(MaterialRecord {binding:SourceMaterialBindingV1 {reference,scope:SourceMaterialScopeV1::Browser(kind)},raw_current:true,state:AwarenessMaterialStateV1::Available});
+            if let Some(kind) = snapshot.binding(&reference) {
+                raw.records.push(MaterialRecord {
+                    binding: SourceMaterialBindingV1 {
+                        reference,
+                        scope: SourceMaterialScopeV1::Browser(kind),
+                    },
+                    raw_current: true,
+                    reply_current: false,
+                    state: AwarenessMaterialStateV1::Available,
+                });
             }
         }
     }
-    let mut cache=BTreeMap::<&'static str,Option<HashSet<String>>>::new();
-    let mut exact=Vec::new();
+    let mut cache = BTreeMap::<&'static str, Option<HashSet<String>>>::new();
+    let mut exact = Vec::new();
     for selection in selected {
-        let family=match selection.class() {
-            SelectedSourceClassV1::SelectedFile=>None,
-            SelectedSourceClassV1::CodexSessionMetadata|SelectedSourceClassV1::CodexSessionVisibleExcerpts=>Some("codex"),
-            SelectedSourceClassV1::ClaudeSessionMetadata|SelectedSourceClassV1::ClaudeSessionVisibleExcerpts=>Some("claude_code"),
+        let family = match selection.class() {
+            SelectedSourceClassV1::SelectedFile => None,
+            SelectedSourceClassV1::CodexSessionMetadata
+            | SelectedSourceClassV1::CodexSessionVisibleExcerpts => Some("codex"),
+            SelectedSourceClassV1::ClaudeSessionMetadata
+            | SelectedSourceClassV1::ClaudeSessionVisibleExcerpts => Some("claude_code"),
         };
-        let empty=HashSet::new();
-        let facts=match family {
-            None=>selection.safe_exclusion_scope(&empty).ok(),
-            Some(family)=>cache.entry(family).or_insert_with(||super::profiles::complete_exclusions(state,family,deadline).ok())
-                .as_ref().and_then(|set|selection.safe_exclusion_scope(set).ok()),
+        let empty = HashSet::new();
+        let facts = match family {
+            None => selection.safe_exclusion_scope(&empty).ok(),
+            Some(family) => cache
+                .entry(family)
+                .or_insert_with(|| {
+                    super::profiles::complete_exclusions(state, family, deadline).ok()
+                })
+                .as_ref()
+                .and_then(|set| selection.safe_exclusion_scope(set).ok()),
         };
-        exact.push(RetainedExact {key:selection.key().clone(),facts:facts.map(|f|f.material).unwrap_or_else(unavailable)});
+        exact.push(RetainedExact {
+            key: selection.key().clone(),
+            facts: facts.map(|f| f.material).unwrap_or_else(unavailable),
+        });
     }
-    let mut profile_facts=Vec::new();
+    let mut profile_facts = Vec::new();
     for registration in profiles {
-        let selection=&registration.selection;let family=super::profiles::family(selection.kind());
-        let excluded=cache.entry(family).or_insert_with(||super::profiles::complete_exclusions(state,family,deadline).ok());
-        let tokens=excluded.as_ref().and_then(|ids|ids.iter().map(|id|selection.exclusion_token(id)).collect::<Result<HashSet<_>,_>>().ok());
-        for binding in correlations.iter().filter(|b|observation_key(&b.reference)==*selection.grant_key()) {
-            let facts=match &tokens {
-                None=>unavailable(),
-                Some(tokens)=>AwarenessMaterialFactsV1 {source_fresh:false,material_state:
-                    if tokens.contains(&binding.child.exclusion_token) {AwarenessMaterialStateV1::Excluded}
-                    else {AwarenessMaterialStateV1::Available}},
+        let selection = &registration.selection;
+        let family = super::profiles::family(selection.kind());
+        let excluded = cache
+            .entry(family)
+            .or_insert_with(|| super::profiles::complete_exclusions(state, family, deadline).ok());
+        let tokens = excluded.as_ref().and_then(|ids| {
+            ids.iter()
+                .map(|id| selection.exclusion_token(id))
+                .collect::<Result<HashSet<_>, _>>()
+                .ok()
+        });
+        for binding in correlations
+            .iter()
+            .filter(|b| observation_key(&b.reference) == *selection.grant_key())
+        {
+            let facts = match &tokens {
+                None => unavailable(),
+                Some(tokens) => AwarenessMaterialFactsV1 {
+                    source_fresh: false,
+                    material_state: if tokens.contains(&binding.child.exclusion_token) {
+                        AwarenessMaterialStateV1::Excluded
+                    } else {
+                        AwarenessMaterialStateV1::Available
+                    },
+                },
             };
-            profile_facts.push(RetainedProfile {binding:binding.clone(),facts});
+            profile_facts.push(RetainedProfile {
+                binding: binding.clone(),
+                facts,
+            });
         }
     }
-    if Instant::now()>=deadline {return Err(AwarenessStoreError::Unavailable);}
-    Ok(RetainedSourceFactsV1 {raw,exact,profiles:profile_facts,deadline,#[cfg(unix)] browser})
+    if Instant::now() >= deadline {
+        return Err(AwarenessStoreError::Unavailable);
+    }
+    Ok(RetainedSourceFactsV1 {
+        raw,
+        exact,
+        profiles: profile_facts,
+        deadline,
+        #[cfg(unix)]
+        browser,
+    })
 }
 
 #[cfg(test)]
-#[path="source_material_tests.rs"]
+#[path = "source_material_tests.rs"]
 mod tests;

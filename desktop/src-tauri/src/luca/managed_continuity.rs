@@ -689,17 +689,21 @@ fn write_session_context_result(
     result.quick_chat_context = quick_chat_context;
     result.first_meeting_context = first_meeting_context;
     if let Some(authority) = &receipt_authority {
-        result.isolate_awareness_history = global_dispatch_store(app).ok()
-            .and_then(|store| store.lock().ok().map(|store| store.awareness_history_requires_isolation(authority)))
+        result.isolate_awareness_history = global_dispatch_store(app)
+            .ok()
+            .and_then(|store| {
+                store
+                    .lock()
+                    .ok()
+                    .map(|store| store.awareness_history_requires_isolation(authority))
+            })
             .unwrap_or(true);
     }
 
     // Readiness is host-owned and false until native-history consent and all
     // derivative consumers are coherent. No-source turns retain the old wire.
     let awareness_write = receipt_authority.as_ref().and_then(|authority| {
-        write_optional_awareness_context(
-            app, writer, intent, binding_ref, authority, &mut result,
-        )
+        write_optional_awareness_context(app, writer, intent, binding_ref, authority, &mut result)
     });
     let write = if let Some(write) = awareness_write {
         write
@@ -707,22 +711,51 @@ fn write_session_context_result(
         if let Some(authority) = receipt_authority.as_ref() {
             // Missing current body does not erase prior warm-native taint. The
             // store's sticky marker decides clean/inherited/unknown semantics.
-            let _ = global_dispatch_store(app).ok().and_then(|store| store.lock().ok().and_then(|mut store| {
-                if result.isolate_awareness_history {
-                    store.bind_isolated_awareness_turn(authority, intent.session_epoch, binding_ref, None, &[], unix_time_millis() / 1000).ok()
-                } else {
-                    store.bind_turn_without_awareness_context(authority, intent.session_epoch, binding_ref, unix_time_millis() / 1000).ok()
-                }
-            }));
+            let _ = global_dispatch_store(app).ok().and_then(|store| {
+                store.lock().ok().and_then(|mut store| {
+                    if result.isolate_awareness_history {
+                        store
+                            .bind_isolated_awareness_turn(
+                                authority,
+                                intent.session_epoch,
+                                binding_ref,
+                                None,
+                                &[],
+                                unix_time_millis() / 1000,
+                            )
+                            .ok()
+                    } else {
+                        store
+                            .bind_turn_without_awareness_context(
+                                authority,
+                                intent.session_epoch,
+                                binding_ref,
+                                unix_time_millis() / 1000,
+                            )
+                            .ok()
+                    }
+                })
+            });
         }
-        let bytes = Zeroizing::new(serde_json::to_vec(&result)
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding"))?);
+        let bytes = Zeroizing::new(serde_json::to_vec(&result).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding")
+        })?);
         if bytes.len() >= MAX_FRAME_BYTES {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "context frame exceeds bound"));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "context frame exceeds bound",
+            ));
         }
-        let remaining = intent.deadline_unix_ms.get().saturating_sub(unix_time_millis()).clamp(1, MAX_RESOLUTION_MILLIS);
+        let remaining = intent
+            .deadline_unix_ms
+            .get()
+            .saturating_sub(unix_time_millis())
+            .clamp(1, MAX_RESOLUTION_MILLIS);
         writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
-        let write = writer.write_all(&bytes).and_then(|_| writer.write_all(b"\n")).and_then(|_| writer.flush());
+        let write = writer
+            .write_all(&bytes)
+            .and_then(|_| writer.write_all(b"\n"))
+            .and_then(|_| writer.flush());
         let _ = writer.set_write_timeout(None);
         write
     };
@@ -798,73 +831,194 @@ fn write_optional_awareness_context(
     };
     use luca_protocol::{AwarenessMaterialStateV1, CanonicalTimestamp};
     if !super::managed_dispatch_store::ordinary_turn_awareness_consumers_ready()
-        || !matches!(result.status, ManagedSessionContextStatusV1::Empty | ManagedSessionContextStatusV1::Ready | ManagedSessionContextStatusV1::Degraded) {
+        || !matches!(
+            result.status,
+            ManagedSessionContextStatusV1::Empty
+                | ManagedSessionContextStatusV1::Ready
+                | ManagedSessionContextStatusV1::Degraded
+        )
+    {
         return None;
     }
     let state = app.state::<AppState>();
     let now_ms = unix_time_millis();
     let remaining = intent.deadline_unix_ms.get().checked_sub(now_ms)?;
-    if remaining < 50 { return None; }
-    let now = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)).ok()?;
-    let deadline = Instant::now().checked_add(Duration::from_millis(remaining.min(MAX_RESOLUTION_MILLIS)))?;
-    let material = preload_source_facts_before(&state, &expected.owner_pubkey, &expected.resident_pubkey, &now, deadline).ok()?;
+    if remaining < 50 {
+        return None;
+    }
+    let now = CanonicalTimestamp::parse(
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
+    .ok()?;
+    let deadline =
+        Instant::now().checked_add(Duration::from_millis(remaining.min(MAX_RESOLUTION_MILLIS)))?;
+    let material = preload_source_facts_before(
+        &state,
+        &expected.owner_pubkey,
+        &expected.resident_pubkey,
+        &now,
+        deadline,
+    )
+    .ok()?;
     let snapshot = material.snapshot();
-    if snapshot.references().is_empty() { return None; }
-    let scope = AwarenessTurnScopeV1 { request_id: intent.request_id.clone(), authority: expected.clone(), binding_ref: binding_ref.clone(), session_epoch: intent.session_epoch, deadline_unix_ms: intent.deadline_unix_ms.get() };
-    let prepared = PreparedAwarenessTurnContextV1::prepare(scope.clone(), snapshot,
+    if snapshot.references().is_empty() {
+        return None;
+    }
+    let scope = AwarenessTurnScopeV1 {
+        request_id: intent.request_id.clone(),
+        authority: expected.clone(),
+        binding_ref: binding_ref.clone(),
+        session_epoch: intent.session_epoch,
+        deadline_unix_ms: intent.deadline_unix_ms.get(),
+    };
+    let prepared = PreparedAwarenessTurnContextV1::prepare(
+        scope.clone(),
+        snapshot,
         |reference| material.resolve(reference, false),
         |reference| {
             let key = super::companion_awareness::AwarenessGrantKeyV1 {
-                source: super::companion_awareness::AwarenessSourceKeyV1 { owner_pubkey: reference.owner_pubkey.clone(), source_id: reference.source_id.clone(), device_id: reference.device_id.clone() },
+                source: super::companion_awareness::AwarenessSourceKeyV1 {
+                    owner_pubkey: reference.owner_pubkey.clone(),
+                    source_id: reference.source_id.clone(),
+                    device_id: reference.device_id.clone(),
+                },
                 resident_pubkey: reference.resident_pubkey.clone(),
             };
             // Persistent native history is not an ephemeral source sink. Even
             // when future readiness is true, mere observe+egress is insufficient.
-            state.companion_awareness.recheck_native_history_choice(&expected.owner_pubkey, &key, binding_ref).is_ok()
+            state
+                .companion_awareness
+                .recheck_native_history_choice(&expected.owner_pubkey, &key, binding_ref)
+                .is_ok()
         },
-    ).ok()??;
+    )
+    .ok()??;
     if !super::companion_awareness::conversation::verified_private_conversation(
-        &state, &expected.owner_pubkey, &expected.resident_pubkey, &expected.conversation_id, deadline,
-    ) { return None; }
-    let live = LiveAwarenessOwner::authenticate(&state).ok()?;
-    if live.owner() != &expected.owner_pubkey { return None; }
-    let lease = live.lease().ok()?;
+        &state,
+        &expected.owner_pubkey,
+        &expected.resident_pubkey,
+        &expected.conversation_id,
+        deadline,
+    ) {
+        return None;
+    }
+    // Reserve before Live/awareness effect locks. Capacity/missing fresh facts
+    // omit optional context, never block the owner's ordinary clean message.
     let dispatch = global_dispatch_store(app).ok()?;
+    let reply_expires = dispatch
+        .lock()
+        .ok()?
+        .awareness_reply_deadline(expected, intent.session_epoch, unix_time_millis() / 1000)
+        .ok()?;
+    let reply_lease = state
+        .companion_sources
+        .reserve_reply_lease(
+            prepared.receipt(),
+            &prepared.bindings(),
+            reply_expires,
+            &now,
+        )
+        .ok()?;
+    let live = LiveAwarenessOwner::authenticate(&state).ok()?;
+    if live.owner() != &expected.owner_pubkey {
+        return None;
+    }
+    let lease = live.lease().ok()?;
     let mut dispatch = dispatch.lock().ok()?;
     let current_ms = unix_time_millis();
-    if current_ms >= intent.deadline_unix_ms.get() || Instant::now() >= deadline { return None; }
-    let current = dispatch.authorize_continuity_turn(intent.trigger_event_id.as_str(), intent.resident_pubkey.as_str(), intent.conversation_id.as_str(), intent.session_epoch.get(), current_ms / 1000).ok()?;
+    if current_ms >= intent.deadline_unix_ms.get() || Instant::now() >= deadline {
+        return None;
+    }
+    let current = dispatch
+        .authorize_continuity_turn(
+            intent.trigger_event_id.as_str(),
+            intent.resident_pubkey.as_str(),
+            intent.conversation_id.as_str(),
+            intent.session_epoch.get(),
+            current_ms / 1000,
+        )
+        .ok()?;
     if &current != expected
-        || super::managed_cognition::active_binding_ref(&intent.resident_pubkey).ok().as_ref() != Some(binding_ref)
-        || super::managed_cognition::active_session_epoch(&intent.resident_pubkey).ok() != Some(intent.session_epoch) { return None; }
-    let now = CanonicalTimestamp::parse(chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)).ok()?;
-    let facts = AwarenessHostFactsV1 { owner_pubkey: &expected.owner_pubkey, resident_pubkey: &expected.resident_pubkey, now: &now,
-        source_fresh: false, material_state: AwarenessMaterialStateV1::Unavailable };
+        || super::managed_cognition::active_binding_ref(&intent.resident_pubkey)
+            .ok()
+            .as_ref()
+            != Some(binding_ref)
+        || super::managed_cognition::active_session_epoch(&intent.resident_pubkey).ok()
+            != Some(intent.session_epoch)
+    {
+        return None;
+    }
+    let now = CanonicalTimestamp::parse(
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+    )
+    .ok()?;
+    let facts = AwarenessHostFactsV1 {
+        owner_pubkey: &expected.owner_pubkey,
+        resident_pubkey: &expected.resident_pubkey,
+        now: &now,
+        source_fresh: false,
+        material_state: AwarenessMaterialStateV1::Unavailable,
+    };
     let receipt = prepared.receipt();
     let mut attempted = None;
-    let _ = state.companion_awareness.with_native_history_payloads_lease(&lease, &facts, &receipt.observations, binding_ref,
-        |reference, retained| {
-            let current = material.resolve(reference, retained);
-            let admitted = prepared.material(reference, retained);
-            AwarenessMaterialFactsV1 { source_fresh: current.source_fresh && admitted.source_fresh, material_state: current.material_state }
-        }, &receipt.context_node, |payloads| {
-            let Ok(context) = prepared.compile(&scope, &now, payloads) else { return; };
-            // Bind BEFORE the first byte. Partial writes stay conservatively
-            // tainted; app expiry does not erase native/provider history.
-            if dispatch.bind_isolated_awareness_turn(&current, intent.session_epoch, binding_ref, Some(&receipt.context_node), &receipt.observations, unix_time_millis() / 1000).is_err() { return; }
-            result.isolate_awareness_history = true;
-            result.awareness_context = Some(context);
-            let encoded = serde_json::to_vec(result);
-            if let Ok(encoded) = encoded {
-                let bytes = Zeroizing::new(encoded);
-                let ms = intent.deadline_unix_ms.get().saturating_sub(unix_time_millis());
-                if bytes.len() >= MAX_FRAME_BYTES || ms == 0 { result.awareness_context = None; return; }
-                attempted = Some(writer.set_write_timeout(Some(Duration::from_millis(ms.min(MAX_RESOLUTION_MILLIS))))
-                    .and_then(|_| writer.write_all(&bytes)).and_then(|_| writer.write_all(b"\n")).and_then(|_| writer.flush()));
-                let _ = writer.set_write_timeout(None);
-            }
-        });
-    if attempted.is_none() { result.awareness_context = None; }
+    let _ = state
+        .companion_awareness
+        .with_native_history_payloads_lease(
+            &lease,
+            &facts,
+            &receipt.observations,
+            binding_ref,
+            |reference, retained| {
+                let current = material.resolve(reference, retained);
+                let admitted = prepared.material(reference, retained);
+                AwarenessMaterialFactsV1 {
+                    source_fresh: current.source_fresh && admitted.source_fresh,
+                    material_state: current.material_state,
+                }
+            },
+            &receipt.context_node,
+            |payloads| {
+                let Ok(context) = prepared.compile(&scope, &now, payloads) else {
+                    return;
+                };
+                // Bind BEFORE the first byte. Partial writes stay conservatively
+                // tainted; app expiry does not erase native/provider history.
+                if dispatch
+                    .bind_leased_awareness_turn(receipt, &reply_lease, unix_time_millis() / 1000)
+                    .is_err()
+                {
+                    return;
+                }
+                result.isolate_awareness_history = true;
+                result.awareness_context = Some(context);
+                let encoded = serde_json::to_vec(result);
+                if let Ok(encoded) = encoded {
+                    let bytes = Zeroizing::new(encoded);
+                    let ms = intent
+                        .deadline_unix_ms
+                        .get()
+                        .saturating_sub(unix_time_millis());
+                    if bytes.len() >= MAX_FRAME_BYTES || ms == 0 {
+                        result.awareness_context = None;
+                        return;
+                    }
+                    attempted = Some(
+                        writer
+                            .set_write_timeout(Some(Duration::from_millis(
+                                ms.min(MAX_RESOLUTION_MILLIS),
+                            )))
+                            .and_then(|_| writer.write_all(&bytes))
+                            .and_then(|_| writer.write_all(b"\n"))
+                            .and_then(|_| writer.flush()),
+                    );
+                    let _ = writer.set_write_timeout(None);
+                }
+            },
+        );
+    if attempted.is_none() {
+        result.awareness_context = None;
+        dispatch.discard_awareness_reply_lease(expected);
+    }
     attempted
 }
 
@@ -934,10 +1088,12 @@ fn load_owner_brain_context(
             layer: status(ContinuityLayerStatusV1::Stale),
             references: Vec::new(),
         },
-        Err(OwnerBrainStoreError::Unavailable) => OwnerBrainContextV1 {
-            layer: status(ContinuityLayerStatusV1::Unavailable),
-            references: Vec::new(),
-        },
+        Err(OwnerBrainStoreError::Capacity | OwnerBrainStoreError::Unavailable) => {
+            OwnerBrainContextV1 {
+                layer: status(ContinuityLayerStatusV1::Unavailable),
+                references: Vec::new(),
+            }
+        }
         Err(OwnerBrainStoreError::Cancelled | OwnerBrainStoreError::Invalid) => {
             OwnerBrainContextV1 {
                 layer: status(ContinuityLayerStatusV1::Invalid),

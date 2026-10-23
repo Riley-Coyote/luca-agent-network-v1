@@ -201,7 +201,11 @@ pub(super) fn prior_connected_index_with_runtime(
     {
         return Err(OwnerBrainStoreError::Stale);
     }
-    if manifest.files.is_empty() || manifest.source.status != ConnectedBrainSourceStatusV1::Current
+    if manifest.files.is_empty()
+        || !matches!(
+            manifest.source.status,
+            ConnectedBrainSourceStatusV1::Current | ConnectedBrainSourceStatusV1::NeedsAttention
+        )
     {
         return Ok(crate::luca::connected_brain::PriorIndex {
             established: true,
@@ -236,7 +240,7 @@ pub(super) fn prior_connected_index_with_runtime(
 
 /// Only source-scoped active authority participates. Unrelated resident turns
 /// must not make a background refresh stale, but Forget/rebind/disconnect must.
-fn connected_source_generation(
+pub(super) fn connected_source_generation(
     generation: &StoredRevisionGenerationV1,
     namespace: &NamespaceKey,
     source_id: &OpaqueId,
@@ -949,7 +953,14 @@ fn persist_connected_index(
     );
     let mut reusable_pages = BTreeMap::new();
     if let (Some(generation), Some(existing)) = (generation, existing) {
-        if existing.source.status == ConnectedBrainSourceStatusV1::Current {
+        // `NeedsAttention` is fail-closed for retrieval, but the previously
+        // verified encrypted pages remain valid optimization input for the
+        // owner's explicit repair. Reusing identical pages avoids turning a
+        // one-page refresh failure into a full cold rewrite.
+        if matches!(
+            existing.source.status,
+            ConnectedBrainSourceStatusV1::Current | ConnectedBrainSourceStatusV1::NeedsAttention
+        ) {
             for page in &pages {
                 let Some(id) = existing
                     .index_page_lineage_ids

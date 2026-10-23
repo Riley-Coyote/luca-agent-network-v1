@@ -17,7 +17,7 @@ impl AwarenessStore {
     fn admit_correlated(&mut self,observation:&AwarenessObservationRefV1,facts:&AwarenessHostFactsV1<'_>,
         child:Option<&AwarenessProfileChildV1>)->Result<bool,AwarenessStoreError> {
         let tx=self.connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        check_current(&tx,observation,facts,AwarenessUseV1::default(),true)?;
+        check_current(&tx,observation,facts,AwarenessUseV1::default(),true,None)?;
         if let Some(old)=load_observation(&tx,&observation.owner_pubkey,&observation.resident_pubkey,&observation.observation_id).optional_store()? {
             if old!=*observation || load_child(&tx,observation)?.as_ref()!=child {return Err(AwarenessStoreError::ReplayConflict);}
             require_node(&tx,&observation.owner_pubkey,&observation.resident_pubkey,&observation.observation_id)?;

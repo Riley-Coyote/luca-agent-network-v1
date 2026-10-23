@@ -100,6 +100,18 @@ impl PreparedAwarenessTurnContextV1 {
     }
     /// No body-bearing read is needed to bind a conservative dispatch receipt.
     pub(crate) fn receipt(&self) -> &AwarenessTurnReceiptV1 { &self.receipt }
+    /// Body-free scopes selected by preparation, never renderer-provided paths.
+    pub(crate) fn bindings(&self) -> Vec<super::source_runtime::SourceMaterialBindingV1> {
+        self.material
+            .iter()
+            .map(
+                |(reference, _, scope)| super::source_runtime::SourceMaterialBindingV1 {
+                    reference: reference.clone(),
+                    scope: scope.clone(),
+                },
+            )
+            .collect()
+    }
     /// Pure per-reference resolver for the final aggregate raw admission. A
     /// changed/foreign ref is unavailable rather than a profile/source-wide true.
     pub(crate) fn material(&self, reference: &AwarenessObservationRefV1, retained: bool) -> AwarenessMaterialFactsV1 {

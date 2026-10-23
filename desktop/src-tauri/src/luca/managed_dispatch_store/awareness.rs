@@ -5,6 +5,9 @@
 use super::{ActiveDispatch, ContinuityDispatchAuthority, DispatchAuthorizationError, ManagedDispatchState, ManagedDispatchStore};
 use luca_protocol::{AwarenessObservationRefV1, Hex64, OpaqueId, SafeU53, Sha256Ref};
 use serde::{Deserialize, Serialize};
+use crate::luca::companion_awareness::{
+    source_runtime::NativeReplyLeaseV1, turn_context::AwarenessTurnReceiptV1,
+};
 
 const PROTOCOL: &str = "polyphonic.managed-turn-awareness.v1";
 const MAX_OBSERVATIONS: usize = 8;
@@ -149,6 +152,133 @@ pub(crate) enum ManagedTurnAwarenessLookupV1 {
 }
 
 impl ManagedDispatchStore {
+    /// Actual active dispatch deadline for a pre-frame body-free reservation.
+    /// A caller cannot replace it with a new response-relative duration.
+    pub(crate) fn awareness_reply_deadline(
+        &self,
+        authority: &ContinuityDispatchAuthority,
+        epoch: SafeU53,
+        now: u64,
+    ) -> Result<u64, DispatchAuthorizationError> {
+        let current = self.authorize_continuity_turn(
+            authority.trigger_event_id.as_str(),
+            authority.resident_pubkey.as_str(),
+            authority.conversation_id.as_str(),
+            epoch.get(),
+            now,
+        )?;
+        if &current != authority {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        self.dispatches
+            .get(&(
+                authority.trigger_event_id.as_str().into(),
+                authority.resident_pubkey.as_str().into(),
+            ))
+            .map(|row| row.expires_at)
+            .ok_or(DispatchAuthorizationError::Unknown)
+    }
+
+    /// Attach the pre-reserved proof only after the immutable receipt commits,
+    /// before any native frame byte. The proof never crosses persistence.
+    pub(crate) fn bind_leased_awareness_turn(
+        &mut self,
+        receipt: &AwarenessTurnReceiptV1,
+        lease: &NativeReplyLeaseV1,
+        now: u64,
+    ) -> Result<(), DispatchAuthorizationError> {
+        let scope = &receipt.scope;
+        let expires = self.awareness_reply_deadline(&scope.authority, scope.session_epoch, now)?;
+        if now >= expires || !lease.current_unix_secs(now) || !lease.matches_turn(receipt, expires)
+        {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        let key = (
+            scope.authority.trigger_event_id.as_str().into(),
+            scope.authority.resident_pubkey.as_str().into(),
+        );
+        if self
+            .dispatches
+            .get(&key)
+            .and_then(|row| row.awareness_reply_lease.as_ref())
+            .is_some_and(|prior| prior != lease)
+        {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        let binding = self.bind_isolated_awareness_turn(
+            &scope.authority,
+            scope.session_epoch,
+            &scope.binding_ref,
+            Some(&receipt.context_node),
+            &receipt.observations,
+            now,
+        )?;
+        if !lease.matches_receipt(&binding) {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        self.dispatches
+            .get_mut(&key)
+            .ok_or(DispatchAuthorizationError::Unknown)?
+            .awareness_reply_lease = Some(lease.clone());
+        Ok(())
+    }
+
+    /// Lookup through the exact still-active immutable dispatch, never through
+    /// a source ref alone. Restored metadata has no in-memory proof and denies.
+    pub(crate) fn awareness_reply_lease(
+        &self,
+        receipt: &ManagedTurnAwarenessBindingV1,
+        now: u64,
+    ) -> Result<NativeReplyLeaseV1, DispatchAuthorizationError> {
+        let epoch = receipt
+            .session_epoch
+            .ok_or(DispatchAuthorizationError::WrongSession)?;
+        let authority = self.authorize_continuity_turn(
+            receipt.trigger_event_id.as_str(),
+            receipt.resident_pubkey.as_str(),
+            receipt.conversation_id.as_str(),
+            epoch.get(),
+            now,
+        )?;
+        let row = self
+            .dispatches
+            .get(&(
+                receipt.trigger_event_id.as_str().into(),
+                receipt.resident_pubkey.as_str().into(),
+            ))
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        let lease = row
+            .awareness_reply_lease
+            .as_ref()
+            .ok_or(DispatchAuthorizationError::Unknown)?;
+        if row.awareness_context_binding.as_ref() != Some(receipt)
+            || now >= row.expires_at
+            || lease.expires_unix_secs() != row.expires_at
+            || !lease.current_unix_secs(now)
+            || !lease.matches_receipt(receipt)
+            || receipt.canonical_dispatch_ref.as_ref() != Some(&authority.canonical_dispatch_ref)
+        {
+            return Err(DispatchAuthorizationError::Ambiguous);
+        }
+        Ok(lease.clone())
+    }
+
+    /// No frame attempt means the reservation can be released. Any committed
+    /// receipt remains conservatively tainted; missing proof grants nothing.
+    pub(crate) fn discard_awareness_reply_lease(
+        &mut self,
+        authority: &ContinuityDispatchAuthority,
+    ) {
+        if let Some(row) = self.dispatches.get_mut(&(
+            authority.trigger_event_id.as_str().into(),
+            authority.resident_pubkey.as_str().into(),
+        )) {
+            if let Some(lease) = row.awareness_reply_lease.take() {
+                lease.cancel();
+            }
+        }
+    }
+
     /// Inert metadata commit under the existing dispatch lock, BEFORE any frame
     /// byte. Caller separately holds live identity/current runtime/awareness
     /// effects and obtains source refs from the authoritative bounded buffer.

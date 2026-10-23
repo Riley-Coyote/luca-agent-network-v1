@@ -503,6 +503,7 @@ pub(super) fn map_store_read_error(error: ContinuityStoreError) -> OwnerBrainSto
         ContinuityStoreError::LifecycleConflict | ContinuityStoreError::CompareAndSwapConflict => {
             OwnerBrainStoreError::Stale
         }
+        ContinuityStoreError::SnapshotBoundExceeded => OwnerBrainStoreError::Capacity,
         ContinuityStoreError::Unavailable => OwnerBrainStoreError::Unavailable,
         _ => OwnerBrainStoreError::Invalid,
     }
@@ -510,4 +511,16 @@ pub(super) fn map_store_read_error(error: ContinuityStoreError) -> OwnerBrainSto
 
 pub(super) fn map_store_write_error(error: ContinuityStoreError) -> OwnerBrainStoreError {
     map_store_read_error(error)
+}
+
+#[cfg(test)]
+mod error_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_capacity_remains_distinct_from_invalid_state() {
+        let error = map_store_write_error(ContinuityStoreError::SnapshotBoundExceeded);
+        assert_eq!(error, OwnerBrainStoreError::Capacity);
+        assert_eq!(error.code(), "owner-brain-capacity");
+    }
 }

@@ -34,19 +34,21 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+#[path = "machine_runtime.rs"]
+mod machines;
 #[path = "source_material.rs"]
 mod material;
 #[path = "profile_runtime.rs"]
 mod profiles;
-#[path = "machine_runtime.rs"]
-mod machines;
 use machines::{MachineCommand, MachineSourceStopsV1, MachineSourcesV1};
-pub(crate) use profiles::desktop_source_bindings;
+#[cfg(test)]
+pub(crate) use material::synthetic_reply_lease;
 use material::MaterialBook;
 pub(crate) use material::{
-    preload_retained_source_facts, preload_source_facts_before,
-    SourceMaterialScopeV1, SourceMaterialSnapshotV1,
+    preload_retained_source_facts, preload_source_facts_before, NativeReplyLeaseV1,
+    SourceMaterialBindingV1, SourceMaterialScopeV1, SourceMaterialSnapshotV1,
 };
+pub(crate) use profiles::desktop_source_bindings;
 
 const MAX_ACTIVE_SCOPES: usize = 64;
 const MAX_MATERIAL_REFS: usize = 128;
@@ -103,7 +105,6 @@ impl Default for SourceRuntimeBindingsV1 {
         }
     }
 }
-
 
 #[derive(Clone, PartialEq, Eq)]
 enum StopScope {
@@ -187,8 +188,14 @@ impl CompanionSourceRuntimeV1 {
         let device = runtime.device(&owner)?;
         let catalog =
             SelectedSourceCatalogV1::open(&runtime.private_directory(&owner)?, &owner, &device);
-        let profile_catalog = NativeProfileCatalogV1::open(&runtime.private_directory(&owner)?, &owner, &device);
-        let machines = MachineSourcesV1::open(&runtime.private_directory(&owner)?, &owner, &device, Arc::clone(&self.machine_stops));
+        let profile_catalog =
+            NativeProfileCatalogV1::open(&runtime.private_directory(&owner)?, &owner, &device);
+        let machines = MachineSourcesV1::open(
+            &runtime.private_directory(&owner)?,
+            &owner,
+            &device,
+            Arc::clone(&self.machine_stops),
+        );
         // Machine policy failures are isolated to their own command path; do
         // not change the existing exact-file/native-profile readiness contract.
         let ready = catalog.is_ok() && profile_catalog.is_ok();
@@ -340,13 +347,14 @@ impl CompanionSourceRuntimeV1 {
         resident: &Hex64,
         now: &CanonicalTimestamp,
     ) -> Result<SourceMaterialSnapshotV1, AwarenessStoreError> {
-        let facts = self
+        let mut facts = self
             .facts
             .lock()
             .map_err(|_| AwarenessStoreError::Unavailable)?;
         if facts.owner.as_ref() != Some(owner) {
             return Err(AwarenessStoreError::Invalid);
         }
+        facts.sweep_reply_leases(now);
         Ok(SourceMaterialSnapshotV1 {
             now: now.clone(),
             known_exact: facts
@@ -368,6 +376,20 @@ impl CompanionSourceRuntimeV1 {
                 .cloned()
                 .collect(),
         })
+    }
+    /// Reserve body-free native correlations before any effect lease. Failure
+    /// omits optional context; this reservation alone never authorizes a reply.
+    pub(crate) fn reserve_reply_lease(
+        &self,
+        receipt: &super::turn_context::AwarenessTurnReceiptV1,
+        bindings: &[SourceMaterialBindingV1],
+        expires: u64,
+        now: &CanonicalTimestamp,
+    ) -> Result<NativeReplyLeaseV1, AwarenessStoreError> {
+        self.facts
+            .lock()
+            .map_err(|_| AwarenessStoreError::Unavailable)?
+            .reserve_reply_lease(receipt, bindings, expires, now)
     }
     fn call<T>(
         &self,
@@ -456,6 +478,9 @@ impl CompanionSourceRuntimeV1 {
     /// Stop/wake/join all owned loops and drop owned watchers. Call outside
     /// authority locks; local bounded reads may finish first, never a model wait.
     pub(crate) fn shutdown(&self) {
+        if let Ok(facts) = self.facts.lock() {
+            facts.invalidate_all_reply_leases();
+        }
         let handle = self.inner.lock().ok().and_then(|mut inner| inner.take());
         if let Some(handle) = handle {
             handle.shared.closing.store(true, Ordering::Release);
@@ -464,7 +489,7 @@ impl CompanionSourceRuntimeV1 {
             let _ = handle.worker.join();
         }
         if let Ok(mut facts) = self.facts.lock() {
-            *facts = MaterialBook::default();
+            facts.reset_after_stop();
         }
     }
 }
@@ -609,20 +634,37 @@ impl SourceEngine {
                 let _ = reply.send(result);
             }
             Command::SelectProfile(registration, reply) => {
-                let result = if expired { Err(AwarenessStoreError::Unavailable) } else {
-                    self.authenticate(state).and_then(|live| self.profile_catalog.as_mut().map_err(|e|*e)?.select(&live, registration))
+                let result = if expired {
+                    Err(AwarenessStoreError::Unavailable)
+                } else {
+                    self.authenticate(state).and_then(|live| {
+                        self.profile_catalog
+                            .as_mut()
+                            .map_err(|e| *e)?
+                            .select(&live, registration)
+                    })
                 };
                 let _ = reply.send(result);
             }
             Command::InspectProfiles(resident, reply) => {
-                let result = if expired { Err(AwarenessStoreError::Unavailable) } else {
-                    self.profile_catalog.as_ref().map_err(|e|*e).and_then(|catalog| catalog.profiles(&resident))
+                let result = if expired {
+                    Err(AwarenessStoreError::Unavailable)
+                } else {
+                    self.profile_catalog
+                        .as_ref()
+                        .map_err(|e| *e)
+                        .and_then(|catalog| catalog.profiles(&resident))
                 };
                 let _ = reply.send(result);
             }
             Command::RemoveProfile(key, reply) => {
-                let result = if expired || !self.key_current(&key) { Err(AwarenessStoreError::Invalid) } else {
-                    self.profile_catalog.as_mut().map_err(|e|*e).and_then(|catalog| catalog.remove(&self.owner, &key))
+                let result = if expired || !self.key_current(&key) {
+                    Err(AwarenessStoreError::Invalid)
+                } else {
+                    self.profile_catalog
+                        .as_mut()
+                        .map_err(|e| *e)
+                        .and_then(|catalog| catalog.remove(&self.owner, &key))
                 };
                 let _ = reply.send(result);
             }
@@ -633,7 +675,9 @@ impl SourceEngine {
                     }
                 }
             }
-            Command::Machine(command) => self.machine_command(state, command, expired, &cancellation),
+            Command::Machine(command) => {
+                self.machine_command(state, command, expired, &cancellation)
+            }
         }
     }
     fn resume(

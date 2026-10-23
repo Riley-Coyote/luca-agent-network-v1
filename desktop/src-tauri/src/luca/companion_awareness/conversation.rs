@@ -121,8 +121,10 @@ pub(crate) fn admit_reply(
     state: &AppState,
     receipt: &ManagedTurnAwarenessBindingV1,
     binding: &Sha256Ref,
+    reply_lease: &super::source_runtime::NativeReplyLeaseV1,
 ) -> Result<(), ReplyAdmissionError> {
     if !receipt.fresh_native_history
+        || !reply_lease.matches_receipt(receipt)
         || receipt.binding_ref.as_ref() != Some(binding)
         || crate::luca::managed_cognition::active_binding_ref(&receipt.resident_pubkey)
             .ok()
@@ -179,7 +181,8 @@ pub(crate) fn admit_reply(
             binding,
             &receipt.context_nodes,
             &receipt.observations,
-            |reference, retained| material.resolve(reference, retained),
+            Some(reply_lease),
+            |reference, retained| material.resolve_admitted_reply(reference, retained, reply_lease),
         )
         .map_err(source_failure)
 }

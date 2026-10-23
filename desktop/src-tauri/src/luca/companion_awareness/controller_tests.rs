@@ -218,69 +218,348 @@ fn conversation_sink_requires_separate_consent_and_does_not_enable_raw_archives(
     let resident = principal('b');
     let runtime = CompanionAwarenessRuntime::default();
     runtime.initialize(directory.path(), Some(&owner));
-    runtime.set_paused(&owner, &resident, Some(&live), None, false, &time(), &operation("resume-chat-test")).unwrap();
+    runtime
+        .set_paused(
+            &owner,
+            &resident,
+            Some(&live),
+            None,
+            false,
+            &time(),
+            &operation("resume-chat-test"),
+        )
+        .unwrap();
     let source = AwarenessSourceKeyV1 {
-        owner_pubkey: owner.clone(), source_id: operation("chat-source"),
+        owner_pubkey: owner.clone(),
+        source_id: operation("chat-source"),
         device_id: runtime.device(&owner).unwrap(),
     };
-    runtime.register_source(&live, &source, &operation("register-chat-source")).unwrap();
-    runtime.set_source_health(&live, &source, SafeU53::new(1).unwrap(), AwarenessSourceStateV1::Current, &operation("chat-source-current")).unwrap();
+    runtime
+        .register_source(&live, &source, &operation("register-chat-source"))
+        .unwrap();
+    runtime
+        .set_source_health(
+            &live,
+            &source,
+            SafeU53::new(1).unwrap(),
+            AwarenessSourceStateV1::Current,
+            &operation("chat-source-current"),
+        )
+        .unwrap();
     let binding = Sha256Ref::parse(format!("sha256:{}", "c".repeat(64))).unwrap();
     let grant = AwarenessGrantV1 {
-        protocol: AWARENESS_PROTOCOL.into(), grant_id: operation("chat-grant"),
-        owner_pubkey: owner.clone(), resident_pubkey: resident.clone(),
-        source_id: source.source_id.clone(), device_id: source.device_id.clone(),
-        grant_revision: SafeU53::new(1).unwrap(), deny_epoch: SafeU53::new(0).unwrap(),
+        protocol: AWARENESS_PROTOCOL.into(),
+        grant_id: operation("chat-grant"),
+        owner_pubkey: owner.clone(),
+        resident_pubkey: resident.clone(),
+        source_id: source.source_id.clone(),
+        device_id: source.device_id.clone(),
+        grant_revision: SafeU53::new(1).unwrap(),
+        deny_epoch: SafeU53::new(0).unwrap(),
         state: AwarenessGrantStateV1::Active,
-        choices: AwarenessChoicesV1 { observe: true, retain: false, promote: false, provider_egress_binding: Some(binding.clone()) },
+        choices: AwarenessChoicesV1 {
+            observe: true,
+            retain: false,
+            promote: false,
+            provider_egress_binding: Some(binding.clone()),
+        },
     };
-    runtime.put_grant(&live, &grant, None, &operation("grant-chat-source")).unwrap();
-    let key = AwarenessGrantKeyV1 { source, resident_pubkey: resident.clone() };
+    runtime
+        .put_grant(&live, &grant, None, &operation("grant-chat-source"))
+        .unwrap();
+    let key = AwarenessGrantKeyV1 {
+        source,
+        resident_pubkey: resident.clone(),
+    };
     let payload = b"DISPOSABLE_CONVERSATION_SENTINEL".to_vec();
     let now = CanonicalTimestamp::parse("2026-10-08T10:00:02Z").unwrap();
     let reference = AwarenessObservationRefV1 {
-        protocol: AWARENESS_PROTOCOL.into(), observation_id: operation("chat-observation"),
-        owner_pubkey: owner.clone(), resident_pubkey: resident.clone(),
-        source_id: key.source.source_id.clone(), device_id: key.source.device_id.clone(),
-        grant_id: grant.grant_id.clone(), grant_revision: grant.grant_revision, deny_epoch: grant.deny_epoch,
+        protocol: AWARENESS_PROTOCOL.into(),
+        observation_id: operation("chat-observation"),
+        owner_pubkey: owner.clone(),
+        resident_pubkey: resident.clone(),
+        source_id: key.source.source_id.clone(),
+        device_id: key.source.device_id.clone(),
+        grant_id: grant.grant_id.clone(),
+        grant_revision: grant.grant_revision,
+        deny_epoch: grant.deny_epoch,
         sequence: SafeU53::new(1).unwrap(),
-        evidence_ref: Sha256Ref::parse(format!("sha256:{}", hex::encode(Sha256::digest(&payload)))).unwrap(),
+        evidence_ref: Sha256Ref::parse(format!("sha256:{}", hex::encode(Sha256::digest(&payload))))
+            .unwrap(),
         captured_at: CanonicalTimestamp::parse("2026-10-08T10:00:01Z").unwrap(),
         expires_at: CanonicalTimestamp::parse("2026-10-08T10:05:00Z").unwrap(),
     };
-    let facts = AwarenessHostFactsV1 { owner_pubkey: &owner, resident_pubkey: &resident, now: &now,
-        source_fresh: true, material_state: AwarenessMaterialStateV1::Available };
-    let resolve = |_: &AwarenessObservationRefV1, _: bool| AwarenessMaterialFactsV1 {
-        source_fresh: true, material_state: AwarenessMaterialStateV1::Available,
+    let facts = AwarenessHostFactsV1 {
+        owner_pubkey: &owner,
+        resident_pubkey: &resident,
+        now: &now,
+        source_fresh: true,
+        material_state: AwarenessMaterialStateV1::Available,
     };
-    runtime.admit(&live, &facts, reference.clone(), payload.clone()).unwrap();
+    let resolve = |_: &AwarenessObservationRefV1, _: bool| AwarenessMaterialFactsV1 {
+        source_fresh: true,
+        material_state: AwarenessMaterialStateV1::Available,
+    };
+    runtime
+        .admit(&live, &facts, reference.clone(), payload.clone())
+        .unwrap();
     let deliver = || {
         let lease = live.lease().unwrap();
-        runtime.with_native_history_payloads_lease(&lease, &facts, &[reference.clone()], &binding,
-            resolve, &operation("chat-context"), |bytes| bytes[0].to_vec())
+        runtime.with_native_history_payloads_lease(
+            &lease,
+            &facts,
+            &[reference.clone()],
+            &binding,
+            resolve,
+            &operation("chat-context"),
+            |bytes| bytes[0].to_vec(),
+        )
     };
     // Observe + model-sharing alone cannot cross a persistent native sink.
     assert!(deliver().is_err());
-    runtime.set_native_history_choice(&owner, &key, Some(&live), SafeU53::new(0).unwrap(), true,
-        Some(&binding), &now, &operation("allow-chat-history")).unwrap();
+    runtime
+        .set_native_history_choice(
+            &owner,
+            &key,
+            Some(&live),
+            SafeU53::new(0).unwrap(),
+            true,
+            Some(&binding),
+            &now,
+            &operation("allow-chat-history"),
+        )
+        .unwrap();
     assert_eq!(deliver().unwrap(), payload);
     assert!(!runtime.snapshot(&owner, &key).unwrap().grant.choices.retain);
+    let turn_receipt = turn_context::AwarenessTurnReceiptV1 {
+        scope: turn_context::AwarenessTurnScopeV1 {
+            request_id: operation("reply-request"),
+            binding_ref: binding.clone(),
+            session_epoch: SafeU53::new(3).unwrap(),
+            deadline_unix_ms: 1,
+            authority: crate::luca::managed_dispatch_store::ContinuityDispatchAuthority {
+                owner_pubkey: owner.clone(),
+                resident_pubkey: resident.clone(),
+                conversation_id: operation("private-chat"),
+                trigger_event_id: principal('d'),
+                canonical_dispatch_ref: binding.clone(),
+                context_binding: None,
+            },
+        },
+        context_node: operation("chat-context"),
+        observations: vec![reference.clone()],
+    };
+    let reply_lease = source_runtime::synthetic_reply_lease(
+        &turn_receipt,
+        &[source_runtime::SourceMaterialBindingV1 {
+            reference: reference.clone(),
+            scope: source_runtime::SourceMaterialScopeV1::ProfileChild(operation("native-child")),
+        }],
+        chrono::DateTime::parse_from_rfc3339("2026-10-08T10:30:00Z")
+            .unwrap()
+            .timestamp() as u64,
+        &now,
+    );
     let reply = || {
         let lease = live.lease().unwrap();
-        runtime.admit_native_history_reply(&lease, &facts, &binding,
-            &[operation("chat-context")], &[reference.clone()], resolve)
+        runtime.admit_native_history_reply(
+            &lease,
+            &facts,
+            &binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            Some(&reply_lease),
+            resolve,
+        )
     };
     assert!(reply().is_ok());
+    let long_reply = CanonicalTimestamp::parse("2026-10-08T10:06:00Z").unwrap();
+    let lease = live.lease().unwrap();
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &AwarenessHostFactsV1 {
+                now: &long_reply,
+                ..facts
+            },
+            &binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            Some(&reply_lease),
+            resolve
+        )
+        .is_ok());
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &AwarenessHostFactsV1 {
+                now: &long_reply,
+                ..facts
+            },
+            &binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            None,
+            resolve
+        )
+        .is_err());
+    drop(lease);
+    // Reply-only material freshness does not replace these live authority fences.
+    let lease = live.lease().unwrap();
+    let wrong_binding = Sha256Ref::parse(format!("sha256:{}", "d".repeat(64))).unwrap();
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &facts,
+            &wrong_binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            Some(&reply_lease),
+            resolve
+        )
+        .is_err());
+    let other = principal('c');
+    for foreign_facts in [
+        AwarenessHostFactsV1 {
+            owner_pubkey: &other,
+            ..facts
+        },
+        AwarenessHostFactsV1 {
+            resident_pubkey: &other,
+            ..facts
+        },
+    ] {
+        assert!(runtime
+            .admit_native_history_reply(
+                &lease,
+                &foreign_facts,
+                &binding,
+                &[operation("chat-context")],
+                &[reference.clone()],
+                Some(&reply_lease),
+                resolve
+            )
+            .is_err());
+    }
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &facts,
+            &binding,
+            &[operation("unrelated-context")],
+            &[reference.clone()],
+            Some(&reply_lease),
+            resolve
+        )
+        .is_err());
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &facts,
+            &binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            Some(&reply_lease),
+            |_, _| AwarenessMaterialFactsV1 {
+                source_fresh: true,
+                material_state: AwarenessMaterialStateV1::Excluded,
+            }
+        )
+        .is_err());
+    drop(lease);
     // The sink rechecks consent after preparation, immediately before delivery.
-    runtime.set_native_history_choice(&owner, &key, None, SafeU53::new(1).unwrap(), false,
-        None, &now, &operation("disable-chat-history")).unwrap();
+    runtime
+        .set_native_history_choice(
+            &owner,
+            &key,
+            None,
+            SafeU53::new(1).unwrap(),
+            false,
+            None,
+            &now,
+            &operation("disable-chat-history"),
+        )
+        .unwrap();
     assert!(deliver().is_err());
     assert!(reply().is_err());
     // A new explicit confirmation still cannot resurrect expired source bytes.
-    runtime.set_native_history_choice(&owner, &key, Some(&live), SafeU53::new(2).unwrap(), true,
-        Some(&binding), &now, &operation("reconfirm-chat-history")).unwrap();
+    runtime
+        .set_native_history_choice(
+            &owner,
+            &key,
+            Some(&live),
+            SafeU53::new(2).unwrap(),
+            true,
+            Some(&binding),
+            &now,
+            &operation("reconfirm-chat-history"),
+        )
+        .unwrap();
     let expired = CanonicalTimestamp::parse("2026-10-08T10:05:01Z").unwrap();
     let lease = live.lease().unwrap();
-    assert!(runtime.with_native_history_payloads_lease(&lease, &AwarenessHostFactsV1 { now: &expired, ..facts },
-        &[reference], &binding, resolve, &operation("expired-chat-context"), |_| ()).is_err());
+    assert!(runtime
+        .with_native_history_payloads_lease(
+            &lease,
+            &AwarenessHostFactsV1 {
+                now: &expired,
+                ..facts
+            },
+            &[reference.clone()],
+            &binding,
+            resolve,
+            &operation("expired-chat-context"),
+            |_| ()
+        )
+        .is_err());
+    assert!(runtime
+        .admit_native_history_reply(
+            &lease,
+            &AwarenessHostFactsV1 {
+                now: &expired,
+                ..facts
+            },
+            &binding,
+            &[operation("chat-context")],
+            &[reference.clone()],
+            None,
+            resolve
+        )
+        .is_err());
+    drop(lease);
+    let revision = runtime.resident_state(&owner, &resident).unwrap().revision;
+    runtime
+        .set_paused(
+            &owner,
+            &resident,
+            None,
+            Some(revision),
+            true,
+            &now,
+            &operation("pause-before-reply"),
+        )
+        .unwrap();
+    assert!(reply().is_err());
+    let revision = runtime.resident_state(&owner, &resident).unwrap().revision;
+    runtime
+        .set_paused(
+            &owner,
+            &resident,
+            Some(&live),
+            Some(revision),
+            false,
+            &now,
+            &operation("resume-after-pause"),
+        )
+        .unwrap();
+    assert!(reply().is_err()); // Resume cannot resurrect pre-Pause observations.
+    runtime
+        .withdraw_grant(
+            &owner,
+            &key,
+            grant.grant_revision,
+            AwarenessWithdrawalV1::Withdraw,
+            &operation("withdraw-before-reply"),
+        )
+        .unwrap();
+    assert!(reply().is_err());
 }

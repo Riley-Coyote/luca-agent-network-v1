@@ -2,6 +2,9 @@ function errorCode(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const capacityMessage =
+  "Brain's index has reached its size limit. Your existing data is preserved, but this update could not be saved. Reducing what is indexed may be needed before retrying.";
+
 export function readableOwnerBrainError(
   error: unknown,
   context: "preview" | "access",
@@ -14,6 +17,7 @@ export function readableOwnerBrainError(
       "This agent needs a valid runtime before access can be changed.",
     "owner-brain-timeout": "The operation timed out without a partial write.",
     "owner-brain-unavailable": "Brain data could not be opened. Try again.",
+    "owner-brain-capacity": capacityMessage,
   };
   if (message === "owner-brain-invalid") {
     return context === "preview"
@@ -39,6 +43,7 @@ export function readableConnectedBrainError(error: unknown): string {
     "owner-brain-stale":
       "The source changed or the preview expired. Scan again, then retry.",
     "owner-brain-unavailable": "Brain data could not be opened. Try again.",
+    "owner-brain-capacity": capacityMessage,
   };
   return values[message] ?? message.replaceAll("-", " ");
 }

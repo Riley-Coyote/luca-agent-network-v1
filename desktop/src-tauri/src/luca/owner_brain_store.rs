@@ -64,6 +64,7 @@ const MAX_OWNER_BRAIN_CHUNK_PAGES: usize = 38;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OwnerBrainStoreError {
     Cancelled,
+    Capacity,
     Locked,
     Timeout,
     Unavailable,
@@ -117,6 +118,7 @@ impl OwnerBrainStoreError {
     pub(crate) fn code(self) -> &'static str {
         match self {
             Self::Cancelled => "owner-brain-cancelled",
+            Self::Capacity => "owner-brain-capacity",
             Self::Locked => "owner-brain-locked",
             Self::Timeout => "owner-brain-timeout",
             Self::Unavailable => "owner-brain-unavailable",

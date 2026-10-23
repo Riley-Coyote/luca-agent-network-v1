@@ -241,6 +241,72 @@ fn incremental_build_cannot_cross_a_concurrent_disconnect() {
 }
 
 #[test]
+fn stale_background_failure_cannot_overwrite_a_disconnect() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("guarded-disconnect");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let candidate = candidate(&repository);
+    let expected_generation =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap()
+            .expected_generation
+            .unwrap();
+
+    connected_lifecycle::disconnect_source_with_runtime(&root, &mut state, &owner(), &source_id)
+        .unwrap();
+    assert!(
+        !connected_lifecycle::mark_connected_source_needs_attention_if_generation_with_runtime(
+            &root,
+            &mut state,
+            &source_id,
+            &expected_generation,
+        )
+        .unwrap()
+    );
+    let source = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        source.source.status,
+        ConnectedBrainSourceStatusV1::Disconnected
+    );
+}
+
+#[test]
+fn matching_background_failure_marks_only_the_current_source() {
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("guarded-needs-attention");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let candidate = candidate(&repository);
+    let expected_generation =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap()
+            .expected_generation
+            .unwrap();
+
+    assert!(
+        connected_lifecycle::mark_connected_source_needs_attention_if_generation_with_runtime(
+            &root,
+            &mut state,
+            &source_id,
+            &expected_generation,
+        )
+        .unwrap()
+    );
+    let source = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        source.source.status,
+        ConnectedBrainSourceStatusV1::NeedsAttention
+    );
+}
+
+#[test]
 fn incremental_refresh_rewrites_only_changed_encrypted_pages() {
     use crate::luca::connected_brain::build_index_incremental;
     let temp = tempfile::tempdir().unwrap();
@@ -279,6 +345,44 @@ fn incremental_refresh_rewrites_only_changed_encrypted_pages() {
         .filter(|(left, right)| left != right)
         .count();
     assert_eq!(differences, 1);
+}
+
+#[test]
+fn needs_attention_repair_reuses_the_last_verified_index() {
+    use crate::luca::connected_brain::build_index_incremental;
+
+    let temp = tempfile::tempdir().unwrap();
+    let mut state = runtime(&temp);
+    let root = ContinuityMasterKey::new_for_test([7; 32]);
+    let repository = temp.path().join("needs-attention-reuse");
+    let source_id = connect_fixture_source(&root, &mut state, &repository);
+    let before = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+
+    connected_lifecycle::set_connected_status_with_runtime(
+        &root,
+        &mut state,
+        &source_id,
+        ConnectedBrainSourceStatusV1::NeedsAttention,
+    )
+    .unwrap();
+    let candidate = candidate(&repository);
+    let prior =
+        connected::prior_connected_index_with_runtime(&root, &state, &source_id, &candidate)
+            .unwrap();
+    let warm = build_index_incremental(&source_id, &candidate, &prior).unwrap();
+    assert_eq!((warm.reused_files, warm.extracted_files), (1, 0));
+
+    connect_source_with_runtime(&root, &mut state, owner(), candidate, warm, &[]).unwrap();
+    let after = connected_source_by_id(&root, &state, &source_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.source.status, ConnectedBrainSourceStatusV1::Current);
+    assert_eq!(
+        before.index_page_lineage_ids, after.index_page_lineage_ids,
+        "repairing status must not rewrite unchanged encrypted pages"
+    );
 }
 
 #[test]
