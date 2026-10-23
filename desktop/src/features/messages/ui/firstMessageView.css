@@ -1,0 +1,103 @@
+/* The first-message view: before the first word, the composer waits in the
+   middle with the resident's name above it, over still water. */
+
+.luca-first-message-ink {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.luca-first-message-ink__water {
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+/* The composer, centred while the conversation is empty. Its usual place is
+   the bottom of the column; it travels there only when the first message
+   sends it, never when you switch conversations. */
+[data-first-message-column][data-first-message]
+  [data-testid="channel-composer-overlay"] {
+  bottom: 50%;
+  transform: translateY(50%);
+}
+
+[data-first-message-column][data-first-message-leaving]
+  [data-testid="channel-composer-overlay"] {
+  transition:
+    bottom 760ms cubic-bezier(0.22, 1.06, 0.36, 1),
+    transform 760ms cubic-bezier(0.22, 1.06, 0.36, 1);
+}
+
+/* The veils that hide text scrolling under the header and the composer have
+   nothing to hide yet, and would lay bands across the water. They come back
+   as the conversation does. */
+[data-first-message-column]
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  transition: opacity 700ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+[data-first-message-column][data-first-message]
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  opacity: 0;
+}
+
+/* The name hangs above the composer from a slot of no height, so it never
+   changes what the composer measures. */
+.luca-first-message-greeting-slot {
+  height: 0;
+  pointer-events: none;
+  position: relative;
+}
+
+.luca-first-message-greeting {
+  align-items: center;
+  bottom: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  left: 0;
+  position: absolute;
+  right: 0;
+  text-align: center;
+}
+
+.luca-first-message-greeting__name {
+  color: hsl(var(--mn-ink));
+  font-family: var(--font-ui);
+  font-size: var(--type-display-size);
+  font-weight: 500;
+  letter-spacing: var(--type-display-tracking);
+  line-height: var(--type-display-leading);
+  margin: 0;
+}
+
+.luca-first-message-greeting__role {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-reading);
+  font-size: var(--type-ui-size);
+  letter-spacing: var(--type-ui-tracking);
+  line-height: var(--type-ui-leading);
+  margin: 0.375rem 0 0;
+}
+
+/* One presence at a time: the small sphere on the composer's ledge waits
+   until the first-message view has gone. */
+[data-first-message-column] .luca-composer-presence {
+  transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-first-message-column]:has([data-first-message-presence])
+  .luca-composer-presence {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-first-message-column][data-first-message-leaving]
+    [data-testid="channel-composer-overlay"],
+  [data-first-message-column] .luca-composer-presence,
+  [data-first-message-column]
+    :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+    transition: none;
+  }
+}

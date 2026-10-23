@@ -46,10 +46,13 @@ import { useConversationPresentation } from "@/features/channels/ui/useConversat
 import {
   isCanonicalLucaDm,
   LUCA_INTRO_ROLE,
-  residentGlyphSeed,
   useCanonicalLucaPubkey,
 } from "@/features/luca/canonicalLucaResident";
-import type { FirstMessagePresenceSubject } from "@/features/messages/ui/FirstMessagePresence";
+import {
+  FirstMessageGreeting,
+  useFirstMessageView,
+} from "@/features/messages/ui/FirstMessageView";
+import { AnimatePresence } from "motion/react";
 import {
   firstMeetingPresentation,
   latestFirstMeetingOffer,
@@ -907,35 +910,14 @@ export const ChannelPane = React.memo(function ChannelPane({
     return keys;
   }, [managedActivity]);
   const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
-  // A direct conversation with one resident opens on that resident, awake,
-  // until the first word. People and group conversations stay bare.
-  const firstMessagePresence =
-    React.useMemo<FirstMessagePresenceSubject | null>(() => {
-      if (directMessageIntro?.participants.length !== 1) return null;
-      const other = directMessageIntro.participants[0];
-      const key = normalizePubkey(other.pubkey);
-      const resident = activityAgents.find(
-        (agent) => normalizePubkey(agent.pubkey) === key,
-      );
-      if (!resident) return null;
-      return {
-        pubkey: resident.pubkey,
-        name: resident.name || other.displayName,
-        role: directMessageIntro.role ?? null,
-        mark: !chatMarkAppearance.visible
-          ? "none"
-          : chatMarkAppearance.style === "glyph"
-            ? "glyph"
-            : "sphere",
-        glyphSeed: residentGlyphSeed(resident.pubkey, lucaPubkey),
-      };
-    }, [
-      activityAgents,
-      chatMarkAppearance.style,
-      chatMarkAppearance.visible,
-      directMessageIntro,
-      lucaPubkey,
-    ]);
+  const firstMessage = useFirstMessageView({
+    activeChannelId,
+    activityAgents,
+    directMessageIntro,
+    isTimelineLoading,
+    messageCount: projectedRoomMessages.length,
+    openThreadHeadId,
+  });
   const composerLedgeAgents = React.useMemo(() => {
     const showSphereIdentity =
       chatMarkAppearance.visible && chatMarkAppearance.style === "sphere";
@@ -1109,7 +1091,9 @@ export const ChannelPane = React.memo(function ChannelPane({
             <section
               aria-label="Channel messages and composer"
               className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-              data-luca-conversation-column=""
+              data-first-message={firstMessage.open ? "" : undefined}
+              data-first-message-column=""
+              data-first-message-leaving={firstMessage.leaving ? "" : undefined}
               data-testid="channel-drop-zone"
               onDragEnter={
                 canDropInMainColumn
@@ -1172,9 +1156,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                   directMessageIntro={
                     focusedThreadHead ? null : directMessageIntro
                   }
-                  firstMessagePresence={
-                    focusedThreadHead ? null : firstMessagePresence
-                  }
+                  firstMessageOpen={firstMessage.open && !focusedThreadHead}
                   scrollContainerRef={timelineScrollRef}
                   currentPubkey={currentPubkey}
                   fetchOlder={fetchOlder}
@@ -1407,6 +1389,17 @@ export const ChannelPane = React.memo(function ChannelPane({
                       onRetrySynthesis={handleRetryRuntimeTaskSynthesis}
                       tasks={runtimeTasksQuery.data ?? []}
                     />
+                    {/* Height zero, so the composer's measured height (and
+                        the timeline's padding) never changes for the name. */}
+                    <div className="luca-measure luca-first-message-greeting-slot">
+                      <AnimatePresence>
+                        {firstMessage.open && firstMessage.subject ? (
+                          <FirstMessageGreeting
+                            subject={firstMessage.subject}
+                          />
+                        ) : null}
+                      </AnimatePresence>
+                    </div>
                     <MessageComposer
                       ledgeAgents={composerLedgeAgents}
                       capabilityResidents={capabilityResidents}

@@ -24,10 +24,7 @@ import { Spinner } from "@/shared/ui/spinner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
 import type { ChannelIntro } from "./ChannelIntroBlock";
-import {
-  FirstMessagePresence,
-  type FirstMessagePresenceSubject,
-} from "./FirstMessagePresence";
+import { FirstMessageInk } from "./FirstMessageView";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
@@ -59,9 +56,9 @@ type MessageTimelineProps = {
    *  fallback, so badge rows survive while a scrollback page commits. */
   threadSummaries?: ReadonlyMap<string, ChannelWindowThreadSummary>;
   directMessageIntro?: DirectMessageIntro | null;
-  /** The resident on the other side of a direct conversation, shown awake in
-   *  the open space until the first message arrives. */
-  firstMessagePresence?: FirstMessagePresenceSubject | null;
+  /** A direct conversation with a resident, before its first message: the
+   *  timeline opens on still water with the conversation's ink in it. */
+  firstMessageOpen?: boolean;
   isLoading?: boolean;
   entranceMessageId?: string | null;
   onEntranceMessageComplete?: (messageId: string) => void;
@@ -170,7 +167,7 @@ const MessageTimelineBase = React.forwardRef<
     channelId,
     channelIntro = null,
     directMessageIntro = null,
-    firstMessagePresence = null,
+    firstMessageOpen = false,
     messages,
     mainEntries,
     threadSummaries,
@@ -497,13 +494,6 @@ const MessageTimelineBase = React.forwardRef<
   const showIntro = false;
   const showGenericEmpty =
     timelineBodySurface === "empty" && timelineIntroSurface === null;
-  // The bare DM gets one exception: a resident is shown, awake, until the
-  // first word. Body "empty" already covers the deferred catch-up after a
-  // send, so the view leaves exactly when the first row can paint.
-  const showFirstMessagePresence =
-    firstMessagePresence !== null &&
-    timelineBodySurface === "empty" &&
-    timelineIntroSurface === "direct-message-intro";
   const showMessageList = timelineBodySurface === "list";
   const showChannelIntroOnly = false;
   const presentationAdmitted =
@@ -826,6 +816,12 @@ const MessageTimelineBase = React.forwardRef<
   return (
     <TooltipProvider delayDuration={200}>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Under everything else in the timeline: the water paints first. */}
+        <AnimatePresence>
+          {firstMessageOpen ? (
+            <FirstMessageInk key={channelId ?? "none"} />
+          ) : null}
+        </AnimatePresence>
         <VisitPresenceRail visitorPubkeys={visitorPubkeys} />
         {showUnreadPill ? (
           <div
@@ -959,17 +955,6 @@ const MessageTimelineBase = React.forwardRef<
               </div>
             </div>
           )}
-        </div>
-
-        <div className="luca-first-message-stage">
-          <AnimatePresence>
-            {showFirstMessagePresence && firstMessagePresence ? (
-              <FirstMessagePresence
-                key={`${channelId ?? "none"}:${firstMessagePresence.pubkey}`}
-                subject={firstMessagePresence}
-              />
-            ) : null}
-          </AnimatePresence>
         </div>
 
         {!isAtBottom ? (
