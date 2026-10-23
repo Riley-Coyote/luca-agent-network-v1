@@ -577,33 +577,23 @@
 }
 
 /* THE CARD'S FINISH. On a dark ground the card is a different material from
- * the floor, not a lighter shade of it: bead-blasted black, its fine grain
- * catching the light where the light falls, near the top edge, and gone by
- * 400px, over a breath of sheen. (On a black floor the card's shade sits just
- * above the floor, so this is most of what tells the two apart; see
- * BLACK_FLOOR_CARD_LIFT in adaptive-theme.ts.)
+ * the floor, not a lighter shade of it: bead-blasted black, a fine grain laid
+ * evenly over the whole card. (On a black floor the card's shade sits just
+ * above the floor, so this, with the light along its top edge, is most of
+ * what tells the two apart; see BLACK_FLOOR_CARD_LIFT in adaptive-theme.ts.)
+ * Even on purpose: a grain that thinned with distance from the top made the
+ * top of the card twice as bright as the rest, and on near-black that read
+ * as a gradient, not as a material (Riley, 2026-10-23).
  *
- * The grain is a 240 × 400 tile that repeats across the card only, never
- * down it, and both layers are measured in pixels from the card's top. That
- * is what lets the header's veil wear the same layers and meet them exactly:
- * the veil starts at the card's padding corner, where the card's own
- * background starts. Painted once; nothing here animates. Not on the glass
- * themes or a glass pop-out, whose cards are glass. */
+ * One 256px tile of fractal noise, stitched so it repeats without a seam.
+ * Painted once; nothing here animates. Not on the glass themes or a glass
+ * pop-out, whose cards are glass. */
 :root[data-luca-shell].dark:not(
   [data-luca-theme="obsidian"],
   [data-luca-theme="crystalline"],
   [data-luca-popout-glass]
 ) {
-  --mn-card-finish:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='400'%3E%3Cdefs%3E%3ClinearGradient id='f' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23fff'/%3E%3Cstop offset='0.4' stop-color='%23fff' stop-opacity='0.38'/%3E%3Cstop offset='1' stop-color='%23fff' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cmask id='m'%3E%3Crect width='240' height='400' fill='url(%23f)'/%3E%3C/mask%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.1 -0.38'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='240' height='400' filter='url(%23n)' opacity='0.075' mask='url(%23m)'/%3E%3C/svg%3E"),
-    linear-gradient(
-      to bottom,
-      rgb(255 255 255 / 0.022),
-      rgb(255 255 255 / 0.007) 140px,
-      rgb(255 255 255 / 0) 400px
-    );
-  --mn-card-finish-repeat: repeat-x, no-repeat;
-  --mn-card-finish-size: 240px 400px, 100% 400px;
+  --mn-card-finish: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.1 -0.38'/%3E%3C/filter%3E%3Crect width='256' height='256' filter='url(%23n)' opacity='0.075'/%3E%3C/svg%3E");
 }
 
 :root[data-luca-shell].dark:not(
@@ -615,32 +605,59 @@
     [data-luca-card]:not([data-testid="agent-chats-column"]),
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))
   ) {
-  background-image: var(--mn-card-finish);
-  background-repeat: var(--mn-card-finish-repeat);
-  background-size: var(--mn-card-finish-size);
+  /* The grain stops at the padding edge, a pixel inside the card's transparent
+     border: WebKit draws an image that runs under a transparent border at
+     about two thirds of its strength, which alone made the veils (drawn at
+     full strength) read as lighter bands. The colour still runs to the edge,
+     under the border, on the clip of the empty layer below. */
+  background-image: var(--mn-card-finish), none;
+  background-size: 256px 256px;
+  background-clip: padding-box, border-box;
 }
 
-/* The header's veil is the card's own top, copied over what scrolls beneath:
- * the same finish on the surface colour, faded at its lower edge by a mask
- * rather than a colour stop, so where it thins the card under it shows
- * exactly the same thing. */
+/* The veils that hide what scrolls under the header and the composer are the
+ * card itself, copied over the words: the same grain on the surface colour,
+ * faded at their inner edge by a mask rather than a colour stop. Where a veil
+ * thins, its grain gives way to the card's own, so the grain never doubles,
+ * and a grain this fine shows no seam where the two tiles meet. */
+:root[data-luca-shell].dark:not(
+    [data-luca-theme="obsidian"],
+    [data-luca-theme="crystalline"],
+    [data-luca-popout-glass]
+  )
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  background: var(--mn-card-finish), hsl(var(--background));
+  background-size:
+    256px 256px,
+    100% 100%;
+}
+
 :root[data-luca-shell].dark:not(
     [data-luca-theme="obsidian"],
     [data-luca-theme="crystalline"],
     [data-luca-popout-glass]
   )
   .luca-conversation-veil-top {
-  background: var(--mn-card-finish), hsl(var(--background));
-  background-repeat: var(--mn-card-finish-repeat), no-repeat;
-  background-size:
-    var(--mn-card-finish-size),
-    100% 100%;
   -webkit-mask-image: linear-gradient(
     to bottom,
     #000 calc(100% - 1rem),
     transparent
   );
   mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+}
+
+:root[data-luca-shell].dark:not(
+    [data-luca-theme="obsidian"],
+    [data-luca-theme="crystalline"],
+    [data-luca-popout-glass]
+  )
+  .luca-conversation-veil-bottom {
+  -webkit-mask-image: linear-gradient(
+    to top,
+    #000 calc(100% - 3rem),
+    transparent
+  );
+  mask-image: linear-gradient(to top, #000 calc(100% - 3rem), transparent);
 }
 
 /* ------------------------------------------------------------------
