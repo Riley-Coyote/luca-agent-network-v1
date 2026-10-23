@@ -10,10 +10,12 @@ import {
  *
  * When the app carries native glass (desktop/src-tauri/native/glass), it
  * announces itself as `window.__POLYPHONIC_NATIVE_GLASS__` and a
- * `polyphonic-native-glass` event. The conversation card and the rail's
- * selection are then Apple's glass, drawn natively beneath this page, and the
- * page draws neither: it marks the root `data-luca-native-glass`
- * (railGlass.css leaves the floor, the card and the web pill empty there) and
+ * `polyphonic-native-glass` event. The rail's selection is then Apple's
+ * glass, drawn natively beneath this page, coming out from under the card's
+ * edge; the card keeps its own surface, unless the owner makes it glass too
+ * (Appearance, NativeGlassSettings). The page marks the root
+ * `data-luca-native-glass` ("surface" or "glass"; railGlass.css leaves the
+ * floor and the web pill empty, and the card too when it is glass) and
  * reports where things are whenever something moves: the card's place and
  * corners, the floor's colour, the chosen row, and the part of the rail it
  * shows in. The native side moves the glass; every word stays here, above it.
@@ -116,17 +118,41 @@ export function NativeRailGlass() {
       document.body;
     const floor = hexColour(getComputedStyle(floorSource).backgroundColor);
     const root = document.documentElement;
-    root.setAttribute("data-luca-native-glass", "");
-    const settle = () =>
-      bridge()?.postMessage({ type: "settings", ...readNativeGlassChoice() });
+    let cardGlass = false;
+    let markedCard: HTMLElement | null = null;
+    // Only the card the glass draws is cleared, and only when it is glass: a
+    // drawer or a second pane keeps its own surface.
+    const mark = (card: HTMLElement | null) => {
+      const next = cardGlass ? card : null;
+      if (next === markedCard) return;
+      markedCard?.removeAttribute("data-luca-native-glass-card");
+      next?.setAttribute("data-luca-native-glass-card", "");
+      markedCard = next;
+    };
+    const settle = () => {
+      const { card, ...choice } = readNativeGlassChoice();
+      cardGlass = card === "glass";
+      root.setAttribute("data-luca-native-glass", card);
+      mark(mainCard());
+      bridge()?.postMessage({ type: "settings", ...choice, cardGlass });
+    };
     settle();
     window.addEventListener(NATIVE_GLASS_SETTINGS_EVENT, settle);
 
     let last = "";
+    let watchedCard: HTMLElement | null = null;
     const report = () => {
       const glass = bridge();
       if (!glass) return;
       const card = mainCard();
+      mark(card);
+      // The card may be a new element after a navigation: follow its size,
+      // so the glass beneath it moves when a drawer opens or the rail resizes.
+      if (card !== watchedCard) {
+        if (watchedCard) resizes.unobserve(watchedCard);
+        if (card) resizes.observe(card);
+        watchedCard = card;
+      }
       const row = sidebar?.querySelector<HTMLElement>(ROW_SELECTOR) ?? null;
       const rowRect = row?.getBoundingClientRect();
       const clip = row?.closest('[data-sidebar="content"]') ?? sidebar;
@@ -177,11 +203,11 @@ export function NativeRailGlass() {
         subtree: true,
       });
     }
+    // Panes come and go beside the card (a drawer, a second pane).
+    mutations.observe(document.body, { childList: true, subtree: true });
     const resizes = new ResizeObserver(later);
     resizes.observe(root);
     if (sidebar) resizes.observe(sidebar);
-    const card = mainCard();
-    if (card) resizes.observe(card);
     const scrolled = (event: Event) => {
       if (sidebar?.contains(event.target as Node)) report();
     };
@@ -199,6 +225,7 @@ export function NativeRailGlass() {
       window.removeEventListener("resize", later);
       if (pending) cancelAnimationFrame(pending);
       window.removeEventListener(NATIVE_GLASS_SETTINGS_EVENT, settle);
+      markedCard?.removeAttribute("data-luca-native-glass-card");
       root.removeAttribute("data-luca-native-glass");
       // The page paints its own floor and card again; the glass stands down.
       bridge()?.postMessage({ type: "off" });

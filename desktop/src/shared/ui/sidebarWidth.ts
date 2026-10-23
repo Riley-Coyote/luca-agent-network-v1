@@ -1,5 +1,6 @@
 export const SIDEBAR_WIDTH_STORAGE_KEY = "luca-conversation-sidebar-width";
-export const SIDEBAR_WIDTH_DEFAULT = 264;
+// The rail opens at its narrowest (Riley, 2026-10-23: the old 264 read big).
+export const SIDEBAR_WIDTH_DEFAULT = 220;
 export const SIDEBAR_WIDTH_MOBILE = "288px";
 export const SIDEBAR_WIDTH_ICON = "48px";
 

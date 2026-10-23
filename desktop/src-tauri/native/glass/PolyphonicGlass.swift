@@ -1,8 +1,11 @@
 import AppKit
 import WebKit
 
-// Polyphonic's glass. The conversation card is a slab of Apple's glass and the rail's selection is a piece of it,
-// drawn natively behind the page. The page is transparent where the glass shows and keeps every word above it: under
+// Polyphonic's glass. The rail's selection is a piece of Apple's glass that comes out of the conversation card's edge
+// and goes back into it, drawn natively behind the page. The card keeps its own near-black surface, painted by the page
+// above the glass, so the selection slides out from under its edge (Riley, 2026-10-23: the glass card read as a bright
+// grey slab with a thick rim). The card can be Apple's glass too (`cardGlass`), and then the selection pours out of it
+// on a neck. The page is transparent where the glass shows and keeps every word above it: under
 // a thin capsule of Apple's glass, words smear. The page says where (the card, the chosen row, the rail's visible
 // area); this side says how, on the house springs. The motion is the Liquid Glass Workbench's rail study (creative-mind
 // skills/liquid-glass/workbench/Sources/RailStudy.swift, its spec in that file's header); the plan is
@@ -13,7 +16,9 @@ import WebKit
 //       whenever anything moves: the card's place and corners, the floor's colour, the chosen row and the rail area it
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
-//   {type: "settings", material, motion, floor, slow}   clear|smoked|dark · pour|drop|slide · plain|grain
+//   {type: "settings", material, motion, floor, cardGlass, slow}
+//                                                       clear|smoked|dark · pour|drop|slide · plain|grain · the card as
+//                                                       glass (true) or the page's own surface (false, the default)
 //   {type: "off"}                                       the page draws its own floor and card again (Reduce
 //                                                       Transparency, or the rail gone): every piece and the floor go
 //   {type: "log", on}                                   films and checks: every frame's geometry
@@ -33,6 +38,8 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
     /// the page instead of waiting for the page's next report.
     private var cardInsets: NSEdgeInsets?
     private var cardRadius: CGFloat = 18
+    /// Whether the card is Apple's glass too, or (the default) the page's own surface with the glass beneath its edge.
+    private var cardGlass = false
     private var mode = "pour"
     /// The chosen row's id, the piece of glass that belongs to it, and where the row is now.
     private var chosen: String?
@@ -109,9 +116,14 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         placeCard()
     }
 
-    /// The card, from its insets and the page's size: at once, never on a spring.
+    /// The card, from its insets and the page's size: at once, never on a spring. Drawn only when the card is glass;
+    /// otherwise its place is only where the selection comes from and goes back to, under the page's own card.
     private func placeCard() {
         guard let rect = cardRect else { return }
+        guard cardGlass else {
+            if stage.drop("card") != nil { stage.remove("card") }
+            return
+        }
         if debug { print("polyphonic-glass: card \(rect) in \(host.bounds), pieces \(stage.drops.map(\.id))") }
         if let card = stage.drop("card") {
             card.radius = cardRadius
@@ -189,6 +201,10 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
             }
         }
         if let floor = body["floor"] as? String { host.floor.grain = floor == "grain" }
+        if let glass = body["cardGlass"] as? Bool, glass != cardGlass {
+            cardGlass = glass
+            placeCard()
+        }
         if let slow = body["slow"] as? Bool {
             self.slow = slow
             stage.slowMotion = slow ? 8 : 1

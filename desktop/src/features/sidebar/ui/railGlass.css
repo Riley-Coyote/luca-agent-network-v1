@@ -160,11 +160,14 @@
   }
 }
 
-/* Apple's real glass (native test builds, NativeRailGlass.tsx). The card and
- * the rail's selection are drawn natively beneath the page, on the floor's
- * own colour, so the page leaves those places empty: no floor, no card fill,
- * grain or edge light, no veil of the card's colour, and no web pill. Every
- * word and every other surface stays. */
+/* Apple's real glass (native test builds, NativeRailGlass.tsx). The rail's
+ * selection is drawn natively beneath the page, on the floor's own colour, so
+ * the page leaves the floor empty and draws no web pill. The card keeps its
+ * own surface and covers the glass at its edge, which is where the selection
+ * comes from and goes back to. Only when the owner makes the card glass too
+ * ("glass") is the one card the glass draws left empty as well: its fill,
+ * grain, edge light and the veils of its colour. Every word and every other
+ * surface (a drawer, a second pane) stays. */
 :root[data-luca-native-glass],
 :root[data-luca-native-glass] body,
 :root[data-luca-native-glass]
@@ -174,16 +177,19 @@
     .buzz-huddle-app-surface,
     [data-sidebar="sidebar"],
     [data-buzz-glass-inset],
-    [data-luca-floor-host],
-    [data-luca-card],
-    .luca-conversation-veil-top,
-    .luca-conversation-veil-bottom
+    [data-luca-floor-host]
+  ),
+:root[data-luca-native-glass="glass"]
+  :is(
+    [data-luca-native-glass-card],
+    [data-luca-native-glass-card] .luca-conversation-veil-top,
+    [data-luca-native-glass-card] .luca-conversation-veil-bottom
   ) {
   /* biome-ignore lint/complexity/noImportantStyles: native glass must clear every layer that paints the floor or the card, whatever its own layer or specificity; it applies only when the app announced its glass */
   background: transparent !important;
 }
 
-:root[data-luca-native-glass] [data-luca-card] {
+:root[data-luca-native-glass="glass"] [data-luca-native-glass-card] {
   /* biome-ignore lint/complexity/noImportantStyles: the same; the card's edge light is the glass's rim now */
   border-color: transparent !important;
   /* biome-ignore lint/complexity/noImportantStyles: the same */

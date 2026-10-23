@@ -13,6 +13,7 @@ export type NativeGlassChoice = {
   material: "clear" | "smoked" | "dark";
   motion: "pour" | "drop" | "slide";
   floor: "plain" | "grain";
+  card: "surface" | "glass";
 };
 
 const STORAGE_KEY = "polyphonic.native-glass";
@@ -21,6 +22,7 @@ const DEFAULT_CHOICE: NativeGlassChoice = {
   material: "clear",
   motion: "pour",
   floor: "plain",
+  card: "surface",
 };
 
 export function readNativeGlassChoice(): NativeGlassChoice {
@@ -56,9 +58,18 @@ const GROUPS: {
   options: { value: string; label: string }[];
 }[] = [
   {
+    key: "card",
+    label: "Card",
+    note: "The card's own near-black surface, or Apple's glass, which the selection then pours out of.",
+    options: [
+      { value: "surface", label: "Surface" },
+      { value: "glass", label: "Glass" },
+    ],
+  },
+  {
     key: "material",
     label: "Material",
-    note: "Clear is the truest glass; Dark is closest to the black card.",
+    note: "Clear is the truest glass; Dark is the quietest.",
     options: [
       { value: "clear", label: "Clear" },
       { value: "smoked", label: "Smoked" },
@@ -114,8 +125,7 @@ export function NativeGlassSettings() {
       <div>
         <p className="text-sm font-medium">Apple glass</p>
         <p className="text-xs text-muted-foreground">
-          This test build draws the card and the rail's selection in Apple's
-          real glass.
+          This test build draws the rail's selection in Apple's real glass.
         </p>
       </div>
       {GROUPS.map((group) => (
