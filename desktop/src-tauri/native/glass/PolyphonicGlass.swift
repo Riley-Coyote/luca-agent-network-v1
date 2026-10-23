@@ -14,6 +14,8 @@ import WebKit
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
 //   {type: "settings", material, motion, floor, slow}   clear|smoked|dark · pour|drop|slide · plain|grain
+//   {type: "off"}                                       the page draws its own floor and card again (Reduce
+//                                                       Transparency, or the rail gone): every piece and the floor go
 //   {type: "log", on}                                   films and checks: every frame's geometry
 // Coordinates are the page's CSS pixels from the web view's top-left, which are points (the app pins WebKit's zoom).
 // It announces itself to the page as `window.__POLYPHONIC_NATIVE_GLASS__` and a `polyphonic-native-glass` event.
@@ -45,7 +47,6 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
     private var serial = 0
     private var pullSerial = 0
     private var slow = false
-    private var steps: [Task<Void, Never>] = []
     private var log: [[String: Any]]?
     /// When the page saw what the glass last drew (its wall clock, ms), for the lag check.
     private var pageTime: Double?
@@ -86,6 +87,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
             layout(body)
             select(body)
         case "settings": settings(body)
+        case "off": standDown()
         case "log": record(body["on"] as? Bool ?? false)
         case "dump" where debug: dump(host, depth: 0)
         default: break
@@ -94,22 +96,16 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
 
     private func layout(_ body: [String: Any]) {
         if let floor = body["floor"] as? String { host.floor.color = NSColor(hex: floor) ?? .black }
+        // From the page's first report on, the floor is the window's: the page has stopped painting its own.
+        host.floor.isHidden = false
         guard let card = Self.rect(body["card"]), card.width > 1, card.height > 1 else {
-            // No card on this page: every piece melts away where it is.
-            cardInsets = nil
-            host.floor.isHidden = true
-            for drop in stage.drops { stage.remove(drop.id) }
-            chosen = nil
-            current = nil
-            welling = nil
-            going = []
-            shown = false
+            // No card on this page: the glass goes, the floor stays.
+            removePieces()
             return
         }
         let page = host.bounds
         cardInsets = NSEdgeInsets(top: card.minY, left: card.minX, bottom: page.height - card.maxY, right: page.width - card.maxX)
         if let radius = (body["card"] as? [String: Any])?["r"] as? Double { cardRadius = CGFloat(radius) }
-        host.floor.isHidden = false
         placeCard()
     }
 
@@ -150,6 +146,23 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         } else {
             choose(id, row)
         }
+    }
+
+    private func removePieces() {
+        cardInsets = nil
+        for drop in stage.drops { stage.remove(drop.id) }
+        chosen = nil
+        current = nil
+        welling = nil
+        going = []
+        shown = false
+    }
+
+    /// The page paints its own floor and card again: nothing native shows until it reports once more.
+    private func standDown() {
+        removePieces()
+        stage.pulling = false
+        host.floor.isHidden = true
     }
 
     private func clear() {
@@ -199,6 +212,16 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         if !shown {
             // The first selection after the page appears is simply there.
             shown = true
+            let drop = newSelection(row)
+            stage.add(drop)
+            current = drop.id
+            return
+        }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            // With Reduce Motion the selection is simply in its row, and the old one simply gone.
+            for drop in stage.drops where drop.id != "card" { stage.remove(drop.id) }
+            going = []
+            welling = nil
             let drop = newSelection(row)
             stage.add(drop)
             current = drop.id
@@ -268,14 +291,14 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// Later, on the main actor. Each step checks it is still wanted when it runs (a newer pour or pull supersedes it),
+    /// so none needs keeping or cancelling.
     private func after(_ seconds: Double, _ work: @escaping @MainActor () -> Void) {
         let scaled = seconds * (slow ? 8 : 1)
-        steps.removeAll { $0.isCancelled }
-        steps.append(Task { @MainActor in
+        Task { @MainActor in
             try? await Task.sleep(for: .seconds(scaled))
-            guard !Task.isCancelled else { return }
             work()
-        })
+        }
     }
 
     private func frameDrawn() {

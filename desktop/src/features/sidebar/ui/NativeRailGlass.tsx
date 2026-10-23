@@ -1,5 +1,10 @@
 import * as React from "react";
 
+import {
+  NATIVE_GLASS_SETTINGS_EVENT,
+  readNativeGlassChoice,
+} from "@/features/sidebar/ui/NativeGlassSettings";
+
 /**
  * THE RAIL IN APPLE'S REAL GLASS (native test builds).
  *
@@ -14,7 +19,9 @@ import * as React from "react";
  * shows in. The native side moves the glass; every word stays here, above it.
  *
  * Without the announcement nothing happens, so shipped builds and browsers
- * are untouched. The plan: docs/luca/native-rail-glass/PLAN.md.
+ * are untouched. With Reduce Transparency the page keeps drawing its own
+ * floor and card, and the glass stands down. The plan:
+ * docs/luca/native-rail-glass/PLAN.md.
  */
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -33,6 +40,8 @@ const ROW_SELECTOR =
 
 const glassWindow = () => window as GlassWindow;
 const announced = () => Boolean(glassWindow().__POLYPHONIC_NATIVE_GLASS__);
+const bridge = () => glassWindow().webkit?.messageHandlers?.polyphonicGlass;
+const REDUCED_TRANSPARENCY = "(prefers-reduced-transparency: reduce)";
 
 const box = (rect: DOMRect): Box => ({
   x: rect.x,
@@ -75,15 +84,26 @@ function mainCard(): HTMLElement | null {
 }
 
 export function NativeRailGlass() {
-  const [on, setOn] = React.useState(announced);
+  const [present, setPresent] = React.useState(announced);
+  const [opaque, setOpaque] = React.useState(
+    () => window.matchMedia(REDUCED_TRANSPARENCY).matches,
+  );
+  const on = present && !opaque;
 
   React.useEffect(() => {
-    if (on) return;
-    const enable = () => setOn(true);
+    if (present) return;
+    const enable = () => setPresent(true);
     window.addEventListener("polyphonic-native-glass", enable);
     if (announced()) enable();
     return () => window.removeEventListener("polyphonic-native-glass", enable);
-  }, [on]);
+  }, [present]);
+
+  React.useEffect(() => {
+    const query = window.matchMedia(REDUCED_TRANSPARENCY);
+    const changed = () => setOpaque(query.matches);
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  }, []);
 
   React.useEffect(() => {
     if (!on) return;
@@ -97,11 +117,15 @@ export function NativeRailGlass() {
     const floor = hexColour(getComputedStyle(floorSource).backgroundColor);
     const root = document.documentElement;
     root.setAttribute("data-luca-native-glass", "");
+    const settle = () =>
+      bridge()?.postMessage({ type: "settings", ...readNativeGlassChoice() });
+    settle();
+    window.addEventListener(NATIVE_GLASS_SETTINGS_EVENT, settle);
 
     let last = "";
     const report = () => {
-      const bridge = glassWindow().webkit?.messageHandlers?.polyphonicGlass;
-      if (!bridge) return;
+      const glass = bridge();
+      if (!glass) return;
       const card = mainCard();
       const row = sidebar?.querySelector<HTMLElement>(ROW_SELECTOR) ?? null;
       const rowRect = row?.getBoundingClientRect();
@@ -127,7 +151,7 @@ export function NativeRailGlass() {
       if (text === last) return;
       last = text;
       // When the page saw it, on the wall clock: how far the glass trails.
-      bridge.postMessage({
+      glass.postMessage({
         ...message,
         t: performance.timeOrigin + performance.now(),
       });
@@ -174,7 +198,10 @@ export function NativeRailGlass() {
       document.removeEventListener("scroll", scrolled, { capture: true });
       window.removeEventListener("resize", later);
       if (pending) cancelAnimationFrame(pending);
+      window.removeEventListener(NATIVE_GLASS_SETTINGS_EVENT, settle);
       root.removeAttribute("data-luca-native-glass");
+      // The page paints its own floor and card again; the glass stands down.
+      bridge()?.postMessage({ type: "off" });
     };
   }, [on]);
 
