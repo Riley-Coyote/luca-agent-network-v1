@@ -124,12 +124,19 @@
    * menus that sit over scrolling content). Solved per mode below. */
   --mn-contact-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
   /* The card's finished edge — the strokeless replacement for the 1px
-   * border: lit top bevel plus a soft contact and ambient shadow. Every
-   * card-family surface (data-luca-card, the conversation surface, the day
-   * pill) wears this instead of a stroke. */
+   * border. ONE LIGHT, FROM ABOVE. On a black floor no shadow can show, so
+   * the card is drawn by where the light catches it: the top contour takes
+   * it (half a pixel, one device pixel on a Retina screen, set just outside
+   * the edge so it lies on the contour and thins away round the corners),
+   * and a fainter rim holds the sides and the bottom. Both sit outside the
+   * box because the cards keep a transparent 1px border for layout, and an
+   * inset light would fall a pixel inside their visible edge. The contact
+   * and ambient shadows stay for the palettes whose floor is not black.
+   * Every card-family surface (data-luca-card, the conversation surface)
+   * wears this instead of a stroke. */
   --mn-card-edge:
-    var(--mn-lit-edge), 0 1px 2px rgb(0 0 0 / 0.14),
-    0 8px 24px rgb(0 0 0 / 0.12);
+    0 -0.5px 0 rgb(255 255 255 / 0.12), 0 0 0 0.5px rgb(255 255 255 / 0.08),
+    0 1px 2px rgb(0 0 0 / 0.14), 0 8px 24px rgb(0 0 0 / 0.12);
 
   /* The plate: the one borderless group surface. Ink at a small alpha rather
    * than a grey step, so it reads the same in Void, Graphite and every light
@@ -257,12 +264,18 @@
   --mn-lit-edge: 0 1px 1.5px hsl(var(--mn-ink) / 0.045);
   --mn-lit-edge-off: 0 1px 1.5px hsl(var(--mn-ink) / 0);
   --mn-contact-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
-  /* Light polarity's card edge: a bright inner bevel with ink-cast contact
-   * and ambient shadows (a white inset does the lifting here; the dark
-   * formula's black shadows would read as dirt on paper). */
+  /* Light polarity's card edge. Paper sits only a few values under the card,
+   * so the light from above is told by what it leaves below: a hairline rim
+   * where the sheet meets the floor (half a pixel of ink, as a Mac window is
+   * edged in daylight), a contact shadow, and a soft fall beneath, pulled in
+   * at the sides so it pools under the card rather than haloing it. All of it
+   * is ink-cast; the dark formula's black shadows would read as dirt on
+   * paper. The white inner bevel stays for the palettes whose card is not
+   * already white. */
   --mn-card-edge:
-    inset 0 1px 0 rgb(255 255 255 / 0.7), 0 1px 2px hsl(var(--mn-ink) / 0.06),
-    0 8px 24px hsl(var(--mn-ink) / 0.05);
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.075), 0 1px 2px hsl(var(--mn-ink) / 0.05),
+    0 12px 32px -8px hsl(var(--mn-ink) / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.7);
   --mn-plate-strong: color-mix(
     in srgb,
     hsl(var(--mn-ink)) 5%,
