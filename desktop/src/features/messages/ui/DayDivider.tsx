@@ -12,7 +12,7 @@ export function DayDivider({ label }: { label: string }) {
       data-testid="message-timeline-day-divider"
       data-day-label={label}
     >
-      <p className="relative z-10 shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-1 text-2xs font-medium tracking-caps text-ink-faint">
+      <p className="relative z-10 shrink-0 rounded-full border border-border/70 bg-background px-2.5 py-1 type-eyebrow text-ink-faint">
         {label}
       </p>
     </section>

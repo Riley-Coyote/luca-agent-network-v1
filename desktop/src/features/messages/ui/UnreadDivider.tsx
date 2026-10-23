@@ -11,9 +11,7 @@ export function UnreadDivider() {
       data-testid="message-unread-divider"
     >
       <div className="h-px flex-1 bg-primary/40" />
-      <span className="shrink-0 px-2 text-2xs font-semibold uppercase tracking-caps text-primary">
-        New
-      </span>
+      <span className="type-eyebrow shrink-0 px-2 text-primary">New</span>
       <div className="h-px flex-1 bg-primary/40" />
     </section>
   );

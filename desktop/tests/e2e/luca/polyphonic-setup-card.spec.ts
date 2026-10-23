@@ -120,7 +120,7 @@ test("the setup card is dark whatever the system scheme, and reads in the app's 
   const family = await page
     .getByRole("heading", { name: "What should Luca call you?" })
     .evaluate((el) => getComputedStyle(el).fontFamily);
-  expect(family).toMatch(/Instrument Sans/);
+  expect(family).toMatch(/-apple-system/);
 });
 
 test("the shell is the same object on the door and in the card", async ({

@@ -6,7 +6,6 @@ import { PopoutApp } from "@/app/popout/PopoutApp";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
 import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDialog";
 import "@fontsource-variable/inter/wght.css";
-import "@fontsource-variable/instrument-sans";
 import "@fontsource/fragment-mono/400.css";
 import "@fontsource/doto/400.css";
 import "@/shared/styles/globals.css";

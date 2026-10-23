@@ -585,9 +585,7 @@
 }
 
 :root[data-luca-shell] body {
-  font-family:
-    "Instrument Sans Variable", "Instrument Sans", "Inter Variable",
-    "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
 }
 
 :root[data-luca-shell] :is(code, kbd, [data-font="mono"], .font-mono) {

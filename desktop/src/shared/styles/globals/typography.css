@@ -22,25 +22,25 @@
  *   label    12px   captions, secondary chrome
  *   ui       14px   THE chrome default — rows, buttons, menus, fields
  *   body     16px   message copy, composer, anything read at length
- *   title    17px   conversation and panel headers
- *   heading  22px   empty states, section openings
+ *   title    20px   conversation and panel headers
+ *   heading  28px   empty states, section openings
  *   display  40px   onboarding
  *   eyebrow  11px   the one uppercase micro-label
  *
- * THE FACES. Two families with distinct jobs, per the typographic
- * foundation. Instrument Sans is a display-leaning grotesque: excellent as
- * chrome, where text is short, glanced at, and wants character. Inter is
- * drawn for screen reading and holds up over paragraphs, which is what a
- * conversation actually is. So reading surfaces get Inter and chrome keeps
- * Instrument Sans. `--font-ui` and `--font-mono` are declared beside the
- * shell scale in conversation-shell.css; `--font-reading` joins them here
- * because it exists for this file's sake.
+ * The title was 17px, one pixel over the body it sits above, which is a step
+ * nobody can see; a header has to win by size, not only by weight.
+ *
+ * THE FACES. Two voices. One face to read and to work in: Apple's system
+ * face (SF Pro on a Mac), for message copy and chrome alike, because a Mac
+ * app is set in it everywhere and the reader should never feel a seam
+ * between the window and the words. And the mono, in small opened-up
+ * capitals, to label. `--font-ui` and `--font-mono` are declared beside the
+ * shell scale in conversation-shell.css; `--font-reading` names the reading
+ * role here, on the same face, so the two can part again without a hunt.
  * ------------------------------------------------------------------ */
 
 :root[data-luca-shell] {
-  --font-reading:
-    "Inter Variable", Inter, ui-sans-serif, system-ui, "Avenir Next",
-    "Segoe UI", sans-serif;
+  --font-reading: var(--font-ui);
 
   --type-micro-size: 0.6875rem;
   --type-micro-leading: 1.45;
@@ -58,12 +58,12 @@
   --type-body-leading: 1.68;
   --type-body-tracking: -0.003em;
 
-  --type-title-size: 1.0625rem;
-  --type-title-leading: 1.35;
+  --type-title-size: 1.25rem;
+  --type-title-leading: 1.3;
   --type-title-tracking: -0.014em;
 
-  --type-heading-size: 1.375rem;
-  --type-heading-leading: 1.25;
+  --type-heading-size: 1.75rem;
+  --type-heading-leading: 1.2;
   --type-heading-tracking: -0.021em;
 
   --type-display-size: 2.5rem;
@@ -153,22 +153,25 @@
   line-height: var(--type-display-leading);
 }
 
-/* The single uppercase micro-label. Every sidebar group heading, section
-   title and state chip resolves here instead of picking its own tracking
-   somewhere between 0.02em and 0.3em. */
+/* The single uppercase micro-label, in the second voice: the mono, opened up.
+   Every sidebar group heading, section title and state chip resolves here
+   instead of picking its own tracking somewhere between 0.02em and 0.3em. A
+   mono's capitals are already wide, so it takes the caps step, not the
+   eyebrow step a proportional face needs. */
 :root[data-luca-shell] .type-eyebrow {
+  font-family: var(--font-mono);
   font-size: var(--type-eyebrow-size);
-  font-weight: 500;
-  letter-spacing: var(--type-eyebrow-tracking);
+  font-weight: 400;
+  letter-spacing: var(--type-caps-tracking);
   line-height: var(--type-eyebrow-leading);
   text-transform: uppercase;
 }
 
 /* ------------------------------------------------------------------
- * READING SURFACES. Inter, and the two features that matter for a product
- * whose whole job is reading: `cv05` gives lowercase l a tail so it stops
- * impersonating capital I and the digit 1, and reading copy sits on the
- * reading face rather than the chrome face.
+ * READING SURFACES. The reading face, named for its role. `cv05` gives
+ * lowercase l a tail so it stops impersonating capital I and the digit 1;
+ * it is Inter's, so it only acts where Inter is the fallback, and SF Pro
+ * ignores it.
  * ------------------------------------------------------------------ */
 
 :root[data-luca-shell] :is([data-message-content], [data-reading-surface]) {

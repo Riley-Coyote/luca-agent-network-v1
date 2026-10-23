@@ -207,12 +207,13 @@
   /* The row's own `-mt-0.5` optically hangs a first line off an author name;
      with the name gone the plate's padding does that work instead. */
   margin-top: 0;
-  /* 72% of the reading MEASURE — of the column the words are set in, not of
+  /* 84% of the reading MEASURE — of the column the words are set in, not of
      whatever the window happens to be — capped at the column so a narrowed
-     window cannot push the plate past its own row. Wide enough for a
-     paragraph, short enough that the ragged right edge stays a shape whose
-     length the eye can read at a glance. */
-  max-width: min(100%, calc(var(--mn-reading-measure) * 0.72));
+     window cannot push the plate past its own row. About 60 characters a
+     line, a little under a reply's 68: wide enough for a paragraph, short
+     enough that the plate still reads as the narrower shape and its ragged
+     right edge stays a length the eye can read at a glance. */
+  max-width: min(100%, calc(var(--mn-reading-measure) * 0.84));
   min-width: 0;
   padding: 8px 14px;
   transition: background-color var(--motion-duration-instant)

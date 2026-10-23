@@ -1,9 +1,13 @@
 /* Luca conversation-first shell. Kept last so this production-intent layer
    can refine legacy Buzz surfaces without forking their data components. */
 :root[data-luca-shell] {
+  /* Apple's system face, for chrome and reading alike: on a Mac this is SF
+     Pro, with the optical sizes and tracking the system applies to it, which
+     is the first thing that makes a window read as native. Elsewhere it falls
+     back to the bundled Inter. The labels are the second voice, the mono. */
   --font-ui:
-    "Instrument Sans Variable", "Instrument Sans", "Inter Variable",
-    "Avenir Next", "Segoe UI", sans-serif;
+    -apple-system, BlinkMacSystemFont, "Inter Variable", Inter, "Segoe UI",
+    system-ui, sans-serif;
   --font-mono: "Fragment Mono", "SFMono-Regular", "SF Mono", monospace;
   --font-instrument: "Doto", "Fragment Mono", "SFMono-Regular", monospace;
   /* The type ramp — sizes, leadings and tracking — lives in typography.css,
@@ -168,11 +172,13 @@
    * PAIRED WITH `trafficLightPosition.y` in tauri.conf.json: the lights are
    * 12px tall, so aligning them on this row means y = lip + (header - 12) / 2.
    * Change one, change the other. */
-  /* The measure — the width of the READING column, not of the card. A line
-     much past the mid-70s of characters costs the eye its return sweep; the
-     plane was 48rem, which put message copy at 87. This lands it at 79, the
-     same register the best long-form readers sit in. */
-  --mn-reading-measure: 45rem;
+  /* The measure — the width of the READING column, not of the card. Running
+     text holds 45 to 75 characters a line, about 66 at best; past that the
+     eye loses its return sweep. SF Pro sets about 7.3px a character at 16px,
+     so at 45rem a mind's reply ran to 91. This lands it near 68, measured
+     from the rendered lines. Wide windows get wider margins, not longer
+     lines. */
+  --mn-reading-measure: 34.5rem;
   --mn-card-lip: 8px;
   --mn-card-gap: 4px;
   /* The header is TWO lines now — name, then the live-state line. */
@@ -722,12 +728,13 @@
   padding-block: 4px;
 }
 
+/* A label, so the second voice: mono capitals, opened up. */
 :root[data-luca-shell] [data-sidebar="group-label"] {
   color: hsl(var(--mn-ink-faint));
-  font-family: var(--font-ui);
+  font-family: var(--font-mono);
   font-size: var(--type-eyebrow-size);
-  font-weight: 500;
-  letter-spacing: var(--type-eyebrow-tracking);
+  font-weight: 400;
+  letter-spacing: var(--type-caps-tracking);
   line-height: 24px;
   text-transform: uppercase;
 }
