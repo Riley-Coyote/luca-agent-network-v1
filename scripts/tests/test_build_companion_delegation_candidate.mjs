@@ -25,18 +25,35 @@ function shell(code, args = [], env = {}) {
   });
 }
 
-test("initiative identity is distinct and can reuse only the warm compile cache", () => {
+test("initiative identity is distinct, and every kind compiles only in the warm shared cache", () => {
   const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "initiative" };
   const overlay = join(repository, "desktop/src-tauri/tauri.companion-initiative-candidate.conf.json");
   const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [overlay], env);
   assert.equal(identity.status, 0, identity.stderr);
   const cache = join(process.env.HOME, "Library/Caches/luca-build/cargo-target");
-  assert.equal(shell('TARGET_DIR="$1"; validate_directory "$1"', [cache], env).status, 0);
-  assert.notEqual(shell('TARGET_DIR=/private/tmp/other-target; validate_directory "$1"', [cache], env).status, 0);
-  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=""; prepare_paths', [cache], env).status, 0);
-  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT="$1"; prepare_paths', [cache], env).status, 0);
-  assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=/Volumes/LaCie/candidate; prepare_paths', [cache], env).status, 0);
+  for (const kind of [env, {}]) {
+    assert.equal(shell('TARGET_DIR="$1"; validate_directory "$1"', [cache], kind).status, 0);
+    assert.notEqual(shell('TARGET_DIR=/private/tmp/other-target; validate_directory "$1"', [cache], kind).status, 0);
+    assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=""; prepare_paths', [cache], kind).status, 0);
+    assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT="$1"; prepare_paths', [cache], kind).status, 0);
+    assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT="$1/instance"; prepare_paths', [cache], kind).status, 0);
+    assert.notEqual(shell('TARGET_DIR="$1"; INSTANCE_ROOT=/Volumes/LaCie/candidate; prepare_paths', [cache], kind).status, 0);
+  }
   assert.notEqual(shell('true', [], { POLYPHONIC_COMPANION_CANDIDATE_KIND: "unexpected" }).status, 0);
+});
+
+test("the entrypoint refuses any build target but the one shared cache", () => {
+  temporary((root) => {
+    for (const mode of ["check", "build", "run"]) {
+      const refused = spawnSync("bash", [script, mode, "--target-dir", join(root, "target"), "--instance-root", join(root, "instance")],
+        { encoding: "utf8", cwd: repository, timeout: 10_000 });
+      assert.notEqual(refused.status, 0, mode);
+      assert.match(refused.stderr, /one shared build cache/, mode);
+    }
+    const stop = spawnSync("bash", [script, "stop", "--target-dir", join(root, "target"), "--instance-root", join(root, "instance")],
+      { encoding: "utf8", cwd: repository, timeout: 10_000 });
+    assert.doesNotMatch(stop.stderr, /one shared build cache/);
+  });
 });
 
 function temporary(run) {

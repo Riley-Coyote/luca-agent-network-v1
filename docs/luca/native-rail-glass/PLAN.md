@@ -1,7 +1,7 @@
 # The rail in Apple's real glass: a test build
 
-Plan, 2026-10-23. Nothing is built yet. Riley: "Plan how to bring this real-glass rail into Polyphonic as a native test
-build on its own test profile. Don't build it yet."
+Plan, 2026-10-23. Riley: "Plan how to bring this real-glass rail into Polyphonic as a native test build on its own test
+profile. Don't build it yet." Then, the same day: build it, in the one shared build cache.
 
 ## The idea
 
@@ -93,17 +93,14 @@ The repository's guarded candidate script, `scripts/build-companion-delegation-c
 6. **Show it, with Riley's go-ahead.** `run` opens it in front. In the fresh test profile: meet Luca, start two or three
    conversations so the rail has rows, then film the pour in the real app. Riley judges in front.
 
-## Decisions for Riley before building
+## Decided (Riley, 2026-10-23)
 
-1. **Build storage.** The internal SSD has 22 GB free. A separate build folder for the candidate probably needs 10 to
-   16 GB (Living Ink's is 16 GB). Either reuse the warm build cache (`~/Library/Caches/luca-build/cargo-target`, 9 GB),
-   as the Companion Initiative candidate already does, or first archive the finished Living Ink build folder to the
-   LaCie's cold archive. Recommended: reuse the warm cache. It is far faster, needs little new space, and the app's
-   name, profile, keychain scope and running copy all stay separate.
-2. **Signing.** By default the candidate script signs with the Developer ID certificate already on this Mac (it only
-   reads it). The rebuilt app should then keep its own keychain items without macOS asking. The alternative is a
-   local-only signature, which touches nothing of signing, but macOS may ask for keychain access after each rebuild.
-   Recommended: the Developer ID default. Nothing is notarized, uploaded or published either way.
+1. **Build storage: the one shared build cache.** "we never need to do separate builds for this app." The candidate
+   compiles in `~/Library/Caches/luca-build/cargo-target`; the candidate script now refuses any other target. Its
+   profile lives outside the cache, with the other candidates, in
+   `~/Documents/Polyphonic-Candidates/2026-10-23-rail-glass/instance`.
+2. **Signing: the script's default,** the Developer ID certificate already on this Mac, only read. Nothing is notarized,
+   uploaded or published.
 
 ## Out of scope for this test
 

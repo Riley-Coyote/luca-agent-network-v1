@@ -55,6 +55,13 @@ Buzz product assumptions in the upstream guide below. In particular:
 
 ### Local build storage
 
+**One shared build cache, always.** Every Rust build of this app, native test
+candidates included, uses `~/Library/Caches/luca-build/cargo-target` (the global
+target in `~/.cargo/config.toml`). Never pass another `--target-dir`, set
+`CARGO_TARGET_DIR` elsewhere, or create a per-candidate, per-worktree or
+per-proof build folder (Riley, 2026-10-23). A candidate's own profile lives in
+its own instance folder outside the cache.
+
 Keep active source, toolchains, dependencies, build targets and proof processes
 on the internal SSD. Run local Rust work through
 `bash scripts/with-internal-build-cache.sh <command>`. Dev/test incremental

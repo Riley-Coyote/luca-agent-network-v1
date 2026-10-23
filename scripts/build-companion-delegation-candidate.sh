@@ -5,6 +5,11 @@
 set -euo pipefail
 
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+# Every Polyphonic build compiles in this one shared cache, the global target in
+# ~/.cargo/config.toml. Never a separate target for a candidate, a worktree or a
+# proof (Riley, 2026-10-23). A candidate's isolation is its identity and its
+# instance folder (data, native state, keychain scope), never its compiled output.
+readonly SHARED_TARGET="$HOME/Library/Caches/luca-build/cargo-target"
 readonly CANDIDATE_KIND="${POLYPHONIC_COMPANION_CANDIDATE_KIND:-delegation}"
 case "$CANDIDATE_KIND" in
     delegation)
@@ -43,10 +48,11 @@ fail() { printf 'Candidate refused: %s\n' "$1" >&2; exit 1; }
 
 usage() {
     printf '%s\n' \
-        "Usage: $0 check|build|run|stop --target-dir /absolute/dedicated/target" \
-        "       [--instance-root /absolute/dedicated/instance] [--signing-identity name-or-hash]" \
+        "Usage: $0 check|build|run|stop --target-dir $SHARED_TARGET" \
+        "       --instance-root /absolute/dedicated/instance [--signing-identity name-or-hash]" \
         "check is read-only; build does not launch; run never builds; stop sends only owned SIGTERM." \
-        "Default instance root: <target-dir>/companion-delegation-instance. Signing override is build-only." \
+        "The target is always the one shared build cache; stop alone may name an older one." \
+        "The instance root is required, internal and outside the cache. Signing override is build-only." \
         "Rust 1.95.0, existing ~/.cargo, offline locked dependencies, default system-keyring, debug/app-only." \
         "No release/notarization, installed-app replacement, native prompts, or provider configuration edits."
 }
@@ -70,10 +76,10 @@ validate_directory() {
         "$HOME"/.*|"$HOME/Applications"|"$HOME/Applications/"*|"$HOME/Library/Application Support"|"$HOME/Library/Application Support/"*|"$REPO_ROOT/.git"|"$REPO_ROOT/.git/"*)
             fail "directory overlaps personal configuration or installed apps" ;;
         "$HOME/Library/Caches/luca-build/cargo-target")
-            # The initiative candidate deliberately reuses the warm internal
-            # compile cache. Its bundle name, PID record, data, native state,
-            # receipt and keychain namespace remain separately owned.
-            [[ "$CANDIDATE_KIND" == initiative && "$path" == "$TARGET_DIR" ]] || fail "the shared Cargo target is not dedicated candidate storage" ;;
+            # Every candidate compiles in the warm shared cache, and only as its
+            # target. Its bundle name, PID record, data, native state, receipt
+            # and keychain namespace remain separately owned, outside the cache.
+            [[ "$path" == "$TARGET_DIR" ]] || fail "the shared Cargo target holds compiled output only" ;;
     esac
     probe="$path"
     while [[ ! -e "$probe" && ! -L "$probe" ]]; do
@@ -176,13 +182,10 @@ NODE
 }
 
 prepare_paths() {
-    if [[ "$CANDIDATE_KIND" == initiative ]]; then
-        [[ "$TARGET_DIR" != /Volumes/* && -n "$INSTANCE_ROOT" && "$INSTANCE_ROOT" != /Volumes/* ]] || fail "initiative work requires internal storage and an explicit isolated instance root"
-    fi
+    [[ "$TARGET_DIR" != /Volumes/* && -n "$INSTANCE_ROOT" && "$INSTANCE_ROOT" != /Volumes/* ]] || fail "candidates require internal storage and an explicit isolated instance root"
     validate_directory "$TARGET_DIR"
-    INSTANCE_ROOT="${INSTANCE_ROOT:-$TARGET_DIR/companion-delegation-instance}"
     validate_directory "$INSTANCE_ROOT"
-    [[ "$INSTANCE_ROOT" != "$TARGET_DIR" ]] || fail "candidate instance must be separate from Cargo target contents"
+    [[ "$INSTANCE_ROOT" != "$TARGET_DIR" && "$INSTANCE_ROOT" != "$TARGET_DIR"/* ]] || fail "candidate instance must be outside the build cache"
     APP_BUNDLE="$TARGET_DIR/debug/bundle/macos/$PRODUCT_NAME.app"
     APP_EXECUTABLE="$APP_BUNDLE/Contents/MacOS/buzz-desktop"
     PLIST="$APP_BUNDLE/Contents/Info.plist"
@@ -438,6 +441,9 @@ main() {
         esac
     done
     [[ -n "$TARGET_DIR" ]] || { usage; return 2; }
+    # Stopping only signals an owned process, so it may still name a target from
+    # before the one-cache rule; everything else builds or runs from the cache.
+    [[ "$MODE" == stop || "$TARGET_DIR" == "$SHARED_TARGET" ]] || fail "Polyphonic builds use the one shared build cache ($SHARED_TARGET), never a separate target"
     [[ -z "$SIGNING_IDENTITY" || "$MODE" == build ]] || fail "signing override is build-only"
     [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "candidate requires Apple Silicon macOS"
     command -v node >/dev/null || fail "an existing Node runtime is required"

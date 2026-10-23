@@ -32,10 +32,20 @@ Cargo still reuses compiled dependencies. Keep the existing line-table debug
 information; changing compiler, debug level, features or profile can create a
 new set of artifacts and invalidate the reusable set.
 
-An isolated native candidate may require its own target under
-`~/Library/Caches/luca-build/`. Keep its candidate identity/profile isolation.
-Budget for that target explicitly, then archive it when its proof is finished.
-Do not weaken candidate checks just to reuse an installed app or save space.
+**One shared build cache, always.** Every Rust build of this app, native test
+candidates included, compiles in `~/Library/Caches/luca-build/cargo-target` (the
+global target in `~/.cargo/config.toml`). Never create a separate target for a
+candidate, a worktree or a proof (Riley, 2026-10-23: "we never need to do
+separate builds for this app. we cant and need to make sure we never try to
+anymore"). `scripts/build-companion-delegation-candidate.sh` refuses any other
+target. A candidate's isolation is its identity and its instance folder (app
+data, native state, keychain scope), kept outside the cache, never its compiled
+output. Do not weaken candidate checks just to reuse an installed app.
+
+`~/Library/Caches/luca-build/living-ink-initiative-target` (16 GB, holding the
+Living Ink, Companion Initiative and Ghost Coordination candidates) predates
+this rule. It was still in use on 2026-10-23; fold it away once the sessions
+using it have moved to the shared cache.
 
 Frontend checks should reuse this worktree's frozen-lock install. Avoid repeated
 installs, release builds and whole-repository Rust builds when a focused check
