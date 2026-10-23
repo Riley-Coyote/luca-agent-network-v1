@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, MessageCircle, Plus } from "lucide-react";
 
 import { ResidentIdentityMark } from "@/features/channels/ui/ResidentIdentityMark";
 import { CANONICAL_LUCA_PERSONA_ID } from "@/features/luca/canonicalLucaResident";
@@ -238,15 +238,21 @@ export const AgentRail = React.memo(function AgentRail({
                 {...rowProps}
               />
             ))}
+            {/* The two actions share the session rows' anatomy (a 20px icon
+                box, then the label) so their words start on the same line
+                as the session names above them. */}
             {!direct && (
               <button
                 className={cn(
                   RAIL_CONTROL_CLASS,
-                  "min-h-8 w-full justify-start gap-2 px-2 text-xs",
+                  "min-h-8 w-full justify-start gap-2.5 px-2 text-xs",
                 )}
                 type="button"
                 onClick={() => onOpenAgent(key)}
               >
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  <MessageCircle aria-hidden className="size-3.5" />
+                </span>
                 Chat with {agent.name}
               </button>
             )}
@@ -254,12 +260,14 @@ export const AgentRail = React.memo(function AgentRail({
               <button
                 className={cn(
                   RAIL_CONTROL_CLASS,
-                  "min-h-8 w-full justify-start gap-2 px-2 text-xs",
+                  "min-h-8 w-full justify-start gap-2.5 px-2 text-xs",
                 )}
                 type="button"
                 onClick={() => onNewSession(key)}
               >
-                <Plus aria-hidden className="size-3" />
+                <span className="flex size-5 shrink-0 items-center justify-center">
+                  <Plus aria-hidden className="size-3" />
+                </span>
                 New session
               </button>
             )}
