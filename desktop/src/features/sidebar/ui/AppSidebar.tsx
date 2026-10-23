@@ -38,6 +38,7 @@ import {
   AppSidebarPrimaryMenu,
 } from "@/features/sidebar/ui/AppSidebarPinnedHeader";
 import { MoreUnreadButton } from "@/features/sidebar/ui/MoreUnreadButton";
+import { NativeRailGlass } from "@/features/sidebar/ui/NativeRailGlass";
 import { RailGlass } from "@/features/sidebar/ui/RailGlass";
 import {
   assignRoomProject,
@@ -778,6 +779,7 @@ export function AppSidebar({
               data-testid="sidebar-scroll-content"
             >
               <RailGlass />
+              <NativeRailGlass />
               {isLoading ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}

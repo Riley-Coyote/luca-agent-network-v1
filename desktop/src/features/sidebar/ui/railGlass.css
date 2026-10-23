@@ -159,3 +159,37 @@
     background: hsl(var(--mn-ink) / 0.5);
   }
 }
+
+/* Apple's real glass (native test builds, NativeRailGlass.tsx). The card and
+ * the rail's selection are drawn natively beneath the page, on the floor's
+ * own colour, so the page leaves those places empty: no floor, no card fill,
+ * grain or edge light, no veil of the card's colour, and no web pill. Every
+ * word and every other surface stays. */
+:root[data-luca-native-glass],
+:root[data-luca-native-glass] body,
+:root[data-luca-native-glass]
+  :is(
+    .luca-theme-shell-layer,
+    .buzz-huddle-shell,
+    .buzz-huddle-app-surface,
+    [data-sidebar="sidebar"],
+    [data-buzz-glass-inset],
+    [data-luca-floor-host],
+    [data-luca-card],
+    .luca-conversation-veil-top,
+    .luca-conversation-veil-bottom
+  ) {
+  /* biome-ignore lint/complexity/noImportantStyles: native glass must clear every layer that paints the floor or the card, whatever its own layer or specificity; it applies only when the app announced its glass */
+  background: transparent !important;
+}
+
+:root[data-luca-native-glass] [data-luca-card] {
+  /* biome-ignore lint/complexity/noImportantStyles: the same; the card's edge light is the glass's rim now */
+  border-color: transparent !important;
+  /* biome-ignore lint/complexity/noImportantStyles: the same */
+  box-shadow: none !important;
+}
+
+:root[data-luca-native-glass] .luca-rail-glass {
+  display: none;
+}
