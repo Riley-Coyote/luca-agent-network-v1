@@ -45,6 +45,9 @@ import {
   CONTROL_LAB_KEY,
 } from "@/testing/companionControlLab";
 import {
+  LAB_AD_PROJECTS,
+  LAB_AD_SCENE,
+  LAB_AD_SESSIONS,
   LAB_DM_ID,
   LAB_DM_TRANSCRIPT,
   LAB_DM_WITH,
@@ -57,6 +60,7 @@ import {
   type LabRoomKey,
   type LabTurn,
 } from "@/testing/labScene";
+import { roomProjectStorageKey } from "@/features/channels/lib/roomProjects";
 
 import "@fontsource-variable/inter/wght.css";
 import "@fontsource-variable/instrument-sans";
@@ -227,6 +231,83 @@ async function clearStockChannels() {
   }
 }
 
+/** The ad scene renames two residents; their names inside the transcripts
+ *  follow, so an opened room never contradicts its own rail. */
+function sceneText(text: string) {
+  return LAB_AD_SCENE
+    ? text.replace(/\bziggy\b/g, "Wren").replace(/\bVektor\b/g, "Atlas")
+    : text;
+}
+
+/** Named sessions with Atlas and Wren, filed under the ad scene's projects. */
+async function buildAdSessions() {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  for (const session of LAB_AD_SESSIONS) {
+    const resident = LAB_RESIDENTS[session.resident].pubkey;
+    await withPinnedUuid(session.id, () =>
+      invokeMock("create_channel", {
+        channelType: "stream",
+        description: "",
+        name: session.name,
+        visibility: "open",
+      }),
+    );
+    await invokeMock("add_channel_members", {
+      channelId: session.id,
+      pubkeys: [resident],
+      role: "bot",
+    });
+    window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+      channelId: session.id,
+      content: session.text,
+      createdAt: nowSeconds - session.minutesAgo * 60,
+      pubkey: resident,
+    });
+  }
+  window.localStorage.setItem(
+    roomProjectStorageKey(LAB_OWNER.pubkey, RELAY_URL),
+    JSON.stringify({
+      version: 1,
+      projects: LAB_AD_PROJECTS.map((project) => ({
+        ...project,
+        workingContextStatus: "attached",
+      })),
+      assignments: Object.fromEntries(
+        LAB_AD_SESSIONS.map((session) => [session.id, session.project]),
+      ),
+    }),
+  );
+  window.dispatchEvent(new Event("luca:room-projects-changed"));
+}
+
+/**
+ * A real workspace is mostly read. Everything the ad scene shows is marked
+ * read except the newest session, which keeps its one dot of news. Sent
+ * twice because the read-state manager may still be subscribing the first
+ * time.
+ */
+function markAdSceneRead() {
+  const newest = [...LAB_AD_SESSIONS].sort(
+    (a, b) => a.minutesAgo - b.minutesAgo,
+  )[0];
+  const send = () => {
+    const readAt = Math.floor(Date.now() / 1000) + 1;
+    const ids = [
+      LAB_DM_ID,
+      ...Object.values(LAB_ROOMS).map((room) => room.id),
+      ...LAB_AD_SESSIONS.map((session) => session.id),
+    ].filter((id) => id !== newest?.id);
+    window.__BUZZ_E2E_EMIT_MOCK_READ_STATE__?.({
+      clientId: "shell-lab-ad-scene",
+      contexts: Object.fromEntries(ids.map((id) => [id, readAt])),
+      createdAt: readAt,
+      slotId: "shell-lab-ad-scene",
+    });
+  };
+  send();
+  window.setTimeout(send, 1500);
+}
+
 function sayAll(channelId: string, turns: LabTurn[]) {
   const nowSeconds = Math.floor(Date.now() / 1000);
   for (const turn of [...turns].sort((a, b) => b.minutesAgo - a.minutesAgo)) {
@@ -250,7 +331,7 @@ function sayAll(channelId: string, turns: LabTurn[]) {
     }
     window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
       channelId,
-      content: turn.text,
+      content: sceneText(turn.text),
       createdAt: nowSeconds - turn.minutesAgo * 60,
       extraTags: turn.exchangeTurn
         ? [["exchange", exchange.exchangeId, String(turn.exchangeTurn)]]
@@ -264,6 +345,9 @@ async function buildScene() {
   await clearStockChannels();
 
   for (const key of ROOM_ORDER) {
+    // The empty composer stage and the reading-notes room are design
+    // fixtures; the ad scene gives Atlas named sessions instead.
+    if (LAB_AD_SCENE && (key === "drafts" || key === "fieldNotes")) continue;
     const room = LAB_ROOMS[key];
     // Rooms with residents are GROUP CONVERSATIONS (channelType "dm"), the
     // way the real product creates them — this is what selects the quiet
@@ -288,10 +372,14 @@ async function buildScene() {
     sayAll(room.id, LAB_TRANSCRIPTS[key]);
   }
 
+  if (LAB_AD_SCENE) await buildAdSessions();
+
   await withPinnedUuid(LAB_DM_ID, () =>
     invokeMock("open_dm", { pubkeys: [LAB_DM_WITH.pubkey] }),
   );
   if (DM_SCENE !== "first") sayAll(LAB_DM_ID, LAB_DM_TRANSCRIPT);
+
+  if (LAB_AD_SCENE) markAdSceneRead();
 
   const openRoomId = DM_SCENE ? LAB_DM_ID : LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);

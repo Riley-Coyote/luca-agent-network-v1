@@ -15,8 +15,17 @@
  */
 
 /** The owner's key is the mock bridge's own identity — do not change it. */
+/**
+ * `?scene=ad` keeps the same scene but names everything for a public
+ * screenshot: a neutral owner, agents on the two harnesses the app supports,
+ * and sessions and projects a stranger would recognise as real work.
+ */
+export const LAB_AD_SCENE =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get("scene") === "ad";
+
 export const LAB_OWNER = {
-  name: "Coyote",
+  name: LAB_AD_SCENE ? "Sam" : "Coyote",
   pubkey: "deadbeef".repeat(8),
 } as const;
 
@@ -36,13 +45,13 @@ export const LAB_RESIDENTS = {
     pubkey: "4fb94373fb5cfb7fe322d95a48d8cc4c4bb04a990cf43d4f38b895a52635d5bb",
   },
   vektor: {
-    harness: "goose",
-    name: "Vektor",
+    harness: LAB_AD_SCENE ? "codex" : "goose",
+    name: LAB_AD_SCENE ? "Atlas" : "Vektor",
     pubkey: "ad43e47d062c00612509b09043167cc56d9cdadd51caabb65a870ff2263a33b6",
   },
   ziggy: {
-    harness: "codex",
-    name: "ziggy",
+    harness: LAB_AD_SCENE ? "claude" : "codex",
+    name: LAB_AD_SCENE ? "Wren" : "ziggy",
     pubkey: "9d4eb92dbcddf38c48821ae1e79e4bdb7e4f5bce3bde189835b0e78b593195cc",
   },
 } as const;
@@ -289,3 +298,58 @@ export const LAB_EXCHANGES: Record<LabExchangeKey, LabExchange> = {
     state: "closed",
   },
 };
+
+/**
+ * What `?scene=ad` adds: three projects, and named sessions with Atlas and
+ * Wren under them, so the rail shows the shape of real work. Each session
+ * carries one recent line so its row has a time and, sometimes, unread news.
+ */
+export const LAB_AD_PROJECTS = [
+  { id: "tidepool", label: "Tidepool" },
+  { id: "studio-site", label: "Studio site" },
+  { id: "field-guide", label: "Field guide" },
+] as const;
+
+export type LabAdSession = {
+  id: string;
+  name: string;
+  resident: keyof typeof LAB_RESIDENTS;
+  project: (typeof LAB_AD_PROJECTS)[number]["id"];
+  minutesAgo: number;
+  text: string;
+};
+
+export const LAB_AD_SESSIONS: LabAdSession[] = [
+  {
+    id: "5a1f3c2e-8d47-4b9a-a6e0-3c9d1f7b2e81",
+    name: "Checkout refactor",
+    resident: "vektor",
+    project: "tidepool",
+    minutesAgo: 6,
+    text: "The cart now keeps its state across the payment sheet. Two tests left to update.",
+  },
+  {
+    id: "8c2d6e4f-1a39-4f7b-9e05-7b4a2c8d1f63",
+    name: "Flaky test hunt",
+    resident: "vektor",
+    project: "tidepool",
+    minutesAgo: 140,
+    text: "Found it: the sync test raced the clock. Pinned the time and it has passed 200 runs.",
+  },
+  {
+    id: "2e9b7d1c-6f84-4a2e-b3c7-9d1e5a7f4b20",
+    name: "Landing page copy",
+    resident: "ziggy",
+    project: "studio-site",
+    minutesAgo: 38,
+    text: "Three headline options are in the doc. I would lead with the second.",
+  },
+  {
+    id: "9f4e2a7b-3c15-4d8e-a1f6-2b7c9e4d6a35",
+    name: "Chapter nine notes",
+    resident: "ziggy",
+    project: "field-guide",
+    minutesAgo: 1260,
+    text: "Margin notes are done. The tide-table section still reads long.",
+  },
+];
