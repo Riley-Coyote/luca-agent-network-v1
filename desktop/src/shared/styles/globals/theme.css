@@ -150,20 +150,13 @@
   }
 
   /*
-   * Tailwind v4's preflight no longer sets `cursor: pointer` on buttons.
-   * Restore it for clearly actionable elements so hover affordance is
-   * consistent across the app. Disabled / aria-disabled elements keep
-   * the default cursor; explicit `cursor-*` utility classes still win
-   * because utilities are in a later layer than base.
+   * The arrow, not the pointing hand. A Mac app shows the hand only over a
+   * link; a button, a row, a tab or a menu item keeps the arrow, and the press
+   * is what answers. Tailwind v4's preflight already leaves buttons on the
+   * default cursor, so only links are named here. The `cursor-pointer`
+   * utility gets the same answer in the Luca shell (conversation-shell.css).
    */
-  button:not(:disabled),
   a[href],
-  summary,
-  [role="button"]:not([aria-disabled="true"]),
-  [role="menuitem"]:not([aria-disabled="true"]),
-  [role="menuitemcheckbox"]:not([aria-disabled="true"]),
-  [role="menuitemradio"]:not([aria-disabled="true"]),
-  [role="tab"]:not([aria-disabled="true"]),
   [role="link"] {
     cursor: pointer;
   }

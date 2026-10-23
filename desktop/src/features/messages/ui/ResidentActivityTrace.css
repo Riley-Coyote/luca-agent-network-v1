@@ -84,7 +84,6 @@
   border-radius: 0.25rem;
   background: transparent;
   color: rgb(255 255 255 / 45%);
-  cursor: pointer;
   transition:
     color 150ms,
     border-color 150ms;
@@ -142,7 +141,6 @@
   min-height: 1.25rem;
   padding: 0;
   color: rgb(255 255 255 / 38%);
-  cursor: pointer;
   line-height: 1.45;
   list-style: none;
   transition: color 150ms;

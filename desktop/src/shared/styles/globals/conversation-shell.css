@@ -293,6 +293,41 @@
   outline: none;
 }
 
+/* THE NATIVE TELLS. Two habits of a web page that a Mac app never has.
+ *
+ * The pointing hand: the arrow stays over every control (theme.css), and the
+ * `cursor-pointer` utility, written into components for the web, gets the
+ * same answer here. Inside a message's own words, a mention, a channel or a
+ * message link is a link, so it keeps the hand.
+ *
+ * Selectable chrome: a drag across the rail, the header or a control in a Mac
+ * app selects nothing; in a web view it paints the labels blue. Message text
+ * and every field stay selectable, and so does a control set inside a
+ * message, so copying a paragraph keeps every word of it. */
+:root[data-luca-shell]
+  .cursor-pointer:not(a[href], [role="link"], .message-markdown *) {
+  cursor: default;
+}
+
+:root[data-luca-shell]
+  :is(
+    [data-testid="app-sidebar"],
+    [data-testid="app-top-chrome"],
+    [data-testid="chat-header"],
+    button,
+    [role="button"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    summary,
+    label
+  ):not(.message-markdown *) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 :root[data-luca-shell] .luca-theme-shell-layer {
   background: hsl(var(--mn-floor));
   background-image: none;
@@ -707,14 +742,20 @@
   min-height: 30px;
 }
 
-/* A rail row has four surfaces, all of them ink at an opacity so every
-   palette casts its own. Rest is the floor. Hover is a breath (4.5%). Open —
-   a row whose column is showing beside the rail — is a little more (6%).
-   Active uses only a quiet fill; no selected outline or lit edge. */
+/* A rail row has three surfaces, all of them ink at an opacity so every
+   palette casts its own. Rest is the floor, and the pointer passing over a
+   row changes nothing: a Mac sidebar answers the press, not the hover, so the
+   selected fill arrives the moment the button goes down. Open — a row whose
+   column is showing beside the rail — is a little more (6%). Active uses only
+   a quiet fill; no selected outline or lit edge. The hover rule restates the
+   rest so the sidebar's own hover utility cannot paint underneath it. */
 :root[data-luca-shell]
-  [data-sidebar="menu-button"]:not([data-active="true"]):hover {
-  background: hsl(var(--mn-ink) / 0.045);
-  color: hsl(var(--mn-ink));
+  [data-sidebar="menu-button"]:not(
+    [data-active="true"],
+    [data-open="true"]
+  ):hover {
+  background: transparent;
+  color: hsl(var(--mn-ink-muted));
 }
 
 :root[data-luca-shell] [data-sidebar="menu-button"][data-open="true"] {
@@ -722,8 +763,11 @@
   color: hsl(var(--mn-ink));
 }
 
-:root[data-luca-shell] [data-sidebar="menu-button"][data-open="true"]:hover {
-  background: hsl(var(--mn-ink) / 0.075);
+:root[data-luca-shell]
+  [data-sidebar="menu-button"]:not([data-active="true"]):active {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+  transition-duration: 0s;
 }
 
 :root[data-luca-shell] [data-sidebar="menu-button"][data-active="true"] {

@@ -29,7 +29,6 @@
   animation: qc-land 0.16s ease-out;
 }
 .qc-panel button {
-  cursor: pointer;
   flex-shrink: 0;
 }
 .qc-panel button:disabled {

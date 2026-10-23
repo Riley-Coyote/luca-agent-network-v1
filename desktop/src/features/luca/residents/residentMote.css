@@ -5,7 +5,6 @@
   border: 0;
   border-radius: 8px;
   color: inherit;
-  cursor: pointer;
   display: inline-flex;
   justify-content: center;
   margin-block: -6px;
@@ -38,10 +37,6 @@
 
 .luca-resident-mote[data-ready] {
   opacity: 1;
-}
-
-.luca-resident-mote canvas {
-  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
