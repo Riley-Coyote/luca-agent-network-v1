@@ -76,6 +76,7 @@ import { QuotedParent } from "./QuotedParent";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { WaveMessageAttachment } from "./WaveMessageAttachment";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
+import { ThinkingCells } from "@/shared/ui/ThinkingCells";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
 import { useChatMarkAppearance } from "@/features/messages/lib/chatMarkAppearancePreference";
 import { useStreamingTextEffect } from "@/features/messages/lib/streamingTextPreference";
@@ -855,6 +856,9 @@ export const MessageRow = React.memo(
             role="status"
           >
             {stopping ? "stopping" : activityWord}
+            {/* The word says what; the cells say it is alive. A turn being
+                stopped is winding down, so it says so and goes still. */}
+            {stopping ? null : <ThinkingCells />}
           </span>
         ) : null}
       </div>

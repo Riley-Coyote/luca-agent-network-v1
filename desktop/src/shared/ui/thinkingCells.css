@@ -1,0 +1,52 @@
+/* Thinking: three cells, each on its own period, so the three never breathe
+ * together — 1.7, 2.3 and 2.9 seconds a swell, offset so no two start in
+ * step. Each grows from a little over half its size to whole and back, on a
+ * sine. At whole, neighbours stand a pixel apart and the liquid filter joins
+ * them; two cells are whole at once only now and then, so a join is an event,
+ * not a state. The cells sit on the middle of the lowercase letters beside
+ * them, a word space after the word.
+ */
+.luca-thinking-cells {
+  display: inline-block;
+  height: 8px;
+  margin-left: 0.35em;
+  overflow: visible;
+  vertical-align: -0.5px;
+  width: 16px;
+}
+
+/* At rest (and under reduced motion) the cells hold a middle size, apart. */
+.luca-thinking-cells circle {
+  transform: scale(0.8);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Guarded by no-preference rather than switched off afterwards: under reduced
+ * motion the breath never exists. */
+@media (prefers-reduced-motion: no-preference) {
+  .luca-thinking-cells circle {
+    animation: luca-thinking-breathe 1.7s cubic-bezier(0.45, 0, 0.55, 1) -0.4s
+      infinite alternate;
+  }
+
+  .luca-thinking-cells circle:nth-child(2) {
+    animation-delay: -1.9s;
+    animation-duration: 2.3s;
+  }
+
+  .luca-thinking-cells circle:nth-child(3) {
+    animation-delay: -0.9s;
+    animation-duration: 2.9s;
+  }
+}
+
+@keyframes luca-thinking-breathe {
+  from {
+    transform: scale(0.55);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
