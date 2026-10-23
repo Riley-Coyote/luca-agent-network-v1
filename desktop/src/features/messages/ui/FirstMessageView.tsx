@@ -375,7 +375,15 @@ export function FirstMessageSurface() {
     }
     const pill = composerPill();
     const rect = pill?.getBoundingClientRect() ?? null;
-    surface.glass(rect, rect ? rect.height / 2 : 0, fill);
+    // The pill's own corner: a capsule on one line, a fixed radius as it grows.
+    const corner = pill
+      ? Number.parseFloat(getComputedStyle(pill).borderTopLeftRadius)
+      : Number.NaN;
+    surface.glass(
+      rect,
+      rect ? Math.min(rect.height / 2, corner || rect.height / 2) : 0,
+      fill,
+    );
   }, [fill]);
 
   // Sending: the film, and the drop with it, drain into the composer.

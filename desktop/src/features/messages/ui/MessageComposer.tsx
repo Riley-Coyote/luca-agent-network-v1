@@ -1508,9 +1508,14 @@ function MessageComposerImpl({
               }}
             />
           ) : null}
+          {/* Nested, as Apple nests shapes: one line high (46px) the pill is a
+              capsule, and as it grows its corners keep that radius (23px)
+              rather than ballooning, so the buttons in its lower corners stay
+              concentric: the send disc 6px in on three sides, the add button
+              7px (composer-states.css). */}
           <form
             className={cn(
-              "relative z-10 rounded-full border border-transparent bg-muted py-[5px] pl-3 pr-[5px]",
+              "relative z-10 rounded-[23px] border border-transparent bg-muted py-[5px] pl-[6px] pr-[5px]",
             )}
             data-testid="message-composer"
             onDragEnter={ownsDropZone ? media.handleDragEnter : undefined}
