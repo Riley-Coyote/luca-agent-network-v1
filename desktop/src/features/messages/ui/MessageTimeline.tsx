@@ -1,4 +1,5 @@
 import * as React from "react";
+import { AnimatePresence } from "motion/react";
 
 import {
   isDeferredTimelineSnapshotStale,
@@ -23,6 +24,10 @@ import { Spinner } from "@/shared/ui/spinner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
 import type { ChannelIntro } from "./ChannelIntroBlock";
+import {
+  FirstMessagePresence,
+  type FirstMessagePresenceSubject,
+} from "./FirstMessagePresence";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
@@ -54,6 +59,9 @@ type MessageTimelineProps = {
    *  fallback, so badge rows survive while a scrollback page commits. */
   threadSummaries?: ReadonlyMap<string, ChannelWindowThreadSummary>;
   directMessageIntro?: DirectMessageIntro | null;
+  /** The resident on the other side of a direct conversation, shown awake in
+   *  the open space until the first message arrives. */
+  firstMessagePresence?: FirstMessagePresenceSubject | null;
   isLoading?: boolean;
   entranceMessageId?: string | null;
   onEntranceMessageComplete?: (messageId: string) => void;
@@ -162,6 +170,7 @@ const MessageTimelineBase = React.forwardRef<
     channelId,
     channelIntro = null,
     directMessageIntro = null,
+    firstMessagePresence = null,
     messages,
     mainEntries,
     threadSummaries,
@@ -488,6 +497,13 @@ const MessageTimelineBase = React.forwardRef<
   const showIntro = false;
   const showGenericEmpty =
     timelineBodySurface === "empty" && timelineIntroSurface === null;
+  // The bare DM gets one exception: a resident is shown, awake, until the
+  // first word. Body "empty" already covers the deferred catch-up after a
+  // send, so the view leaves exactly when the first row can paint.
+  const showFirstMessagePresence =
+    firstMessagePresence !== null &&
+    timelineBodySurface === "empty" &&
+    timelineIntroSurface === "direct-message-intro";
   const showMessageList = timelineBodySurface === "list";
   const showChannelIntroOnly = false;
   const presentationAdmitted =
@@ -943,6 +959,17 @@ const MessageTimelineBase = React.forwardRef<
               </div>
             </div>
           )}
+        </div>
+
+        <div className="luca-first-message-stage">
+          <AnimatePresence>
+            {showFirstMessagePresence && firstMessagePresence ? (
+              <FirstMessagePresence
+                key={`${channelId ?? "none"}:${firstMessagePresence.pubkey}`}
+                subject={firstMessagePresence}
+              />
+            ) : null}
+          </AnimatePresence>
         </div>
 
         {!isAtBottom ? (

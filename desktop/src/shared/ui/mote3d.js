@@ -509,8 +509,27 @@ class Mote3D extends HTMLElement {
     if (best) best.spinGoal += Math.PI * 2;
   }
 
+  /**
+   * Look at a point on screen (client px) for a moment, as if the pointer had
+   * moved there. The pointer wins as soon as it moves again. A companion
+   * waiting for a first message uses this to watch the words being written.
+   */
+  attend(x, y) {
+    this._attend = { x, y, t: performance.now() };
+    this._schedule();
+  }
+
   _tick(dt, t) {
-    const live = performance.now() - pointer.t < POINTER_LIVE_MS;
+    const now = performance.now();
+    const attend =
+      this._attend &&
+      this._attend.t >= pointer.t &&
+      now - this._attend.t < POINTER_LIVE_MS
+        ? this._attend
+        : null;
+    const live = attend !== null || now - pointer.t < POINTER_LIVE_MS;
+    const lookX = attend ? attend.x : pointer.x;
+    const lookY = attend ? attend.y : pointer.y;
     // Geometry is read only while the pointer is being followed; an idle
     // companion never forces layout.
     const rect = live ? this._canvas.getBoundingClientRect() : null;
@@ -552,8 +571,8 @@ class Mote3D extends HTMLElement {
       if (live) {
         const cx = this._screenX(u, rect);
         const cy = rect.top + rect.height * 0.5;
-        ty = Math.max(-1, Math.min(1, (pointer.x - cx) / 460)) * 0.92;
-        tp = Math.max(-1, Math.min(1, (pointer.y - cy) / 420)) * 0.34;
+        ty = Math.max(-1, Math.min(1, (lookX - cx) / 460)) * 0.92;
+        tp = Math.max(-1, Math.min(1, (lookY - cy) / 420)) * 0.34;
       } else {
         ty =
           0.4 * Math.sin(t * 0.29 + u.phase) +

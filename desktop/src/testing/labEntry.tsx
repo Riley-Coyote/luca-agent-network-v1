@@ -74,6 +74,9 @@ const COMPANION_SETUP_STUDY =
 const COMPANION_CONTROL_STUDY =
   new URLSearchParams(window.location.search).get("experience") ===
   "companion-control";
+/** `?dm=first` opens Luca's conversation before its first message, and
+ *  `?dm=open` opens it as the scene left it. Without it the lab opens a room. */
+const DM_SCENE = new URLSearchParams(window.location.search).get("dm");
 
 type MockChannelRow = { id: string; is_member?: boolean };
 
@@ -288,9 +291,9 @@ async function buildScene() {
   await withPinnedUuid(LAB_DM_ID, () =>
     invokeMock("open_dm", { pubkeys: [LAB_DM_WITH.pubkey] }),
   );
-  sayAll(LAB_DM_ID, LAB_DM_TRANSCRIPT);
+  if (DM_SCENE !== "first") sayAll(LAB_DM_ID, LAB_DM_TRANSCRIPT);
 
-  const openRoomId = LAB_ROOMS[LAB_OPEN_ROOM].id;
+  const openRoomId = DM_SCENE ? LAB_DM_ID : LAB_ROOMS[LAB_OPEN_ROOM].id;
   window.localStorage.setItem("luca:last-conversation.v1", openRoomId);
   // Hash routing, so this works unchanged from a file:// URL.
   window.location.hash = `#/channels/${openRoomId}`;

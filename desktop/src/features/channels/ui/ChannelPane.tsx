@@ -46,8 +46,10 @@ import { useConversationPresentation } from "@/features/channels/ui/useConversat
 import {
   isCanonicalLucaDm,
   LUCA_INTRO_ROLE,
+  residentGlyphSeed,
   useCanonicalLucaPubkey,
 } from "@/features/luca/canonicalLucaResident";
+import type { FirstMessagePresenceSubject } from "@/features/messages/ui/FirstMessagePresence";
 import {
   firstMeetingPresentation,
   latestFirstMeetingOffer,
@@ -905,6 +907,35 @@ export const ChannelPane = React.memo(function ChannelPane({
     return keys;
   }, [managedActivity]);
   const chatMarkAppearance = useChatMarkAppearance(currentPubkey);
+  // A direct conversation with one resident opens on that resident, awake,
+  // until the first word. People and group conversations stay bare.
+  const firstMessagePresence =
+    React.useMemo<FirstMessagePresenceSubject | null>(() => {
+      if (directMessageIntro?.participants.length !== 1) return null;
+      const other = directMessageIntro.participants[0];
+      const key = normalizePubkey(other.pubkey);
+      const resident = activityAgents.find(
+        (agent) => normalizePubkey(agent.pubkey) === key,
+      );
+      if (!resident) return null;
+      return {
+        pubkey: resident.pubkey,
+        name: resident.name || other.displayName,
+        role: directMessageIntro.role ?? null,
+        mark: !chatMarkAppearance.visible
+          ? "none"
+          : chatMarkAppearance.style === "glyph"
+            ? "glyph"
+            : "sphere",
+        glyphSeed: residentGlyphSeed(resident.pubkey, lucaPubkey),
+      };
+    }, [
+      activityAgents,
+      chatMarkAppearance.style,
+      chatMarkAppearance.visible,
+      directMessageIntro,
+      lucaPubkey,
+    ]);
   const composerLedgeAgents = React.useMemo(() => {
     const showSphereIdentity =
       chatMarkAppearance.visible && chatMarkAppearance.style === "sphere";
@@ -1078,6 +1109,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             <section
               aria-label="Channel messages and composer"
               className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+              data-luca-conversation-column=""
               data-testid="channel-drop-zone"
               onDragEnter={
                 canDropInMainColumn
@@ -1139,6 +1171,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                   channelIntro={focusedThreadHead ? null : channelIntro}
                   directMessageIntro={
                     focusedThreadHead ? null : directMessageIntro
+                  }
+                  firstMessagePresence={
+                    focusedThreadHead ? null : firstMessagePresence
                   }
                   scrollContainerRef={timelineScrollRef}
                   currentPubkey={currentPubkey}
