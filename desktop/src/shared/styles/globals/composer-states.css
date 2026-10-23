@@ -102,9 +102,10 @@
  * light goes out and the disc lies flat. Both states list the same three
  * shadows so the light fades rather than snaps.
  *
- * The disc is the ink, so it is black on paper, as Undertone draws the main
- * button, and bright on a dark ground. Riley chose that on 2026-10-23 over a
- * black disc in dark mode too: do not darken it to match the light theme. */
+ * Its colour is Riley's, both chosen on 2026-10-23: in daylight the armed
+ * disc is Apple's blue with a white arrow (`--mn-act`, the colour Undertone
+ * keeps for acting), and on a dark ground it stays the bright ink rather
+ * than going black. Do not move either to match the other. */
 :root[data-luca-shell]
   [data-testid="message-composer"]
   [data-testid="send-message"]:enabled {
@@ -121,6 +122,14 @@
     inset 0 1px 0 rgb(255 255 255 / 0),
     0 1px 2px rgb(0 0 0 / 0),
     0 3px 8px -2px rgb(0 0 0 / 0);
+}
+
+/* In daylight: the blue disc, the white arrow, and the same light. */
+:root[data-luca-shell]:not(.dark)
+  [data-testid="message-composer"]
+  [data-testid="send-message"]:enabled {
+  background-color: hsl(var(--mn-act));
+  color: #fff;
 }
 
 /* THE PRESS. The main button gives like a drop: it flattens by a tenth and

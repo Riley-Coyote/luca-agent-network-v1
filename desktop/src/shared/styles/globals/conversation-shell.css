@@ -110,6 +110,10 @@
   /* The one signal colour. Slate, used only where a mark must mean "live" or
      "new" — an unread dot, a rare emphasis. Never a fill, never a surface. */
   --mn-signal: 214 45% 61%;
+  /* ACT. Apple's blue, the one colour that means "do this", as Undertone
+     keeps it: every colour has one job, and this is blue's. Apple's own
+     value, #007aff, and its brighter twin for dark grounds below. */
+  --mn-act: 211.3 100% 50%;
 
   /* The one light effect this system uses: a 1px lit top edge on raised
    * objects, simulating light from above catching the bevel. This is what
@@ -252,6 +256,8 @@
 
 :root[data-luca-shell].dark {
   color-scheme: dark;
+  /* #0a84ff, Apple's blue for a dark ground. */
+  --mn-act: 210.1 100% 52%;
 }
 
 :root[data-luca-shell]:not(.dark) {
