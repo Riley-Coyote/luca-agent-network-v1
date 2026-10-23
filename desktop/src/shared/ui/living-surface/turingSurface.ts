@@ -138,9 +138,13 @@ void main() {
   outState = vec4(clamp(u, 0.0, 1.0), clamp(v, 0.0, 1.0), 0.0, 1.0);
 }`;
 
-/** The first state: bare, but for a ring of the film round the body, and a little sown where it's fed. */
+/** The first state: bare, but for a ring of the film round the body, and a little sown where it's fed. On a new size,
+ * the film already grown is carried over cell for cell, and only the new ground is sown. */
 const SOW_FRAG = `#version 300 es
 precision highp float;
+precision highp sampler2D;
+uniform sampler2D uOld;
+uniform ivec2 uOldGrid;       // the size of the film carried over (0 when there's none)
 uniform float uCell;
 uniform float uDensity;
 uniform float uSeed;
@@ -148,6 +152,11 @@ ${PLACES}
 out vec4 outState;
 float hash(vec2 q) { return fract(sin(dot(q, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
 void main() {
+  ivec2 c = ivec2(gl_FragCoord.xy);
+  if (c.x < uOldGrid.x && c.y < uOldGrid.y) {
+    outState = vec4(texelFetch(uOld, c, 0).xy, 0.0, 1.0);
+    return;
+  }
   vec2 p = gl_FragCoord.xy * uCell;
   vec2 b = floor(p / 7.0);
   float near = clearOf(p);
@@ -573,10 +582,20 @@ export class TuringSurface implements LivingSurface {
     const gridW = Math.ceil(cssW / CELL);
     const gridH = Math.ceil(cssH / CELL);
     if (gridW === this.gridW && gridH === this.gridH) return;
+    // A new size keeps the film it has grown: carried over, with only new ground sown.
+    const previous = this.targets;
+    const grown = this.sown ? previous[this.current] : undefined;
+    const from = { w: this.gridW, h: this.gridH };
     this.gridW = gridW;
     this.gridH = gridH;
     this.allocate();
-    this.sown = false;
+    if (grown) this.lay(grown.texture, from.w, from.h);
+    else this.sown = false;
+    const gl = this.gl;
+    for (const t of previous) {
+      gl.deleteTexture(t.texture);
+      gl.deleteFramebuffer(t.framebuffer);
+    }
   }
 
   dispose() {
@@ -620,6 +639,15 @@ export class TuringSurface implements LivingSurface {
   private sow() {
     if (this.sown) return true;
     if (!this.gridW || !this.targets.length) return false;
+    if (!this.lay(null, 0, 0)) return false;
+    this.sown = true;
+    this.sinceSown = 0;
+    this.stepsSinceSown = 0;
+    return true;
+  }
+
+  /** Lay the state into the first target: what grew before (a `from` of that size), and sown ground elsewhere. */
+  private lay(from: WebGLTexture | null, fromW: number, fromH: number) {
     const gl = this.gl;
     const target = this.targets[0];
     if (!target) return false;
@@ -628,6 +656,10 @@ export class TuringSurface implements LivingSurface {
     // biome-ignore lint/correctness/useHookAtTopLevel: WebGL's useProgram, not a React hook.
     gl.useProgram(this.sowing.program);
     const u = this.sowing.uniform;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, from);
+    gl.uniform1i(u("uOld"), 0);
+    gl.uniform2i(u("uOldGrid"), from ? fromW : 0, from ? fromH : 0);
     gl.uniform1f(u("uCell"), CELL);
     gl.uniform1f(u("uDensity"), SOW_DENSITY);
     gl.uniform1f(u("uSeed"), 1.7);
@@ -636,9 +668,6 @@ export class TuringSurface implements LivingSurface {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
     this.current = 0;
-    this.sown = true;
-    this.sinceSown = 0;
-    this.stepsSinceSown = 0;
     return true;
   }
 
@@ -767,12 +796,9 @@ export class TuringSurface implements LivingSurface {
     gl.uniform2f(u("uSize"), this.width, this.height);
   }
 
+  /** Two state targets at the grid's size; whoever held the old ones lets them go. */
   private allocate() {
     const gl = this.gl;
-    for (const t of this.targets) {
-      gl.deleteTexture(t.texture);
-      gl.deleteFramebuffer(t.framebuffer);
-    }
     this.targets = [0, 1].map(() => {
       const texture = gl.createTexture();
       const framebuffer = gl.createFramebuffer();
