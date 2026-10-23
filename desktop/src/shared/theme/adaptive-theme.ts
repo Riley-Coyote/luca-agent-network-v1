@@ -179,6 +179,9 @@ function findColorWithLuminance(baseColor: string, targetLum: number): string {
 function calculateChromeColors(syntaxBg: string): {
   chrome: string;
   primary: string;
+  /** The background was too dark for the floor to step below it, so the
+   *  floor went to black and the card was lifted above it instead. */
+  blackFloor: boolean;
 } {
   const bgLum = luminance(syntaxBg);
   const lumDiff = calculateLumDiff(bgLum);
@@ -188,14 +191,25 @@ function calculateChromeColors(syntaxBg: string): {
     return {
       chrome: findColorWithLuminance(syntaxBg, targetChromeLum),
       primary: syntaxBg,
+      blackFloor: false,
     };
   }
 
   return {
     chrome: findColorWithLuminance(syntaxBg, 0),
     primary: findColorWithLuminance(syntaxBg, lumDiff),
+    blackFloor: true,
   };
 }
+
+/**
+ * ON A BLACK FLOOR THE CARD IS BLACK TOO. Lifting the card a full luminance
+ * step above a black floor made it a grey slab; it now sits most of the way
+ * back down, just above the floor, and is told from it by how it takes the
+ * light (the lit edge and the card's finish in conversation-shell.css) more
+ * than by its shade. The share of the step it keeps: 0.38 of #101010 is #060606.
+ */
+const BLACK_FLOOR_CARD_LIFT = 0.38;
 
 // =============================================================================
 // Hex → HSL component format ("H S% L%") for Tailwind's hexToHsl() wrappers
@@ -662,8 +676,17 @@ export function createThemeVars(
 ): ThemeResult {
   const isDark = luminance(syntaxBg) < 0.5;
 
-  const { chrome: chromeColor, primary: primaryBg } =
-    calculateChromeColors(syntaxBg);
+  const {
+    chrome: chromeColor,
+    primary: referenceBg,
+    blackFloor,
+  } = calculateChromeColors(syntaxBg);
+  // The surface the card paints. Every role below derives from it, except the
+  // inks, which are solved against the reference step so the words keep the
+  // brightness they had; on a darker card they only gain contrast.
+  const primaryBg = blackFloor
+    ? mix(chromeColor, referenceBg, BLACK_FLOOR_CARD_LIFT)
+    : referenceBg;
 
   const dir = isDark ? 1 : -1;
   const elevate = (amount: number) => adjust(primaryBg, dir * amount);
@@ -693,25 +716,27 @@ export function createThemeVars(
   const huddlePopoverBg = huddleChevronBg;
   const huddlePopoverBorder = huddleControlHoverBg;
   const huddleTooltipBg = huddleControlBg;
-  // The ink ladder, solved against the surface this theme actually paints
-  // rather than taken on faith from the syntax palette. `muted` starts from
-  // the comment color so a theme that does have a distinct one keeps its hue;
-  // where comment equals foreground — the common case in light themes, and
-  // the reason the ladder used to collapse — the solve separates them anyway.
-  const inkHex = solveContrast(syntaxFg, primaryBg, DERIVED_INK_TARGETS.ink);
+  // The ink ladder, solved against the surface this theme's card is measured
+  // from rather than taken on faith from the syntax palette (on a black floor
+  // that is the reference step, a little above what the card paints).
+  // `muted` starts from the comment color so a theme that does have a
+  // distinct one keeps its hue; where comment equals foreground — the common
+  // case in light themes, and the reason the ladder used to collapse — the
+  // solve separates them anyway.
+  const inkHex = solveContrast(syntaxFg, referenceBg, DERIVED_INK_TARGETS.ink);
   const inkMutedHex = solveContrast(
     syntaxComment,
-    primaryBg,
+    referenceBg,
     DERIVED_INK_TARGETS.muted,
   );
   const inkFaintHex = solveContrast(
     inkMutedHex,
-    primaryBg,
+    referenceBg,
     DERIVED_INK_TARGETS.faint,
   );
   const inkGhostHex = solveContrast(
     inkFaintHex,
-    primaryBg,
+    referenceBg,
     DERIVED_INK_TARGETS.ghost,
   );
 
