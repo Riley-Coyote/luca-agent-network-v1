@@ -247,17 +247,34 @@ impl ManagedDispatchStore {
                 receipt.resident_pubkey.as_str().into(),
             ))
             .ok_or(DispatchAuthorizationError::Unknown)?;
-        let lease = row
-            .awareness_reply_lease
-            .as_ref()
-            .ok_or(DispatchAuthorizationError::Unknown)?;
-        if row.awareness_context_binding.as_ref() != Some(receipt)
-            || now >= row.expires_at
-            || lease.expires_unix_secs() != row.expires_at
-            || !lease.current_unix_secs(now)
-            || !lease.matches_receipt(receipt)
-            || receipt.canonical_dispatch_ref.as_ref() != Some(&authority.canonical_dispatch_ref)
+        let Some(lease) = row.awareness_reply_lease.as_ref() else {
+            luca_log!(warn,
+                "luca-awareness-reply: dispatch={} epoch={} stage=lease_lookup proof=missing",
+                receipt.trigger_event_id.as_str(), epoch.get()
+            );
+            return Err(DispatchAuthorizationError::Unknown);
+        };
+        let row_receipt_matches = row.awareness_context_binding.as_ref() == Some(receipt);
+        let before_dispatch_deadline = now < row.expires_at;
+        let deadline_matches = lease.expires_unix_secs() == row.expires_at;
+        let proof_current = lease.current_unix_secs(now);
+        let proof_receipt_matches = lease.matches_receipt(receipt);
+        let canonical_dispatch_matches =
+            receipt.canonical_dispatch_ref.as_ref() == Some(&authority.canonical_dispatch_ref);
+        if !row_receipt_matches
+            || !before_dispatch_deadline
+            || !deadline_matches
+            || !proof_current
+            || !proof_receipt_matches
+            || !canonical_dispatch_matches
         {
+            luca_log!(warn,
+                "luca-awareness-reply: dispatch={} epoch={} stage=lease_lookup proof={} row_receipt_matches={} before_dispatch_deadline={} deadline_matches={} proof_current={} proof_receipt_matches={} canonical_dispatch_matches={}",
+                receipt.trigger_event_id.as_str(), epoch.get(),
+                lease.diagnostic_state_unix_secs(now), row_receipt_matches,
+                before_dispatch_deadline, deadline_matches, proof_current,
+                proof_receipt_matches, canonical_dispatch_matches
+            );
             return Err(DispatchAuthorizationError::Ambiguous);
         }
         Ok(lease.clone())

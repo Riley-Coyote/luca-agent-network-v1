@@ -46,6 +46,36 @@ const RELAY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const RECONCILE_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_RELAY_RESPONSE_BYTES: u64 = 64 * 1024;
 
+fn publication_failure_category(error: ManagedPublicationAuthorityError) -> &'static str {
+    match error {
+        ManagedPublicationAuthorityError::Unavailable => "unavailable",
+        ManagedPublicationAuthorityError::Denied => "denied",
+        ManagedPublicationAuthorityError::Cancelled => "cancelled",
+        ManagedPublicationAuthorityError::Invalid => "invalid",
+        ManagedPublicationAuthorityError::ExchangeDenied(_) => "exchange_denied",
+        ManagedPublicationAuthorityError::ExchangeTurnTaken => "exchange_turn_taken",
+    }
+}
+
+// Correlate only a validated public event ID, integer epoch and fixed labels.
+// Never format the request, signed draft, outbox, transport error or refusal text.
+fn publication_failure(
+    request: &ManagedMessagePublishRequestV1,
+    stage: &'static str,
+    error: ManagedPublicationAuthorityError,
+) -> ManagedPublicationAuthorityError {
+    let dispatch = Hex64::parse(request.dispatch_receipt_id.as_str().to_owned()).ok();
+    luca_log!(
+        warn,
+        "luca-publication: dispatch={} epoch={} stage={} category={}",
+        dispatch.as_ref().map_or("invalid", Hex64::as_str),
+        request.cancellation_epoch.get(),
+        stage,
+        publication_failure_category(error)
+    );
+    error
+}
+
 /// Exact dispatch receipts retained in the decrypted publication outbox.
 ///
 /// Startup recovery passes this snapshot to the runtime-task authority only
@@ -453,12 +483,21 @@ impl ManagedMessagePublisher {
             return Ok(());
         };
         let dispatch = luca_protocol::Hex64::parse(request.dispatch_receipt_id.as_str().to_owned())
-            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?;
+            .map_err(|_| {
+                publication_failure(
+                    request,
+                    "awareness_dispatch_id",
+                    ManagedPublicationAuthorityError::Invalid,
+                )
+            })?;
         let (lookup, reply_lease) = {
-            let store = self
-                .dispatch_store
-                .lock()
-                .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?;
+            let store = self.dispatch_store.lock().map_err(|_| {
+                publication_failure(
+                    request,
+                    "awareness_store_lock",
+                    ManagedPublicationAuthorityError::Unavailable,
+                )
+            })?;
             let lookup = store.turn_awareness_context(
                 &request.owner_pubkey,
                 &request.resident_pubkey,
@@ -474,33 +513,55 @@ impl ManagedMessagePublisher {
             {
                 return Ok(());
             }
-            let reply_lease = match &lookup {
-                ManagedTurnAwarenessLookupV1::Bound(receipt) => Some(
-                    store
-                        .awareness_reply_lease(receipt, now_unix_secs)
-                        .map_err(|_| ManagedPublicationAuthorityError::Denied)?,
-                ),
-                _ => None,
-            };
+            let reply_lease =
+                match &lookup {
+                    ManagedTurnAwarenessLookupV1::Bound(receipt) => Some(
+                        store
+                            .awareness_reply_lease(receipt, now_unix_secs)
+                            .map_err(|error| {
+                                luca_log!(warn,
+                                "luca-awareness-reply: dispatch={} stage=lease_lookup error={:?}",
+                                dispatch.as_str(), error);
+                                publication_failure(
+                                    request,
+                                    "awareness_lease",
+                                    ManagedPublicationAuthorityError::Denied,
+                                )
+                            })?,
+                    ),
+                    _ => None,
+                };
             (lookup, reply_lease)
         };
         match lookup {
             ManagedTurnAwarenessLookupV1::Untainted => Ok(()),
-            ManagedTurnAwarenessLookupV1::Unknown => Err(ManagedPublicationAuthorityError::Denied),
+            ManagedTurnAwarenessLookupV1::Unknown => Err(publication_failure(
+                request,
+                "awareness_receipt_unknown",
+                ManagedPublicationAuthorityError::Denied,
+            )),
             ManagedTurnAwarenessLookupV1::Bound(receipt) => {
                 super::companion_awareness::conversation::admit_reply(
                     &scheduler.app.state::<crate::app_state::AppState>(),
                     &receipt,
                     &scheduler.binding_ref,
-                    &reply_lease.ok_or(ManagedPublicationAuthorityError::Denied)?,
+                    &reply_lease.ok_or_else(|| {
+                        publication_failure(
+                            request,
+                            "awareness_lease_missing",
+                            ManagedPublicationAuthorityError::Denied,
+                        )
+                    })?,
                 )
-                .map_err(|error| match error {
+                .map_err(|error| {
+                    publication_failure(request, "awareness_admission", match error {
                     super::companion_awareness::conversation::ReplyAdmissionError::Denied => {
                         ManagedPublicationAuthorityError::Denied
                     }
                     super::companion_awareness::conversation::ReplyAdmissionError::Unavailable => {
                         ManagedPublicationAuthorityError::Unavailable
                     }
+                })
                 })
             }
         }
@@ -1928,10 +1989,27 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
         self.admit_awareness_reply(request, now_unix_secs)?;
         self.dispatch_store
             .lock()
-            .map_err(|_| ManagedPublicationAuthorityError::Unavailable)?
+            .map_err(|_| {
+                publication_failure(
+                    request,
+                    "dispatch_store_lock",
+                    ManagedPublicationAuthorityError::Unavailable,
+                )
+            })?
             .authorize_publication(request, now_unix_secs)
             .map(|_| ())
-            .map_err(Self::map_dispatch_error)
+            .map_err(|error| {
+                luca_log!(
+                    warn,
+                    "luca-publication: stage=dispatch_authorization error={:?}",
+                    error
+                );
+                publication_failure(
+                    request,
+                    "dispatch_authorization",
+                    Self::map_dispatch_error(error),
+                )
+            })
     }
 
     fn publish_prepared(
@@ -1942,9 +2020,16 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
     ) -> Result<(), ManagedPublicationAuthorityError> {
         let signed_event_json = outbox
             .event_for_submission(&request.idempotency_key)
-            .map_err(|_| ManagedPublicationAuthorityError::Invalid)?
+            .map_err(|_| {
+                publication_failure(
+                    request,
+                    "prepared_outbox",
+                    ManagedPublicationAuthorityError::Invalid,
+                )
+            })?
             .to_owned();
-        let event = Self::parse_exact_event(request, &signed_event_json)?;
+        let event = Self::parse_exact_event(request, &signed_event_json)
+            .map_err(|error| publication_failure(request, "prepared_event", error))?;
         let entry = ManagedOutboxReconcileEntry {
             idempotency_key: request.idempotency_key.clone(),
             event_id: luca_protocol::Hex64::parse(event.id.to_hex())
@@ -1990,7 +2075,13 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
                     request.resident_pubkey.as_str(),
                     request.cancellation_epoch.get(),
                 )
-                .map_err(Self::map_dispatch_error)?;
+                .map_err(|error| {
+                    publication_failure(
+                        request,
+                        "dispatch_pre_submit_recheck",
+                        Self::map_dispatch_error(error),
+                    )
+                })?;
             store
                 .begin_submission(
                     request.dispatch_receipt_id.as_str(),
@@ -1998,7 +2089,13 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
                     request.cancellation_epoch.get(),
                     entry.event_id.as_str(),
                 )
-                .map_err(Self::map_dispatch_error)?;
+                .map_err(|error| {
+                    publication_failure(
+                        request,
+                        "dispatch_begin_submission",
+                        Self::map_dispatch_error(error),
+                    )
+                })?;
         }
         let now_unix_secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -2011,6 +2108,7 @@ impl ManagedMessagePublicationAuthority for ManagedMessagePublisher {
             now_unix_secs,
             RELAY_REQUEST_TIMEOUT,
         )
+        .map_err(|error| publication_failure(request, "prepared_submission", error))
     }
 
     fn reconcile_on_start(

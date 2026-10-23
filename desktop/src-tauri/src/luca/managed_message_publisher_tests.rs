@@ -17,6 +17,32 @@ use nostr::{EventBuilder, Tag, Timestamp};
 
 const CHANNEL: &str = "11111111-1111-4111-8111-111111111111";
 
+#[test]
+fn publication_diagnostic_categories_are_fixed_and_preserve_errors() {
+    let fixture = fixture();
+    for (error, category) in [
+        (ManagedPublicationAuthorityError::Unavailable, "unavailable"),
+        (ManagedPublicationAuthorityError::Denied, "denied"),
+        (ManagedPublicationAuthorityError::Cancelled, "cancelled"),
+        (ManagedPublicationAuthorityError::Invalid, "invalid"),
+        (
+            ManagedPublicationAuthorityError::ExchangeDenied("DO_NOT_LOG_REFUSAL_SENTINEL"),
+            "exchange_denied",
+        ),
+        (
+            ManagedPublicationAuthorityError::ExchangeTurnTaken,
+            "exchange_turn_taken",
+        ),
+    ] {
+        assert_eq!(publication_failure_category(error), category);
+        assert_eq!(
+            publication_failure(&fixture.request, "fixture", error),
+            error
+        );
+        assert!(!category.contains("SENTINEL"));
+    }
+}
+
 #[derive(Default)]
 struct FakeRelayState {
     submissions: Vec<String>,

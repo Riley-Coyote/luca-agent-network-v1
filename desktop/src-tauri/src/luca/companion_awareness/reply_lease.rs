@@ -75,6 +75,29 @@ impl NativeReplyLeaseV1 {
             })
             .is_some_and(|value| self.current(&value))
     }
+    /// Body-free diagnostic only; this label never makes an admission decision.
+    pub(crate) fn diagnostic_state_unix_secs(&self, now: u64) -> &'static str {
+        if !self.0.valid.load(Ordering::Acquire) {
+            return "cancelled";
+        }
+        let Some(now) = i64::try_from(now)
+            .ok()
+            .and_then(|value| chrono::DateTime::from_timestamp(value, 0))
+            .and_then(|value| {
+                CanonicalTimestamp::parse(value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+                    .ok()
+            })
+        else {
+            return "invalid_clock";
+        };
+        if now < self.0.reserved_at {
+            "not_yet_valid"
+        } else if now >= self.0.expires_at {
+            "expired"
+        } else {
+            "current"
+        }
+    }
     /// Exact full-reference membership in the admitted native snapshot.
     pub(crate) fn binding(
         &self,
@@ -235,7 +258,10 @@ impl MaterialBook {
                 return false;
             };
             let lease = NativeReplyLeaseV1(inner);
-            if !lease.current(now) {
+            // A caller may have captured its clock before another thread
+            // reserved this lease. That older snapshot cannot withdraw the
+            // newer turn; admission still rejects a pre-reservation clock.
+            if !lease.0.valid.load(Ordering::Acquire) || now >= &lease.0.expires_at {
                 lease.cancel();
                 return false;
             }

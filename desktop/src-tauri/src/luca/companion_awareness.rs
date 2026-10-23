@@ -706,7 +706,13 @@ impl CompanionAwarenessRuntime {
                 };
                 controller
                     .store
-                    .recheck_native_history_choice(&key, binding)?;
+                    .recheck_native_history_choice(&key, binding)
+                    .map_err(|error| {
+                        luca_log!(warn,
+                            "luca-awareness-reply: stage=native_history_consent observation={} error={:?}",
+                            reference.observation_id.as_str(), error);
+                        error
+                    })?;
             }
             for node in nodes {
                 if let Some(reply) = reply_lease {
@@ -716,7 +722,12 @@ impl CompanionAwarenessRuntime {
                         binding,
                         reply,
                         &mut resolve,
-                    )?;
+                    ).map_err(|error| {
+                        luca_log!(warn,
+                            "luca-awareness-reply: stage=leased_dependency node={} error={:?}",
+                            node.as_str(), error);
+                        error
+                    })?;
                 } else {
                     controller.store.recheck_dependency(
                         node,

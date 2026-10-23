@@ -403,6 +403,67 @@ fn reply_reservation_requires_fresh_exact_native_records_and_has_bounded_capacit
         .is_err());
 }
 #[test]
+fn earlier_snapshot_sweep_preserves_later_reservation_without_admitting_earlier_clock() {
+    let (mut book, mut facts, reference, lease) = leased_profile();
+    let earlier = CanonicalTimestamp::parse("2026-10-08T10:00:30Z").unwrap();
+    let admitted = CanonicalTimestamp::parse("2026-10-08T10:00:31Z").unwrap();
+    // Deterministic interleaving: a preload captured T, another thread reserved
+    // at T+1, then the original preload acquired the shared material lock.
+    book.sweep_reply_leases(&earlier);
+    assert_eq!(book.reply_leases.len(), 1);
+    assert_eq!(
+        lease.diagnostic_state_unix_secs(seconds(earlier.as_str())),
+        "not_yet_valid"
+    );
+    assert!(!lease.current(&earlier));
+    assert!(!lease.allows(&reference, &earlier));
+    facts.raw.now = earlier.clone();
+    assert!(
+        !facts
+            .resolve_admitted_reply(&reference, false, &lease)
+            .source_fresh
+    );
+
+    assert!(lease.current(&admitted));
+    facts.raw.now = admitted.clone();
+    assert!(
+        facts
+            .resolve_admitted_reply(&reference, false, &lease)
+            .source_fresh
+    );
+    assert_eq!(
+        lease.diagnostic_state_unix_secs(seconds(admitted.as_str())),
+        "current"
+    );
+
+    // Explicit withdrawal still wins even when the sweeping clock is older.
+    lease.cancel();
+    book.sweep_reply_leases(&earlier);
+    assert!(book.reply_leases.is_empty());
+    assert!(!lease.current(&admitted));
+    assert!(
+        !facts
+            .resolve_admitted_reply(&reference, false, &lease)
+            .source_fresh
+    );
+    assert_eq!(
+        lease.diagnostic_state_unix_secs(seconds(admitted.as_str())),
+        "cancelled"
+    );
+
+    let (mut book, _, _, expired) = leased_profile();
+    let deadline = CanonicalTimestamp::parse("2026-10-08T10:30:00Z").unwrap();
+    assert_eq!(
+        expired.diagnostic_state_unix_secs(seconds(deadline.as_str())),
+        "expired"
+    );
+    book.sweep_reply_leases(&deadline);
+    assert!(book.reply_leases.is_empty());
+    assert!(!expired.current(&deadline));
+    assert!(!expired.current(&admitted));
+}
+
+#[test]
 fn reply_lease_never_extends_non_native_material_or_raw_selection() {
     let (mut book, mut facts, reference, _) = leased_profile();
     let binding = SourceMaterialBindingV1 {

@@ -22,6 +22,34 @@ fn source_failure(error: super::AwarenessStoreError) -> ReplyAdmissionError {
     }
 }
 
+// Fixed stages and redacted enums only: never format a receipt, source body,
+// native locator, relay response or underlying database/credential error.
+fn rejected(
+    receipt: &ManagedTurnAwarenessBindingV1,
+    stage: &'static str,
+    error: ReplyAdmissionError,
+    source: Option<super::AwarenessStoreError>,
+) -> ReplyAdmissionError {
+    luca_log!(
+        warn,
+        "luca-awareness-reply: dispatch={} epoch={} stage={} error={:?} source={:?}",
+        receipt.trigger_event_id.as_str(),
+        receipt.session_epoch.map_or(0, |epoch| epoch.get()),
+        stage,
+        error,
+        source
+    );
+    error
+}
+
+fn rejected_source(
+    receipt: &ManagedTurnAwarenessBindingV1,
+    stage: &'static str,
+    error: super::AwarenessStoreError,
+) -> ReplyAdmissionError {
+    rejected(receipt, stage, source_failure(error), Some(error))
+}
+
 fn private_metadata(
     event: &nostr::Event,
     owner: &Hex64,
@@ -126,14 +154,35 @@ pub(crate) fn admit_reply(
     if !receipt.fresh_native_history
         || !reply_lease.matches_receipt(receipt)
         || receipt.binding_ref.as_ref() != Some(binding)
-        || crate::luca::managed_cognition::active_binding_ref(&receipt.resident_pubkey)
-            .ok()
-            .as_ref()
-            != Some(binding)
-        || crate::luca::managed_cognition::active_session_epoch(&receipt.resident_pubkey).ok()
-            != receipt.session_epoch
     {
-        return Err(ReplyAdmissionError::Denied);
+        return Err(rejected(
+            receipt,
+            "receipt_scope",
+            ReplyAdmissionError::Denied,
+            None,
+        ));
+    }
+    if crate::luca::managed_cognition::active_binding_ref(&receipt.resident_pubkey)
+        .ok()
+        .as_ref()
+        != Some(binding)
+    {
+        return Err(rejected(
+            receipt,
+            "runtime_binding",
+            ReplyAdmissionError::Denied,
+            None,
+        ));
+    }
+    if crate::luca::managed_cognition::active_session_epoch(&receipt.resident_pubkey).ok()
+        != receipt.session_epoch
+    {
+        return Err(rejected(
+            receipt,
+            "runtime_epoch",
+            ReplyAdmissionError::Denied,
+            None,
+        ));
     }
     let deadline = Instant::now() + Duration::from_millis(750);
     if !current_private_conversation(
@@ -142,13 +191,27 @@ pub(crate) fn admit_reply(
         &receipt.resident_pubkey,
         &receipt.conversation_id,
         deadline,
-    )? {
-        return Err(ReplyAdmissionError::Denied);
+    )
+    .map_err(|error| rejected(receipt, "private_audience", error, None))?
+    {
+        return Err(rejected(
+            receipt,
+            "private_audience",
+            ReplyAdmissionError::Denied,
+            None,
+        ));
     }
     let now = CanonicalTimestamp::parse(
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     )
-    .map_err(|_| ReplyAdmissionError::Unavailable)?;
+    .map_err(|_| {
+        rejected(
+            receipt,
+            "preload_clock",
+            ReplyAdmissionError::Unavailable,
+            None,
+        )
+    })?;
     let material = preload_source_facts_before(
         state,
         &receipt.owner_pubkey,
@@ -156,16 +219,31 @@ pub(crate) fn admit_reply(
         &now,
         deadline,
     )
-    .map_err(source_failure)?;
-    let live = LiveAwarenessOwner::authenticate(state).map_err(source_failure)?;
+    .map_err(|error| rejected_source(receipt, "material_preload", error))?;
+    let live = LiveAwarenessOwner::authenticate(state)
+        .map_err(|error| rejected_source(receipt, "live_owner", error))?;
     if live.owner() != &receipt.owner_pubkey {
-        return Err(ReplyAdmissionError::Denied);
+        return Err(rejected(
+            receipt,
+            "live_owner_scope",
+            ReplyAdmissionError::Denied,
+            None,
+        ));
     }
-    let lease = live.lease().map_err(source_failure)?;
+    let lease = live
+        .lease()
+        .map_err(|error| rejected_source(receipt, "live_owner_lease", error))?;
     let now = CanonicalTimestamp::parse(
         chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     )
-    .map_err(|_| ReplyAdmissionError::Unavailable)?;
+    .map_err(|_| {
+        rejected(
+            receipt,
+            "admission_clock",
+            ReplyAdmissionError::Unavailable,
+            None,
+        )
+    })?;
     let facts = AwarenessHostFactsV1 {
         owner_pubkey: &receipt.owner_pubkey,
         resident_pubkey: &receipt.resident_pubkey,
@@ -182,15 +260,43 @@ pub(crate) fn admit_reply(
             &receipt.context_nodes,
             &receipt.observations,
             Some(reply_lease),
-            |reference, retained| material.resolve_admitted_reply(reference, retained, reply_lease),
+            |reference, retained| {
+                let facts = material.resolve_admitted_reply(reference, retained, reply_lease);
+                if !facts.source_fresh || facts.material_state != AwarenessMaterialStateV1::Available {
+                    luca_log!(warn,
+                        "luca-awareness-reply: dispatch={} stage=material_resolution observation={} retained={} fresh={} state={:?}",
+                        receipt.trigger_event_id.as_str(), reference.observation_id.as_str(),
+                        retained, facts.source_fresh, facts.material_state);
+                }
+                facts
+            },
         )
-        .map_err(source_failure)
+        .map_err(|error| rejected_source(receipt, "authority", error))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag};
+    #[test]
+    fn redacted_admission_errors_keep_the_original_fail_closed_mapping() {
+        use super::super::AwarenessStoreError;
+        assert_eq!(
+            source_failure(AwarenessStoreError::Unavailable),
+            ReplyAdmissionError::Unavailable
+        );
+        for error in [
+            AwarenessStoreError::Invalid,
+            AwarenessStoreError::Missing,
+            AwarenessStoreError::Capacity,
+            AwarenessStoreError::Paused,
+            AwarenessStoreError::Quarantined,
+            AwarenessStoreError::Suspended,
+            AwarenessStoreError::Denied(luca_protocol::AwarenessError::Expired),
+        ] {
+            assert_eq!(source_failure(error), ReplyAdmissionError::Denied);
+        }
+    }
     #[test]
     fn observed_activity_requires_an_exact_signed_private_pair() {
         let owner = Keys::generate();
