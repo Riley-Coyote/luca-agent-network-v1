@@ -97,6 +97,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         guard let card = Self.rect(body["card"]), card.width > 1, card.height > 1 else {
             // No card on this page: every piece melts away where it is.
             cardInsets = nil
+            host.floor.isHidden = true
             for drop in stage.drops { stage.remove(drop.id) }
             chosen = nil
             current = nil
@@ -108,6 +109,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         let page = host.bounds
         cardInsets = NSEdgeInsets(top: card.minY, left: card.minX, bottom: page.height - card.maxY, right: page.width - card.maxX)
         if let radius = (body["card"] as? [String: Any])?["r"] as? Double { cardRadius = CGFloat(radius) }
+        host.floor.isHidden = false
         placeCard()
     }
 
@@ -349,6 +351,9 @@ final class GlassHostView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        // Nothing native shows until the page reports a card: a first run's floating card keeps its transparent
+        // window, and a page without the rail keeps its own floor.
+        floor.isHidden = true
         addSubview(floor)
         addSubview(stage)
     }

@@ -25,6 +25,7 @@ mod migration;
 #[cfg(test)]
 mod model_tests;
 mod models;
+mod native_glass;
 mod native_websocket;
 mod nostr_bind;
 pub mod nostr_convert;
@@ -342,6 +343,10 @@ pub fn run() {
                         // window's top chrome owns its own edges; this is a
                         // second line nothing in CSS can reach.
                         commands::set_titlebar_separator_hidden(&window, true);
+
+                        // Native test builds only: Apple's glass beneath the
+                        // page, for the card and the rail's selection.
+                        native_glass::attach(&webview);
 
                         if first_run {
                             // Nothing but the card is on screen for a first

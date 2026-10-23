@@ -42,6 +42,21 @@ test("initiative identity is distinct, and every kind compiles only in the warm 
   assert.notEqual(shell('true', [], { POLYPHONIC_COMPANION_CANDIDATE_KIND: "unexpected" }).status, 0);
 });
 
+test("the rail-glass candidate is its own identity and the only one that carries native glass", () => {
+  const env = { POLYPHONIC_COMPANION_CANDIDATE_KIND: "rail-glass" };
+  const overlay = join(repository, "desktop/src-tauri/tauri.rail-glass-candidate.conf.json");
+  const identity = shell('json config "$1" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME"', [overlay], env);
+  assert.equal(identity.status, 0, identity.stderr);
+  assert.equal(shell('printf %s "$NATIVE_GLASS"', [], env).stdout, "1");
+  assert.equal(shell('printf %s "$NATIVE_GLASS"', []).stdout, "0");
+  const glassed = JSON.parse(shell('json environment /d /n scope 1', [], env).stdout);
+  assert.equal(glassed.LUCA_NATIVE_RAIL_GLASS, "1");
+  assert.equal(Object.keys(glassed).length, 5);
+  const plain = JSON.parse(shell('json environment /d /n scope 0').stdout);
+  assert.equal(plain.LUCA_NATIVE_RAIL_GLASS, undefined);
+  assert.equal(Object.keys(plain).length, 4);
+});
+
 test("the entrypoint refuses any build target but the one shared cache", () => {
   temporary((root) => {
     for (const mode of ["check", "build", "run"]) {

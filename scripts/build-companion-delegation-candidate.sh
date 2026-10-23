@@ -39,9 +39,24 @@ case "$CANDIDATE_KIND" in
         readonly PROTOCOL="polyphonic.living-ink-candidate.v1"
         readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.living-ink-candidate.conf.json"
         ;;
+    rail-glass)
+        # The rail in Apple's real glass (docs/luca/native-rail-glass/PLAN.md):
+        # the only kind that compiles native/glass in and switches it on.
+        readonly EXPECTED_BRANCH="claude/native-rail-glass"
+        readonly SOURCE_BASE="f84aaafa53386f213b832441983838b23c32c745"
+        readonly BUNDLE_ID="chat.polyphonic.desktop.rail-glass.dev"
+        readonly PRODUCT_NAME="Polyphonic Rail Glass Candidate"
+        readonly URL_SCHEME="polyphonic-rail-glass"
+        readonly PROTOCOL="polyphonic.rail-glass-candidate.v1"
+        readonly CONFIG_PATH="$REPO_ROOT/desktop/src-tauri/tauri.rail-glass-candidate.conf.json"
+        ;;
     *) printf 'Candidate refused: unknown candidate identity\n' >&2; exit 1 ;;
 esac
 readonly ENTITLEMENTS_PATH="$REPO_ROOT/desktop/src-tauri/Entitlements.plist"
+# 1 when this kind carries Apple's glass (LUCA_BUILD_NATIVE_GLASS at build, LUCA_NATIVE_RAIL_GLASS at run).
+NATIVE_GLASS=0
+[[ "$CANDIDATE_KIND" != rail-glass ]] || NATIVE_GLASS=1
+readonly NATIVE_GLASS
 readonly SIDECARS=(buzz-acp buzz-agent buzz-dev-mcp git-credential-nostr buzz buzz-relay)
 
 fail() { printf 'Candidate refused: %s\n' "$1" >&2; exit 1; }
@@ -143,8 +158,10 @@ try {
     if (action === 'owner') write(file, owner);
     else requireValue(JSON.stringify(read(file)) === JSON.stringify(owner), 'candidate instance belongs to another build');
   } else if (action === 'environment') {
-    const [data, native, keyring] = args;
-    process.stdout.write(JSON.stringify({ BUZZ_DESKTOP_DATA_DIR: data, LUCA_NATIVE_STATE_ISOLATION_ROOT: native, BUZZ_DEV_KEYRING_SERVICE: keyring, BUZZ_RELAY_URL: 'buzz-local://on-this-device' }));
+    const [data, native, keyring, glass] = args;
+    const environment = { BUZZ_DESKTOP_DATA_DIR: data, LUCA_NATIVE_STATE_ISOLATION_ROOT: native, BUZZ_DEV_KEYRING_SERVICE: keyring, BUZZ_RELAY_URL: 'buzz-local://on-this-device' };
+    if (glass === '1') environment.LUCA_NATIVE_RAIL_GLASS = '1';
+    process.stdout.write(JSON.stringify(environment));
   } else if (action === 'receipt') {
     const [file, protocol, source, base, branch, identity, product, instance, keyring, config, entitlements, target, signing, ...names] = args;
     write(file, { protocol, sourceRevision: source, sourceBase: base, sourceBranch: branch, worktreeClean: true, bundleIdentifier: identity, productName: product, instanceRoot: instance, keyringService: keyring, configSha256: hash(config), entitlementsSha256: hash(entitlements), rustVersion: '1.95.0', architecture: 'aarch64-apple-darwin', profile: 'debug', features: ['default', 'system-keyring'], signingIdentity: signing, notarized: false, sidecars: names.map(name => ({ name, sourceSha256: hash(path.join(target, 'debug', name)) })) });
@@ -168,11 +185,12 @@ try {
     requireValue(Number.isSafeInteger(r.pid) && r.pid > 1 && r.pid < 2147483648 && typeof r.started === 'string' && r.started.length <= 100 && !/[\r\n]/.test(r.started) && r.executable === executable && /^[a-f0-9]{40}$/.test(r.sourceRevision), 'invalid owned candidate process record');
     process.stdout.write(`${r.pid}\n${r.started}\n`);
   } else if (action === 'plist') {
-    const [raw, identity, product, scheme, data, native, keyring] = args;
+    const [raw, identity, product, scheme, data, native, keyring, glass] = args;
     const p = JSON.parse(raw);
     requireValue(p.CFBundleIdentifier === identity && p.CFBundleName === product && p.CFBundleDisplayName === product && p.CFBundleExecutable === 'buzz-desktop' && p.CFBundleShortVersionString === '0.5.0-beta.13' && p.LSMinimumSystemVersion === '14.0' && p.LucaCompanionDelegationCandidate === true, 'candidate bundle identity mismatch');
     requireValue(p.CFBundleURLTypes?.length === 1 && JSON.stringify(p.CFBundleURLTypes[0].CFBundleURLSchemes) === JSON.stringify([scheme]), 'candidate bundle URL scheme mismatch');
-    requireValue(p.LSEnvironment?.BUZZ_DESKTOP_DATA_DIR === data && p.LSEnvironment?.LUCA_NATIVE_STATE_ISOLATION_ROOT === native && p.LSEnvironment?.BUZZ_DEV_KEYRING_SERVICE === keyring && p.LSEnvironment?.BUZZ_RELAY_URL === 'buzz-local://on-this-device' && Object.keys(p.LSEnvironment).length === 4, 'candidate bundle isolation mismatch');
+    const glassed = glass === '1';
+    requireValue(p.LSEnvironment?.BUZZ_DESKTOP_DATA_DIR === data && p.LSEnvironment?.LUCA_NATIVE_STATE_ISOLATION_ROOT === native && p.LSEnvironment?.BUZZ_DEV_KEYRING_SERVICE === keyring && p.LSEnvironment?.BUZZ_RELAY_URL === 'buzz-local://on-this-device' && (p.LSEnvironment?.LUCA_NATIVE_RAIL_GLASS === '1') === glassed && Object.keys(p.LSEnvironment).length === (glassed ? 5 : 4), 'candidate bundle isolation mismatch');
   } else throw new Error('unknown candidate metadata operation');
 } catch {
   console.error('Candidate metadata validation failed. No provider or environment body is reported.');
@@ -291,7 +309,7 @@ verify_bundle() {
     local name plist_json
     [[ -d "$APP_BUNDLE" && ! -L "$APP_BUNDLE" ]] || fail "candidate bundle is missing or symlinked"
     plist_json=$(/usr/bin/plutil -convert json -o - "$PLIST")
-    json plist "$plist_json" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE"
+    json plist "$plist_json" "$BUNDLE_ID" "$PRODUCT_NAME" "$URL_SCHEME" "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE" "$NATIVE_GLASS"
     json verify-receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "${SIDECARS[@]}"
     for name in buzz-desktop "${SIDECARS[@]}"; do
         verify_executable "$APP_BUNDLE/Contents/MacOS/$name"
@@ -333,6 +351,7 @@ build_candidate() {
     [[ "$(rustc --version)" == 'rustc 1.95.0 '* && "$(rustc -vV | /usr/bin/sed -n 's/^host: //p')" == aarch64-apple-darwin ]] || fail "unexpected Rust compiler or host architecture"
     # Scoped candidate-only compile setting; never contacts the shared dev relay.
     export BUZZ_RELAY_URL='buzz-local://on-this-device'
+    [[ "$NATIVE_GLASS" != 1 ]] || export LUCA_BUILD_NATIVE_GLASS=1
     signing="$SIGNING_IDENTITY"
     if [[ -z "$signing" ]]; then
         signing=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | /usr/bin/head -1)
@@ -357,7 +376,7 @@ build_candidate() {
     /usr/bin/plutil -replace CFBundleName -string "$PRODUCT_NAME" "$PLIST"
     /usr/bin/plutil -replace CFBundleDisplayName -string "$PRODUCT_NAME" "$PLIST"
     /usr/bin/plutil -insert LucaCompanionDelegationCandidate -bool true "$PLIST"
-    /usr/bin/plutil -insert LSEnvironment -json "$(json environment "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE")" "$PLIST"
+    /usr/bin/plutil -insert LSEnvironment -json "$(json environment "$DATA_DIR" "$NATIVE_ROOT" "$KEYRING_SERVICE" "$NATIVE_GLASS")" "$PLIST"
     mkdir -p "$APP_BUNDLE/Contents/Resources"
     json receipt "$RECEIPT" "$PROTOCOL" "$SOURCE_REVISION" "$SOURCE_BASE" "$EXPECTED_BRANCH" "$BUNDLE_ID" "$PRODUCT_NAME" "$INSTANCE_ROOT" "$KEYRING_SERVICE" "$CONFIG_PATH" "$ENTITLEMENTS_PATH" "$TARGET_DIR" "$signing" "${SIDECARS[@]}"
     # All source/isolation metadata precedes the final signature. Nothing inside
@@ -382,6 +401,7 @@ run_candidate() {
         clear_candidate_environment
         export BUZZ_DESKTOP_DATA_DIR="$DATA_DIR" LUCA_NATIVE_STATE_ISOLATION_ROOT="$NATIVE_ROOT"
         export BUZZ_DEV_KEYRING_SERVICE="$KEYRING_SERVICE" BUZZ_RELAY_URL='buzz-local://on-this-device'
+        [[ "$NATIVE_GLASS" != 1 ]] || export LUCA_NATIVE_RAIL_GLASS=1
         exec "$APP_EXECUTABLE"
     ) >>"$CONTROL_DIR/candidate.log" 2>&1 &
     pid=$!

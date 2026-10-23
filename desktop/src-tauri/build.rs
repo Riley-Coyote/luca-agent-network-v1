@@ -7,6 +7,7 @@ use base64::Engine as _;
 fn main() {
     build_quickchat_capture();
     build_companion_awareness();
+    build_native_glass();
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_URL");
     println!("cargo:rerun-if-env-changed=BUZZ_RELAY_HTTP");
     println!("cargo:rerun-if-env-changed=BUZZ_UPDATER_PUBLIC_KEY");
@@ -151,6 +152,87 @@ fn build_quickchat_capture() {
         matches!(status, Ok(status) if status.success()),
         "Failed to compile Quick Chat capture helper"
     );
+}
+
+// The rail in Apple's real glass (src/native_glass.rs), for native test builds
+// only: compiled from native/glass/ and linked into the app when the build sets
+// LUCA_BUILD_NATIVE_GLASS=1, so shipped builds carry no Swift and no glass.
+fn build_native_glass() {
+    println!("cargo:rerun-if-env-changed=LUCA_BUILD_NATIVE_GLASS");
+    println!("cargo:rerun-if-changed=native/glass");
+    println!("cargo:rustc-check-cfg=cfg(native_glass)");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
+        || std::env::var("LUCA_BUILD_NATIVE_GLASS").as_deref() != Ok("1")
+    {
+        return;
+    }
+    let architecture = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        Ok("x86_64") => "x86_64",
+        _ => panic!("Unsupported native glass architecture"),
+    };
+    let Some(directory) = std::env::var_os("OUT_DIR") else {
+        panic!("Missing native glass output directory");
+    };
+    let output = std::path::PathBuf::from(directory);
+    let mut sources: Vec<std::path::PathBuf> = std::fs::read_dir("native/glass/Engine")
+        .expect("native glass engine sources")
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "swift")
+        })
+        .collect();
+    sources.sort();
+    sources.push("native/glass/PolyphonicGlass.swift".into());
+    // The app runs from macOS 14; the glass itself stays behind #available(macOS 26).
+    let status = std::process::Command::new("xcrun")
+        .args([
+            "swiftc",
+            "-emit-library",
+            "-static",
+            "-parse-as-library",
+            "-swift-version",
+            "6",
+            "-O",
+        ])
+        .args(["-module-name", "PolyphonicGlass", "-target"])
+        .arg(format!("{architecture}-apple-macos14.0"))
+        .args(&sources)
+        .arg("-o")
+        .arg(output.join("libpolyphonic_glass.a"))
+        .status();
+    assert!(
+        matches!(status, Ok(status) if status.success()),
+        "Failed to compile native glass"
+    );
+    let tool = |args: &[&str]| -> String {
+        let out = std::process::Command::new("xcrun")
+            .args(args)
+            .output()
+            .expect("xcrun");
+        assert!(out.status.success(), "xcrun {args:?} failed");
+        String::from_utf8(out.stdout)
+            .expect("xcrun output")
+            .trim()
+            .to_owned()
+    };
+    let sdk = tool(&["--show-sdk-path"]);
+    let swiftc = std::path::PathBuf::from(tool(&["--find", "swiftc"]));
+    // The Swift runtime is the system's; its back-deployment shims are the toolchain's.
+    let shims = swiftc
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(|toolchain| toolchain.join("lib/swift/macosx"))
+        .expect("Swift toolchain");
+    println!("cargo:rustc-link-search=native={}", output.display());
+    println!("cargo:rustc-link-lib=static=polyphonic_glass");
+    println!("cargo:rustc-link-search=native={sdk}/usr/lib/swift");
+    println!("cargo:rustc-link-search=native={}", shims.display());
+    for framework in ["AppKit", "WebKit", "QuartzCore", "Metal"] {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
+    println!("cargo:rustc-cfg=native_glass");
 }
 
 // Embedded command-line helper only. Compilation never invokes the helper,
