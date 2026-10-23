@@ -1675,7 +1675,7 @@ function MessageComposerImpl({
                 </div>
                 <Button
                   aria-label={isSending ? "Sending" : "Send message"}
-                  className="size-[34px] shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink/90 disabled:bg-foreground/[0.08] disabled:text-ink-ghost disabled:opacity-100"
+                  className="size-[34px] shrink-0 rounded-full bg-ink text-muted shadow-none hover:bg-ink disabled:bg-foreground/[0.08] disabled:text-ink-ghost disabled:opacity-100"
                   data-testid="send-message"
                   disabled={sendDisabled || isSending}
                   size="icon"

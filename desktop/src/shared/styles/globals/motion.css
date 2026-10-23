@@ -32,6 +32,47 @@
      weight, decelerating into place. */
   --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --motion-duration-drawer: 260ms;
+
+  /* The press spring: what a pressed thing gives back with. The house press
+     (response 0.5s, damping 0.6, the numbers Ghost's glass uses under a
+     finger), sampled from the spring's own equation into linear() stops. It
+     leaves rest with no speed, overshoots once by 9.5%, and its second swing
+     is under 1%, so the thing comes back with one wobble. 640ms carries it to
+     within 1% of rest. The give itself is quick and plain (`-give`). */
+  --motion-ease-press: linear(
+    0,
+    0.037,
+    0.129,
+    0.255,
+    0.396,
+    0.538,
+    0.67,
+    0.787,
+    0.884,
+    0.961,
+    1.019,
+    1.058,
+    1.082,
+    1.093,
+    1.094,
+    1.089,
+    1.079,
+    1.066,
+    1.053,
+    1.04,
+    1.027,
+    1.017,
+    1.008,
+    1.002,
+    0.997,
+    0.994,
+    0.992,
+    0.991,
+    1
+  );
+  --motion-duration-press: 640ms;
+  --motion-ease-give: cubic-bezier(0.2, 0, 0, 1);
+  --motion-duration-give: 90ms;
 }
 
 /* A newly-created conversational object settling into the timeline. */

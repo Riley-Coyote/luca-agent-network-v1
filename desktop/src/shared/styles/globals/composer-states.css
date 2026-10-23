@@ -55,7 +55,8 @@
 }
 
 /* The send button has two states, armed and disarmed, and never moves between
- * them — it is the one point a hand aims at hundreds of times a day. Each
+ * them — it is the one point a hand aims at hundreds of times a day. (The
+ * press below changes its shape for a moment, never its place.) Each
  * duration is declared on the state being ENTERED, so a crossing picks up its
  * own timing with no JS: `disabled` is driven by the composer's empty /
  * non-empty boolean, and a keystroke that does not cross it changes no style
@@ -71,20 +72,64 @@
  * border-color is listed at the card's focus duration rather than the arm
  * one: every button rests on a transparent border and colours it on keyboard
  * focus, and focus should read at the same speed on the button as on the card
- * around it. Only these three properties move — `transition-colors` would
- * also ease fill, stroke and the gradient stops. */
+ * around it. The light (box-shadow) arms and disarms with the fill. The shape
+ * (transform) is the press, and it springs back on whichever state the button
+ * lands in: a click that sends empties the composer, so the button is usually
+ * disarmed by the time it comes back. Only these properties move —
+ * `transition-colors` would also ease fill, stroke and the gradient stops. */
 [data-testid="message-composer"] [data-testid="send-message"]:enabled {
   transition:
     background-color var(--composer-duration-arm) var(--motion-ease-standard),
     color var(--composer-duration-arm) var(--motion-ease-standard),
-    border-color var(--motion-duration-instant) var(--motion-ease-standard);
+    box-shadow var(--composer-duration-arm) var(--motion-ease-standard),
+    border-color var(--motion-duration-instant) var(--motion-ease-standard),
+    transform var(--motion-duration-press) var(--motion-ease-press);
 }
 
 [data-testid="message-composer"] [data-testid="send-message"]:disabled {
   transition:
     background-color var(--composer-duration-disarm) var(--motion-ease-standard),
     color var(--composer-duration-disarm) var(--motion-ease-standard),
-    border-color var(--motion-duration-instant) var(--motion-ease-standard);
+    box-shadow var(--composer-duration-disarm) var(--motion-ease-standard),
+    border-color var(--motion-duration-instant) var(--motion-ease-standard),
+    transform var(--motion-duration-press) var(--motion-ease-press);
+}
+
+/* THE MAIN BUTTON'S LIGHT. Armed, the disc is the composer's one strong note,
+ * and it is lit as everything here is lit, from above: its top edge catches
+ * the light (thinning round the curve, as an inset offset downward does on a
+ * circle) and it sets a short contact shadow on the composer. Disarmed, the
+ * light goes out and the disc lies flat. Both states list the same three
+ * shadows so the light fades rather than snaps. */
+:root[data-luca-shell]
+  [data-testid="message-composer"]
+  [data-testid="send-message"]:enabled {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 1px 2px rgb(0 0 0 / 0.22),
+    0 3px 8px -2px rgb(0 0 0 / 0.2);
+}
+
+:root[data-luca-shell]
+  [data-testid="message-composer"]
+  [data-testid="send-message"]:disabled {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0),
+    0 1px 2px rgb(0 0 0 / 0),
+    0 3px 8px -2px rgb(0 0 0 / 0);
+}
+
+/* THE PRESS. The main button gives like a drop: it flattens by a tenth and
+ * widens to keep its area, quickly and plainly, and comes back on the press
+ * spring with one wobble when it is let go (the transitions above). */
+[data-testid="message-composer"] [data-testid="send-message"]:enabled:active {
+  transform: scale(1.11, 0.9);
+  transition:
+    background-color var(--composer-duration-arm) var(--motion-ease-standard),
+    color var(--composer-duration-arm) var(--motion-ease-standard),
+    box-shadow var(--composer-duration-arm) var(--motion-ease-standard),
+    border-color var(--motion-duration-instant) var(--motion-ease-standard),
+    transform var(--motion-duration-give) var(--motion-ease-give);
 }
 
 /* The placeholder is the typed text minus its ink: same face, size, leading
@@ -162,6 +207,19 @@
   :root[data-luca-shell]
     [data-testid="message-composer-toolbar"]
     button:not([aria-pressed="true"]) {
+    transition: none;
+  }
+
+  /* No give and no spring. Pressed, the disc sinks out of the light instead:
+     its top edge and its shadow go for as long as it is held. */
+  :root[data-luca-shell]
+    [data-testid="message-composer"]
+    [data-testid="send-message"]:enabled:active {
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0),
+      0 1px 2px rgb(0 0 0 / 0),
+      0 3px 8px -2px rgb(0 0 0 / 0);
+    transform: none;
     transition: none;
   }
 }
