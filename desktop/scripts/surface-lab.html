@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>First-message surface — lab</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #f2f2f2; font: 14px/1.4 "Inter Variable", Inter, system-ui, sans-serif; }
+  .pane { position: absolute; inset: 10px 10px 10px 270px; border-radius: 12px; overflow: hidden; background: rgb(16 16 16); }
+  .pane.light { background: rgb(246 245 242); color: #1a1a1a; }
+  .host { position: absolute; inset: 0; }
+  .center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(640px, 80%); text-align: center; }
+  .body { width: 100px; height: 100px; margin: 0 auto 18px; position: relative; }
+  .body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .name { font: 500 28px/1.2 "Instrument Sans Variable", "Instrument Sans", sans-serif; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .role { color: rgb(160 160 160); margin: 0 0 22px; }
+  .composer { border-radius: 26px; padding: 14px 20px; text-align: left; min-height: 24px; outline: none; color: #f2f2f2; background: transparent; }
+  .light .composer { color: #1a1a1a; }
+  .controls { position: absolute; left: 14px; top: 14px; width: 240px; display: grid; gap: 8px; color: #aaa; }
+  .controls .kinds { display: flex; gap: 6px; flex-wrap: wrap; }
+  button { background: #1d1d1d; color: #ddd; border: 1px solid #333; border-radius: 8px; padding: 6px 10px; }
+  button[aria-pressed="true"] { background: #eee; color: #111; }
+</style>
+</head>
+<body>
+<div class="controls">
+  <div class="kinds" id="kinds"></div>
+  <button id="send" type="button">Send (release)</button>
+  <button id="theme" type="button">Light / dark</button>
+  <div id="stats"></div>
+</div>
+<div class="pane" id="pane">
+  <div class="host" id="host"></div>
+  <div class="center" id="center">
+    <div class="body" id="body"><canvas id="eyes"></canvas></div>
+    <p class="name" id="name">Luca</p>
+    <p class="role" id="role">Your companion</p>
+    <div class="composer" id="composer" contenteditable="true" aria-label="Message Luca"></div>
+  </div>
+</div>
+<script type="module">
+  import { createLivingSurface, SURFACE_KINDS } from "/src/shared/ui/living-surface/createLivingSurface.ts";
+  import { drawGhostEyes, blinkAmount, GHOST_EYE } from "/src/shared/ui/living-surface/ghostEyes.ts";
+
+  const params = new URLSearchParams(location.search);
+  let kind = params.get("kind") || "turing";
+  const pane = document.getElementById("pane");
+  const host = document.getElementById("host");
+  const composer = document.getElementById("composer");
+  let surface, canvas, released = false;
+  if (params.get("theme") === "light") pane.classList.add("light");
+
+  const kinds = document.getElementById("kinds");
+  for (const k of SURFACE_KINDS) {
+    const b = document.createElement("button");
+    b.textContent = k; b.type = "button"; b.setAttribute("aria-pressed", String(k === kind));
+    b.onclick = () => { const u = new URL(location.href); u.searchParams.set("kind", k); location.href = u.toString(); };
+    kinds.append(b);
+  }
+  function bg() {
+    const [r, g, b] = getComputedStyle(pane).backgroundColor.match(/\d+/g).map(Number);
+    return [r / 255, g / 255, b / 255];
+  }
+  function toUnit(x, y) {
+    const r = canvas.getBoundingClientRect();
+    return [(x - r.left) / r.width, 1 - (y - r.top) / r.height];
+  }
+  function textBox(el) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return range.getBoundingClientRect();
+  }
+  function box(el, pad = 0, radius = 0, rect = null) {
+    const r = canvas.getBoundingClientRect();
+    const b = rect ?? el.getBoundingClientRect();
+    const [x, y] = toUnit(b.left + b.width / 2, b.top + b.height / 2);
+    return { x, y, halfWidth: (b.width / 2 + pad) / r.width, halfHeight: (b.height / 2 + pad) / r.height, radius: radius / r.width };
+  }
+  function place() {
+    if (!surface) return;
+    const r = canvas.getBoundingClientRect();
+    const c = document.getElementById("center").getBoundingClientRect();
+    const [x, y] = toUnit(c.left + c.width / 2, c.top + c.height / 2);
+    const name = document.getElementById("name"), role = document.getElementById("role");
+    surface.setWells([box(name, 0, 0, textBox(name)), box(role, 0, 0, textBox(role))]);
+    const b = document.getElementById("body").getBoundingClientRect();
+    if (!released) {
+      const [bx, by] = toUnit(b.left + b.width / 2, b.top + b.height / 2);
+      surface.setBody({ x: bx, y: by, radius: (b.width / 2) / r.width });
+    }
+    surface.setGlass(box(composer, 0, 26), pane.classList.contains("light") ? [232 / 255, 231 / 255, 228 / 255] : [22 / 255, 22 / 255, 22 / 255]);
+  }
+  function start() {
+    surface?.dispose(); canvas?.remove();
+    canvas = document.createElement("canvas");
+    canvas.style.cssText = "display:block;width:100%;height:100%";
+    host.append(canvas);
+    surface = createLivingSurface(kind, canvas);
+    if (!surface) { document.getElementById("stats").textContent = "unavailable"; return; }
+    surface.configure(bg());
+    surface.resize();
+    place();
+    document.getElementById("stats").textContent = kind;
+  }
+  start();
+
+  // Ghost's eyes on the body: they open once it's there, blink now and then, and look where the pointer is.
+  const eyes = document.getElementById("eyes"), ex = eyes.getContext("2d");
+  const gaze = { x: 0, y: 0, tx: 0, ty: 0 };
+  let blinkAt = -10, nextBlink = 2.4, eyeT = 0, pointerAt = { x: -1e4, y: -1e4 };
+  window.addEventListener("pointermove", (e) => { pointerAt = { x: e.clientX, y: e.clientY }; });
+  function drawEyes(dt) {
+    eyeT += dt;
+    const dpr = Math.min(2, devicePixelRatio || 1), b = eyes.getBoundingClientRect();
+    if (eyes.width !== Math.round(b.width * dpr)) { eyes.width = Math.round(b.width * dpr); eyes.height = Math.round(b.height * dpr); }
+    ex.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ex.clearRect(0, 0, b.width, b.height);
+    if (released) return;
+    if (eyeT > nextBlink) { blinkAt = eyeT; nextBlink = eyeT + 2.8 + Math.random() * 3.6; }
+    const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+    const dx = pointerAt.x - cx, dy = pointerAt.y - cy, far = Math.hypot(dx, dy);
+    gaze.tx = far > 1 ? Math.max(-1, Math.min(1, dx / Math.max(far, 260))) : 0;
+    gaze.ty = far > 1 ? Math.max(-1, Math.min(1, dy / Math.max(far, 260))) : 0;
+    const k = 1 - Math.exp(-dt / 0.12);
+    gaze.x += (gaze.tx - gaze.x) * k; gaze.y += (gaze.ty - gaze.y) * k;
+    if (eyeT < 0.55) return;
+    const opening = Math.min(1, Math.max(0, (eyeT - 0.9) / 0.35));
+    const lid = Math.max(1 - (1 - GHOST_EYE.restingLid) * opening, blinkAmount(eyeT - blinkAt));
+    drawGhostEyes(ex, b.width / 2, b.height / 2, b.width / 2, { gazeX: gaze.x, gazeY: gaze.y, lid });
+  }
+
+  let last = performance.now(), born = last, frames = 0, fpsAt = last;
+  function loop(now) {
+    const dt = Math.min(0.033, (now - last) / 1000); last = now;
+    const f = Math.min(1, (now - born) / (kind === "turing" ? 500 : 1400));
+    surface?.resize();
+    place();
+    surface?.frame(dt, 1 - (1 - f) ** 3);
+    drawEyes(dt);
+    frames++;
+    if (now - fpsAt > 1000) { window.fps = frames * 1000 / (now - fpsAt); frames = 0; fpsAt = now; }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  let px = null, py = null;
+  pane.addEventListener("pointermove", (e) => {
+    const [x, y] = toUnit(e.clientX, e.clientY);
+    if (px !== null) surface?.stir(x, y, x - px, y - py);
+    px = x; py = y;
+  });
+  pane.addEventListener("pointerdown", (e) => { if (e.target === composer) return; const [x, y] = toUnit(e.clientX, e.clientY); surface?.press(x, y, true); });
+  window.addEventListener("pointerup", (e) => { const [x, y] = toUnit(e.clientX, e.clientY); surface?.press(x, y, false); });
+  composer.addEventListener("input", (e) => {
+    if (!surface || (e.inputType && e.inputType.startsWith("delete"))) return;
+    if (/\s/.test(e.data ?? "")) return;
+    const sel = window.getSelection();
+    let rect = sel && sel.rangeCount ? sel.getRangeAt(0).getBoundingClientRect() : null;
+    if (!rect || (!rect.width && !rect.height)) rect = composer.getBoundingClientRect();
+    const [x, y] = toUnit(rect.right, composer.getBoundingClientRect().bottom + 12);
+    surface.pulse(x, y);
+  });
+  document.getElementById("send").onclick = () => {
+    const r = composer.getBoundingClientRect();
+    const [x, y] = toUnit(r.left + r.width / 2, r.top + r.height / 2);
+    released = true;
+    surface?.release(x, y, (r.width / canvas.getBoundingClientRect().width) * 0.8);
+    composer.textContent = "";
+  };
+  document.getElementById("theme").onclick = () => { pane.classList.toggle("light"); surface?.configure(bg()); };
+  window.surfaceLab = { get surface() { return surface; }, toUnit };
+</script>
+</body>
+</html>

@@ -24,7 +24,7 @@ import { Spinner } from "@/shared/ui/spinner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
 import { UnreadPill, unreadCountLabel } from "@/shared/ui/UnreadPill";
 import type { ChannelIntro } from "./ChannelIntroBlock";
-import { FirstMessageInk } from "./FirstMessageView";
+import { FirstMessageSurface } from "./FirstMessageView";
 import { TimelineSkeleton, useTimelineSkeletonRows } from "./TimelineSkeleton";
 import { TimelineMessageList } from "./TimelineMessageList";
 import { VisitPresenceRail } from "./VisitPresenceRail";
@@ -819,7 +819,7 @@ const MessageTimelineBase = React.forwardRef<
         {/* Under everything else in the timeline: the water paints first. */}
         <AnimatePresence>
           {firstMessageOpen ? (
-            <FirstMessageInk key={channelId ?? "none"} />
+            <FirstMessageSurface key={channelId ?? "none"} />
           ) : null}
         </AnimatePresence>
         <VisitPresenceRail visitorPubkeys={visitorPubkeys} />

@@ -1093,6 +1093,9 @@ export const ChannelPane = React.memo(function ChannelPane({
               className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
               data-first-message={firstMessage.open ? "" : undefined}
               data-first-message-column=""
+              data-first-message-draining={
+                firstMessage.draining ? "" : undefined
+              }
               data-first-message-leaving={firstMessage.leaving ? "" : undefined}
               data-testid="channel-drop-zone"
               onDragEnter={

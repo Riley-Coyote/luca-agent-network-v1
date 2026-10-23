@@ -1,23 +1,35 @@
 /* The first-message view: before the first word, the composer waits in the
-   middle with the resident's name above it, over still water. */
+   middle under the one you are about to talk to, over Ghost's black liquid,
+   held still. */
 
-.luca-first-message-ink {
+.luca-first-message-surface {
   inset: 0;
   pointer-events: none;
   position: absolute;
   z-index: 0;
 }
 
-.luca-first-message-ink__water {
+.luca-first-message-surface__canvas {
   display: block;
   height: 100%;
   width: 100%;
 }
 
+/* While the surface draws the composer as glass, the composer's own fill
+   steps aside; it comes back the moment the surface has gone. */
+[data-first-message-column]:has(.luca-first-message-surface canvas)
+  footer[data-luca-reading-plane]
+  [data-testid="message-composer"] {
+  background-color: transparent;
+}
+
 /* The composer, centred while the conversation is empty. Its usual place is
    the bottom of the column; it travels there only when the first message
    sends it, never when you switch conversations. */
-[data-first-message-column][data-first-message]
+[data-first-message-column]:is(
+    [data-first-message],
+    [data-first-message-draining]
+  )
   [data-testid="channel-composer-overlay"] {
   bottom: 50%;
   transform: translateY(50%);
@@ -60,6 +72,30 @@
   position: absolute;
   right: 0;
   text-align: center;
+}
+
+/* The drop: drawn by the surface as a body of its own ink. Where the surface
+   can't run, a plain black drop stands in for it. */
+.luca-first-message-greeting__body {
+  background: #000;
+  block-size: 6.25rem;
+  border-radius: 50%;
+  inline-size: 6.25rem;
+  margin-block-end: 1.125rem;
+  position: relative;
+}
+
+[data-first-message-column]:has(.luca-first-message-surface canvas)
+  .luca-first-message-greeting__body {
+  background: transparent;
+}
+
+.luca-first-message-greeting__eyes {
+  block-size: 100%;
+  display: block;
+  inline-size: 100%;
+  inset: 0;
+  position: absolute;
 }
 
 .luca-first-message-greeting__name {
