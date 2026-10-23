@@ -238,7 +238,7 @@ fn failed_reservations_and_terminal_dispatches_release_reply_authority_only() {
         .unwrap();
     fixture
         .store
-        .discard_awareness_reply_lease(&fixture.authority);
+        .discard_awareness_reply_lease(&fixture.authority, &lease);
     assert!(!lease.current_unix_secs(101));
     let key = (
         fixture.trigger.id.to_hex(),
@@ -292,6 +292,48 @@ fn failed_reservations_and_terminal_dispatches_release_reply_authority_only() {
     )];
     assert_eq!(row.published_event_id.as_deref(), Some(final_id.as_str()));
     assert_eq!(row.submitted_event_id, row.published_event_id);
+}
+
+#[test]
+fn a_rejected_second_frame_cannot_discard_the_delivered_reply_lease() {
+    let mut fixture = Fixture::new();
+    let (turn, delivered) = lease_for(&fixture);
+    fixture
+        .store
+        .bind_leased_awareness_turn(&turn, &delivered, 100)
+        .unwrap();
+    let key = (
+        fixture.trigger.id.to_hex(),
+        fixture.resident.public_key().to_hex(),
+    );
+    let receipt = fixture.store.dispatches[&key]
+        .awareness_context_binding
+        .clone()
+        .unwrap();
+
+    // The ACP effort/config acknowledgement used to resolve context a second
+    // time. Its distinct reservation must not replace or cancel the first one.
+    let (second_turn, second) = lease_for(&fixture);
+    assert!(fixture
+        .store
+        .bind_leased_awareness_turn(&second_turn, &second, 101)
+        .is_err());
+    fixture
+        .store
+        .discard_awareness_reply_lease(&fixture.authority, &second);
+    assert!(!second.current_unix_secs(102));
+    assert!(delivered.current_unix_secs(102));
+    assert_eq!(
+        fixture.store.awareness_reply_lease(&receipt, 102).unwrap(),
+        delivered
+    );
+
+    // Failure before the original frame was written still releases that exact proof.
+    fixture
+        .store
+        .discard_awareness_reply_lease(&fixture.authority, &delivered);
+    assert!(!delivered.current_unix_secs(102));
+    assert!(fixture.store.awareness_reply_lease(&receipt, 102).is_err());
 }
 
 #[test]

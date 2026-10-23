@@ -585,6 +585,14 @@ fn write_session_context_result(
                         intent.trigger_event_id.as_str(),
                         report,
                     );
+                    // ACP sends this acknowledgement after resolving the turn's
+                    // context. It is not a second context request: reframing here
+                    // could discard the reply lease for the already-delivered frame.
+                    return write_session_context_frame(
+                        writer,
+                        intent,
+                        &unavailable(ManagedSessionContextStatusV1::Empty),
+                    );
                 }
                 quick_chat_effort = super::quickchat::effort_for_dispatch(
                     &app.state::<AppState>(),
@@ -737,27 +745,7 @@ fn write_session_context_result(
                 })
             });
         }
-        let bytes = Zeroizing::new(serde_json::to_vec(&result).map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding")
-        })?);
-        if bytes.len() >= MAX_FRAME_BYTES {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "context frame exceeds bound",
-            ));
-        }
-        let remaining = intent
-            .deadline_unix_ms
-            .get()
-            .saturating_sub(unix_time_millis())
-            .clamp(1, MAX_RESOLUTION_MILLIS);
-        writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
-        let write = writer
-            .write_all(&bytes)
-            .and_then(|_| writer.write_all(b"\n"))
-            .and_then(|_| writer.flush());
-        let _ = writer.set_write_timeout(None);
-        write
+        write_session_context_frame(writer, intent, &result)
     };
     if write.is_ok()
         && matches!(
@@ -812,6 +800,36 @@ fn write_session_context_result(
             }
         }
     }
+    write
+}
+
+#[cfg(unix)]
+fn write_session_context_frame(
+    writer: &mut std::os::unix::net::UnixStream,
+    intent: &ManagedSessionContextIntentV1,
+    result: &ManagedSessionContextResultV1,
+) -> std::io::Result<()> {
+    let bytes =
+        Zeroizing::new(serde_json::to_vec(result).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "context encoding")
+        })?);
+    if bytes.len() >= MAX_FRAME_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "context frame exceeds bound",
+        ));
+    }
+    let remaining = intent
+        .deadline_unix_ms
+        .get()
+        .saturating_sub(unix_time_millis())
+        .clamp(1, MAX_RESOLUTION_MILLIS);
+    writer.set_write_timeout(Some(Duration::from_millis(remaining)))?;
+    let write = writer
+        .write_all(&bytes)
+        .and_then(|_| writer.write_all(b"\n"))
+        .and_then(|_| writer.flush());
+    let _ = writer.set_write_timeout(None);
     write
 }
 
@@ -1017,7 +1035,7 @@ fn write_optional_awareness_context(
         );
     if attempted.is_none() {
         result.awareness_context = None;
-        dispatch.discard_awareness_reply_lease(expected);
+        dispatch.discard_awareness_reply_lease(expected, &reply_lease);
     }
     attempted
 }

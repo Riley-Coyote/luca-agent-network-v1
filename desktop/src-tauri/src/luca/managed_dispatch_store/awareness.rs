@@ -280,18 +280,20 @@ impl ManagedDispatchStore {
         Ok(lease.clone())
     }
 
-    /// No frame attempt means the reservation can be released. Any committed
-    /// receipt remains conservatively tainted; missing proof grants nothing.
+    /// Release only this failed frame's reservation, never an earlier delivered
+    /// frame's proof. Committed receipts remain conservatively tainted.
     pub(crate) fn discard_awareness_reply_lease(
         &mut self,
         authority: &ContinuityDispatchAuthority,
+        reservation: &NativeReplyLeaseV1,
     ) {
+        reservation.cancel();
         if let Some(row) = self.dispatches.get_mut(&(
             authority.trigger_event_id.as_str().into(),
             authority.resident_pubkey.as_str().into(),
         )) {
-            if let Some(lease) = row.awareness_reply_lease.take() {
-                lease.cancel();
+            if row.awareness_reply_lease.as_ref() == Some(reservation) {
+                row.awareness_reply_lease = None;
             }
         }
     }
