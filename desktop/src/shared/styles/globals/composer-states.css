@@ -100,7 +100,11 @@
  * the light (thinning round the curve, as an inset offset downward does on a
  * circle) and it sets a short contact shadow on the composer. Disarmed, the
  * light goes out and the disc lies flat. Both states list the same three
- * shadows so the light fades rather than snaps. */
+ * shadows so the light fades rather than snaps.
+ *
+ * The disc is the ink, so it is black on paper, as Undertone draws the main
+ * button, and bright on a dark ground. Riley chose that on 2026-10-23 over a
+ * black disc in dark mode too: do not darken it to match the light theme. */
 :root[data-luca-shell]
   [data-testid="message-composer"]
   [data-testid="send-message"]:enabled {
