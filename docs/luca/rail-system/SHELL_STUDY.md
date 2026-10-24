@@ -61,21 +61,21 @@ quality of Apple's own surfaces, light and physics):
 
 When a window isn't the one in use, macOS relaxes its Liquid Glass on purpose (flatter, more blurred, tint dropped), as
 it greys the traffic lights; nothing turns that off. The frosted material can hold the look of a window in use instead
-("In use") or follow the window. Our own darkness stays a separate choice, named as ours ("Darkness"), and since
-2026-10-24 it goes beneath the glass, never in front of it. Every project uses these names from now on (Ghost and the
-rail-glass build had named mixes of them).
+("In use") or follow the window. Our own darkness in front of the glass, the veil, stays a separate choice, named as
+ours. Every project uses these names from now on (Ghost and the rail-glass build had named mixes of them).
 
-Riley's favourite so far: Regular with the deep veil (now deep darkness beneath, set to darken the glass about as much);
-Clear, which looks striking but is harder to read over some desktops, as an option.
+Riley's picks are in "The frames as a setting", below.
 
-## The glass floor (2026-10-24)
+## Tried on the night of 2026-10-24, and rolled back
 
-*The frame is one piece of Apple's glass beneath the page; the cards sit on it, their edges catching the light the way
-the glass's own edge does at the window's rim; everything the frame holds is inside the glass.*
+**Status: rolled back at Riley's word ("roll the glass lab back to the version from before tonight ... and rebuild
+forward one change at a time, showing me each").** The lab is again the version he called awesome (`87491a55c`: the
+glass frame with the material menu), plus one invisible testing command. What follows records what was tried that
+night (commits `c35355171`, `afb7b6e21`, `e53a04f6d`), so the rebuild can take any piece back one at a time, shown to
+him before the next.
 
-Riley chose the glass frame. After reading all of Apple's guidance for the Mac (creative-mind
-`studies/apple-macos-2026-10-23/`, distilled in the liquid-glass skill's `references/mac-apps.md`), these are the changes
-that keep his floor and make it more Apple-grade:
+After reading all of Apple's guidance for the Mac (creative-mind `studies/apple-macos-2026-10-23/`, distilled in the
+liquid-glass skill's `references/mac-apps.md`), these were the changes tried on his floor:
 
 - **The cards sit on the glass.** The glass is one piece, the window's own shape, beneath both cards, and each card's
   edge catches the light all the way round, following its corners, brightest along the top and quiet down the sides
@@ -109,9 +109,16 @@ that keep his floor and make it more Apple-grade:
 Under Reduce Transparency the lab keeps Apple's materials, which grow frostier on their own; the page never paints a
 stand-in desktop over the real one.
 
-Also tried and dropped the same night: glass pieces floating above the conversation, the way Apple builds its toolbars
-(Riley: "that looks ridiculous. we were supposed to be making sure the glass floor was done right"). Apple's guidance
-is a way to perfect the floor he chose, not a reason to replace it.
+What went wrong, so it isn't repeated:
+- Glass pieces floating above the conversation, the way Apple builds its toolbars (Riley: "that looks ridiculous. we
+  were supposed to be making sure the glass floor was done right"). Apple's guidance is a way to perfect the floor he
+  chose, not a reason to replace it.
+- Cutting the cards out of the glass made them look pressed into it.
+- Holding Liquid Glass's resting look in a window of its own behind the app's left the app window's edge see-through,
+  and macOS drew its thin dark window border over the glass (black hairlines on every Liquid Glass look).
+- "Resting" as the default look turned every frosted material flat grey: an inactive frosted material is opaque grey,
+  not glass. Riley: "all of the non-liquid glass options just look grey. theyre not actual glass transparent."
+- Too many changes shown at once, so he couldn't tell which one made it worse.
 
 ## The frames as a setting (Riley, 2026-10-24)
 
@@ -153,18 +160,17 @@ dusk sky under our web glass), and says so in the lab panel. Judge the glass in 
 
 ## The glass lab
 
-`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-clear-tint&veil=none&look=rest"`
-opens the glass floor (drop the look's parameters for the last look you chose) in a real window with working
-traffic lights, behind every other window (with Stage Manager on, it waits in the
+`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-clear-tint&veil=none"`
+opens the glass frame on Riley's dark pick (drop the look's parameters for the last look you chose) in a real window
+with working traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
 not in use (flatter, frosted). `run` instead of `open` is the film window, for checks and captures. The study also opens
-directly in a look: `&direction=glass&tabs=1&rail=closed&material=glass-clear&veil=none&panel=0`.
+directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0`.
 
 ## Lab controls
 
 At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
-(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look (In use, Resting,
-Follows for the frosted materials; Resting, Follows for Liquid Glass) and, for Liquid Glass, Darkness beneath it (None,
-Soft, Deep). Clicking
+(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
+materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.

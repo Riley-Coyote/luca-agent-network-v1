@@ -17,14 +17,12 @@ import WebKit
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
 //       The shell study (docs/luca/rail-system/SHELL_STUDY.md) adds, both optional:
-//       sheet: {x, y, w, h, r, style, tint, material, look} | null
+//       sheet: {x, y, w, h, r, style, tint, material, held} | null
 //                                          one sheet of Apple's material for the whole frame (the page's cards cover
 //                                          all of it but the frame): Liquid Glass (style "regular" or "clear", tint an
 //                                          optional "#rrggbbaa" Apple tints the glass toward), or Apple's frosted
 //                                          material (style "frosted": material one of NSVisualEffectView's fourteen,
-//                                          by name; look "use" holds the look of a window in use, "rest" the look
-//                                          of one that isn't, "follows" follows the window; the older held: true is
-//                                          "use")
+//                                          by name; held keeps the look of a window in use when it isn't)
 //       floor: "none"                      no floor at all: the window is clear, so the sheet shows the desktop
 //   {type: "settings", material, motion, floor, cardGlass, slow}
 //                                                       clear|smoked|dark · pour|drop|slide · plain|grain · the card as
@@ -177,8 +175,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         if frosted {
             let material = (box["material"] as? String).flatMap { Self.materials[$0] } ?? .hudWindow
             if host.frost.material != material { host.frost.material = material }
-            let look = box["look"] as? String ?? (box["held"] as? Bool == true ? "use" : "follows")
-            let state: NSVisualEffectView.State = look == "use" ? .active : look == "rest" ? .inactive : .followsWindowActiveState
+            let state: NSVisualEffectView.State = box["held"] as? Bool == true ? .active : .followsWindowActiveState
             if host.frost.state != state { host.frost.state = state }
         } else {
             let glass: NSGlassEffectView.Style = style == "regular" ? .regular : .clear

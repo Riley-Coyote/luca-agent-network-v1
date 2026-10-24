@@ -20,9 +20,8 @@
  * lip, sessions, tabs), 14 (homes), 16 (the conversation itself).
  *
  * The frame's words wear three tones (--shell-ink, -muted, -faint): on the
- * black frame they are the app's own ink. On Apple's glass frame they are
- * drawn inside the glass itself (Lab/ShellFloor.swift, "the glass floor"
- * below); in a browser's stand-in, a warm white.
+ * black frame they are the app's own ink; on the glass frame, a warm white
+ * that reads over the desktop with the veil's help.
  * ------------------------------------------------------------------ */
 
 .shell {
@@ -106,9 +105,8 @@
   background: rgb(28 28 32 / 0.45);
 }
 
-/* The veil: in a browser's stand-in, darkness in front of the glass, so the
- * frame's words read over a bright desktop. With Apple's glass it goes
- * beneath the glass instead (the floor, below). None, soft or deep. */
+/* The veil: darkness in front of the glass, so the frame's words read over a
+ * bright desktop. None, soft or deep, from the lab panel. */
 .shell-veil {
   background: rgb(0 0 0 / var(--shell-veil, 0));
 }
@@ -119,11 +117,6 @@
 
 .shell[data-veil="deep"] {
   --shell-veil: 0.42;
-}
-
-/* Apple's frosted materials take no darkness of ours. */
-.shell[data-material="frosted"] .shell-veil {
-  display: none;
 }
 
 /* ── the marks ───────────────────────────────────────────────────────
@@ -194,25 +187,12 @@
 
 .shell-mark--tabcard {
   --fillet: min(8px, max(var(--mark-h, 8px) - 1px, 0px));
-  /* Composited apart, the tab rendered its grain a step darker than the card
-   * it rises from; drawn with the page, it's one surface. */
-  will-change: auto;
   background-color: hsl(var(--mn-surface));
   background-image: var(--mn-card-finish, none);
   background-size: 256px 256px;
   border-radius: 9px 9px 0 0;
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / calc(0.12 + var(--wet, 0) * 0.2)),
-    inset 0.5px 0 0 rgb(255 255 255 / 0.06),
-    inset -0.5px 0 0 rgb(255 255 255 / 0.06);
-}
-
-/* On the glass the tab's top catches the light as the cards' edges do. */
-.shell[data-direction="glass"] .shell-mark--tabcard {
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / calc(0.2 + var(--wet, 0) * 0.2)),
-    inset 0.5px 0 0 rgb(255 255 255 / 0.075),
-    inset -0.5px 0 0 rgb(255 255 255 / 0.075);
+  box-shadow: inset 0 0.5px 0
+    rgb(255 255 255 / calc(0.12 + var(--wet, 0) * 0.2));
 }
 
 .shell-mark--tabcard::before,
@@ -220,9 +200,7 @@
   background-color: hsl(var(--mn-surface));
   background-image: var(--mn-card-finish, none);
   background-size: 256px 256px;
-  /* Down to the tab's own foot, a pixel into the card, so the card's lit
-   * edge doesn't run beneath the soft corners where the tab rises. */
-  bottom: 0;
+  bottom: 1px;
   content: "";
   height: var(--fillet);
   position: absolute;
@@ -860,36 +838,9 @@
   .shell[data-direction="glass"]
   :is(.shell-card, .shell-rail)[data-luca-card] {
   box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / 0.12),
     0 1px 2px rgb(0 0 0 / 0.25),
     0 18px 44px rgb(0 0 0 / 0.32);
-}
-
-/* And their edges catch the light the way the glass's own edge does at the
- * window's rim: a hairline all the way round, following the corners,
- * brightest along the top and quiet down the sides. The cards sit on the
- * glass; nothing is pressed into it. */
-.shell[data-direction="glass"] :is(.shell-card, .shell-rail)::after {
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  background: linear-gradient(
-    180deg,
-    rgb(255 255 255 / 0.2),
-    rgb(255 255 255 / 0.075) 14%,
-    rgb(255 255 255 / 0.05) 55%,
-    rgb(255 255 255 / 0.07)
-  );
-  border-radius: inherit;
-  content: "";
-  inset: 0;
-  mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  padding: 0.5px;
-  pointer-events: none;
-  position: absolute;
 }
 
 .shell-conversation {
@@ -1250,78 +1201,6 @@
   outline-offset: -1px;
 }
 
-/* ── the glass floor (SHELL_STUDY.md, "The glass floor, done right") ──
- * With Apple's Liquid Glass, the frame is one piece of glass beneath the page
- * in its own shape: the cards (and the open tab) are cut out of it, so its
- * edge runs around them, and the frame's icons and words are drawn inside the
- * glass (Lab/ShellFloor.swift), where the glass keeps them legible. The page
- * keeps its buttons where they are, for the pointer, keys, focus rings and
- * tooltips, and draws none of their ink; the pointer's place is told to the
- * glass, whose twin lifts. Nothing goes over the glass: no veil, and where
- * you are in the places is the glass's own chip. */
-.shell[data-floor-native] :is(.shell-veil, .shell-marks) {
-  display: none;
-}
-
-.shell[data-floor-native] :is(.shell-lip-button, .shell-place) svg {
-  visibility: hidden;
-}
-
-.shell[data-floor-native]
-  :is(.shell-lip-button, .shell-place):hover:not(:disabled) {
-  background: none;
-}
-
-.shell[data-floor-native] .shell-avatar {
-  background: none;
-  color: transparent;
-}
-
-/* Every tab's name is drawn inside the glass; the open one's card carries
- * its lit copy (the lit strip, below). The other tabs' close buttons are the
- * glass's too; the open tab's stays the page's, on its card. */
-.shell[data-floor-native] .shell-tabs:not(.shell-tabs--lit) .shell-tab-open,
-.shell[data-floor-native] .shell-title,
-.shell[data-floor-native] .shell-title * {
-  color: transparent;
-}
-
-.shell[data-floor-native] .shell-tab:hover:not([data-selected]),
-.shell[data-floor-native]
-  .shell-tab:not([data-selected])
-  .shell-tab-close:hover {
-  background: none;
-}
-
-.shell[data-floor-native] .shell-tab:not([data-selected]) .shell-tab-close svg {
-  visibility: hidden;
-}
-
-/* The lit strip: the tabs' names again, laid out exactly as the tabs are, in
- * the card's ink, seen only through the open tab's card as it's drawn this
- * frame (its clip-path, set by the page), so a name lights as its card
- * arrives and never ahead of it. */
-.shell-tabs--lit {
-  clip-path: inset(0 0 100% 0);
-  pointer-events: none;
-}
-
-.shell-tabs--lit .shell-tab-open {
-  color: var(--shell-ink);
-}
-
-/* Search darkens the glass from beneath (the floor's darkness rises while
- * it's open); the page's scrim covers only the cards. */
-.shell[data-floor-native] .shell-search-scrim {
-  clip-path: inset(var(--lip) var(--edge) var(--edge) var(--places));
-}
-
-/* When the window isn't the one in use, Apple's glass recedes; the page's
- * own accents quiet with it. */
-.shell[data-key="false"] :is(.shell-rail-marks, .shell-dot) {
-  opacity: 0.6;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .shell
     :is(
@@ -1329,7 +1208,6 @@
       .shell-lip-card,
       .shell-history,
       .shell-tabs,
-      .shell-rail,
       .shell-chevron svg
     ) {
     transition: none;

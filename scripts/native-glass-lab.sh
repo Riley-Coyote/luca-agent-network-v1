@@ -22,7 +22,7 @@ WINDOWS="$OUT/windows"
 build() {
     mkdir -p "$OUT"
     xcrun swiftc -parse-as-library -swift-version 6 -O -target arm64-apple-macos26.0 \
-        "$SOURCE"/Engine/*.swift "$SOURCE"/PolyphonicGlass.swift "$SOURCE"/Lab/*.swift -o "$LAB"
+        "$SOURCE"/Engine/*.swift "$SOURCE"/PolyphonicGlass.swift "$SOURCE"/Lab/GlassLab.swift -o "$LAB"
     # The same program as an app, so the open window has a name in the Dock and can be brought forward by it.
     rm -rf "$APP"
     mkdir -p "$APP/Contents/MacOS"

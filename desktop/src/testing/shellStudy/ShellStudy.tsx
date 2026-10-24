@@ -8,11 +8,8 @@
  * solid, squircle-cornered mark.
  *
  * In the glass lab (scripts/native-glass-lab.sh) the frame's glass is
- * Apple's, drawn beneath the page in the frame's own shape, the cards cut out
- * of it, with the frame's icons and words inside the glass
- * (Lab/ShellFloor.swift); the page keeps its buttons where they are, without
- * their ink. In a browser it is our own stand-in, and says so. Sample
- * conversations only (content.ts).
+ * Apple's, drawn beneath the page; in a browser it is our own stand-in, and
+ * says so. Sample conversations only (content.ts).
  */
 import * as React from "react";
 import {
@@ -48,15 +45,11 @@ import {
 } from "@/testing/shellStudy/marks";
 import {
   dragWindow,
-  type FloorItem,
   placeLabLights,
-  reportFloor,
   reportFrame,
-  resetFloor,
   startGlass,
   stopGlass,
   titledLabWindow,
-  useLabWindow,
   useNativeGlass,
 } from "@/testing/shellStudy/nativeGlass";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
@@ -71,6 +64,8 @@ const RAIL_WIDTH = 220;
 /** Between the rail's card and the conversation's, as between the app's cards. */
 const CARD_GAP = 4;
 const CARD_RADIUS = 10;
+/** The frame's corners, matching a window's. */
+const WINDOW_RADIUS = 16;
 /** Where the lab's real traffic lights go: the first light's left edge, and
  *  the line the lip's words and tabs are centred on. */
 const LIGHTS_LEFT = 16;
@@ -84,8 +79,7 @@ type Direction = "black" | "glass";
  * Every material Apple offers for the frame, by Apple's names: Liquid Glass's
  * two types, plain or with Apple's own dark tint, and the fourteen frosted
  * materials (the older kind, which can hold the look of a window in use when
- * it isn't). Nothing here is ours: darkness beneath the glass is its own
- * choice.
+ * it isn't). Nothing here is ours: the veil, our darkness, is its own choice.
  */
 type FrameMaterial = {
   id: string;
@@ -148,13 +142,6 @@ const MATERIAL_BY_ID = new Map(
 );
 const DEFAULT_MATERIAL = "glass-regular";
 type Veil = "none" | "soft" | "deep";
-type Look = "use" | "rest" | "follows";
-/** Darkness beneath the glass, never over it: how much black lies under the
- *  frame, in its shape, so the glass bends a darker desktop and keeps its
- *  light (the way Apple dims clear glass). Measured so soft and deep darken
- *  the glass as much as the old veils over it did (to about 0.78 and 0.58 of
- *  none; the glass adds its own light, so it takes more black beneath). */
-const DIM: Record<Veil, number> = { none: 0, soft: 0.38, deep: 0.72 };
 type Choice = {
   direction: Direction;
   tabs: boolean;
@@ -163,9 +150,8 @@ type Choice = {
   tone: "same" | "lighter";
   /** The frame's material, an id from MATERIALS. */
   material: string;
-  /** Apple's materials look different when the window isn't in use: hold
-   *  the in-use look (frosted only), hold the resting look, or follow. */
-  look: Look;
+  /** For a frosted frame: hold the look of a window in use, or follow the window. */
+  held: boolean;
   veil: Veil;
   panel: boolean;
 };
@@ -176,7 +162,7 @@ const DEFAULT_CHOICE: Choice = {
   rail: true,
   tone: "same",
   material: DEFAULT_MATERIAL,
-  look: "rest",
+  held: true,
   veil: "soft",
   panel: true,
 };
@@ -195,15 +181,7 @@ function readChoice(): Choice {
       MATERIAL_BY_ID.has(source.material)
     )
       choice.material = source.material;
-    if (
-      source.look === "use" ||
-      source.look === "rest" ||
-      source.look === "follows"
-    )
-      choice.look = source.look;
-    // The older setting: held was the in-use look, or following.
-    else if (typeof source.held === "boolean")
-      choice.look = source.held ? "use" : "follows";
+    if (typeof source.held === "boolean") choice.held = source.held;
     if (
       source.veil === "none" ||
       source.veil === "soft" ||
@@ -218,7 +196,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&look=use&veil=none&panel=0`
+  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
   // opens a look directly, for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
@@ -231,7 +209,7 @@ function readChoice(): Choice {
     rail: flag("rail"),
     tone: params.get("tone"),
     material: params.get("material"),
-    look: params.get("look"),
+    held: flag("held"),
     veil: params.get("veil"),
     panel: flag("panel"),
   });
@@ -246,28 +224,8 @@ function frameMaterialFor(choice: Choice) {
     style: material?.style ?? "regular",
     tint: material?.tint ?? null,
     material: material?.material ?? null,
-    look: choice.look,
+    held: choice.held,
   };
-}
-
-/** A colour the page's CSS names, as "#rrggbb" for the native side. */
-function cssHex(host: Element, color: string) {
-  const probe = document.createElement("span");
-  probe.style.color = color;
-  host.appendChild(probe);
-  const computed = getComputedStyle(probe).color;
-  probe.remove();
-  const values = computed.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];
-  // "color(srgb 0.1 0.1 0.1)" counts from 0 to 1; "rgb(26, 26, 26)" to 255.
-  const scale = computed.startsWith("color(") ? 255 : 1;
-  return `#${values
-    .slice(0, 3)
-    .map((value) =>
-      Math.round(Math.min(255, value * scale))
-        .toString(16)
-        .padStart(2, "0"),
-    )
-    .join("")}`;
 }
 
 /** A conversation: a home's own (`session` null) or one of its sessions. */
@@ -300,28 +258,12 @@ function navigate(nav: Nav, action: NavAction): Nav {
   return { stack, index: stack.length - 1 };
 }
 
-/** Each place's icon on the page, and its SF Symbol in Apple's glass. */
-const PLACES: {
-  id: PlaceId;
-  label: string;
-  icon: typeof Library;
-  symbol: string;
-}[] = [
-  {
-    id: "conversations",
-    label: "Conversations",
-    icon: MessagesSquare,
-    symbol: "bubble.left.and.bubble.right",
-  },
-  { id: "library", label: "Library", icon: Library, symbol: "books.vertical" },
-  { id: "agents", label: "Agents", icon: Bot, symbol: "person.2" },
-  {
-    id: "activity",
-    label: "Activity",
-    icon: Activity,
-    symbol: "waveform.path.ecg",
-  },
-  { id: "brain", label: "Brain", icon: Brain, symbol: "brain" },
+const PLACES: { id: PlaceId; label: string; icon: typeof Library }[] = [
+  { id: "conversations", label: "Conversations", icon: MessagesSquare },
+  { id: "library", label: "Library", icon: Library },
+  { id: "agents", label: "Agents", icon: Bot },
+  { id: "activity", label: "Activity", icon: Activity },
+  { id: "brain", label: "Brain", icon: Brain },
 ];
 
 /** Where a home opens: Luca's thread, an agent's 1:1, a project's last room,
@@ -355,18 +297,7 @@ export function ShellStudy() {
   const [searching, setSearching] = React.useState(false);
   const [note, setNote] = React.useState("");
   const native = useNativeGlass();
-  const labWindow = useLabWindow();
   const titled = titledLabWindow();
-  /** What the pointer is over, and what it's pressing, in the frame: its twin
-   *  in the glass lifts, and gives under a press. */
-  const [hovered, setHovered] = React.useState<string | null>(null);
-  const [pressed, setPressed] = React.useState<string | null>(null);
-  /** Apple's Liquid Glass is the frame's floor, in its own shape, with what
-   *  the frame holds inside it (the frosted materials stay a plain sheet). */
-  const floorNative =
-    native &&
-    choice.direction === "glass" &&
-    frameMaterialFor(choice).style !== "frosted";
 
   const view = nav.stack[nav.index];
   const place = view.place;
@@ -488,178 +419,14 @@ export function ShellStudy() {
     places: MarkGroup;
     tab: MarkGroup;
   } | null>(null);
-  const stateRef = React.useRef({
-    choice,
-    place,
-    railShown,
-    native,
-    hovered,
-    pressed,
-    searching,
-    radius: labWindow.radius,
-  });
-  stateRef.current = {
-    choice,
-    place,
-    railShown,
-    native,
-    hovered,
-    pressed,
-    searching,
-    radius: labWindow.radius,
-  };
-  /** The card's surface as the page's CSS has it now, and as "#rrggbb": the
-   *  theme lands after the first render, so it's read again when it changes. */
-  const cardHexRef = React.useRef({ surface: "", hex: "" });
-  const litTabsRef = React.useRef<HTMLDivElement>(null);
-
-  /** Tells Apple's glass where everything is now: the cards, the open tab's
-   *  card as it's drawn this very frame, and what the frame holds. */
-  const report = React.useCallback(() => {
-    const shell = shellRef.current;
-    const card = cardRef.current;
-    const { choice, native, hovered, pressed, searching, radius } =
-      stateRef.current;
-    if (!shell || !card || !native) return;
-    const origin = shell.getBoundingClientRect();
-    const box = (element: Element | null | undefined): Rect | null => {
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return null;
-      return {
-        x: rect.left - origin.left,
-        y: rect.top - origin.top,
-        w: rect.width,
-        h: rect.height,
-      };
-    };
-    const cardBox = box(card);
-    const material = frameMaterialFor(choice);
-    const glass = choice.direction === "glass";
-    reportFrame({
-      card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
-      floor: choice.direction === "black" ? "#000000" : "none",
-      row: null,
-      clip: null,
-      // Apple's frosted materials are a plain sheet; Liquid Glass is the floor.
-      sheet:
-        glass && material.style === "frosted"
-          ? {
-              x: 0,
-              y: 0,
-              w: origin.width,
-              h: origin.height,
-              r: radius,
-              ...material,
-            }
-          : null,
-    });
-    if (!glass || material.style === "frosted") {
-      reportFloor({ on: false });
-      return;
-    }
-    const surface = getComputedStyle(shell)
-      .getPropertyValue("--mn-surface")
-      .trim();
-    // The card's black as it's seen: its surface lifted by its grain.
-    if (surface !== cardHexRef.current.surface)
-      cardHexRef.current = {
-        surface,
-        hex: cssHex(
-          shell,
-          "color-mix(in srgb, white 2.4%, hsl(var(--mn-surface)))",
-        ),
-      };
-    const items: FloorItem[] = [];
-    for (const element of shell.querySelectorAll<HTMLElement>(
-      "[data-floor-item]",
-    )) {
-      const at = box(element);
-      const id = element.dataset.floorItem;
-      if (!at || !id) continue;
-      const data = element.dataset;
-      // A tab's close button shows, natively, while its tab is pointed at or
-      // has the keyboard; the tab's name then fades under it.
-      const tab = element.closest<HTMLElement>(".shell-tab");
-      const tabActive =
-        tab !== null &&
-        (tab.matches(":hover, :focus-within") ||
-          hovered === tab.dataset.floorItem ||
-          hovered === `close:${tab.dataset.tab}`);
-      if (data.floorClose === "true" && !tabActive) continue;
-      // Only what can be pressed lifts under the pointer.
-      const pressable = element.matches("button, .shell-tab");
-      const title = data.floorItem === "title";
-      const spans = title
-        ? [...element.querySelectorAll<HTMLElement>(":scope > span")]
-        : [];
-      items.push({
-        ...at,
-        id,
-        kind: (data.floorKind as FloorItem["kind"] | undefined) ?? "symbol",
-        symbol: data.floorSymbol,
-        size: data.floorSize ? Number(data.floorSize) : undefined,
-        text: data.floorText,
-        parts:
-          spans.length > 0
-            ? spans.map((span) =>
-                span.classList.contains("shell-title-home")
-                  ? { text: span.textContent ?? "", tone: "muted", weight: 450 }
-                  : span.classList.contains("shell-title-rule")
-                    ? {
-                        text: span.textContent ?? "",
-                        tone: "faint",
-                        weight: 400,
-                      }
-                    : {
-                        text: span.textContent ?? "",
-                        tone: "full",
-                        weight: 550,
-                      },
-              )
-            : undefined,
-        align: data.floorAlign === "center" ? "center" : undefined,
-        pad: data.floorPad ? Number(data.floorPad) : undefined,
-        r: data.floorR ? Number(data.floorR) : undefined,
-        inset: data.floorInset ? Number(data.floorInset) : undefined,
-        selected: data.current === "true",
-        disabled: element.matches(":disabled"),
-        hover:
-          pressable &&
-          (id === hovered || (tab !== null && tabActive && !data.floorClose)),
-        pressed: pressable && id === pressed,
-        fade: data.floorKind === "text" && tab !== null && tabActive,
-        strong: data.floorStrong === "true",
-      });
-    }
-    const tab = marksRef.current?.tab.drawn ?? null;
-    // The open tab's name is lit only on its card: the lit strip shows
-    // through the card's shape as it is drawn this frame, so the name lights
-    // as the card arrives and never ahead of it.
-    const lit = litTabsRef.current;
-    const strip = box(lit);
-    if (lit && strip)
-      lit.style.clipPath = tab
-        ? `inset(${tab.y - strip.y}px ${strip.x + strip.w - tab.x - tab.w}px ${strip.y + strip.h - tab.y - tab.h}px ${tab.x - strip.x}px round 9px 9px 0 0)`
-        : "inset(0 0 100% 0)";
-    reportFloor({
-      on: true,
-      style: material.style,
-      tint: material.tint,
-      // While search is open the glass darkens from beneath, not from above.
-      dim: Math.min(1, DIM[choice.veil] + (searching ? 0.24 : 0)),
-      r: radius,
-      rest: choice.look === "rest",
-      cardColor: cardHexRef.current.hex,
-      items,
-    });
-  }, []);
+  const stateRef = React.useRef({ choice, place, railShown, native });
+  stateRef.current = { choice, place, railShown, native };
 
   const sync = React.useCallback(() => {
     const shell = shellRef.current;
     const card = cardRef.current;
     if (!shell || !card) return;
-    const { choice, place, railShown } = stateRef.current;
+    const { choice, place, railShown, native } = stateRef.current;
     const measure =
       (origin: DOMRect) =>
       (element: Element | null | undefined): Rect | null => {
@@ -709,8 +476,25 @@ export function ShellStudy() {
           : null;
       marks.rail.show(row?.getAttribute("data-home") ?? null, inRail(row));
     }
-    report();
-  }, [report]);
+    if (!native) return;
+    reportFrame({
+      card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
+      floor: choice.direction === "black" ? "#000000" : "none",
+      row: null,
+      clip: null,
+      sheet:
+        choice.direction === "black"
+          ? null
+          : {
+              x: 0,
+              y: 0,
+              w: origin.width,
+              h: origin.height,
+              r: WINDOW_RADIUS,
+              ...frameMaterialFor(choice),
+            },
+    });
+  }, []);
 
   /** Following the card while it slides, frame by frame. */
   const follow = React.useCallback(
@@ -738,9 +522,6 @@ export function ShellStudy() {
     if (!frameLayer || !tabLayer || !railLayer) return;
     const frame = new MarkEngine(frameLayer);
     const tabs = new MarkEngine(tabLayer);
-    // The open tab's card is cut out of the glass floor: the cut follows it
-    // frame by frame as it slides, sinks and rises.
-    tabs.onFrame = report;
     const rail = new MarkEngine(railLayer);
     marksRef.current = {
       places: frame.group(
@@ -756,7 +537,7 @@ export function ShellStudy() {
       rail.stop();
       marksRef.current = null;
     };
-  }, [frameMark, railMark, sync, report]);
+  }, [frameMark, railMark, sync]);
 
   // The lab's real traffic lights sit on the lip's line.
   React.useEffect(() => {
@@ -774,22 +555,10 @@ export function ShellStudy() {
     body.setProperty("background", "transparent", "important");
     return () => {
       stopGlass();
-      reportFloor({ on: false });
       root.removeProperty("background");
       body.removeProperty("background");
     };
   }, [native, sync]);
-
-  // The floor's handler can arrive after the page first reported: then the
-  // page says everything again.
-  React.useEffect(() => {
-    const ready = () => {
-      resetFloor();
-      sync();
-    };
-    window.addEventListener("polyphonic-floor-ready", ready);
-    return () => window.removeEventListener("polyphonic-floor-ready", ready);
-  }, [sync]);
 
   // Every change of state moves something: report after the page lays out.
   React.useLayoutEffect(() => {
@@ -802,33 +571,15 @@ export function ShellStudy() {
     const observer = new ResizeObserver(() => sync());
     observer.observe(shell);
     const scrolled = () => sync();
-    // Anything that slides (the rail, the cards, the tabs) is followed to
-    // where it stops.
-    const sliding = (event: TransitionEvent) => {
-      if (["left", "width"].includes(event.propertyName))
-        follow(SLIDE_MS + 120);
-    };
     window.addEventListener("resize", scrolled);
     shell.addEventListener("scroll", scrolled, true);
-    shell.addEventListener("transitionstart", sliding, true);
-    shell.addEventListener("transitionend", scrolled, true);
     void document.fonts.ready.then(() => sync());
-    // The theme lands on the root after the first render (and changes with
-    // the lab's theme switch): the chip's colour follows it.
-    const theme = new MutationObserver(() => sync());
-    theme.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["style", "class", "data-luca-theme"],
-    });
     return () => {
-      theme.disconnect();
       observer.disconnect();
       window.removeEventListener("resize", scrolled);
       shell.removeEventListener("scroll", scrolled, true);
-      shell.removeEventListener("transitionstart", sliding, true);
-      shell.removeEventListener("transitionend", scrolled, true);
     };
-  }, [sync, follow]);
+  }, [sync]);
 
   // ── what the lip says ─────────────────────────────────────────────
   const placeTitle =
@@ -845,40 +596,12 @@ export function ShellStudy() {
     );
   };
 
-  const conversationTitle =
-    placeTitle ??
-    (openSession ? `${openHome.name} / ${openSession.title}` : openHome.name);
-
   return (
-    // The pointer's place is told to the glass beneath, which lifts the twin
-    // of what it's over.
     <div
       className="shell"
       data-direction={choice.direction}
-      data-floor-native={floorNative ? "true" : undefined}
-      data-key={labWindow.key ? undefined : "false"}
       data-material={frameMaterialFor(choice).style}
       data-native={native ? "true" : undefined}
-      onPointerCancel={() => setPressed(null)}
-      onPointerDown={(event) =>
-        setPressed(
-          (event.target as Element)
-            .closest("[data-floor-item]")
-            ?.getAttribute("data-floor-item") ?? null,
-        )
-      }
-      onPointerLeave={() => {
-        setHovered(null);
-        setPressed(null);
-      }}
-      onPointerOver={(event) =>
-        setHovered(
-          (event.target as Element)
-            .closest("[data-floor-item]")
-            ?.getAttribute("data-floor-item") ?? null,
-        )
-      }
-      onPointerUp={() => setPressed(null)}
       data-rail={choice.rail ? "open" : "closed"}
       data-tabs={choice.tabs ? "on" : undefined}
       data-tone={choice.tone}
@@ -888,7 +611,6 @@ export function ShellStudy() {
         {
           "--card-left": `${cardLeft}px`,
           "--rail-now": `${railWidth}px`,
-          "--window-radius": `${labWindow.radius}px`,
         } as React.CSSProperties
       }
     >
@@ -914,8 +636,6 @@ export function ShellStudy() {
         )}
         <LipButton
           className="shell-toggle"
-          floor="toggle"
-          symbol="sidebar.leading"
           label={
             choice.rail
               ? "Close the conversations rail"
@@ -929,101 +649,58 @@ export function ShellStudy() {
           <div className="shell-history">
             <LipButton
               disabled={nav.index === 0}
-              floor="back"
               label="Back"
               onClick={() => dispatch({ type: "back" })}
-              symbol="chevron.backward"
             >
               <ChevronLeft />
             </LipButton>
             <LipButton
               disabled={nav.index >= nav.stack.length - 1}
-              floor="forward"
               label="Forward"
               onClick={() => dispatch({ type: "forward" })}
-              symbol="chevron.forward"
             >
               <ChevronRight />
             </LipButton>
           </div>
-          {choice.tabs && tabs.length > 0 ? (
-            <>
-              <div
-                aria-label="Open conversations"
-                className="shell-tabs"
-                role="tablist"
-              >
-                {tabs.map((key) => {
-                  const selected =
-                    place === "conversations" && key === keyOf(open);
-                  return (
-                    // Every tab's name is drawn inside the glass; the open one's
-                    // card covers it and carries its lit copy (the lit strip).
-                    <div
-                      className="shell-tab"
-                      data-floor-inset="3"
-                      data-floor-item={`tab:${key}`}
-                      data-floor-kind="text"
-                      data-floor-pad="14"
-                      data-floor-r="7"
-                      data-floor-text={tabTitle(key)}
-                      data-selected={selected ? "true" : undefined}
-                      data-tab={key}
-                      key={key}
-                    >
-                      <button
-                        aria-selected={selected}
-                        className="shell-tab-open"
-                        onClick={() => goTo(openOf(key))}
-                        role="tab"
-                        type="button"
-                      >
-                        {tabTitle(key)}
-                      </button>
-                      <button
-                        aria-label={`Close ${tabTitle(key)}`}
-                        className="shell-tab-close"
-                        // The open tab's close button is on its card, the
-                        // page's; the others' are drawn in the glass.
-                        data-floor-close={selected ? undefined : "true"}
-                        data-floor-item={selected ? undefined : `close:${key}`}
-                        data-floor-r={selected ? undefined : "9"}
-                        data-floor-size={selected ? undefined : "10"}
-                        data-floor-symbol={selected ? undefined : "xmark"}
-                        onClick={() => closeTab(key)}
-                        type="button"
-                      >
-                        <X />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              {floorNative ? (
-                // The names again, lit, laid out exactly as the tabs are and
-                // seen only through the open tab's card (report() clips it).
-                <div
-                  aria-hidden="true"
-                  className="shell-tabs shell-tabs--lit"
-                  ref={litTabsRef}
-                >
-                  {tabs.map((key) => (
-                    <div className="shell-tab" key={key}>
-                      <span className="shell-tab-open">{tabTitle(key)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <h1
-              className="shell-title"
-              data-floor-align="center"
-              data-floor-item="title"
-              data-floor-kind="text"
-              data-floor-strong="true"
-              data-floor-text={conversationTitle}
+          {choice.tabs ? (
+            <div
+              aria-label="Open conversations"
+              className="shell-tabs"
+              role="tablist"
             >
+              {tabs.map((key) => {
+                const selected =
+                  place === "conversations" && key === keyOf(open);
+                return (
+                  <div
+                    className="shell-tab"
+                    data-selected={selected ? "true" : undefined}
+                    data-tab={key}
+                    key={key}
+                  >
+                    <button
+                      aria-selected={selected}
+                      className="shell-tab-open"
+                      onClick={() => goTo(openOf(key))}
+                      role="tab"
+                      type="button"
+                    >
+                      {tabTitle(key)}
+                    </button>
+                    <button
+                      aria-label={`Close ${tabTitle(key)}`}
+                      className="shell-tab-close"
+                      onClick={() => closeTab(key)}
+                      type="button"
+                    >
+                      <X />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <h1 className="shell-title">
               {placeTitle ??
                 (openSession ? (
                   <>
@@ -1044,34 +721,25 @@ export function ShellStudy() {
       <nav aria-label="Places" className="shell-places">
         <div className="shell-places-group">
           <PlaceButton
-            floor="new"
             label="New conversation"
             onClick={() => addSession(homes[0])}
-            symbol="square.and.pencil"
           >
             <SquarePen />
           </PlaceButton>
-          <PlaceButton
-            floor="search"
-            label="Search  ⌘K"
-            onClick={() => setSearching(true)}
-            symbol="magnifyingglass"
-          >
+          <PlaceButton label="Search  ⌘K" onClick={() => setSearching(true)}>
             <Search />
           </PlaceButton>
         </div>
         <div className="shell-places-group">
-          {PLACES.map(({ id, label, icon: Icon, symbol }) => (
+          {PLACES.map(({ id, label, icon: Icon }) => (
             <PlaceButton
               current={place === id}
-              floor={`place:${id}`}
               key={id}
               label={label}
               onClick={() =>
                 dispatch({ type: "go", view: { place: id, open } })
               }
               place={id}
-              symbol={symbol}
             >
               <Icon />
             </PlaceButton>
@@ -1080,22 +748,17 @@ export function ShellStudy() {
         <div className="shell-places-group shell-places-end">
           <PlaceButton
             current={place === "settings"}
-            floor="place:settings"
             label="Settings"
             onClick={() =>
               dispatch({ type: "go", view: { place: "settings", open } })
             }
             place="settings"
-            symbol="gearshape"
           >
             <Settings />
           </PlaceButton>
           <span
             aria-label={`${OWNER}, personal workspace`}
             className="shell-avatar"
-            data-floor-item="avatar"
-            data-floor-kind="avatar"
-            data-floor-text={OWNER[0]}
             role="img"
           >
             {OWNER[0]}
@@ -1168,27 +831,19 @@ function LipButton({
   children,
   className,
   disabled,
-  floor,
   label,
   onClick,
-  symbol,
 }: {
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
-  /** Its twin's id in Apple's glass, which draws its ink as `symbol`. */
-  floor: string;
   label: string;
   onClick: () => void;
-  symbol: string;
 }) {
   return (
     <button
       aria-label={label}
       className={`shell-lip-button ${className ?? ""}`}
-      data-floor-item={floor}
-      data-floor-r="7"
-      data-floor-symbol={symbol}
       disabled={disabled}
       onClick={onClick}
       title={label}
@@ -1202,20 +857,15 @@ function LipButton({
 function PlaceButton({
   children,
   current,
-  floor,
   label,
   onClick,
   place,
-  symbol,
 }: {
   children: React.ReactNode;
   current?: boolean;
-  /** Its twin's id in Apple's glass, which draws its ink as `symbol`. */
-  floor: string;
   label: string;
   onClick: () => void;
   place?: PlaceId;
-  symbol: string;
 }) {
   return (
     <Tooltip>
@@ -1225,9 +875,6 @@ function PlaceButton({
           aria-label={label.replace(/\s+⌘K$/, "")}
           className="shell-place"
           data-current={current ? "true" : undefined}
-          data-floor-item={floor}
-          data-floor-r="9"
-          data-floor-symbol={symbol}
           data-place={place}
           onClick={onClick}
           type="button"
@@ -1714,42 +1361,27 @@ function LabPanel({
               ))}
             </select>
           </label>
-          {/* Apple's frosted material can hold either look; Liquid Glass can
-              only be held at rest (in its own window). */}
-          <Segment
-            label="Look"
-            onChange={(value) => choose("look", value)}
-            options={
-              frameMaterialFor(choice).style === "frosted"
-                ? [
-                    ["use", "In use"],
-                    ["rest", "Resting"],
-                    ["follows", "Follows"],
-                  ]
-                : [
-                    ["rest", "Resting"],
-                    ["follows", "Follows"],
-                  ]
-            }
-            value={
-              frameMaterialFor(choice).style !== "frosted" &&
-              choice.look === "use"
-                ? "follows"
-                : choice.look
-            }
-          />
-          {frameMaterialFor(choice).style === "frosted" ? null : (
+          {frameMaterialFor(choice).style === "frosted" ? (
             <Segment
-              label="Darkness"
-              onChange={(value) => choose("veil", value)}
+              label="Look"
+              onChange={(value) => choose("held", value === "held")}
               options={[
-                ["none", "None"],
-                ["soft", "Soft"],
-                ["deep", "Deep"],
+                ["held", "In use"],
+                ["follows", "Follows"],
               ]}
-              value={choice.veil}
+              value={choice.held ? "held" : "follows"}
             />
-          )}
+          ) : null}
+          <Segment
+            label="Veil"
+            onChange={(value) => choose("veil", value)}
+            options={[
+              ["none", "None"],
+              ["soft", "Soft"],
+              ["deep", "Deep"],
+            ]}
+            value={choice.veil}
+          />
         </>
       ) : null}
       <p className="shell-lab-note" role="status">
@@ -1758,7 +1390,7 @@ function LabPanel({
             ? glass
               ? frameMaterialFor(choice).style === "frosted"
                 ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
-                : "The frame is Apple's Liquid Glass, the cards on it, its icons and words inside the glass; darkness goes beneath it."
+                : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
               : "The frame is black; the rail and the conversation are cards on it."
             : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
