@@ -159,13 +159,11 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    Dark is unchanged: ten distinct dark looks rendered before and after were identical but for a font-loading quirk of
    the comparison. Measured in the film window, where the glass shows nothing behind it (as over a black desktop),
    the tab names reach 4.1:1; over a real desktop the glass is brighter. Waiting on Riley's eye in the real window.
-3. **White frame ink in light** (Riley: "what if we made the ink of the icon rail and the unselected tabs white
-   instead of black?"). A switch in light, Frame ink: Black or White. White gives the frame's words the night's warm
-   white, and the veil turns black beneath them again, since its work is to make the frame's words read; the cards
-   stay paper, and what sits on paper (the open tab's name, the current place) keeps the page's ink. Over his sunset,
-   light glass is bright: from his screenshot, white words would read about 2:1 with no veil and about 3:1 with Soft;
-   with Deep the words reach 4 to 5.5:1 and the tab names 3.2 to 4.2:1, so white wants Deep, the frame becoming smoked
-   glass around the paper. Shown on Deep; waiting on his eye.
+3. **White frame ink in light: tried and dropped.** Riley asked what the icon rail and the unselected tabs would look
+   like in white. White only reads if the glass behind it is darkened (white on his bright blue glass measured 1.3 to
+   1.9:1, black 6.5 to 8:1), so the switch turned the veil black beneath white words, and the frame became smoked
+   glass around the paper. He liked bright glass with white words best, which can't be read, and chose black: "lets
+   just go with black ink. it looks great". The code is in commit 62cb1705a.
 
 ## Light and surface, not lines
 
@@ -212,6 +210,6 @@ and a fresh browser for each, or the last look carries over.
 At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Glass; Paper, Glass in light), Rail (Open,
 Closed), Rail tone (Same, Lighter; Darker in light), Tabs
 (Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
-materials (In use, Follows), Frame ink in light (Black, White) and Veil (None, Soft, Deep). Clicking
+materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.
