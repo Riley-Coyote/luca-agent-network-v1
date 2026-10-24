@@ -12,6 +12,12 @@ is everything around the rail: the frame, the cards, the setting, and what each 
 The frame is the window's own edge: a lip across the top and a column of places down the left. Everything you read sits
 on cards. Only the frame is ever glass; the cards never are.
 
+## Scope (Riley, 2026-10-24)
+
+Everything here except the tabs ships first: "hold off on tabs and get the rest done and shipped first." Until the
+tabs come, the lip carries the open conversation's name (see Tabs). Glass is offered on every Mac: Liquid Glass on
+macOS 26 and later, Apple's older frosted glass before that (see Glass).
+
 ## The frame, as decided
 
 Measures in points, from the study's code (`ShellStudy.tsx`, `shellStudy.css`), which is the reference for every value
@@ -39,7 +45,9 @@ below.
 
 - **The lip:** the window's top 36. The traffic lights, the rail's toggle, back and forward, and the tabs share one line
   at 22. The lights are inset 16 from the window's corner both ways (their top at 16). The toggle sits at 78. Back and
-  forward ride with the conversation card: at `max(card's left + 6, 112)`. The tabs follow them, 58 further on.
+  forward ride with the conversation card: at `max(card's left + 6, 112)`. Until the tabs come, the open
+  conversation's name sits on the card's axis (see Tabs); the tabs, when they come, follow back and forward, 58 further
+  on.
 - **The places:** a column 44 wide under the lip, its icons centred on the lights' axis (22): New conversation and
   Search; then Conversations, Library, Agents, Activity, Brain; Settings and the avatar at the bottom. Icon tiles 28,
   corners 9, icons 16 at stroke 1.6.
@@ -60,9 +68,15 @@ below.
   and the conversation's card are all instant. (The study misses two of these: the rail card's own width transition
   and the delay before the rail's mark returns are not yet switched off under Reduce Motion.)
 
-### Tabs
+### Tabs (later)
 
-The tabs are the open conversations, standing on the conversation card's edge.
+**Held until the rest has shipped.** Until then the lip carries the open conversation's name, as the study's "Tabs
+off": centred on the conversation card's axis (the axis its messages and composer are centred on), 28 tall at 8 from
+the lip's top, no wider than the card less 200, in 13 at weight 550. A session reads as its home (the frame's second
+tone, 450), a faint "/", then the session; a home's own conversation reads as the home's name; a place's page reads as
+the place's name. The conversation card's top meets the lip with no tab rising from it.
+
+When the tabs come, they are the open conversations, standing on the conversation card's edge:
 
 - Each tab is as wide as its name (64 to 200), 28 tall, 8 from the lip's top. Unselected tabs are words on the frame
   (13, the frame's second tone); hover shows the frame's plate.
@@ -83,7 +97,7 @@ The tabs are the open conversations, standing on the conversation card's edge.
   mark is whichever of two materials reads on the surface beneath it: a **plate** (the page's ink at 7.5%, the app's
   hover and sent-bubble material) or **a piece of the card** (its surface, grain and lit top in dark; paper with its
   shadow in light).
-- On the Liquid Glass frame the places' mark is a piece of the card; on the Black frame, a plate. On the rail's card,
+- On a glass frame the places' mark is a piece of the card; on the Black frame, a plate. On the rail's card,
   a plate on the card's own tone, a piece of card on the lighter (dark) or darker (light) rail.
 - The open session under a home is lit, not marked (`SPEC.md`).
 - The marks slide on the house springs, stretching on the way, and settle on whole pixels.
@@ -92,9 +106,10 @@ The tabs are the open conversations, standing on the conversation card's edge.
 
 **Settings → Appearance**, directly under the existing System / Light / Dark row:
 
-> **Frame** · Black (Paper in light) · Liquid Glass
+> **Frame** · Black (Paper in light) · Liquid Glass (named Glass on older Macs and on Windows)
 > One plain sentence under it: "Solid black, nothing showing through it." / "Solid paper, nothing showing through
-> it." / "Liquid Glass, your desktop showing through it."
+> it." / "Liquid Glass, your desktop showing through it." / on older Macs "Glass, your desktop softly blurred behind
+> it."
 
 Stored as its own key beside follow-system (`buzz-follow-system`) and exposed on the theme context, because the frame
 and the mode are independent. The app's System / Light / Dark row is already the Auto the study pointed to.
@@ -107,7 +122,7 @@ and the mode are independent. The app's System / Light / Dark row is already the
   shade and a soft ink-cast shadow (`0 1px 2px` ink 6%, `0 12px 32px -8px` ink 14%), cast on the floor beneath all the
   cards at once so no card shades its neighbour.
 
-### Liquid Glass (macOS 26 and later)
+### Glass: Liquid Glass (macOS 26 and later)
 
 - Natively: one sheet of Apple's `NSGlassEffectView` the size of the window, behind the transparent page, with the
   window's corner radius; style Regular; Apple's dark tint (`#00000080`) at night and none by day; its appearance
@@ -121,7 +136,7 @@ and the mode are independent. The app's System / Light / Dark row is already the
   `0 18px 44px` black 32%); light, no white edges, the ink-cast shadow on the glass beneath all the cards
   (`0 1px 2px` ink 8%, `0 16px 40px -10px` ink 22%).
 - The study's other glass choices (Clear, no tint, the None and Deep veils) stay in the lab, not in Settings.
-- **Before macOS 26** there is no glass to draw: the Liquid Glass option is not offered and the frame is Black.
+- **Before macOS 26** the same choice draws Apple's older frosted glass instead, automatically (below).
 - **Reduce Transparency:** the Liquid Glass frame is drawn as the Black frame, by the page, and returns when the
   setting is turned off. This is new: the study only stands the native glass down and falls to its browser stand-in.
 - **The page's floor layers:** in Liquid Glass every layer that paints the floor today clears (the shell layer, the
@@ -131,6 +146,25 @@ and the mode are independent. The app's System / Light / Dark row is already the
 - **Full screen** has square window corners: the sheet's radius is sent as 0, and the cards' 6 from the edges stays.
 - **When the window isn't the one in use** macOS relaxes the glass (flatter, softer, tint dropped). Nothing public holds
   it, and Riley likes that resting look; the page does nothing about it.
+
+### Glass where Liquid Glass can't be (Riley, 2026-10-24)
+
+Riley: "what if we made the normal glass automatically apply for older macOS machines, so that we only need liquid
+glass to work on new macs? and we could use normal glass when we make it windows/browser friendly too".
+
+- **macOS 14 to 25:** the Glass frame is Apple's older frosted material, through the vibrancy path the app already
+  ships (`commands/window_vibrancy.rs`, `set_window_vibrancy`: an `NSVisualEffectView` behind the transparent page, the
+  same path the glass themes, the pop-out and the onboarding card use today), so older Macs need no new native code.
+  It is held in its in-use look (`state: active`), so it never turns flat grey when the window rests. At night it is
+  the Heads-up display, Riley's favourite of the frosted materials; by day the material is not chosen yet, to be
+  judged in the lab on Riley's Mac (it draws the same there as on an older Mac). The veil, the frame's words and the
+  cards are as on Liquid Glass; measure the words on the frosted glass too.
+- **Windows** (when the app comes to Windows): the same choice draws Windows' own glass, Mica or Acrylic, through the
+  same window-vibrancy library.
+- **In a browser** a page can't see the desktop, so there is no glass to show: the frame is Black (Paper in light) and
+  the Glass choice isn't offered.
+- The choice is named for what it draws: "Liquid Glass" on macOS 26 and later, "Glass" everywhere else.
+- Reduce Transparency draws the Black frame everywhere.
 
 ## Light and dark
 
@@ -154,7 +188,7 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - **Boot backing:** the opaque native backing (17, 21, 24) shown for the first frames, and `index.html`'s boot paint,
   follow the frame: the floor's colour for Black, none for Liquid Glass. Otherwise Paper and the glass flash dark.
 - **Full screen:** the lights go away; the lip's toggle moves to where the first light was, and back, forward and the
-  tabs keep their places on the card.
+  conversation's name keep their places on the card.
 - **Without native lights** (another platform, a browser, the end-to-end tests) the toggle sits at the lip's left
   padding, as the strip's no-lights branch does today, and tooltips name Ctrl instead of ⌘.
 - **The lights move for the whole window,** so check them on every frameless screen too (setup, loading, errors,
@@ -210,7 +244,7 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - **One card for every place:** Library, Agents and Activity stop painting a card of their own (`routeOwnsFloor`) and
   fill the conversation's card like Brain, New conversation and the conversations do.
 - **The conversation header** (`features/chat/ui/ChatHeader.tsx`, `features/channels/ui/ChannelScreenHeader.tsx`)
-  loses its title, which the tab now carries. Its actions (layout; open as window, shown while the pop-out feature is
+  loses its title, which moves up into the lip (the conversation's name, and later its tab). Its actions (layout; open as window, shown while the pop-out feature is
   on; conversation details) move to the lip's right end, over the card, as quiet 13-point icons (Decided, 3). Its other
   occupants: the Join button takes the actions' place there in a conversation you haven't joined, as it does today; a
   person's presence avatar in a direct conversation and an ephemeral conversation's badge sit just before the actions;
@@ -224,8 +258,9 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 
 **Several conversations side by side** (`features/conversation-workspace/`)
 - The workspace's panes (up to four, each its own card) and their tab model (`slot.conversations`, `activeTab`, with
-  select and close actions but no strip drawn today) are the tabs' data: the lip's tabs are the focused pane's, and each
-  other pane shows its conversation's name quietly at its own top (Decided, 5).
+  select and close actions but no strip drawn today) stay as they are while the tabs wait. The lip names the focused
+  pane's conversation; each other pane shows its conversation's name quietly at its own top. When the tabs come, the
+  lip's tabs are the focused pane's (Decided, 5).
 
 **Projects** (`features/projects/ui/ProjectRoomWorkspace.tsx`)
 - As `SPEC.md`: rooms in the rail by default, the 304-point room column an option.
@@ -255,8 +290,8 @@ management, the artifact Canvas)
 
 **The glass themes** (Obsidian, Crystalline: `glass-floor.css`, `window_vibrancy.rs`)
 - Today they are the only see-through window, through the older frosted material behind the page. They retire
-  (Decided, 7): the Liquid Glass frame is the see-through window now. Someone on Obsidian moves to the dark default with
-  the Liquid Glass frame, someone on Crystalline to Paper with it. Their tiles and their rules in `glass-floor.css` go;
+  (Decided, 7): the Glass frame is the see-through window now. Someone on Obsidian moves to the dark default with the
+  Glass frame, someone on Crystalline to Paper with it. Their tiles and their rules in `glass-floor.css` go;
   `window_vibrancy.rs` stays for the pop-out and the onboarding card, which still use it.
 
 **The rail's selection glass** (`RailGlass.tsx` the web pill, `NativeRailGlass.tsx` the native pour)
@@ -270,8 +305,9 @@ management, the artifact Canvas)
   the sheet, the floor and the cards, and stands it all down (`off`) under Reduce Transparency, as the rail's reporter
   already does.
 - Today it is compiled only with `LUCA_BUILD_NATIVE_GLASS=1` and attached only with `LUCA_NATIVE_RAIL_GLASS=1` (the
-  rail-glass candidate). For the shell it is compiled into the app and attached whenever the frame is Liquid Glass on
-  macOS 26 or later; the candidate script's plist checks and their test change with it.
+  rail-glass candidate). For the shell it is compiled into the app and attached whenever the frame is Glass on macOS 26
+  or later; the candidate script's plist checks and their test change with it. Older Macs take the frosted path above
+  and never attach it.
 - What the frame doesn't use goes when it lands: the frosted `FrameFrost`, the rail's selection pieces (the stage), and
   the `settings` message's material, motion and grain.
 - The window's appearance follows the palette for every palette (today `ThemeProvider` pins it only for the glass
@@ -306,10 +342,10 @@ management, the artifact Canvas)
 **Keyboard**
 - As today: ⌘[ and ⌘] back and forward, ⌘K search, ⌘N new conversation, ⌘, Settings, and ⌘S the rail, which stays
   (Decided, 11).
-- Tabs: ⌃Tab and ⌃⇧Tab move to the next and previous tab, and ⌘W closes the open tab once it's confirmed that ⌘W
-  doesn't close the window today (Decided, 10).
-- Tab order is the picture's order: the lip (toggle, back, forward, the tabs), the places, the rail's card, the
-  conversation's card, the right cards. A closed rail card is inert.
+- When the tabs come: ⌃Tab and ⌃⇧Tab move to the next and previous tab, and ⌘W closes the open tab once it's confirmed
+  that ⌘W doesn't close the window today (Decided, 10).
+- Tab order is the picture's order: the lip (toggle, back, forward, the conversation's actions; later the tabs), the
+  places, the rail's card, the conversation's card, the right cards. A closed rail card is inert.
 
 ## Decided (Riley, 2026-10-24)
 
@@ -324,15 +360,16 @@ each is marked there as "Decided, n".
 4. **Status cards** (connection, relay, background task, update): at the bottom of the rail's card; while the rail is
    closed, a dot on the avatar for a connection problem and on Settings for an update (not: in the places column).
 5. **Panes side by side:** the lip's tabs belong to the focused pane; each other pane shows its conversation's name
-   quietly at its own top (not: a strip for every pane).
+   quietly at its own top (not: a strip for every pane). Until the tabs come, the lip names the focused pane's
+   conversation.
 6. **Other palettes:** all stay, and the frame reads their tokens (not: narrowing to the first-party ones).
 7. **Obsidian and Crystalline:** retired; someone on one moves to its base palette (the dark default or Paper) with
-   the Liquid Glass frame (not: keeping them as themes beside the frame).
-8. **The huddle bar:** rises into the frame beneath the cards, on the glass in Liquid Glass (not: today's drawer under
+   the Glass frame (not: keeping them as themes beside the frame).
+8. **The huddle bar:** rises into the frame beneath the cards, on the glass in the Glass frame (not: today's drawer under
    the window).
 9. **The pop-out:** keeps its own bar and frosted glass for now (not: following the Frame setting).
 10. **Tab keys:** ⌃Tab and ⌃⇧Tab for the next and previous tab, ⌘W to close the open tab once it's confirmed ⌘W doesn't
-    close the window (not: none yet).
+    close the window (not: none yet). They wait with the tabs.
 11. **⌘S for the rail:** stays (not: moving off Save's key).
 12. **The runtime sessions column:** a card of its own between the rail's and the conversation's while it is open
     (not: leaving with Runtimes).
@@ -362,20 +399,23 @@ One at a time, each shown to Riley in the real app and kept only on his word. Ev
 own profile in the one shared build cache; the installed Polyphonic.app, his profile, releases and the update feed are
 never touched, and nothing is pushed.
 
-1. **The frame, Black, in dark:** the lip, the places column, the two cards and the marks, page only, behind a flag.
-2. **Tabs** in the lip, from the workspace's tab model: opening adds a tab, at most six, the focused pane's tabs, the
-   other panes' names at their tops, and the tab keys.
+1. **The frame, Black, in dark:** the lip (with the conversation's name), the places column, the two cards and the
+   marks, page only, behind a flag.
+2. **The conversation header dissolving** into the lip: its actions, the Join button, presence and badges.
 3. **Settings in the frame.**
 4. **Light:** Paper, the shadows on the floor, no outlines.
-5. **The Frame setting and Liquid Glass:** the setting, the page's reporter, the veil, the native glass compiled in and
-   attached for the frame, macOS 26 and Reduce Transparency fallbacks.
+5. **The Frame setting and Glass:** the setting, the page's reporter, the veil; Liquid Glass compiled in and attached
+   on macOS 26 and later; the frosted fallback on older Macs (with the light material chosen by Riley); Reduce
+   Transparency.
 6. **The rest:** communities in the avatar's menu, the status cards and their dots, the runtime sessions card, the
    glass themes' retirement, the huddle bar in the frame, onboarding's hand-off, full screen.
 
+**Later, after the rest has shipped:** the tabs, with the workspace's tab model (opening adds a tab, at most six), the
+other panes' names and the tab keys.
+
 ## Done means
 
-- Each rule above holds in the real app, checked with photographs of both frames in both modes: a conversation open
-  with tabs; the rail closed; a place's page; Settings → Appearance; a right card open; a huddle; full screen;
+- Each rule above holds in the real app, checked with photographs of both frames in both modes: a conversation open; the rail closed; a place's page; Settings → Appearance; a right card open; a huddle; full screen;
   Reduce Transparency; the smallest window.
 - The lights sit on the lip's line, measured in the real window.
 - `tsc`, biome, the desktop unit tests and the desktop gates pass; `cargo clippy` for the desktop crate when Rust or
