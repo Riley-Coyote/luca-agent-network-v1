@@ -1385,3 +1385,35 @@
 .shell[data-native] :is(.shell-veil, .shell-search-scrim) {
   border-radius: 16px;
 }
+
+/* White ink on light glass: the frame's words as at night, and beneath them
+ * the veil turns black again, since its work is to make the frame's words
+ * read. The cards stay paper, and what sits on paper (the open tab's name,
+ * the current place) keeps the page's ink. */
+.shell[data-direction="glass"][data-mode="light"][data-ink="white"] {
+  --shell-ink: rgb(250 248 243 / 0.96);
+  --shell-muted: rgb(250 248 243 / 0.76);
+  --shell-faint: rgb(250 248 243 / 0.56);
+  --shell-plate: rgb(255 255 255 / 0.1);
+  --shell-thread: rgb(255 255 255 / 0.22);
+}
+
+.shell[data-mode="light"][data-ink="white"] .shell-veil {
+  background: rgb(0 0 0 / var(--shell-veil, 0));
+}
+
+.shell[data-direction="glass"][data-mode="light"][data-ink="white"]
+  .shell-avatar {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.shell[data-direction="glass"][data-mode="light"][data-ink="white"]
+  :is(.shell-tab[data-selected] .shell-tab-open, .shell-place[data-current]) {
+  color: hsl(var(--mn-ink));
+}
+
+.shell[data-direction="glass"][data-mode="light"][data-ink="white"]
+  .shell-tab[data-selected]
+  .shell-tab-close {
+  color: hsl(var(--mn-ink-faint));
+}

@@ -167,6 +167,9 @@ type Choice = {
   veil: Veil;
   /** The look each mode had when it was last left. */
   looks: Record<Mode, Look>;
+  /** In light, the frame's words: the page's black ink, or the night's
+   *  white over glass darkened for it. */
+  ink: "black" | "white";
   panel: boolean;
 };
 
@@ -185,6 +188,7 @@ const DEFAULT_CHOICE: Choice = {
   tone: "same",
   ...DEFAULT_LOOKS.dark,
   looks: DEFAULT_LOOKS,
+  ink: "black",
   panel: true,
 };
 
@@ -241,6 +245,8 @@ function readChoice(): Choice {
           };
       }
     }
+    if (source.ink === "black" || source.ink === "white")
+      choice.ink = source.ink;
     if (typeof source.panel === "boolean") choice.panel = source.panel;
   };
   try {
@@ -267,6 +273,7 @@ function readChoice(): Choice {
     material: params.get("material"),
     held: flag("held"),
     veil: params.get("veil"),
+    ink: params.get("ink"),
     panel: flag("panel"),
   });
   return choice;
@@ -686,6 +693,7 @@ export function ShellStudy() {
       className="shell"
       data-direction={choice.direction}
       data-material={frameMaterialFor(choice).style}
+      data-ink={choice.mode === "light" ? choice.ink : undefined}
       data-mode={choice.mode}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
@@ -1473,6 +1481,17 @@ function LabPanel({
                 ["follows", "Follows"],
               ]}
               value={choice.held ? "held" : "follows"}
+            />
+          ) : null}
+          {choice.mode === "light" ? (
+            <Segment
+              label="Frame ink"
+              onChange={(value) => choose("ink", value)}
+              options={[
+                ["black", "Black"],
+                ["white", "White"],
+              ]}
+              value={choice.ink}
             />
           ) : null}
           <Segment
