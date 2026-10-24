@@ -154,8 +154,6 @@ type Choice = {
   held: boolean;
   veil: Veil;
   panel: boolean;
-  /** On the glass: the cards' edge catching the light all the way round. */
-  edge: boolean;
 };
 
 const DEFAULT_CHOICE: Choice = {
@@ -167,7 +165,6 @@ const DEFAULT_CHOICE: Choice = {
   held: true,
   veil: "soft",
   panel: true,
-  edge: true,
 };
 
 function readChoice(): Choice {
@@ -192,7 +189,6 @@ function readChoice(): Choice {
     )
       choice.veil = source.veil;
     if (typeof source.panel === "boolean") choice.panel = source.panel;
-    if (typeof source.edge === "boolean") choice.edge = source.edge;
   };
   try {
     const stored = JSON.parse(localStorage.getItem(SHELL_STUDY_KEY) ?? "{}");
@@ -216,7 +212,6 @@ function readChoice(): Choice {
     held: flag("held"),
     veil: params.get("veil"),
     panel: flag("panel"),
-    edge: flag("edge"),
   });
   return choice;
 }
@@ -609,7 +604,6 @@ export function ShellStudy() {
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
       data-tabs={choice.tabs ? "on" : undefined}
-      data-edge={choice.edge ? "on" : undefined}
       data-tone={choice.tone}
       data-veil={choice.veil}
       ref={shellRef}
@@ -1349,15 +1343,6 @@ function LabPanel({
       />
       {glass ? (
         <>
-          <Segment
-            label="Card edge"
-            onChange={(value) => choose("edge", value === "on")}
-            options={[
-              ["off", "Off"],
-              ["on", "On"],
-            ]}
-            value={choice.edge ? "on" : "off"}
-          />
           <label className="shell-lab-row">
             <span>Material</span>
             <select

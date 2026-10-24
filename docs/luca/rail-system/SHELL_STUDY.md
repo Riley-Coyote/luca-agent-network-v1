@@ -136,12 +136,10 @@ Three frames, each in light and dark mode, chosen in settings:
 
 From the rolled-back lab, each change is shown alone and kept only on Riley's word.
 
-1. **The card edge** (Riley: "lets see what it looks like with the cards edge"; he may like it better without). On the
-   glass, each card's edge catches the light all the way round its corners, brightest along the top and quiet down the
-   sides, like the glass's rim at the window's edge. The open tab carries the same line down its sides and round the
-   curves at its foot onto the card's top, brightening as the curve turns to face up. A closed rail has no edge. It is
-   a switch in the lab, Card edge, on by default while he compares; Off is the lab exactly as it was. Waiting on his
-   judgment.
+1. **The card edge: tried and dropped.** On the glass, each card's edge caught the light all the way round its corners,
+   brightest along the top and quiet down the sides, and the open tab carried the same line round the curves at its
+   foot onto the card's top. Riley compared it on and off in the lab: "Drop the card edge, I like it better without."
+   The cards keep only their lit top edge and their soft shadow on the glass. The code is in commit 4276105be.
 
 ## Light and surface, not lines
 
@@ -182,7 +180,7 @@ directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindo
 ## Lab controls
 
 At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
-(Off, On); for the glass frame, Card edge (Off, On), Material (every Liquid Glass and frosted material Apple has), Look for the frosted
+(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
 materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.
