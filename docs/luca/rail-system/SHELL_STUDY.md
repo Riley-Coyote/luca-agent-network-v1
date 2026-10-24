@@ -171,6 +171,17 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    below the cards (paper at 251 over floor at 236), and the cards keep only a soft ink-cast shadow, lying on the floor
    beneath all of them as on the glass, softer than on glass since the floor is calm. Paper's own floor (#f6f4f2) was
    tried and too close: without the ring the cards dissolved into it. Natively the floor draws the same shade. Kept.
+5. **The frames as a setting** (Riley: "make the three frames (Black/Paper, frosted Glass, Liquid Glass) a setting, in
+   light and dark"). One Frame setting with three values: Black (Paper in light), Glass (Apple's frosted material) and
+   Liquid Glass. It lives where a person would find it, in the study's own Settings page, under Appearance with Mode
+   (Dark, Light), each choice a working control with one plain sentence under Frame ("Solid black, nothing showing
+   through it." / "Solid paper, ..." / "Frosted glass, your desktop softly blurred behind it." / "Liquid Glass, your
+   desktop showing through it."). The lab panel switches the same three. Each glass frame keeps its own look in each
+   mode, and returns to it: Liquid Glass is Regular with Apple's dark tint and Soft at night, Regular with Soft by day;
+   Glass is the heads-up display, held in use, at night. Glass by day is not chosen yet: it starts on Sidebar, Apple's
+   light frame material, held in use, no veil. The setting changes nothing about how any look is drawn (twelve dark and
+   light looks render as before), and a look saved before it carries over. In light, a control's chosen option now
+   stands up like Send, white paper on its track. When this leaves the study, Mode gains Auto first, following the Mac.
 
 ## Light and surface, not lines
 
@@ -192,8 +203,8 @@ way. Riley set their finer behaviour aside for now.
 
 ## Next
 
-The frames as a setting, in light and dark (Riley's three: Black, which is Paper in light; Glass; Liquid Glass), then
-`SPEC.md` and the app.
+Riley's eye on Glass by day (Sidebar to start, against the other light frosted materials), then `SPEC.md` and the
+app.
 
 ## In the browser
 
@@ -207,15 +218,16 @@ opens the glass frame on Riley's dark pick (drop the look's parameters for the l
 with working traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
 not in use (flatter, frosted). `run` instead of `open` is the film window, for checks and captures. The study also opens
-directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0`, and in a
-mode with `&mode=light` (which brings that mode's own look). Captures in a browser need every setting in the address
+directly in a look: `&frame=frosted&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0` (frame is
+solid, frosted or liquid; the older `direction=black|glass` still works), and in a mode with `&mode=light`. A mode or a
+frame asked for brings its own look, which the rest of the address can then change. Captures in a browser need every setting in the address
 and a fresh browser for each, or the last look carries over.
 
 ## Lab controls
 
-At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Glass; Paper, Glass in light), Rail (Open,
-Closed), Rail tone (Same, Lighter; Darker in light), Tabs
-(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
-materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
+At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Glass, Liquid Glass; Paper for Black in
+light), Rail (Open, Closed), Rail tone (Same, Lighter; Darker in light), Tabs (Off, On); for a glass frame, Material
+(that frame's own materials from Apple), Look for frosted Glass (In use, Follows) and Veil (None, Soft, Deep). Mode and
+Frame are also the Settings page's Appearance. Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.

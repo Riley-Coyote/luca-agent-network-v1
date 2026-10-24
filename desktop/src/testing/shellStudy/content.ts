@@ -479,9 +479,8 @@ export const PLACE_PAGES: Record<
     title: "Settings",
     groups: [
       {
-        label: "Settings",
+        label: "General",
         rows: [
-          { title: "Appearance", detail: "Vitesse Black" },
           { title: "Notifications", detail: "Mentions and direct messages" },
           { title: "Agents and runtimes", detail: "3 runtimes ready" },
           { title: "Privacy", detail: "Everything stays on this Mac" },

@@ -81,6 +81,9 @@ const LIP_LINE = 22;
 const SLIDE_MS = 460;
 
 type Direction = "black" | "glass";
+/** The page's two kinds of frame: the solid one drawn by the page, or glass. */
+const directionOf = (frame: Frame): Direction =>
+  frame === "solid" ? "black" : "glass";
 
 /**
  * Every material Apple offers for the frame, by Apple's names: Liquid Glass's
@@ -113,8 +116,13 @@ const FROSTED: [string, string][] = [
   ["selection", "Selection"],
 ];
 
-const MATERIALS: { group: string; items: FrameMaterial[] }[] = [
+const MATERIALS: {
+  frame: "frosted" | "liquid";
+  group: string;
+  items: FrameMaterial[];
+}[] = [
   {
+    frame: "liquid",
     group: "Liquid Glass",
     items: [
       { id: "glass-regular", label: "Regular", style: "regular" },
@@ -134,6 +142,7 @@ const MATERIALS: { group: string; items: FrameMaterial[] }[] = [
     ],
   },
   {
+    frame: "frosted",
     group: "Frosted, Apple's older material",
     items: FROSTED.map(([material, label]) => ({
       id: `frost-${material}`,
@@ -151,42 +160,67 @@ const DEFAULT_MATERIAL = "glass-regular";
 type Veil = "none" | "soft" | "deep";
 /** Light or dark, the app's own palettes: Paper, or the house dark. */
 type Mode = "dark" | "light";
-/** What the glass frame is made of in one mode: each mode keeps its own. */
+const MODES = ["dark", "light"] as const;
+/**
+ * The three frames, as the app's setting names them (Riley, 2026-10-24):
+ * the solid one, black at night and paper by day; Glass, Apple's frosted
+ * material; and Liquid Glass.
+ */
+type Frame = "solid" | "frosted" | "liquid";
+type GlassFrame = Exclude<Frame, "solid">;
+const GLASS_FRAMES = ["frosted", "liquid"] as const;
+const isFrame = (value: unknown): value is Frame =>
+  value === "solid" || value === "frosted" || value === "liquid";
+/** What a glass frame is made of in one mode: each frame keeps its own look
+ *  in each mode. */
 type Look = { material: string; held: boolean; veil: Veil };
+type Looks = Record<Mode, Record<GlassFrame, Look>>;
 type Choice = {
   mode: Mode;
-  direction: Direction;
+  frame: Frame;
   tabs: boolean;
   rail: boolean;
   /** The rail's surface: the card's own black, or a step lighter. */
   tone: "same" | "lighter";
-  /** The frame's material, an id from MATERIALS. */
+  /** The look on hand: its material (an id from MATERIALS), whether a frosted
+   *  one holds the look of a window in use, and the veil. */
   material: string;
-  /** For a frosted frame: hold the look of a window in use, or follow the window. */
   held: boolean;
   veil: Veil;
-  /** The look each mode had when it was last left. */
-  looks: Record<Mode, Look>;
+  /** Each glass frame's look in each mode, as last left. */
+  looks: Looks;
   panel: boolean;
 };
 
-/** Riley's picks (2026-10-24): Regular with Apple's dark tint and the soft
- *  veil in dark, plain Regular with the soft veil in light. */
-const DEFAULT_LOOKS: Record<Mode, Look> = {
-  dark: { material: "glass-regular-tint", held: true, veil: "soft" },
-  light: { material: "glass-regular", held: true, veil: "soft" },
+/** Riley's picks (2026-10-24): Liquid Glass Regular with Apple's dark tint
+ *  and the soft veil at night, plain Regular with the soft veil by day;
+ *  frosted Glass as the heads-up display, held in use. Frosted glass by day
+ *  hasn't been chosen yet: the sidebar's, Apple's light frame material. */
+const DEFAULT_LOOKS: Looks = {
+  dark: {
+    frosted: { material: "frost-hudWindow", held: true, veil: "none" },
+    liquid: { material: "glass-regular-tint", held: true, veil: "soft" },
+  },
+  light: {
+    frosted: { material: "frost-sidebar", held: true, veil: "none" },
+    liquid: { material: "glass-regular", held: true, veil: "soft" },
+  },
 };
 
 const DEFAULT_CHOICE: Choice = {
   mode: "dark",
-  direction: "glass",
+  frame: "liquid",
   tabs: true,
   rail: true,
   tone: "same",
-  ...DEFAULT_LOOKS.dark,
+  ...DEFAULT_LOOKS.dark.liquid,
   looks: DEFAULT_LOOKS,
   panel: true,
 };
+
+/** The glass frame a material belongs to. */
+const frameOf = (material: string): GlassFrame =>
+  MATERIAL_BY_ID.get(material)?.style === "frosted" ? "frosted" : "liquid";
 
 /** The parts of a look a source gives, each only if it's one of ours. */
 function lookFrom(source: Record<string, unknown>): Partial<Look> {
@@ -206,69 +240,129 @@ function lookFrom(source: Record<string, unknown>): Partial<Look> {
   return look;
 }
 
-/** Into the other mode: this mode's look is kept for coming back, and the
- *  other's look returns. */
-function inMode(choice: Choice, mode: Mode): Choice {
-  if (mode === choice.mode) return choice;
+/** Into another mode or frame: the look on hand is kept with its own frame
+ *  and mode for coming back, and the next one's look returns. On the solid
+ *  frame the look on hand simply waits. */
+function settle(choice: Choice, mode: Mode, frame: Frame): Choice {
   const { material, held, veil } = choice;
-  const looks = { ...choice.looks, [choice.mode]: { material, held, veil } };
-  return { ...choice, mode, looks, ...looks[mode] };
+  const here = frameOf(material);
+  const looks: Looks = {
+    ...choice.looks,
+    [choice.mode]: {
+      ...choice.looks[choice.mode],
+      [here]: { material, held, veil },
+    },
+  };
+  const next = frame === "solid" ? here : frame;
+  return { ...choice, mode, frame, looks, ...looks[mode][next] };
+}
+
+/** A saved choice, including one saved before the frames were a setting
+ *  (a direction, and one look per mode). */
+function fromSaved(source: Record<string, unknown>): Choice {
+  const choice: Choice = {
+    ...DEFAULT_CHOICE,
+    looks: {
+      dark: { ...DEFAULT_LOOKS.dark },
+      light: { ...DEFAULT_LOOKS.light },
+    },
+  };
+  if (source.mode === "dark" || source.mode === "light")
+    choice.mode = source.mode;
+  if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
+  if (typeof source.rail === "boolean") choice.rail = source.rail;
+  if (source.tone === "same" || source.tone === "lighter")
+    choice.tone = source.tone;
+  if (typeof source.panel === "boolean") choice.panel = source.panel;
+  const saved = (source.looks ?? {}) as Record<string, unknown>;
+  for (const mode of MODES) {
+    const entry = (saved[mode] ?? {}) as Record<string, unknown>;
+    const old = lookFrom(entry);
+    if (old.material) {
+      const frame = frameOf(old.material);
+      choice.looks[mode] = {
+        ...choice.looks[mode],
+        [frame]: { ...choice.looks[mode][frame], ...old },
+      };
+      continue;
+    }
+    for (const frame of GLASS_FRAMES) {
+      const look = entry[frame];
+      if (look && typeof look === "object")
+        choice.looks[mode] = {
+          ...choice.looks[mode],
+          [frame]: {
+            ...choice.looks[mode][frame],
+            ...lookFrom(look as Record<string, unknown>),
+          },
+        };
+    }
+  }
+  const current = lookFrom(source);
+  if (isFrame(source.frame)) choice.frame = source.frame;
+  else if (source.direction === "black") choice.frame = "solid";
+  else if (current.material) choice.frame = frameOf(current.material);
+  const here = current.material
+    ? frameOf(current.material)
+    : choice.frame === "solid"
+      ? "liquid"
+      : choice.frame;
+  Object.assign(choice, choice.looks[choice.mode][here], current);
+  return choice;
 }
 
 function readChoice(): Choice {
-  let choice = { ...DEFAULT_CHOICE };
-  const take = (source: Record<string, unknown>) => {
-    if (source.mode === "dark" || source.mode === "light")
-      choice.mode = source.mode;
-    if (source.direction === "black" || source.direction === "glass")
-      choice.direction = source.direction;
-    if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
-    if (typeof source.rail === "boolean") choice.rail = source.rail;
-    if (source.tone === "same" || source.tone === "lighter")
-      choice.tone = source.tone;
-    Object.assign(choice, lookFrom(source));
-    const looks = source.looks as Record<string, unknown> | undefined;
-    if (looks && typeof looks === "object") {
-      for (const mode of ["dark", "light"] as const) {
-        const look = looks[mode];
-        if (look && typeof look === "object")
-          choice.looks = {
-            ...choice.looks,
-            [mode]: {
-              ...choice.looks[mode],
-              ...lookFrom(look as Record<string, unknown>),
-            },
-          };
-      }
-    }
-    if (typeof source.panel === "boolean") choice.panel = source.panel;
-  };
+  let choice: Choice = DEFAULT_CHOICE;
   try {
     const stored = JSON.parse(localStorage.getItem(SHELL_STUDY_KEY) ?? "{}");
-    if (stored && typeof stored === "object") take(stored);
+    if (stored && typeof stored === "object") choice = fromSaved(stored);
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?mode=light&direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
-  // opens a look directly, for captures. A mode asked for brings its own
-  // look, which the rest of the address can then change.
+  // `?mode=light&frame=frosted&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
+  // opens a look directly, for captures. A mode or frame asked for brings its
+  // own look, which the rest of the address can then change. The older
+  // `direction=black|glass` still works.
   const params = new URLSearchParams(window.location.search);
-  const asked = params.get("mode");
-  if (asked === "dark" || asked === "light") choice = inMode(choice, asked);
   const flag = (name: string) =>
     params.has(name)
       ? !["0", "off", "closed", "false"].includes(params.get(name) ?? "")
       : undefined;
-  take({
-    direction: params.get("direction"),
-    tabs: flag("tabs"),
-    rail: flag("rail"),
-    tone: params.get("tone"),
+  const asked = params.get("mode");
+  const mode = asked === "dark" || asked === "light" ? asked : choice.mode;
+  const look = lookFrom({
     material: params.get("material"),
     held: flag("held"),
     veil: params.get("veil"),
-    panel: flag("panel"),
   });
+  const named = params.get("frame");
+  const direction = params.get("direction");
+  const frame: Frame = isFrame(named)
+    ? named
+    : direction === "black"
+      ? "solid"
+      : look.material && (direction === "glass" || choice.frame !== "solid")
+        ? frameOf(look.material)
+        : direction === "glass" && choice.frame === "solid"
+          ? frameOf(choice.material)
+          : choice.frame;
+  // On the solid frame an address's material changes its own frame's look,
+  // which then waits on hand.
+  choice = settle(
+    choice,
+    mode,
+    frame === "solid" && look.material ? frameOf(look.material) : frame,
+  );
+  if (frame === "solid") choice = { ...choice, frame };
+  if (look.material && frame !== "solid" && frameOf(look.material) !== frame)
+    delete look.material;
+  Object.assign(choice, look);
+  const tone = params.get("tone");
+  if (tone === "same" || tone === "lighter") choice.tone = tone;
+  for (const key of ["tabs", "rail", "panel"] as const) {
+    const value = flag(key);
+    if (value !== undefined) choice[key] = value;
+  }
   return choice;
 }
 
@@ -397,8 +491,12 @@ export function ShellStudy() {
   }, [choice.mode]);
 
   const choose = <K extends keyof Choice>(key: K, value: Choice[K]) => {
-    if (key === "mode") {
-      setChoice((current) => inMode(current, value as Mode));
+    if (key === "mode" || key === "frame") {
+      setChoice((current) =>
+        key === "mode"
+          ? settle(current, value as Mode, current.frame)
+          : settle(current, current.mode, value as Frame),
+      );
       return;
     }
     setChoice((current) => ({ ...current, [key]: value }));
@@ -564,11 +662,11 @@ export function ShellStudy() {
     if (!native) return;
     reportFrame({
       card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
-      floor: choice.direction === "black" ? solidFloor(choice.mode) : "none",
+      floor: choice.frame === "solid" ? solidFloor(choice.mode) : "none",
       row: null,
       clip: null,
       sheet:
-        choice.direction === "black"
+        choice.frame === "solid"
           ? null
           : {
               x: 0,
@@ -598,7 +696,7 @@ export function ShellStudy() {
   // whichever the surface beneath it lets read. On the glass frame, the
   // card's black; on the black frame, the plate. On the rail's card, the
   // plate on the card's own tone, the card's black on the lighter one.
-  const frameMark = choice.direction === "glass" ? "card" : "plate";
+  const frameMark = choice.frame === "solid" ? "plate" : "card";
   const railMark = choice.tone === "lighter" ? "card" : "plate";
   React.useLayoutEffect(() => {
     const frameLayer = frameLayerRef.current;
@@ -684,7 +782,7 @@ export function ShellStudy() {
   return (
     <div
       className="shell"
-      data-direction={choice.direction}
+      data-direction={directionOf(choice.frame)}
       data-material={frameMaterialFor(choice).style}
       data-mode={choice.mode}
       data-native={native ? "true" : undefined}
@@ -898,7 +996,14 @@ export function ShellStudy() {
             to={openHome.name}
           />
         ) : (
-          <PlacePage place={place} />
+          <PlacePage
+            appearance={
+              place === "settings" ? (
+                <AppearanceSettings choice={choice} choose={choose} />
+              ) : null
+            }
+            place={place}
+          />
         )}
         <LabPanel choice={choice} choose={choose} native={native} note={note} />
       </main>
@@ -1247,10 +1352,17 @@ function Conversation({ messages, to }: { messages: Message[]; to: string }) {
   );
 }
 
-function PlacePage({ place }: { place: Exclude<PlaceId, "conversations"> }) {
+function PlacePage({
+  appearance,
+  place,
+}: {
+  appearance: React.ReactNode;
+  place: Exclude<PlaceId, "conversations">;
+}) {
   const page = PLACE_PAGES[place];
   return (
     <div className="shell-page">
+      {appearance}
       {page.groups.map((group) => (
         <section
           aria-label={group.label}
@@ -1272,6 +1384,57 @@ function PlacePage({ place }: { place: Exclude<PlaceId, "conversations"> }) {
         </section>
       ))}
     </div>
+  );
+}
+
+/** What each frame is, as the setting says it. */
+function frameWords(frame: Frame, mode: Mode) {
+  if (frame === "solid")
+    return `Solid ${mode === "light" ? "paper" : "black"}, nothing showing through it.`;
+  if (frame === "frosted")
+    return "Frosted glass, your desktop softly blurred behind it.";
+  return "Liquid Glass, your desktop showing through it.";
+}
+
+/** The app's own setting for how its window is made: the mode, and the
+ *  frame, which has its own look in each mode. */
+function AppearanceSettings({
+  choice,
+  choose,
+}: {
+  choice: Choice;
+  choose: <K extends keyof Choice>(key: K, value: Choice[K]) => void;
+}) {
+  const frameWordsId = React.useId();
+  return (
+    <section aria-label="Appearance" className="shell-page-group">
+      <h2 className="type-eyebrow">Appearance</h2>
+      <ul>
+        <li className="shell-page-setting">
+          <Segment
+            label="Mode"
+            onChange={(value) => choose("mode", value)}
+            options={[
+              ["dark", "Dark"],
+              ["light", "Light"],
+            ]}
+            value={choice.mode}
+          />
+        </li>
+        <li className="shell-page-setting">
+          <Segment
+            describedBy={frameWordsId}
+            label="Frame"
+            onChange={(value) => choose("frame", value)}
+            options={frameOptions(choice.mode)}
+            value={choice.frame}
+          />
+          <span className="shell-page-detail" id={frameWordsId}>
+            {frameWords(choice.frame, choice.mode)}
+          </span>
+        </li>
+      </ul>
+    </section>
   );
 }
 
@@ -1361,6 +1524,14 @@ function SearchPalette({
 
 // ── the lab's own controls ──────────────────────────────────────────
 
+/** The three frames, by the names the setting gives them in each mode. */
+const frameOptions = (mode: Mode): [Frame, string][] => [
+  // The solid frame: black at night, the paper's floor by day.
+  ["solid", mode === "light" ? "Paper" : "Black"],
+  ["frosted", "Glass"],
+  ["liquid", "Liquid Glass"],
+];
+
 function LabPanel({
   choice,
   choose,
@@ -1383,7 +1554,7 @@ function LabPanel({
       </button>
     );
   }
-  const glass = choice.direction === "glass";
+  const glass = choice.frame !== "solid";
   return (
     <aside aria-label="Shell study controls" className="shell-lab">
       <div className="shell-lab-head">
@@ -1408,13 +1579,9 @@ function LabPanel({
       />
       <Segment
         label="Frame"
-        onChange={(value) => choose("direction", value)}
-        options={[
-          // The solid frame: black at night, the paper's floor by day.
-          ["black", choice.mode === "light" ? "Paper" : "Black"],
-          ["glass", "Glass"],
-        ]}
-        value={choice.direction}
+        onChange={(value) => choose("frame", value)}
+        options={frameOptions(choice.mode)}
+        value={choice.frame}
       />
       <Segment
         label="Rail"
@@ -1453,18 +1620,16 @@ function LabPanel({
               onChange={(event) => choose("material", event.target.value)}
               value={choice.material}
             >
-              {MATERIALS.map((group) => (
-                <optgroup key={group.group} label={group.group}>
-                  {group.items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
+              {MATERIALS.filter((group) => group.frame === choice.frame)
+                .flatMap((group) => group.items)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
             </select>
           </label>
-          {frameMaterialFor(choice).style === "frosted" ? (
+          {choice.frame === "frosted" ? (
             <Segment
               label="Look"
               onChange={(value) => choose("held", value === "held")}
@@ -1491,7 +1656,7 @@ function LabPanel({
         {note ||
           (native
             ? glass
-              ? frameMaterialFor(choice).style === "frosted"
+              ? choice.frame === "frosted"
                 ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
                 : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
               : choice.mode === "light"
@@ -1504,11 +1669,14 @@ function LabPanel({
 }
 
 function Segment<T extends string>({
+  describedBy,
   label,
   onChange,
   options,
   value,
 }: {
+  /** The id of words that say what the choice means. */
+  describedBy?: string;
   label: string;
   onChange: (value: T) => void;
   options: [T, string][];
@@ -1518,7 +1686,12 @@ function Segment<T extends string>({
     <div className="shell-lab-row">
       <span>{label}</span>
       {/* biome-ignore lint/a11y/useSemanticElements: a pressed-button group, not a form field. */}
-      <div aria-label={label} className="shell-segment" role="group">
+      <div
+        aria-describedby={describedBy}
+        aria-label={label}
+        className="shell-segment"
+        role="group"
+      >
         {options.map(([option, text]) => (
           <button
             aria-pressed={option === value}
