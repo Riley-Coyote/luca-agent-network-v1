@@ -124,11 +124,12 @@ What went wrong, so it isn't repeated:
 
 Three frames, each in light and dark mode, chosen in settings:
 
-- **Black.** "it looks too good to throw away."
+- **Black.** "it looks too good to throw away." In light it is **Paper**: the paper's recess for a floor, the cards
+  told by shade and shadow alone. Kept (2026-10-24: "paper and glass both look amazing! keep them both").
 - **Glass:** Apple's frosted material ("the diffused normal glass look almost feels better"). Heads-up display looks
   best so far; it changed colour when he clicked away only because its look was set to follow the window.
-- **Liquid Glass.** Dark: Regular with Apple's dark tint and the Soft veil. Light: Regular with the Soft veil, to be
-  seen in the lab's light mode. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
+- **Liquid Glass.** Dark: Regular with Apple's dark tint and the Soft veil. Light: Regular with the Soft veil (a wash of
+  the paper's own tone) and black ink, kept with Paper the same morning. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
   with soft tint for white/light mode", on the rolled-back lab. Earlier the same night he had leaned to Clear with the
   dark tint and no veil, for its look when the window rests.)
 
@@ -158,7 +159,7 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
      named Darker.
    Dark is unchanged: ten distinct dark looks rendered before and after were identical but for a font-loading quirk of
    the comparison. Measured in the film window, where the glass shows nothing behind it (as over a black desktop),
-   the tab names reach 4.1:1; over a real desktop the glass is brighter. Waiting on Riley's eye in the real window.
+   the tab names reach 4.1:1; on his real desktop they read about 7:1. Kept.
 3. **White frame ink in light: tried and dropped.** Riley asked what the icon rail and the unselected tabs would look
    like in white. White only reads if the glass behind it is darkened (white on his bright blue glass measured 1.3 to
    1.9:1, black 6.5 to 8:1), so the switch turned the veil black beneath white words, and the frame became smoked
@@ -169,7 +170,7 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    (one device pixel at about 210 between floor and paper). Now the floor is Paper's recess (#eceae6), a step of shade
    below the cards (paper at 251 over floor at 236), and the cards keep only a soft ink-cast shadow, lying on the floor
    beneath all of them as on the glass, softer than on glass since the floor is calm. Paper's own floor (#f6f4f2) was
-   tried and too close: without the ring the cards dissolved into it. Natively the floor draws the same shade.
+   tried and too close: without the ring the cards dissolved into it. Natively the floor draws the same shade. Kept.
 
 ## Light and surface, not lines
 
