@@ -2,24 +2,23 @@ import AppKit
 import SwiftUI
 import WebKit
 
-// The shell study's glass floor (docs/luca/rail-system/SHELL_STUDY.md, "The glass floor, done right"): the frame as one
-// piece of Apple's Liquid Glass in its own shape, beneath the page. The cards are cut out of it, so its edge runs around
-// each card and the open tab, where the eye reads the frame; everything the frame holds (the lip's buttons, the tabs'
-// names, the places, the avatar) is drawn inside the glass, so the glass keeps it legible as its own. Darkness, when
-// wanted, goes beneath the glass, never over it. The page lays everything out, keeps its own buttons where they are
-// (invisible, so clicks, keys and focus stay the page's) and says where things are and how they look. Lab only for now:
-// the app's build (build.rs) compiles PolyphonicGlass.swift and Engine/, not this.
+// The shell study's glass floor (docs/luca/rail-system/SHELL_STUDY.md, "The glass floor"): the frame as one piece of
+// Apple's Liquid Glass beneath the page, the cards sitting on it. Everything the frame holds (the lip's buttons, the
+// tabs' names, the places, the avatar) is drawn inside the glass, so the glass keeps it legible as its own. Darkness,
+// when wanted, goes beneath the glass, never over it. The floor can hold the look Apple's glass has when its window
+// isn't in use (Riley's favourite): then it lives in a window of its own just behind the app's, which is never the one
+// in use. The page lays everything out, keeps its own buttons where they are (without their ink, so clicks, keys and
+// focus stay the page's) and says where things are and how they look. Lab only for now: the app's build (build.rs)
+// compiles PolyphonicGlass.swift and Engine/, not this.
 //
 // The page talks to it through one WebKit message handler, `shellFloor`:
 //   {type: "floor", on: false}                       no floor (another frame, or Apple's frosted material instead)
-//   {type: "floor", on: true, style, tint, dim, r, rail, card, tab, cardColor, items}
+//   {type: "floor", on: true, style, tint, dim, r, rest, cardColor, items}
 //       style        "regular" | "clear"             Apple's two types of glass
 //       tint         "#rrggbbaa" | null              Apple's own tint for the glass
 //       dim          0…1                             black beneath the glass, in its shape
 //       r                                            the window's corner radius
-//       rail, card   {x, y, w, h, r} | null          the two cards, cut out of the glass
-//       tab          {x, y, w, h} | null             the open tab, cut out with the conversation's card: its top to the
-//                                                    card's edge
+//       rest         Bool                            hold the look of a window not in use (the floor's own window)
 //       cardColor    "#rrggbb"                       the card's surface: where you are is a chip of it
 //       items        [{id, kind, x, y, w, h, symbol?, size?, text?, parts?, align?, pad?, r?, inset?, selected?,
 //                    disabled?, hover?, pressed?, fade?, strong?}]
@@ -43,6 +42,10 @@ final class ShellFloor: NSObject, WKScriptMessageHandler {
     private var radiusProbe: NSView?
     private var windowRadius: CGFloat = 16
     private var observers: [NSObjectProtocol] = []
+    /// The floor's own window, while it holds the resting look, and what the app's window was before it came.
+    private var restWindow: NSWindow?
+    private var windowHadShadow = true
+    private var windowIgnoredMouse = false
 
     private init(webView: WKWebView) {
         self.webView = webView
@@ -76,6 +79,64 @@ final class ShellFloor: NSObject, WKScriptMessageHandler {
         model.on = false
     }
 
+    // MARK: the resting look
+
+    /// Apple's glass relaxes when its window isn't the one in use: flatter, more diffused, its tint dropped, and nothing
+    /// public holds that look. A window is in use or not as a whole, so the floor holding it moves to a borderless
+    /// window of its own, exactly over the app's and one step behind it, which never becomes the one in use. The app's
+    /// window then takes clicks everywhere (its frame is clear) and leaves the shadow to the floor's window.
+    private func rest(_ on: Bool) {
+        guard let webView, let window = webView.window else { return }
+        if on {
+            let rest = restWindow ?? makeRestWindow()
+            if restWindow == nil {
+                restWindow = rest
+                windowHadShadow = window.hasShadow
+                windowIgnoredMouse = window.ignoresMouseEvents
+            }
+            rest.level = window.level
+            rest.collectionBehavior = window.collectionBehavior
+            rest.setFrame(window.frame, display: false)
+            if host.superview !== rest.contentView, let content = rest.contentView {
+                host.removeFromSuperview()
+                host.frame = content.bounds
+                content.addSubview(host)
+            }
+            if rest.parent !== window { window.addChildWindow(rest, ordered: .below) }
+            window.hasShadow = false
+            if !windowIgnoredMouse { window.ignoresMouseEvents = false }
+        } else {
+            guard let rest = restWindow, let parent = webView.superview else { return }
+            host.removeFromSuperview()
+            host.frame = webView.frame
+            parent.addSubview(host, positioned: .below, relativeTo: webView)
+            window.removeChildWindow(rest)
+            rest.orderOut(nil)
+            restWindow = nil
+            window.hasShadow = windowHadShadow
+            window.ignoresMouseEvents = windowIgnoredMouse
+            window.invalidateShadow()
+        }
+    }
+
+    private func makeRestWindow() -> NSWindow {
+        let rest = NSWindow(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: false)
+        rest.isOpaque = false
+        rest.backgroundColor = .clear
+        rest.hasShadow = true
+        rest.ignoresMouseEvents = true
+        rest.isReleasedWhenClosed = false
+        rest.appearance = NSAppearance(named: .darkAqua)
+        rest.contentView = NSView()
+        return rest
+    }
+
+    /// The floor's window keeps the app window's size (a child window follows its moves, not its resizes).
+    private func followWindow() {
+        guard let rest = restWindow, let window = webView?.window else { return }
+        rest.setFrame(window.frame, display: true)
+    }
+
     // MARK: the page
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -84,18 +145,17 @@ final class ShellFloor: NSObject, WKScriptMessageHandler {
         guard body["type"] as? String == "floor" else { return }
         guard body["on"] as? Bool == true else {
             model.on = false
+            rest(false)
             return
         }
         model.clear = body["style"] as? String == "clear"
         model.tint = (body["tint"] as? String).flatMap(NSColor.init(hexWithAlpha:)).map(Color.init(nsColor:))
         model.dim = Self.number(body["dim"]) ?? 0
         model.radius = Self.number(body["r"]) ?? 16
-        model.rail = Self.cut(body["rail"])
-        model.card = Self.cut(body["card"])
-        model.tab = Self.rect(body["tab"])
         if let color = (body["cardColor"] as? String).flatMap(NSColor.init(hex:)) { model.cardColor = Color(nsColor: color) }
         model.items = Self.items(body["items"])
         model.on = true
+        rest(body["rest"] as? Bool == true)
     }
 
     // MARK: the window
@@ -105,6 +165,11 @@ final class ShellFloor: NSObject, WKScriptMessageHandler {
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.tellWindow() }
+            })
+        }
+        for name in [NSWindow.didResizeNotification, NSWindow.didEndLiveResizeNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.followWindow() }
             })
         }
         if #available(macOS 27.0, *), let content = window.contentView {
@@ -141,11 +206,6 @@ final class ShellFloor: NSObject, WKScriptMessageHandler {
         guard let box = value as? [String: Any], let x = number(box["x"]), let y = number(box["y"]),
               let w = number(box["w"]), let h = number(box["h"]), w >= 1, h >= 1 else { return nil }
         return CGRect(x: x, y: y, width: w, height: h)
-    }
-
-    private static func cut(_ value: Any?) -> FloorModel.Cut? {
-        guard let rect = rect(value) else { return nil }
-        return FloorModel.Cut(rect: rect, radius: number((value as? [String: Any])?["r"]) ?? 10)
     }
 
     private static func items(_ value: Any?) -> [FloorItem] {
@@ -201,19 +261,11 @@ struct FloorItem: Identifiable, Equatable {
 @MainActor
 @Observable
 final class FloorModel {
-    struct Cut: Equatable {
-        var rect: CGRect
-        var radius: CGFloat
-    }
-
     var on = false
     var clear = false
     var tint: Color?
     var dim: CGFloat = 0
     var radius: CGFloat = 16
-    var rail: Cut?
-    var card: Cut?
-    var tab: CGRect?
     var cardColor = Color(white: 0.07)
     var items: [FloorItem] = []
 }
@@ -242,74 +294,6 @@ final class WindowRadiusProbe: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-// MARK: - the shape
-
-/// The frame: the window's rounded rectangle with the rail's card and the conversation's card (and the open tab rising
-/// from it) cut out. Each cut is wound against the window's outline, so the glass leaves it empty.
-struct FloorShape: Shape {
-    var radius: CGFloat
-    var rail: FloorModel.Cut?
-    var card: FloorModel.Cut?
-    var tab: CGRect?
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.addRoundedPolygon([
-            (CGPoint(x: rect.minX, y: rect.minY), radius), (CGPoint(x: rect.maxX, y: rect.minY), radius),
-            (CGPoint(x: rect.maxX, y: rect.maxY), radius), (CGPoint(x: rect.minX, y: rect.maxY), radius),
-        ])
-        if let rail { path.addRoundedPolygon(Self.box(rail.rect, rail.radius).reversed()) }
-        if let card { path.addRoundedPolygon(Self.cardOutline(card, tab: tab).reversed()) }
-        return path
-    }
-
-    private static func box(_ rect: CGRect, _ radius: CGFloat) -> [(CGPoint, CGFloat)] {
-        [(CGPoint(x: rect.minX, y: rect.minY), radius), (CGPoint(x: rect.maxX, y: rect.minY), radius),
-         (CGPoint(x: rect.maxX, y: rect.maxY), radius), (CGPoint(x: rect.minX, y: rect.maxY), radius)]
-    }
-
-    /// The conversation's card, and the open tab rising from its top edge: the tab's top corners round like a card's,
-    /// and where it meets the card two soft inward corners of the same surface (shellStudy.css, the tab card's fillets).
-    private static func cardOutline(_ card: FloorModel.Cut, tab: CGRect?) -> [(CGPoint, CGFloat)] {
-        let r = card.radius
-        let c = card.rect
-        // The cut keeps clear of the card's own corners: a tab near one is cut a little narrower, which the page's
-        // opaque tab covers, and the card's corner keeps its radius.
-        guard let tab, c.minY - tab.minY >= 1.5 else { return box(c, r) }
-        let left = max(tab.minX, c.minX + 2 * r), right = min(tab.maxX, c.maxX - 2 * r)
-        guard right - left >= 2 else { return box(c, r) }
-        let rise = c.minY - tab.minY
-        let fillet = min(8, rise - 1)
-        let top = min(9, rise, (right - left) / 2)
-        return [
-            (CGPoint(x: c.minX, y: c.minY), r),
-            (CGPoint(x: left, y: c.minY), fillet), (CGPoint(x: left, y: tab.minY), top),
-            (CGPoint(x: right, y: tab.minY), top), (CGPoint(x: right, y: c.minY), fillet),
-            (CGPoint(x: c.maxX, y: c.minY), r), (CGPoint(x: c.maxX, y: c.maxY), r), (CGPoint(x: c.minX, y: c.maxY), r),
-        ]
-    }
-}
-
-extension Path {
-    /// A closed polygon through `corners`, each rounded by its radius (an arc tangent to both of its edges, whichever
-    /// way the outline turns there), each radius held to half of the shorter edge beside it. The corners' order is the
-    /// winding: reversed, the same outline cuts a hole.
-    mutating func addRoundedPolygon(_ corners: [(CGPoint, CGFloat)]) {
-        let count = corners.count
-        guard count >= 3 else { return }
-        func point(_ index: Int) -> CGPoint { corners[(index + count) % count].0 }
-        func length(_ a: CGPoint, _ b: CGPoint) -> CGFloat { hypot(b.x - a.x, b.y - a.y) }
-        let first = point(0), last = point(count - 1)
-        move(to: CGPoint(x: (first.x + last.x) / 2, y: (first.y + last.y) / 2))
-        for index in 0..<count {
-            let here = point(index), next = point(index + 1), previous = point(index - 1)
-            let radius = max(0, min(corners[index].1, length(previous, here) / 2, length(here, next) / 2))
-            addArc(tangent1End: here, tangent2End: next, radius: radius)
-        }
-        closeSubpath()
-    }
-}
-
 // MARK: - the floor
 
 @available(macOS 26.0, *)
@@ -318,7 +302,8 @@ struct FloorView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        let shape = FloorShape(radius: model.radius, rail: model.rail, card: model.card, tab: model.tab)
+        // One piece of glass, the window's own shape; the cards sit on it.
+        let shape = RoundedRectangle(cornerRadius: model.radius, style: .continuous)
         let chip = model.items.first { $0.selected && $0.kind == .symbol }
         ZStack {
             if model.on {

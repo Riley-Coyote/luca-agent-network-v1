@@ -19,14 +19,15 @@ export type GlassFrame = {
   clip: Box | null;
   /** The frame's one sheet of Apple's material: Liquid Glass (regular or
    *  clear, maybe Apple's tint, "#rrggbbaa") or frosted (one of AppKit's
-   *  materials by name, its in-use look held or following the window). */
+   *  materials by name: look "use" holds the look of a window in use,
+   *  "rest" the look of one that isn't, "follows" follows the window). */
   sheet:
     | (Box & {
         r: number;
         style: "regular" | "clear" | "frosted";
         tint: string | null;
         material: string | null;
-        held: boolean;
+        look: "use" | "rest" | "follows";
       })
     | null;
 };
@@ -116,9 +117,8 @@ export type FloorItem = Box & {
   strong?: boolean;
 };
 
-/** The glass floor: the frame as one piece of Apple's glass in its own
- *  shape, the cards (and the open tab) cut out of it, what the frame holds
- *  inside it, and darkness, if any, beneath it. */
+/** The glass floor: the frame as one piece of Apple's glass beneath the
+ *  cards, what the frame holds inside it, and darkness, if any, beneath it. */
 export type GlassFloor =
   | { on: false }
   | {
@@ -127,9 +127,9 @@ export type GlassFloor =
       tint: string | null;
       dim: number;
       r: number;
-      rail: (Box & { r: number }) | null;
-      card: (Box & { r: number }) | null;
-      tab: Box | null;
+      /** Hold the look of a window not in use: the floor in its own window
+       *  behind the app's, which is never the one in use. */
+      rest: boolean;
       cardColor: string;
       items: FloorItem[];
     };

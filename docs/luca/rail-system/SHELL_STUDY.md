@@ -68,55 +68,61 @@ rail-glass build had named mixes of them).
 Riley's favourite so far: Regular with the deep veil (now deep darkness beneath, set to darken the glass about as much);
 Clear, which looks striking but is harder to read over some desktops, as an option.
 
-## The glass floor, done right (2026-10-24)
+## The glass floor (2026-10-24)
 
-*The frame is one piece of Apple's glass in its own shape: the cards are cut out of it, so its edge runs around each
-of them, and everything the frame holds is inside the glass.*
+*The frame is one piece of Apple's glass beneath the page; the cards sit on it, their edges catching the light the way
+the glass's own edge does at the window's rim; everything the frame holds is inside the glass.*
 
 Riley chose the glass frame. After reading all of Apple's guidance for the Mac (creative-mind
-`studies/apple-macos-2026-10-23/`, distilled in the liquid-glass skill's `references/mac-apps.md`), the reasons it read
-less refined than Apple's own glass were structural, and each one can be fixed without leaving the floor:
+`studies/apple-macos-2026-10-23/`, distilled in the liquid-glass skill's `references/mac-apps.md`), these are the changes
+that keep his floor and make it more Apple-grade:
 
-- **The glass had no edge where you look.** It was one window-sized sheet hidden under the cards, so its bend and lit
-  rim showed only at the window's outer edge. Now the glass takes the frame's own shape (SwiftUI's glass in a shape:
-  the window's rounded rectangle with the rail's card and the conversation's card cut out, the open tab cut out with
-  the conversation's card), so its edge runs around every card and the tab, where the eye reads the frame. The cuts
-  follow the cards frame by frame as the rail opens and closes and as the open tab slides.
-- **The veil sat on top of the glass,** dulling the rim and highlights macOS 27 strengthened. Nothing is drawn over the
-  glass now. Darkness, when wanted, goes beneath it, the way Apple dims clear glass: the same shape filled with black
-  under the glass, so the glass bends a darker desktop and keeps its light. Measured so soft and deep darken the glass
-  about as much as the old soft and deep veils over it did (soft 0.38 black beneath, to 0.81 of none; deep 0.72, to
-  0.53; the old veils were 0.78 and 0.58). While search is open the darkness rises from beneath too; the page's own
+- **The cards sit on the glass.** The glass is one piece, the window's own shape, beneath both cards, and each card's
+  edge catches the light all the way round, following its corners, brightest along the top and quiet down the sides
+  (a hairline, like the glass's rim at the window's edge). The cards keep their soft shadow on the glass. Tried and
+  dropped: cutting the cards out of the glass so its edge ran around them (Riley, 2026-10-24: it made the cards look
+  "nested inside the liquid glass ... as if its pressed into it"; "the card and rail should look like they have that
+  rounded subtle edge just like the outside edge of the lip all the way around").
+- **Nothing of ours over the glass.** No veil. Darkness, when wanted, goes beneath it, the way Apple dims clear glass:
+  black under the glass, so the glass bends a darker desktop and keeps its light. Measured so soft and deep darken the
+  glass about as much as the old soft and deep veils over it did (soft 0.38 black beneath, to 0.81 of none; deep 0.72,
+  to 0.53; the old veils were 0.78 and 0.58). While search is open the darkness rises from beneath too; the page's own
   scrim covers only the cards.
-- **The frame's icons and words sat outside the glass,** so the glass couldn't keep them legible. Now the lip's
-  buttons, every tab's name and the other tabs' close buttons, the conversation's name (in its three tones), the
-  places and the avatar are drawn inside the glass, natively (SF Symbols, the widest drawn a little smaller so none
-  crowds its chip; the system font at the Mac's 13), at the frame's muted tier (0.78) and full ink when the pointer is
-  over them or presses them, with a faint plate easing in beneath. The page keeps its buttons in place without their
-  ink, so clicks, keys, focus rings and tooltips stay the page's; it tells the glass what the pointer is over and
-  pressing.
+- **The frame's icons and words are inside the glass.** The lip's buttons, every tab's name and the other tabs' close
+  buttons, the conversation's name (in its three tones), the places and the avatar are drawn natively in the glass (SF
+  Symbols, the widest drawn a little smaller so none crowds its chip; the system font at the Mac's 13), at the frame's
+  muted tier (0.78) and full ink when the pointer is over them or presses them, with a faint plate easing in beneath.
+  The page keeps its buttons in place without their ink, so clicks, keys, focus rings and tooltips stay the page's; it
+  tells the glass what the pointer is over and pressing.
 - **Where you are carries the light.** In the places it's a chip of the card's own black (its surface lifted by its
   grain) set into the glass; the symbols are lit only through the chip, so a place lights as the chip arrives and dims
-  as it leaves, never ahead of it. The open tab is still the card's surface rising into the lip, cut out with its
-  card; its name is lit on the card the same way (a lit copy of the names, seen only through the tab card as it's
-  drawn), so the name never runs ahead of its surface.
-- **The cuts follow the cards** frame by frame. The glass and the page are drawn by two processes and either can be a
-  frame ahead (filmed: usually the glass), so wherever a card's edge moves, its cut draws in by three frames of that
-  edge's travel and eases back when it stops; still edges keep the exact cut, so the glass's edge never blinks. Filmed
-  over a bright stand-in desktop through five tab switches and the rail closing and opening: no light between card and
-  glass.
-- **The window's state:** the glass recedes on its own when the window isn't in use; the page's accents and the frame's
-  ink quiet with it.
+  as it leaves, never ahead of it. The open tab is the card's surface rising into the lip; its name is lit on it the
+  same way (a lit copy of the names, seen only through the tab as it's drawn), so the name never runs ahead of its
+  surface.
+- **The look.** Apple's materials look different when the window isn't the one in use. Apple's frosted materials can
+  hold either look (In use, Resting) or follow the window. Liquid Glass has no setting for it, but it can hold its
+  resting look: then the floor lives in a borderless window of its own, exactly over the app's and one step behind
+  it, which is never the one in use (the app's window takes every click and leaves the shadow to it). Riley's
+  favourite is that resting look (below).
+- **The window's state:** the page's accents and the frame's ink quiet when the window isn't in use.
 
-The cards and their lit tops are the page's, above the glass, as before; the shadow they leave on it is kept close (a
-soft contact, not the wide spread that darkened the narrow glass around them). That contact shadow is the one thing of
-ours over the glass, and it's the cards' own. Apple's older frosted materials stay in the menu as they were (a plain
-sheet, no cut-outs), and take no darkness of ours. Under Reduce Transparency the lab keeps Apple's materials, which
-grow frostier on their own; the page never paints a stand-in desktop over the real one.
+Under Reduce Transparency the lab keeps Apple's materials, which grow frostier on their own; the page never paints a
+stand-in desktop over the real one.
 
-Tried and dropped the same night: glass pieces floating above the conversation, the way Apple builds its toolbars
-(Riley, 2026-10-24: "that looks ridiculous. we were supposed to be making sure the glass floor was done right"). Apple's
-guidance is a way to perfect the floor he chose, not a reason to replace it.
+Also tried and dropped the same night: glass pieces floating above the conversation, the way Apple builds its toolbars
+(Riley: "that looks ridiculous. we were supposed to be making sure the glass floor was done right"). Apple's guidance
+is a way to perfect the floor he chose, not a reason to replace it.
+
+## The frames as a setting (Riley, 2026-10-24)
+
+Three frames, each in light and dark mode, chosen in settings:
+
+- **Black.** "it looks too good to throw away."
+- **Glass:** Apple's frosted material ("the diffused normal glass look almost feels better"). Heads-up display looks
+  best so far; it changed colour when he clicked away only because its look was set to follow the window.
+- **Liquid Glass.** Dark: Clear with Apple's dark tint, no darkness, its resting look ("the best look overall is the
+  unfocused mode of Clear, apples dark tint. it adds the diffusion that looks nice for this design"). Light: probably
+  Regular with soft darkness, to be judged once light mode exists.
 
 ## Light and surface, not lines
 
@@ -147,7 +153,7 @@ dusk sky under our web glass), and says so in the lab panel. Judge the glass in 
 
 ## The glass lab
 
-`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-regular&veil=deep"`
+`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-clear-tint&veil=none&look=rest"`
 opens the glass floor (drop the look's parameters for the last look you chose) in a real window with working
 traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
@@ -157,7 +163,8 @@ directly in a look: `&direction=glass&tabs=1&rail=closed&material=glass-clear&ve
 ## Lab controls
 
 At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
-(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has) and, for Liquid Glass,
-Darkness beneath it (None, Soft, Deep). Clicking
+(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look (In use, Resting,
+Follows for the frosted materials; Resting, Follows for Liquid Glass) and, for Liquid Glass, Darkness beneath it (None,
+Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.

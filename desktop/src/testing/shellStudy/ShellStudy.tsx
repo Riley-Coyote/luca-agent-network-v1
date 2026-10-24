@@ -148,6 +148,7 @@ const MATERIAL_BY_ID = new Map(
 );
 const DEFAULT_MATERIAL = "glass-regular";
 type Veil = "none" | "soft" | "deep";
+type Look = "use" | "rest" | "follows";
 /** Darkness beneath the glass, never over it: how much black lies under the
  *  frame, in its shape, so the glass bends a darker desktop and keeps its
  *  light (the way Apple dims clear glass). Measured so soft and deep darken
@@ -162,8 +163,9 @@ type Choice = {
   tone: "same" | "lighter";
   /** The frame's material, an id from MATERIALS. */
   material: string;
-  /** For a frosted frame: hold the look of a window in use, or follow the window. */
-  held: boolean;
+  /** Apple's materials look different when the window isn't in use: hold
+   *  the in-use look (frosted only), hold the resting look, or follow. */
+  look: Look;
   veil: Veil;
   panel: boolean;
 };
@@ -174,7 +176,7 @@ const DEFAULT_CHOICE: Choice = {
   rail: true,
   tone: "same",
   material: DEFAULT_MATERIAL,
-  held: true,
+  look: "rest",
   veil: "soft",
   panel: true,
 };
@@ -193,7 +195,15 @@ function readChoice(): Choice {
       MATERIAL_BY_ID.has(source.material)
     )
       choice.material = source.material;
-    if (typeof source.held === "boolean") choice.held = source.held;
+    if (
+      source.look === "use" ||
+      source.look === "rest" ||
+      source.look === "follows"
+    )
+      choice.look = source.look;
+    // The older setting: held was the in-use look, or following.
+    else if (typeof source.held === "boolean")
+      choice.look = source.held ? "use" : "follows";
     if (
       source.veil === "none" ||
       source.veil === "soft" ||
@@ -208,7 +218,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
+  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&look=use&veil=none&panel=0`
   // opens a look directly, for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
@@ -221,7 +231,7 @@ function readChoice(): Choice {
     rail: flag("rail"),
     tone: params.get("tone"),
     material: params.get("material"),
-    held: flag("held"),
+    look: params.get("look"),
     veil: params.get("veil"),
     panel: flag("panel"),
   });
@@ -236,7 +246,7 @@ function frameMaterialFor(choice: Choice) {
     style: material?.style ?? "regular",
     tint: material?.tint ?? null,
     material: material?.material ?? null,
-    held: choice.held,
+    look: choice.look,
   };
 }
 
@@ -258,84 +268,6 @@ function cssHex(host: Element, color: string) {
         .padStart(2, "0"),
     )
     .join("")}`;
-}
-
-/**
- * One cut in the glass floor, following its card. The cut and the card are
- * drawn by two processes, and either can be a frame ahead (filmed: the glass
- * usually leads the page's paint). So wherever an edge of the card moves, its
- * cut draws in by as far as that edge travels in three frames, and the mismatch
- * stays under the card instead of opening a sliver of desktop beside it;
- * edges that stand still keep the exact cut, so the glass's edge never leaves
- * them. When the card stops, the cut eases back to it over about a tenth of a
- * second.
- */
-class CutFollower {
-  private last: Rect | null = null;
-  /** When an edge last moved, and when the cut was last asked for. */
-  private moved = 0;
-  private asked = 0;
-  /** Each edge's speed in points per millisecond (left, top, right, bottom),
-   *  and how far its cut sits inside it. */
-  private speed = [0, 0, 0, 0];
-  private inset = [0, 0, 0, 0];
-
-  /** The cut for `rect` now; `footed` keeps the bottom edge exact (a tab
-   *  standing on its card's edge). */
-  follow(rect: Rect | null, now: number, footed = false): Rect | null {
-    const step = Math.max(now - this.asked, 0);
-    this.asked = now;
-    if (!rect) {
-      this.last = null;
-      this.speed = [0, 0, 0, 0];
-      this.inset = [0, 0, 0, 0];
-      return null;
-    }
-    const edges = [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h];
-    const last = this.last;
-    if (!last) {
-      this.last = rect;
-      this.moved = now;
-    } else {
-      const before = [last.x, last.y, last.x + last.w, last.y + last.h];
-      if (edges.some((edge, index) => Math.abs(edge - before[index]) > 0.01)) {
-        // The first move after a rest is measured over a frame, not the rest.
-        const elapsed = Math.min(Math.max(now - this.moved, 8), 20);
-        this.speed = edges.map(
-          (edge, index) => (edge - before[index]) / elapsed,
-        );
-        this.last = rect;
-        this.moved = now;
-      } else if (now - this.moved > 50) {
-        this.speed = [0, 0, 0, 0];
-      }
-    }
-    this.inset = this.inset.map((current, index) => {
-      const travel = Math.abs(this.speed[index]);
-      const goal =
-        travel > 0 && !(footed && index === 3)
-          ? Math.min(32, travel * 50 + 2)
-          : 0;
-      if (goal >= current) return goal;
-      const eased = goal + (current - goal) * Math.exp(-step / 40);
-      return eased - goal < 0.05 ? goal : eased;
-    });
-    const [left, top, right, bottom] = this.inset;
-    return {
-      x: rect.x + left,
-      y: rect.y + top,
-      w: Math.max(0, rect.w - left - right),
-      h: Math.max(0, rect.h - top - bottom),
-    };
-  }
-
-  /** Whether the cut is still moving, or easing back to its card. */
-  get settling() {
-    return (
-      this.speed.some((speed) => speed !== 0) ||
-      this.inset.some((inset) => inset > 0)
-    );
-  }
 }
 
 /** A conversation: a home's own (`session` null) or one of its sessions. */
@@ -579,15 +511,7 @@ export function ShellStudy() {
   /** The card's surface as the page's CSS has it now, and as "#rrggbb": the
    *  theme lands after the first render, so it's read again when it changes. */
   const cardHexRef = React.useRef({ surface: "", hex: "" });
-  const cutsRef = React.useRef({
-    rail: new CutFollower(),
-    card: new CutFollower(),
-    tab: new CutFollower(),
-  });
-  /** Reports frame by frame while the cuts ease back to their cards. */
-  const settleRef = React.useRef(0);
   const litTabsRef = React.useRef<HTMLDivElement>(null);
-  const reportRef = React.useRef<() => void>(() => {});
 
   /** Tells Apple's glass where everything is now: the cards, the open tab's
    *  card as it's drawn this very frame, and what the frame holds. */
@@ -708,7 +632,6 @@ export function ShellStudy() {
         strong: data.floorStrong === "true",
       });
     }
-    const rail = box(shell.querySelector(".shell-rail"));
     const tab = marksRef.current?.tab.drawn ?? null;
     // The open tab's name is lit only on its card: the lit strip shows
     // through the card's shape as it is drawn this frame, so the name lights
@@ -719,11 +642,6 @@ export function ShellStudy() {
       lit.style.clipPath = tab
         ? `inset(${tab.y - strip.y}px ${strip.x + strip.w - tab.x - tab.w}px ${strip.y + strip.h - tab.y - tab.h}px ${tab.x - strip.x}px round 9px 9px 0 0)`
         : "inset(0 0 100% 0)";
-    const cuts = cutsRef.current;
-    const now = performance.now();
-    const railCut = cuts.rail.follow(rail, now);
-    const cardCut = cuts.card.follow(cardBox, now);
-    const tabCut = cuts.tab.follow(tab, now, true);
     reportFloor({
       on: true,
       style: material.style,
@@ -731,17 +649,11 @@ export function ShellStudy() {
       // While search is open the glass darkens from beneath, not from above.
       dim: Math.min(1, DIM[choice.veil] + (searching ? 0.24 : 0)),
       r: radius,
-      rail: railCut ? { ...railCut, r: CARD_RADIUS } : null,
-      card: cardCut ? { ...cardCut, r: CARD_RADIUS } : null,
-      tab: tabCut,
+      rest: choice.look === "rest",
       cardColor: cardHexRef.current.hex,
       items,
     });
-    cancelAnimationFrame(settleRef.current);
-    if (cuts.rail.settling || cuts.card.settling || cuts.tab.settling)
-      settleRef.current = requestAnimationFrame(() => reportRef.current());
   }, []);
-  reportRef.current = report;
 
   const sync = React.useCallback(() => {
     const shell = shellRef.current;
@@ -1802,17 +1714,30 @@ function LabPanel({
               ))}
             </select>
           </label>
-          {frameMaterialFor(choice).style === "frosted" ? (
-            <Segment
-              label="Look"
-              onChange={(value) => choose("held", value === "held")}
-              options={[
-                ["held", "In use"],
-                ["follows", "Follows"],
-              ]}
-              value={choice.held ? "held" : "follows"}
-            />
-          ) : null}
+          {/* Apple's frosted material can hold either look; Liquid Glass can
+              only be held at rest (in its own window). */}
+          <Segment
+            label="Look"
+            onChange={(value) => choose("look", value)}
+            options={
+              frameMaterialFor(choice).style === "frosted"
+                ? [
+                    ["use", "In use"],
+                    ["rest", "Resting"],
+                    ["follows", "Follows"],
+                  ]
+                : [
+                    ["rest", "Resting"],
+                    ["follows", "Follows"],
+                  ]
+            }
+            value={
+              frameMaterialFor(choice).style !== "frosted" &&
+              choice.look === "use"
+                ? "follows"
+                : choice.look
+            }
+          />
           {frameMaterialFor(choice).style === "frosted" ? null : (
             <Segment
               label="Darkness"
@@ -1833,7 +1758,7 @@ function LabPanel({
             ? glass
               ? frameMaterialFor(choice).style === "frosted"
                 ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
-                : "The frame is Apple's Liquid Glass, cut around the cards, with its icons and words inside the glass; darkness goes beneath it."
+                : "The frame is Apple's Liquid Glass, the cards on it, its icons and words inside the glass; darkness goes beneath it."
               : "The frame is black; the rail and the conversation are cards on it."
             : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
