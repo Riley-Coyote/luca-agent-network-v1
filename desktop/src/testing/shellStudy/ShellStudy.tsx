@@ -74,8 +74,6 @@ type Choice = {
   direction: Direction;
   tabs: boolean;
   rail: boolean;
-  /** The rail's card beside the conversation's (apart), or one card with both. */
-  cards: "apart" | "joined";
   /** The rail's surface: the card's own black, or a step lighter. */
   tone: "same" | "lighter";
   glass: "clear" | "regular";
@@ -87,7 +85,6 @@ const DEFAULT_CHOICE: Choice = {
   direction: "black",
   tabs: false,
   rail: true,
-  cards: "apart",
   tone: "same",
   glass: "clear",
   veil: "soft",
@@ -101,8 +98,6 @@ function readChoice(): Choice {
       choice.direction = source.direction;
     if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
     if (typeof source.rail === "boolean") choice.rail = source.rail;
-    if (source.cards === "apart" || source.cards === "joined")
-      choice.cards = source.cards;
     if (source.tone === "same" || source.tone === "lighter")
       choice.tone = source.tone;
     if (source.glass === "clear" || source.glass === "regular")
@@ -121,7 +116,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&cards=joined&tone=lighter&tabs=1&rail=closed&glass=regular&veil=none&panel=0`
+  // `?direction=glass&tone=lighter&tabs=1&rail=closed&glass=regular&veil=none&panel=0`
   // opens a look directly, for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
@@ -132,7 +127,6 @@ function readChoice(): Choice {
     direction: params.get("direction"),
     tabs: flag("tabs"),
     rail: flag("rail"),
-    cards: params.get("cards"),
     tone: params.get("tone"),
     glass: params.get("glass"),
     veil: params.get("veil"),
@@ -310,9 +304,8 @@ export function ShellStudy() {
   }, []);
 
   // ── the rail opening and closing ─────────────────────────────────
-  // Closing, the selection leaves at once and the card slides over the
-  // rail; opening, the card slides back first and the selection pours out
-  // when the rail is uncovered.
+  // Closing, the rail's mark closes away at once and its card narrows;
+  // opening, the card widens first and the mark swells back once it's open.
   React.useEffect(() => {
     if (!choice.rail) {
       setRailShown(false);
@@ -371,8 +364,7 @@ export function ShellStudy() {
           : null;
       marks.tab.show(tab?.getAttribute("data-tab") ?? null, box(tab));
       // On the rail's card, in its own coordinates: the mark scrolls with
-      // the rows and the card clips it. A pour comes out of the
-      // conversation's edge, where the cards are joined.
+      // the rows and the card clips it.
       const inRail = measure(railLayer.getBoundingClientRect());
       const row =
         talking && railShown
@@ -380,11 +372,7 @@ export function ShellStudy() {
               '[data-rail-row][data-active="true"]',
             )
           : null;
-      marks.rail.show(
-        row?.getAttribute("data-home") ?? null,
-        inRail(row),
-        inRail(card),
-      );
+      marks.rail.show(row?.getAttribute("data-home") ?? null, inRail(row));
     }
     if (!native) return;
     const cardBox = box(card);
@@ -426,7 +414,6 @@ export function ShellStudy() {
   // plate on the card's own tone, the card's black on the lighter one.
   const frameMark = choice.direction === "glass" ? "card" : "plate";
   const railMark = choice.tone === "lighter" ? "card" : "plate";
-  const railMotion = choice.cards === "joined" ? "pour" : "slide";
   React.useLayoutEffect(() => {
     const frameLayer = frameLayerRef.current;
     const railLayer = railLayerRef.current;
@@ -436,16 +423,9 @@ export function ShellStudy() {
     marksRef.current = {
       places: frame.group(
         `shell-mark shell-mark--${frameMark} shell-mark--place`,
-        "slide",
       ),
-      tab: frame.group(
-        `shell-mark shell-mark--${frameMark} shell-mark--tab`,
-        "slide",
-      ),
-      rail: rail.group(
-        `shell-mark shell-mark--${railMark} shell-mark--row`,
-        railMotion,
-      ),
+      tab: frame.group(`shell-mark shell-mark--${frameMark} shell-mark--tab`),
+      rail: rail.group(`shell-mark shell-mark--${railMark} shell-mark--row`),
     };
     sync();
     return () => {
@@ -453,7 +433,7 @@ export function ShellStudy() {
       rail.stop();
       marksRef.current = null;
     };
-  }, [frameMark, railMark, railMotion, sync]);
+  }, [frameMark, railMark, sync]);
 
   React.useEffect(() => {
     if (!native) return;
@@ -496,9 +476,7 @@ export function ShellStudy() {
   const placeTitle =
     place === "conversations" ? null : PLACE_PAGES[place].title;
   const railWidth = choice.rail ? RAIL_WIDTH : 0;
-  const cardLeft =
-    PLACES_WIDTH +
-    (choice.rail ? RAIL_WIDTH + (choice.cards === "joined" ? 0 : CARD_GAP) : 0);
+  const cardLeft = PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + CARD_GAP : 0);
 
   const tabTitle = (key: string) => {
     const { home, session } = openOf(key);
@@ -512,7 +490,6 @@ export function ShellStudy() {
   return (
     <div
       className="shell"
-      data-cards={choice.cards}
       data-direction={choice.direction}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
@@ -1234,15 +1211,6 @@ function LabPanel({
           ["closed", "Closed"],
         ]}
         value={choice.rail ? "open" : "closed"}
-      />
-      <Segment
-        label="Cards"
-        onChange={(value) => choose("cards", value)}
-        options={[
-          ["apart", "Apart"],
-          ["joined", "Joined"],
-        ]}
-        value={choice.cards}
       />
       <Segment
         label="Rail tone"

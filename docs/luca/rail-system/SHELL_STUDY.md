@@ -38,7 +38,7 @@ Only the thin parts, the lip and the icon rail, may be clear glass.
   light's axis). It is Apple's clear glass over the desktop, or black.
 - **The rail's card**, 220 wide, beside the places: the conversation card's material (surface, grain, lit top edge) at
   its level, never the frame's glass. Its rows follow `SPEC.md`. It sits 4 from the conversation's card, as the app's
-  cards sit apart (or joined into one card with a hairline, a lab choice).
+  cards sit apart. Riley chose the two cards apart over one card holding both (2026-10-23).
 - **The conversation's card** takes the rest, 8 from the window's right and bottom edges, with no header of its own.
 - **Closing the rail** narrows its card to nothing (its rows held still and clipped) and the conversation's card
   follows its edge. The places and the lip stay.
@@ -51,8 +51,8 @@ whichever of two materials reads on the surface beneath it:
 - the plate (light ink, as the app's hover and sent bubble): on a black frame, and on a rail of the card's own black;
 - the card's black (its surface, grain and lit top): on a glass frame, and on a lighter rail.
 
-The open session under a home is lit, not marked (`SPEC.md`). The marks slide on the house springs; with the cards
-joined, the rail's mark pours out of the conversation's edge. Riley set the marks' finer behaviour aside for now.
+The open session under a home is lit, not marked (`SPEC.md`). The marks slide on the house springs, stretching on the
+way. Riley set their finer behaviour aside for now.
 
 ## In the browser
 
@@ -69,7 +69,7 @@ directly in a look: `&direction=glass&tabs=1&rail=closed&glass=regular&veil=none
 
 ## Lab controls
 
-At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Cards (Apart, Joined), Rail tone
-(Same, Lighter), Tabs (Off, On), and for the glass frame, Glass (Clear, Regular) and Veil (None, Soft, Deep). Clicking
+At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
+(Off, On), and for the glass frame, Glass (Clear, Regular) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.

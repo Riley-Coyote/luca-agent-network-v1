@@ -5,9 +5,8 @@
  * words centred on 24, with the traffic lights), and the places, a column of
  * 52 under it, their icons on the first light's axis (26). On the frame sit
  * two cards of one material, at one level: the rail's (220) and the
- * conversation's, 4 apart as the app's cards are (or joined into one), 8 from
- * the window's right and bottom edges, the conversation with no header of its
- * own. Only the frame is ever glass. Collapsing the rail closes its card and
+ * conversation's, 4 apart as the app's cards are, 8 from the window's right
+ * and bottom edges, the conversation with no header of its own. Only the frame is ever glass. Collapsing the rail closes its card and
  * the conversation's follows.
  *
  * Two voices: the system sans for everything you read, Fragment Mono capitals
@@ -463,31 +462,6 @@
     hsl(var(--mn-ink)) 5%,
     hsl(var(--mn-surface))
   );
-}
-
-/* Joined: one card, the rail its first part, a hairline between. */
-:root .shell[data-cards="joined"] .shell-rail[data-luca-card] {
-  border-bottom-right-radius: 0;
-  border-top-right-radius: 0;
-}
-
-:root
-  .shell[data-cards="joined"][data-rail="open"]
-  .shell-card[data-luca-card] {
-  border-bottom-left-radius: 0;
-  border-top-left-radius: 0;
-}
-
-.shell[data-cards="joined"] .shell-rail::after {
-  background: hsl(var(--mn-ink) / 0.08);
-  bottom: 0;
-  content: "";
-  pointer-events: none;
-  position: absolute;
-  right: 0;
-  top: 0;
-  width: 1px;
-  z-index: 2;
 }
 
 .shell-rail-scroll {
