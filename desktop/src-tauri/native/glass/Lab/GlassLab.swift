@@ -20,7 +20,7 @@ import WebKit
 //   {"size": [w, h]}            resizes the lab, keeping its top edge
 //   {"quit": true}
 // The page can move the window by its own title bar: window.webkit.messageHandlers.glassLab.postMessage("drag") from a
-// mousedown there.
+// mousedown there; and place the traffic lights on its lip: postMessage({lights: {left, centre}}).
 
 @main
 enum GlassLab {
@@ -45,9 +45,10 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     private let webView: WKWebView
     private let titled: Bool
     private var attached = false
-    /// Where the traffic lights sit in a titled lab: the centre of the page's top lip, and the first light's left edge.
-    private let lightsCentre: CGFloat = 24
-    private let lightsLeft: CGFloat = 20
+    /// Where the traffic lights sit in a titled lab: the line the page's top lip is centred on, and the first light's
+    /// left edge. The page can move them to its own lip.
+    private var lightsCentre: CGFloat = 22
+    private var lightsLeft: CGFloat = 16
 
     init(url: URL, titled: Bool) {
         self.titled = titled
@@ -146,6 +147,13 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     @objc private func windowChanged() { placeLights() }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        if let lights = (message.body as? [String: Any])?["lights"] as? [String: Any],
+           let left = lights["left"] as? Double, let centre = lights["centre"] as? Double, titled {
+            lightsLeft = CGFloat(left)
+            lightsCentre = CGFloat(centre)
+            placeLights()
+            return
+        }
         // The page's own title bar was pressed: the window moves with the pointer, as a title bar does.
         guard message.body as? String == "drag", let event = NSApp.currentEvent, event.type == .leftMouseDown else { return }
         window.performDrag(with: event)

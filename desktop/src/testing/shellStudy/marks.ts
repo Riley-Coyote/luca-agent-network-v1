@@ -9,7 +9,8 @@
  *   edge follows, so the mark stretches on the way and catches up when it
  *   lands.
  * - Gone (a place with no mark, the rail closing): it closes to a point at its
- *   middle. Back, it swells from one.
+ *   middle, and back, it swells from one. A tab, which is the card's surface
+ *   rising, sinks into the card's edge instead, and rises out of it again.
  * - The same mark moved (a resize, a section opening above it): it follows at
  *   once.
  * - Reduce Motion: every mark is simply where it belongs.
@@ -149,16 +150,20 @@ class Piece {
     this.el.style.transform = `translate(${x}px, ${y}px)`;
     this.el.style.width = `${w}px`;
     this.el.style.height = `${h}px`;
+    this.el.style.setProperty("--mark-h", `${h}px`);
     this.el.style.setProperty("--wet", this.wet.toFixed(3));
   }
 }
 
-const point = (rect: Rect): Rect => ({
-  x: rect.x + rect.w / 2,
-  y: rect.y + rect.h / 2,
-  w: 0,
-  h: 0,
-});
+/** Where a mark goes when it goes, and comes from: a point at its middle, or
+ *  (a tab) the line it stands on. */
+export type Sink = "point" | "base";
+
+function sunk(rect: Rect, sink: Sink): Rect {
+  if (sink === "base")
+    return { x: rect.x, y: rect.y + rect.h, w: rect.w, h: 0 };
+  return { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2, w: 0, h: 0 };
+}
 
 /** The edges for a slide from `from` to `to`: whichever edge faces the way it
  *  goes leads, the other trails. */
@@ -183,6 +188,7 @@ export class MarkGroup {
   constructor(
     private readonly engine: MarkEngine,
     private readonly className: string,
+    private readonly sink: Sink,
   ) {}
 
   /** Where the mark is now, or nowhere. */
@@ -204,9 +210,9 @@ export class MarkGroup {
     }
     this.chosen = id;
     // The first mark since the page appeared is simply there; later ones
-    // swell from a point.
+    // swell from where marks go.
     const swell = this.appeared && !reduceMotion();
-    const piece = this.add(swell ? point(rect) : rect);
+    const piece = this.add(swell ? sunk(rect, this.sink) : rect);
     if (swell) piece.aim(rect, [SWELL, SWELL, SWELL, SWELL]);
     this.current = piece;
     this.appeared = true;
@@ -252,7 +258,7 @@ export class MarkGroup {
     return piece;
   }
 
-  /** Gone by its shape, never a fade: it closes to a point at its middle. */
+  /** Gone by its shape, never a fade: it closes into where it sinks. */
   private leave() {
     this.chosen = null;
     const current = this.current;
@@ -264,7 +270,7 @@ export class MarkGroup {
       return;
     }
     current.going = true;
-    current.aim(point(current.goal), [CLOSE, CLOSE, CLOSE, CLOSE]);
+    current.aim(sunk(current.goal, this.sink), [CLOSE, CLOSE, CLOSE, CLOSE]);
     this.engine.wake();
   }
 }
@@ -277,8 +283,8 @@ export class MarkEngine {
 
   constructor(readonly layer: HTMLElement) {}
 
-  group(className: string) {
-    const group = new MarkGroup(this, className);
+  group(className: string, sink: Sink = "point") {
+    const group = new MarkGroup(this, className, sink);
     this.groups.push(group);
     return group;
   }

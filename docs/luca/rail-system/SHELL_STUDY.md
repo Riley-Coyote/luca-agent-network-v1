@@ -32,16 +32,28 @@ Riley, 2026-10-23, on the first version (the whole frame as glass, the rail on i
 the floor; it has to be a surface of its own, at the conversation card's level, whether the frame is glass or black.
 Only the thin parts, the lip and the icon rail, may be clear glass.
 
-- **The frame** is thin: the lip (the window's top 48: traffic lights, the rail's toggle, back and forward over the
-  conversation, its name on the conversation's axis, tabs when on) and the places (a column of 52: new and search, then
-  Conversations, Library, Agents, Activity, Brain; Settings and the avatar at the bottom; icons on the first traffic
-  light's axis). It is Apple's clear glass over the desktop, or black.
+- **The frame** is thin (Riley chose the glass frame and asked for it sleeker, 2026-10-23): the lip, the window's top
+  36, with the traffic lights, the rail's toggle, back and forward and the tabs on one line at 22, the lights inset 16
+  from the window's corner both ways; and the places, a column of 44 (new and search, then Conversations, Library,
+  Agents, Activity, Brain; Settings and the avatar at the bottom), its icons on the first light's axis. It is Apple's
+  clear glass over the desktop, or black.
 - **The rail's card**, 220 wide, beside the places: the conversation card's material (surface, grain, lit top edge) at
   its level, never the frame's glass. Its rows follow `SPEC.md`. It sits 4 from the conversation's card, as the app's
   cards sit apart. Riley chose the two cards apart over one card holding both (2026-10-23).
-- **The conversation's card** takes the rest, 8 from the window's right and bottom edges, with no header of its own.
+- **The conversation's card** takes the rest, 6 from the window's right and bottom edges (concentric with the window's
+  corner), with no header of its own.
+- **The open tab is the card's surface rising into the lip** (Riley: tabs "like cards ... a little tab extending from
+  that main card's surface"): its grain, its lit top edge, soft inward corners where it meets the card. It slides to
+  the tab you open and sinks into the card when no conversation is open. The other tabs are names on the frame.
 - **Closing the rail** narrows its card to nothing (its rows held still and clipped) and the conversation's card
   follows its edge. The places and the lip stay.
+
+## Light and surface, not lines
+
+Riley (2026-10-23, with references of natural light on glass and soft surfaces): stick to the fundamental materials of
+reality, light and surface, rather than lines and drawn shapes. So a card is told by its lit top edge and the shadow it
+leaves on the glass, with no outline; the day is a quiet label with no rule; a list's rows are told apart by space; the
+composer is a well pressed into the card, its lower lip catching the light, and send stands up out of it.
 
 ## Where you are
 
@@ -53,6 +65,10 @@ whichever of two materials reads on the surface beneath it:
 
 The open session under a home is lit, not marked (`SPEC.md`). The marks slide on the house springs, stretching on the
 way. Riley set their finer behaviour aside for now.
+
+## Next
+
+Light mode, once the dark shell is settled (Riley).
 
 ## In the browser
 

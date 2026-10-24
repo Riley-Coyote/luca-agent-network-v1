@@ -45,6 +45,7 @@ import {
 } from "@/testing/shellStudy/marks";
 import {
   dragWindow,
+  placeLabLights,
   reportFrame,
   startGlass,
   stopGlass,
@@ -55,16 +56,20 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 import "./shellStudy.css";
 
-export const SHELL_STUDY_KEY = "ui-design-lab.polyphonic.shell.v1";
+export const SHELL_STUDY_KEY = "ui-design-lab.polyphonic.shell.v2";
 
-/** The shell's measures, in points. */
-const PLACES_WIDTH = 52;
+/** The shell's measures, in points (shellStudy.css holds the rest). */
+const PLACES_WIDTH = 44;
 const RAIL_WIDTH = 220;
 /** Between the rail's card and the conversation's, as between the app's cards. */
 const CARD_GAP = 4;
 const CARD_RADIUS = 10;
 /** The frame's corners, matching a window's. */
 const WINDOW_RADIUS = 16;
+/** Where the lab's real traffic lights go: the first light's left edge, and
+ *  the line the lip's words and tabs are centred on. */
+const LIGHTS_LEFT = 16;
+const LIP_LINE = 22;
 /** The card's travel when the rail opens or closes (shellStudy.css). */
 const SLIDE_MS = 460;
 
@@ -82,8 +87,8 @@ type Choice = {
 };
 
 const DEFAULT_CHOICE: Choice = {
-  direction: "black",
-  tabs: false,
+  direction: "glass",
+  tabs: true,
   rail: true,
   tone: "same",
   glass: "clear",
@@ -319,6 +324,7 @@ export function ShellStudy() {
   const shellRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLElement>(null);
   const frameLayerRef = React.useRef<HTMLDivElement>(null);
+  const tabLayerRef = React.useRef<HTMLDivElement>(null);
   const railLayerRef = React.useRef<HTMLDivElement>(null);
   const marksRef = React.useRef<{
     rail: MarkGroup;
@@ -352,17 +358,25 @@ export function ShellStudy() {
 
     const marks = marksRef.current;
     const railLayer = railLayerRef.current;
+    const cardBox = box(card);
     if (marks && railLayer) {
-      // On the frame: the chosen place, and the open tab.
+      // On the frame: the chosen place.
       marks.places.show(
         place,
         box(shell.querySelector(`[data-place="${place}"]`)),
       );
+      // The open tab is the card's surface rising into the lip: from the
+      // tab's top down to the card's edge, a pixel past it so the card's lit
+      // edge doesn't run across its foot.
       const tab =
         choice.tabs && talking
           ? shell.querySelector('[data-tab][data-selected="true"]')
           : null;
-      marks.tab.show(tab?.getAttribute("data-tab") ?? null, box(tab));
+      const tabBox = box(tab);
+      marks.tab.show(
+        tab?.getAttribute("data-tab") ?? null,
+        tabBox && cardBox ? { ...tabBox, h: cardBox.y - tabBox.y + 1 } : null,
+      );
       // On the rail's card, in its own coordinates: the mark scrolls with
       // the rows and the card clips it.
       const inRail = measure(railLayer.getBoundingClientRect());
@@ -375,7 +389,6 @@ export function ShellStudy() {
       marks.rail.show(row?.getAttribute("data-home") ?? null, inRail(row));
     }
     if (!native) return;
-    const cardBox = box(card);
     reportFrame({
       card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
       floor: choice.direction === "black" ? "#000000" : "none",
@@ -416,24 +429,32 @@ export function ShellStudy() {
   const railMark = choice.tone === "lighter" ? "card" : "plate";
   React.useLayoutEffect(() => {
     const frameLayer = frameLayerRef.current;
+    const tabLayer = tabLayerRef.current;
     const railLayer = railLayerRef.current;
-    if (!frameLayer || !railLayer) return;
+    if (!frameLayer || !tabLayer || !railLayer) return;
     const frame = new MarkEngine(frameLayer);
+    const tabs = new MarkEngine(tabLayer);
     const rail = new MarkEngine(railLayer);
     marksRef.current = {
       places: frame.group(
         `shell-mark shell-mark--${frameMark} shell-mark--place`,
       ),
-      tab: frame.group(`shell-mark shell-mark--${frameMark} shell-mark--tab`),
+      tab: tabs.group("shell-mark shell-mark--tabcard", "base"),
       rail: rail.group(`shell-mark shell-mark--${railMark} shell-mark--row`),
     };
     sync();
     return () => {
       frame.stop();
+      tabs.stop();
       rail.stop();
       marksRef.current = null;
     };
   }, [frameMark, railMark, sync]);
+
+  // The lab's real traffic lights sit on the lip's line.
+  React.useEffect(() => {
+    if (titled) placeLabLights(LIGHTS_LEFT, LIP_LINE);
+  }, [titled]);
 
   React.useEffect(() => {
     if (!native) return;
@@ -508,6 +529,7 @@ export function ShellStudy() {
       {native ? null : <div aria-hidden="true" className="shell-frame" />}
       <div aria-hidden="true" className="shell-veil" />
       <div aria-hidden="true" className="shell-marks" ref={frameLayerRef} />
+      <div aria-hidden="true" className="shell-tabcards" ref={tabLayerRef} />
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the lip is the window's title bar; pressing its empty part moves the window, as a title bar does. */}
       <header

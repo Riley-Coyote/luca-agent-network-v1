@@ -68,6 +68,12 @@ export function dragWindow() {
   post("glassLab", "drag");
 }
 
+/** The lab's own window: its real traffic lights, the first one's left edge
+ *  and the line they're centred on, to sit on the page's lip. */
+export function placeLabLights(left: number, centre: number) {
+  post("glassLab", { lights: { left, centre } });
+}
+
 /** Whether the lab's window draws real traffic lights. */
 export const titledLabWindow = () =>
   (window as Window & { __POLYPHONIC_GLASS_LAB__?: string })
