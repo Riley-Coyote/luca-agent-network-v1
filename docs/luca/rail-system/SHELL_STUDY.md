@@ -122,12 +122,14 @@ What went wrong, so it isn't repeated:
 
 ## The frames as a setting (Riley, 2026-10-24)
 
-Three frames, each in light and dark mode, chosen in settings:
+Two frames, each in light and dark mode, chosen in settings (three until frosted Glass was taken out, below):
 
 - **Black.** "it looks too good to throw away." In light it is **Paper**: the paper's recess for a floor, the cards
   told by shade and shadow alone. Kept (2026-10-24: "paper and glass both look amazing! keep them both").
-- **Glass:** Apple's frosted material ("the diffused normal glass look almost feels better"). Heads-up display looks
-  best so far; it changed colour when he clicked away only because its look was set to follow the window.
+- ~~**Glass:**~~ Apple's frosted material ("the diffused normal glass look almost feels better"; the heads-up display
+  looked best). Taken out once both glasses stood side by side in the setting (Riley: "the glass looks like liquid glass
+  would be fine without it. like idk if we need Glass as well as Liquid glass"): most people couldn't tell them apart.
+  What it alone could do is hold its look when the window isn't in use.
 - **Liquid Glass.** Dark: Regular with Apple's dark tint and the Soft veil. Light: Regular with the Soft veil (a wash of
   the paper's own tone) and black ink, kept with Paper the same morning. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
   with soft tint for white/light mode", on the rolled-back lab. Earlier the same night he had leaned to Clear with the
@@ -182,6 +184,12 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    light frame material, held in use, no veil. The setting changes nothing about how any look is drawn (twelve dark and
    light looks render as before), and a look saved before it carries over. In light, a control's chosen option now
    stands up like Send, white paper on its track. When this leaves the study, Mode gains Auto first, following the Mac.
+6. **Glass taken out: two frames** (Riley: "Take Glass out: the setting is just Black/Paper and Liquid Glass, in light
+   and dark."). The setting and the lab panel now offer Black (Paper in light) and Liquid Glass, and the lab's frosted
+   materials and their Look control are gone, so the lab matches the setting. A look saved on Glass opens as Liquid
+   Glass with that mode's own glass look, old addresses still open (a frosted one as Liquid Glass), and Black, Paper
+   and Liquid Glass render exactly as before. The native glass still understands the frosted style; nothing sends it
+   now, so it can go when the shell reaches the app.
 
 ## Light and surface, not lines
 
@@ -203,8 +211,7 @@ way. Riley set their finer behaviour aside for now.
 
 ## Next
 
-Riley's eye on Glass by day (Sidebar to start, against the other light frosted materials), then `SPEC.md` and the
-app.
+`SPEC.md`, then the app: the setting with Auto first, and the native frosted support removed.
 
 ## In the browser
 
@@ -218,16 +225,16 @@ opens the glass frame on Riley's dark pick (drop the look's parameters for the l
 with working traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
 not in use (flatter, frosted). `run` instead of `open` is the film window, for checks and captures. The study also opens
-directly in a look: `&frame=frosted&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0` (frame is
-solid, frosted or liquid; the older `direction=black|glass` still works), and in a mode with `&mode=light`. A mode or a
-frame asked for brings its own look, which the rest of the address can then change. Captures in a browser need every setting in the address
+directly in a look: `&frame=liquid&tabs=1&rail=closed&material=glass-clear&veil=none&panel=0` (frame is solid or
+liquid; the older `direction=black|glass` still works), and in a mode with `&mode=light`. A mode asked for brings its
+own look, which the rest of the address can then change. Captures in a browser need every setting in the address
 and a fresh browser for each, or the last look carries over.
 
 ## Lab controls
 
-At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Glass, Liquid Glass; Paper for Black in
-light), Rail (Open, Closed), Rail tone (Same, Lighter; Darker in light), Tabs (Off, On); for a glass frame, Material
-(that frame's own materials from Apple), Look for frosted Glass (In use, Follows) and Veil (None, Soft, Deep). Mode and
-Frame are also the Settings page's Appearance. Clicking
+At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Liquid Glass; Paper for Black in light),
+Rail (Open, Closed), Rail tone (Same, Lighter; Darker in light), Tabs (Off, On); for Liquid Glass, Material (Regular or
+Clear, plain or with Apple's dark tint) and Veil (None, Soft, Deep). Mode and Frame are also the Settings page's
+Appearance. Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.

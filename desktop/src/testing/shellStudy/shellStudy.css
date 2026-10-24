@@ -98,13 +98,6 @@
     inset 0 0 0 0.5px rgb(255 255 255 / 0.12);
 }
 
-/* A frosted frame in a browser: the stand-in blurs much further. */
-.shell[data-material="frosted"] .shell-frame {
-  -webkit-backdrop-filter: blur(24px) saturate(1.3);
-  backdrop-filter: blur(24px) saturate(1.3);
-  background: rgb(28 28 32 / 0.45);
-}
-
 /* The veil: darkness in front of the glass, so the frame's words read over a
  * bright desktop. None, soft or deep, from the lab panel. */
 .shell-veil {
@@ -1107,7 +1100,7 @@
   position: absolute;
   right: 16px;
   user-select: none;
-  width: 280px;
+  width: 252px;
   z-index: 5;
 }
 
@@ -1299,10 +1292,6 @@
   box-shadow:
     inset 0 0.5px 0 rgb(255 255 255 / 0.8),
     inset 0 0 0 0.5px rgb(255 255 255 / 0.3);
-}
-
-.shell[data-mode="light"][data-material="frosted"] .shell-frame {
-  background: rgb(246 246 248 / 0.55);
 }
 
 /* Where you are, a piece of paper standing on the glass. */

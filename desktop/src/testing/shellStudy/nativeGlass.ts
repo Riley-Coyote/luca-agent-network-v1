@@ -15,17 +15,13 @@ export type GlassFrame = {
   floor: string;
   row: (Box & { id: string }) | null;
   clip: Box | null;
-  /** The frame's one sheet of Apple's material: Liquid Glass (regular or
-   *  clear, maybe Apple's tint, "#rrggbbaa") or frosted (one of AppKit's
-   *  materials by name, its in-use look held or following the window), in
-   *  light or dark appearance. */
+  /** The frame's one sheet of Apple's Liquid Glass (regular or clear, maybe
+   *  Apple's tint, "#rrggbbaa"), in light or dark appearance. */
   sheet:
     | (Box & {
         r: number;
-        style: "regular" | "clear" | "frosted";
+        style: "regular" | "clear";
         tint: string | null;
-        material: string | null;
-        held: boolean;
         appearance: "light" | "dark";
       })
     | null;
