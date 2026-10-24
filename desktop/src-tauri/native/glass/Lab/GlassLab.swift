@@ -19,9 +19,11 @@ import WebKit
 //   {"page": "hide" | "show"}   the glass alone, or with the page over it
 //   {"size": [w, h]}            resizes the lab, keeping its top edge
 //   {"move": [dx, dy]}          moves the lab right and down by that much (to clear what covers it in a capture)
+//   {"click": [x, y]}           a click at that point from the content's top-left, sent to the window (no pointer moves)
 //   {"quit": true}
 // The page can move the window by its own title bar: window.webkit.messageHandlers.glassLab.postMessage("drag") from a
 // mousedown there; and place the traffic lights on its lip: postMessage({lights: {left, centre}}).
+// Over the page float the shell study's pieces of glass, when it asks for them (ShellChrome.swift).
 
 @main
 enum GlassLab {
@@ -42,7 +44,7 @@ enum GlassLab {
 
 @MainActor
 final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScriptMessageHandler {
-    private let window: NSWindow
+    let window: NSWindow
     private let webView: WKWebView
     private let titled: Bool
     private var attached = false
@@ -50,6 +52,8 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     /// left edge. The page can move them to its own lip.
     private var lightsCentre: CGFloat = 22
     private var lightsLeft: CGFloat = 16
+    /// The glass above the page, once it's attached (macOS 26).
+    private var chrome: AnyObject?
 
     init(url: URL, titled: Bool) {
         self.titled = titled
@@ -162,9 +166,17 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
 
     // MARK: the page
 
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        // A reload or a new page: the glass above waits for it to say where its pieces go.
+        if #available(macOS 26.0, *) { (chrome as? ShellChrome)?.reset() }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !attached else { return }
         if #available(macOS 26.0, *) {
+            // The shell study's glass above the page: pieces of Apple's glass over the conversation (ShellChrome.swift).
+            // Its handler is in place before the glass beneath announces itself and the page starts reporting.
+            chrome = ShellChrome.attach(above: webView)
             attached = PolyphonicGlass.attach(to: webView)
         }
         print("glass-lab: page loaded, glass \(attached ? "attached" : "unavailable")")
@@ -200,10 +212,29 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
         }
         // Checks: the glass alone, without the page over it.
         if let page = command["page"] as? String { webView.isHidden = page == "hide" }
+        // Checks: a click at a point in the page's coordinates, sent to the window itself, so nobody's pointer moves.
+        if let click = command["click"] as? [Double], click.count == 2 { self.click(at: CGPoint(x: click[0], y: click[1])) }
         if let script = command["js"] as? String {
             webView.evaluateJavaScript(script) { result, error in
                 if let error { print("glass-lab: js error: \(error.localizedDescription)") } else if let result { print("glass-lab: js: \(result)") }
             }
+        }
+    }
+}
+
+extension Lab {
+    /// A press and release at a point measured from the content's top-left, through the window's own event dispatch.
+    func click(at point: CGPoint) {
+        guard let content = window.contentView else { return }
+        let location = NSPoint(x: point.x, y: content.bounds.height - point.y)
+        let hit = window.contentView?.superview?.hitTest(location).map { String(describing: type(of: $0)) } ?? "nothing"
+        print("glass-lab: click at (\(Int(point.x)), \(Int(point.y))) reaches \(hit)")
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            guard let event = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                                                 timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)
+            else { continue }
+            window.sendEvent(event)
         }
     }
 }

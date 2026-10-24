@@ -7,9 +7,14 @@
  * glass over the desktop; the cards are never glass. Where you are is a
  * solid, squircle-cornered mark.
  *
- * In the glass lab (scripts/native-glass-lab.sh) the frame's glass is
- * Apple's, drawn beneath the page; in a browser it is our own stand-in, and
- * says so. Sample conversations only (content.ts).
+ * The third frame, Above, turns the glass the right way up: the conversation
+ * is the window, and Apple's glass floats above it in three small pieces
+ * (the lead, the tabs, the places pane), drawn natively with their symbols
+ * inside (Lab/ShellChrome.swift), in Apple's own frame metrics.
+ *
+ * In the glass lab (scripts/native-glass-lab.sh) the glass is Apple's; in a
+ * browser it is our own stand-in, and says so. Sample conversations only
+ * (content.ts).
  */
 import * as React from "react";
 import {
@@ -44,13 +49,18 @@ import {
   type Rect,
 } from "@/testing/shellStudy/marks";
 import {
+  type ChromeItem,
   dragWindow,
   placeLabLights,
+  reportChrome,
   reportFrame,
   startGlass,
   stopGlass,
   titledLabWindow,
+  useChromeActions,
+  useLabWindow,
   useNativeGlass,
+  useNativePresent,
 } from "@/testing/shellStudy/nativeGlass";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
@@ -73,7 +83,33 @@ const LIP_LINE = 22;
 /** The card's travel when the rail opens or closes (shellStudy.css). */
 const SLIDE_MS = 460;
 
-type Direction = "black" | "glass";
+type Direction = "black" | "glass" | "above";
+
+/**
+ * The glass above uses Apple's own frame metrics, never ours (the
+ * liquid-glass skill's references/mac-apps.md; measured on macOS 27.0.1):
+ * the band the top pieces float in, the line the traffic lights are centred
+ * on and the first light's left edge, and the top pieces' height and corners.
+ * Compact is Apple's compact toolbar; the title bar is a window without one,
+ * where the system puts the lights anyway.
+ */
+const BARS = {
+  compact: { band: 40, centre: 20, left: 12, h: 28, r: 10 },
+  titlebar: { band: 32, centre: 16, left: 9, h: 24, r: 9 },
+} as const;
+type Bar = keyof typeof BARS;
+/** Everything this far from the window's edge is concentric with its corner. */
+const EDGE = 6;
+/** The places pane's width. */
+const PANE = 40;
+/** The three traffic lights, from the first one's left edge to the last one's
+ *  right (14 each, 23 apart). */
+const LIGHTS_SPAN = 60;
+/** The lead piece starts this far after the lights, and is as wide as
+ *  ShellChrome.swift lays it out: 2 in, three buttons of 30, 4 between the
+ *  toggle and back. */
+const LEAD_AFTER = 12;
+const LEAD_WIDTH = 98;
 
 /**
  * Every material Apple offers for the frame, by Apple's names: Liquid Glass's
@@ -154,6 +190,10 @@ type Choice = {
   held: boolean;
   veil: Veil;
   panel: boolean;
+  /** For the glass above: Apple's compact toolbar, or its plain title bar. */
+  bar: Bar;
+  /** For the glass above: Apple's two types of glass, every piece the same. */
+  variant: "regular" | "clear";
 };
 
 const DEFAULT_CHOICE: Choice = {
@@ -165,13 +205,23 @@ const DEFAULT_CHOICE: Choice = {
   held: true,
   veil: "soft",
   panel: true,
+  bar: "compact",
+  variant: "regular",
 };
 
 function readChoice(): Choice {
   const choice = { ...DEFAULT_CHOICE };
   const take = (source: Record<string, unknown>) => {
-    if (source.direction === "black" || source.direction === "glass")
+    if (
+      source.direction === "black" ||
+      source.direction === "glass" ||
+      source.direction === "above"
+    )
       choice.direction = source.direction;
+    if (source.bar === "compact" || source.bar === "titlebar")
+      choice.bar = source.bar;
+    if (source.variant === "regular" || source.variant === "clear")
+      choice.variant = source.variant;
     if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
     if (typeof source.rail === "boolean") choice.rail = source.rail;
     if (source.tone === "same" || source.tone === "lighter")
@@ -197,7 +247,8 @@ function readChoice(): Choice {
     // A study that can't read its last look opens on the default one.
   }
   // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
-  // opens a look directly, for captures.
+  // (or `?direction=above&bar=titlebar&variant=clear`) opens a look directly,
+  // for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
     params.has(name)
@@ -212,8 +263,30 @@ function readChoice(): Choice {
     held: flag("held"),
     veil: params.get("veil"),
     panel: flag("panel"),
+    bar: params.get("bar"),
+    variant: params.get("variant"),
   });
   return choice;
+}
+
+/** A colour the page's CSS names, as "#rrggbb" for the native side. */
+function cssHex(host: Element, color: string) {
+  const probe = document.createElement("span");
+  probe.style.color = color;
+  host.appendChild(probe);
+  const computed = getComputedStyle(probe).color;
+  probe.remove();
+  const values = computed.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0];
+  // "color(srgb 0.1 0.1 0.1)" counts from 0 to 1; "rgb(26, 26, 26)" to 255.
+  const scale = computed.startsWith("color(") ? 255 : 1;
+  return `#${values
+    .slice(0, 3)
+    .map((value) =>
+      Math.round(Math.min(255, value * scale))
+        .toString(16)
+        .padStart(2, "0"),
+    )
+    .join("")}`;
 }
 
 /** What the native frame is told about its material. */
@@ -258,12 +331,28 @@ function navigate(nav: Nav, action: NavAction): Nav {
   return { stack, index: stack.length - 1 };
 }
 
-const PLACES: { id: PlaceId; label: string; icon: typeof Library }[] = [
-  { id: "conversations", label: "Conversations", icon: MessagesSquare },
-  { id: "library", label: "Library", icon: Library },
-  { id: "agents", label: "Agents", icon: Bot },
-  { id: "activity", label: "Activity", icon: Activity },
-  { id: "brain", label: "Brain", icon: Brain },
+/** Each place's icon on the page, and its SF Symbol in the glass above. */
+const PLACES: {
+  id: PlaceId;
+  label: string;
+  icon: typeof Library;
+  symbol: string;
+}[] = [
+  {
+    id: "conversations",
+    label: "Conversations",
+    icon: MessagesSquare,
+    symbol: "bubble.left.and.bubble.right",
+  },
+  { id: "library", label: "Library", icon: Library, symbol: "books.vertical" },
+  { id: "agents", label: "Agents", icon: Bot, symbol: "person.2" },
+  {
+    id: "activity",
+    label: "Activity",
+    icon: Activity,
+    symbol: "waveform.path.ecg",
+  },
+  { id: "brain", label: "Brain", icon: Brain, symbol: "brain" },
 ];
 
 /** Where a home opens: Luca's thread, an agent's 1:1, a project's last room,
@@ -297,7 +386,13 @@ export function ShellStudy() {
   const [searching, setSearching] = React.useState(false);
   const [note, setNote] = React.useState("");
   const native = useNativeGlass();
+  const present = useNativePresent();
+  const labWindow = useLabWindow();
   const titled = titledLabWindow();
+  const above = choice.direction === "above";
+  /** The glass above is Apple's, drawn by the lab; in a browser, ours. */
+  const chromeNative = above && present;
+  const bar = BARS[choice.bar];
 
   const view = nav.stack[nav.index];
   const place = view.place;
@@ -419,14 +514,43 @@ export function ShellStudy() {
     places: MarkGroup;
     tab: MarkGroup;
   } | null>(null);
-  const stateRef = React.useRef({ choice, place, railShown, native });
-  stateRef.current = { choice, place, railShown, native };
+  /** What the glass above holds, from this render (set just before it
+   *  returns); sync() adds where it goes. */
+  const chromeRef = React.useRef<{
+    lead: ChromeItem[];
+    tabs: ChromeItem[] | null;
+    places: ChromeItem[];
+  }>({ lead: [], tabs: null, places: [] });
+  /** The card's surface as the page's CSS has it now, and as "#rrggbb": the
+   *  theme lands after the first render, so it's read again whenever it
+   *  changes. */
+  const cardHexRef = React.useRef({ surface: "", hex: "" });
+  const stateRef = React.useRef({
+    choice,
+    place,
+    railShown,
+    native,
+    present,
+    searching,
+    radius: labWindow.radius,
+  });
+  stateRef.current = {
+    choice,
+    place,
+    railShown,
+    native,
+    present,
+    searching,
+    radius: labWindow.radius,
+  };
 
   const sync = React.useCallback(() => {
     const shell = shellRef.current;
     const card = cardRef.current;
     if (!shell || !card) return;
-    const { choice, place, railShown, native } = stateRef.current;
+    const { choice, place, railShown, native, present, searching, radius } =
+      stateRef.current;
+    const above = choice.direction === "above";
     const measure =
       (origin: DOMRect) =>
       (element: Element | null | undefined): Rect | null => {
@@ -448,16 +572,17 @@ export function ShellStudy() {
     const railLayer = railLayerRef.current;
     const cardBox = box(card);
     if (marks && railLayer) {
-      // On the frame: the chosen place.
+      // On the frame: the chosen place. Above, where you are is set into the
+      // glass itself (natively, or by the page's stand-in).
       marks.places.show(
-        place,
-        box(shell.querySelector(`[data-place="${place}"]`)),
+        above ? null : place,
+        above ? null : box(shell.querySelector(`[data-place="${place}"]`)),
       );
       // The open tab is the card's surface rising into the lip: from the
       // tab's top down to the card's edge, a pixel past it so the card's lit
       // edge doesn't run across its foot.
       const tab =
-        choice.tabs && talking
+        choice.tabs && talking && !above
           ? shell.querySelector('[data-tab][data-selected="true"]')
           : null;
       const tabBox = box(tab);
@@ -476,6 +601,60 @@ export function ShellStudy() {
           : null;
       marks.rail.show(row?.getAttribute("data-home") ?? null, inRail(row));
     }
+    if (present && above) {
+      // Nothing native beneath the page: the window is clear, the page's
+      // ground fills it to its rounded corners, and the glass is above.
+      reportFrame({
+        card: null,
+        floor: "none",
+        row: null,
+        clip: null,
+        sheet: null,
+      });
+      const bar = BARS[choice.bar];
+      const y = bar.centre - bar.h / 2;
+      const items = chromeRef.current;
+      const tabs = items.tabs ? box(shell.querySelector(".shell-tabs")) : null;
+      const pane = box(shell.querySelector(".shell-places"));
+      const surface = getComputedStyle(shell)
+        .getPropertyValue("--mn-surface")
+        .trim();
+      if (surface !== cardHexRef.current.surface)
+        cardHexRef.current = {
+          surface,
+          hex: cssHex(shell, "hsl(var(--mn-surface))"),
+        };
+      reportChrome(
+        pane
+          ? {
+              on: true,
+              variant: choice.variant,
+              h: bar.h,
+              r: bar.r,
+              card: cardHexRef.current.hex,
+              modal: searching,
+              lead: {
+                x: bar.left + LIGHTS_SPAN + LEAD_AFTER,
+                y,
+                items: items.lead,
+              },
+              tabs:
+                items.tabs && tabs
+                  ? {
+                      x: tabs.x,
+                      y,
+                      maxW: origin.width - EDGE - tabs.x,
+                      items: items.tabs,
+                    }
+                  : null,
+              // 6 from the window's edges: concentric with its corner.
+              places: { ...pane, r: radius - EDGE, items: items.places },
+            }
+          : { on: false },
+      );
+      return;
+    }
+    if (present) reportChrome({ on: false });
     if (!native) return;
     reportFrame({
       card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
@@ -539,13 +718,25 @@ export function ShellStudy() {
     };
   }, [frameMark, railMark, sync]);
 
-  // The lab's real traffic lights sit on the lip's line.
+  // The lab's real traffic lights sit on the lip's line; above, where Apple
+  // puts them for the chosen bar.
   React.useEffect(() => {
-    if (titled) placeLabLights(LIGHTS_LEFT, LIP_LINE);
-  }, [titled]);
+    if (!titled) return;
+    if (above) placeLabLights(bar.left, bar.centre);
+    else placeLabLights(LIGHTS_LEFT, LIP_LINE);
+  }, [titled, above, bar.left, bar.centre]);
 
+  // A press on the glass above is a click on the page's own button for it.
+  useChromeActions((action) => {
+    shellRef.current
+      ?.querySelector<HTMLElement>(`[data-chrome="${action}"]`)
+      ?.click();
+  });
+
+  // Above, Apple's glass adapts to Reduce Transparency itself: the lab stays.
+  const glassOn = above ? present : native;
   React.useEffect(() => {
-    if (!native) return;
+    if (!glassOn) return;
     startGlass();
     sync();
     // The page is clear where the glass shows.
@@ -555,10 +746,11 @@ export function ShellStudy() {
     body.setProperty("background", "transparent", "important");
     return () => {
       stopGlass();
+      reportChrome({ on: false });
       root.removeProperty("background");
       body.removeProperty("background");
     };
-  }, [native, sync]);
+  }, [glassOn, sync]);
 
   // Every change of state moves something: report after the page lays out.
   React.useLayoutEffect(() => {
@@ -571,21 +763,44 @@ export function ShellStudy() {
     const observer = new ResizeObserver(() => sync());
     observer.observe(shell);
     const scrolled = () => sync();
+    // Anything that slides (the tabs, the rail, the conversation's column,
+    // when the rail or the frame changes) is followed to where it stops.
+    const sliding = (event: TransitionEvent) => {
+      if (["left", "width", "padding-left"].includes(event.propertyName))
+        follow(SLIDE_MS + 120);
+    };
     window.addEventListener("resize", scrolled);
     shell.addEventListener("scroll", scrolled, true);
+    shell.addEventListener("transitionstart", sliding, true);
+    shell.addEventListener("transitionend", scrolled, true);
     void document.fonts.ready.then(() => sync());
+    // The theme lands on the root after the first render (and changes with
+    // the lab's theme switch): the chips' colour follows it.
+    const theme = new MutationObserver(() => sync());
+    theme.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["style", "class", "data-luca-theme"],
+    });
     return () => {
+      theme.disconnect();
       observer.disconnect();
       window.removeEventListener("resize", scrolled);
       shell.removeEventListener("scroll", scrolled, true);
+      shell.removeEventListener("transitionstart", sliding, true);
+      shell.removeEventListener("transitionend", scrolled, true);
     };
-  }, [sync]);
+  }, [sync, follow]);
 
   // ── what the lip says ─────────────────────────────────────────────
   const placeTitle =
     place === "conversations" ? null : PLACE_PAGES[place].title;
   const railWidth = choice.rail ? RAIL_WIDTH : 0;
-  const cardLeft = PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + CARD_GAP : 0);
+  // Above, the conversation's column starts right of the places pane and the
+  // rail's card, each 6 from the next.
+  const cardLeft = above
+    ? EDGE + PANE + EDGE + (choice.rail ? RAIL_WIDTH + EDGE : 0)
+    : PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + CARD_GAP : 0);
+  const leadX = bar.left + LIGHTS_SPAN + LEAD_AFTER;
 
   const tabTitle = (key: string) => {
     const { home, session } = openOf(key);
@@ -596,10 +811,93 @@ export function ShellStudy() {
     );
   };
 
+  const railLabel = choice.rail
+    ? "Close the conversations rail"
+    : "Open the conversations rail";
+  chromeRef.current = {
+    lead: [
+      {
+        id: "toggle",
+        kind: "button",
+        symbol: "sidebar.leading",
+        label: railLabel,
+      },
+      {
+        id: "back",
+        kind: "button",
+        symbol: "chevron.backward",
+        label: "Back",
+        disabled: nav.index === 0,
+      },
+      {
+        id: "forward",
+        kind: "button",
+        symbol: "chevron.forward",
+        label: "Forward",
+        disabled: nav.index >= nav.stack.length - 1,
+      },
+    ],
+    // With every tab closed there is no tabs piece: the title shows instead.
+    tabs:
+      choice.tabs && tabs.length > 0
+        ? tabs.map(
+            (key): ChromeItem => ({
+              id: `tab:${key}`,
+              kind: "tab",
+              label: tabTitle(key),
+              title: tabTitle(key),
+              selected: place === "conversations" && key === keyOf(open),
+            }),
+          )
+        : null,
+    places: [
+      {
+        id: "new",
+        kind: "button",
+        symbol: "square.and.pencil",
+        label: "New conversation",
+      },
+      {
+        id: "search",
+        kind: "button",
+        symbol: "magnifyingglass",
+        label: "Search",
+        title: "Search  ⌘K",
+      },
+      { id: "gap", kind: "gap", label: "" },
+      ...PLACES.map(
+        ({ id, label, symbol }): ChromeItem => ({
+          id: `place:${id}`,
+          kind: "place",
+          symbol,
+          label,
+          selected: place === id,
+        }),
+      ),
+      { id: "flex", kind: "flex", label: "" },
+      {
+        id: "place:settings",
+        kind: "place",
+        symbol: "gearshape",
+        label: "Settings",
+        selected: place === "settings",
+      },
+      {
+        id: "avatar",
+        kind: "avatar",
+        label: `${OWNER}, personal workspace`,
+        title: OWNER[0],
+      },
+    ],
+  };
+
   return (
     <div
       className="shell"
+      data-bar={above ? choice.bar : undefined}
+      data-chrome-native={chromeNative ? "true" : undefined}
       data-direction={choice.direction}
+      data-key={labWindow.key ? undefined : "false"}
       data-material={frameMaterialFor(choice).style}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
@@ -611,12 +909,24 @@ export function ShellStudy() {
         {
           "--card-left": `${cardLeft}px`,
           "--rail-now": `${railWidth}px`,
+          "--band": `${bar.band}px`,
+          "--band-centre": `${bar.centre}px`,
+          "--lights-left": `${bar.left}px`,
+          "--piece-y": `${bar.centre - bar.h / 2}px`,
+          "--piece-h": `${bar.h}px`,
+          "--piece-r": `${bar.r}px`,
+          // The pane and the rail start 6 below the top pieces.
+          "--pane-top": `${bar.centre + bar.h / 2 + EDGE}px`,
+          "--lead-x": `${leadX}px`,
+          "--lead-right": `${leadX + LEAD_WIDTH}px`,
+          "--window-radius": `${labWindow.radius}px`,
         } as React.CSSProperties
       }
     >
       {native ? null : <div aria-hidden="true" className="shell-desktop" />}
       {native ? null : <div aria-hidden="true" className="shell-frame" />}
       <div aria-hidden="true" className="shell-veil" />
+      {above ? <div aria-hidden="true" className="shell-edge" /> : null}
       <div aria-hidden="true" className="shell-marks" ref={frameLayerRef} />
       <div aria-hidden="true" className="shell-tabcards" ref={tabLayerRef} />
 
@@ -635,12 +945,9 @@ export function ShellStudy() {
           </span>
         )}
         <LipButton
+          chrome="toggle"
           className="shell-toggle"
-          label={
-            choice.rail
-              ? "Close the conversations rail"
-              : "Open the conversations rail"
-          }
+          label={railLabel}
           onClick={() => choose("rail", !choice.rail)}
         >
           <PanelLeft />
@@ -648,6 +955,7 @@ export function ShellStudy() {
         <div className="shell-lip-card">
           <div className="shell-history">
             <LipButton
+              chrome="back"
               disabled={nav.index === 0}
               label="Back"
               onClick={() => dispatch({ type: "back" })}
@@ -655,6 +963,7 @@ export function ShellStudy() {
               <ChevronLeft />
             </LipButton>
             <LipButton
+              chrome="forward"
               disabled={nav.index >= nav.stack.length - 1}
               label="Forward"
               onClick={() => dispatch({ type: "forward" })}
@@ -662,7 +971,7 @@ export function ShellStudy() {
               <ChevronRight />
             </LipButton>
           </div>
-          {choice.tabs ? (
+          {choice.tabs && tabs.length > 0 ? (
             <div
               aria-label="Open conversations"
               className="shell-tabs"
@@ -681,6 +990,7 @@ export function ShellStudy() {
                     <button
                       aria-selected={selected}
                       className="shell-tab-open"
+                      data-chrome={`tab:${key}`}
                       onClick={() => goTo(openOf(key))}
                       role="tab"
                       type="button"
@@ -690,6 +1000,7 @@ export function ShellStudy() {
                     <button
                       aria-label={`Close ${tabTitle(key)}`}
                       className="shell-tab-close"
+                      data-chrome={`close:${key}`}
                       onClick={() => closeTab(key)}
                       type="button"
                     >
@@ -721,18 +1032,24 @@ export function ShellStudy() {
       <nav aria-label="Places" className="shell-places">
         <div className="shell-places-group">
           <PlaceButton
+            chrome="new"
             label="New conversation"
             onClick={() => addSession(homes[0])}
           >
             <SquarePen />
           </PlaceButton>
-          <PlaceButton label="Search  ⌘K" onClick={() => setSearching(true)}>
+          <PlaceButton
+            chrome="search"
+            label="Search  ⌘K"
+            onClick={() => setSearching(true)}
+          >
             <Search />
           </PlaceButton>
         </div>
         <div className="shell-places-group">
           {PLACES.map(({ id, label, icon: Icon }) => (
             <PlaceButton
+              chrome={`place:${id}`}
               current={place === id}
               key={id}
               label={label}
@@ -747,6 +1064,7 @@ export function ShellStudy() {
         </div>
         <div className="shell-places-group shell-places-end">
           <PlaceButton
+            chrome="place:settings"
             current={place === "settings"}
             label="Settings"
             onClick={() =>
@@ -796,7 +1114,8 @@ export function ShellStudy() {
       <main
         aria-label="Conversation"
         className="shell-card"
-        data-luca-card
+        // Above, the conversation is the window's ground, not a card on it.
+        data-luca-card={above ? undefined : ""}
         ref={cardRef}
       >
         {place === "conversations" ? (
@@ -808,7 +1127,13 @@ export function ShellStudy() {
         ) : (
           <PlacePage place={place} />
         )}
-        <LabPanel choice={choice} choose={choose} native={native} note={note} />
+        <LabPanel
+          choice={choice}
+          choose={choose}
+          native={native}
+          note={note}
+          present={present}
+        />
       </main>
 
       {searching ? (
@@ -829,12 +1154,15 @@ export function ShellStudy() {
 
 function LipButton({
   children,
+  chrome,
   className,
   disabled,
   label,
   onClick,
 }: {
   children: React.ReactNode;
+  /** The id of its twin in the glass above, whose press clicks this. */
+  chrome: string;
   className?: string;
   disabled?: boolean;
   label: string;
@@ -844,6 +1172,7 @@ function LipButton({
     <button
       aria-label={label}
       className={`shell-lip-button ${className ?? ""}`}
+      data-chrome={chrome}
       disabled={disabled}
       onClick={onClick}
       title={label}
@@ -856,12 +1185,15 @@ function LipButton({
 
 function PlaceButton({
   children,
+  chrome,
   current,
   label,
   onClick,
   place,
 }: {
   children: React.ReactNode;
+  /** The id of its twin in the glass above, whose press clicks this. */
+  chrome: string;
   current?: boolean;
   label: string;
   onClick: () => void;
@@ -874,6 +1206,7 @@ function PlaceButton({
           aria-current={current ? "page" : undefined}
           aria-label={label.replace(/\s+⌘K$/, "")}
           className="shell-place"
+          data-chrome={chrome}
           data-current={current ? "true" : undefined}
           data-place={place}
           onClick={onClick}
@@ -1274,11 +1607,14 @@ function LabPanel({
   choose,
   native,
   note,
+  present,
 }: {
   choice: Choice;
   choose: <K extends keyof Choice>(key: K, value: Choice[K]) => void;
   native: boolean;
   note: string;
+  /** Whether the glass lab is around the page at all. */
+  present: boolean;
 }) {
   if (!choice.panel) {
     return (
@@ -1292,6 +1628,7 @@ function LabPanel({
     );
   }
   const glass = choice.direction === "glass";
+  const above = choice.direction === "above";
   return (
     <aside aria-label="Shell study controls" className="shell-lab">
       <div className="shell-lab-head">
@@ -1311,9 +1648,32 @@ function LabPanel({
         options={[
           ["black", "Black"],
           ["glass", "Glass"],
+          ["above", "Above"],
         ]}
         value={choice.direction}
       />
+      {above ? (
+        <>
+          <Segment
+            label="Bar"
+            onChange={(value) => choose("bar", value)}
+            options={[
+              ["compact", "Compact"],
+              ["titlebar", "Title bar"],
+            ]}
+            value={choice.bar}
+          />
+          <Segment
+            label="Glass"
+            onChange={(value) => choose("variant", value)}
+            options={[
+              ["regular", "Regular"],
+              ["clear", "Clear"],
+            ]}
+            value={choice.variant}
+          />
+        </>
+      ) : null}
       <Segment
         label="Rail"
         onChange={(value) => choose("rail", value === "open")}
@@ -1386,13 +1746,17 @@ function LabPanel({
       ) : null}
       <p className="shell-lab-note" role="status">
         {note ||
-          (native
-            ? glass
-              ? frameMaterialFor(choice).style === "frosted"
-                ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
-                : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
-              : "The frame is black; the rail and the conversation are cards on it."
-            : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
+          (above
+            ? present
+              ? "The conversation is the window; Apple's Liquid Glass floats above it in three pieces, their symbols and words inside the glass."
+              : "A browser can't draw Apple's glass: these pieces are our stand-in. Judge them in the glass lab."
+            : native
+              ? glass
+                ? frameMaterialFor(choice).style === "frosted"
+                  ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
+                  : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
+                : "The frame is black; the rail and the conversation are cards on it."
+              : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
     </aside>
   );

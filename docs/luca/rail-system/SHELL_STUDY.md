@@ -67,6 +67,83 @@ ours. Every project uses these names from now on (Ghost and the rail-glass build
 Riley's favourite so far: Regular with the deep veil; Clear, which looks striking but is harder to read over some
 desktops, as an option.
 
+## Glass above (the third frame, 2026-10-23)
+
+*The conversation is the window; Apple's glass floats above it in a few small pieces, and where you are is the card's
+own black, set into the glass.*
+
+Built after reading all of Apple's guidance for the Mac (creative-mind `studies/apple-macos-2026-10-23/`, distilled in
+the liquid-glass skill's `references/mac-apps.md`). Apple's Liquid Glass has only a type, a tint, a press response and a
+shape; its polish comes from where it sits: small pieces whose whole edge shows, floating above rich content, with
+their symbols inside the glass. The glass frame was the opposite (one big sheet behind opaque cards, a veil in front),
+so this frame turns it the right way up. Riley said yes to building it beside the other two (2026-10-23).
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│ ● ● ●  (▯  ‹ ›)              ( Luca │▓Monday plan▓│ Landing page )  │  band 40: content scrolls under it
+│ ╭──╮ ┌──────────────┐                                                │
+│ │✎ │ │ Luca         │                   TODAY                        │
+│ │⌕ │ │ PROJECTS   + │     Wren                                       │
+│ │  │ │ Tidepool  ⌄  │     Here's Monday, in the order it wants…      │
+│ │▓◎│ │ │ Landing…   │                                                │
+│ │▤ │ │ AGENTS     + │                                                │
+│ │⧉ │ │ Wren  ⌄      │                                                │
+│ │  │ │ FLEETS     + │                                                │
+│ │⚙ │ │ Design team  │       ( Message Wren…                    ↑ )   │
+│ ╰──╯ └──────────────┘                                                │
+└──────────────────────────────────────────────────────────────────────┘
+  pane  the rail's card                    the conversation: the ground
+```
+
+- **The ground is the conversation,** edge to edge: the card's surface and grain fill the window, its corners the
+  window's (radius read from AppKit, 16 on macOS 27.0.1). The reading column sits right of the rail and scrolls up under
+  the band, where a hard scroll edge (blur and the ground's own tone, invisible at rest) keeps the glass's words clear,
+  as macOS 27 does under its toolbars.
+- **Three pieces of Apple's glass float above it,** native, in one container, regular by default (clear as an option):
+  the lead group (the rail's toggle, then back and forward), the tabs, and the places pane. The two top pieces answer a
+  press as glass; the tall pane doesn't (Apple's sidebars don't), its places answer one by one. Their symbols and words
+  are inside the glass (SF Symbols at one size, one grey at rest and full ink when lit; the system font at the Mac's
+  13), so the glass keeps them legible itself. Tooltips are the Mac's own; each piece is a named group for VoiceOver.
+  No veil: nothing is drawn over the glass.
+- **Apple's frame metrics, not ours:** the band is Apple's compact toolbar (40, the lights centred at 20, their left
+  edge at 12) or, as an option, Apple's plain title bar (32, 16, 9, where the system puts them anyway). The top pieces
+  are 28 tall (24 under the plain title bar), centred on the lights' line: 6 from the window's top (4 under the plain
+  title bar). The places pane and the rail's card start 6 below them.
+- **Concentric from the window:** everything 6 from an edge has radius 10 (16 − 6): the places pane, the rail's card,
+  the pieces. Inside a piece, items and their marks are 2 in, radius 8. Rounded rectangles, never capsules, at this
+  size (Riley; Apple agrees for small controls).
+- **The places pane** is 40 wide, 6 from the window's left, from 6 under the top pieces to 6 from the bottom: new and
+  search, the five places, then Settings and the avatar at its foot.
+- **The rail's card** keeps its material (Riley: never glass): 220 wide, 6 right of the pane, from 6 under the top
+  pieces to 6 from the bottom, its top lit and its shadow soft on the ground. Here the ground is the card's own tone, so
+  the rail on the same tone all but vanishes into it; the lighter tone keeps it a surface of its own, and the lab opens
+  this frame on it.
+- **Tabs** start on the reading column's left edge (or just after the lead group when the rail is closed) and are as
+  wide as their names, each with room for its name in medium so choosing one never nudges the rest; the open one is a
+  chip of the card's own black, lit along its top, set into the glass. With every tab closed there's no tabs piece: the
+  conversation's name sits on the band instead, centred on the reading column, off the glass.
+- **Where you are,** in the places and the tabs, is that same chip, sliding on the house spring (response 0.38, damping
+  0.8; at once under Reduce Motion). The rail's own mark is the page's, as before.
+- **States.** Hover lifts an icon to full ink and shows a faint plate; a press gives Apple's glass response and a small
+  give; disabled is faint. When the window isn't the one in use, the glass recedes (Apple's) and the pieces' ink and the
+  chips' light quiet with it, and so do the page's accents. Search, a modal: the pieces take no presses and their ink
+  goes faint; the glass itself is never faded (the page's scrim, beneath it, darkens what it shows). Reduce Motion stops
+  every slide; Reduce Transparency and Increase Contrast make the band's edge solid; Increase Contrast gives the chips an
+  edge.
+- **Motion.** Pieces appear by the material (materialize), never a fade. The tabs follow the reading column's edge
+  frame by frame as the rail opens and closes.
+
+Checked before showing (2026-10-24): three independent reviews (code, Apple's guidance, design), each finding checked
+by a skeptic; the confirmed ones are fixed, among them the pieces drawing below the title bar's safe area in a real
+window (now `safeAreaRegions = []`), the chip's colour read before the theme landed, the pane's corners, the faded
+glass during search, empty tabs, and VoiceOver names. Clicks were tested in the real titled window through the lab's
+own event dispatch, without moving anyone's pointer.
+
+Open, to judge in the window: whether the places pane wants clear glass over a plain ground (there's little for it to
+bend; a full-height pane is thick glass whatever its type, so two content-sized pieces would be the lever); the tabs'
+overflow past six; keyboard focus into the native pieces (Full Keyboard Access reaches them, the page's Tab key
+doesn't); the chip without the card's grain (it reads a little blacker than the ground).
+
 ## Light and surface, not lines
 
 Riley (2026-10-23, with references of natural light on glass and soft surfaces): stick to the fundamental materials of
@@ -96,15 +173,17 @@ dusk sky under our web glass), and says so in the lab panel. Judge the glass in 
 
 ## The glass lab
 
-`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell"` opens the
-study in a real window with working traffic lights, behind every other window (with Stage Manager on, it waits in the
+`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=above&tone=lighter"`
+opens the third frame (drop `direction` and `tone` for the last look you chose) in a real window with working
+traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
 not in use (flatter, frosted). `run` instead of `open` is the film window, for checks and captures. The study also opens
 directly in a look: `&direction=glass&tabs=1&rail=closed&glass=regular&veil=none&panel=0`.
 
 ## Lab controls
 
-At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
-(Off, On), and for the glass frame, Glass (Clear, Regular) and Veil (None, Soft, Deep). Clicking
+At the conversation card's bottom right: Frame (Black, Glass, Above), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
+(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has) and Veil (None, Soft,
+Deep); for the third frame, Above, Bar (Compact, Title bar) and Glass (Regular, Clear). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.
