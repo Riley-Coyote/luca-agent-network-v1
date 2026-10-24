@@ -1,11 +1,14 @@
 /* ------------------------------------------------------------------
  * THE SHELL STUDY (ShellStudy.tsx; docs/luca/rail-system/SHELL_STUDY.md).
  *
- * The grid, in points: the lip is the window's top 48 (its words centred on
- * 24, with the traffic lights); the places are a column of 52 under it, their
- * icons on the first light's axis (26); the conversations rail is 220 beside
- * them; the card takes the rest, 8 from the window's right and bottom edges,
- * with no header of its own. Collapsing the rail slides the card over it.
+ * The grid, in points. The frame is thin: the lip, the window's top 48 (its
+ * words centred on 24, with the traffic lights), and the places, a column of
+ * 52 under it, their icons on the first light's axis (26). On the frame sit
+ * two cards of one material, at one level: the rail's (220) and the
+ * conversation's, 4 apart as the app's cards are (or joined into one), 8 from
+ * the window's right and bottom edges, the conversation with no header of its
+ * own. Only the frame is ever glass. Collapsing the rail closes its card and
+ * the conversation's follows.
  *
  * Two voices: the system sans for everything you read, Fragment Mono capitals
  * for the rail's structure. Four sizes in the frame: 11 (labels), 13 (the
@@ -104,7 +107,14 @@
   --shell-veil: 0.42;
 }
 
-/* ── the marks ─────────────────────────────────────────────────────── */
+/* ── the marks ───────────────────────────────────────────────────────
+ * Where you are is solid, never clear glass, and its corners are a
+ * squircle's, never a pill's: a capsule reads cheap at this size. Two
+ * materials, whichever the surface beneath lets read:
+ * - the plate: light ink, as the app's hover and its sent bubble are, on a
+ *   black frame and on a rail of the card's own black;
+ * - the card's black: its surface, grain and lit top, on a glass frame and
+ *   on a lighter rail, a piece of the card where you are. */
 .shell-marks {
   inset: 0;
   pointer-events: none;
@@ -113,7 +123,7 @@
 }
 
 .shell-mark {
-  border-radius: 999px;
+  border-radius: 9px;
   left: 0;
   position: absolute;
   top: 0;
@@ -121,46 +131,27 @@
   will-change: transform;
 }
 
-/* Our web glass, standing in for Apple's on the black frame in a browser:
- * the 8% lift, a breath more where the light enters at the top, and a rim
- * that is the light itself. */
-.shell-mark--glass {
-  background: linear-gradient(
-    to bottom,
-    rgb(255 255 255 / 0.1),
-    rgb(255 255 255 / 0.06)
-  );
+.shell-mark--place {
+  border-radius: 10px;
 }
 
-.shell-mark--glass::before {
-  background: linear-gradient(
-    to bottom,
-    rgb(255 255 255 / calc(0.42 + var(--wet, 0) * 0.3)),
-    rgb(255 255 255 / 0.1) 30%,
-    rgb(255 255 255 / 0.02) 55%,
-    rgb(255 255 255 / 0)
-  );
-  border-radius: inherit;
-  content: "";
-  inset: 0;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-  padding: 0.5px;
-  position: absolute;
+.shell-mark--plate {
+  background: hsl(var(--mn-ink) / calc(0.075 + var(--wet, 0) * 0.03));
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
 }
 
-/* The card's own black, on the glass frame: its surface and grain, lit along
- * the top as the card is (brighter while it moves), and the soft shadow the
- * light from above leaves under it on the glass. */
-.shell-mark--ink {
+.shell-mark--card {
   background-color: hsl(var(--mn-surface));
   background-image: var(--mn-card-finish, none);
   background-size: 256px 256px;
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / calc(0.1 + var(--wet, 0) * 0.2)),
+    0 0 0 0.5px rgb(255 255 255 / 0.05);
+}
+
+/* On the glass the card's black stands on the glass, so the light from above
+ * leaves its soft shadow under it. */
+.shell-marks .shell-mark--card {
   box-shadow:
     0 -0.5px 0 rgb(255 255 255 / calc(0.12 + var(--wet, 0) * 0.28)),
     0 0 0 0.5px rgb(255 255 255 / 0.06),
@@ -204,7 +195,7 @@
 
 .shell-lip-button {
   align-items: center;
-  border-radius: 999px;
+  border-radius: 8px;
   color: var(--shell-muted);
   display: inline-flex;
   height: 28px;
@@ -300,7 +291,7 @@
 
 .shell-tab {
   align-items: center;
-  border-radius: 999px;
+  border-radius: 9px;
   display: flex;
   flex: 0 1 auto;
   height: 30px;
@@ -404,7 +395,7 @@
 
 .shell-place {
   align-items: center;
-  border-radius: 999px;
+  border-radius: 10px;
   color: var(--shell-muted);
   display: flex;
   height: 32px;
@@ -444,26 +435,92 @@
   width: 26px;
 }
 
-/* ── the conversations rail ────────────────────────────────────────── */
+/* ── the conversations rail ──────────────────────────────────────────
+ * Its own card, at the conversation's level and of its material (the app's
+ * [data-luca-card]: surface, grain, lit top edge). It never takes the
+ * frame's glass. Closing it narrows the card to nothing, the rows held still
+ * and clipped, and the conversation's card follows its edge. */
 .shell-rail {
-  bottom: 0;
+  bottom: var(--edge);
   left: var(--places);
   position: absolute;
   top: var(--lip);
-  width: var(--rail);
+  transition: width var(--slide);
+  width: var(--rail-now);
+  z-index: 2;
+  /* Its words are the card's, whatever the frame is made of. */
+  --shell-ink: hsl(var(--mn-ink));
+  --shell-muted: hsl(var(--mn-ink-muted));
+  --shell-faint: hsl(var(--mn-ink-faint));
+  --shell-plate: hsl(var(--mn-ink) / 0.06);
+  --shell-thread: hsl(var(--mn-ink) / 0.16);
+}
+
+/* The lighter rail: the card's surface a step toward its ink. */
+:root .shell[data-tone="lighter"] .shell-rail[data-luca-card] {
+  background-color: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 5%,
+    hsl(var(--mn-surface))
+  );
+}
+
+/* Joined: one card, the rail its first part, a hairline between. */
+:root .shell[data-cards="joined"] .shell-rail[data-luca-card] {
+  border-bottom-right-radius: 0;
+  border-top-right-radius: 0;
+}
+
+:root
+  .shell[data-cards="joined"][data-rail="open"]
+  .shell-card[data-luca-card] {
+  border-bottom-left-radius: 0;
+  border-top-left-radius: 0;
+}
+
+.shell[data-cards="joined"] .shell-rail::after {
+  background: hsl(var(--mn-ink) / 0.08);
+  bottom: 0;
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 1px;
   z-index: 2;
 }
 
 .shell-rail-scroll {
-  inset: 0;
+  bottom: 0;
+  left: 0;
   overflow-y: auto;
   padding: 8px 8px 24px;
   position: absolute;
   scrollbar-width: none;
+  top: 0;
+  width: var(--rail);
 }
 
 .shell-rail-scroll::-webkit-scrollbar {
   display: none;
+}
+
+/* The rail's own marks sit in its rows' coordinates, beneath their words. */
+.shell-rail-content {
+  min-height: 100%;
+  position: relative;
+}
+
+.shell-rail-marks {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.shell-rail-list {
+  position: relative;
+  z-index: 1;
 }
 
 .shell-section {
@@ -507,7 +564,7 @@
  * (the hit, beneath); the chevron and the + sit above it. */
 .shell-row {
   align-items: center;
-  border-radius: 999px;
+  border-radius: 9px;
   display: flex;
   height: 32px;
   padding: 0 5px 0 10px;

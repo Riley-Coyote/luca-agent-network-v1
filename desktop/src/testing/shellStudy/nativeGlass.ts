@@ -15,8 +15,6 @@ export type GlassFrame = {
   floor: string;
   row: (Box & { id: string }) | null;
   clip: Box | null;
-  places: (Box & { id: string }) | null;
-  tab: (Box & { id: string }) | null;
   sheet: (Box & { r: number; style: "clear" | "regular" }) | null;
 };
 

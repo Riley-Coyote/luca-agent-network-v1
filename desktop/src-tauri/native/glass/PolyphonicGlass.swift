@@ -16,12 +16,10 @@ import WebKit
 //       whenever anything moves: the card's place and corners, the floor's colour, the chosen row and the rail area it
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
-//       The shell study (docs/luca/rail-system/SHELL_STUDY.md) adds, all optional:
-//       places: {id, x, y, w, h} | null    the disc under the chosen place in the icon rail, sliding place to place
-//       tab: {id, x, y, w, h} | null       the capsule under the open tab in the top lip, sliding tab to tab
-//       sheet: {x, y, w, h, r, style} | null   one sheet of Apple's glass for the whole frame, clear or regular
+//       The shell study (docs/luca/rail-system/SHELL_STUDY.md) adds, both optional:
+//       sheet: {x, y, w, h, r, style} | null   one sheet of Apple's glass for the whole frame, clear or regular; the
+//                                          page's cards cover all of it but the frame
 //       floor: "none"                      no floor at all: the window is clear, so the sheet shows the desktop
-//       Each mark has its own glass, so it never joins the rail's selection or the other mark.
 //   {type: "settings", material, motion, floor, cardGlass, slow}
 //                                                       clear|smoked|dark · pour|drop|slide · plain|grain · the card as
 //                                                       glass (true) or the page's own surface (false, the default)
@@ -47,8 +45,6 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
     /// The frame's sheet of glass, kept by its insets for the same reason as the card's.
     private var sheetInsets: NSEdgeInsets?
     private var sheetRadius: CGFloat = 16
-    private lazy var placesMark = GlassMark(stage: host.places)
-    private lazy var tabMark = GlassMark(stage: host.tabs)
     /// Whether the card is Apple's glass too, or (the default) the page's own surface with the glass beneath its edge.
     private var cardGlass = false
     private var mode = "pour"
@@ -83,7 +79,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         }
         // Directly beneath the page: above any window vibrancy, below every word.
         parent.addSubview(glass.host, positioned: .below, relativeTo: webView)
-        for stage in glass.host.stages { stage.material = .clear }
+        glass.stage.material = .clear
         glass.stage.onFrame = { [weak glass] _ in glass?.frameDrawn() }
         let controller = webView.configuration.userContentController
         controller.removeScriptMessageHandler(forName: handlerName)
@@ -106,8 +102,6 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         case "frame":
             pageTime = body["t"] as? Double
             sheet(body)
-            placesMark.show(Self.id(body["places"]), at: Self.rect(body["places"]))
-            tabMark.show(Self.id(body["tab"]), at: Self.rect(body["tab"]))
             layout(body)
             select(body)
         case "settings": settings(body)
@@ -221,8 +215,6 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         removePieces()
         stage.pulling = false
         host.floor.isHidden = true
-        placesMark.show(nil, at: nil)
-        tabMark.show(nil, at: nil)
         sheetInsets = nil
         placeSheet()
     }
@@ -236,7 +228,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
 
     private func settings(_ body: [String: Any]) {
         if let material = (body["material"] as? String).flatMap(LiquidMaterial.init(rawValue:)), material != .black {
-            for stage in host.stages { stage.material = material }
+            stage.material = material
         }
         if let motion = body["motion"] as? String, ["pour", "drop", "slide"].contains(motion), motion != mode {
             mode = motion
@@ -257,7 +249,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         }
         if let slow = body["slow"] as? Bool {
             self.slow = slow
-            for stage in host.stages { stage.slowMotion = slow ? 8 : 1 }
+            stage.slowMotion = slow ? 8 : 1
         }
     }
 
@@ -404,8 +396,6 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         log = nil
     }
 
-    private static func id(_ value: Any?) -> String? { (value as? [String: Any])?["id"] as? String }
-
     private static func rect(_ value: Any?) -> CGRect? {
         guard let box = value as? [String: Any], let x = box["x"] as? Double, let y = box["y"] as? Double,
               let w = box["w"] as? Double, let h = box["h"] as? Double, [x, y, w, h].allSatisfy(\.isFinite) else { return nil }
@@ -429,80 +419,6 @@ private enum GlassMotion {
     static let wellSize: CGFloat = 26
 }
 
-/// A mark that slides from one place to the next: the chosen place's disc, the open tab's capsule. Each has its own
-/// stage, so its own container: it never joins the rail's selection or the other mark.
-@available(macOS 26.0, *)
-@MainActor
-private final class GlassMark {
-    private let stage: LiquidStageView
-    private var chosen: String?
-    private var current: String?
-    private var serial = 0
-    /// Whether it has been shown since the page appeared: the first time it is simply there, later it wells up.
-    private var appeared = false
-    /// Pieces closing away, taken off once they are nothing.
-    private var going: Set<String> = []
-
-    init(stage: LiquidStageView) {
-        self.stage = stage
-        stage.onFrame = { [weak self] _ in self?.frameDrawn() }
-    }
-
-    /// The page's report: where the mark is now, or nil when there is none.
-    func show(_ id: String?, at rect: CGRect?) {
-        guard let id, let rect, rect.width >= 1, rect.height >= 1 else {
-            leave()
-            return
-        }
-        if let current, let drop = stage.drop(current) {
-            if id == chosen {
-                // The same mark moved (a resize, the rail opening beside it): at once at rest, on its spring while
-                // it still travels.
-                if drop.body.resting { stage.place(current, at: rect) } else { stage.aim(current, to: rect) }
-            } else {
-                chosen = id
-                stage.aim(current, to: rect, motion: GlassMotion.slide)
-            }
-            return
-        }
-        chosen = id
-        serial += 1
-        let drop = LiquidStageView.Drop(id: "mark-\(serial)", rect: appeared ? Self.point(in: rect) : rect)
-        drop.stretches = true
-        stage.add(drop)
-        current = drop.id
-        if appeared { stage.aim(drop.id, to: rect, motion: .swell) }
-        appeared = true
-    }
-
-    /// Gone by its shape, never a fade: it closes to a point at its middle.
-    private func leave() {
-        chosen = nil
-        guard let current, let drop = stage.drop(current) else {
-            self.current = nil
-            return
-        }
-        self.current = nil
-        going.insert(drop.id)
-        stage.aim(drop.id, to: Self.point(in: drop.body.goal), motion: .drain)
-    }
-
-    private func frameDrawn() {
-        for id in Array(going) {
-            guard let drop = stage.drop(id) else {
-                going.remove(id)
-                continue
-            }
-            if drop.body.resting {
-                stage.remove(id)
-                going.remove(id)
-            }
-        }
-    }
-
-    private static func point(in rect: CGRect) -> CGRect { CGRect(x: rect.midX, y: rect.midY, width: 0, height: 0) }
-}
-
 /// The floor and the glass, beneath the page.
 @available(macOS 26.0, *)
 @MainActor
@@ -511,9 +427,6 @@ final class GlassHostView: NSView {
     /// The frame as one sheet of glass (the shell study's glass frame), hidden unless the page asks for it.
     let sheet = NSGlassEffectView()
     let stage = LiquidStageView()
-    let places = LiquidStageView()
-    let tabs = LiquidStageView()
-    var stages: [LiquidStageView] { [stage, places, tabs] }
     var onLayout: (() -> Void)?
 
     override var isFlipped: Bool { true }
@@ -529,7 +442,7 @@ final class GlassHostView: NSView {
         sheet.style = .clear
         sheet.tintColor = nil
         addSubview(sheet)
-        for stage in stages { addSubview(stage) }
+        addSubview(stage)
     }
 
     @available(*, unavailable)
@@ -538,7 +451,7 @@ final class GlassHostView: NSView {
     override func layout() {
         super.layout()
         floor.frame = bounds
-        for stage in stages { stage.frame = bounds }
+        stage.frame = bounds
         onLayout?()
     }
 

@@ -257,14 +257,15 @@ export class MarkGroup {
     this.welling = null;
   }
 
-  /** Steps every piece; true while any still moves. */
   step(dt: number) {
-    let moving = false;
-    for (const piece of this.pieces) {
-      piece.step(dt);
-      if (!piece.resting) moving = true;
-    }
-    return moving;
+    for (const piece of this.pieces) piece.step(dt);
+  }
+
+  /** Whether anything here still moves, or is about to (a pour welling). */
+  get moving() {
+    if (this.welling !== null) return true;
+    for (const piece of this.pieces) if (!piece.resting) return true;
+    return false;
   }
 
   draw() {
@@ -277,10 +278,6 @@ export class MarkGroup {
       if (piece.resting) piece.settle();
       piece.draw();
     }
-  }
-
-  get busy() {
-    return this.welling !== null;
   }
 
   private add(rect: Rect) {
@@ -396,19 +393,17 @@ export class MarkEngine {
   }
 
   private tick = (now: number) => {
-    const elapsed = Math.min((now - this.last) / 1000, MAX_FRAME);
-    this.last = now;
-    let moving = false;
-    let left = elapsed;
+    // A frame's time can come before the moment the clock was woken: then no
+    // time has passed yet, and the next frame steps.
+    let left = Math.min(Math.max((now - this.last) / 1000, 0), MAX_FRAME);
+    this.last = Math.max(now, this.last);
     while (left > 1e-6) {
       const dt = Math.min(STEP, left);
       left -= dt;
-      for (const group of this.groups) if (group.step(dt)) moving = true;
+      for (const group of this.groups) group.step(dt);
     }
-    for (const group of this.groups) {
-      group.draw();
-      if (group.busy) moving = true;
-    }
+    for (const group of this.groups) group.draw();
+    const moving = this.groups.some((group) => group.moving);
     this.frame = moving ? requestAnimationFrame(this.tick) : null;
   };
 }

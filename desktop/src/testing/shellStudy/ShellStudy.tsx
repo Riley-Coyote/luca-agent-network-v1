@@ -1,15 +1,15 @@
 /**
- * THE SHELL STUDY: places, conversations, the lip, and the glass, in two
- * directions (docs/luca/rail-system/SHELL_STUDY.md).
+ * THE SHELL STUDY: places, conversations, the lip, and the frame
+ * (docs/luca/rail-system/SHELL_STUDY.md).
  *
- * - Black frame: quiet ink on black; glass marks where you are.
- * - Glass frame: the frame is one sheet of clear glass showing the desktop;
- *   the card is the one solid thing in it, and where you are is marked in the
- *   card's own black.
+ * A thin frame (the lip and the places) holds two cards of one material:
+ * the rail's and the conversation's. The frame is black, or Apple's clear
+ * glass over the desktop; the cards are never glass. Where you are is a
+ * solid, squircle-cornered mark.
  *
- * In the glass lab (scripts/native-glass-lab.sh) the glass is Apple's, drawn
- * beneath the page; in a browser it is our own stand-in, and says so. Sample
- * conversations only (content.ts).
+ * In the glass lab (scripts/native-glass-lab.sh) the frame's glass is
+ * Apple's, drawn beneath the page; in a browser it is our own stand-in, and
+ * says so. Sample conversations only (content.ts).
  */
 import * as React from "react";
 import {
@@ -60,6 +60,8 @@ export const SHELL_STUDY_KEY = "ui-design-lab.polyphonic.shell.v1";
 /** The shell's measures, in points. */
 const PLACES_WIDTH = 52;
 const RAIL_WIDTH = 220;
+/** Between the rail's card and the conversation's, as between the app's cards. */
+const CARD_GAP = 4;
 const CARD_RADIUS = 10;
 /** The frame's corners, matching a window's. */
 const WINDOW_RADIUS = 16;
@@ -72,6 +74,10 @@ type Choice = {
   direction: Direction;
   tabs: boolean;
   rail: boolean;
+  /** The rail's card beside the conversation's (apart), or one card with both. */
+  cards: "apart" | "joined";
+  /** The rail's surface: the card's own black, or a step lighter. */
+  tone: "same" | "lighter";
   glass: "clear" | "regular";
   veil: Veil;
   panel: boolean;
@@ -81,6 +87,8 @@ const DEFAULT_CHOICE: Choice = {
   direction: "black",
   tabs: false,
   rail: true,
+  cards: "apart",
+  tone: "same",
   glass: "clear",
   veil: "soft",
   panel: true,
@@ -93,6 +101,10 @@ function readChoice(): Choice {
       choice.direction = source.direction;
     if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
     if (typeof source.rail === "boolean") choice.rail = source.rail;
+    if (source.cards === "apart" || source.cards === "joined")
+      choice.cards = source.cards;
+    if (source.tone === "same" || source.tone === "lighter")
+      choice.tone = source.tone;
     if (source.glass === "clear" || source.glass === "regular")
       choice.glass = source.glass;
     if (
@@ -109,7 +121,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&tabs=1&rail=closed&glass=regular&veil=none&panel=0`
+  // `?direction=glass&cards=joined&tone=lighter&tabs=1&rail=closed&glass=regular&veil=none&panel=0`
   // opens a look directly, for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
@@ -120,6 +132,8 @@ function readChoice(): Choice {
     direction: params.get("direction"),
     tabs: flag("tabs"),
     rail: flag("rail"),
+    cards: params.get("cards"),
+    tone: params.get("tone"),
     glass: params.get("glass"),
     veil: params.get("veil"),
     panel: flag("panel"),
@@ -311,8 +325,8 @@ export function ShellStudy() {
   // ── where things are: the marks and the native glass ─────────────
   const shellRef = React.useRef<HTMLDivElement>(null);
   const cardRef = React.useRef<HTMLElement>(null);
-  const layerRef = React.useRef<HTMLDivElement>(null);
-  const railScrollRef = React.useRef<HTMLDivElement>(null);
+  const frameLayerRef = React.useRef<HTMLDivElement>(null);
+  const railLayerRef = React.useRef<HTMLDivElement>(null);
   const marksRef = React.useRef<{
     rail: MarkGroup;
     places: MarkGroup;
@@ -326,66 +340,70 @@ export function ShellStudy() {
     const card = cardRef.current;
     if (!shell || !card) return;
     const { choice, place, railShown, native } = stateRef.current;
-    const origin = shell.getBoundingClientRect();
-    const box = (element: Element | null | undefined): Rect | null => {
-      if (!element) return null;
-      const rect = element.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return null;
-      return {
-        x: rect.left - origin.left,
-        y: rect.top - origin.top,
-        w: rect.width,
-        h: rect.height,
+    const measure =
+      (origin: DOMRect) =>
+      (element: Element | null | undefined): Rect | null => {
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return null;
+        return {
+          x: rect.left - origin.left,
+          y: rect.top - origin.top,
+          w: rect.width,
+          h: rect.height,
+        };
       };
-    };
-    const cardBox = box(card);
+    const origin = shell.getBoundingClientRect();
+    const box = measure(origin);
     const talking = place === "conversations";
-    const rowElement =
-      talking && railShown
-        ? shell.querySelector('[data-rail-row][data-active="true"]')
-        : null;
-    const clip = box(railScrollRef.current);
-    let row = box(rowElement);
-    if (row && clip) {
-      // Pressed flat against the rail's edge where it scrolls under it.
-      const top = Math.max(row.y, clip.y);
-      const bottom = Math.min(row.y + row.h, clip.y + clip.h);
-      row = bottom > top ? { ...row, y: top, h: bottom - top } : null;
-    }
-    const rowId = rowElement?.getAttribute("data-home") ?? null;
-    const placeBox = box(shell.querySelector(`[data-place="${place}"]`));
-    const tabElement =
-      choice.tabs && talking
-        ? shell.querySelector('[data-tab][data-selected="true"]')
-        : null;
-    const tabBox = box(tabElement);
-    const tabId = tabElement?.getAttribute("data-tab") ?? null;
 
     const marks = marksRef.current;
-    if (marks) {
-      marks.rail.show(rowId, row, cardBox);
-      marks.places.show(place, placeBox);
-      marks.tab.show(tabId, tabBox);
+    const railLayer = railLayerRef.current;
+    if (marks && railLayer) {
+      // On the frame: the chosen place, and the open tab.
+      marks.places.show(
+        place,
+        box(shell.querySelector(`[data-place="${place}"]`)),
+      );
+      const tab =
+        choice.tabs && talking
+          ? shell.querySelector('[data-tab][data-selected="true"]')
+          : null;
+      marks.tab.show(tab?.getAttribute("data-tab") ?? null, box(tab));
+      // On the rail's card, in its own coordinates: the mark scrolls with
+      // the rows and the card clips it. A pour comes out of the
+      // conversation's edge, where the cards are joined.
+      const inRail = measure(railLayer.getBoundingClientRect());
+      const row =
+        talking && railShown
+          ? railLayer.parentElement?.querySelector(
+              '[data-rail-row][data-active="true"]',
+            )
+          : null;
+      marks.rail.show(
+        row?.getAttribute("data-home") ?? null,
+        inRail(row),
+        inRail(card),
+      );
     }
     if (!native) return;
-    const black = choice.direction === "black";
+    const cardBox = box(card);
     reportFrame({
       card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
-      floor: black ? "#000000" : "none",
-      row: black && row && rowId ? { id: rowId, ...row } : null,
-      clip,
-      places: black && placeBox ? { id: place, ...placeBox } : null,
-      tab: black && tabBox && tabId ? { id: tabId, ...tabBox } : null,
-      sheet: black
-        ? null
-        : {
-            x: 0,
-            y: 0,
-            w: origin.width,
-            h: origin.height,
-            r: WINDOW_RADIUS,
-            style: choice.glass,
-          },
+      floor: choice.direction === "black" ? "#000000" : "none",
+      row: null,
+      clip: null,
+      sheet:
+        choice.direction === "black"
+          ? null
+          : {
+              x: 0,
+              y: 0,
+              w: origin.width,
+              h: origin.height,
+              r: WINDOW_RADIUS,
+              style: choice.glass,
+            },
     });
   }, []);
 
@@ -402,32 +420,40 @@ export function ShellStudy() {
     [sync],
   );
 
-  // The page draws its own marks except where Apple's glass draws them.
-  const markStyle =
-    native && choice.direction === "black"
-      ? "off"
-      : choice.direction === "glass"
-        ? "ink"
-        : "glass";
+  // Where you are is solid: the card's own black, or a plate of light ink,
+  // whichever the surface beneath it lets read. On the glass frame, the
+  // card's black; on the black frame, the plate. On the rail's card, the
+  // plate on the card's own tone, the card's black on the lighter one.
+  const frameMark = choice.direction === "glass" ? "card" : "plate";
+  const railMark = choice.tone === "lighter" ? "card" : "plate";
+  const railMotion = choice.cards === "joined" ? "pour" : "slide";
   React.useLayoutEffect(() => {
-    const layer = layerRef.current;
-    if (!layer || markStyle === "off") {
-      marksRef.current = null;
-      return;
-    }
-    const engine = new MarkEngine(layer);
-    const kind = `shell-mark shell-mark--${markStyle}`;
+    const frameLayer = frameLayerRef.current;
+    const railLayer = railLayerRef.current;
+    if (!frameLayer || !railLayer) return;
+    const frame = new MarkEngine(frameLayer);
+    const rail = new MarkEngine(railLayer);
     marksRef.current = {
-      rail: engine.group(`${kind} shell-mark--row`, "pour"),
-      places: engine.group(`${kind} shell-mark--place`, "slide"),
-      tab: engine.group(`${kind} shell-mark--tab`, "slide"),
+      places: frame.group(
+        `shell-mark shell-mark--${frameMark} shell-mark--place`,
+        "slide",
+      ),
+      tab: frame.group(
+        `shell-mark shell-mark--${frameMark} shell-mark--tab`,
+        "slide",
+      ),
+      rail: rail.group(
+        `shell-mark shell-mark--${railMark} shell-mark--row`,
+        railMotion,
+      ),
     };
     sync();
     return () => {
-      engine.stop();
+      frame.stop();
+      rail.stop();
       marksRef.current = null;
     };
-  }, [markStyle, sync]);
+  }, [frameMark, railMark, railMotion, sync]);
 
   React.useEffect(() => {
     if (!native) return;
@@ -469,7 +495,10 @@ export function ShellStudy() {
   // ── what the lip says ─────────────────────────────────────────────
   const placeTitle =
     place === "conversations" ? null : PLACE_PAGES[place].title;
-  const cardLeft = PLACES_WIDTH + (choice.rail ? RAIL_WIDTH : 0);
+  const railWidth = choice.rail ? RAIL_WIDTH : 0;
+  const cardLeft =
+    PLACES_WIDTH +
+    (choice.rail ? RAIL_WIDTH + (choice.cards === "joined" ? 0 : CARD_GAP) : 0);
 
   const tabTitle = (key: string) => {
     const { home, session } = openOf(key);
@@ -483,18 +512,25 @@ export function ShellStudy() {
   return (
     <div
       className="shell"
+      data-cards={choice.cards}
       data-direction={choice.direction}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
       data-tabs={choice.tabs ? "on" : undefined}
+      data-tone={choice.tone}
       data-veil={choice.veil}
       ref={shellRef}
-      style={{ "--card-left": `${cardLeft}px` } as React.CSSProperties}
+      style={
+        {
+          "--card-left": `${cardLeft}px`,
+          "--rail-now": `${railWidth}px`,
+        } as React.CSSProperties
+      }
     >
       {native ? null : <div aria-hidden="true" className="shell-desktop" />}
       {native ? null : <div aria-hidden="true" className="shell-frame" />}
       <div aria-hidden="true" className="shell-veil" />
-      <div aria-hidden="true" className="shell-marks" ref={layerRef} />
+      <div aria-hidden="true" className="shell-marks" ref={frameLayerRef} />
 
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the lip is the window's title bar; pressing its empty part moves the window, as a title bar does. */}
       <header
@@ -645,19 +681,27 @@ export function ShellStudy() {
       <nav
         aria-label="Conversations"
         className="shell-rail"
+        data-luca-card
         inert={choice.rail ? undefined : true}
       >
-        <div className="shell-rail-scroll" ref={railScrollRef}>
-          <Rail
-            active={place === "conversations" ? open : null}
-            expanded={expanded}
-            homes={homes}
-            onAdd={addSession}
-            onNote={setNote}
-            onOpen={openHomeRow}
-            onSession={(home, session) => goTo({ home: home.id, session })}
-            onToggle={toggle}
-          />
+        <div className="shell-rail-scroll">
+          <div className="shell-rail-content">
+            <div
+              aria-hidden="true"
+              className="shell-rail-marks"
+              ref={railLayerRef}
+            />
+            <Rail
+              active={place === "conversations" ? open : null}
+              expanded={expanded}
+              homes={homes}
+              onAdd={addSession}
+              onNote={setNote}
+              onOpen={openHomeRow}
+              onSession={(home, session) => goTo({ home: home.id, session })}
+              onToggle={toggle}
+            />
+          </div>
         </div>
       </nav>
 
@@ -1192,6 +1236,24 @@ function LabPanel({
         value={choice.rail ? "open" : "closed"}
       />
       <Segment
+        label="Cards"
+        onChange={(value) => choose("cards", value)}
+        options={[
+          ["apart", "Apart"],
+          ["joined", "Joined"],
+        ]}
+        value={choice.cards}
+      />
+      <Segment
+        label="Rail tone"
+        onChange={(value) => choose("tone", value)}
+        options={[
+          ["same", "Same"],
+          ["lighter", "Lighter"],
+        ]}
+        value={choice.tone}
+      />
+      <Segment
         label="Tabs"
         onChange={(value) => choose("tabs", value === "on")}
         options={[
@@ -1227,8 +1289,8 @@ function LabPanel({
         {note ||
           (native
             ? glass
-              ? "Apple's glass, showing your desktop."
-              : "Apple's glass marks where you are."
+              ? "The frame is Apple's glass; the rail and the conversation are cards on it."
+              : "The frame is black; the rail and the conversation are cards on it."
             : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
     </aside>

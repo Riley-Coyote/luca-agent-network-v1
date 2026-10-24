@@ -5,60 +5,54 @@ for who you talk to, the top lip for the title (and later tabs), and the glass. 
 `/scripts/shell-lab.template.html?experience=shell`, in the browser and in the glass lab with Apple's real glass. The
 conversation rail itself follows `SPEC.md` in this folder.
 
-## The structure (both directions)
+## The structure (both frames)
+
+*A thin frame holds two cards: the rail, and the conversation.*
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ ● ● ●   ⫶  ‹ ›              Monday plan                       ▣  ⧉  │  the lip, 44 pt
-├────┬──────────────┬──────────────────────────────────────────────────┤
-│ ◎  │       ⌕  ✎   │                                                  │
-│ ▤  │ Luca         │                     TODAY                        │
-│ ⧉  │              │     Luca                                         │
-│ ∿  │ PROJECTS   + │     I lined up the week…                         │
-│ ◍  │ Tidepool  ⌄  │                                                  │
-│    │ │ Landing…   │                                                  │
-│    │ AGENTS     + │                                                  │
-│    │ Wren  ⌄      │                                                  │
-│    │ │ Monday plan│                                                  │
-│ ⚙  │ FLEETS     + │          ( Message Luca…                    ↑ )  │
-│ R  │ Design team  │                                                  │
-└────┴──────────────┴──────────────────────────────────────────────────┘
- places  conversations                     the card
+│ ● ● ●  ▯                 ‹ ›         Wren / Monday plan              │  the lip, 48 pt       ─┐
+├────┬──────────────┬─┬────────────────────────────────────────────────┤                        │ the frame:
+│ ✎  │ Luca         │ │                    TODAY                       │                        │ glass or black
+│ ⌕  │              │ │   Wren                                         │                        │
+│    │ PROJECTS   + │ │   Here's Monday, in the order it wants…        │                        │
+│ ◎  │ Tidepool  ⌄  │ │                                                │                        │
+│ ▤  │ │ Landing…   │ │                                                │                        │
+│ ⧉  │ AGENTS     + │ │                                                │                        │
+│ ∿  │ ▢ Wren  ⌄  ▢ │ │                                                │                        │
+│ ◍  │ │ Monday plan│ │                                                │                        │
+│ ⚙  │ FLEETS     + │ │         ( Message Wren…                   ↑ )  │                        │
+│ S  │ Design team  │ │                                                │                        │
+└────┴──────────────┴─┴────────────────────────────────────────────────┘                       ─┘
+ places  the rail's    4   the conversation's card
+ 52      card, 220
 ```
 
-- **The lip** (the window's top strip): traffic lights, the conversation rail's toggle, back and forward, then the open
-  conversation's name over the card's reading column, and its actions at the right. With tabs on, the name becomes
-  the active tab among the open conversations. The card has no header of its own.
-- **The places** (a column of icons, always there): Conversations, Library, Agents, Activity, Brain; Settings and your
-  avatar at the bottom. A place opens in the card; the conversation rail stays as it is. Runtimes live in Agents.
-- **The conversation rail** (collapsible, 220 pt): search and new at its top; Luca; Projects, Agents, Fleets with their
-  sessions nested (`SPEC.md`).
-- **Collapsed**, only the places, the lip and the card remain, and the card takes the room.
+Riley, 2026-10-23, on the first version (the whole frame as glass, the rail on it): the rail can't be the same glass as
+the floor; it has to be a surface of its own, at the conversation card's level, whether the frame is glass or black.
+Only the thin parts, the lip and the icon rail, may be clear glass.
 
-## Direction 1, "Black frame" (Claude's, as imagined before Riley's note)
+- **The frame** is thin: the lip (the window's top 48: traffic lights, the rail's toggle, back and forward over the
+  conversation, its name on the conversation's axis, tabs when on) and the places (a column of 52: new and search, then
+  Conversations, Library, Agents, Activity, Brain; Settings and the avatar at the bottom; icons on the first traffic
+  light's axis). It is Apple's clear glass over the desktop, or black.
+- **The rail's card**, 220 wide, beside the places: the conversation card's material (surface, grain, lit top edge) at
+  its level, never the frame's glass. Its rows follow `SPEC.md`. It sits 4 from the conversation's card, as the app's
+  cards sit apart (or joined into one card with a hairline, a lab choice).
+- **The conversation's card** takes the rest, 8 from the window's right and bottom edges, with no header of its own.
+- **Closing the rail** narrows its card to nothing (its rows held still and clipped) and the conversation's card
+  follows its edge. The places and the lip stay.
 
-*Quiet ink on black; glass marks where you are.*
+## Where you are
 
-- The floor is black: the lip, the places and the conversation rail are bare ink on it, with no separators.
-- The card is the near-black grained surface (#060606, its even grain and top light).
-- Apple's clear glass marks where you are, at every level, with one physics: a disc under the chosen place (it slides
-  between icons), the capsule under the chosen home (it wells out from under the card's edge and pours to the row;
-  the old one drains back under the card), and, with tabs on, a capsule under the open tab (it slides along the lip).
+Solid, never clear glass, and squircle-cornered, never a pill: a capsule at this size reads cheap (Riley). The mark is
+whichever of two materials reads on the surface beneath it:
 
-## Direction 2, "Glass frame" (Claude's, with Riley's note)
+- the plate (light ink, as the app's hover and sent bubble): on a black frame, and on a rail of the card's own black;
+- the card's black (its surface, grain and lit top): on a glass frame, and on a lighter rail.
 
-*The frame is glass; the card is the one solid thing in it.* Riley: "the outer rail/lip surface should be glass itself …
-real beautiful liquid glass, more transparent with less frost."
-
-- The lip, the places and the conversation rail are one sheet of Apple's clear glass, the window's own frame, showing
-  the desktop through it. Nothing frosts it; a veil (none, soft, deep) darkens it only so its words read over a bright
-  desktop.
-- The card floats on the glass: the near-black grained surface, its top light, and the soft shadow the light from above
-  leaves under it.
-- Where you are is marked in the card's own black, the inverse of the black frame: Apple's glass can't sit on Apple's
-  glass, so on glass the mark is a drop of the card. A black disc under the chosen place, a black capsule under the
-  chosen home (poured out from under the card's edge and drained back under it), a black capsule under the open tab.
-  The page draws these, on the same springs as the native glass.
+The open session under a home is lit, not marked (`SPEC.md`). The marks slide on the house springs; with the cards
+joined, the rail's mark pours out of the conversation's edge. Riley set the marks' finer behaviour aside for now.
 
 ## In the browser
 
@@ -75,6 +69,7 @@ directly in a look: `&direction=glass&tabs=1&rail=closed&glass=regular&veil=none
 
 ## Lab controls
 
-At the card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Tabs (Off, On), and for the glass frame, Glass
-(Clear, Regular) and Veil (None, Soft, Deep). Clicking places, homes, sessions, tabs, + and search works as it would in
-the app; nothing leaves the page. The look is remembered on this Mac.
+At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Cards (Apart, Joined), Rail tone
+(Same, Lighter), Tabs (Off, On), and for the glass frame, Glass (Clear, Regular) and Veil (None, Soft, Deep). Clicking
+places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
+remembered on this Mac.
