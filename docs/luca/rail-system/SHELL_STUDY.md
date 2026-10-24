@@ -11,7 +11,7 @@ conversation rail itself follows `SPEC.md` in this folder.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ ● ● ●  ▯                 ‹ ›         Wren / Monday plan              │  the lip, 48 pt       ─┐
+│ ● ● ●  ▯                 ‹ ›         Wren / Monday plan              │  the lip, 36 pt       ─┐
 ├────┬──────────────┬─┬────────────────────────────────────────────────┤                        │ the frame:
 │ ✎  │ Luca         │ │                    TODAY                       │                        │ glass or black
 │ ⌕  │              │ │   Wren                                         │                        │
@@ -25,7 +25,7 @@ conversation rail itself follows `SPEC.md` in this folder.
 │ S  │ Design team  │ │                                                │                        │
 └────┴──────────────┴─┴────────────────────────────────────────────────┘                       ─┘
  places  the rail's    4   the conversation's card
- 52      card, 220
+ 44      card, 220
 ```
 
 Riley, 2026-10-23, on the first version (the whole frame as glass, the rail on it): the rail can't be the same glass as
@@ -211,7 +211,8 @@ way. Riley set their finer behaviour aside for now.
 
 ## Next
 
-`SPEC.md`, then the app: the setting with Auto first, and the native frosted support removed.
+The app, by `SHELL_SPEC.md` (the frame as decided, mapped onto every surface and setting of the app it touches), one
+step at a time.
 
 ## In the browser
 

@@ -117,7 +117,8 @@ and groups appear twice. That goes.
 ## Out of scope here (next)
 
 The icon rail that opens into the full rail (the glass disc stretching into the row capsule), and the top lip over the
-card for tabs. They build on this rail once it is right.
+card for tabs. They build on this rail once it is right. The frame around the rail, as decided in the shell study, is
+`SHELL_SPEC.md`; where the two differ on the selection, the shell's solid marks replace the rail's glass.
 
 ## Where it lives
 
