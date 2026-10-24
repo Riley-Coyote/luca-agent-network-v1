@@ -22,7 +22,12 @@ report. Tabs are out of scope everywhere (the spec's "Tabs (later)").
 - Your worktree and branch are named in your dispatch; they already exist, with `node_modules` linked. Work only there.
 - Never `git stash`, never merge, never push, never rebase another branch, never touch another worktree. Commit on your
   branch with explicit paths (`git add <path>`; never `git add .`, `-A` or `-u`). Activate the toolchain first in every
-  shell: `. ./bin/activate-hermit` from the worktree's root. The pre-commit hook formats; let it.
+  shell: `. ./bin/activate-hermit` from the worktree's root. No commit hook runs here: format your own changed files
+  with `./node_modules/.bin/biome check --write <files>` from `desktop/` before committing.
+- **Never run `pnpm install`, `pnpm run`, `pnpm build`, `pnpm exec`, `pnpm test` or any `just` recipe in your
+  worktree.** Its `node_modules` folders are links to the main checkout's, and pnpm tries to reinstall them, which
+  would wipe the main checkout's packages. Call the tools directly from `desktop/node_modules/.bin/`, as below. Never
+  commit the `node_modules` links.
 
 **Nothing on Riley's screen.**
 - Never run `just dev`, `tauri dev`, `cargo tauri`, `open`, a headed browser, or any app bundle. Never build the Tauri
@@ -37,7 +42,7 @@ free): no new caches, nothing written outside your worktree and your scratch fol
 
 **The rules of this codebase** are in the repo's `CLAUDE.md` / `AGENTS.md` and bind you. In particular:
 - text sizes are rem tokens (`text-base`, `text-sm`, `text-xs`, `text-2xs`, `text-3xs`), never px or arbitrary rem;
-- `pnpm run check:px-text` must pass;
+- `node scripts/check-px-text.mjs` must pass;
 - no new `unwrap()` or `expect()` in Rust production paths;
 - module-level caches must reset in `resetCommunityState()`;
 - `React.memo` needs stable props.
@@ -47,10 +52,11 @@ until WP-09. With the flag off, the app must look and behave exactly as it does 
 with screenshots compared by hash against the base build Claude serves at `http://127.0.0.1:4300` (the integration
 branch as your branch started; read-only, never stop it).
 
-**How to prove it.**
-- Build: `pnpm build:e2e` in `desktop/`.
-- Serve: `python3 -m http.server <your port> -d dist`, and leave it running.
-- Tests: `LUCA_PLAYWRIGHT_PORT=<your port> pnpm exec playwright test <spec> --project=smoke`.
+**How to prove it** (every command from `desktop/`).
+- Build: `./node_modules/.bin/tsc && ./node_modules/.bin/vite build --mode e2e` (about 12 seconds).
+- Serve: `python3 -m http.server <your port> --bind 127.0.0.1 -d dist`, and leave it running.
+- Tests: `LUCA_PLAYWRIGHT_PORT=<your port> ./node_modules/.bin/playwright test <spec> --project=smoke` (register a new
+  spec in `playwright.config.ts`'s smoke `testMatch`).
 - The app renders in a browser only with the mock bridge: `installMockBridge` from `desktop/tests/helpers/bridge.ts`.
   Seed the flag before installing it: `page.addInitScript` setting `localStorage["buzz-feature-overrides-v1"]` to
   `{"shell-frame": true}` (check `desktop/src/shared/features/store.ts` for the exact key).
@@ -58,9 +64,10 @@ branch as your branch started; read-only, never stop it).
 - Screenshots: `deviceScaleFactor: 2`, saved in your scratch folder, named for what they show. Every hash must be
   unique.
 - Measure, don't reason: bounding boxes, colours, contrast. A check you could not run is reported as not run.
-- Gates before your last commit, all from `desktop/`: `pnpm exec tsc --noEmit -p tsconfig.json`; `pnpm exec biome
-  check` on your changed files; `pnpm run check:px-text`; the unit tests for what you touched (`pnpm test`, or
-  targeted); your Playwright spec. Report each with its count.
+- Gates before your last commit, all from `desktop/`: `./node_modules/.bin/tsc --noEmit -p tsconfig.json`;
+  `./node_modules/.bin/biome check <your changed files>`; `node scripts/check-px-text.mjs`; the unit tests for what
+  you touched (`node --import ./test-loader.mjs --experimental-strip-types --test <files>`); your Playwright spec.
+  Report each with its count.
 
 **When you move or remove UI**, add a capability map to your report: every control in the old place → its new home, or
 LOST. LOST is a failure unless the spec retires it.
