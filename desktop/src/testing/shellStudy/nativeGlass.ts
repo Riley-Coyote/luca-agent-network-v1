@@ -5,9 +5,8 @@ import * as React from "react";
  * (desktop/src-tauri/native/glass): the page says where things are, the
  * native side draws the glass beneath the page and moves it. The protocol is
  * in PolyphonicGlass.swift's header; this sends the shell study's part of it.
- * The glass above the page (the "Above" frame) has its own line, to
- * Lab/ShellChrome.swift: the pieces and what they hold go out, presses and
- * the window's state come back.
+ * The glass floor (the frame in its own shape, with what it holds inside it)
+ * has its own line, to Lab/ShellFloor.swift, whose header has that protocol.
  */
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -41,8 +40,11 @@ type GlassWindow = Window & {
 
 const glassWindow = () => window as GlassWindow;
 
+/** Whether the lab had a handler by that name to take it. */
 function post(name: string, body: unknown) {
-  glassWindow().webkit?.messageHandlers?.[name]?.postMessage(body);
+  const handler = glassWindow().webkit?.messageHandlers?.[name];
+  handler?.postMessage(body);
+  return Boolean(handler);
 }
 
 let lastFrame = "";
@@ -88,55 +90,62 @@ export function placeLabLights(left: number, centre: number) {
   post("glassLab", { lights: { left, centre } });
 }
 
-/** One thing a piece of the glass above holds (ShellChrome.swift). */
-export type ChromeItem = {
+/** One thing the frame holds, drawn inside the glass floor
+ *  (Lab/ShellFloor.swift): a symbol, words, or the avatar's initial. r is the
+ *  radius of the plate beneath it on hover, and of the chip when it's where
+ *  you are. */
+export type FloorItem = Box & {
   id: string;
-  kind: "button" | "place" | "tab" | "avatar" | "gap" | "flex";
+  kind: "symbol" | "text" | "avatar";
   symbol?: string;
-  label: string;
-  title?: string;
+  size?: number;
+  text?: string;
+  /** Words in tones (the title's home, slash and session). */
+  parts?: { text: string; tone: "full" | "muted" | "faint"; weight: number }[];
+  align?: "center";
+  pad?: number;
+  r?: number;
+  /** How far the plate under it stands in from its top and bottom. */
+  inset?: number;
   selected?: boolean;
   disabled?: boolean;
+  hover?: boolean;
+  pressed?: boolean;
+  /** Its name fades out under its close button. */
+  fade?: boolean;
+  strong?: boolean;
 };
 
-/** The glass above the page: where its pieces go and what they hold. */
-export type GlassChrome =
+/** The glass floor: the frame as one piece of Apple's glass in its own
+ *  shape, the cards (and the open tab) cut out of it, what the frame holds
+ *  inside it, and darkness, if any, beneath it. */
+export type GlassFloor =
   | { on: false }
   | {
       on: true;
-      variant: "regular" | "clear";
-      h: number;
+      style: "regular" | "clear";
+      tint: string | null;
+      dim: number;
       r: number;
-      card: string;
-      modal: boolean;
-      lead: { x: number; y: number; items: ChromeItem[] };
-      tabs: { x: number; y: number; maxW: number; items: ChromeItem[] } | null;
-      /** The places pane, its corners concentric with the window's (r). */
-      places: Box & { r: number; items: ChromeItem[] };
+      rail: (Box & { r: number }) | null;
+      card: (Box & { r: number }) | null;
+      tab: Box | null;
+      cardColor: string;
+      items: FloorItem[];
     };
 
-let lastChrome = "";
+let lastFloor = "";
 
-/** Sends the glass above the page its pieces, when anything has changed. */
-export function reportChrome(chrome: GlassChrome) {
-  const json = JSON.stringify(chrome);
-  if (json === lastChrome) return;
-  lastChrome = json;
-  post("shellChrome", { type: "chrome", ...chrome });
+/** Sends the floor, when anything has changed since the last one it took. */
+export function reportFloor(floor: GlassFloor) {
+  const json = JSON.stringify(floor);
+  if (json === lastFloor) return;
+  if (post("shellFloor", { type: "floor", ...floor })) lastFloor = json;
 }
 
-/** A press on a piece of the glass above: its item's id. */
-export function useChromeActions(act: (action: string) => void) {
-  const latest = React.useRef(act);
-  latest.current = act;
-  React.useEffect(() => {
-    const pressed = (event: Event) => {
-      const action = (event as CustomEvent<{ action?: string }>).detail?.action;
-      if (action) latest.current(action);
-    };
-    window.addEventListener("polyphonic-chrome", pressed);
-    return () => window.removeEventListener("polyphonic-chrome", pressed);
-  }, []);
+/** The floor's handler has just arrived: send everything again. */
+export function resetFloor() {
+  lastFloor = "";
 }
 
 type LabWindowState = { radius: number; key: boolean };
@@ -164,7 +173,7 @@ export function useLabWindow(): LabWindowState {
     window.addEventListener("focus", focus);
     window.addEventListener("blur", focus);
     // A page that has just loaded asks the lab where it is.
-    post("shellChrome", { type: "window" });
+    post("shellFloor", { type: "window" });
     return () => {
       window.removeEventListener("polyphonic-window", told);
       window.removeEventListener("focus", focus);
@@ -181,9 +190,10 @@ export const titledLabWindow = () =>
 
 const announced = () => Boolean(glassWindow().__POLYPHONIC_NATIVE_GLASS__);
 
-/** Whether the glass lab is around this page at all, whatever the person's
- *  settings: Apple's glass above the page follows Reduce Transparency itself. */
-export function useNativePresent() {
+/** Whether Apple's glass is beneath this page: the glass lab announces it.
+ *  Apple's materials follow Reduce Transparency themselves (frostier, more
+ *  opaque), so the page never paints a stand-in desktop over the real one. */
+export function useNativeGlass() {
   const [present, setPresent] = React.useState(announced);
   React.useEffect(() => {
     const show = () => setPresent(true);
@@ -192,26 +202,4 @@ export function useNativePresent() {
     return () => window.removeEventListener("polyphonic-native-glass", show);
   }, []);
   return present;
-}
-
-/** Whether Apple's glass is beneath this page: the glass lab announces it, and
- *  Reduce Transparency turns it down (the page draws everything opaque). */
-export function useNativeGlass() {
-  const [present, setPresent] = React.useState(announced);
-  const [opaque, setOpaque] = React.useState(
-    () => window.matchMedia("(prefers-reduced-transparency: reduce)").matches,
-  );
-  React.useEffect(() => {
-    const show = () => setPresent(true);
-    window.addEventListener("polyphonic-native-glass", show);
-    if (announced()) show();
-    const query = window.matchMedia("(prefers-reduced-transparency: reduce)");
-    const change = () => setOpaque(query.matches);
-    query.addEventListener("change", change);
-    return () => {
-      window.removeEventListener("polyphonic-native-glass", show);
-      query.removeEventListener("change", change);
-    };
-  }, []);
-  return present && !opaque;
 }

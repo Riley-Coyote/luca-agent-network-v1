@@ -23,7 +23,7 @@ import WebKit
 //   {"quit": true}
 // The page can move the window by its own title bar: window.webkit.messageHandlers.glassLab.postMessage("drag") from a
 // mousedown there; and place the traffic lights on its lip: postMessage({lights: {left, centre}}).
-// Over the page float the shell study's pieces of glass, when it asks for them (ShellChrome.swift).
+// Beneath the page, the shell study's glass floor, when it asks for it (ShellFloor.swift).
 
 @main
 enum GlassLab {
@@ -52,8 +52,8 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     /// left edge. The page can move them to its own lip.
     private var lightsCentre: CGFloat = 22
     private var lightsLeft: CGFloat = 16
-    /// The glass above the page, once it's attached (macOS 26).
-    private var chrome: AnyObject?
+    /// The shell study's glass floor, once it's attached (macOS 26).
+    private var floor: AnyObject?
 
     init(url: URL, titled: Bool) {
         self.titled = titled
@@ -167,17 +167,17 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     // MARK: the page
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        // A reload or a new page: the glass above waits for it to say where its pieces go.
-        if #available(macOS 26.0, *) { (chrome as? ShellChrome)?.reset() }
+        // A reload or a new page: the floor waits for it to say where everything is.
+        if #available(macOS 26.0, *) { (floor as? ShellFloor)?.reset() }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !attached else { return }
         if #available(macOS 26.0, *) {
-            // The shell study's glass above the page: pieces of Apple's glass over the conversation (ShellChrome.swift).
-            // Its handler is in place before the glass beneath announces itself and the page starts reporting.
-            chrome = ShellChrome.attach(above: webView)
             attached = PolyphonicGlass.attach(to: webView)
+            // The shell study's glass floor, directly beneath the page (ShellFloor.swift); once its handler is in place
+            // it asks the page to report again.
+            floor = ShellFloor.attach(below: webView)
         }
         print("glass-lab: page loaded, glass \(attached ? "attached" : "unavailable")")
         if titled { probe() }

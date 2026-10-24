@@ -20,8 +20,9 @@
  * lip, sessions, tabs), 14 (homes), 16 (the conversation itself).
  *
  * The frame's words wear three tones (--shell-ink, -muted, -faint): on the
- * black frame they are the app's own ink; on the glass frame, a warm white
- * that reads over the desktop with the veil's help.
+ * black frame they are the app's own ink. On Apple's glass frame they are
+ * drawn inside the glass itself (Lab/ShellFloor.swift, "the glass floor"
+ * below); in a browser's stand-in, a warm white.
  * ------------------------------------------------------------------ */
 
 .shell {
@@ -105,8 +106,9 @@
   background: rgb(28 28 32 / 0.45);
 }
 
-/* The veil: darkness in front of the glass, so the frame's words read over a
- * bright desktop. None, soft or deep, from the lab panel. */
+/* The veil: in a browser's stand-in, darkness in front of the glass, so the
+ * frame's words read over a bright desktop. With Apple's glass it goes
+ * beneath the glass instead (the floor, below). None, soft or deep. */
 .shell-veil {
   background: rgb(0 0 0 / var(--shell-veil, 0));
 }
@@ -117,6 +119,11 @@
 
 .shell[data-veil="deep"] {
   --shell-veil: 0.42;
+}
+
+/* Apple's frosted materials take no darkness of ours. */
+.shell[data-material="frosted"] .shell-veil {
+  display: none;
 }
 
 /* ── the marks ───────────────────────────────────────────────────────
@@ -187,6 +194,9 @@
 
 .shell-mark--tabcard {
   --fillet: min(8px, max(var(--mark-h, 8px) - 1px, 0px));
+  /* Composited apart, the tab rendered its grain a step darker than the card
+   * it rises from; drawn with the page, it's one surface. */
+  will-change: auto;
   background-color: hsl(var(--mn-surface));
   background-image: var(--mn-card-finish, none);
   background-size: 256px 256px;
@@ -1201,243 +1211,85 @@
   outline-offset: -1px;
 }
 
-/* ── the glass above (SHELL_STUDY.md, "Glass above") ──────────────────
- * The conversation is the window: the card's surface fills it to its
- * rounded corners, and Apple's glass floats above it in three pieces, drawn
- * natively (Lab/ShellChrome.swift): the lead (the rail's toggle, back,
- * forward), the tabs, the places pane. The page lays them out here, in
- * Apple's frame metrics (--band, --piece-*, set from ShellStudy.tsx), keeps
- * their buttons to be pressed through, and draws them itself only in a
- * browser, as a stand-in. Everything 6 from an edge is concentric with the
- * window's corner (--window-radius, read from AppKit). Nothing is drawn over
- * the glass: no veil. */
-.shell[data-direction="above"] {
-  background-color: hsl(var(--mn-surface));
-  background-image: var(--mn-card-finish, none);
-  background-size: 256px 256px;
-  border-radius: var(--window-radius, 16px);
-}
-
-.shell[data-direction="above"]
-  :is(
-    .shell-desktop,
-    .shell-frame,
-    .shell-veil,
-    .shell-marks,
-    .shell-tabcards
-  ) {
+/* ── the glass floor (SHELL_STUDY.md, "The glass floor, done right") ──
+ * With Apple's Liquid Glass, the frame is one piece of glass beneath the page
+ * in its own shape: the cards (and the open tab) are cut out of it, so its
+ * edge runs around them, and the frame's icons and words are drawn inside the
+ * glass (Lab/ShellFloor.swift), where the glass keeps them legible. The page
+ * keeps its buttons where they are, for the pointer, keys, focus rings and
+ * tooltips, and draws none of their ink; the pointer's place is told to the
+ * glass, whose twin lifts. Nothing goes over the glass: no veil, and where
+ * you are in the places is the glass's own chip. */
+.shell[data-floor-native] :is(.shell-veil, .shell-marks) {
   display: none;
 }
 
-/* The band: the window's title bar, where the top pieces float on the
- * lights' line. */
-.shell[data-direction="above"] .shell-lip {
-  height: var(--band);
-}
-
-/* In a window without its own lights, the stand-in takes Apple's measures:
- * 14 across, 23 apart. */
-.shell[data-direction="above"] .shell-lights {
-  gap: 9px;
-  left: var(--lights-left);
-  top: calc(var(--band-centre) - 7px);
-}
-
-.shell[data-direction="above"] .shell-lights span {
-  height: 14px;
-  width: 14px;
-}
-
-.shell[data-direction="above"] .shell-lip-card {
-  left: 0;
-  right: 0;
-  transition: none;
-}
-
-/* The lead piece: the rail's toggle, a little space, back and forward. Its
- * glass, in a browser, is the lip's own ::before. */
-.shell[data-direction="above"] .shell-lip::before {
-  border-radius: var(--piece-r);
-  content: "";
-  height: var(--piece-h);
-  left: var(--lead-x);
-  position: absolute;
-  top: var(--piece-y);
-  width: 98px;
-}
-
-.shell[data-direction="above"] .shell-lip-button {
-  border-radius: 8px;
-  height: calc(var(--piece-h) - 4px);
-  width: 30px;
-}
-
-.shell[data-direction="above"] .shell-toggle {
-  left: calc(var(--lead-x) + 2px);
-  top: calc(var(--piece-y) + 2px);
-}
-
-.shell[data-direction="above"] .shell-history {
-  gap: 0;
-  left: calc(var(--lead-x) + 36px);
-  top: calc(var(--piece-y) + 2px);
-  transition: none;
-}
-
-/* The tabs: from the reading column's left edge, or just past the lead
- * piece when the rail is closed; as wide as their names. */
-.shell[data-direction="above"] .shell-tabs {
-  --tabs-left: max(calc(var(--lead-right) + 8px), var(--card-left));
-  border-radius: var(--piece-r);
-  height: var(--piece-h);
-  left: var(--tabs-left);
-  max-width: calc(100% - var(--tabs-left) - 6px);
-  padding: 2px;
-  right: auto;
-  top: var(--piece-y);
-}
-
-.shell[data-direction="above"] .shell-tab {
-  height: calc(var(--piece-h) - 4px);
-}
-
-/* With no tabs, the conversation's name sits on the band, centred on the
- * reading column, off the glass (Apple keeps titles off it). */
-.shell[data-direction="above"] .shell-title {
-  height: var(--piece-h);
-  left: calc(50% + var(--card-left) / 2);
-  line-height: var(--piece-h);
-  max-width: calc(100% - var(--card-left) - 40px);
-  top: var(--piece-y);
-}
-
-/* The places pane: 40 wide, 6 from the window's left, from the band to 6
- * from the bottom. */
-.shell[data-direction="above"] .shell-places {
-  border-radius: calc(var(--window-radius, 16px) - 6px);
-  bottom: 6px;
-  gap: 18px;
-  left: 6px;
-  padding: 6px 0 8px;
-  top: var(--pane-top);
-  width: 40px;
-  z-index: 3;
-}
-
-.shell[data-direction="above"] .shell-places-group {
-  gap: 4px;
-}
-
-.shell[data-direction="above"] .shell-place {
-  border-radius: 8px;
-}
-
-/* In a browser, our stand-in for Apple's glass under the three pieces. */
-.shell[data-direction="above"]:not([data-chrome-native]) .shell-lip::before,
-.shell[data-direction="above"]:not([data-chrome-native])
-  :is(.shell-tabs, .shell-places) {
-  -webkit-backdrop-filter: blur(10px) saturate(1.2);
-  backdrop-filter: blur(10px) saturate(1.2);
-  background: rgb(255 255 255 / 0.07);
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.3),
-    inset 0 0 0 0.5px rgb(255 255 255 / 0.08),
-    0 4px 14px rgb(0 0 0 / 0.28);
-}
-
-/* Where you are, in the stand-in: a chip of the card's own black set into
- * the glass, lit along its top, its shadow soft beneath it. */
-.shell[data-direction="above"]
-:is(.shell-tab[data-selected], .shell-place[data-current]) {
-  background-color: hsl(var(--mn-surface));
-  box-shadow:
-    inset 0 0.5px 0 rgb(255 255 255 / 0.16),
-    0 0.5px 1.5px rgb(0 0 0 / 0.32),
-    0 2.5px 10px rgb(0 0 0 / 0.22);
-}
-
-/* With Apple's glass above, the page keeps the pieces' buttons where they
- * are (to measure, and to be pressed through) but draws none of them. */
-.shell[data-chrome-native]
-:is(.shell-toggle, .shell-history, .shell-tabs, .shell-places) {
+.shell[data-floor-native] :is(.shell-lip-button, .shell-place) svg {
   visibility: hidden;
 }
 
-/* The rail's card: its own material (never glass), 6 right of the pane,
- * from the band to 6 from the bottom, its top lit, its shadow soft on the
- * ground. */
-.shell[data-direction="above"] .shell-rail {
-  border-radius: calc(var(--window-radius, 16px) - 6px);
-  bottom: 6px;
-  left: 52px;
-  overflow: hidden;
-  top: var(--pane-top);
-  z-index: 3;
+.shell[data-floor-native]
+  :is(.shell-lip-button, .shell-place):hover:not(:disabled) {
+  background: none;
 }
 
-:root .shell[data-direction="above"] .shell-rail[data-luca-card] {
-  box-shadow:
-    0 -0.5px 0 rgb(255 255 255 / 0.1),
-    0 1px 2px rgb(0 0 0 / 0.3),
-    0 12px 32px rgb(0 0 0 / 0.34);
+.shell[data-floor-native] .shell-avatar {
+  background: none;
+  color: transparent;
 }
 
-/* The conversation: the ground, edge to edge. Its column sits right of the
- * rail and its words scroll up under the band. */
-.shell[data-direction="above"] .shell-card {
-  bottom: 0;
-  left: 0;
-  padding-left: var(--card-left);
-  right: 0;
-  top: 0;
-  transition: padding-left var(--slide);
-  z-index: 1;
+/* Every tab's name is drawn inside the glass; the open one's card carries
+ * its lit copy (the lit strip, below). The other tabs' close buttons are the
+ * glass's too; the open tab's stays the page's, on its card. */
+.shell[data-floor-native] .shell-tabs:not(.shell-tabs--lit) .shell-tab-open,
+.shell[data-floor-native] .shell-title,
+.shell[data-floor-native] .shell-title * {
+  color: transparent;
 }
 
-.shell[data-direction="above"] .shell-reading {
-  padding-top: calc(var(--band) + 18px);
+.shell[data-floor-native] .shell-tab:hover:not([data-selected]),
+.shell[data-floor-native]
+  .shell-tab:not([data-selected])
+  .shell-tab-close:hover {
+  background: none;
 }
 
-.shell[data-direction="above"] .shell-page {
-  padding-top: calc(var(--band) + 24px);
+.shell[data-floor-native] .shell-tab:not([data-selected]) .shell-tab-close svg {
+  visibility: hidden;
 }
 
-/* The hard scroll edge under the band, as macOS 27 draws under a toolbar:
- * words passing under the glass blur and take the ground's own tone, so the
- * glass's symbols stay clear. At rest, over the plain ground, it can't be
- * seen. */
-.shell-edge {
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  background-color: hsl(var(--mn-surface) / 0.8);
-  background-image: var(--mn-card-finish, none);
-  background-size: 256px 256px;
-  height: calc(var(--band) + 6px);
-  left: var(--card-left);
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 6px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 6px), transparent);
+/* The lit strip: the tabs' names again, laid out exactly as the tabs are, in
+ * the card's ink, seen only through the open tab's card as it's drawn this
+ * frame (its clip-path, set by the page), so a name lights as its card
+ * arrives and never ahead of it. */
+.shell-tabs--lit {
+  clip-path: inset(0 0 100% 0);
   pointer-events: none;
-  position: absolute;
-  right: 0;
-  top: 0;
-  transition: left var(--slide);
-  z-index: 4;
 }
 
-/* With Reduce Transparency or Increase Contrast, the edge is solid, as
- * Apple's own edges become. */
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  .shell-edge {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-    background-color: hsl(var(--mn-surface));
-  }
+.shell-tabs--lit .shell-tab-open {
+  color: var(--shell-ink);
+}
+
+/* The cards' shadow on the glass floor stays close: a soft contact, not a
+ * wide spread darkening the narrow glass around them; their lit top edge is
+ * on the card itself. */
+:root .shell[data-floor-native] :is(.shell-card, .shell-rail)[data-luca-card] {
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.22),
+    0 6px 16px rgb(0 0 0 / 0.14);
+}
+
+/* Search darkens the glass from beneath (the floor's darkness rises while
+ * it's open); the page's scrim covers only the cards. */
+.shell[data-floor-native] .shell-search-scrim {
+  clip-path: inset(var(--lip) var(--edge) var(--edge) var(--places));
 }
 
 /* When the window isn't the one in use, Apple's glass recedes; the page's
  * own accents quiet with it. */
-.shell[data-direction="above"][data-key="false"]
-:is(.shell-rail-marks, .shell-dot, .shell-title) {
+.shell[data-key="false"] :is(.shell-rail-marks, .shell-dot) {
   opacity: 0.6;
 }
 
@@ -1449,14 +1301,8 @@
       .shell-history,
       .shell-tabs,
       .shell-rail,
-      .shell-edge,
       .shell-chevron svg
     ) {
-    transition: none;
-  }
-
-  /* The Above column's slide outranks the line above; it stops too. */
-  .shell[data-direction="above"] .shell-card {
     transition: none;
   }
 }

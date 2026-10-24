@@ -199,8 +199,12 @@ export class MarkGroup {
     }
     const current = this.current;
     if (current) {
-      if (id === this.chosen && current.settled) current.place(rect);
-      else if (id === this.chosen)
+      // The same mark moved (a resize, a slide it rides on): it's drawn there
+      // in the frame it was measured in, not the next.
+      if (id === this.chosen && current.settled) {
+        current.place(rect);
+        current.draw();
+      } else if (id === this.chosen)
         current.aim(rect, [TRAIL, TRAIL, TRAIL, TRAIL]);
       else if (reduceMotion()) current.place(rect);
       else current.aim(rect, slideMotions(current.rect, rect));
@@ -217,6 +221,16 @@ export class MarkGroup {
     this.current = piece;
     this.appeared = true;
     this.engine.wake();
+  }
+
+  /** Where the mark is drawn this frame (the one arriving, or else the one
+   *  going), or nowhere. */
+  get drawn(): Rect | null {
+    let piece = this.current;
+    if (!piece) for (const each of this.pieces) piece = each;
+    if (!piece) return null;
+    const rect = piece.rect;
+    return rect.w >= 1 && rect.h >= 1 ? rect : null;
   }
 
   /** Every piece gone at once: the look changed. */
@@ -278,6 +292,9 @@ export class MarkGroup {
 /** One clock for every mark on one layer. */
 export class MarkEngine {
   readonly groups: MarkGroup[] = [];
+  /** After every frame the marks move: whatever follows them (the glass
+   *  floor's cut for the open tab) follows here. */
+  onFrame: (() => void) | null = null;
   private frame: number | null = null;
   private last = 0;
 
@@ -312,6 +329,7 @@ export class MarkEngine {
       for (const group of this.groups) group.step(dt);
     }
     for (const group of this.groups) group.draw();
+    this.onFrame?.();
     const moving = this.groups.some((group) => group.moving);
     this.frame = moving ? requestAnimationFrame(this.tick) : null;
   };
