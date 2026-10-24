@@ -139,7 +139,7 @@ and the mode are independent. The app's System / Light / Dark row is already the
   and the marks are told by their tone and an ink-cast shadow, and a control's chosen option stands up like Send, white
   paper on its track, rather than a darker dip.
 - The frame reads the palette's own tokens (floor, recess, surface, ink), so every other palette in Appearance works
-  under either frame (see Decisions).
+  under either frame; all of them stay (Decided, 6).
 
 ## What each surface of the app becomes
 
@@ -178,10 +178,14 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
   the card and the conversation's card follows its edge. The pinned header (the search field) and the primary menu
   (Library, New conversation, Agents, Activity, Brain, Settings) move to the places column, leaving the card to the
   rail of `SPEC.md`.
-- Its peek on hover and the narrow-window sheet (under 768) keep working.
-- **The runtime sessions column** (`RuntimeSessionsPanel`, 22 rem, opened beside the rail from New conversation, a
-  sheet when narrow): see Decisions.
-- The footer's status cards (connection, relay, background task, update available) and the profile card: see Decisions.
+- Its width is fixed at 220 (Decided, 2): the drag-resize handle and the stored width
+  (`luca-conversation-sidebar-width`) go. Its peek on hover and the narrow-window sheet (under 768) keep working.
+- **The runtime sessions column** (`RuntimeSessionsPanel`, 22 rem, opened beside the rail from New conversation)
+  becomes a card of its own between the rail's and the conversation's while it is open, 4 from each, and a sheet when
+  narrow as today (Decided, 12).
+- **The footer's status cards** (connection, relay, background task, update available) stay at the bottom of the rail's
+  card. While the rail is closed, a connection problem shows as a dot on the avatar and an available update as a dot on
+  Settings (Decided, 4). The profile card goes: its menu is the avatar's.
 
 **The places column** (new)
 - New conversation (⌘N), Search (⌘K, opening today's search dialog), Conversations, Library, Agents, Activity, Brain,
@@ -194,7 +198,8 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - The column is a `nav`.
 
 **The community strip** (`features/sidebar/ui/CommunityRail.tsx`, shown with more than one community)
-- Claims the same left edge as the places: see Decisions.
+- Goes (Decided, 1): communities move into the avatar's menu, which already switches them. The places column keeps the
+  window's left edge, and the strip's 32-point clearance in the top chrome goes with it.
 
 **The conversation's card** (`app/BuzzThemeSurfaces.tsx` ContentSurface, `conversation-shell.css`)
 - Its spacing comes from two places today: the route surface's margin (8 / 8 / 8 / 1, 8 on the left when the rail is
@@ -205,11 +210,12 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - **One card for every place:** Library, Agents and Activity stop painting a card of their own (`routeOwnsFloor`) and
   fill the conversation's card like Brain, New conversation and the conversations do.
 - **The conversation header** (`features/chat/ui/ChatHeader.tsx`, `features/channels/ui/ChannelScreenHeader.tsx`)
-  loses its title, which the tab now carries; its actions (layout; open as window, shown while the pop-out feature is
-  on; conversation details) move: see Decisions. Its other occupants need places too: the Join button (it replaces the
-  actions in a conversation you haven't joined), a person's presence avatar in a direct conversation, the badge on an
-  ephemeral conversation, the project room picker (rooms are in the rail by default, `SPEC.md`), and the header's
-  update indicator (with Decision 4).
+  loses its title, which the tab now carries. Its actions (layout; open as window, shown while the pop-out feature is
+  on; conversation details) move to the lip's right end, over the card, as quiet 13-point icons (Decided, 3). Its other
+  occupants: the Join button takes the actions' place there in a conversation you haven't joined, as it does today; a
+  person's presence avatar in a direct conversation and an ephemeral conversation's badge sit just before the actions;
+  the project room picker gives way to the rail's rooms (`SPEC.md`); the header's update indicator becomes the dot on
+  Settings (Decided, 4).
 - The timeline's top padding is measured from the header today (`--buzz-channel-content-top-padding`): it gets a
   fixed value. The right cards' header row and the Canvas's header keep their own height and no longer line up with a
   conversation title.
@@ -218,8 +224,8 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 
 **Several conversations side by side** (`features/conversation-workspace/`)
 - The workspace's panes (up to four, each its own card) and their tab model (`slot.conversations`, `activeTab`, with
-  select and close actions but no strip drawn today) are the tabs' data: the lip's tabs are the focused pane's. See
-  Decisions for the other panes.
+  select and close actions but no strip drawn today) are the tabs' data: the lip's tabs are the focused pane's, and each
+  other pane shows its conversation's name quietly at its own top (Decided, 5).
 
 **Projects** (`features/projects/ui/ProjectRoomWorkspace.tsx`)
 - As `SPEC.md`: rooms in the rail by default, the 304-point room column an option.
@@ -248,7 +254,10 @@ management, the artifact Canvas)
   Floor) is retired: the frame setting replaces it.
 
 **The glass themes** (Obsidian, Crystalline: `glass-floor.css`, `window_vibrancy.rs`)
-- Today they are the only see-through window, through the older frosted material behind the page. See Decisions.
+- Today they are the only see-through window, through the older frosted material behind the page. They retire
+  (Decided, 7): the Liquid Glass frame is the see-through window now. Someone on Obsidian moves to the dark default with
+  the Liquid Glass frame, someone on Crystalline to Paper with it. Their tiles and their rules in `glass-floor.css` go;
+  `window_vibrancy.rs` stays for the pop-out and the onboarding card, which still use it.
 
 **The rail's selection glass** (`RailGlass.tsx` the web pill, `NativeRailGlass.tsx` the native pour)
 - Replaced by the solid marks above. The web pill and the native pour retire with the shell; the marks' engine is the
@@ -271,8 +280,8 @@ management, the artifact Canvas)
 
 **The huddle bar** (`features/huddle/components/HuddleBar.tsx`)
 - Today the whole app surface shortens from the bottom by the bar's height, rounding its lower corners, to reveal a
-  full-width bar beneath. In the shell the frame, the lip and the cards shorten together. In Liquid Glass: see
-  Decisions.
+  full-width bar beneath. In the shell the bar rises into the frame beneath the cards (Decided, 8): the cards shorten
+  and the bar sits in the frame's band below them, on the glass in Liquid Glass and on the floor in Black.
 
 **Search, dialogs, toasts, the quick chat panel**
 - Page layers above the frame, unchanged. The quick chat panel keeps its bottom-right corner (20 from the window's
@@ -282,8 +291,9 @@ management, the artifact Canvas)
   clear of the tabs.
 
 **The reconnecting card** (`app/RelayConnectionOverlay.tsx`)
-- Anchors today 12 from the window's bottom-left, which would sit over the places: it anchors to the rail card's place
-  instead (or follows the status cards' decision).
+- Shows today only while the rail is closed, 12 from the window's bottom-left, which would sit over the places. It
+  retires: with the rail closed a connection problem is the dot on the avatar, and opening the rail shows its card
+  (Decided, 4).
 
 **Onboarding** (everything before `AppShell` mounts)
 - Stays frameless. The one moment to check in both frames and modes: the floating onboarding card becoming the full
@@ -291,47 +301,50 @@ management, the artifact Canvas)
 
 **The pop-out window** (`app/popout/PopoutShell.tsx`)
 - Not part of the frame: it keeps its own 36-point bar (the same height as the lip by coincidence, not a shared piece)
-  and its own frosted glass. See Decisions.
+  and its own frosted glass, and doesn't follow the Frame setting for now (Decided, 9).
 
 **Keyboard**
-- As today: ⌘[ and ⌘] back and forward, ⌘K search, ⌘N new conversation, ⌘, Settings, ⌘S the rail. Tabs: see Decisions.
+- As today: ⌘[ and ⌘] back and forward, ⌘K search, ⌘N new conversation, ⌘, Settings, and ⌘S the rail, which stays
+  (Decided, 11).
+- Tabs: ⌃Tab and ⌃⇧Tab move to the next and previous tab, and ⌘W closes the open tab once it's confirmed that ⌘W
+  doesn't close the window today (Decided, 10).
 - Tab order is the picture's order: the lip (toggle, back, forward, the tabs), the places, the rail's card, the
   conversation's card, the right cards. A closed rail card is inert.
 
-## Decisions (Riley)
+## Decided (Riley, 2026-10-24)
 
-Each with the recommendation first.
+Riley: "Take your recommended pick for all 12 decisions and record them in the spec." The body above follows them;
+each is marked there as "Decided, n".
 
-1. **More than one community:** communities move into the avatar's menu, which already switches them (recommended), or
-   their strip sits left of the places.
-2. **The rail card's width:** fixed at 220 like the study (recommended: the frame's proportions were judged at 220), or
-   resizable 220 to 420 as the rail is today.
+1. **More than one community:** communities move into the avatar's menu, which already switches them; the community
+   strip goes (not: a strip left of the places).
+2. **The rail card's width:** fixed at 220, the proportion the frame was judged at (not: resizable 220 to 420).
 3. **The conversation's actions** (layout, open as window, details): at the lip's right end, over the card, as quiet
-   13-point icons (recommended), or a small row inside the card's top.
-4. **Status cards** (connection, relay, background task, update): at the bottom of the rail's card, and while the rail
-   is closed a dot on the avatar (connection) or on Settings (update) (recommended), or in the places column.
-5. **Panes side by side:** the lip's tabs belong to the focused pane, and each other pane shows its conversation's name
-   quietly at its own top (recommended), or every pane gets a strip of its own.
-6. **Other palettes:** all stay, and the frame reads their tokens (recommended), or Appearance narrows to the
-   first-party ones.
-7. **Obsidian and Crystalline:** retired, since the Liquid Glass frame is the see-through window now; someone on one
-   moves to its base palette (the dark default or Paper) with the Liquid Glass frame (recommended), or they stay as
-   themes beside the frame.
-8. **The huddle bar under Liquid Glass:** it rises into the frame beneath the cards, on the glass (recommended), or
-   keeps today's drawer under the window.
-9. **The pop-out:** keeps its own bar and frosted glass for now (recommended), or follows the Frame setting.
-10. **Tab keys:** ⌃Tab and ⌃⇧Tab for the next and previous tab and ⌘W to close the open tab (recommended, once ⌘W is
-    known not to close the window), or none yet.
-11. **⌘S for the rail:** stays (recommended: it's what the app does today), or moves off Save's key.
+   13-point icons (not: a row inside the card's top).
+4. **Status cards** (connection, relay, background task, update): at the bottom of the rail's card; while the rail is
+   closed, a dot on the avatar for a connection problem and on Settings for an update (not: in the places column).
+5. **Panes side by side:** the lip's tabs belong to the focused pane; each other pane shows its conversation's name
+   quietly at its own top (not: a strip for every pane).
+6. **Other palettes:** all stay, and the frame reads their tokens (not: narrowing to the first-party ones).
+7. **Obsidian and Crystalline:** retired; someone on one moves to its base palette (the dark default or Paper) with
+   the Liquid Glass frame (not: keeping them as themes beside the frame).
+8. **The huddle bar:** rises into the frame beneath the cards, on the glass in Liquid Glass (not: today's drawer under
+   the window).
+9. **The pop-out:** keeps its own bar and frosted glass for now (not: following the Frame setting).
+10. **Tab keys:** ⌃Tab and ⌃⇧Tab for the next and previous tab, ⌘W to close the open tab once it's confirmed ⌘W doesn't
+    close the window (not: none yet).
+11. **⌘S for the rail:** stays (not: moving off Save's key).
 12. **The runtime sessions column:** a card of its own between the rail's and the conversation's while it is open
-    (recommended), or it leaves with Runtimes, as `SPEC.md` recommends for the rail.
+    (not: leaving with Runtimes).
 
 ## Retired with the shell
 
 `AppTopChrome` and its clearances; `--buzz-top-chrome-height`; the conversation header's dodge; the rail's pinned
 header and primary menu (to the places); `RailGlass` and `NativeRailGlass` (to the marks); `NativeGlassSettings`; the
 44-point drag band (to the lip's 36); routes painting their own card; the unused `AgentChatsColumn` and its styles; on
-the native side, `FrameFrost`, the selection stage and the `settings` knobs; and, if decided, the two glass themes.
+the native side, `FrameFrost`, the selection stage and the `settings` knobs; the two glass themes; the community strip;
+the rail's resize handle and stored width; the profile card (to the avatar); and the reconnecting overlay (to the
+avatar's dot).
 
 ## Stale notes to correct with it
 
@@ -350,12 +363,14 @@ own profile in the one shared build cache; the installed Polyphonic.app, his pro
 never touched, and nothing is pushed.
 
 1. **The frame, Black, in dark:** the lip, the places column, the two cards and the marks, page only, behind a flag.
-2. **Tabs** in the lip, from the workspace's tab model.
+2. **Tabs** in the lip, from the workspace's tab model: opening adds a tab, at most six, the focused pane's tabs, the
+   other panes' names at their tops, and the tab keys.
 3. **Settings in the frame.**
 4. **Light:** Paper, the shadows on the floor, no outlines.
 5. **The Frame setting and Liquid Glass:** the setting, the page's reporter, the veil, the native glass compiled in and
    attached for the frame, macOS 26 and Reduce Transparency fallbacks.
-6. **The rest:** the decisions above, the huddle bar, the reconnecting card, onboarding's hand-off, full screen.
+6. **The rest:** communities in the avatar's menu, the status cards and their dots, the runtime sessions card, the
+   glass themes' retirement, the huddle bar in the frame, onboarding's hand-off, full screen.
 
 ## Done means
 
