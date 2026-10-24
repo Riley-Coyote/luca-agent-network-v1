@@ -15,7 +15,18 @@ export type GlassFrame = {
   floor: string;
   row: (Box & { id: string }) | null;
   clip: Box | null;
-  sheet: (Box & { r: number; style: "clear" | "regular" }) | null;
+  /** The frame's one sheet of Apple's material: Liquid Glass (regular or
+   *  clear, maybe Apple's tint, "#rrggbbaa") or frosted (one of AppKit's
+   *  materials by name, its in-use look held or following the window). */
+  sheet:
+    | (Box & {
+        r: number;
+        style: "regular" | "clear" | "frosted";
+        tint: string | null;
+        material: string | null;
+        held: boolean;
+      })
+    | null;
 };
 
 type GlassWindow = Window & {

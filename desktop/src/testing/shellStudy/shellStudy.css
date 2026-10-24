@@ -98,6 +98,13 @@
     inset 0 0 0 0.5px rgb(255 255 255 / 0.12);
 }
 
+/* A frosted frame in a browser: the stand-in blurs much further. */
+.shell[data-material="frosted"] .shell-frame {
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
+  backdrop-filter: blur(24px) saturate(1.3);
+  background: rgb(28 28 32 / 0.45);
+}
+
 /* The veil: darkness in front of the glass, so the frame's words read over a
  * bright desktop. None, soft or deep, from the lab panel. */
 .shell-veil {
@@ -1152,6 +1159,17 @@
   color: hsl(var(--mn-ink));
 }
 
+.shell-select {
+  -webkit-appearance: none;
+  appearance: none;
+  background: hsl(var(--mn-ink) / 0.06);
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  font-size: 0.75rem;
+  max-width: 168px;
+  padding: 4px 10px;
+}
+
 .shell-lab-note {
   color: hsl(var(--mn-ink-faint));
   line-height: 1.45;
@@ -1174,6 +1192,7 @@
 .shell
   :is(
     .shell-segment button,
+    .shell-select,
     .shell-lab-hide,
     .shell-lab-pill,
     .shell-search li button

@@ -18,6 +18,7 @@ import WebKit
 //   {"js": "<script>"}   runs in the page; to the glass: window.webkit.messageHandlers.polyphonicGlass.postMessage(…)
 //   {"page": "hide" | "show"}   the glass alone, or with the page over it
 //   {"size": [w, h]}            resizes the lab, keeping its top edge
+//   {"move": [dx, dy]}          moves the lab right and down by that much (to clear what covers it in a capture)
 //   {"quit": true}
 // The page can move the window by its own title bar: window.webkit.messageHandlers.glassLab.postMessage("drag") from a
 // mousedown there; and place the traffic lights on its lip: postMessage({lights: {left, centre}}).
@@ -190,6 +191,12 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
             frame.origin.y += frame.height - size[1]
             frame.size = CGSize(width: size[0], height: size[1])
             window.setFrame(frame, display: true)
+        }
+        if let move = command["move"] as? [Double], move.count == 2 {
+            var origin = window.frame.origin
+            origin.x += move[0]
+            origin.y -= move[1]
+            window.setFrameOrigin(origin)
         }
         // Checks: the glass alone, without the page over it.
         if let page = command["page"] as? String { webView.isHidden = page == "hide" }

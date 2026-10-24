@@ -48,6 +48,25 @@ Only the thin parts, the lip and the icon rail, may be clear glass.
 - **Closing the rail** narrows its card to nothing (its rows held still and clipped) and the conversation's card
   follows its edge. The places and the lip stay.
 
+## The frame's material
+
+Apple offers exactly these, and the lab shows every one (Riley: see all the options, and none that falls below the
+quality of Apple's own surfaces, light and physics):
+
+- **Liquid Glass**, two types: Regular (frosted, a little darker) and Clear (nearly see-through), each plain or with
+  Apple's own tint (the lab shows a dark one). Apple also lets glass react to a press. That is the whole list: no
+  brightness, shade or frost settings.
+- **Apple's older frosted material**, fourteen kinds (Sidebar, Window, Under the window, Content, Under a page, Header,
+  Title bar, Sheet, Popover, Menu, Heads-up display, Full screen, Tooltip, Selection).
+
+When a window isn't the one in use, macOS relaxes its Liquid Glass on purpose (flatter, more blurred, tint dropped), as
+it greys the traffic lights; nothing turns that off. The frosted material can hold the look of a window in use instead
+("In use") or follow the window. Our own darkness in front of the glass, the veil, stays a separate choice, named as
+ours. Every project uses these names from now on (Ghost and the rail-glass build had named mixes of them).
+
+Riley's favourite so far: Regular with the deep veil; Clear, which looks striking but is harder to read over some
+desktops, as an option.
+
 ## Light and surface, not lines
 
 Riley (2026-10-23, with references of natural light on glass and soft surfaces): stick to the fundamental materials of

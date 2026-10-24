@@ -17,8 +17,12 @@ import WebKit
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
 //       The shell study (docs/luca/rail-system/SHELL_STUDY.md) adds, both optional:
-//       sheet: {x, y, w, h, r, style} | null   one sheet of Apple's glass for the whole frame, clear or regular; the
-//                                          page's cards cover all of it but the frame
+//       sheet: {x, y, w, h, r, style, tint, material, held} | null
+//                                          one sheet of Apple's material for the whole frame (the page's cards cover
+//                                          all of it but the frame): Liquid Glass (style "regular" or "clear", tint an
+//                                          optional "#rrggbbaa" Apple tints the glass toward), or Apple's frosted
+//                                          material (style "frosted": material one of NSVisualEffectView's fourteen,
+//                                          by name; held keeps the look of a window in use when it isn't)
 //       floor: "none"                      no floor at all: the window is clear, so the sheet shows the desktop
 //   {type: "settings", material, motion, floor, cardGlass, slow}
 //                                                       clear|smoked|dark · pour|drop|slide · plain|grain · the card as
@@ -45,6 +49,8 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
     /// The frame's sheet of glass, kept by its insets for the same reason as the card's.
     private var sheetInsets: NSEdgeInsets?
     private var sheetRadius: CGFloat = 16
+    /// Whether the sheet is Apple's frosted material rather than Liquid Glass.
+    private var frosted = false
     /// Whether the card is Apple's glass too, or (the default) the page's own surface with the glass beneath its edge.
     private var cardGlass = false
     private var mode = "pour"
@@ -154,7 +160,7 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
                       height: max(0, page.height - insets.top - insets.bottom))
     }
 
-    /// The frame as one sheet of Apple's glass, or none. A mode, not a motion: it is simply there or not.
+    /// The frame as one sheet of Apple's material, or none. A mode, not a motion: it is simply there or not.
     private func sheet(_ body: [String: Any]) {
         guard let rect = Self.rect(body["sheet"]), rect.width > 1, rect.height > 1, let box = body["sheet"] as? [String: Any] else {
             sheetInsets = nil
@@ -164,20 +170,48 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         let page = host.bounds
         sheetInsets = NSEdgeInsets(top: rect.minY, left: rect.minX, bottom: page.height - rect.maxY, right: page.width - rect.maxX)
         if let radius = box["r"] as? Double { sheetRadius = CGFloat(radius) }
-        let style: NSGlassEffectView.Style = box["style"] as? String == "regular" ? .regular : .clear
-        if host.sheet.style != style { host.sheet.style = style }
+        let style = box["style"] as? String ?? "clear"
+        frosted = style == "frosted"
+        if frosted {
+            let material = (box["material"] as? String).flatMap { Self.materials[$0] } ?? .hudWindow
+            if host.frost.material != material { host.frost.material = material }
+            let state: NSVisualEffectView.State = box["held"] as? Bool == true ? .active : .followsWindowActiveState
+            if host.frost.state != state { host.frost.state = state }
+        } else {
+            let glass: NSGlassEffectView.Style = style == "regular" ? .regular : .clear
+            if host.sheet.style != glass { host.sheet.style = glass }
+            let tint = (box["tint"] as? String).flatMap(NSColor.init(hexWithAlpha:))
+            if host.sheet.tintColor != tint { host.sheet.tintColor = tint }
+        }
         placeSheet()
     }
+
+    /// Apple's frosted materials, by the names the page uses: every one AppKit offers (the deprecated ones aside).
+    private static let materials: [String: NSVisualEffectView.Material] = [
+        "titlebar": .titlebar, "selection": .selection, "menu": .menu, "popover": .popover, "sidebar": .sidebar,
+        "headerView": .headerView, "sheet": .sheet, "windowBackground": .windowBackground, "hudWindow": .hudWindow,
+        "fullScreenUI": .fullScreenUI, "toolTip": .toolTip, "contentBackground": .contentBackground,
+        "underWindowBackground": .underWindowBackground, "underPageBackground": .underPageBackground,
+    ]
 
     private func placeSheet() {
         guard let insets = sheetInsets else {
             host.sheet.isHidden = true
+            host.frost.isHidden = true
             return
         }
         let rect = inside(insets)
-        if host.sheet.frame != rect { host.sheet.frame = rect }
-        if host.sheet.cornerRadius != sheetRadius { host.sheet.cornerRadius = sheetRadius }
-        host.sheet.isHidden = false
+        if frosted {
+            host.sheet.isHidden = true
+            if host.frost.frame != rect { host.frost.frame = rect }
+            host.frost.rounding = sheetRadius
+            host.frost.isHidden = false
+        } else {
+            host.frost.isHidden = true
+            if host.sheet.frame != rect { host.sheet.frame = rect }
+            if host.sheet.cornerRadius != sheetRadius { host.sheet.cornerRadius = sheetRadius }
+            host.sheet.isHidden = false
+        }
     }
 
     private func select(_ body: [String: Any]) {
@@ -424,8 +458,10 @@ private enum GlassMotion {
 @MainActor
 final class GlassHostView: NSView {
     let floor = GlassFloorView()
-    /// The frame as one sheet of glass (the shell study's glass frame), hidden unless the page asks for it.
+    /// The frame as one sheet of glass (the shell study's glass frame), hidden unless the page asks for it; or the
+    /// same frame in Apple's frosted material.
     let sheet = NSGlassEffectView()
+    let frost = FrameFrost()
     let stage = LiquidStageView()
     var onLayout: (() -> Void)?
 
@@ -442,6 +478,8 @@ final class GlassHostView: NSView {
         sheet.style = .clear
         sheet.tintColor = nil
         addSubview(sheet)
+        frost.isHidden = true
+        addSubview(frost)
         addSubview(stage)
     }
 
@@ -519,7 +557,49 @@ final class GlassFloorView: NSView {
     }()
 }
 
+/// Apple's frosted material for the frame: it blurs the desktop behind the window, dark, its corners rounded by a mask
+/// (the way AppKit asks), never hit.
+@MainActor
+final class FrameFrost: NSVisualEffectView {
+    var rounding: CGFloat = 0 {
+        didSet { if rounding != oldValue || maskImage == nil { maskImage = Self.mask(rounding) } }
+    }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        blendingMode = .behindWindow
+        appearance = NSAppearance(named: .darkAqua)
+        material = .hudWindow
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// The smallest rounded rectangle that stretches to any size: its corners kept, its middle stretched.
+    private static func mask(_ radius: CGFloat) -> NSImage {
+        let side = radius * 2 + 1
+        let image = NSImage(size: NSSize(width: side, height: side), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: radius, left: radius, bottom: radius, right: radius)
+        image.resizingMode = .stretch
+        return image
+    }
+}
+
 extension NSColor {
+    /// `#rrggbbaa`, as the page writes a tint for the glass.
+    convenience init?(hexWithAlpha hex: String) {
+        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+        guard digits.count == 8, let value = UInt32(digits, radix: 16) else { return nil }
+        self.init(srgbRed: CGFloat((value >> 24) & 0xFF) / 255, green: CGFloat((value >> 16) & 0xFF) / 255,
+                  blue: CGFloat((value >> 8) & 0xFF) / 255, alpha: CGFloat(value & 0xFF) / 255)
+    }
+
     /// `#rrggbb`, as the page writes its floor colour.
     convenience init?(hex: String) {
         let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex

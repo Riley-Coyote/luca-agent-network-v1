@@ -74,6 +74,73 @@ const LIP_LINE = 22;
 const SLIDE_MS = 460;
 
 type Direction = "black" | "glass";
+
+/**
+ * Every material Apple offers for the frame, by Apple's names: Liquid Glass's
+ * two types, plain or with Apple's own dark tint, and the fourteen frosted
+ * materials (the older kind, which can hold the look of a window in use when
+ * it isn't). Nothing here is ours: the veil, our darkness, is its own choice.
+ */
+type FrameMaterial = {
+  id: string;
+  label: string;
+  style: "regular" | "clear" | "frosted";
+  tint?: string;
+  material?: string;
+};
+
+const FROSTED: [string, string][] = [
+  ["sidebar", "Sidebar"],
+  ["windowBackground", "Window"],
+  ["underWindowBackground", "Under the window"],
+  ["contentBackground", "Content"],
+  ["underPageBackground", "Under a page"],
+  ["headerView", "Header"],
+  ["titlebar", "Title bar"],
+  ["sheet", "Sheet"],
+  ["popover", "Popover"],
+  ["menu", "Menu"],
+  ["hudWindow", "Heads-up display"],
+  ["fullScreenUI", "Full screen"],
+  ["toolTip", "Tooltip"],
+  ["selection", "Selection"],
+];
+
+const MATERIALS: { group: string; items: FrameMaterial[] }[] = [
+  {
+    group: "Liquid Glass",
+    items: [
+      { id: "glass-regular", label: "Regular", style: "regular" },
+      { id: "glass-clear", label: "Clear", style: "clear" },
+      {
+        id: "glass-regular-tint",
+        label: "Regular, Apple's dark tint",
+        style: "regular",
+        tint: "#00000080",
+      },
+      {
+        id: "glass-clear-tint",
+        label: "Clear, Apple's dark tint",
+        style: "clear",
+        tint: "#00000080",
+      },
+    ],
+  },
+  {
+    group: "Frosted, Apple's older material",
+    items: FROSTED.map(([material, label]) => ({
+      id: `frost-${material}`,
+      label,
+      style: "frosted",
+      material,
+    })),
+  },
+];
+
+const MATERIAL_BY_ID = new Map(
+  MATERIALS.flatMap((group) => group.items).map((item) => [item.id, item]),
+);
+const DEFAULT_MATERIAL = "glass-regular";
 type Veil = "none" | "soft" | "deep";
 type Choice = {
   direction: Direction;
@@ -81,7 +148,10 @@ type Choice = {
   rail: boolean;
   /** The rail's surface: the card's own black, or a step lighter. */
   tone: "same" | "lighter";
-  glass: "clear" | "regular";
+  /** The frame's material, an id from MATERIALS. */
+  material: string;
+  /** For a frosted frame: hold the look of a window in use, or follow the window. */
+  held: boolean;
   veil: Veil;
   panel: boolean;
 };
@@ -91,7 +161,8 @@ const DEFAULT_CHOICE: Choice = {
   tabs: true,
   rail: true,
   tone: "same",
-  glass: "clear",
+  material: DEFAULT_MATERIAL,
+  held: true,
   veil: "soft",
   panel: true,
 };
@@ -105,8 +176,12 @@ function readChoice(): Choice {
     if (typeof source.rail === "boolean") choice.rail = source.rail;
     if (source.tone === "same" || source.tone === "lighter")
       choice.tone = source.tone;
-    if (source.glass === "clear" || source.glass === "regular")
-      choice.glass = source.glass;
+    if (
+      typeof source.material === "string" &&
+      MATERIAL_BY_ID.has(source.material)
+    )
+      choice.material = source.material;
+    if (typeof source.held === "boolean") choice.held = source.held;
     if (
       source.veil === "none" ||
       source.veil === "soft" ||
@@ -121,7 +196,7 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&tone=lighter&tabs=1&rail=closed&glass=regular&veil=none&panel=0`
+  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
   // opens a look directly, for captures.
   const params = new URLSearchParams(window.location.search);
   const flag = (name: string) =>
@@ -133,11 +208,24 @@ function readChoice(): Choice {
     tabs: flag("tabs"),
     rail: flag("rail"),
     tone: params.get("tone"),
-    glass: params.get("glass"),
+    material: params.get("material"),
+    held: flag("held"),
     veil: params.get("veil"),
     panel: flag("panel"),
   });
   return choice;
+}
+
+/** What the native frame is told about its material. */
+function frameMaterialFor(choice: Choice) {
+  const material =
+    MATERIAL_BY_ID.get(choice.material) ?? MATERIAL_BY_ID.get(DEFAULT_MATERIAL);
+  return {
+    style: material?.style ?? "regular",
+    tint: material?.tint ?? null,
+    material: material?.material ?? null,
+    held: choice.held,
+  };
 }
 
 /** A conversation: a home's own (`session` null) or one of its sessions. */
@@ -403,7 +491,7 @@ export function ShellStudy() {
               w: origin.width,
               h: origin.height,
               r: WINDOW_RADIUS,
-              style: choice.glass,
+              ...frameMaterialFor(choice),
             },
     });
   }, []);
@@ -512,6 +600,7 @@ export function ShellStudy() {
     <div
       className="shell"
       data-direction={choice.direction}
+      data-material={frameMaterialFor(choice).style}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
       data-tabs={choice.tabs ? "on" : undefined}
@@ -1254,15 +1343,35 @@ function LabPanel({
       />
       {glass ? (
         <>
-          <Segment
-            label="Glass"
-            onChange={(value) => choose("glass", value)}
-            options={[
-              ["clear", "Clear"],
-              ["regular", "Regular"],
-            ]}
-            value={choice.glass}
-          />
+          <label className="shell-lab-row">
+            <span>Material</span>
+            <select
+              className="shell-select"
+              onChange={(event) => choose("material", event.target.value)}
+              value={choice.material}
+            >
+              {MATERIALS.map((group) => (
+                <optgroup key={group.group} label={group.group}>
+                  {group.items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          {frameMaterialFor(choice).style === "frosted" ? (
+            <Segment
+              label="Look"
+              onChange={(value) => choose("held", value === "held")}
+              options={[
+                ["held", "In use"],
+                ["follows", "Follows"],
+              ]}
+              value={choice.held ? "held" : "follows"}
+            />
+          ) : null}
           <Segment
             label="Veil"
             onChange={(value) => choose("veil", value)}
@@ -1279,7 +1388,9 @@ function LabPanel({
         {note ||
           (native
             ? glass
-              ? "The frame is Apple's glass; the rail and the conversation are cards on it."
+              ? frameMaterialFor(choice).style === "frosted"
+                ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
+                : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
               : "The frame is black; the rail and the conversation are cards on it."
             : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
