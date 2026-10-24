@@ -285,9 +285,9 @@ function frameMaterialFor(choice: Choice) {
   };
 }
 
-/** The black frame's floor, natively: black in dark, Paper's floor in light. */
+/** The black frame's floor, natively: black in dark, Paper's recess in light. */
 const solidFloor = (mode: Mode) =>
-  mode === "light" ? PAPER_THEME_COLORS.floor : "#000000";
+  mode === "light" ? PAPER_THEME_COLORS.recess : "#000000";
 
 /** A conversation: a home's own (`session` null) or one of its sessions. */
 type Open = { home: string; session: string | null };

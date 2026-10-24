@@ -164,6 +164,12 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    1.9:1, black 6.5 to 8:1), so the switch turned the veil black beneath white words, and the frame became smoked
    glass around the paper. He liked bright glass with white words best, which can't be read, and chose black: "lets
    just go with black ink. it looks great". The code is in commit 62cb1705a.
+4. **The Paper frame without an outline** (Riley: "take the outline off the cards in the Paper frame in light, so
+   they're told by shade and shadow like on the glass"). The app's light card edge drew a hairline ring round each card
+   (one device pixel at about 210 between floor and paper). Now the floor is Paper's recess (#eceae6), a step of shade
+   below the cards (paper at 251 over floor at 236), and the cards keep only a soft ink-cast shadow, lying on the floor
+   beneath all of them as on the glass, softer than on glass since the floor is calm. Paper's own floor (#f6f4f2) was
+   tried and too close: without the ring the cards dissolved into it. Natively the floor draws the same shade.
 
 ## Light and surface, not lines
 
@@ -185,9 +191,8 @@ way. Riley set their finer behaviour aside for now.
 
 ## Next
 
-Riley judges light mode in the real window. Still open in light: the Paper frame's cards wear the app's own light
-card edge (a hairline ring), which is a line; and the Soft veil's strength in light (0.22 now) if the tab names need
-more over a dark desktop.
+The frames as a setting, in light and dark (Riley's three: Black, which is Paper in light; Glass; Liquid Glass), then
+`SPEC.md` and the app.
 
 ## In the browser
 

@@ -1244,9 +1244,10 @@
   background: hsl(var(--mn-floor) / var(--shell-veil, 0));
 }
 
-/* The solid frame in daylight is the paper's floor. */
+/* The solid frame in daylight is the paper's floor, a step of shade below
+ * the cards so they're told by shade and shadow, with no outline. */
 .shell[data-direction="black"][data-mode="light"]:not([data-native]) {
-  background: hsl(var(--mn-floor));
+  background: hsl(var(--mn-recess));
 }
 
 /* The browser's stand-in: a daylight sky under the web glass. */
@@ -1302,7 +1303,7 @@
   z-index: 0;
 }
 
-.shell[data-direction="glass"][data-mode="light"] .shell-shadows {
+.shell[data-mode="light"] .shell-shadows {
   display: block;
 }
 
@@ -1384,4 +1385,19 @@
 /* Natively nothing of ours paints past the glass's rounded corners. */
 .shell[data-native] :is(.shell-veil, .shell-search-scrim) {
   border-radius: 16px;
+}
+
+/* The cards on the paper floor: no outline (the app's light card edge draws
+ * a hairline ring), only their shade and a softer shadow than on glass, the
+ * floor being calm. */
+:root
+  .shell[data-direction="black"][data-mode="light"]
+  :is(.shell-card, .shell-rail)[data-luca-card] {
+  box-shadow: none;
+}
+
+.shell[data-direction="black"][data-mode="light"] .shell-shadow {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.06),
+    0 12px 32px -8px hsl(var(--mn-ink) / 0.14);
 }
