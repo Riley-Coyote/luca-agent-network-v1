@@ -149,6 +149,11 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
     @objc private func windowChanged() { placeLights() }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        // The page's mode: the window's traffic lights and the web view's sense of the system's colours follow it.
+        if let look = (message.body as? [String: Any])?["appearance"] as? String {
+            window.appearance = NSAppearance(named: look == "light" ? .aqua : .darkAqua)
+            return
+        }
         if let lights = (message.body as? [String: Any])?["lights"] as? [String: Any],
            let left = lights["left"] as? Double, let centre = lights["centre"] as? Double, titled {
             lightsLeft = CGFloat(left)

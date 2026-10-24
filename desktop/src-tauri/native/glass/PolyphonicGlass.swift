@@ -17,12 +17,13 @@ import WebKit
 //       shows in. A new row id is a choice; the same id moved is the same selection following its row (a scroll, a
 //       resize); no row means the selection melts home.
 //       The shell study (docs/luca/rail-system/SHELL_STUDY.md) adds, both optional:
-//       sheet: {x, y, w, h, r, style, tint, material, held} | null
+//       sheet: {x, y, w, h, r, style, tint, material, held, appearance} | null
 //                                          one sheet of Apple's material for the whole frame (the page's cards cover
 //                                          all of it but the frame): Liquid Glass (style "regular" or "clear", tint an
 //                                          optional "#rrggbbaa" Apple tints the glass toward), or Apple's frosted
 //                                          material (style "frosted": material one of NSVisualEffectView's fourteen,
-//                                          by name; held keeps the look of a window in use when it isn't)
+//                                          by name; held keeps the look of a window in use when it isn't);
+//                                          appearance "light" or "dark" (dark when absent), for the glass beneath
 //       floor: "none"                      no floor at all: the window is clear, so the sheet shows the desktop
 //   {type: "settings", material, motion, floor, cardGlass, slow}
 //                                                       clear|smoked|dark · pour|drop|slide · plain|grain · the card as
@@ -170,6 +171,9 @@ final class PolyphonicGlass: NSObject, WKScriptMessageHandler {
         let page = host.bounds
         sheetInsets = NSEdgeInsets(top: rect.minY, left: rect.minX, bottom: page.height - rect.maxY, right: page.width - rect.maxX)
         if let radius = box["r"] as? Double { sheetRadius = CGFloat(radius) }
+        let look: NSAppearance.Name = box["appearance"] as? String == "light" ? .aqua : .darkAqua
+        if host.sheet.appearance?.name != look { host.sheet.appearance = NSAppearance(named: look) }
+        if host.frost.appearance?.name != look { host.frost.appearance = NSAppearance(named: look) }
         let style = box["style"] as? String ?? "clear"
         frosted = style == "frosted"
         if frosted {

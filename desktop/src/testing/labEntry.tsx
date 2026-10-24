@@ -30,7 +30,10 @@ import { NostrBindConsentDialog } from "@/features/profile/ui/NostrBindConsentDi
 import { UpdaterProvider } from "@/features/settings/hooks/UpdaterProvider";
 import { KIND_SYSTEM_MESSAGE } from "@/shared/constants/kinds";
 import { ThemeProvider, useTheme } from "@/shared/theme/ThemeProvider";
-import { DEFAULT_THEME_NAME } from "@/shared/theme/theme-loader";
+import {
+  DEFAULT_THEME_NAME,
+  PAPER_THEME_NAME,
+} from "@/shared/theme/theme-loader";
 import { EmojiBurstProvider } from "@/shared/ui/EmojiBurstProvider";
 import { PoofBurstProvider } from "@/shared/ui/PoofBurstProvider";
 import { Toaster } from "@/shared/ui/sonner";
@@ -99,6 +102,15 @@ function invokeMock(command: string, payload?: Record<string, unknown>) {
  * lab renders a loading curtain or the onboarding door instead of the app —
  * that failure mode looks like a broken build, so keep this list complete.
  */
+/** The mode the shell study was last left in, from its saved choice. */
+function savedShellMode(saved: string | null): unknown {
+  try {
+    return (JSON.parse(saved ?? "{}") as { mode?: unknown } | null)?.mode;
+  } catch {
+    return undefined;
+  }
+}
+
 function seedStorage() {
   const store = window.localStorage;
   // This isolated study owns one stable design namespace. Preserve only that
@@ -121,14 +133,20 @@ function seedStorage() {
   // SYNTAX_THEMES) picks the theme; otherwise use the application default.
   // Clearing the cache alongside it stops a stale entry from repainting the
   // boot backdrop.
-  const requestedTheme = new URLSearchParams(window.location.search).get(
-    "theme",
-  );
+  // The shell study opens in the mode it was left in (or `?mode=`), so in
+  // light it starts on Paper rather than painting the dark default first.
+  const params = new URLSearchParams(window.location.search);
+  const requestedTheme = params.get("theme");
+  const studyMode = SHELL_STUDY
+    ? (params.get("mode") ?? savedShellMode(shellStudy))
+    : null;
   store.setItem(
     "buzz-theme",
     requestedTheme && /^[a-z0-9-]+$/i.test(requestedTheme)
       ? requestedTheme
-      : DEFAULT_THEME_NAME,
+      : studyMode === "light"
+        ? PAPER_THEME_NAME
+        : DEFAULT_THEME_NAME,
   );
   store.removeItem("buzz-theme-cache");
   // The drawer width persists per session; the lab always shows the default.

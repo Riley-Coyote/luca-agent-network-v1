@@ -45,6 +45,7 @@ import {
 } from "@/testing/shellStudy/marks";
 import {
   dragWindow,
+  labAppearance,
   placeLabLights,
   reportFrame,
   startGlass,
@@ -52,6 +53,12 @@ import {
   titledLabWindow,
   useNativeGlass,
 } from "@/testing/shellStudy/nativeGlass";
+import { PAPER_THEME_COLORS } from "@/shared/theme/adaptive-theme";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import {
+  DEFAULT_THEME_NAME,
+  PAPER_THEME_NAME,
+} from "@/shared/theme/theme-loader";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 import "./shellStudy.css";
@@ -142,7 +149,12 @@ const MATERIAL_BY_ID = new Map(
 );
 const DEFAULT_MATERIAL = "glass-regular";
 type Veil = "none" | "soft" | "deep";
+/** Light or dark, the app's own palettes: Paper, or the house dark. */
+type Mode = "dark" | "light";
+/** What the glass frame is made of in one mode: each mode keeps its own. */
+type Look = { material: string; held: boolean; veil: Veil };
 type Choice = {
+  mode: Mode;
   direction: Direction;
   tabs: boolean;
   rail: boolean;
@@ -153,41 +165,82 @@ type Choice = {
   /** For a frosted frame: hold the look of a window in use, or follow the window. */
   held: boolean;
   veil: Veil;
+  /** The look each mode had when it was last left. */
+  looks: Record<Mode, Look>;
   panel: boolean;
 };
 
+/** Riley's picks (2026-10-24): Regular with Apple's dark tint and the soft
+ *  veil in dark, plain Regular with the soft veil in light. */
+const DEFAULT_LOOKS: Record<Mode, Look> = {
+  dark: { material: "glass-regular-tint", held: true, veil: "soft" },
+  light: { material: "glass-regular", held: true, veil: "soft" },
+};
+
 const DEFAULT_CHOICE: Choice = {
+  mode: "dark",
   direction: "glass",
   tabs: true,
   rail: true,
   tone: "same",
-  material: DEFAULT_MATERIAL,
-  held: true,
-  veil: "soft",
+  ...DEFAULT_LOOKS.dark,
+  looks: DEFAULT_LOOKS,
   panel: true,
 };
 
+/** The parts of a look a source gives, each only if it's one of ours. */
+function lookFrom(source: Record<string, unknown>): Partial<Look> {
+  const look: Partial<Look> = {};
+  if (
+    typeof source.material === "string" &&
+    MATERIAL_BY_ID.has(source.material)
+  )
+    look.material = source.material;
+  if (typeof source.held === "boolean") look.held = source.held;
+  if (
+    source.veil === "none" ||
+    source.veil === "soft" ||
+    source.veil === "deep"
+  )
+    look.veil = source.veil;
+  return look;
+}
+
+/** Into the other mode: this mode's look is kept for coming back, and the
+ *  other's look returns. */
+function inMode(choice: Choice, mode: Mode): Choice {
+  if (mode === choice.mode) return choice;
+  const { material, held, veil } = choice;
+  const looks = { ...choice.looks, [choice.mode]: { material, held, veil } };
+  return { ...choice, mode, looks, ...looks[mode] };
+}
+
 function readChoice(): Choice {
-  const choice = { ...DEFAULT_CHOICE };
+  let choice = { ...DEFAULT_CHOICE };
   const take = (source: Record<string, unknown>) => {
+    if (source.mode === "dark" || source.mode === "light")
+      choice.mode = source.mode;
     if (source.direction === "black" || source.direction === "glass")
       choice.direction = source.direction;
     if (typeof source.tabs === "boolean") choice.tabs = source.tabs;
     if (typeof source.rail === "boolean") choice.rail = source.rail;
     if (source.tone === "same" || source.tone === "lighter")
       choice.tone = source.tone;
-    if (
-      typeof source.material === "string" &&
-      MATERIAL_BY_ID.has(source.material)
-    )
-      choice.material = source.material;
-    if (typeof source.held === "boolean") choice.held = source.held;
-    if (
-      source.veil === "none" ||
-      source.veil === "soft" ||
-      source.veil === "deep"
-    )
-      choice.veil = source.veil;
+    Object.assign(choice, lookFrom(source));
+    const looks = source.looks as Record<string, unknown> | undefined;
+    if (looks && typeof looks === "object") {
+      for (const mode of ["dark", "light"] as const) {
+        const look = looks[mode];
+        if (look && typeof look === "object")
+          choice.looks = {
+            ...choice.looks,
+            [mode]: {
+              ...choice.looks[mode],
+              ...lookFrom(look as Record<string, unknown>),
+            },
+          };
+      }
+    }
     if (typeof source.panel === "boolean") choice.panel = source.panel;
   };
   try {
@@ -196,9 +249,12 @@ function readChoice(): Choice {
   } catch {
     // A study that can't read its last look opens on the default one.
   }
-  // `?direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
-  // opens a look directly, for captures.
+  // `?mode=light&direction=glass&tone=lighter&tabs=1&rail=closed&material=frost-sidebar&held=0&veil=none&panel=0`
+  // opens a look directly, for captures. A mode asked for brings its own
+  // look, which the rest of the address can then change.
   const params = new URLSearchParams(window.location.search);
+  const asked = params.get("mode");
+  if (asked === "dark" || asked === "light") choice = inMode(choice, asked);
   const flag = (name: string) =>
     params.has(name)
       ? !["0", "off", "closed", "false"].includes(params.get(name) ?? "")
@@ -225,8 +281,13 @@ function frameMaterialFor(choice: Choice) {
     tint: material?.tint ?? null,
     material: material?.material ?? null,
     held: choice.held,
+    appearance: choice.mode,
   };
 }
+
+/** The black frame's floor, natively: black in dark, Paper's floor in light. */
+const solidFloor = (mode: Mode) =>
+  mode === "light" ? PAPER_THEME_COLORS.floor : "#000000";
 
 /** A conversation: a home's own (`session` null) or one of its sessions. */
 type Open = { home: string; session: string | null };
@@ -315,7 +376,31 @@ export function ShellStudy() {
     }
   }, [choice]);
 
+  // The mode is the app's own palette, Paper or the house dark, applied the
+  // way Settings applies it; and the lab's window takes the same appearance,
+  // so Apple's glass and the traffic lights match the page.
+  // Coming back to dark returns to the dark palette the study left.
+  const { isDark, isLoading, selectedThemeName, setTheme, themeName } =
+    useTheme();
+  const darkTheme = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (isLoading) return;
+    if (choice.mode === "light" && themeName !== PAPER_THEME_NAME) {
+      if (isDark) darkTheme.current = selectedThemeName;
+      setTheme(PAPER_THEME_NAME);
+    }
+    if (choice.mode === "dark" && !isDark)
+      setTheme(darkTheme.current ?? DEFAULT_THEME_NAME);
+  }, [choice.mode, isDark, isLoading, selectedThemeName, setTheme, themeName]);
+  React.useEffect(() => {
+    labAppearance(choice.mode);
+  }, [choice.mode]);
+
   const choose = <K extends keyof Choice>(key: K, value: Choice[K]) => {
+    if (key === "mode") {
+      setChoice((current) => inMode(current, value as Mode));
+      return;
+    }
     setChoice((current) => ({ ...current, [key]: value }));
     // The card slides when the rail opens or closes: follow it frame by frame.
     if (key === "rail") follow(SLIDE_MS + 120);
@@ -479,7 +564,7 @@ export function ShellStudy() {
     if (!native) return;
     reportFrame({
       card: cardBox ? { ...cardBox, r: CARD_RADIUS } : null,
-      floor: choice.direction === "black" ? "#000000" : "none",
+      floor: choice.direction === "black" ? solidFloor(choice.mode) : "none",
       row: null,
       clip: null,
       sheet:
@@ -601,6 +686,7 @@ export function ShellStudy() {
       className="shell"
       data-direction={choice.direction}
       data-material={frameMaterialFor(choice).style}
+      data-mode={choice.mode}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
       data-tabs={choice.tabs ? "on" : undefined}
@@ -617,6 +703,12 @@ export function ShellStudy() {
       {native ? null : <div aria-hidden="true" className="shell-desktop" />}
       {native ? null : <div aria-hidden="true" className="shell-frame" />}
       <div aria-hidden="true" className="shell-veil" />
+      {/* Where the cards lie, their shadows on the glass beneath all of them,
+          so no card shades its neighbour (drawn in daylight). */}
+      <div aria-hidden="true" className="shell-shadows">
+        <span className="shell-shadow shell-shadow--rail" />
+        <span className="shell-shadow shell-shadow--card" />
+      </div>
       <div aria-hidden="true" className="shell-marks" ref={frameLayerRef} />
       <div aria-hidden="true" className="shell-tabcards" ref={tabLayerRef} />
 
@@ -1306,10 +1398,20 @@ function LabPanel({
         </button>
       </div>
       <Segment
+        label="Mode"
+        onChange={(value) => choose("mode", value)}
+        options={[
+          ["dark", "Dark"],
+          ["light", "Light"],
+        ]}
+        value={choice.mode}
+      />
+      <Segment
         label="Frame"
         onChange={(value) => choose("direction", value)}
         options={[
-          ["black", "Black"],
+          // The solid frame: black at night, the paper's floor by day.
+          ["black", choice.mode === "light" ? "Paper" : "Black"],
           ["glass", "Glass"],
         ]}
         value={choice.direction}
@@ -1328,7 +1430,8 @@ function LabPanel({
         onChange={(value) => choose("tone", value)}
         options={[
           ["same", "Same"],
-          ["lighter", "Lighter"],
+          // A step off the card's tone: lighter on black, darker on paper.
+          ["lighter", choice.mode === "light" ? "Darker" : "Lighter"],
         ]}
         value={choice.tone}
       />
@@ -1391,7 +1494,9 @@ function LabPanel({
               ? frameMaterialFor(choice).style === "frosted"
                 ? "The frame is Apple's frosted material; the rail and the conversation are cards on it."
                 : "The frame is Apple's Liquid Glass; the rail and the conversation are cards on it."
-              : "The frame is black; the rail and the conversation are cards on it."
+              : choice.mode === "light"
+                ? "The frame is the paper's floor; the rail and the conversation are cards on it."
+                : "The frame is black; the rail and the conversation are cards on it."
             : "A browser can't draw Apple's glass: this is our stand-in. Judge the glass in the glass lab.")}
       </p>
     </aside>

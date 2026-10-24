@@ -1208,7 +1208,8 @@
       .shell-lip-card,
       .shell-history,
       .shell-tabs,
-      .shell-chevron svg
+      .shell-chevron svg,
+      .shell-shadow
     ) {
     transition: none;
   }
@@ -1220,4 +1221,167 @@
   .shell :is(.shell-lab, .shell-lab-pill) {
     bottom: 84px;
   }
+}
+
+/* ── light ────────────────────────────────────────────────────────────
+ * The same shell in daylight, on the app's own palette for it, Paper. The
+ * light still comes from above, but on paper it is told by what it leaves
+ * beneath: no white edges (white on white says nothing), shadows cast in the
+ * page's ink rather than black, and where the dark mode's veil is black, a
+ * veil of the paper's own tone, so the frame's ink reads over a dark or busy
+ * desktop. Apple's glass takes the light appearance natively. */
+.shell[data-direction="glass"][data-mode="light"] {
+  /* Not dark's steps copied: solved for daylight, so each tone holds the
+   * contrast its dark twin does over glass that bright. */
+  --shell-ink: hsl(var(--mn-ink));
+  --shell-muted: hsl(var(--mn-ink) / 0.84);
+  --shell-faint: hsl(var(--mn-ink) / 0.66);
+  --shell-plate: hsl(var(--mn-ink) / 0.07);
+  --shell-thread: hsl(var(--mn-ink) / 0.18);
+}
+
+.shell[data-mode="light"] .shell-veil {
+  background: hsl(var(--mn-floor) / var(--shell-veil, 0));
+}
+
+/* The solid frame in daylight is the paper's floor. */
+.shell[data-direction="black"][data-mode="light"]:not([data-native]) {
+  background: hsl(var(--mn-floor));
+}
+
+/* The browser's stand-in: a daylight sky under the web glass. */
+.shell[data-mode="light"] .shell-desktop {
+  background:
+    radial-gradient(60% 50% at 78% 82%, rgb(246 214 170 / 0.7), transparent 70%),
+    radial-gradient(40% 35% at 18% 70%, rgb(196 186 226 / 0.6), transparent 70%),
+    linear-gradient(180deg, #8fb3d9 0%, #b9cfe6 40%, #e3dccf 75%, #f0d6b8 100%);
+}
+
+.shell[data-mode="light"] .shell-frame {
+  background: rgb(255 255 255 / 0.3);
+  box-shadow:
+    inset 0 0.5px 0 rgb(255 255 255 / 0.8),
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.3);
+}
+
+.shell[data-mode="light"][data-material="frosted"] .shell-frame {
+  background: rgb(246 246 248 / 0.55);
+}
+
+/* Where you are, a piece of paper standing on the glass. */
+.shell[data-mode="light"] .shell-mark--card {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / calc(0.1 + var(--wet, 0) * 0.06)),
+    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
+}
+
+.shell[data-mode="light"] .shell-mark--tabcard {
+  box-shadow: none;
+}
+
+/* Where you are on the rail, a printed tint told by its tone alone: dark's
+ * lit top edge would be a drawn line on paper. */
+.shell[data-mode="light"] .shell-mark--plate {
+  box-shadow: none;
+}
+
+/* The cards on light glass: paper, its shadow pooled beneath it. The
+ * shadows lie on the glass under every card at once, so no card shades its
+ * neighbour; a closed rail's fades as it narrows. */
+:root
+  .shell[data-direction="glass"][data-mode="light"]
+  :is(.shell-card, .shell-rail)[data-luca-card] {
+  box-shadow: none;
+}
+
+.shell-shadows {
+  display: none;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.shell[data-direction="glass"][data-mode="light"] .shell-shadows {
+  display: block;
+}
+
+.shell-shadow {
+  border-radius: var(--radius);
+  bottom: var(--edge);
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.08),
+    0 16px 40px -10px hsl(var(--mn-ink) / 0.22);
+  position: absolute;
+  top: var(--lip);
+}
+
+.shell-shadow--rail {
+  left: var(--places);
+  transition:
+    width var(--slide),
+    opacity var(--slide);
+  width: var(--rail-now);
+}
+
+.shell[data-rail="closed"] .shell-shadow--rail {
+  opacity: 0;
+}
+
+.shell-shadow--card {
+  left: var(--card-left);
+  right: var(--edge);
+  transition: left var(--slide);
+}
+
+.shell[data-mode="light"] .shell-mine p {
+  box-shadow: none;
+}
+
+/* The composer's well on paper: a shade of ink, its upper edge in shadow,
+ * its lower lip catching the light. */
+.shell[data-mode="light"] .shell-composer {
+  background: hsl(var(--mn-ink) / 0.045);
+  box-shadow:
+    inset 0 1px 2px hsl(var(--mn-ink) / 0.12),
+    inset 0 -0.5px 0 rgb(255 255 255 / 0.9);
+}
+
+.shell[data-mode="light"] .shell-composer:focus-within {
+  box-shadow:
+    inset 0 1px 2px hsl(var(--mn-ink) / 0.16),
+    inset 0 -0.5px 0 rgb(255 255 255);
+}
+
+/* Send, a piece of paper standing up out of the well. */
+.shell[data-mode="light"] .shell-send {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+}
+
+.shell[data-mode="light"] .shell-search-scrim {
+  background: hsl(var(--mn-ink) / 0.1);
+}
+
+.shell[data-mode="light"] .shell-search {
+  box-shadow:
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.1),
+    0 24px 64px -12px hsl(var(--mn-ink) / 0.28);
+}
+
+.shell[data-mode="light"] :is(.shell-lab, .shell-lab-pill) {
+  background: hsl(var(--mn-surface) / 0.97);
+}
+
+.shell[data-mode="light"] .shell-lab {
+  box-shadow:
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.1),
+    0 14px 36px -8px hsl(var(--mn-ink) / 0.24);
+}
+
+/* Natively nothing of ours paints past the glass's rounded corners. */
+.shell[data-native] :is(.shell-veil, .shell-search-scrim) {
+  border-radius: 16px;
 }

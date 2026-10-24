@@ -17,7 +17,8 @@ export type GlassFrame = {
   clip: Box | null;
   /** The frame's one sheet of Apple's material: Liquid Glass (regular or
    *  clear, maybe Apple's tint, "#rrggbbaa") or frosted (one of AppKit's
-   *  materials by name, its in-use look held or following the window). */
+   *  materials by name, its in-use look held or following the window), in
+   *  light or dark appearance. */
   sheet:
     | (Box & {
         r: number;
@@ -25,6 +26,7 @@ export type GlassFrame = {
         tint: string | null;
         material: string | null;
         held: boolean;
+        appearance: "light" | "dark";
       })
     | null;
 };
@@ -83,6 +85,12 @@ export function dragWindow() {
  *  and the line they're centred on, to sit on the page's lip. */
 export function placeLabLights(left: number, centre: number) {
   post("glassLab", { lights: { left, centre } });
+}
+
+/** The lab's own window takes the page's appearance, light or dark: its
+ *  traffic lights, and the page's sense of the system's colours. */
+export function labAppearance(appearance: "light" | "dark") {
+  post("glassLab", { appearance });
 }
 
 /** Whether the lab's window draws real traffic lights. */

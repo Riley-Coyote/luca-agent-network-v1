@@ -128,7 +128,7 @@ Three frames, each in light and dark mode, chosen in settings:
 - **Glass:** Apple's frosted material ("the diffused normal glass look almost feels better"). Heads-up display looks
   best so far; it changed colour when he clicked away only because its look was set to follow the window.
 - **Liquid Glass.** Dark: Regular with Apple's dark tint and the Soft veil. Light: Regular with the Soft veil, to be
-  seen once light mode exists. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
+  seen in the lab's light mode. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
   with soft tint for white/light mode", on the rolled-back lab. Earlier the same night he had leaned to Clear with the
   dark tint and no veil, for its look when the window rests.)
 
@@ -140,6 +140,25 @@ From the rolled-back lab, each change is shown alone and kept only on Riley's wo
    brightest along the top and quiet down the sides, and the open tab carried the same line round the curves at its
    foot onto the card's top. Riley compared it on and off in the lab: "Drop the card edge, I like it better without."
    The cards keep only their lit top edge and their soft shadow on the glass. The code is in commit 4276105be.
+2. **Light mode** (Riley: "build light mode in the glass lab so I can see Regular with Soft in light"). A Mode switch
+   in the lab, Dark or Light. Light is the app's own light palette, Paper, applied the way Settings applies it, and
+   Apple's glass and the lab's window take the light appearance with it. Each mode keeps its own look: dark opens on
+   Regular with Apple's dark tint and the Soft veil, light on plain Regular with the Soft veil, and each remembers what
+   was last chosen in it. In daylight the light from above is told by what it leaves beneath, so:
+   - no white edges anywhere (white on white says nothing): the cards, the tab, the sent message and the "where you
+     are" marks are told by their tone and a soft shadow, cast in the page's ink rather than black;
+   - the Soft veil is a wash of the paper's own tone, not black, so it lifts the glass toward the cards and the
+     frame's ink reads over a dark or busy desktop (a black wash would turn light glass grey);
+   - the frame's words are the page's ink at 100, 84 and 66 percent, solved for daylight rather than copied from dark;
+   - the cards' shadows lie on the glass beneath all of them at once, so no card shades its neighbour (in dark the
+     same overlap was invisible, black on black);
+   - the composer is a shallow well with its lower lip catching the light, and send a piece of paper standing out of
+     it;
+   - the solid frame (Black in dark) is the paper's floor in light, named Paper there, and the darker rail tone is
+     named Darker.
+   Dark is unchanged: ten distinct dark looks rendered before and after were identical but for a font-loading quirk of
+   the comparison. Measured in the film window, where the glass shows nothing behind it (as over a black desktop),
+   the tab names reach 4.1:1; over a real desktop the glass is brighter. Waiting on Riley's eye in the real window.
 
 ## Light and surface, not lines
 
@@ -161,7 +180,9 @@ way. Riley set their finer behaviour aside for now.
 
 ## Next
 
-Light mode, once the dark shell is settled (Riley).
+Riley judges light mode in the real window. Still open in light: the Paper frame's cards wear the app's own light
+card edge (a hairline ring), which is a line; and the Soft veil's strength in light (0.22 now) if the tab names need
+more over a dark desktop.
 
 ## In the browser
 
@@ -175,11 +196,14 @@ opens the glass frame on Riley's dark pick (drop the look's parameters for the l
 with working traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
 not in use (flatter, frosted). `run` instead of `open` is the film window, for checks and captures. The study also opens
-directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0`.
+directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindow&held=1&veil=none&panel=0`, and in a
+mode with `&mode=light` (which brings that mode's own look). Captures in a browser need every setting in the address
+and a fresh browser for each, or the last look carries over.
 
 ## Lab controls
 
-At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
+At the conversation card's bottom right: Mode (Dark, Light), Frame (Black, Glass; Paper, Glass in light), Rail (Open,
+Closed), Rail tone (Same, Lighter; Darker in light), Tabs
 (Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
 materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
