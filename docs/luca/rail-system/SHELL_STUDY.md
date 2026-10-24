@@ -127,9 +127,21 @@ Three frames, each in light and dark mode, chosen in settings:
 - **Black.** "it looks too good to throw away."
 - **Glass:** Apple's frosted material ("the diffused normal glass look almost feels better"). Heads-up display looks
   best so far; it changed colour when he clicked away only because its look was set to follow the window.
-- **Liquid Glass.** Dark: Clear with Apple's dark tint, no darkness, its resting look ("the best look overall is the
-  unfocused mode of Clear, apples dark tint. it adds the diffusion that looks nice for this design"). Light: probably
-  Regular with soft darkness, to be judged once light mode exists.
+- **Liquid Glass.** Dark: Regular with Apple's dark tint and the Soft veil. Light: Regular with the Soft veil, to be
+  seen once light mode exists. ("i think were going to go with regular,, apples dark tint with soft tint, and Regular
+  with soft tint for white/light mode", on the rolled-back lab. Earlier the same night he had leaned to Clear with the
+  dark tint and no veil, for its look when the window rests.)
+
+## Rebuilding, one change at a time (from 2026-10-24)
+
+From the rolled-back lab, each change is shown alone and kept only on Riley's word.
+
+1. **The card edge** (Riley: "lets see what it looks like with the cards edge"; he may like it better without). On the
+   glass, each card's edge catches the light all the way round its corners, brightest along the top and quiet down the
+   sides, like the glass's rim at the window's edge. The open tab carries the same line down its sides and round the
+   curves at its foot onto the card's top, brightening as the curve turns to face up. A closed rail has no edge. It is
+   a switch in the lab, Card edge, on by default while he compares; Off is the lab exactly as it was. Waiting on his
+   judgment.
 
 ## Light and surface, not lines
 
@@ -160,7 +172,7 @@ dusk sky under our web glass), and says so in the lab panel. Judge the glass in 
 
 ## The glass lab
 
-`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-clear-tint&veil=none"`
+`scripts/native-glass-lab.sh open "http://localhost:1488/scripts/shell-lab.template.html?experience=shell&direction=glass&material=glass-regular-tint&veil=soft"`
 opens the glass frame on Riley's dark pick (drop the look's parameters for the last look you chose) in a real window
 with working traffic lights, behind every other window (with Stage Manager on, it waits in the
 strip). Clicking it brings it forward; only then is its glass at its best, since macOS relaxes the glass of a window
@@ -170,7 +182,7 @@ directly in a look: `&direction=glass&tabs=1&rail=closed&material=frost-hudWindo
 ## Lab controls
 
 At the conversation card's bottom right: Frame (Black, Glass), Rail (Open, Closed), Rail tone (Same, Lighter), Tabs
-(Off, On); for the glass frame, Material (every Liquid Glass and frosted material Apple has), Look for the frosted
+(Off, On); for the glass frame, Card edge (Off, On), Material (every Liquid Glass and frosted material Apple has), Look for the frosted
 materials (In use, Follows) and Veil (None, Soft, Deep). Clicking
 places, homes, sessions, tabs, + and search works as it would in the app; nothing leaves the page. The look is
 remembered on this Mac.
