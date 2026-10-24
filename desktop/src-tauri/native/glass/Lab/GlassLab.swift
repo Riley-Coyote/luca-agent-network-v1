@@ -51,7 +51,9 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
 
     init(url: URL, titled: Bool) {
         self.titled = titled
-        let screen = NSScreen.screens.dropFirst().first ?? NSScreen.screens.first
+        // The film window keeps to the screen without the menu bar; a window to use opens on the main one, where it
+        // will be looked at.
+        let screen = titled ? NSScreen.screens.first : NSScreen.screens.dropFirst().first ?? NSScreen.screens.first
         let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1512, height: 944)
         let size = CGSize(width: min(1440, visible.width - 48), height: min(900, visible.height - 48))
         let rect = NSRect(origin: .zero, size: size)
@@ -137,6 +139,8 @@ final class Lab: NSObject, WKNavigationDelegate, NSApplicationDelegate, WKScript
         for (index, button) in buttons.enumerated() {
             button.setFrameOrigin(NSPoint(x: lightsLeft + CGFloat(index) * spacing, y: 0))
         }
+        let placed = close.convert(close.bounds, to: nil)
+        print("glass-lab: lights at x \(Int(placed.minX)), centred \(Int(window.frame.height - placed.midY)) from the top")
     }
 
     @objc private func windowChanged() { placeLights() }
