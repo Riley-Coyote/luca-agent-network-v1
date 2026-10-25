@@ -34,6 +34,45 @@ const SECOND = {
   relayUrl: "ws://localhost:3001",
   addedAt: "2026-01-02T00:00:00.000Z",
 };
+// Beyond the second, for a long list: two-word names, so the tiles carry two
+// initials, the widest they draw.
+const MORE_NAMES = [
+  "Mason Studio",
+  "North Relay",
+  "Charlie Works",
+  "Delta House",
+  "Echo Lab",
+  "Foxtrot Guild",
+  "Golf Circle",
+  "Hotel Room",
+  "India Field",
+  "Juliet Yard",
+  "Kilo Bench",
+  "Lima Hall",
+  "Mike Deck",
+  "Oscar Loft",
+  "Papa Square",
+  "Quebec Row",
+  "Romeo Port",
+  "Sierra Dock",
+  "Tango Barn",
+  "Uniform Bay",
+  "Victor Hill",
+  "Whiskey Cove",
+];
+
+function extraCommunities(count: number) {
+  if (count < 2) return [];
+  const more = MORE_NAMES.slice(0, Math.max(0, count - 2)).map(
+    (name, index) => ({
+      id: `e2e-more-community-${index + 3}`,
+      name,
+      relayUrl: `ws://localhost:${3002 + index}`,
+      addedAt: `2026-01-${String(index + 3).padStart(2, "0")}T00:00:00.000Z`,
+    }),
+  );
+  return [SECOND, ...more];
+}
 const FIRST_ID = "e2e-default-community";
 const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const CONVERSATION_CARD =
@@ -57,7 +96,7 @@ async function openApp(
     origin = "",
     size = { width: 1440, height: 900 },
   }: {
-    communities?: 1 | 2;
+    communities?: number;
     devBuild?: boolean;
     frame: boolean;
     homeFollowsActive?: boolean;
@@ -72,7 +111,7 @@ async function openApp(
   // After the bridge's own seeds, so these decide the frame and add the
   // second community beside the mock's own (which stays the active one).
   await page.addInitScript(
-    ({ key, on, second }) => {
+    ({ key, on, extra }) => {
       let overrides: Record<string, boolean> = {};
       try {
         overrides = JSON.parse(localStorage.getItem(key) ?? "{}");
@@ -81,20 +120,22 @@ async function openApp(
       }
       overrides["shell-frame"] = on;
       localStorage.setItem(key, JSON.stringify(overrides));
-      if (second) {
+      if (extra.length > 0) {
         const list = JSON.parse(
           localStorage.getItem("buzz-communities") ?? "[]",
         ) as Array<{ id: string; pubkey?: string }>;
-        if (!list.some((community) => community.id === second.id)) {
-          list.push({ ...second, pubkey: list[0]?.pubkey });
-          localStorage.setItem("buzz-communities", JSON.stringify(list));
+        for (const next of extra) {
+          if (!list.some((community) => community.id === next.id)) {
+            list.push({ ...next, pubkey: list[0]?.pubkey });
+          }
         }
+        localStorage.setItem("buzz-communities", JSON.stringify(list));
       }
     },
     {
       key: FEATURE_OVERRIDES_STORAGE_KEY,
       on: frame,
-      second: communities === 2 ? SECOND : null,
+      extra: extraCommunities(communities),
     },
   );
   await page.addInitScript((follow) => {
@@ -571,7 +612,11 @@ test("the avatar: no presence dot, its states, its tooltip, its dot", async ({
       document.querySelector("[data-radix-popper-content-wrapper] [data-side]")
         ?.className ?? null,
   );
+  // A hand keeps moving: a second step on the avatar. Playwright's hover is
+  // one pointermove, which Radix spends on leaving Settings' tooltip (its
+  // pointer-in-transit grace), so a lone step can leave the avatar's unasked.
   await page.locator(AVATAR).hover();
+  await page.mouse.move(av.x + av.w / 2 + 1, av.y + av.h / 2 + 1);
   await expect(tooltip).toHaveText(name ?? "", { timeout: 5_000 });
   const avatarTipClass = await page.evaluate(
     () =>
@@ -657,13 +702,22 @@ test("the avatar: no presence dot, its states, its tooltip, its dot", async ({
   });
   const clipped = (await discStyle(page))?.clipped;
   const label = await page.locator(AVATAR).getAttribute("aria-label");
-  // The reconnecting overlay still draws over the places until WP-08b
-  // retires it: one shot as it is, one with it set aside to see the dot.
-  files.push(await shot(page, dir, "connection-dot-with-overlay"));
-  await page.addStyleTag({
-    content:
-      '.fixed.z-50:has([data-testid="sidebar-relay-unreachable"]) { visibility: hidden !important; }',
-  });
+  // Under the frame the reconnecting card never draws (SHELL_SPEC.md, "The
+  // reconnecting card"): nothing covers the avatar, its dot or Settings.
+  const overlay = await page.getByTestId("sidebar-reconnect").count();
+  const onTop = await page.evaluate(() =>
+    ["shell-profile-avatar-button", "open-settings-view"].map((id) => {
+      const element = document.querySelector(`[data-testid="${id}"]`);
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        r.x + r.width / 2,
+        r.y + r.height / 2,
+      );
+      return { id, hit_inside: !!hit && element.contains(hit) };
+    }),
+  );
+  files.push(await shot(page, dir, "connection-dot-rail-closed"));
   files.push(await shot(page, dir, "connection-dot", clip));
   const discBox = await box(page, AVATAR);
   if (discBox) {
@@ -680,7 +734,20 @@ test("the avatar: no presence dot, its states, its tooltip, its dot", async ({
     dot && disc
       ? { x: dot.x + dot.w / 2 - disc.x, y: dot.y + dot.h / 2 - disc.y }
       : null;
+  // The avatar takes the click: its menu opens, communities and all.
+  await page.locator(AVATAR).click({ timeout: 5_000 });
+  const menuOpens = await page
+    .getByTestId("profile-popover")
+    .isVisible({ timeout: 5_000 })
+    .catch(() => false);
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("profile-popover")).toBeHidden();
+  await page.mouse.move(700, 500);
+  await page.waitForTimeout(300);
   checks.connection_dot = {
+    overlay_count: overlay,
+    on_top: onTop,
+    avatar_click_opens_menu: menuOpens,
     with_rail_open: dotWithRailOpen,
     dot,
     centre_in_disc: dotCentre,
@@ -698,7 +765,10 @@ test("the avatar: no presence dot, its states, its tooltip, its dot", async ({
       dotCentre.y === 20.5 &&
       dotStyle.background === dotStyle.warning &&
       clipped === true &&
-      !!label?.endsWith(", connection problem"),
+      !!label?.endsWith(", connection problem") &&
+      overlay === 0 &&
+      onTop.every((entry) => entry?.hit_inside === true) &&
+      menuOpens,
   };
   // The smallest window, the rail still closed.
   await page.setViewportSize({ width: 800, height: 500 });
@@ -729,6 +799,426 @@ test("the avatar: no presence dot, its states, its tooltip, its dot", async ({
     timeout: 10_000,
   });
   checks.console_avatar = errors;
+  record(dir);
+});
+
+async function openMenu(page: Page) {
+  await page.locator(AVATAR).click();
+  await expect(page.getByTestId("profile-popover")).toBeVisible();
+  await expect(page.getByTestId("shell-communities")).toBeVisible();
+  await page.waitForTimeout(350);
+  await settle(page);
+}
+
+/** The menu's parts, where they are, and whether its list scrolls. */
+async function menuLayout(page: Page) {
+  return page.evaluate(() => {
+    const rect = (element: Element | null) => {
+      if (!element) return null;
+      const r = element.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    };
+    const list = document.querySelector(
+      '[data-testid="shell-communities-list"]',
+    ) as HTMLElement | null;
+    const rows = [
+      ...document.querySelectorAll(
+        '[data-testid="shell-communities-list"] [data-testid^="shell-community-switch-"]',
+      ),
+    ];
+    return {
+      window: { w: innerWidth, h: innerHeight },
+      menu: rect(document.querySelector('[data-testid="profile-popover"]')),
+      identity: rect(
+        document.querySelector(
+          '[data-testid="profile-popover"] [role="menu"] > div',
+        ),
+      ),
+      settings: rect(
+        document.querySelector('[data-testid="profile-popover-settings"]'),
+      ),
+      add: rect(document.querySelector('[data-testid="shell-community-add"]')),
+      list: rect(list),
+      list_scroll: list
+        ? {
+            overflow_y: getComputedStyle(list).overflowY,
+            client: list.clientHeight,
+            scroll: list.scrollHeight,
+            top: list.scrollTop,
+          }
+        : null,
+      rows: rows.length,
+      last_row: rect(rows[rows.length - 1] ?? null),
+    };
+  });
+}
+
+const inside = (
+  b: { x: number; y: number; w: number; h: number } | null,
+  w: { w: number; h: number },
+) => !!b && b.y >= 0 && b.x >= 0 && b.y + b.h <= w.h && b.x + b.w <= w.w;
+
+test("many communities: the menu stays in the window, its list scrolls", async ({
+  browser,
+}, info) => {
+  test.setTimeout(240_000);
+  const dir = shotsDir(info.outputPath());
+  const errors: string[] = [];
+  const result: Record<string, unknown> = {};
+  let ok = true;
+  for (const [count, size] of [
+    [10, { width: 800, height: 500 }],
+    [10, { width: 1440, height: 900 }],
+    [24, { width: 1440, height: 900 }],
+    [2, { width: 800, height: 500 }],
+  ] as const) {
+    const label = `many-${count}c-${size.width}x${size.height}`;
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL,
+      deviceScaleFactor: 2,
+    });
+    const page = await context.newPage();
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await openApp(page, { communities: count, frame: true, size });
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-luca-frame",
+      "solid",
+      { timeout: 20_000 },
+    );
+    await openGeneral(page);
+    await page.mouse.move(size.width - 10, 10);
+    await openMenu(page);
+    const before = await menuLayout(page);
+    files.push(await shot(page, dir, label));
+    // The wheel over the list reaches the last community.
+    let after = before;
+    if (before.list) {
+      await page.mouse.move(
+        before.list.x + before.list.w / 2,
+        before.list.y + before.list.h / 2,
+      );
+      for (let i = 0; i < 12; i += 1) await page.mouse.wheel(0, 240);
+      await page.waitForTimeout(300);
+      after = await menuLayout(page);
+      if (
+        before.list_scroll &&
+        before.list_scroll.scroll > before.list_scroll.client
+      ) {
+        files.push(await shot(page, dir, `${label}-scrolled`));
+      }
+    }
+    const lastVisible =
+      !!after.last_row &&
+      !!after.list &&
+      after.last_row.y >= after.list.y - 0.5 &&
+      after.last_row.y + after.last_row.h <=
+        after.list.y + after.list.h + 0.5 &&
+      inside(after.last_row, after.window);
+    // Add community: in the window, and it opens its dialog.
+    await page.getByTestId("shell-community-add").click({ timeout: 5_000 });
+    const dialog = page.getByRole("dialog", { name: "Add Community" });
+    const dialogOpens = await dialog
+      .waitFor({ state: "visible", timeout: 2_000 })
+      .then(() => true)
+      .catch(() => false);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    const avatarBox = await box(page, AVATAR);
+    const menuBottomOnAvatar =
+      !!avatarBox &&
+      !!before.menu &&
+      Math.abs(before.menu.y + before.menu.h - (avatarBox.y + avatarBox.h)) <=
+        0.5;
+    const entry = {
+      avatar: avatarBox,
+      menu_bottom_on_avatar: menuBottomOnAvatar,
+      rows: before.rows,
+      window: before.window,
+      menu: before.menu,
+      identity: before.identity,
+      settings: before.settings,
+      add: before.add,
+      list: before.list,
+      list_scroll_before: before.list_scroll,
+      list_scroll_after: after.list_scroll,
+      last_row_after_wheel: after.last_row,
+      menu_in_window: inside(before.menu, before.window),
+      identity_in_window: inside(before.identity, before.window),
+      settings_in_window: inside(before.settings, before.window),
+      add_in_window: inside(before.add, before.window),
+      last_row_reached: lastVisible,
+      add_opens_dialog: dialogOpens,
+    };
+    const entryOk =
+      menuBottomOnAvatar &&
+      entry.rows === count &&
+      entry.menu_in_window &&
+      entry.identity_in_window &&
+      entry.settings_in_window &&
+      entry.add_in_window &&
+      lastVisible &&
+      dialogOpens;
+    result[label] = { ...entry, ok: entryOk };
+    ok &&= entryOk;
+    await context.close();
+  }
+  checks.menu_fits_window = { ...result, ok };
+  checks.console_many = errors;
+  record(dir);
+});
+
+test("the menu's rows end on one trailing edge", async ({ browser }, info) => {
+  test.setTimeout(120_000);
+  const dir = shotsDir(info.outputPath());
+  const result: Record<string, unknown> = {};
+  let ok = true;
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 800, height: 500 },
+  ]) {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL,
+      deviceScaleFactor: 2,
+    });
+    const page = await context.newPage();
+    await openApp(page, { communities: 2, frame: true, size });
+    await openGeneral(page);
+    await page.mouse.move(size.width - 10, 10);
+    await openMenu(page);
+    // The strip's unread marks, drawn with the rows' own markup, to measure
+    // where every kind of mark ends.
+    await page.evaluate((id) => {
+      const button = document.querySelector(
+        `[data-testid="shell-community-switch-${id}"]`,
+      );
+      if (!button) return;
+      const mark = document.createElement("span");
+      mark.className = "luca-shell-community-mark";
+      mark.innerHTML =
+        '<span class="luca-shell-community-count" data-probe="count">3</span>';
+      button.append(mark);
+    }, SECOND.id);
+    await settle(page);
+    const measure = () =>
+      page.evaluate(
+        ({ first, second }) => {
+          const right = (selector: string) => {
+            const element = document.querySelector(selector);
+            return element ? element.getBoundingClientRect().right : null;
+          };
+          const opacity = (selector: string) => {
+            const element = document.querySelector(selector);
+            return element ? getComputedStyle(element).opacity : null;
+          };
+          const row = document.querySelector(
+            `[data-testid="shell-community-${first}"]`,
+          );
+          return {
+            row_right: row?.getBoundingClientRect().right ?? null,
+            settings_kbd: right('[data-testid="profile-popover-settings"] kbd'),
+            check: right(`[data-testid="shell-community-current-${first}"]`),
+            count: right('[data-probe="count"]'),
+            switch_button: right(
+              `[data-testid="shell-community-switch-${first}"]`,
+            ),
+            more_glyph: right(
+              `[data-testid="shell-community-more-${first}"] svg`,
+            ),
+            more_opacity: opacity(
+              `[data-testid="shell-community-more-${first}"]`,
+            ),
+            mark_opacity: opacity(
+              `[data-testid="shell-community-${first}"] .luca-shell-community-mark`,
+            ),
+            other_more_opacity: opacity(
+              `[data-testid="shell-community-more-${second}"]`,
+            ),
+          };
+        },
+        { first: FIRST_ID, second: SECOND.id },
+      );
+    const rest = await measure();
+    const menu = await box(page, '[data-testid="profile-popover"]');
+    const clip = menu
+      ? { x: menu.x - 8, y: menu.y - 8, w: menu.w + 16, h: menu.h + 16 }
+      : undefined;
+    files.push(
+      await shot(
+        page,
+        dir,
+        `trailing-edge-rest-${size.width}x${size.height}`,
+        clip,
+      ),
+    );
+    await page.getByTestId(`shell-community-${FIRST_ID}`).hover();
+    await page.waitForTimeout(300);
+    const hover = await measure();
+    files.push(
+      await shot(
+        page,
+        dir,
+        `trailing-edge-hover-${size.width}x${size.height}`,
+        clip,
+      ),
+    );
+    // The ⋯ opened by the keyboard holds the slot.
+    await page.getByTestId(`shell-community-more-${FIRST_ID}`).click();
+    await page.mouse.move(size.width - 10, 10);
+    await page.waitForTimeout(300);
+    const opened = await measure();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Escape");
+    const label = `${size.width}x${size.height}`;
+    const near = (a: number | null, b: number | null) =>
+      a !== null && b !== null && Math.abs(a - b) <= 0.5;
+    const entryOk =
+      near(rest.check, rest.settings_kbd) &&
+      near(rest.count, rest.settings_kbd) &&
+      near(rest.switch_button, rest.row_right) &&
+      near(hover.more_glyph, rest.settings_kbd) &&
+      rest.more_opacity === "0" &&
+      rest.mark_opacity === "1" &&
+      hover.more_opacity === "1" &&
+      hover.mark_opacity === "0" &&
+      hover.other_more_opacity === "0" &&
+      opened.more_opacity === "1" &&
+      opened.mark_opacity === "0";
+    result[label] = { rest, hover, more_open: opened, ok: entryOk };
+    ok &&= entryOk;
+    await context.close();
+  }
+  checks.trailing_edge = { ...result, ok };
+  record(dir);
+});
+
+test("Add community opens on every route, Settings too", async ({
+  page,
+}, info) => {
+  test.setTimeout(120_000);
+  const dir = shotsDir(info.outputPath());
+  const result: Record<string, unknown> = {};
+  let ok = true;
+  await openApp(page, { communities: 2, frame: true });
+  await openGeneral(page);
+  for (const route of ["general", "settings"] as const) {
+    if (route === "settings") {
+      await page.evaluate(() => {
+        location.hash = "#/settings";
+      });
+      await expect(page.locator("[data-luca-settings-frame]")).toBeVisible({
+        timeout: 20_000,
+      });
+    }
+    await page.mouse.move(700, 500);
+    await openMenu(page);
+    const started = Date.now();
+    await page.getByTestId("shell-community-add").click();
+    const dialog = page.getByRole("dialog", { name: "Add Community" });
+    const opened = await dialog
+      .waitFor({ state: "visible", timeout: 1_200 })
+      .then(() => Date.now() - started)
+      .catch(() => null);
+    await page.waitForTimeout(300);
+    const dialogs = await page.getByRole("dialog").count();
+    files.push(await shot(page, dir, `add-community-${route}`));
+    const hash = await page.evaluate(() => location.hash);
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    const hashAfter = await page.evaluate(() => location.hash);
+    const entryOk =
+      opened !== null &&
+      dialogs === 1 &&
+      hash === hashAfter &&
+      (route !== "settings" || hash === "#/settings");
+    result[route] = {
+      opened_after_ms: opened,
+      dialogs,
+      hash,
+      hash_after_close: hashAfter,
+      ok: entryOk,
+    };
+    ok &&= entryOk;
+  }
+  checks.add_community_every_route = { ...result, ok };
+  record(dir);
+});
+
+test("the community tiles follow the text size", async ({ page }, info) => {
+  test.setTimeout(120_000);
+  const dir = shotsDir(info.outputPath());
+  const result: Record<string, unknown> = {};
+  let ok = true;
+  await openApp(page, { communities: 4, frame: true });
+  await openGeneral(page);
+  for (const [zoom, root] of [
+    [75, "12px"],
+    [100, "16px"],
+    [150, "24px"],
+  ] as const) {
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = size;
+    }, root);
+    await page.mouse.move(1400, 10);
+    await openMenu(page);
+    const tiles = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '[data-testid="profile-popover"] .luca-shell-community-icon',
+        ),
+      ].map((tile) => {
+        const element = tile as HTMLElement;
+        const r = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        const icon = element.querySelector("svg");
+        const iconBox = icon?.getBoundingClientRect();
+        return {
+          text: element.textContent,
+          w: r.width,
+          h: r.height,
+          radius: style.borderRadius,
+          font: style.fontSize,
+          scroll_w: element.scrollWidth,
+          client_w: element.clientWidth,
+          icon: iconBox ? { w: iconBox.width, h: iconBox.height } : null,
+        };
+      }),
+    );
+    const avatar = await box(
+      page,
+      '[data-testid="profile-popover"] [role="menu"] > div > :first-child',
+    );
+    const menu = await box(page, '[data-testid="profile-popover"]');
+    files.push(
+      await shot(
+        page,
+        dir,
+        `tiles-zoom-${zoom}`,
+        menu
+          ? { x: menu.x - 8, y: menu.y - 8, w: menu.w + 16, h: menu.h + 16 }
+          : undefined,
+      ),
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("profile-popover")).toBeHidden();
+    const expected = (20 * zoom) / 100;
+    const entryOk =
+      tiles.length === 5 &&
+      tiles.every(
+        (tile) =>
+          Math.abs(tile.w - expected) <= 0.5 &&
+          Math.abs(tile.h - expected) <= 0.5 &&
+          tile.scroll_w <= tile.client_w &&
+          (!tile.icon || (tile.icon.w <= tile.w && tile.icon.h <= tile.h)),
+      );
+    result[`${zoom}%`] = { tiles, menu_avatar: avatar, ok: entryOk };
+    ok &&= entryOk;
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = "";
+  });
+  checks.tiles_scale = { ...result, ok };
   record(dir);
 });
 

@@ -50,6 +50,12 @@ interface ProfilePopoverProps {
   alignOffset?: number;
   // Optional mark beside the name at the menu's top (the shell's DEV chip).
   nameAccessory?: React.ReactNode;
+  // Optional class and window margin for the menu itself: the shell's avatar
+  // caps the menu at the room the window leaves it.
+  contentClassName?: string;
+  collisionPadding?: React.ComponentProps<
+    typeof PopoverContent
+  >["collisionPadding"];
 }
 
 const MENU_ITEM_CLASS =
@@ -80,6 +86,8 @@ export function ProfilePopover({
   sideOffset = -32,
   alignOffset,
   nameAccessory,
+  contentClassName,
+  collisionPadding,
 }: ProfilePopoverProps) {
   const [statusDialogOpen, setStatusDialogOpen] = React.useState(false);
   const [presenceMenuOpen, setPresenceMenuOpen] = React.useState(false);
@@ -113,7 +121,8 @@ export function ProfilePopover({
           align={align}
           sideOffset={sideOffset}
           alignOffset={alignOffset}
-          className="w-[280px] p-1"
+          className={cn("w-[280px] p-1", contentClassName)}
+          collisionPadding={collisionPadding}
           data-testid="profile-popover"
           onInteractOutside={(event) => {
             const target = event.target as Node | null;

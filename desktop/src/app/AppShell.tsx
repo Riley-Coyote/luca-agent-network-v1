@@ -114,6 +114,8 @@ import { useChannelMutes } from "@/features/sidebar/lib/useChannelMutes";
 import { useChannelStars } from "@/features/sidebar/lib/useChannelStars";
 import { useCommunities } from "@/features/communities/useCommunities";
 import { useAddCommunityDialogState } from "@/features/communities/addCommunityPrefill";
+import { AddCommunityDialog } from "@/features/communities/ui/AddCommunityDialog";
+import type { Community } from "@/features/communities/types";
 import { useApplyTemplate } from "@/features/channel-templates/useApplyTemplate";
 import { relayClient } from "@/shared/api/relayClient";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -251,6 +253,20 @@ export function AppShell() {
   }, [startupReady]);
 
   const identityQuery = useIdentityQuery();
+  const handleAddCommunity = React.useCallback(
+    (community: Community) => {
+      const id = communitiesHook.addCommunity({
+        ...community,
+        pubkey: community.pubkey ?? identityQuery.data?.pubkey,
+      });
+      handleSwitchCommunity(id);
+    },
+    [
+      communitiesHook.addCommunity,
+      handleSwitchCommunity,
+      identityQuery.data?.pubkey,
+    ],
+  );
   const { mutedChannelIds, muteChannel, unmuteChannel } = useChannelMutes(
     identityQuery.data?.pubkey,
   );
@@ -973,6 +989,17 @@ export function AppShell() {
                         }
                       />
                     ) : null}
+                    {/* Under the frame Add community is in the avatar's menu,
+                        which Settings keeps, so its dialog lives here, on
+                        every route, rather than in the rail. */}
+                    {shellFrame ? (
+                      <AddCommunityDialog
+                        onOpenChange={addCommunityDialog.onOpenChange}
+                        onSubmit={handleAddCommunity}
+                        open={addCommunityDialog.open}
+                        prefill={addCommunityDialog.prefill}
+                      />
+                    ) : null}
                     <ConversationWorkspaceProvider
                       controller={conversationWorkspace}
                     >
@@ -1171,7 +1198,9 @@ export function AppShell() {
                               }
                               homeBadgeCount={inboxSidebarBadgeCount}
                               addCommunityPrefill={addCommunityDialog.prefill}
-                              isAddCommunityOpen={addCommunityDialog.open}
+                              isAddCommunityOpen={
+                                !shellFrame && addCommunityDialog.open
+                              }
                               relayConnectionCard={relayConnectionCard}
                               isCreatingChannel={
                                 createChannelMutation.isPending
@@ -1180,15 +1209,7 @@ export function AppShell() {
                               isLoading={channelsQuery.isLoading}
                               isCreateChannelOpen={isCreateChannelOpen}
                               isPresencePending={presenceSession.isPending}
-                              onAddCommunity={(community) => {
-                                const id = communitiesHook.addCommunity({
-                                  ...community,
-                                  pubkey:
-                                    community.pubkey ??
-                                    identityQuery.data?.pubkey,
-                                });
-                                handleSwitchCommunity(id);
-                              }}
+                              onAddCommunity={handleAddCommunity}
                               onAddCommunityOpenChange={
                                 addCommunityDialog.onOpenChange
                               }

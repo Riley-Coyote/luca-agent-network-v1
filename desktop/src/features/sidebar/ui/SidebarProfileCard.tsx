@@ -27,6 +27,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 export const SHELL_AVATAR_DISC_CLASS =
   "h-full w-full bg-[hsl(var(--mn-ink)/0.14)] text-xs";
 
+/** The avatar's menu keeps to the window: 8 from its top and sides, and 12
+ *  from its bottom, the avatar's own margin there (it ends at 888 of 900). */
+const SHELL_AVATAR_MENU_MARGIN = { bottom: 12, left: 8, right: 8, top: 8 };
+
 /** Dev-identified builds name themselves: the Dev app and the beta build
  *  render the same UI, and without this they are indistinguishable on a
  *  machine that has both. A label, not a status, so no fill, no accent. */
@@ -359,6 +363,11 @@ export function SidebarProfileAvatarMenu({
           hasCommunities ? <ShellCommunityMenu onDone={closeMenu} /> : undefined
         }
         nameAccessory={isDevBuild ? <DevBuildChip menu /> : null}
+        // Never past the window: the menu takes the room left to it, and the
+        // communities scroll inside it (shell-avatar.css). 12 below, where
+        // the avatar's own bottom sits, so a full menu still ends on it.
+        collisionPadding={SHELL_AVATAR_MENU_MARGIN}
+        contentClassName="luca-shell-avatar-menu"
         side="right"
         sideOffset={18}
         open={open}

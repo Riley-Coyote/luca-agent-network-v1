@@ -423,8 +423,10 @@ export function ShellCommunityMenuSource({
   );
 }
 
+// The switch runs the row's whole width, so its mark ends on the menu's
+// trailing edge (Settings' ⌘,), 12 in; the ⋯ takes that same slot on hover.
 const SHELL_COMMUNITY_ROW_CLASS =
-  "flex min-h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg py-2 pr-1 pl-3 text-left text-sm text-popover-foreground outline-hidden focus:outline-none";
+  "flex min-h-9 w-full min-w-0 cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-popover-foreground outline-hidden focus:outline-none";
 
 /** The strip's per-community actions, in either menu that offers them. */
 function ShellCommunityActions({
@@ -495,7 +497,7 @@ function ShellCommunityRow({
     <ContextMenu modal={false}>
       <ContextMenuTrigger asChild>
         <div
-          className="group/community flex min-h-9 items-center rounded-lg transition-colors focus-within:bg-muted/50 hover:bg-muted/50"
+          className="group/community relative flex min-h-9 items-center rounded-lg transition-colors focus-within:bg-muted/50 hover:bg-muted/50"
           data-testid={`shell-community-${community.id}`}
         >
           <button
@@ -523,24 +525,30 @@ function ShellCommunityRow({
                 getInitials(community.name) || "L"
               )}
             </span>
-            <span className="min-w-0 flex-1 truncate">{community.name}</span>
-            {isActive ? (
-              <Check
-                className="h-4 w-4 shrink-0"
-                data-testid={`shell-community-current-${community.id}`}
-              />
-            ) : showBadge ? (
-              <span
-                className="luca-shell-community-count"
-                data-testid={`shell-community-mentions-${community.id}`}
-              >
-                {badgeLabel}
+            <span className="luca-shell-community-name min-w-0 flex-1 truncate">
+              {community.name}
+            </span>
+            {isActive || showBadge || showDot ? (
+              <span className="luca-shell-community-mark">
+                {isActive ? (
+                  <Check
+                    className="h-4 w-4 shrink-0"
+                    data-testid={`shell-community-current-${community.id}`}
+                  />
+                ) : showBadge ? (
+                  <span
+                    className="luca-shell-community-count"
+                    data-testid={`shell-community-mentions-${community.id}`}
+                  >
+                    {badgeLabel}
+                  </span>
+                ) : (
+                  <span
+                    className="luca-signal-dot size-1.5 shrink-0 rounded-full"
+                    data-testid={`shell-community-unread-${community.id}`}
+                  />
+                )}
               </span>
-            ) : showDot ? (
-              <span
-                className="luca-signal-dot size-1.5 shrink-0 rounded-full"
-                data-testid={`shell-community-unread-${community.id}`}
-              />
             ) : null}
           </button>
           <DropdownMenu modal={false}>
@@ -590,15 +598,27 @@ export function ShellCommunityMenu({ onDone }: { onDone: () => void }) {
   if (!state || state.communities.length <= 1) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a group of menu items inside the avatar's role="menu", not a form's fieldset.
-    <div aria-label="Communities" data-testid="shell-communities" role="group">
-      {state.communities.map((community) => (
-        <ShellCommunityRow
-          community={community}
-          key={community.id}
-          onDone={onDone}
-          state={state}
-        />
-      ))}
+    <div
+      aria-label="Communities"
+      className="luca-shell-communities"
+      data-testid="shell-communities"
+      role="group"
+    >
+      {/* The list scrolls inside the menu once the window runs out of room;
+          the identity block above and Add community below stay in view. */}
+      <div
+        className="luca-shell-communities__list"
+        data-testid="shell-communities-list"
+      >
+        {state.communities.map((community) => (
+          <ShellCommunityRow
+            community={community}
+            key={community.id}
+            onDone={onDone}
+            state={state}
+          />
+        ))}
+      </div>
       <button
         className="flex min-h-9 w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-popover-foreground outline-hidden transition-colors hover:bg-muted/50 focus:outline-none focus-visible:bg-muted/50 focus-visible:outline-none"
         data-testid="shell-community-add"
