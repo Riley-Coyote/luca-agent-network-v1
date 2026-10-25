@@ -24,9 +24,17 @@ interface FeaturesManifest {
 
 const manifest = featuresManifest as FeaturesManifest;
 
-/** IDs of every preview feature on desktop. */
+/**
+ * Preview features that change the whole window's layout. Seeding them on by
+ * default would redraw every existing spec's app, so a spec opts in to them
+ * by itself. `shell-frame`: docs/luca/rail-system/SHELL_BUILD.md, WP-01.
+ */
+const LAYOUT_PREVIEW_FEATURE_IDS = new Set(["shell-frame"]);
+
+/** IDs of every preview feature on desktop that specs get by default. */
 export const PREVIEW_FEATURE_IDS: string[] = manifest.features
   .filter((f) => !f.platforms || f.platforms.includes("desktop"))
+  .filter((f) => !LAYOUT_PREVIEW_FEATURE_IDS.has(f.id))
   .map((f) => f.id);
 
 /**

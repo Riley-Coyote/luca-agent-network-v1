@@ -2,7 +2,15 @@
 import * as React from "react";
 import { AgentSessionDialog } from "@/features/sidebar/ui/AgentSessionDialog";
 import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
-import { agentRailStorageKey } from "@/features/sidebar/lib/agentRailState";
+import {
+  agentRailStorageKey,
+  railHomesStorageKey,
+} from "@/features/sidebar/lib/agentRailState";
+import { useAppShell } from "@/app/AppShellContext";
+import { subscribeOpenRuntimeSessions } from "@/features/runtime-sessions/openRuntimeSessionsEvent";
+import type { RailHome } from "@/features/sidebar/lib/railHomes";
+import { ShellRail } from "@/features/sidebar/ui/ShellRail";
+import { useFeatureEnabled } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 import type { AppSidebarProps } from "@/features/sidebar/ui/AppSidebar.types";
 
@@ -224,12 +232,24 @@ export function AppSidebar({
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
   const managedAgentsQuery = useManagedAgentsQuery();
   const primaryPubkey = useCanonicalLucaPubkey();
+  // The shell's rail (WP-02): Luca's sessions nest under Luca like any
+  // agent's, so Luca can take a new session there too.
+  const shellFrame = useFeatureEnabled("shell-frame");
   const [newSessionPubkey, setNewSessionPubkey] = React.useState<string | null>(
     null,
   );
   const newSessionAgent = managedAgentsQuery.data?.find(
     (agent) =>
-      agent.pubkey === newSessionPubkey && agent.pubkey !== primaryPubkey,
+      agent.pubkey === newSessionPubkey &&
+      (shellFrame || agent.pubkey !== primaryPubkey),
+  );
+  // A fleet's +: a new session with every member at once.
+  const [newFleetSession, setNewFleetSession] = React.useState<string[] | null>(
+    null,
+  );
+  const newFleetAgents = (newFleetSession ?? []).flatMap(
+    (pubkey) =>
+      managedAgentsQuery.data?.filter((agent) => agent.pubkey === pubkey) ?? [],
   );
   // Agents chosen during setup are brought in behind the first conversation.
   // They are in the rail from the first moment, in the state the rail already
@@ -689,6 +709,39 @@ export function AppSidebar({
     activeCommunity?.relayUrl ?? "",
     activeCommunity?.id ?? "",
   );
+  const { openCreateChannel } = useAppShell();
+  // The + on a home in the shell's rail starts a new session in it; anything
+  // the app has no session flow for opens New conversation.
+  const addToHomeFromRail = useStableCallback((home: RailHome) => {
+    const managed = (pubkey: string) =>
+      managedAgentsQuery.data?.find(
+        (agent) => agent.pubkey.toLowerCase() === pubkey,
+      );
+    if (home.kind === "project" && home.project) {
+      openCreateChannel(home.project.id);
+      return;
+    }
+    const resident = home.pubkey ? managed(home.pubkey) : undefined;
+    if (resident) {
+      setNewSessionPubkey(resident.pubkey);
+      return;
+    }
+    const members = home.members.map(managed);
+    if (members.length > 1 && members.every(Boolean)) {
+      setNewFleetSession(
+        members.flatMap((agent) => (agent ? [agent.pubkey] : [])),
+      );
+      return;
+    }
+    handleNewMessageNavigation();
+  });
+  React.useEffect(
+    () =>
+      shellFrame
+        ? subscribeOpenRuntimeSessions(handleSelectRuntime)
+        : undefined,
+    [handleSelectRuntime, shellFrame],
+  );
 
   return React.createElement(
     React.Fragment,
@@ -698,6 +751,15 @@ export function AppSidebar({
         key={`${activeCommunity?.id}:${currentPubkey}:${newSessionAgent.pubkey}`}
         agent={newSessionAgent}
         onClose={() => setNewSessionPubkey(null)}
+        onCreated={selectChannelFromRail}
+      />
+    ) : null,
+    newFleetAgents.length > 1 ? (
+      <AgentSessionDialog
+        key={`${activeCommunity?.id}:${currentPubkey}:${newFleetSession?.join("+")}`}
+        agent={newFleetAgents[0]}
+        companions={newFleetAgents.slice(1)}
+        onClose={() => setNewFleetSession(null)}
         onCreated={selectChannelFromRail}
       />
     ) : null,
@@ -789,7 +851,36 @@ export function AppSidebar({
                   {/* Luca navigation: loose conversations remain immediately
                       available under Rooms while projects open their contextual
                       room navigator in the main application card. */}
-                  {USE_CHAT_LIST ? (
+                  {USE_CHAT_LIST && shellFrame ? (
+                    // The shell's rail: Runtimes lives on the Agents page.
+                    <ShellRail
+                      agentStorageKey={agentStorageKey}
+                      agents={railAgents}
+                      items={chatListItems}
+                      onAddToHome={addToHomeFromRail}
+                      onCreateAgent={createAgentFromRail}
+                      onCreateFleet={handleNewMessageNavigation}
+                      onCreateProject={createProjectFromRail}
+                      onMarkChannelRead={onMarkChannelRead}
+                      onMarkChannelUnread={onMarkChannelUnread}
+                      onOpenAgent={openAgentFromRail}
+                      onSelectChannel={selectChannelFromRail}
+                      onSelectProject={selectProjectFromRail}
+                      primaryPubkey={primaryPubkey}
+                      projectByChannelId={roomProjects}
+                      projects={projectCatalog}
+                      selectedChannelId={selectedChannelId}
+                      selectedProjectId={selectedProjectId}
+                      storageKey={railHomesStorageKey(
+                        currentPubkey ?? "",
+                        activeCommunity?.relayUrl ?? "",
+                        activeCommunity?.id ?? "",
+                      )}
+                      unreadChannelIds={unreadChannelIds}
+                      workingByChannelId={activeWorkingByChannelId}
+                      key={agentStorageKey}
+                    />
+                  ) : USE_CHAT_LIST ? (
                     <>
                       <ChatList
                         items={chatListItems}

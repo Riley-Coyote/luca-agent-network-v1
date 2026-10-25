@@ -28,6 +28,8 @@ import { useProfileQuery } from "@/features/profile/hooks";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomWorkspace } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { useAgentColumnOpen } from "@/features/sidebar/lib/agentColumn";
+import { useProjectRoomsPlacement } from "@/features/sidebar/lib/projectRoomsPlacement";
+import { useFeatureEnabled } from "@/shared/features";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { getEventById } from "@/shared/api/tauri";
 import type { RelayEvent } from "@/shared/api/types";
@@ -137,6 +139,11 @@ function ChannelConversationSurface({
   const identityQuery = useIdentityQuery();
   const communities = useCommunities();
   const profileQuery = useProfileQuery();
+  // In the shell a project's rooms nest in the rail by default, so the room
+  // column is shown only when Settings asks for it ("Project rooms").
+  const shellFrame = useFeatureEnabled("shell-frame");
+  const roomsPlacement = useProjectRoomsPlacement();
+  const roomColumnOffered = !shellFrame || roomsPlacement === "column";
   const channels = channelsQuery.data ?? [];
   const activeChannel =
     channels.find((channel) => channel.id === channelId) ?? null;
@@ -176,7 +183,8 @@ function ChannelConversationSurface({
   // out for the room it actually has. Only a room with a navigator to lose
   // watches the column: a plain room never re-renders for a toggle, and never
   // reserves a navigator's width it does not show.
-  const navigatorOffered = Boolean(projectViewModel) && projectNavigatorVisible;
+  const navigatorOffered =
+    Boolean(projectViewModel) && projectNavigatorVisible && roomColumnOffered;
   const agentColumnOpen = useAgentColumnOpen(navigatorOffered);
   const navigatorShown = navigatorOffered && !agentColumnOpen;
   const [targetMessageEvents, setTargetMessageEvents] = React.useState<
@@ -320,7 +328,12 @@ function ChannelConversationSurface({
   // A pop-out is one conversation and nothing else. The project workspace is a
   // navigator between the rooms of a project — a second place to go — and this
   // window has no second place to go.
-  if (!projectViewModel || isPopoutWindow() || !projectNavigatorVisible) {
+  if (
+    !projectViewModel ||
+    isPopoutWindow() ||
+    !projectNavigatorVisible ||
+    !roomColumnOffered
+  ) {
     return conversation;
   }
 
