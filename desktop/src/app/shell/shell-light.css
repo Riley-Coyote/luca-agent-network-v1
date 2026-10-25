@@ -1,0 +1,255 @@
+/* ── the frame by day ────────────────────────────────────────────────
+ * Light (docs/luca/rail-system/SHELL_SPEC.md, "Light and dark" and "Black
+ * (Paper in light)"; SHELL_BUILD.md, WP-06). In light the frame is Paper (the
+ * Black frame's daytime name) or Glass. Daylight shows things by shade and
+ * shadow, so there are no white edges anywhere: a card is told by its tone
+ * against the floor and the ink-cast shadow it leaves on it, and a chosen
+ * option stands up like Send, white paper on its track, never a darker dip.
+ *
+ * Every rule keys on `<html data-luca-frame="solid">` (drawn while the
+ * `shell-frame` flag is on) without `.dark`; the rules that are Paper's alone
+ * also on the absence of `data-luca-frame-glass` (the glass's own light is
+ * shell-glass.css). Every value is the shell study's light section
+ * (desktop/src/testing/shellStudy/shellStudy.css, "light"), cited by line.
+ * Every colour is the palette's own token, so every light palette in
+ * Appearance works under Paper.
+ * ------------------------------------------------------------------ */
+
+/* The frame's words by day: the page's ink at 100, 84 and 66%, on Paper as
+ * on the glass (shellStudy.css:1262-1269). They are the frame's alone: a
+ * card's words stay the card's (shellStudy.css:522-525), so the rail's and the
+ * Settings list's section labels keep the palette's own faint, which each
+ * palette tunes for contrast on its own surface (ink at 66% falls under 4.5:1
+ * on six of the seven light palettes). */
+:root[data-luca-frame="solid"]:not(.dark) {
+  --luca-frame-ink: hsl(var(--mn-ink));
+  --luca-frame-muted: hsl(var(--mn-ink) / 0.84);
+  --luca-frame-faint: hsl(var(--mn-ink) / 0.66);
+  --luca-frame-plate: hsl(var(--mn-ink) / 0.07);
+}
+
+/* ── Paper's floor ────────────────────────────────────────────────────
+ * The palette's recess, a step of shade below the cards' surface
+ * (shellStudy.css:1276-1280). It is painted once, by the root, and every
+ * layer that painted the floor over it goes clear (the list shell-glass.css
+ * clears for the glass, and the host of Settings' panels card), so the one
+ * shadow layer below lies on the floor beneath every card. */
+:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass]) {
+  /* biome-ignore lint/complexity/noImportantStyles: index.html's boot paint sets the root's background inline */
+  background: hsl(var(--mn-recess)) !important;
+}
+
+:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass]) body,
+:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
+  :is(
+    .luca-theme-shell-layer,
+    .buzz-huddle-shell,
+    .buzz-huddle-app-surface,
+    [data-buzz-glass-inset],
+    [data-luca-floor-host],
+    [data-luca-frame-floor],
+    [data-luca-settings-card-host]
+  ) {
+  /* biome-ignore lint/complexity/noImportantStyles: every layer that paints the floor must clear, whatever its own layer or specificity, so the root's recess and the shadows on it show */
+  background: transparent !important;
+}
+
+/* ── no outlines ─────────────────────────────────────────────────────
+ * Every card on the paper floor (the glass's list: a card, a route's surface
+ * that is itself the card, and the rail's card, which the Settings list
+ * shares): no edge, no white lit top, no ring (shellStudy.css:1424-1431).
+ * The `:root:root` outranks the cards' own edge (conversation-shell.css and
+ * shell-frame.css). */
+:root:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
+  :is(
+    [data-luca-card],
+    [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
+      [data-luca-conversation-surface] *
+    ),
+    [data-frame] [data-sidebar="sidebar"]
+  ) {
+  box-shadow: none;
+}
+
+/* ── the shadows on the floor ─────────────────────────────────────────
+ * One layer under all the cards, so no card shades its neighbour
+ * (shellGlass.ts, useShellGlassShadows, places one shadow where each card
+ * lies and fades the rail's as its card closes). Paper's are softer than the
+ * glass's, the floor being calm (shellStudy.css:1433-1437). */
+:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
+  [data-luca-frame-shadows] {
+  display: block;
+}
+
+:root[data-luca-frame="solid"]:not(.dark):not([data-luca-frame-glass])
+  [data-luca-frame-shadow] {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.06),
+    0 12px 32px -8px hsl(var(--mn-ink) / 0.14);
+}
+
+/* ── the frame's words ───────────────────────────────────────────────
+ * The lip's name and buttons, and the places. */
+:root[data-luca-frame="solid"]:not(.dark) :is(.luca-lip, .luca-lip-name) {
+  color: var(--luca-frame-ink);
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  :is(
+    .luca-lip-button,
+    .luca-lip-glyph,
+    .luca-lip-actions [data-testid="workspace-layout-menu"],
+    .luca-place,
+    .luca-place-search button
+  ) {
+  color: var(--luca-frame-muted);
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  :is(
+    .luca-lip-button:hover:not(:disabled),
+    .luca-lip-actions
+      [data-testid="workspace-layout-menu"]:is(:hover, [data-state="open"]):not(
+        :disabled
+      ),
+    .luca-place:hover:not([data-current]),
+    .luca-place[data-current],
+    .luca-place-search button:hover
+  ) {
+  color: var(--luca-frame-ink);
+}
+
+:root[data-luca-frame="solid"]:not(.dark) .luca-lip-button:disabled {
+  color: var(--luca-frame-faint);
+}
+
+/* ── where you are, by day ────────────────────────────────────────────
+ * The plate the study draws in light: a printed tint told by its tone alone,
+ * since dark's lit top edge would be a drawn line on paper
+ * (shellStudy.css:1308-1312). The places' and the Settings rows' plates keep
+ * their tone and lose the edge; the rail's current row, still today's pill
+ * until the marks take over (WP-03), becomes the same plate rather than a
+ * white piece standing on the card. */
+:root[data-luca-frame="solid"]:not(.dark)
+  :is(.luca-place[data-current], .luca-settings-row[data-current]) {
+  box-shadow: none;
+}
+
+:root[data-luca-frame="solid"]:not(.dark) [data-frame] .luca-rail-glass {
+  background: hsl(var(--mn-ink) / 0.075);
+  box-shadow: none;
+}
+
+:root[data-luca-frame="solid"]:not(.dark) [data-frame] .luca-rail-glass::before,
+:root[data-luca-frame="solid"]:not(.dark) [data-frame] .luca-rail-glass::after {
+  display: none;
+}
+
+/* ── a chosen option stands up ────────────────────────────────────────
+ * Every segment in Settings: a track of the ink at 6%
+ * (shellStudy.css:1137-1142), and the chosen option a piece of paper standing
+ * up on it with the ink's two shadows, as Send does (shellStudy.css:1382-
+ * 1388). Appearance's Mode row (System, Light, Dark) has no track: its
+ * options lose their outlines, the chosen one stands up the same way, and
+ * the others take the ink-6% plate on hover.
+ *
+ * The paper's shadows go in through Tailwind's own shadow slot, so the
+ * buttons' keyboard ring (`focus-visible:ring-2`, built from the same
+ * `--tw-*` stack) still draws in front of them. */
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  fieldset.rounded-full {
+  background: hsl(var(--mn-ink) / 0.06);
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  [data-testid^="appearance-mode-"] {
+  border-color: transparent;
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  [data-testid^="appearance-mode-"]:not([aria-pressed="true"]):hover {
+  background: hsl(var(--mn-ink) / 0.06);
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  :is(
+    fieldset.rounded-full > button,
+    [data-testid^="appearance-mode-"]
+  )[aria-pressed="true"] {
+  --tw-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22), 0 1px 3px hsl(var(--mn-ink) / 0.1);
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow);
+}
+
+/* ── the day, said quietly ────────────────────────────────────────────
+ * The conversation's day pill loses the card edge (its hairline ring and
+ * white lit top) and keeps only the ink-cast shadow of a piece of paper
+ * (shellStudy.css:1298-1302), so it still reads where it sticks over the
+ * scrolled messages. */
+:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+  [data-testid="message-timeline-day-divider"]
+  > p {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.1),
+    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
+}
+
+/* ── the composer, Send and search ────────────────────────────────────
+ * The well pressed into the paper: a shade of ink, its upper edge in shadow,
+ * its lower lip catching the light (shellStudy.css:1365-1380). */
+:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+  [data-testid="message-composer"] {
+  background: hsl(var(--mn-ink) / 0.045);
+  box-shadow:
+    inset 0 1px 2px hsl(var(--mn-ink) / 0.12),
+    inset 0 -0.5px 0 rgb(255 255 255 / 0.9);
+}
+
+:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+  [data-testid="message-composer"]:focus-within {
+  box-shadow:
+    inset 0 1px 2px hsl(var(--mn-ink) / 0.16),
+    inset 0 -0.5px 0 rgb(255 255 255);
+}
+
+/* Send, a piece of paper standing up out of the well (shellStudy.css:1390-
+ * 1396). The study draws it with the well empty; armed, it stays Riley's
+ * blue disc (composer-states.css, 2026-10-23). */
+:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+  [data-testid="message-composer"]
+  [data-testid="send-message"]:disabled {
+  background-color: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+  color: hsl(var(--mn-ink));
+}
+
+/* Search: a scrim of the ink at 10%, and the panel lifted by a hairline of
+ * shade and an ink-cast shadow (shellStudy.css:1398-1406). */
+:root[data-luca-frame="solid"]:not(.dark):has([data-testid="search-results"])
+  [data-testid="dialog-overlay"] {
+  background: hsl(var(--mn-ink) / 0.1);
+}
+
+:root[data-luca-frame="solid"]:not(.dark) [data-testid="search-results"] {
+  box-shadow:
+    0 0 0 0.5px hsl(var(--mn-ink) / 0.1),
+    0 24px 64px -12px hsl(var(--mn-ink) / 0.28);
+}
+
+/* The result Enter will open: a plate of the ink at 8%
+ * (shellStudy.css:1078-1081). */
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-testid="search-results"]
+  [aria-selected="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
+}
