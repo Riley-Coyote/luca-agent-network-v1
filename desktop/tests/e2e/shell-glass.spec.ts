@@ -1828,3 +1828,117 @@ test("WP-05b: in full screen the frosted glass has square corners", async ({
   record05b("fullscreen_square_frost", { windowed, entered, left, ok });
   expect(ok).toBe(true);
 });
+
+for (const glass of ["liquid", "frosted"] as const) {
+  test(`WP-05b: Settings under ${glass} glass leaves the frame's right and bottom clear`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem("polyphonic-frame", "glass"),
+    );
+    if (glass === "liquid") await fakeNativeGlass(page);
+    await fakeTauri(page);
+    await installMockBridge(page);
+    await setShellFrame(page, true);
+    await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`);
+    await page.getByText("Hey team — checking in.").waitFor();
+    await expect
+      .poll(() => rootAttribute(page, "data-luca-frame-glass"))
+      .toBe(glass);
+    // What paints first at the frame's right and bottom edge, and the
+    // corner between them: the root (the glass) or a layer above it.
+    const edges = () =>
+      page.evaluate(() => {
+        const { innerWidth: w, innerHeight: h } = window;
+        const points: Record<string, [number, number]> = {
+          right: [w - 3, h / 2],
+          bottom: [w / 2, h - 3],
+          corner: [w - 3, h - 3],
+        };
+        return Object.fromEntries(
+          Object.entries(points).map(([name, [x, y]]) => {
+            const top = document
+              .elementsFromPoint(x, y)
+              .find(
+                (element) =>
+                  getComputedStyle(element).backgroundColor !==
+                  "rgba(0, 0, 0, 0)",
+              );
+            return [name, top?.tagName.toLowerCase() ?? "clear"];
+          }),
+        );
+      });
+    const conversation = await edges();
+    await page.getByTestId("open-settings-view").click();
+    await expect(page.locator("[data-luca-settings-card-host]")).toBeVisible();
+    await expect(page.locator('[data-testid^="settings-panel-"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await waitForAnimations(page);
+    const settings = await edges();
+    await paintDesktop(page);
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: `${SHOTS_05B}/wp05b-settings-${glass}-edges.png`,
+      clip: { x: 1300, y: 760, width: 140, height: 140 },
+    });
+    const clear = (read: Record<string, string>) =>
+      Object.values(read).every((tag) => tag === "html" || tag === "clear");
+    const ok = clear(conversation) && clear(settings);
+    record05b(`settings_glass_edges_${glass}`, { conversation, settings, ok });
+    expect(ok).toBe(true);
+  });
+}
+
+test("WP-05b: the Frame row's choice holds still when it changes, at the smallest window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 500 });
+  await fakeReducedTransparency(page);
+  await fakeNativeGlass(page);
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const geometry = () =>
+    page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        return rect
+          ? [rect.x, rect.y, rect.width, rect.height].map((n) =>
+              Math.round(n * 10),
+            )
+          : null;
+      };
+      return {
+        row: box('[data-testid="appearance-frame"]'),
+        solid: box('[data-testid="appearance-frame-solid"]'),
+        glass: box('[data-testid="appearance-frame-glass"]'),
+      };
+    });
+  const sentence = page.getByTestId("appearance-frame-sentence");
+  await expect(sentence).toHaveText("Solid black, nothing showing through it.");
+  const solid = await geometry();
+  await page.getByTestId("appearance-frame-glass").click();
+  await expect(sentence).toHaveText(
+    "Liquid Glass, your desktop showing through it.",
+  );
+  const glass = await geometry();
+  await page.evaluate(() =>
+    (
+      window as typeof window & {
+        __setReducedTransparency__?: (on: boolean) => void;
+      }
+    ).__setReducedTransparency__?.(true),
+  );
+  await expect(sentence).toHaveText(
+    "Liquid Glass, drawn solid while Reduce Transparency is on.",
+  );
+  const reduced = await geometry();
+  await shootRow(page, `${SHOTS_05B}/wp05b-row-800-reduce-transparency.png`);
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  const ok = solid.row !== null && same(solid, glass) && same(solid, reduced);
+  record05b("frame_row_holds_still", { solid, glass, reduced, ok });
+  expect(ok).toBe(true);
+});
