@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
 import type { Channel } from "@/shared/api/types";
+import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
@@ -12,6 +13,7 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
  * the window's top 36, on the floor. The rail's toggle at 78; back and forward
  * riding with the conversation card at max(card's left + 6, 112); and, until
  * the tabs come, the open page's name centred on the conversation card's axis.
+ * Both live in the lip's part over the card, which moves with the card.
  * Its empty part is the window's title bar (useTauriWindowDrag).
  *
  * Fixed points on purpose, as the top chrome was: it sits beside the native
@@ -19,21 +21,56 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
  */
 
 /** The lip's measures, in points (shell-frame.css holds the rest). */
-const HISTORY_MIN_LEFT = 112;
-const HISTORY_CARD_INSET = 6;
-/** The name is no wider than the card less this. */
-const NAME_CLEARANCE = 200;
+const PLACES_WIDTH = 44;
+const CARD_GAP = 4;
+const WINDOW_EDGE = 6;
 
-type CardSpan = { left: number; right: number };
+/** Where the conversation card's left edge comes to rest: the places' edge,
+ *  past the rail's card and its gap while the rail is open. The lip takes it
+ *  from the rail's own state, not from a measurement, so its part over the
+ *  card glides there on the rail's own curve in the same frames as the card
+ *  (shell-frame.css), instead of trailing the card by a frame. */
+export function shellFrameCardLeft({
+  railOpen,
+  besideRail = 0,
+}: {
+  railOpen: boolean;
+  /** Anything else standing between the rail and the card (the runtime
+   *  sessions column), at rest. */
+  besideRail?: number;
+}): number {
+  return (
+    PLACES_WIDTH +
+    (railOpen ? SHELL_FRAME_RAIL_WIDTH + CARD_GAP : 0) +
+    Math.max(0, besideRail)
+  );
+}
 
-/** The conversation card's span, measured: the routed content's card, which
- *  narrows when a right card opens and follows the rail as it slides. */
-function useConversationCardSpan(): CardSpan | null {
-  const [span, setSpan] = React.useState<CardSpan | null>(null);
+/** The lip's part over the card: its left from the rail's state (above);
+ *  its right measured, because a right card narrows the conversation card.
+ *  The right edge is written to the element inside the ResizeObserver's
+ *  callback, which runs after layout and before paint, so it lands in the
+ *  same frame as the card it follows. Also reports what stands beside the
+ *  rail (the runtime sessions column), which never animates. */
+function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
+  const [besideRail, setBesideRail] = React.useState(0);
   React.useLayoutEffect(() => {
     let card: Element | null = null;
     let observer: ResizeObserver | null = null;
-    const measure = () => {
+    const place = () => {
+      const element = lipCard.current;
+      if (!element) return;
+      const lip = element.offsetParent ?? document.documentElement;
+      // The card's content edge: a clear plane holding the cards keeps a
+      // point of padding for their edge light (shell-frame.css).
+      const right = card
+        ? lip.getBoundingClientRect().right -
+          (card.getBoundingClientRect().right -
+            Number.parseFloat(getComputedStyle(card).paddingRight || "0"))
+        : WINDOW_EDGE;
+      element.style.right = `${Math.max(0, right)}px`;
+    };
+    const look = () => {
       const found = document.querySelector(
         "[data-buzz-content-surface], [data-buzz-content-plane]",
       );
@@ -41,36 +78,34 @@ function useConversationCardSpan(): CardSpan | null {
         observer?.disconnect();
         card = found;
         if (card) {
-          observer = new ResizeObserver(measure);
+          observer = new ResizeObserver(place);
           observer.observe(card);
         }
       }
-      if (!card) return;
-      const rect = card.getBoundingClientRect();
-      setSpan((current) =>
-        current && current.left === rect.left && current.right === rect.right
-          ? current
-          : { left: rect.left, right: rect.right },
+      place();
+      const beside = document.querySelector<HTMLElement>(
+        '[data-luca-frame-row] > [data-testid="runtime-sessions-panel"]',
       );
+      setBesideRail(beside?.offsetWidth ?? 0);
     };
-    measure();
+    look();
     // The card is remounted across some route changes; look again whenever
     // the shell's subtree changes shape, cheaply, on the next frame.
     let frame = 0;
     const mutations = new MutationObserver(() => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(measure);
+      frame = requestAnimationFrame(look);
     });
     mutations.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", measure);
+    window.addEventListener("resize", place);
     return () => {
       cancelAnimationFrame(frame);
       mutations.disconnect();
       observer?.disconnect();
-      window.removeEventListener("resize", measure);
+      window.removeEventListener("resize", place);
     };
-  }, []);
-  return span;
+  }, [lipCard]);
+  return besideRail;
 }
 
 function LipButton({
@@ -137,21 +172,21 @@ export function ShellLip({
   pageName: string;
 }) {
   const sidebar = useOptionalSidebar();
-  const span = useConversationCardSpan();
+  const lipCard = React.useRef<HTMLDivElement>(null);
+  const besideRail = useLipCardSpan(lipCard);
   const railOpen = sidebar ? sidebar.open : true;
   const key = isMacPlatform() ? "⌘" : "Ctrl+";
-  const historyLeft = span
-    ? Math.max(span.left + HISTORY_CARD_INSET, HISTORY_MIN_LEFT)
-    : HISTORY_MIN_LEFT;
-  const nameStyle: React.CSSProperties | undefined = span
-    ? {
-        left: (span.left + span.right) / 2,
-        maxWidth: Math.max(0, span.right - span.left - NAME_CLEARANCE),
-      }
-    : undefined;
+  const cardLeft = shellFrameCardLeft({
+    railOpen: railOpen && !sidebar?.isMobile,
+    besideRail,
+  });
 
   return (
-    <header className="luca-lip" data-testid="shell-lip">
+    <header
+      className="luca-lip"
+      data-testid="shell-lip"
+      style={{ "--card-left": `${cardLeft}px` } as React.CSSProperties}
+    >
       <LipButton
         aria-expanded={railOpen}
         className="luca-lip-toggle"
@@ -163,37 +198,38 @@ export function ShellLip({
       >
         <PanelLeft />
       </LipButton>
-      <div className="luca-lip-history" style={{ left: historyLeft }}>
-        <LipButton
-          disabled={!canGoBack}
-          label={`Go back (${key}[)`}
-          onClick={onGoBack}
-          testId="global-back"
-        >
-          <ChevronLeft />
-        </LipButton>
-        <LipButton
-          disabled={!canGoForward}
-          label={`Go forward (${key}])`}
-          onClick={onGoForward}
-          testId="global-forward"
-        >
-          <ChevronRight />
-        </LipButton>
+      <div className="luca-lip-card" ref={lipCard}>
+        <div className="luca-lip-history">
+          <LipButton
+            disabled={!canGoBack}
+            label={`Go back (${key}[)`}
+            onClick={onGoBack}
+            testId="global-back"
+          >
+            <ChevronLeft />
+          </LipButton>
+          <LipButton
+            disabled={!canGoForward}
+            label={`Go forward (${key}])`}
+            onClick={onGoForward}
+            testId="global-forward"
+          >
+            <ChevronRight />
+          </LipButton>
+        </div>
+        <h1 className="luca-lip-name text-lip" data-testid="shell-lip-name">
+          <span className="luca-lip-name__text">
+            {channel ? (
+              <ConversationName
+                channel={channel}
+                currentPubkey={currentPubkey}
+              />
+            ) : (
+              pageName
+            )}
+          </span>
+        </h1>
       </div>
-      <h1
-        className="luca-lip-name text-lip"
-        data-testid="shell-lip-name"
-        style={nameStyle}
-      >
-        <span className="luca-lip-name__text">
-          {channel ? (
-            <ConversationName channel={channel} currentPubkey={currentPubkey} />
-          ) : (
-            pageName
-          )}
-        </span>
-      </h1>
     </header>
   );
 }

@@ -100,6 +100,112 @@ async function radius(page: Page, selector: string) {
   }, selector);
 }
 
+/** The cards' edge light, read from the rendered pixels (device pixels):
+ *  the brightest grey on the row just above the card (its lit top), and the
+ *  median grey of the column or row just outside its left, right and bottom
+ *  edges (its rim). On the black floor this light is what draws the card. */
+async function edgeLight(page: Page, b: Box) {
+  const png = await page.screenshot();
+  return page.evaluate(
+    async ({ b64, b }) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: "image/png" }),
+      );
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d");
+      if (!context) return null;
+      context.drawImage(bitmap, 0, 0);
+      const scale = bitmap.width / window.innerWidth;
+      const grey = (x: number, y: number) => {
+        const d = context.getImageData(x, y, 1, 1).data;
+        return (d[0] + d[1] + d[2]) / 3;
+      };
+      const median = (values: number[]) =>
+        values.sort((a, c) => a - c)[Math.floor(values.length / 2)];
+      const xs: number[] = [];
+      for (let x = (b.x + 40) * scale; x < (b.x + b.w - 40) * scale; x += 7) {
+        xs.push(Math.round(x));
+      }
+      const ys: number[] = [];
+      for (let y = (b.y + 60) * scale; y < (b.y + b.h - 60) * scale; y += 7) {
+        ys.push(Math.round(y));
+      }
+      const top = Math.round(b.y * scale) - 1;
+      const left = Math.round(b.x * scale) - 1;
+      const right = Math.round((b.x + b.w) * scale);
+      const bottom = Math.round((b.y + b.h) * scale);
+      return {
+        top_line: Math.max(...xs.map((x) => grey(x, top))),
+        left_rim: median(ys.map((y) => grey(left, y))),
+        right_rim: median(ys.map((y) => grey(right, y))),
+        bottom_rim: median(xs.map((x) => grey(x, bottom))),
+      };
+    },
+    { b64: png.toString("base64"), b },
+  );
+}
+
+/** The study draws a lit top of 48 and a rim of 20 (grey, 0 to 255). */
+function edgeLit(edge: Awaited<ReturnType<typeof edgeLight>>) {
+  return (
+    !!edge &&
+    edge.top_line >= 40 &&
+    edge.left_rim >= 15 &&
+    edge.right_rim >= 15 &&
+    edge.bottom_rim >= 15
+  );
+}
+
+/** Closing or opening the rail, every frame: the card's left, back's left
+ *  and the name's centre against the card's. */
+async function sampleSlide(page: Page, ms: number) {
+  return page.evaluate(
+    (ms) =>
+      new Promise<number[][]>((resolve) => {
+        const q = (s: string) => document.querySelector(s) as HTMLElement;
+        const samples: number[][] = [];
+        const start = performance.now();
+        q('[data-testid="shell-lip-toggle"]').click();
+        const step = () => {
+          const t = performance.now() - start;
+          const card = q(
+            '[data-testid="conversation-workspace-grid"] [data-luca-card]',
+          ).getBoundingClientRect();
+          const back = q('[data-testid="global-back"]').getBoundingClientRect();
+          const name = q(
+            '[data-testid="shell-lip-name"]',
+          ).getBoundingClientRect();
+          samples.push([
+            t,
+            card.x,
+            back.x,
+            name.x + name.width / 2 - (card.x + card.width / 2),
+          ]);
+          if (t < ms) requestAnimationFrame(step);
+          else resolve(samples);
+        };
+        requestAnimationFrame(step);
+      }),
+    ms,
+  );
+}
+
+/** Back rides the study's path: the lip's part over the card and back's
+ *  place inside it both glide on the rail's curve, so back runs from 274 to
+ *  112 as the card runs from 268 to 44, never stopping on the way. */
+function slideFollows(samples: number[][]) {
+  const offPath = samples.map(([, card, back]) => {
+    const e = (268 - card) / 224;
+    return Math.abs(back - (274 - 162 * e));
+  });
+  return {
+    frames: samples.length,
+    max_back_off_path: Math.max(...offPath),
+    max_name_off_axis: Math.max(...samples.map(([, , , n]) => Math.abs(n))),
+  };
+}
+
 const RAIL_CARD = '[data-testid="app-sidebar"] [data-sidebar="sidebar"]';
 const CONVERSATION_CARD =
   '[data-testid="conversation-workspace-grid"] [data-luca-card]';
@@ -134,6 +240,8 @@ async function drags(page: Page, x: number, y: number) {
 }
 
 test("the frame, Black, dark", async ({ page }, info) => {
+  // One long walk through the frame, measuring pixels on the way.
+  test.setTimeout(120_000);
   const dir = shotsDir(info.outputPath());
   const checks: Record<string, unknown> = {};
   const files: string[] = [];
@@ -239,6 +347,11 @@ test("the frame, Black, dark", async ({ page }, info) => {
     delta: Math.abs(nameCentre - cardCentre),
     name_box: name,
     ok: Math.abs(nameCentre - cardCentre) <= 0.5,
+  };
+  const conversationEdge = await edgeLight(page, card);
+  checks.edge_light_conversation = {
+    ...conversationEdge,
+    ok: edgeLit(conversationEdge),
   };
   checks.lip_controls = {
     toggle: { x: toggle.x, y: toggle.y, size: toggle.w },
@@ -355,14 +468,25 @@ test("the frame, Black, dark", async ({ page }, info) => {
             H - (right.y + right.h) === 6,
         }
       : { ok: false };
+  if (right) {
+    const rightEdge = await edgeLight(page, right);
+    checks.edge_light_right_card = { ...rightEdge, ok: edgeLit(rightEdge) };
+  }
   await page
     .getByRole("button", { name: "Open conversation details", exact: true })
     .click();
   await page.waitForTimeout(500);
 
-  // ── rail-closed ───────────────────────────────────────────────────
-  await page.getByTestId("shell-lip-toggle").click();
-  await page.waitForTimeout(700);
+  // ── rail-closed, sampled every frame on the way ───────────────────
+  const closing = slideFollows(await sampleSlide(page, 600));
+  checks.slide_closing = {
+    ...closing,
+    ok:
+      closing.frames >= 8 &&
+      closing.max_back_off_path <= 0.5 &&
+      closing.max_name_off_axis <= 0.5,
+  };
+  await page.waitForTimeout(200);
   await page.mouse.move(700, 500);
   files.push(await shot(page, dir, "rail-closed"));
   const closedRail = await box(page, RAIL_CARD);
@@ -384,13 +508,89 @@ test("the frame, Black, dark", async ({ page }, info) => {
       closedBack?.x === 112 &&
       inert === true,
   };
+  if (closedCard) {
+    const closedEdge = await edgeLight(page, closedCard);
+    checks.edge_light_rail_closed = {
+      ...closedEdge,
+      // One rim, not two: the closed rail's card draws no edge of its own.
+      ok: edgeLit(closedEdge) && (closedEdge?.left_rim ?? 99) <= 26,
+    };
+  }
+
+  // ── an unread conversation, said on Conversations while closed ───────
+  const unreadDot = () =>
+    page.evaluate(() => {
+      const tile = document.querySelector(
+        '[data-testid="shell-place-conversations"]',
+      );
+      const dot = document.querySelector(
+        '[data-testid="shell-place-conversations-unread"]',
+      );
+      if (!tile) return null;
+      const t = tile.getBoundingClientRect();
+      const d = dot?.getBoundingClientRect();
+      return {
+        label: tile.getAttribute("aria-label"),
+        dot: d
+          ? {
+              size: [d.width, d.height],
+              inset_top: d.y - t.y,
+              inset_right: t.right - d.right,
+              colour: dot ? getComputedStyle(dot).backgroundColor : null,
+            }
+          : null,
+      };
+    });
+  const unreadRows = await page
+    .locator('[data-testid="app-sidebar"] [aria-label$=", unread"]')
+    .count();
+  const dotClosed = await unreadDot();
+  files.push(
+    await (async () => {
+      await settle(page);
+      const file = path.join(dir, "unread-dot.png");
+      await page.screenshot({
+        path: file,
+        clip: { x: 0, y: 0, width: 120, height: 340 },
+      });
+      return file;
+    })(),
+  );
+
   // ⌘S opens it again.
   await page.keyboard.press("Meta+s");
   await page.waitForTimeout(700);
+  const dotOpen = await unreadDot();
+  checks.unread_dot = {
+    unread_rows: unreadRows,
+    rail_closed: dotClosed,
+    rail_open: dotOpen,
+    ok:
+      unreadRows > 0 &&
+      dotClosed?.dot?.size.join("x") === "6x6" &&
+      dotClosed.dot.inset_top === 4 &&
+      dotClosed.dot.inset_right === 4 &&
+      dotClosed.label === "Conversations, unread" &&
+      dotOpen?.dot === null &&
+      dotOpen.label === "Conversations",
+  };
   checks.rail_reopened_by_key = {
     width: (await box(page, RAIL_CARD))?.w ?? null,
     ok: (await box(page, RAIL_CARD))?.w === 220,
   };
+
+  // Closed and opened again on the toggle, every frame on the way back.
+  await page.getByTestId("shell-lip-toggle").click();
+  await page.waitForTimeout(700);
+  const opening = slideFollows(await sampleSlide(page, 600));
+  checks.slide_opening = {
+    ...opening,
+    ok:
+      opening.frames >= 8 &&
+      opening.max_back_off_path <= 0.5 &&
+      opening.max_name_off_axis <= 0.5,
+  };
+  await page.waitForTimeout(200);
 
   // ── reduced motion: the card is instant ───────────────────────────
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
@@ -400,27 +600,22 @@ test("the frame, Black, dark", async ({ page }, info) => {
     ) as HTMLElement;
     return getComputedStyle(panel).transitionDuration;
   });
-  await page.getByTestId("shell-lip-toggle").click();
+  const reducedFirst = (await sampleSlide(page, 0))[0];
   const widthNextFrame = await page.evaluate(
     () =>
-      new Promise<number>((resolve) =>
-        requestAnimationFrame(() =>
-          resolve(
-            document
-              .querySelector(
-                '[data-testid="app-sidebar"] [data-sidebar="sidebar"]',
-              )
-              ?.getBoundingClientRect().width ?? -1,
-          ),
-        ),
-      ),
+      document
+        .querySelector('[data-testid="app-sidebar"] [data-sidebar="sidebar"]')
+        ?.getBoundingClientRect().width ?? -1,
   );
   checks.reduced_motion_instant = {
     transition_duration: transition,
     width_one_frame_after_closing: widthNextFrame,
+    first_frame: { card: reducedFirst?.[1], back: reducedFirst?.[2] },
     ok:
       transition.split(",").every((part) => Number.parseFloat(part) === 0) &&
-      widthNextFrame === 0,
+      widthNextFrame === 0 &&
+      reducedFirst?.[1] === 44 &&
+      reducedFirst?.[2] === 112,
   };
   await page.getByTestId("shell-lip-toggle").click();
   await page.emulateMedia({
@@ -436,6 +631,7 @@ test("the frame, Black, dark", async ({ page }, info) => {
   await page.waitForTimeout(600);
   files.push(await shot(page, dir, "library"));
   const library = await box(page, ROUTE_CARD);
+  const libraryEdge = library ? await edgeLight(page, library) : null;
   checks.library_card = {
     box: library,
     name: await page.getByTestId("shell-lip-name").innerText(),
@@ -447,7 +643,9 @@ test("the frame, Black, dark", async ({ page }, info) => {
           ) as Element,
         ).boxShadow,
     ),
+    edge_light: libraryEdge,
     ok:
+      edgeLit(libraryEdge) &&
       library?.x === 268 &&
       library?.y === 36 &&
       W - (library.x + library.w) === 6 &&
@@ -459,10 +657,13 @@ test("the frame, Black, dark", async ({ page }, info) => {
   await page.mouse.move(700, 500);
   files.push(await shot(page, dir, "brain"));
   const brain = await box(page, ROUTE_CARD);
+  const brainEdge = brain ? await edgeLight(page, brain) : null;
   checks.brain_card = {
     box: brain,
     name: await page.getByTestId("shell-lip-name").innerText(),
+    edge_light: brainEdge,
     ok:
+      edgeLit(brainEdge) &&
       brain?.x === 268 &&
       brain?.y === 36 &&
       W - (brain.x + brain.w) === 6 &&
@@ -478,9 +679,12 @@ test("the frame, Black, dark", async ({ page }, info) => {
     await expect(page.getByTestId("shell-lip-name")).toHaveText(label);
     await page.waitForTimeout(600);
     const routeCard = await box(page, ROUTE_CARD);
+    const routeEdge = routeCard ? await edgeLight(page, routeCard) : null;
     checks[`${label.toLowerCase()}_card`] = {
       box: routeCard,
+      edge_light: routeEdge,
       ok:
+        edgeLit(routeEdge) &&
         routeCard?.x === 268 &&
         routeCard?.y === 36 &&
         W - (routeCard.x + routeCard.w) === 6 &&

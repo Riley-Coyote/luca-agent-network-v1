@@ -18,9 +18,12 @@ import {
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
+import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
+import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
+import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 /**
@@ -79,6 +82,7 @@ function PlaceTile({
   badge,
   children,
   current,
+  dot,
   label,
   onClick,
   onPreload,
@@ -88,6 +92,8 @@ function PlaceTile({
   badge?: number;
   children: React.ReactNode;
   current?: boolean;
+  /** The app's unread dot, at the tile's top right. */
+  dot?: boolean;
   label: string;
   onClick: () => void;
   onPreload?: () => void;
@@ -99,7 +105,7 @@ function PlaceTile({
       <TooltipTrigger asChild>
         <button
           aria-current={current ? "page" : undefined}
-          aria-label={label}
+          aria-label={dot ? `${label}, unread` : label}
           className="luca-place"
           data-current={current ? "true" : undefined}
           data-testid={testId}
@@ -109,6 +115,13 @@ function PlaceTile({
           type="button"
         >
           {children}
+          {dot ? (
+            <span
+              aria-hidden="true"
+              className={cn(UNREAD_DOT_CLASS, "luca-place-dot")}
+              data-testid={`${testId}-unread`}
+            />
+          ) : null}
           {badge && badge > 0 ? (
             <span className="luca-place-badge" data-testid={`${testId}-count`}>
               {Math.min(badge, 99)}
@@ -176,6 +189,9 @@ function SearchPlace({
 
 export type ShellPlacesProps = {
   avatar: React.ReactNode;
+  /** Whether any conversation is unread: said on Conversations while the
+   *  rail, which shows each one, is closed. */
+  hasUnread: boolean;
   homeBadgeCount: number;
   onNewConversation: () => void;
   onSelectAgents: () => void;
@@ -203,6 +219,7 @@ export type ShellPlacesProps = {
 
 export function ShellPlaces({
   avatar,
+  hasUnread,
   homeBadgeCount,
   onNewConversation,
   onSelectAgents,
@@ -218,6 +235,13 @@ export function ShellPlaces({
   const inboxEnabled = useInboxSurfaceEnabled();
   const here = placeOfView(selectedView);
   const key = isMacPlatform() ? "⌘" : "Ctrl+";
+  const sidebar = useOptionalSidebar();
+  const railClosed = sidebar
+    ? sidebar.isMobile
+      ? !sidebar.openMobile
+      : !sidebar.open
+    : false;
+  const unreadDot = hasUnread && railClosed;
   return (
     <nav aria-label="Places" className="luca-places" data-testid="shell-places">
       <div className="luca-places-group">
@@ -234,6 +258,7 @@ export function ShellPlaces({
       <div className="luca-places-group">
         <PlaceTile
           current={here === "conversations"}
+          dot={unreadDot}
           label="Conversations"
           onClick={onSelectConversations}
           testId="shell-place-conversations"

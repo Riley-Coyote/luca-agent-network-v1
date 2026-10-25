@@ -717,6 +717,7 @@ export function AppSidebar({
             selfUserStatus={selfUserStatus}
           />
         }
+        hasUnread={unreadChannelIds.size > 0}
         homeBadgeCount={homeBadgeCount}
         key="shell-places"
         onNewConversation={handleNewMessageNavigation}

@@ -81,15 +81,35 @@
   top: 10px;
 }
 
-/* Back and forward ride with the conversation card; ShellLip measures it. */
+/* The lip's part over the conversation card: it moves with the card, on
+ * the rail's own curve. Its left is where the card comes to rest
+ * (--card-left, from the rail's state); its right is the card's right,
+ * which ShellLip writes as a right card opens. As the study does it. With
+ * the rail closed it spans the toggle, so only its buttons take the pointer:
+ * the toggle stays pressable and the rest of the lip still drags. */
+.luca-lip-card {
+  bottom: 0;
+  left: var(--card-left, 268px);
+  pointer-events: none;
+  position: absolute;
+  right: var(--luca-frame-edge, 6px);
+  top: 0;
+  transition: left var(--luca-frame-slide);
+}
+
+/* Back and forward at max(card's left + 6, 112). */
 .luca-lip-history {
   display: flex;
   gap: 2px;
+  pointer-events: auto;
+  left: max(6px, calc(112px - var(--card-left, 268px)));
   position: absolute;
   top: 10px;
+  transition: left var(--luca-frame-slide);
 }
 
-/* The open page's name, on the conversation card's own axis. */
+/* The open page's name, on the conversation card's own axis, no wider than
+ * the card less 200. */
 .luca-lip-name {
   color: hsl(var(--mn-ink));
   display: flex;
@@ -99,6 +119,7 @@
   letter-spacing: -0.003em;
   line-height: 28px;
   margin: 0;
+  max-width: max(0px, calc(100% - 200px));
   overflow: hidden;
   position: absolute;
   top: 8px;
@@ -190,6 +211,15 @@
   top: -3px;
 }
 
+/* An unread conversation while the rail is closed: the app's unread dot,
+ * 6, at the Conversations tile's top right, 4 in from its corner. */
+.luca-place-dot {
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+}
+
 .luca-shell-avatar {
   border-radius: 999px;
   display: flex;
@@ -233,9 +263,16 @@
   width: var(--sidebar-width);
 }
 
+/* Closed, the card is gone once it has narrowed to nothing: a card of no
+ * width would still draw its edge light, a second rim on the conversation
+ * card's left. It hides when the slide ends and shows the moment it opens. */
 :root[data-luca-frame="solid"]
   [data-frame][data-collapsible="offcanvas"]
   > [data-testid="app-sidebar"] {
+  transition:
+    width var(--luca-frame-slide),
+    visibility 0s linear 460ms;
+  visibility: hidden;
   width: 0;
 }
 
@@ -243,6 +280,8 @@
 :root[data-luca-frame="solid"]
   [data-frame][data-peek="true"]
   > [data-testid="app-sidebar"] {
+  transition: width var(--luca-frame-slide);
+  visibility: visible;
   width: var(--sidebar-width);
 }
 
@@ -280,8 +319,14 @@
 /* ── the conversation's card ──────────────────────────────────────────
  * Top flush with the lip, 6 from the window's right and bottom. The inset
  * carries the right and bottom edge, so the right cards share it. */
+/* The cards' edge light (the lit top, the rim) is drawn half a point
+ * outside their box, and the inset and the route's plane both clip. Each
+ * clip is given one point of room on the sides that touch a card, and a
+ * negative margin the same size, so nothing moves and the light falls inside
+ * the clip: on a black floor that light is what draws the card. */
 :root[data-luca-frame="solid"] main[data-buzz-glass-inset] {
-  padding: 0 var(--luca-frame-edge) var(--luca-frame-edge) 0;
+  margin: -1px 0 0 -1px;
+  padding: 1px var(--luca-frame-edge) var(--luca-frame-edge) 1px;
 }
 
 :root[data-luca-frame="solid"]
@@ -292,6 +337,18 @@
 
 :root[data-luca-frame="solid"] [data-testid="conversation-workspace-grid"] {
   padding: 0;
+}
+
+/* The clear planes that hold a route's cards (a conversation's workspace,
+ * and Library, Agents and Activity, which bring their own card) clip too;
+ * the same point of room, all round. The surface that is itself the card
+ * keeps its clip, for its own corners. */
+:root[data-luca-frame="solid"]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:has([data-luca-workspace-floor]),
+:root[data-luca-frame="solid"] [data-buzz-content-plane] {
+  margin: -1px;
+  padding: 1px;
 }
 
 /* The right cards: 4 from the conversation's card, which the slot carries
@@ -351,10 +408,17 @@
   padding-left: 22px;
 }
 
+/* Reduce Motion: the rail's card, the conversation's and the lip over it
+ * are instant. Spelled out to outrank the closed and peeking card. */
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-frame="solid"]
     [data-frame]
-    > :is([data-sidebar-gap], [data-testid="app-sidebar"]) {
+    > :is([data-sidebar-gap], [data-testid="app-sidebar"]),
+  :root[data-luca-frame="solid"]
+    [data-frame]:is([data-collapsible], [data-peek])
+    > [data-testid="app-sidebar"],
+  .luca-lip-card,
+  .luca-lip-history {
     transition: none;
   }
 }
