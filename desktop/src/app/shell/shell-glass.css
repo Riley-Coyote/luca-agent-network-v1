@@ -89,7 +89,8 @@
 /* Every layer that paints the floor clears: the list railGlass.css already
  * clears for `data-luca-native-glass` (railGlass.css:171-186), less the rail's
  * own `[data-sidebar="sidebar"]` (the rail is a card in the shell, and cards
- * are never glass), plus the shell's own floor (`[data-luca-frame-floor]`) and
+ * are never glass), plus the shell's own floor (`[data-luca-frame-floor]`),
+ * the host of Settings' panels card (`[data-luca-settings-card-host]`) and
  * the root itself (shellStudy.css:60). */
 :root[data-luca-frame-glass],
 :root[data-luca-frame-glass] body,
@@ -100,7 +101,8 @@
     .buzz-huddle-app-surface,
     [data-buzz-glass-inset],
     [data-luca-floor-host],
-    [data-luca-frame-floor]
+    [data-luca-frame-floor],
+    [data-luca-settings-card-host]
   ) {
   /* biome-ignore lint/complexity/noImportantStyles: the glass frame must clear every layer that paints the floor, whatever its own layer or specificity (index.html's boot paint is inline); it applies only once the glass is really beneath the page */
   background: transparent !important;

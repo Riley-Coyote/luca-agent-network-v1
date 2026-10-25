@@ -16,7 +16,11 @@
  * ------------------------------------------------------------------ */
 
 /* The frame's words by day: the page's ink at 100, 84 and 66%, on Paper as
- * on the glass (shellStudy.css:1262-1269). */
+ * on the glass (shellStudy.css:1262-1269). They are the frame's alone: a
+ * card's words stay the card's (shellStudy.css:522-525), so the rail's and the
+ * Settings list's section labels keep the palette's own faint, which each
+ * palette tunes for contrast on its own surface (ink at 66% falls under 4.5:1
+ * on six of the seven light palettes). */
 :root[data-luca-frame="solid"]:not(.dark) {
   --luca-frame-ink: hsl(var(--mn-ink));
   --luca-frame-muted: hsl(var(--mn-ink) / 0.84);
@@ -85,7 +89,7 @@
 }
 
 /* ── the frame's words ───────────────────────────────────────────────
- * The lip's name and buttons, the places, the section labels. */
+ * The lip's name and buttons, and the places. */
 :root[data-luca-frame="solid"]:not(.dark) :is(.luca-lip, .luca-lip-name) {
   color: var(--luca-frame-ink);
 }
@@ -119,11 +123,6 @@
   color: var(--luca-frame-faint);
 }
 
-:root[data-luca-frame="solid"]:not(.dark)
-  :is([data-shell-rail] .luca-rail-section-head, .luca-settings-group-head) {
-  color: var(--luca-frame-faint);
-}
-
 /* ── where you are, by day ────────────────────────────────────────────
  * The plate the study draws in light: a printed tint told by its tone alone,
  * since dark's lit top edge would be a drawn line on paper
@@ -150,7 +149,13 @@
  * Every segment in Settings: a track of the ink at 6%
  * (shellStudy.css:1137-1142), and the chosen option a piece of paper standing
  * up on it with the ink's two shadows, as Send does (shellStudy.css:1382-
- * 1388). */
+ * 1388). Appearance's Mode row (System, Light, Dark) has no track: its
+ * options lose their outlines, the chosen one stands up the same way, and
+ * the others take the ink-6% plate on hover.
+ *
+ * The paper's shadows go in through Tailwind's own shadow slot, so the
+ * buttons' keyboard ring (`focus-visible:ring-2`, built from the same
+ * `--tw-*` stack) still draws in front of them. */
 :root[data-luca-frame="solid"]:not(.dark)
   [data-luca-settings-frame]
   fieldset.rounded-full {
@@ -159,12 +164,42 @@
 
 :root[data-luca-frame="solid"]:not(.dark)
   [data-luca-settings-frame]
-  fieldset.rounded-full
-  > button[aria-pressed="true"] {
+  [data-testid^="appearance-mode-"] {
+  border-color: transparent;
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  [data-testid^="appearance-mode-"]:not([aria-pressed="true"]):hover {
+  background: hsl(var(--mn-ink) / 0.06);
+}
+
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-luca-settings-frame]
+  :is(
+    fieldset.rounded-full > button,
+    [data-testid^="appearance-mode-"]
+  )[aria-pressed="true"] {
+  --tw-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22), 0 1px 3px hsl(var(--mn-ink) / 0.1);
   background: hsl(var(--mn-surface));
   box-shadow:
-    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
-    0 1px 3px hsl(var(--mn-ink) / 0.1);
+    var(--tw-inset-shadow, 0 0 #0000), var(--tw-inset-ring-shadow, 0 0 #0000),
+    var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000),
+    var(--tw-shadow);
+}
+
+/* ── the day, said quietly ────────────────────────────────────────────
+ * The conversation's day pill loses the card edge (its hairline ring and
+ * white lit top) and keeps only the ink-cast shadow of a piece of paper
+ * (shellStudy.css:1298-1302), so it still reads where it sticks over the
+ * scrolled messages. */
+:root[data-luca-frame="solid"][data-luca-shell]:not(.dark)
+  [data-testid="message-timeline-day-divider"]
+  > p {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.1),
+    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
 }
 
 /* ── the composer, Send and search ────────────────────────────────────
@@ -209,4 +244,12 @@
   box-shadow:
     0 0 0 0.5px hsl(var(--mn-ink) / 0.1),
     0 24px 64px -12px hsl(var(--mn-ink) / 0.28);
+}
+
+/* The result Enter will open: a plate of the ink at 8%
+ * (shellStudy.css:1078-1081). */
+:root[data-luca-frame="solid"]:not(.dark)
+  [data-testid="search-results"]
+  [aria-selected="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
 }

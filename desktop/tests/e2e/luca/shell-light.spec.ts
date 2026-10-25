@@ -359,6 +359,56 @@ async function colour(page: Page, selector: string) {
   }, selector);
 }
 
+/** A css colour as the page resolves it. */
+async function resolved(page: Page, value: string) {
+  return page.evaluate((v) => {
+    const probe = document.createElement("i");
+    probe.style.color = v;
+    document.body.append(probe);
+    const result = getComputedStyle(probe).color;
+    probe.remove();
+    return result;
+  }, value);
+}
+
+/** WCAG contrast of a css colour (blended over the ground if it has alpha)
+ *  against an opaque ground. */
+function contrast(css: string | null, ground: Rgb) {
+  const parts = css?.match(/[\d.]+/g)?.map(Number) ?? [];
+  if (parts.length < 3) return 0;
+  const alpha = parts[3] ?? 1;
+  const text = [0, 1, 2].map(
+    (i) => parts[i] * alpha + ground[i] * (1 - alpha),
+  ) as Rgb;
+  const luminance = (rgb: Rgb) => {
+    const [r, g, b] = rgb.map((value) => {
+      const c = value / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [high, low] = [luminance(text), luminance(ground)].sort(
+    (a, b) => b - a,
+  );
+  return Math.round(((high + 0.05) / (low + 0.05)) * 100) / 100;
+}
+
+/** Puts keyboard focus on an element by Tab, so :focus-visible holds, and
+ *  reads what it draws. */
+async function keyboardFocus(page: Page, selector: string) {
+  const target = page.locator(selector).first();
+  await target.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  return target.evaluate((element) => ({
+    id: element.getAttribute("data-testid"),
+    focused: document.activeElement === element,
+    focusVisible: element.matches(":focus-visible"),
+    boxShadow: getComputedStyle(element).boxShadow,
+    outline: getComputedStyle(element).outlineStyle,
+  }));
+}
+
 async function inkAt(page: Page, alpha: number) {
   return page.evaluate((a) => {
     const probe = document.createElement("i");
@@ -386,6 +436,9 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   await openGeneral(page);
   const conversation = await shot(page, dir, "conversation");
   files.push(conversation);
+  const DAY_PILL = '[data-testid="message-timeline-day-divider"] > p';
+  const dayPill = await edges(page, DAY_PILL);
+  const dayPillBox = await box(page, DAY_PILL);
 
   const recess = await tokenRgb(page, "hsl(var(--mn-recess))");
   const floor = await tokenRgb(page, "hsl(var(--mn-floor))");
@@ -454,10 +507,14 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       "[data-shell-rail] .luca-rail-section-head",
     ),
   };
+  // The section labels are the card's words, not the frame's: the palette's
+  // own faint, tuned for contrast on its own surface.
+  const cardFaint = await resolved(page, "hsl(var(--mn-ink-faint))");
   const forwardDisabled = await page.getByTestId("global-forward").isDisabled();
   checks.frame_words = {
-    expected: { ink, muted, faint },
+    expected: { ink, muted, faint, section_label: cardFaint },
     measured: words,
+    section_label_contrast: contrast(words.section_label, surface),
     ok:
       words.lip_name === ink &&
       words.lip_toggle === muted &&
@@ -465,7 +522,8 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       (!forwardDisabled || words.lip_forward_disabled === faint) &&
       words.place === muted &&
       words.place_current === ink &&
-      words.section_label === faint,
+      words.section_label === cardFaint &&
+      contrast(words.section_label, surface) >= 4.5,
   };
 
   // ── where you are, by day ─────────────────────────────────────────
@@ -511,7 +569,28 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   await expect(page.getByTestId("search-results")).toBeVisible({
     timeout: 10_000,
   });
-  files.push(await shot(page, dir, "search"));
+  const SEARCH_CHOSEN = '[data-testid="search-results"] [aria-selected="true"]';
+  await expect(page.locator(SEARCH_CHOSEN).first()).toBeVisible({
+    timeout: 10_000,
+  });
+  const searchShot = await shot(page, dir, "search");
+  files.push(searchShot);
+  const searchChosen = await edges(page, SEARCH_CHOSEN);
+  const searchChosenBox = await box(page, SEARCH_CHOSEN);
+  const searchPanelBox = await box(page, '[data-testid="search-results"]');
+  const searchChosenPixels =
+    searchChosenBox && searchPanelBox
+      ? await pixels(page, searchShot, [
+          [
+            Math.round((searchChosenBox.x + searchChosenBox.w - 6) * 2),
+            Math.round((searchChosenBox.y + 4) * 2),
+          ],
+          [
+            Math.round((searchPanelBox.x + searchPanelBox.w - 6) * 2),
+            Math.round((searchPanelBox.y + searchPanelBox.h - 6) * 2),
+          ],
+        ])
+      : [];
   const scrim = await edges(page, '[data-testid="dialog-overlay"]');
   const searchPanel = await edges(page, '[data-testid="search-results"]');
   await page.keyboard.press("Escape");
@@ -524,6 +603,7 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     send_shadow: `${await inkAt(page, 0.22)} 0px 0.5px 1px 0px, ${await inkAt(page, 0.1)} 0px 1px 3px 0px`,
     scrim: await inkAt(page, 0.1),
     search_shadow: `${await inkAt(page, 0.1)} 0px 0px 0px 0.5px, ${await inkAt(page, 0.28)} 0px 24px 64px -12px`,
+    search_chosen: await inkAt(page, 0.08),
   };
   const surfaceCss = `rgb(${surface.join(", ")})`;
   checks.composer_send_search = {
@@ -534,6 +614,8 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     send_armed: { ...sendArmed, act },
     scrim,
     search_panel: searchPanel,
+    search_chosen: searchChosen,
+    search_chosen_vs_panel_pixels: searchChosenPixels,
     ok:
       composer?.background === studyValues.composer_background &&
       composer?.boxShadow === studyValues.composer_shadow &&
@@ -543,7 +625,10 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       send?.boxShadow === studyValues.send_shadow &&
       sendArmed?.background === `rgb(${act.join(", ")})` &&
       scrim?.background === studyValues.scrim &&
-      searchPanel?.boxShadow === studyValues.search_shadow,
+      searchPanel?.boxShadow === studyValues.search_shadow &&
+      searchChosen?.background === studyValues.search_chosen &&
+      searchChosenPixels.length === 2 &&
+      grey(searchChosenPixels[1]) - grey(searchChosenPixels[0]) >= 12,
   };
 
   // ── the rail closing: its shadow fades with its card ──────────────
@@ -688,6 +773,38 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     page,
     ".luca-settings-row[data-current]",
   );
+  const groupLabel = await colour(page, ".luca-settings-group-head");
+  const modeRow = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-luca-settings-frame] [data-testid^="appearance-mode-"]',
+      ),
+    ].map((button) => ({
+      id: button.getAttribute("data-testid"),
+      pressed: button.getAttribute("aria-pressed") === "true",
+      background: getComputedStyle(button).backgroundColor,
+      boxShadow: getComputedStyle(button).boxShadow,
+      border: getComputedStyle(button).borderTopColor,
+    })),
+  );
+  await page
+    .locator(
+      '[data-luca-settings-frame] [data-testid^="appearance-mode-"]:not([aria-pressed="true"])',
+    )
+    .first()
+    .hover();
+  await page.waitForTimeout(250);
+  const modeHover = await page.evaluate(() => {
+    const button = document.querySelector<HTMLElement>(
+      '[data-luca-settings-frame] [data-testid^="appearance-mode-"]:not([aria-pressed="true"])',
+    );
+    return button ? getComputedStyle(button).backgroundColor : null;
+  });
+  // Taken with the pointer still on the unchosen option (shot() moves it).
+  await settle(page);
+  const modeHoverShot = path.join(dir, "settings-mode-hover.png");
+  await page.screenshot({ path: modeHoverShot });
+  files.push(modeHoverShot);
   const segments = await page.evaluate(() =>
     [
       ...document.querySelectorAll<HTMLElement>(
@@ -708,6 +825,53 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     .catch(() => undefined);
   files.push(await shot(page, dir, "settings-appearance-segments"));
 
+  // A chosen option keeps its keyboard ring in front of its paper.
+  const chosenSelectors = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll<HTMLElement>(
+        '[data-luca-settings-frame] :is(fieldset.rounded-full > button, [data-testid^="appearance-mode-"])[aria-pressed="true"]',
+      ),
+    ]
+      .map((button) => button.getAttribute("data-testid"))
+      .filter((id): id is string => !!id),
+  );
+  const focusRings = [];
+  for (const id of chosenSelectors) {
+    focusRings.push(await keyboardFocus(page, `[data-testid="${id}"]`));
+  }
+  // The picture: the Frame row's chosen Paper, focused by keyboard.
+  await page
+    .locator('[data-testid="appearance-frame-solid"]')
+    .scrollIntoViewIfNeeded();
+  await keyboardFocus(page, '[data-testid="appearance-frame-solid"]');
+  files.push(await shot(page, dir, "settings-chosen-focused"));
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+
+  // Under the glass by day (set by hand: a headless browser has no real
+  // glass), Settings' card host clears like every other floor layer.
+  const glassSettingsHost = await page.evaluate(async () => {
+    const root = document.documentElement;
+    const before = root.getAttribute("data-luca-frame-glass");
+    root.setAttribute("data-luca-frame-glass", "liquid");
+    await new Promise((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(resolve)),
+    );
+    const host = document.querySelector("[data-luca-settings-card-host]");
+    const result = {
+      root: getComputedStyle(root).backgroundColor,
+      host: host ? getComputedStyle(host).backgroundColor : null,
+    };
+    if (before === null) root.removeAttribute("data-luca-frame-glass");
+    else root.setAttribute("data-luca-frame-glass", before);
+    return result;
+  });
+  checks.glass_settings_host = {
+    ...glassSettingsHost,
+    ok:
+      glassSettingsHost.root === "rgba(0, 0, 0, 0)" &&
+      glassSettingsHost.host === "rgba(0, 0, 0, 0)",
+  };
+
   const track = await inkAt(page, 0.06);
   checks.chosen_stands_up = {
     plate,
@@ -716,6 +880,9 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     rail_pill_rim: railPillRim,
     settings_row_current: settingsRowCurrent,
     segments,
+    mode_row: modeRow,
+    mode_unchosen_hover: modeHover,
+    focus_rings: focusRings,
     ok:
       placeCurrent?.background === plate &&
       placeCurrent.boxShadow === "none" &&
@@ -729,12 +896,58 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       segments.every(
         (segment) =>
           segment.background === surfaceCss &&
-          segment.boxShadow === studyValues.send_shadow &&
+          segment.boxShadow.endsWith(studyValues.send_shadow) &&
+          !segment.boxShadow.includes("0px 0px 0px 2px") &&
           segment.track === track,
+      ) &&
+      modeRow.length === 3 &&
+      modeRow.every(
+        (mode) =>
+          mode.border === "rgba(0, 0, 0, 0)" &&
+          (!mode.pressed ||
+            (mode.background === surfaceCss &&
+              mode.boxShadow.endsWith(studyValues.send_shadow))),
+      ) &&
+      modeHover === track &&
+      focusRings.length >= 4 &&
+      focusRings.every(
+        (ring) =>
+          ring.focused &&
+          ring.focusVisible &&
+          /0px 0px 0px 2px/.test(ring.boxShadow) &&
+          ring.boxShadow.endsWith(studyValues.send_shadow),
       ),
   };
 
+  checks.settings_group_label = {
+    colour: groupLabel,
+    expected: cardFaint,
+    contrast: contrast(groupLabel, surface),
+    ok: groupLabel === cardFaint && contrast(groupLabel, surface) >= 4.5,
+  };
+  const dayPillPixels = dayPillBox
+    ? await pixels(page, conversation, [
+        [
+          Math.round((dayPillBox.x + dayPillBox.w / 2) * 2),
+          Math.round(dayPillBox.y * 2) - 1,
+        ],
+        [
+          Math.round((dayPillBox.x + dayPillBox.w / 2) * 2),
+          Math.round(dayPillBox.y * 2),
+        ],
+        [
+          Math.round((dayPillBox.x + dayPillBox.w / 2) * 2),
+          Math.round(dayPillBox.y * 2) + 1,
+        ],
+        [
+          Math.round((dayPillBox.x + dayPillBox.w / 2) * 2),
+          Math.round(dayPillBox.y * 2) + 3,
+        ],
+      ])
+    : [];
+  const dayPillShadow = `${await inkAt(page, 0.1)} 0px 1px 2px 0px, ${await inkAt(page, 0.12)} 0px 4px 12px -2px`;
   checks.no_outlines = {
+    day_pill: { ...dayPill, expected: dayPillShadow, pixels: dayPillPixels },
     rail: railEdge,
     conversation: cardEdge,
     right_card: rightEdge,
@@ -750,6 +963,10 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
       noEdge(cardEdge) &&
       noEdge(rightEdge) &&
       noEdge(placeEdge) &&
+      dayPill?.boxShadow === dayPillShadow &&
+      dayPillPixels.length === 4 &&
+      // no white lit top: the row just inside is no brighter than the pill
+      grey(dayPillPixels[2]) <= grey(dayPillPixels[3]) + 1 &&
       [...inside, ...rightInside, ...placeInside].every((pixel) =>
         near(pixel, surface),
       ),
@@ -804,6 +1021,8 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
     "frame_words",
     "chosen_stands_up",
     "composer_send_search",
+    "settings_group_label",
+    "glass_settings_host",
   ]) {
     expect.soft((checks[key] as { ok: boolean }).ok, key).toBe(true);
   }
@@ -866,10 +1085,17 @@ test("Paper by day, 800 × 500", async ({ page, browser }, info) => {
 });
 
 test("other light palettes", async ({ page }, info) => {
-  test.setTimeout(120_000);
+  test.setTimeout(300_000);
   const dir = shotsDir(info.outputPath());
   const result: Record<string, unknown> = {};
-  for (const theme of ["github-light", "catppuccin-latte", "solarized-light"]) {
+  for (const theme of [
+    "github-light",
+    "catppuccin-latte",
+    "solarized-light",
+    "everforest-light",
+    "gruvbox-light-hard",
+    "github-light-high-contrast",
+  ]) {
     const context = await page.context().browser()?.newContext({
       deviceScaleFactor: 2,
     });
@@ -893,6 +1119,12 @@ test("other light palettes", async ({ page }, info) => {
         : [];
     const below =
       card && rail ? (await profile(themed, file, card, rail)).below : [];
+    const label = await colour(
+      themed,
+      "[data-shell-rail] .luca-rail-section-head",
+    );
+    const labelFaint = await resolved(themed, "hsl(var(--mn-ink-faint))");
+    const labelContrast = contrast(label, surface);
     result[theme] = {
       file,
       recess,
@@ -900,7 +1132,11 @@ test("other light palettes", async ({ page }, info) => {
       floor,
       inside,
       below,
+      section_label: label,
+      section_label_contrast: labelContrast,
       ok:
+        label === labelFaint &&
+        labelContrast >= 4.5 &&
         floor.every((pixel) => near(pixel, recess)) &&
         inside.every((pixel) => near(pixel, surface)) &&
         casts(layer, rail) &&
