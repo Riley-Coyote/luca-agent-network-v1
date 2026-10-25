@@ -195,7 +195,12 @@ export function AppSidebar({
   const frame = useShellFrameEnabled();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
-  const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
+  const {
+    open: sidebarOpen,
+    openMobile,
+    setOpenMobile,
+    toggleSidebar,
+  } = useSidebar();
   const isMobile = useIsMobile();
   const [selectedRuntime, setSelectedRuntime] =
     React.useState<RuntimeConnectionStatusV1 | null>(null);
@@ -732,6 +737,18 @@ export function AppSidebar({
       }
     })();
   });
+  // Conversations in the places column: already in a conversation with the
+  // rail closed, it opens the rail, with the toggle's own motion (or the
+  // sheet on a narrow window); from anywhere else it returns to the
+  // conversation you stepped out of (handleSelectConversations).
+  const selectConversationsPlace = useStableCallback(() => {
+    const railClosed = isMobile ? !openMobile : !sidebarOpen;
+    if (selectedView === "channel" && railClosed) {
+      toggleSidebar();
+      return;
+    }
+    handleSelectConversations();
+  });
   const agentStorageKey = agentRailStorageKey(
     currentPubkey ?? "",
     activeCommunity?.relayUrl ?? "",
@@ -795,7 +812,7 @@ export function AppSidebar({
         onSelectAgents={onSelectAgents}
         onSelectArtifacts={onSelectArtifacts}
         onSelectBrain={onSelectBrain}
-        onSelectConversations={handleSelectConversations}
+        onSelectConversations={selectConversationsPlace}
         onSelectInbox={onSelectInbox}
         onSelectPulse={onSelectPulse}
         onSelectSettings={onSelectSettings}

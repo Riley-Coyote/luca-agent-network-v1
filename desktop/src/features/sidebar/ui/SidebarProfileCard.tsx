@@ -16,6 +16,28 @@ import { cn } from "@/shared/lib/cn";
 import { useIsDevBuild } from "@/shared/lib/useIsDevBuild";
 import { Badge } from "@/shared/ui/badge";
 
+/** The shell avatar's disc, as the study's `.shell-avatar`: painted once on
+ *  the avatar, at the ink at 14%, with its initial in text-xs. Rendered with
+ *  `plain`, so neither the avatar nor its fallback adds a fill of its own. */
+export const SHELL_AVATAR_DISC_CLASS =
+  "h-full w-full bg-[hsl(var(--mn-ink)/0.14)] text-xs";
+
+/** Dev-identified builds name themselves: the Dev app and the beta build
+ *  render the same UI, and without this they are indistinguishable on a
+ *  machine that has both. A label, not a status, so no fill, no accent. */
+function DevBuildChip() {
+  return (
+    <Badge
+      className="relative shrink-0 border-border/70 bg-transparent px-1.5 pb-[2px] pt-[3px] text-badge tracking-caps-wider text-ink-muted"
+      data-testid="sidebar-dev-build-chip"
+      title="Development build"
+      variant="outline"
+    >
+      DEV
+    </Badge>
+  );
+}
+
 type SidebarProfileCardProps = {
   activeCommunity: Community | null;
   isPresencePending?: boolean;
@@ -76,19 +98,8 @@ export function SidebarProfileCard({
   // active relay context internally, but do not surface multi-community
   // controls while organizations and invited humans are deferred.
   const communityLabel = "Personal workspace";
-  // Dev-identified builds name themselves here. The Dev app and the beta build
-  // render the same UI; without this they are indistinguishable on a machine
-  // that has both. A label, not a status — so no fill, no accent.
-  const devChip = isDevBuild ? (
-    <Badge
-      className="relative shrink-0 border-border/70 bg-transparent px-1.5 pb-[2px] pt-[3px] text-badge tracking-caps-wider text-ink-muted"
-      data-testid="sidebar-dev-build-chip"
-      title="Development build"
-      variant="outline"
-    >
-      DEV
-    </Badge>
-  ) : null;
+  // Dev-identified builds name themselves here (DevBuildChip).
+  const devChip = isDevBuild ? <DevBuildChip /> : null;
   const readonlyCommunityLabel = (
     <span
       className="flex min-w-0 cursor-pointer items-center text-xs leading-snug text-ink-muted"
@@ -260,9 +271,17 @@ export function SidebarProfileAvatarMenu({
   selfUserStatus,
 }: SidebarProfileAvatarMenuProps) {
   const selfProfileCache = useSelfProfileCache();
+  const isDevBuild = useIsDevBuild();
   const [open, setOpen] = React.useState(false);
   return (
     <ProfilePopover
+      // Beside the avatar, to the right of the places column: its bottom on
+      // the avatar's, 8 from the column (the avatar's right is 34, the
+      // column's edge 44), so it covers neither the avatar nor Settings.
+      align="end"
+      nameAccessory={isDevBuild ? <DevBuildChip /> : null}
+      side="right"
+      sideOffset={18}
       open={open}
       onOpenChange={setOpen}
       avatarDataUrl={selfProfileCache?.avatarDataUrl ?? null}
@@ -304,12 +323,14 @@ export function SidebarProfileAvatarMenu({
           cutout={{ cx: 20.5, cy: 20.5, r: 5.5 }}
           size={24}
         >
+          {/* The initial's weight and ink are in shell-frame.css. */}
           <ProfileAvatar
             avatarDataUrl={selfProfileCache?.avatarDataUrl ?? null}
             avatarUrl={profile?.avatarUrl ?? null}
-            className="h-full w-full text-2xs"
+            className={SHELL_AVATAR_DISC_CLASS}
             iconClassName="h-3 w-3"
             label={resolvedDisplayName}
+            plain
             testId="shell-profile-avatar"
           />
         </MaskedAvatarBadgeFrame>

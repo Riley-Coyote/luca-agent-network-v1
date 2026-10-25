@@ -228,6 +228,14 @@
   width: 24px;
 }
 
+/* The avatar reads as the study's: one disc, the ink at 14%, painted on the
+ * avatar itself (its fallback lets it through, so the fills never stack),
+ * the initial in the frame's ink at weight 550. */
+.luca-shell-avatar [data-testid="shell-profile-avatar-fallback"] {
+  color: hsl(var(--mn-ink));
+  font-weight: 550;
+}
+
 :is(
   .luca-lip-button,
   .luca-place,
@@ -307,6 +315,19 @@
   --buzz-sidebar-edge-fade-surface: hsl(var(--mn-surface));
   --buzz-sidebar-edge-fade-transparent: hsl(var(--mn-surface) / 0);
   background: transparent;
+}
+
+/* The footer's fade is the card itself, drawn over the rows: the card's
+ * grain on its surface, masked from opaque at the bottom to clear, the way
+ * the conversation's veils are. A flat fade hid the grain and stopped it at
+ * a line; this one hands the grain over to the card's own as it thins. */
+:root[data-luca-frame="solid"] [data-frame] [data-sidebar="footer"]::before {
+  background: var(--mn-card-finish, none), hsl(var(--mn-surface));
+  background-size:
+    256px 256px,
+    100% 100%;
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
 }
 
 /* The rows begin a breath inside the card's top edge. The breath is the
@@ -397,6 +418,35 @@
   border-radius: 0;
   box-shadow: none;
   margin: 0;
+}
+
+/* The grain reaches every card's edge, as it does on the rail's card. The
+ * cards' transparent 1-point border kept the grain a point inside them (and
+ * WebKit draws a grain that runs under a transparent border fainter across
+ * the whole card), so the border goes and a point of padding takes its
+ * place: the content box, and everything in it, stays where it was. The
+ * grain is still laid from the content box, where the veils' copies of it
+ * start, so the two register; it repeats out to the card's outer edge. */
+:root[data-luca-frame="solid"]
+  [data-buzz-content-surface]:not(:has([data-luca-workspace-floor])),
+:root[data-luca-frame="solid"] [data-luca-workspace-floor] [data-luca-card] {
+  border-width: 0;
+  padding: 1px;
+  background-origin: content-box;
+}
+
+/* New conversation fills the card: its body paints no surface of its own,
+ * and its header no band of its own (nothing scrolls under it, so it needs
+ * no veil); the To field keeps its own outline. */
+:root[data-luca-frame="solid"] [data-testid="new-message-body"] {
+  background: transparent;
+}
+
+:root[data-luca-frame="solid"] [data-testid="new-message-header"] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-bottom-color: transparent;
 }
 
 /* The conversation header's rules: app/shell/shell-header.css (WP-04). */
