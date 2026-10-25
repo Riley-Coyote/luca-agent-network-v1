@@ -94,6 +94,10 @@ LOST. LOST is a failure unless the spec retires it.
 |---|---|---|
 | WP-01 the frame, Black, dark | 2026-10-24, merge `bfda2d8a0` | The lip, the places, the rail's card and the conversation's card, behind `shell-frame`. Flag off matches the base by hash. Review fixed the cards' edge light, the lip riding the card's slide, and the unread dot on Conversations; the small rest went to WP-01b. 4,204 unit tests pass. |
 | WP-02 the rail, ironed out | 2026-10-24, merge `aa4b0d29c` | Luca first, then Projects, Agents and Fleets, each home's sessions on a thread, one home per chat; Runtimes on the Agents page; the Project rooms setting. Review fixed the homes' corners and gave a project's details a home on its row. At the merge the rail reads the frame's own switch, and the frame's spec opens #general by its route. Both specs pass together (the frame's motion trace needed one retry under load); 4,210 unit tests pass. A group named after one of its chats, and the small rest, went to WP-02b. |
+| WP-05 Settings in the frame | 2026-10-24, merge `cfaa57d3d` | The frame stays in Settings: its section list in the rail card's place, its panels in the conversation card's; Back to app goes; ⌘K and ⌘N work there. Review fixed the panels card fading in, the unread dot, the version line at small sizes. At the merge, the specs open #general by its route, retried past the first redirect. |
+| WP-02b the rail, finished | 2026-10-25, merge `54a98f0a1` | Groups named by their members; column mode without nested rooms; aria-expanded; first row at 6; slot order; Runtimes on the Agents page aligned and lit on hover; Conversations returns to the conversation you left; Search's first Escape. |
+| WP-04 the header into the lip | 2026-10-25, merge `c43649156` | The card's header is gone: layout, open as window and details in the lip's right end; Join, presence and the ephemeral badge there; panes name the focused one in the lip and the others quietly; the description as the name's tooltip. |
+| WP-07a glass plumbing | 2026-10-25, merge `9f19579f0` | The Frame setting and row; the reporter for Liquid Glass; the frosted fallback; the veil; glass word tones on the lip and places; daytime shadows under the cards on glass; `set_traffic_lights_inset`. The glass marks only `data-luca-frame-glass`. Rust not compiled yet (disk under 20 GB): WP-07b. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -744,3 +748,170 @@ Your styles go in `desktop/src/app/shell/shell-marks.css` (new), imported by `gl
 
 **Checks JSON keys:** `places_mark`, `rail_mark`, `motion_trace`, `whole_pixels`, `rail_closing`, `reduce_motion`,
 `scroll_clip`, `session_lit_not_marked`, `pill_retired`, `native_pour_calls` (0), `flag_off_identical`, `gates`.
+
+## WP-06 · Light: Paper, shadows on the floor, no outlines (2026-10-25, Riley and Claude's design; Riley: "paper and glass both look amazing! keep them both")
+
+**Why.** Step 4 of `SHELL_SPEC.md`. In light the frame is Paper (the Black frame's daytime name) or Glass. Daylight shows
+things by shade and shadow, so there are no white edges anywhere. Read the spec's "Light and dark", "Black (Paper in
+light)" and "Glass: Liquid Glass", and the study's light rules: the light section at the end of `shellStudy.css`
+(`.shell[data-mode="light"]`), every value there. Pictures of the approved light study:
+`scratchpad/light/lights/` (`l-paper.png` above all).
+
+**Base.** The integration branch with WP-01, WP-02, WP-02b, WP-04, WP-05 and WP-07a landed. WP-04b, WP-05b and WP-08d
+are built at the same time; WP-01b and WP-03 (the marks) are still running from earlier bases. Your styles go in
+`desktop/src/app/shell/shell-light.css` (new), imported by `globals.css` after the other shell stylesheets. Your worktree
+and branch: in your dispatch.
+
+**Files in scope:**
+- `shell-light.css` (new) and its one import line in `globals.css`;
+- small, self-contained edits elsewhere only where a light rule can't be written from your own stylesheet (say which,
+  and why);
+- `desktop/src/app/shell/shellGlass.ts` (only to let its shadow layer, `[data-luca-frame-shadows]`, also show under the
+  Paper frame by day);
+- tests.
+
+**Untouched:**
+- the marks (WP-03 brings them, dark first; their light material comes after);
+- the native glass and its look (WP-07b);
+- dark mode, exactly.
+
+**Decisions** (only under the `shell-frame` flag, only in light; with the flag off, or in dark, nothing changes):
+1. **The Paper frame's floor is the palette's recess** (`hsl(var(--mn-recess))`, Paper's `#eceae6`). The cards are the
+   surface (Paper's `#fcfbf9`).
+2. **No outlines by day:** no card edge, no white lit top, no ring, on any card (the conversation's, the rail's, the
+   Settings list, the place cards, the right cards).
+3. **Every card casts the ink's shadow on the floor beneath it,** from one layer under all the cards, so no card shades
+   its neighbour. The layer is WP-07a's (`[data-luca-frame-shadows]`), shown under Paper too, with Paper's values from
+   the study: `0 1px 2px ink 6%` and `0 12px 32px -8px ink 14%`. Glass keeps its own (`8%`, `0 16px 40px -10px 22%`).
+   The rail's shadow fades as its card closes.
+4. **The frame's words in light** are the page's ink at 100, 84 and 66% (`--luca-frame-ink`, `-muted`, `-faint`):
+   the lip's name and buttons, the places, the section labels.
+5. **A chosen option stands up, never dips:** white paper on its track with the study's two ink shadows (`0 0.5px 1px
+   ink 22%`, `0 1px 3px ink 10%`), as Send does. This applies to every segment the shell draws (the Frame row and the
+   study-style segments) and to the places' and rows' current plate, which by day is the plate the study draws in light.
+6. **The composer well, Send and search** in light, as the study draws them.
+7. **Other palettes:** the frame reads each palette's own tokens (floor, recess, surface, ink), so every light palette
+   in Appearance works under Paper. Check two besides Paper.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, deviceScaleFactor 2, flag on, Paper palette, unless
+stated), each measured against the light study (`/scripts/shell-lab.template.html?experience=shell&mode=light&frame=solid`
+on your own server):
+- `conversation` (floor, cards, no outline, the shadow under each card measured in pixels);
+- `rail-closed`;
+- `library` (a place card);
+- `settings-appearance` (the segments standing up);
+- `right-card`;
+- two other light palettes;
+- dark unchanged (shots hashed against the base build with the flag on in dark);
+- the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `floor_recess`, `no_outlines`, `card_shadows`, `rail_shadow_fade`, `frame_words`,
+`chosen_stands_up`, `composer_send_search`, `other_palettes`, `dark_unchanged`, `flag_off_identical`, `gates`.
+
+## WP-04b · The header, finished (2026-10-25, Claude's design, from the reviews of WP-04, WP-05 and WP-02b)
+
+**Why.** WP-04 landed. Its reviewers left small items, and two other reviews found items that belong to the lip.
+
+**Base.** The integration branch with WP-04 landed. Your styles stay in `shell-header.css`.
+
+**Files in scope:**
+- `desktop/src/app/shell/ShellLip.tsx`, `shell-header.css`, `lipActionsSlot.ts`;
+- `desktop/src/features/chat/ui/ChatHeader.tsx` and the forum's header (only to move the forum's actions);
+- `desktop/src/app/AppShell.tsx` (only to pass the toggle's words in Settings);
+- `desktop/src/features/channels/useActiveChannelHeader.ts` or wherever the lip's name is made (only the name of an
+  unnamed group chat);
+- `docs/luca/rail-system/SHELL_SPEC.md` (only Decided 3 and the header bullet's icon size);
+- tests.
+
+**Decisions** (only under the `shell-frame` flag; with it off, nothing changes):
+1. **The lip's action icons stay 15 points,** the lip's one button size, like the toggle, back and forward. Amend
+   `SHELL_SPEC.md` Decided 3 and the header bullet from "13-point" to "the lip's own size, 15".
+2. **The lip's buttons fade over 120 ms** (`color`, `background-color`), as the study's do, all of them: the toggle,
+   back, forward and the actions.
+3. **Details shows when it's open:** `aria-expanded`, the plate and ink while the details card is open, and the label
+   "Close conversation details".
+4. **Join's focus ring** is the lip's ring (1 px, ink 55%), outside its fill.
+5. **The presence avatar's fallback** wears the frame's avatar material: a disc at ink 14%, initials `text-xs` at
+   weight 550.
+6. **Forums lose their band too:** the forum's actions move into the lip like every other conversation, and the post
+   list gets the same fixed top padding and fade.
+7. **An empty focused pane** (a layout with a pane that holds no conversation): the lip names nothing and holds no
+   actions, and no other pane's quiet name is doubled.
+8. **In Settings the toggle says what it toggles:** "Close the section list (⌘S)" / "Open the section list (⌘S)".
+9. **An unnamed group chat is named by its members** ("Luca + Wren", Luca first), never the comma form: in the lip,
+   its tooltip and the window title, the same name the rail uses (`railHomes.ts`).
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on): one screenshot per decision, the timing and
+states measured; the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `icon_size_spec`, `button_fade`, `details_state`, `join_focus`, `presence_fallback`, `forum`,
+`empty_pane`, `settings_toggle_words`, `group_name`, `flag_off_identical`, `gates`.
+
+## WP-05b · Settings and the Frame row, finished (2026-10-25, Claude's design, from the reviews of WP-05 and WP-07a)
+
+**Why.** WP-05 and WP-07a landed. Their reviewers left small items in Settings and its Frame row.
+
+**Base.** The integration branch with WP-05 and WP-07a landed. Your styles stay in `shell-settings.css` (and
+`shell-glass.css` for the Frame row).
+
+**Files in scope:**
+- `desktop/src/features/settings/ui/SettingsView.tsx`, `SettingsLoadingFallback.tsx`, `shell-settings.css`;
+- `desktop/src/app/shell/ShellSettingsPlaces.tsx`, `ShellPlaces.tsx` (only focus on the place switch);
+- `desktop/src/features/settings/ui/SettingsPanels.tsx` (only the Frame row);
+- `desktop/src/app/shell/shellGlass.ts`, `shell-glass.css` (only the decisions below);
+- `desktop/tests/e2e/luca/shell-settings.spec.ts`, `desktop/tests/e2e/shell-glass.spec.ts`.
+
+**Decisions** (only under the `shell-frame` flag):
+1. **Focus stays on the place you pressed** when Settings opens or closes through the places column (or moves to the
+   matching place after the swap).
+2. **The version line** is `text-2xs` in the faint tone.
+3. **The loading skeleton's panel** sits in the loaded panel's column (`mx-auto w-full max-w-4xl`), so nothing jumps
+   when the section arrives.
+4. **The current row keeps its lit top under keyboard focus.**
+5. **The Settings spec's screenshots** are taken in the Vitesse Black palette: its blur click lands on empty frame, not
+   on a theme tile.
+6. **The Frame row says what is drawn:**
+   - under Reduce Transparency, Liquid Glass stays chosen and the sentence reads "Liquid Glass, drawn solid while
+     Reduce Transparency is on.";
+   - Glass is offered only where it can be drawn (Tauri on macOS) until Windows glass exists;
+   - in a browser the row is a statement (the label and its sentence), not a one-option control;
+   - the sentence is the fieldset's `aria-describedby`.
+7. **In full screen the frosted glass has square corners:** `cornerRadius` 0, and entering or leaving full screen
+   re-applies it.
+
+**Verification** (Playwright headless, flag on; the frosted and Reduce Transparency cases with the faked Tauri the
+WP-07a spec uses): one screenshot or measurement per decision; the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `focus_kept`, `version_size`, `skeleton_column`, `focus_lit_top`, `spec_palette`,
+`reduce_transparency_words`, `glass_offered_where_drawn`, `browser_statement`, `described_by`,
+`fullscreen_square_frost`, `flag_off_identical`, `gates`.
+
+## WP-08d · The glass themes retire (2026-10-25, Riley and Claude's design; Riley: "Take your recommended pick for all 12 decisions", Decided 7)
+
+**Why.** Obsidian and Crystalline were the only see-through windows, through the older frosted material behind the
+page. The Glass frame is the see-through window now. Read `SHELL_SPEC.md`, "The glass themes" and Decided 7.
+
+**Base.** The integration branch with WP-07a (the Frame setting) landed.
+
+**Files in scope:**
+- `desktop/src/shared/theme/ThemeProvider.tsx`, `theme-loader.ts`, `adaptive-theme.ts`, `useThemePreviewVars.ts`
+  (only the two themes);
+- the Appearance theme tiles in `SettingsPanels.tsx` (only hiding the two tiles);
+- `desktop/src/shared/styles/globals/glass-floor.css` (only to stand its rules down under the flag);
+- tests.
+
+**Untouched:** `window_vibrancy.rs` (the pop-out and the onboarding card still use it); the pop-out.
+
+**Decisions** (only under the `shell-frame` flag; with it off, both themes work exactly as today):
+1. **Their tiles leave Appearance.**
+2. **Someone on one moves once:** Obsidian → the dark default (Vitesse Black) with the Glass frame; Crystalline →
+   Paper with the Glass frame. Stored, so it happens once; turning the flag off again returns them to what they had.
+3. **`glass-floor.css` stands down** under the flag: the frame's glass (WP-07a) draws the see-through window.
+4. **Nothing else changes:** other palettes, the accent and the mode stay as chosen.
+
+**Verification** (Playwright headless, flag on, with the faked Tauri): a profile on Obsidian and one on Crystalline,
+before and after (palette, mode, frame, stored values); Appearance without the two tiles; flag off, both themes
+selectable and drawn as today (by hash against the base).
+
+**Checks JSON keys:** `tiles_hidden`, `obsidian_moves`, `crystalline_moves`, `moves_once`, `flag_off_restores`,
+`glass_floor_stands_down`, `flag_off_identical`, `gates`.
