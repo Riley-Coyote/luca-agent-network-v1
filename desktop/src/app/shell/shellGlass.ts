@@ -299,20 +299,30 @@ export function useReducedTransparency() {
   return reduced;
 }
 
+/** The rail's card under the frame (WP-01). */
+const RAIL_CARD_SELECTOR = '[data-frame] [data-sidebar="sidebar"]';
+
+/** The runtime sessions card, between the rail's and the conversation's
+ *  while it is open (WP-08c, shell-runtime.css), and its body, which holds
+ *  the card's open width while the card narrows. */
+const RUNTIME_CARD_SELECTOR =
+  "[data-luca-frame-row] > [data-luca-runtime-card]";
+const RUNTIME_CARD_BODY_SELECTOR = "[data-luca-runtime-card-body]";
+
 /**
  * Every card the shell has: glass-floor.css's own list (a card, and a route's
  * surface that is itself the card, not the clear plane that holds a
- * workspace's cards), and the rail's card under the frame (WP-01's
- * shell-frame.css). shell-glass.css lights the same set.
+ * workspace's cards), the rail's card under the frame (WP-01's
+ * shell-frame.css), and the runtime sessions card (WP-08c). shell-glass.css
+ * lights the first three; the runtime card carries its own light
+ * (shell-runtime.css).
  */
 export const CARD_SELECTOR = [
   "[data-luca-card]",
   "[data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))",
-  '[data-frame] [data-sidebar="sidebar"]',
+  RAIL_CARD_SELECTOR,
+  RUNTIME_CARD_SELECTOR,
 ].join(", ");
-
-/** The rail's card under the frame (WP-01). */
-const RAIL_CARD_SELECTOR = '[data-frame] [data-sidebar="sidebar"]';
 
 /** The cards that rest on the frame: every card not inside another one, on
  *  screen and shown. */
@@ -329,15 +339,16 @@ export function frameCards(doc: Document = document) {
 }
 
 /**
- * The conversation's card: the leftmost card on the frame outside the rail.
- * (The rail's own card, when the frame gives it one, is not the one the glass
- * is told about: `sync` in ShellStudy.tsx sends the conversation card.)
+ * The conversation's card: the leftmost card on the frame outside the rail
+ * and the runtime sessions card. (Neither of those is the one the glass is
+ * told about: `sync` in ShellStudy.tsx sends the conversation card.)
  */
 export function conversationCard(doc: Document = document) {
   let best: HTMLElement | null = null;
   let bestX = Number.POSITIVE_INFINITY;
   for (const card of frameCards(doc)) {
     if (card.closest('[data-testid="app-sidebar"]')) continue;
+    if (card.matches(RUNTIME_CARD_SELECTOR)) continue;
     const { x } = card.getBoundingClientRect();
     if (x < bestX) {
       best = card;
@@ -494,7 +505,8 @@ export type CardShadow = Box & { r: number; opacity: number };
 /**
  * A card's shadow: where it lies, its corners, and how strongly it is cast.
  * The rail's fades as its card narrows, gone once it is closed
- * (shellStudy.css:1345-1355); every other card's is cast in full.
+ * (shellStudy.css:1345-1355), and so does the runtime sessions card's, which
+ * opens and closes on the rail's slide; every other card's is cast in full.
  */
 export function cardShadow(
   rect: Box,
@@ -509,9 +521,14 @@ export function cardShadow(
 const measureShadow = (card: HTMLElement): CardShadow => {
   const rect = card.getBoundingClientRect();
   const style = getComputedStyle(card);
+  const body = card.matches(RUNTIME_CARD_SELECTOR)
+    ? card.querySelector<HTMLElement>(RUNTIME_CARD_BODY_SELECTOR)
+    : null;
   const rail = card.matches(RAIL_CARD_SELECTOR)
     ? { full: Number.parseFloat(style.getPropertyValue("--sidebar-width")) }
-    : null;
+    : body
+      ? { full: body.getBoundingClientRect().width }
+      : null;
   return cardShadow(
     { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
     Number.parseFloat(style.borderTopLeftRadius) || 0,

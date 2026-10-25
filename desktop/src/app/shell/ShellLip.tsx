@@ -47,14 +47,16 @@ export function shellFrameCardLeft({
   besideRail = 0,
 }: {
   railOpen: boolean;
-  /** Anything else standing between the rail and the card (the runtime
-   *  sessions column), at rest. */
+  /** The width of the card standing between the rail and the
+   *  conversation's (the runtime sessions card, WP-08c), at rest; 0 when
+   *  none is open. It keeps 4 from the conversation's card, and 4 from the
+   *  places column while the rail is closed (shell-runtime.css). */
   besideRail?: number;
 }): number {
+  const beside =
+    besideRail > 0 ? besideRail + CARD_GAP + (railOpen ? 0 : CARD_GAP) : 0;
   return (
-    PLACES_WIDTH +
-    (railOpen ? SHELL_FRAME_RAIL_WIDTH + CARD_GAP : 0) +
-    Math.max(0, besideRail)
+    PLACES_WIDTH + (railOpen ? SHELL_FRAME_RAIL_WIDTH + CARD_GAP : 0) + beside
   );
 }
 
@@ -62,14 +64,49 @@ export function shellFrameCardLeft({
  *  its right measured, because a right card narrows the conversation card.
  *  The right edge is written to the element inside the ResizeObserver's
  *  callback, which runs after layout and before paint, so it lands in the
- *  same frame as the card it follows. Also reports what stands beside the
- *  rail (the runtime sessions column), which never animates. */
+ *  same frame as the card it follows. Also reports the width of the card
+ *  standing beside the rail (the runtime sessions card) at rest: its body's
+ *  width while it is open, 0 from the moment it starts to close, so the
+ *  lip's part glides with the card on its own transition. */
 function useLipCardSpan(
   lipCard: React.RefObject<HTMLDivElement | null>,
   lipSlot: React.RefObject<HTMLDivElement | null>,
+  railOpen: React.RefObject<boolean>,
 ) {
   const [besideRail, setBesideRail] = React.useState(0);
   React.useLayoutEffect(() => {
+    // The runtime sessions card opens and closes on the rail's slide
+    // (shell-runtime.css). Its resting width is written straight to the
+    // lip from the mutation's own callback, before the next frame is drawn,
+    // so the lip's part starts its glide on the card's first frame instead
+    // of a frame or more behind it; the state then agrees with it. Its body
+    // holds the card's 22 rem through the slide, so it changes size only
+    // when the text does (⌘+ and ⌘−): it is watched for that too.
+    let beside: HTMLElement | null = null;
+    let besideWidth = 0;
+    const besideSize = new ResizeObserver(() => syncBeside());
+    const syncBeside = () => {
+      const found = document.querySelector<HTMLElement>(
+        '[data-luca-frame-row] > [data-luca-runtime-card="open"] > [data-luca-runtime-card-body]',
+      );
+      if (found !== beside) {
+        if (beside) besideSize.unobserve(beside);
+        if (found) besideSize.observe(found);
+        beside = found;
+      }
+      const width = found ? found.getBoundingClientRect().width : 0;
+      if (width === besideWidth) return;
+      besideWidth = width;
+      const left = shellFrameCardLeft({
+        railOpen: railOpen.current,
+        besideRail: width,
+      });
+      lipCard.current?.parentElement?.style.setProperty(
+        "--card-left",
+        `${left}px`,
+      );
+      setBesideRail(width);
+    };
     let card: Element | null = null;
     let pane: Element | null = null;
     let slot: Element | null = null;
@@ -141,21 +178,19 @@ function useLipCardSpan(
         }
       }
       place();
-      const beside = document.querySelector<HTMLElement>(
-        '[data-luca-frame-row] > [data-testid="runtime-sessions-panel"]',
-      );
-      setBesideRail(beside?.offsetWidth ?? 0);
+      syncBeside();
     };
     look();
     // The card is remounted across some route changes; look again whenever
     // the shell's subtree changes shape, cheaply, on the next frame.
     let frame = 0;
     const mutations = new MutationObserver(() => {
+      syncBeside();
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(look);
     });
     mutations.observe(document.body, {
-      attributeFilter: ["data-focused"],
+      attributeFilter: ["data-focused", "data-luca-runtime-card"],
       childList: true,
       subtree: true,
     });
@@ -163,10 +198,11 @@ function useLipCardSpan(
     return () => {
       cancelAnimationFrame(frame);
       mutations.disconnect();
+      besideSize.disconnect();
       observer?.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [lipCard, lipSlot]);
+  }, [lipCard, lipSlot, railOpen]);
   return besideRail;
 }
 
@@ -244,7 +280,6 @@ export function ShellLip({
     lipSlot.current = element;
     setShellLipActionsSlot(element);
   }, []);
-  const besideRail = useLipCardSpan(lipCard, lipSlot);
   // Panes side by side with the focused one empty: the lip names nothing,
   // so no other pane's quiet name is doubled here, and its slot holds only
   // the workspace's layout menu, which the empty pane sends up
@@ -257,9 +292,13 @@ export function ShellLip({
     !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
   const named = focusedPaneEmpty ? null : channel;
   const railOpen = sidebar ? sidebar.open : true;
+  const railBesideCards = railOpen && !sidebar?.isMobile;
+  const railBesideCardsRef = React.useRef(railBesideCards);
+  railBesideCardsRef.current = railBesideCards;
+  const besideRail = useLipCardSpan(lipCard, lipSlot, railBesideCardsRef);
   const key = isMacPlatform() ? "⌘" : "Ctrl+";
   const cardLeft = shellFrameCardLeft({
-    railOpen: railOpen && !sidebar?.isMobile,
+    railOpen: railBesideCards,
     besideRail,
   });
 

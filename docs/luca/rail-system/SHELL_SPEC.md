@@ -58,7 +58,12 @@ below.
 - **Corners:** the window 16; the cards 10 (the app's `--radius`, 0.625rem), concentric with the window's corner across
   the 6 between them; the open tab 9 at its top, with soft inward corners of 8 where it meets the card.
 - **Smallest window:** the app's minimum stays 800 × 500, which leaves the conversation's card 526 wide with the rail
-  open.
+  open. While the runtime sessions card is open the conversation's card keeps at least 24 rem (384 at 100%): where it
+  would fall below that beside the open rail (windows under about 1014 wide at 100%), the rail's card steps aside as
+  the runtime card opens, on the same slide, and comes back as it closes; opening the rail again meanwhile is the
+  owner's choice and is kept. At 800 × 500 that leaves the conversation's card 390 wide (WP-08c's review: Claude's
+  pick over opening the runtime card over the conversation's, whose recipient list draws above any card; Riley to
+  judge).
 - **Type:** two voices, the system face for everything you read and Fragment Mono capitals for the rail's structure.
   Four sizes in the frame: 11 (labels), 13 (the lip, sessions, tabs), 14 (homes), 16 (the conversation). Text is rem
   and follows the app's ⌘+ and ⌘− (75% to 150%); the lip, tabs, places column and rail card stay fixed points, as the
