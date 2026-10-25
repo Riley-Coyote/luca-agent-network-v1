@@ -20,6 +20,7 @@ import { LiftedPane } from "@/features/panes/LiftedPane";
 import { AppTopChrome } from "@/app/AppTopChrome";
 import { ShellLip } from "@/app/shell/ShellLip";
 import {
+  SHELL_FRAME_SLIDE_MS,
   shellFramePageName,
   shellFrameSidebarStyle,
   useShellFrameRootAttribute,
@@ -941,7 +942,11 @@ export function AppShell() {
                   <div
                     className={cn(
                       "buzz-huddle-app-surface z-10 flex min-h-0 flex-row overflow-hidden bg-background",
-                      isHuddleDrawerOpen && "buzz-huddle-app-surface-open",
+                      // In the frame the surface stays whole: the cards make
+                      // room for the bar instead (shell-huddle.css).
+                      isHuddleDrawerOpen &&
+                        !shellFrame &&
+                        "buzz-huddle-app-surface-open",
                     )}
                   >
                     <BuzzTheme.GradientLayer />
@@ -1407,9 +1412,19 @@ export function AppShell() {
                     </ConversationWorkspaceProvider>
                   </div>
 
-                  <div className="absolute inset-x-0 bottom-0 z-0 h-(--buzz-huddle-drawer-height)">
+                  {/* In the frame the bar rises into the band beneath the
+                      cards, on the rail's motion (SHELL_SPEC.md, Decided 8). */}
+                  <div
+                    className={
+                      shellFrame
+                        ? "luca-huddle-band"
+                        : "absolute inset-x-0 bottom-0 z-0 h-(--buzz-huddle-drawer-height)"
+                    }
+                    data-testid={shellFrame ? "shell-huddle-band" : undefined}
+                  >
                     <HuddleBar
                       className="h-full"
+                      exitMs={shellFrame ? SHELL_FRAME_SLIDE_MS : undefined}
                       onOpenThread={(channelId, messageId) => {
                         void goChannel(channelId, {
                           messageId,
