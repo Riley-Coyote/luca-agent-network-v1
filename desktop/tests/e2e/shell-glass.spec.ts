@@ -1942,3 +1942,37 @@ test("WP-05b: the Frame row's choice holds still when it changes, at the smalles
   record05b("frame_row_holds_still", { solid, glass, reduced, ok });
   expect(ok).toBe(true);
 });
+
+test("WP-07b: on a glass frame the places' mark is a piece of the card", async ({
+  browser,
+}) => {
+  // Liquid Glass, then the frosted glass, each in a fresh page.
+  for (const liquid of [true, false]) {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+    });
+    const page = await context.newPage();
+    await openGlass(page, `/#/channels/${GENERAL_CHANNEL_ID}`, {
+      light: false,
+      liquid,
+    });
+    const layer = page.locator('[data-testid="shell-places"] .luca-marks');
+    await expect(layer).toHaveAttribute("data-mark-material", "card");
+    const mark = layer.locator(".luca-mark--place");
+    await expect(mark).toBeVisible();
+    const surface = await page.evaluate(() => {
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = "hsl(var(--mn-surface))";
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return colour;
+    });
+    expect(
+      await mark.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      ),
+    ).toBe(surface);
+    await context.close();
+  }
+});

@@ -26,6 +26,7 @@ import type { Channel, SearchHit } from "@/shared/api/types";
 import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
@@ -332,6 +333,7 @@ export function ShellPlaces({
   // The rail's card says an available update with its footer card; while
   // that card is out of sight, Settings says it with a dot (Decided 4).
   const status = useShellStatus();
+  const { frameDrawn } = useTheme();
   const updateDot = status.updateAvailable && railSignalsSpeak;
   return (
     <nav
@@ -342,7 +344,13 @@ export function ShellPlaces({
       data-update-available={status.updateAvailable ? "" : undefined}
       ref={nav}
     >
-      <ShellPlacesMarks current={here} />
+      {/* On the Black frame the mark is a plate; on a glass frame, a piece
+          of the card standing on the glass (SHELL_SPEC.md, "Where you
+          are"). */}
+      <ShellPlacesMarks
+        current={here}
+        material={frameDrawn === "solid" ? "plate" : "card"}
+      />
       <div className="luca-places-group">
         <PlaceTile
           label="New conversation"
