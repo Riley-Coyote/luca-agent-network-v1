@@ -42,6 +42,14 @@ interface ProfilePopoverProps {
   // Used by the sidebar to surface the community/relay selector inside the
   // profile menu instead of on the sidebar card.
   communitySwitcherSlot?: React.ReactNode;
+  // Optional placement. The defaults are the profile card's: the menu rises
+  // over the card it opens from. The shell's avatar opens it beside itself.
+  side?: "top" | "right" | "bottom" | "left";
+  align?: "start" | "center" | "end";
+  sideOffset?: number;
+  alignOffset?: number;
+  // Optional mark beside the name at the menu's top (the shell's DEV chip).
+  nameAccessory?: React.ReactNode;
 }
 
 const MENU_ITEM_CLASS =
@@ -67,6 +75,11 @@ export function ProfilePopover({
   children,
   triggerContainerRef,
   communitySwitcherSlot,
+  side = "top",
+  align = "start",
+  sideOffset = -32,
+  alignOffset,
+  nameAccessory,
 }: ProfilePopoverProps) {
   const [statusDialogOpen, setStatusDialogOpen] = React.useState(false);
   const [presenceMenuOpen, setPresenceMenuOpen] = React.useState(false);
@@ -96,9 +109,10 @@ export function ProfilePopover({
         <PopoverTrigger asChild>{children}</PopoverTrigger>
 
         <PopoverContent
-          side="top"
-          align="start"
-          sideOffset={-32}
+          side={side}
+          align={align}
+          sideOffset={sideOffset}
+          alignOffset={alignOffset}
           className="w-[280px] p-1"
           data-testid="profile-popover"
           onInteractOutside={(event) => {
@@ -140,9 +154,18 @@ export function ProfilePopover({
                 />
               </MaskedAvatarBadgeFrame>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold leading-tight text-popover-foreground">
-                  {displayName}
-                </p>
+                {nameAccessory ? (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <p className="truncate text-sm font-semibold leading-tight text-popover-foreground">
+                      {displayName}
+                    </p>
+                    {nameAccessory}
+                  </div>
+                ) : (
+                  <p className="truncate text-sm font-semibold leading-tight text-popover-foreground">
+                    {displayName}
+                  </p>
+                )}
                 {/* ── Presence chip (opens status chooser) ─────────── */}
                 <Popover
                   onOpenChange={setPresenceMenuOpen}

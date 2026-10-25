@@ -798,3 +798,625 @@ test("flag off draws the base build exactly", async ({ browser }, info) => {
       .toBe(true);
   }
 });
+
+// ── WP-01b · the frame, finished ─────────────────────────────────────
+
+const STUDY_URL =
+  process.env.SHELL_STUDY_URL ??
+  "http://127.0.0.1:4312/scripts/shell-lab.template.html?experience=shell&mode=dark&frame=solid";
+
+type Region = { x: number; y: number; w: number; h: number };
+type Stats = { mean: number; sd: number };
+
+/** Grey statistics of regions of the rendered page, in device pixels. */
+async function pixelStats(page: Page, regions: Region[]): Promise<Stats[]> {
+  const png = await page.screenshot();
+  return page.evaluate(
+    async ({ b64, regions }) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: "image/png" }),
+      );
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext("2d");
+      if (!context) return [];
+      context.drawImage(bitmap, 0, 0);
+      return regions.map((r) => {
+        const data = context.getImageData(r.x, r.y, r.w, r.h).data;
+        let sum = 0;
+        let squares = 0;
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const grey = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          sum += grey;
+          squares += grey * grey;
+          count += 1;
+        }
+        const mean = sum / count;
+        return {
+          mean: Math.round(mean * 100) / 100,
+          sd: Math.round(Math.sqrt(squares / count - mean * mean) * 100) / 100,
+        };
+      });
+    },
+    { b64: png.toString("base64"), regions },
+  );
+}
+
+/** The rail card's last 40 points, row by row (two device rows a point):
+ *  the grain's brightness (mean) and spread (sd) across the card. */
+async function railFoot(page: Page) {
+  const rail = await box(page, RAIL_CARD);
+  if (!rail) return null;
+  const rows: Region[] = [];
+  for (let p = 40; p >= 1; p -= 1) {
+    rows.push({
+      x: Math.round((rail.x + 16) * 2),
+      y: Math.round((rail.y + rail.h - p) * 2),
+      w: Math.round((rail.w - 32) * 2),
+      h: 2,
+    });
+  }
+  const stats = await pixelStats(page, rows);
+  const sds = stats.map((s) => s.sd);
+  const means = stats.map((s) => s.mean);
+  const median = (values: number[]) =>
+    [...values].sort((a, c) => a - c)[Math.floor(values.length / 2)];
+  // The card's last 10 points carry its rounded corners' falloff only at the
+  // far ends, which the 16-point side margins leave out.
+  return {
+    rows_from_bottom_40_to_1: stats,
+    median_sd: median(sds),
+    min_sd: Math.min(...sds),
+    mean_range: [Math.min(...means), Math.max(...means)],
+    median_mean: median(means),
+  };
+}
+
+/** The grain at a card's outermost device pixels (its left and right
+ *  columns, its bottom row) against the grain deep inside it. */
+async function cardEdgeGrain(page: Page, selector: string) {
+  const b = await box(page, selector);
+  if (!b) return null;
+  const x0 = Math.round(b.x * 2);
+  const x1 = Math.round((b.x + b.w) * 2) - 2;
+  const y0 = Math.round((b.y + 60) * 2);
+  const h = Math.round((b.h - 160) * 2);
+  const [left, right, bottom, deep] = await pixelStats(page, [
+    { x: x0, y: y0, w: 2, h },
+    { x: x1, y: y0, w: 2, h },
+    {
+      x: Math.round((b.x + 40) * 2),
+      y: Math.round((b.y + b.h) * 2) - 2,
+      w: Math.round((b.w - 80) * 2),
+      h: 2,
+    },
+    // The card's own grain a few points in, clear of what it holds.
+    { x: x0 + 6, y: y0, w: 6, h },
+  ]);
+  const border = await page.evaluate(
+    (s) =>
+      getComputedStyle(document.querySelector(s) as Element).borderTopWidth,
+    selector,
+  );
+  return { border, box: b, left, right, bottom, deep };
+}
+
+function grainReachesEdge(edge: Awaited<ReturnType<typeof cardEdgeGrain>>) {
+  if (!edge) return false;
+  const floor = edge.deep.sd * 0.6;
+  return (
+    edge.border === "0px" &&
+    edge.left.sd >= floor &&
+    edge.right.sd >= floor &&
+    edge.bottom.sd >= floor
+  );
+}
+
+/** The release build's identity, swapped for a dev one in the served bundle:
+ *  outside Tauri the app always reports a release build, and the DEV chip is
+ *  only drawn for a dev one. Nothing else reads this constant. */
+async function serveAsDevBuild(page: Page) {
+  await page.route(/\/assets\/index-[^/]+\.js$/, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.text()).replace(
+      "{identifier:``,isDev:!1}",
+      "{identifier:`e2e.dev`,isDev:!0}",
+    );
+    await route.fulfill({ response, body });
+  });
+}
+
+async function avatarMeasures(page: Page, avatarSelector: string) {
+  const b = await box(page, avatarSelector);
+  if (!b) return null;
+  // A point of the disc clear of the initial and the presence badge:
+  // 4 points in from its left, on its centre line.
+  const [disc] = await pixelStats(page, [
+    {
+      x: Math.round((b.x + 3.5) * 2),
+      y: Math.round((b.y + b.h / 2 - 1) * 2),
+      w: 2,
+      h: 4,
+    },
+  ]);
+  return { box: b, disc_grey: disc.mean };
+}
+
+test("the frame, finished (WP-01b)", async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const dir = shotsDir(info.outputPath());
+  const checks: Record<string, unknown> = {};
+  const files: string[] = [];
+
+  await serveAsDevBuild(page);
+  await openApp(page, { frame: true });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-luca-frame",
+    "solid",
+    { timeout: 20_000 },
+  );
+  await openGeneral(page);
+  await page.mouse.move(700, 500);
+  await settle(page);
+
+  // ── avatar ──────────────────────────────────────────────────────────
+  const avatar = await page.evaluate(() => {
+    const disc = document.querySelector(
+      '[data-testid="shell-profile-avatar"]',
+    ) as HTMLElement;
+    const fallback = document.querySelector(
+      '[data-testid="shell-profile-avatar-fallback"]',
+    ) as HTMLElement;
+    const d = getComputedStyle(disc);
+    const f = getComputedStyle(fallback);
+    return {
+      disc_background: d.backgroundColor,
+      disc_shadow: d.boxShadow,
+      fallback_background: f.backgroundColor,
+      initial: fallback.textContent,
+      initial_size: f.fontSize,
+      initial_weight: f.fontWeight,
+      initial_colour: f.color,
+    };
+  });
+  const appDisc = await avatarMeasures(
+    page,
+    '[data-testid="shell-profile-avatar"]',
+  );
+  const avatarBox = await box(
+    page,
+    '[data-testid="shell-profile-avatar-button"]',
+  );
+  if (avatarBox) {
+    const file = path.join(dir, "avatar.png");
+    await page.screenshot({
+      path: file,
+      clip: { x: 0, y: avatarBox.y - 48, width: 80, height: 80 },
+    });
+    files.push(file);
+  }
+  let study: Record<string, unknown> | null = null;
+  const studyPage = await page.context().newPage();
+  try {
+    await studyPage.setViewportSize({ width: 1440, height: 900 });
+    await studyPage.goto(STUDY_URL, { timeout: 15_000 });
+    await studyPage.locator(".shell-avatar").waitFor({ timeout: 15_000 });
+    await settle(studyPage);
+    study = {
+      ...(await studyPage.evaluate(() => {
+        const a = getComputedStyle(
+          document.querySelector(".shell-avatar") as Element,
+        );
+        return {
+          disc_background: a.backgroundColor,
+          initial_size: a.fontSize,
+          initial_weight: a.fontWeight,
+          initial_colour: a.color,
+        };
+      })),
+      ...(await avatarMeasures(studyPage, ".shell-avatar")),
+    };
+    const studyBox = await box(studyPage, ".shell-avatar");
+    if (studyBox) {
+      const file = path.join(dir, "avatar-study.png");
+      await studyPage.screenshot({
+        path: file,
+        clip: { x: 0, y: studyBox.y - 48, width: 80, height: 80 },
+      });
+      files.push(file);
+    }
+  } catch {
+    study = null;
+  } finally {
+    await studyPage.close();
+  }
+  const studyDiscGrey = (study?.disc_grey as number | undefined) ?? null;
+  checks.avatar_disc = {
+    app: {
+      background: avatar.disc_background,
+      fallback_background: avatar.fallback_background,
+      shadow: avatar.disc_shadow,
+      disc_grey: appDisc?.disc_grey,
+    },
+    study: study
+      ? { background: study.disc_background, disc_grey: studyDiscGrey }
+      : "study not reachable",
+    ok:
+      avatar.fallback_background === "rgba(0, 0, 0, 0)" &&
+      avatar.disc_background === "rgba(200, 196, 185, 0.14)" &&
+      (studyDiscGrey === null ||
+        Math.abs((appDisc?.disc_grey ?? 0) - studyDiscGrey) <= 2),
+  };
+  checks.avatar_initial = {
+    app: {
+      text: avatar.initial,
+      size: avatar.initial_size,
+      weight: avatar.initial_weight,
+      colour: avatar.initial_colour,
+    },
+    study: study
+      ? {
+          size: study.initial_size,
+          weight: study.initial_weight,
+          colour: study.initial_colour,
+        }
+      : "study not reachable",
+    ok:
+      avatar.initial_size === "12px" &&
+      avatar.initial_weight === "550" &&
+      (!study ||
+        (study.initial_size === avatar.initial_size &&
+          study.initial_weight === avatar.initial_weight &&
+          study.initial_colour === avatar.initial_colour)),
+  };
+
+  // ── avatar-menu, beside the column, nothing covered; the DEV chip ──
+  const menuPlacement: Record<string, unknown> = {};
+  const devChip: Record<string, unknown> = {};
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 800, height: 500 },
+  ]) {
+    await page.setViewportSize(size);
+    await page.mouse.move(size.width / 2, size.height / 2);
+    await settle(page);
+    await page.getByTestId("shell-profile-avatar-button").click();
+    const popover = page.getByTestId("profile-popover");
+    await expect(popover).toBeVisible();
+    await page.waitForTimeout(300);
+    await settle(page);
+    const menu = await box(page, '[data-testid="profile-popover"]');
+    const av = await box(page, '[data-testid="shell-profile-avatar-button"]');
+    const settings = await box(page, '[data-testid="open-settings-view"]');
+    const label = `${size.width}x${size.height}`;
+    files.push(await shot(page, dir, `avatar-menu-${label}`));
+    const overlaps = (a: Box | null, b: Box | null) =>
+      !!a &&
+      !!b &&
+      a.x < b.x + b.w &&
+      b.x < a.x + a.w &&
+      a.y < b.y + b.h &&
+      b.y < a.y + a.h;
+    if (menu && av) {
+      menuPlacement[label] = {
+        menu,
+        gap_from_column: menu.x - 44,
+        menu_bottom: menu.y + menu.h,
+        avatar_bottom: av.y + av.h,
+        covers_avatar: overlaps(menu, av),
+        covers_settings: overlaps(menu, settings),
+        ok:
+          menu.x - 44 === 8 &&
+          Math.abs(menu.y + menu.h - (av.y + av.h)) <= 0.5 &&
+          !overlaps(menu, av) &&
+          !overlaps(menu, settings),
+      };
+    }
+    if (size.width === 1440) {
+      const chip = await box(page, '[data-testid="sidebar-dev-build-chip"]');
+      const name = await page.evaluate(() => {
+        const p = document.querySelector(
+          '[data-testid="profile-popover"] p',
+        ) as HTMLElement | null;
+        if (!p) return null;
+        const r = p.getBoundingClientRect();
+        return { text: p.textContent, x: r.x, y: r.y, w: r.width, h: r.height };
+      });
+      Object.assign(devChip, {
+        chip,
+        name,
+        in_menu:
+          (await popover.getByTestId("sidebar-dev-build-chip").count()) === 1,
+        ok:
+          !!chip &&
+          !!name &&
+          !!menu &&
+          chip.x >= name.x + name.w &&
+          Math.abs(chip.y + chip.h / 2 - (name.y + name.h / 2)) <= 2 &&
+          chip.y - menu.y < 40,
+      });
+      if (menu) {
+        const file = path.join(dir, "dev-chip.png");
+        await page.screenshot({
+          path: file,
+          clip: { x: menu.x - 8, y: menu.y - 8, width: 300, height: 80 },
+        });
+        files.push(file);
+      }
+    }
+    await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+  }
+  checks.menu_placement = {
+    ...menuPlacement,
+    ok: Object.values(menuPlacement).every(
+      (entry) => (entry as { ok: boolean }).ok,
+    ),
+  };
+  checks.dev_chip = devChip;
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.mouse.move(700, 500);
+  await settle(page);
+
+  // ── rail-foot ─────────────────────────────────────────────────────
+  const foot = await railFoot(page);
+  files.push(await shot(page, dir, "conversation-finished"));
+  const rail = await box(page, RAIL_CARD);
+  if (rail) {
+    const file = path.join(dir, "rail-foot.png");
+    await page.screenshot({
+      path: file,
+      clip: { x: rail.x - 4, y: rail.y + rail.h - 80, width: 228, height: 84 },
+    });
+    files.push(file);
+  }
+  checks.rail_foot_seam = {
+    ...foot,
+    ok:
+      !!foot &&
+      foot.min_sd >= foot.median_sd * 0.6 &&
+      foot.mean_range[1] - foot.mean_range[0] <= 1.5,
+  };
+
+  // ── card-edge: the conversation card and the route cards ─────────
+  const edges: Record<string, unknown> = {};
+  edges.rail = await cardEdgeGrain(page, RAIL_CARD);
+  edges.conversation = await cardEdgeGrain(page, CONVERSATION_CARD);
+  const card = await box(page, CONVERSATION_CARD);
+  if (card) {
+    const file = path.join(dir, "card-edge.png");
+    await page.screenshot({
+      path: file,
+      clip: { x: card.x - 30, y: card.y + card.h - 70, width: 60, height: 76 },
+    });
+    files.push(file);
+  }
+  const routes: [string, string][] = [
+    ["open-artifacts-view", "library"],
+    ["open-agents-view", "agents"],
+    ["open-activity-view", "activity"],
+    ["open-brain-setup", "brain"],
+    ["open-new-conversation", "new_conversation"],
+  ];
+  let newConversation: Record<string, unknown> = {};
+  for (const [testId, label] of routes) {
+    await page.getByTestId(testId).click();
+    await page.mouse.move(700, 500);
+    await page.waitForTimeout(700);
+    await settle(page);
+    edges[label] = await cardEdgeGrain(page, ROUTE_CARD);
+    if (label === "new_conversation") {
+      await expect(page.getByTestId("new-message-body")).toBeVisible();
+      const body = await box(page, '[data-testid="new-message-body"]');
+      const background = await page.evaluate(
+        () =>
+          getComputedStyle(
+            document.querySelector(
+              '[data-testid="new-message-body"]',
+            ) as Element,
+          ).backgroundColor,
+      );
+      files.push(await shot(page, dir, "new-conversation"));
+      if (body) {
+        // An open stretch of the body, right of the suggestions.
+        const [open] = await pixelStats(page, [
+          {
+            x: Math.round((body.x + body.w - 260) * 2),
+            y: Math.round((body.y + body.h / 2) * 2),
+            w: 400,
+            h: 200,
+          },
+        ]);
+        newConversation = {
+          background,
+          open_body: open,
+          ok: background === "rgba(0, 0, 0, 0)" && open.sd >= 1,
+        };
+      }
+    }
+  }
+  const railEdge = edges.rail as Awaited<ReturnType<typeof cardEdgeGrain>>;
+  checks.card_edge_grain = {
+    ...edges,
+    ok:
+      !!railEdge &&
+      Object.entries(edges)
+        .filter(([key]) => key !== "rail")
+        .every(([, value]) =>
+          grainReachesEdge(value as Awaited<ReturnType<typeof cardEdgeGrain>>),
+        ) &&
+      // Against the rail's: the conversation card's outer column carries
+      // the grain as the rail card's does.
+      Math.abs(
+        ((edges.conversation as { left: Stats }).left?.sd ?? 0) -
+          railEdge.right.sd,
+      ) <= 1,
+  };
+  checks.new_conversation_surface = newConversation;
+
+  // ── Conversations opens the closed rail in a conversation ─────────
+  const reopens: Record<string, unknown> = {};
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 800, height: 500 },
+  ]) {
+    const label = `${size.width}x${size.height}`;
+    await page.setViewportSize(size);
+    await page.waitForTimeout(600);
+    // Open the rail if the window left it closed, open #general from it,
+    // then close it with the toggle.
+    if ((await box(page, RAIL_CARD))?.w !== 220) {
+      await page.getByTestId("shell-lip-toggle").click();
+      await page.waitForTimeout(700);
+    }
+    await openGeneral(page);
+    await page.getByTestId("shell-lip-toggle").click();
+    await page.mouse.move(size.width / 2, size.height / 2);
+    await page.waitForTimeout(700);
+    await settle(page);
+    const closedWidth = (await box(page, RAIL_CARD))?.w ?? null;
+    files.push(
+      await shot(page, dir, `conversations-reopens-rail-before-${label}`),
+    );
+    const url = page.url();
+    // The rail card's width a frame at a time while it opens: the motion.
+    const widths = await page.evaluate(
+      () =>
+        new Promise<number[]>((resolve) => {
+          const card = '[data-testid="app-sidebar"] [data-sidebar="sidebar"]';
+          const samples: number[] = [];
+          const start = performance.now();
+          (
+            document.querySelector(
+              '[data-testid="shell-place-conversations"]',
+            ) as HTMLElement
+          ).click();
+          const step = () => {
+            const element = document.querySelector(card);
+            samples.push(element ? element.getBoundingClientRect().width : -1);
+            if (performance.now() - start < 700) requestAnimationFrame(step);
+            else resolve(samples);
+          };
+          requestAnimationFrame(step);
+        }),
+    );
+    await page.mouse.move(size.width / 2, size.height / 2);
+    await settle(page);
+    files.push(
+      await shot(page, dir, `conversations-reopens-rail-after-${label}`),
+    );
+    const openWidth = (await box(page, RAIL_CARD))?.w ?? null;
+    const between = widths.filter((w) => w > 1 && w < 219).length;
+    // The motion is the toggle's own: the card's width transition.
+    const transition = await page.evaluate((selector) => {
+      const style = getComputedStyle(
+        document.querySelector(selector) as Element,
+      );
+      return `${style.transitionProperty} ${style.transitionDuration} ${style.transitionTimingFunction}`;
+    }, '[data-testid="app-sidebar"]');
+    reopens[label] = {
+      closed_width: closedWidth,
+      open_width: openWidth,
+      frames_in_motion: between,
+      transition,
+      stayed_in_conversation: page.url() === url,
+      lip_name: await page.getByTestId("shell-lip-name").innerText(),
+      ok:
+        closedWidth === 0 &&
+        openWidth === 220 &&
+        // At least one frame caught between closed and open (on a loaded
+        // machine the frames are few), on the rail's 460 ms curve.
+        between >= 1 &&
+        transition.includes("0.46s") &&
+        transition.includes("cubic-bezier(0.32, 0.72, 0, 1)") &&
+        page.url() === url,
+    };
+  }
+  // From any other place it still goes to the last conversation, and with
+  // the rail open it does what it did before.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByTestId("open-artifacts-view").click();
+  await expect(page.getByTestId("shell-lip-name")).toHaveText("Library");
+  await page.getByTestId("shell-place-conversations").click();
+  await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
+  const fromLibrary = await page.getByTestId("shell-lip-name").innerText();
+  reopens.from_library = {
+    lip_name: fromLibrary,
+    ok: fromLibrary === "general",
+  };
+  checks.conversations_opens_rail = {
+    ...reopens,
+    ok: Object.values(reopens).every((entry) => (entry as { ok: boolean }).ok),
+  };
+
+  // ── before: the same measures on a build of the frame as WP-01 left
+  // it (SHELL_BEFORE_URL), for the record ────────────────────────────
+  const beforeUrl = process.env.SHELL_BEFORE_URL;
+  const reachable = beforeUrl
+    ? await fetch(beforeUrl)
+        .then((response) => response.ok)
+        .catch(() => false)
+    : false;
+  if (beforeUrl && reachable) {
+    const basePage = await page.context().newPage();
+    try {
+      await openApp(basePage, { frame: true, origin: beforeUrl });
+      await expect(basePage.locator("html")).toHaveAttribute(
+        "data-luca-frame",
+        "solid",
+        { timeout: 20_000 },
+      );
+      await openGeneral(basePage);
+      await basePage.mouse.move(700, 500);
+      await basePage.waitForTimeout(600);
+      await settle(basePage);
+      const baseFoot = await railFoot(basePage);
+      const baseEdge = await cardEdgeGrain(basePage, CONVERSATION_CARD);
+      await basePage.getByTestId("open-new-conversation").click();
+      await expect(basePage.getByTestId("new-message-body")).toBeVisible();
+      await basePage.mouse.move(700, 500);
+      await settle(basePage);
+      const body = await box(basePage, '[data-testid="new-message-body"]');
+      const [baseBody] = body
+        ? await pixelStats(basePage, [
+            {
+              x: Math.round((body.x + body.w - 260) * 2),
+              y: Math.round((body.y + body.h / 2) * 2),
+              w: 400,
+              h: 200,
+            },
+          ])
+        : [null];
+      checks.before = {
+        url: beforeUrl,
+        rail_foot: baseFoot && {
+          median_sd: baseFoot.median_sd,
+          min_sd: baseFoot.min_sd,
+          mean_range: baseFoot.mean_range,
+        },
+        conversation_edge: baseEdge,
+        new_conversation_body: baseBody,
+      };
+    } finally {
+      await basePage.close();
+    }
+  }
+
+  const hashes = files.map((file) => sha(file));
+  checks.screenshots = files.map((file, index) => ({
+    file,
+    sha256: hashes[index],
+  }));
+  checks.unique_hashes = new Set(hashes).size === hashes.length;
+  writeFileSync(
+    path.join(dir, "checks-finished.json"),
+    JSON.stringify(checks, null, 2),
+  );
+  for (const [key, value] of Object.entries(checks)) {
+    if (value && typeof value === "object" && "ok" in value) {
+      expect.soft((value as { ok: boolean }).ok, key).toBe(true);
+    }
+  }
+  expect(checks.unique_hashes).toBe(true);
+});
