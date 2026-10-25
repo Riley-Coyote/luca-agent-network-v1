@@ -25,6 +25,8 @@ import {
 } from "@/shared/ui/sheet";
 import { cn } from "@/shared/lib/cn";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { useOptionalSidebar } from "@/shared/ui/sidebar";
+import { shellFrameCardLeft } from "@/app/shell/ShellLip";
 import "@/app/shell/shell-runtime.css";
 
 import {
@@ -42,6 +44,7 @@ import {
   runtimeSessionActionLabel,
   type RuntimeSessionStartSnapshot,
 } from "./runtimeSessionModel";
+import { railStepsAside, whenFramesFlow } from "./runtimeSessionsCard";
 
 const SLOW_SESSION_READ_MS = 4_000;
 
@@ -53,30 +56,115 @@ const prefersReducedMotion = () =>
   typeof window !== "undefined" &&
   window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
+type RuntimeCardPhase = "opening" | "open" | "closing";
+
 /**
- * Under the frame the card closes on the rail's motion, so the runtime it
- * showed is held for one slide after it goes (shell-runtime.css narrows it);
- * otherwise, under Reduce Motion, and as a sheet, it goes at once, as today.
- * Reopening, or another runtime, ends the hold.
+ * Under the frame the card opens and closes on the rail's motion
+ * (shell-runtime.css). Opening from nothing, it is drawn at nothing until the
+ * page is drawing steadily (`whenFramesFlow`: the click that opens it also
+ * mounts New conversation), then slides open. Closing, the runtime it showed
+ * is held for one slide after it goes while the card narrows. Under Reduce
+ * Motion, and as a sheet, it comes and goes at once, as today. Reopening
+ * during the closing slide, or another runtime, ends the hold and slides it
+ * back from where it is.
  */
-function useClosingRuntime(
+function useRuntimeCard(
   runtime: RuntimeConnectionStatusV1 | null,
-  hold: boolean,
+  animate: boolean,
 ) {
+  const moves = () => animate && !prefersReducedMotion();
   const [previous, setPrevious] = React.useState(runtime);
   const [held, setHeld] = React.useState<RuntimeConnectionStatusV1 | null>(
     null,
   );
+  const [opening, setOpening] = React.useState(
+    () => runtime !== null && moves(),
+  );
   if (runtime !== previous) {
     setPrevious(runtime);
-    setHeld(!runtime && hold && !prefersReducedMotion() ? previous : null);
+    setHeld(!runtime && moves() ? previous : null);
+    setOpening(runtime !== null && previous === null && !held && moves());
   }
   React.useEffect(() => {
     if (!held) return;
     const timer = window.setTimeout(() => setHeld(null), SHELL_CARD_SLIDE_MS);
     return () => window.clearTimeout(timer);
   }, [held]);
-  return { closing: !runtime && held !== null, shown: runtime ?? held };
+  React.useEffect(() => {
+    if (!opening) return;
+    return whenFramesFlow(() => setOpening(false));
+  }, [opening]);
+  const phase: RuntimeCardPhase = !runtime
+    ? "closing"
+    : opening
+      ? "opening"
+      : "open";
+  return { phase, shown: runtime ?? held };
+}
+
+/**
+ * The smallest windows (SHELL_SPEC.md, "Smallest window"): where, beside the
+ * open rail, the conversation's card would be left under 24 rem, the rail's
+ * card steps aside as this card opens, on the same slide, and comes back as
+ * it closes. Looked at again when the window or the text size changes while
+ * it is open (the card's body holds 22 rem). Opening the rail again while
+ * the card is open is the owner's choice, and it is kept.
+ */
+function useRailStepsAside(
+  body: React.RefObject<HTMLDivElement | null>,
+  open: boolean,
+) {
+  const sidebar = useOptionalSidebar();
+  const railOpen = sidebar ? sidebar.open && !sidebar.isMobile : false;
+  const rail = React.useRef({ open: railOpen, setOpen: sidebar?.setOpen });
+  rail.current = { open: railOpen, setOpen: sidebar?.setOpen };
+  /** The rail stepped aside for this card, and is to come back with it. */
+  const stepped = React.useRef(false);
+  /** The owner opened the rail again while the card was open. */
+  const kept = React.useRef(false);
+
+  React.useLayoutEffect(() => {
+    const element = body.current;
+    if (!open || !element) return;
+    const check = () => {
+      if (kept.current || !rail.current.open || !rail.current.setOpen) return;
+      const root = document.documentElement;
+      const crowded = railStepsAside({
+        conversationLeft: shellFrameCardLeft({
+          railOpen: true,
+          besideRail: element.getBoundingClientRect().width,
+        }),
+        rem: Number.parseFloat(getComputedStyle(root).fontSize) || 16,
+        viewportWidth: root.clientWidth,
+      });
+      if (!crowded) return;
+      stepped.current = true;
+      rail.current.setOpen(false);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    window.addEventListener("resize", check);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", check);
+    };
+  }, [body, open]);
+
+  React.useLayoutEffect(() => {
+    if (railOpen && stepped.current) {
+      stepped.current = false;
+      kept.current = true;
+    }
+  }, [railOpen]);
+
+  React.useLayoutEffect(() => {
+    if (open) return;
+    kept.current = false;
+    if (!stepped.current) return;
+    stepped.current = false;
+    if (!rail.current.open) rail.current.setOpen?.(true);
+  }, [open]);
 }
 
 export function RuntimeSessionsPanel({
@@ -98,8 +186,10 @@ export function RuntimeSessionsPanel({
   runtime: RuntimeConnectionStatusV1 | null;
 }) {
   const frame = useShellFrameEnabled();
-  const { closing, shown } = useClosingRuntime(runtimeProp, frame && !isMobile);
+  const { phase, shown } = useRuntimeCard(runtimeProp, frame && !isMobile);
   const runtime = shown;
+  const body = React.useRef<HTMLDivElement>(null);
+  useRailStepsAside(body, frame && !isMobile && phase === "open");
   if (!runtime) return null;
 
   const content = (
@@ -142,18 +232,20 @@ export function RuntimeSessionsPanel({
     <aside
       aria-label={`${runtime.label} local sessions`}
       className="relative z-10 hidden h-full w-[22rem] shrink-0 flex-col border-r border-border/45 bg-sidebar text-sidebar-foreground md:flex"
-      data-luca-runtime-card={
-        frame ? (closing ? "closing" : "open") : undefined
-      }
+      data-luca-runtime-card={frame ? phase : undefined}
       data-testid="runtime-sessions-panel"
       id="runtime-sessions-panel"
-      inert={closing ? true : undefined}
+      inert={frame && phase === "closing" ? true : undefined}
     >
       {/* Under the frame the card narrows as it opens and closes; its body
           keeps its width so the rows hold still and are clipped, as the
           rail's are (shell-runtime.css). */}
       {frame ? (
-        <div className="luca-runtime-card__body" data-luca-runtime-card-body="">
+        <div
+          className="luca-runtime-card__body"
+          data-luca-runtime-card-body=""
+          ref={body}
+        >
           {content}
         </div>
       ) : (

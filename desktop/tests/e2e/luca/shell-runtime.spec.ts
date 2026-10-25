@@ -265,15 +265,21 @@ for (const size of [
     const runtime = g.runtime as Box;
     const rail = g.rail as Box;
     const card = g.card as Box;
+    // The smallest window: the rail's card steps aside for it (SHELL_SPEC.md,
+    // "Smallest window"), so it stands 4 from the places instead.
+    const railStepsAside = size.width < 1000;
     const gaps = {
-      railToRuntime: runtime.x - (rail.x + rail.w),
+      railToRuntime: railStepsAside
+        ? runtime.x - PLACES
+        : runtime.x - (rail.x + rail.w),
       runtimeToCard: card.x - (runtime.x + runtime.w),
       runtimeTopToLip: runtime.y - LIP,
       runtimeBottom: size.height - (runtime.y + runtime.h),
     };
     const geometryOk =
       runtime.w === CARD_WIDTH &&
-      runtime.x === PLACES + RAIL + GAP &&
+      runtime.x === (railStepsAside ? PLACES + GAP : PLACES + RAIL + GAP) &&
+      (railStepsAside ? rail.w === 0 : rail.w === RAIL) &&
       runtime.y === LIP &&
       g.style.runtime?.radius === "10px" &&
       g.style.runtime?.background === g.style.rail?.background &&
@@ -299,6 +305,7 @@ for (const size of [
     };
     checks[`column_open_${size.width}`] = {
       shot: file,
+      railStepsAside,
       runtime,
       rail,
       card,
@@ -521,6 +528,224 @@ test("motion: opens and closes on the rail's slide; the lip follows the card", a
   expect(close.cardFollowsRuntimeMaxDelta).toBeLessThan(1);
   expect(reducedPartial).toBe(0);
   expect(closedImmediately).toBe(true);
+});
+
+test("open from the Agents page: the slide starts once New conversation has painted", async ({
+  page,
+}) => {
+  await openApp(page, { frame: true });
+  await page.waitForTimeout(500);
+  const samples = await trace(page, () => openRuntime(page), 900);
+  writeFileSync(
+    path.join(dir, "trace-open-from-agents.json"),
+    JSON.stringify(samples, null, 1),
+  );
+  const mounted = samples.findIndex((s) => s.runtimeW !== null);
+  const moving = samples.findIndex(
+    (s) => s.runtimeW !== null && s.runtimeW > 0.5,
+  );
+  const firstShare =
+    (samples[moving].runtimeW ?? 0) /
+    CARD_WIDTH; /* from nothing: the frame before it is at 0 */
+  let maxGapFirst150 = 0;
+  let maxShare = 0;
+  for (let i = moving; i < samples.length; i += 1) {
+    const a = samples[i - 1];
+    const b = samples[i];
+    if (b.t - samples[moving].t <= 150) {
+      maxGapFirst150 = Math.max(maxGapFirst150, b.t - a.t);
+    }
+    if (a.runtimeW !== null && b.runtimeW !== null) {
+      maxShare = Math.max(maxShare, (b.runtimeW - a.runtimeW) / CARD_WIDTH);
+    }
+  }
+  const lipOff = Math.max(
+    ...samples.map((s) =>
+      s.cardX === null || s.lipX === null ? 0 : Math.abs(s.lipX - s.cardX),
+    ),
+  );
+  checks.open_from_agents = {
+    mountedAt: samples[mounted].t,
+    firstMovingAt: samples[moving].t,
+    framesHeldAtNothing: moving - mounted,
+    gapBeforeFirstMovingFrame: samples[moving].t - samples[moving - 1].t,
+    firstMovingFrameShare: Math.round(firstShare * 1000) / 1000,
+    maxFrameShare: Math.round(maxShare * 1000) / 1000,
+    maxFrameGapFirst150Ms: maxGapFirst150,
+    lipMaxOffConversationCard: Math.round(lipOff * 100) / 100,
+    endsAt: samples[samples.length - 1].runtimeW,
+  };
+  expect(moving - mounted).toBeGreaterThan(0);
+  expect(firstShare).toBeLessThanOrEqual(0.2);
+  // Started on a steady frame, not across the route's long one.
+  expect(samples[moving].t - samples[moving - 1].t).toBeLessThan(34);
+  expect(maxGapFirst150).toBeLessThan(50);
+  expect(lipOff).toBeLessThan(1);
+  expect(samples[samples.length - 1].runtimeW).toBe(CARD_WIDTH);
+});
+
+test("text zoom: back, forward and the name keep to the conversation card", async ({
+  page,
+}) => {
+  await openApp(page, { frame: true });
+  await openRuntime(page);
+  await page.waitForTimeout(SLIDE_MS + 300);
+  const steps: Record<string, unknown>[] = [];
+  const read = async (label: string) => {
+    const card = (await conversationCard(page)) as Box;
+    const runtime = (await box(page, RUNTIME)) as Box;
+    const lip = (await box(page, ".luca-lip-card")) as Box;
+    const back = (await box(page, '[data-testid="global-back"]')) as Box;
+    const name = (await box(page, '[data-testid="shell-lip-name"]')) as Box;
+    const font = await page.evaluate(
+      () => getComputedStyle(document.documentElement).fontSize,
+    );
+    const step = {
+      label,
+      font,
+      runtimeW: runtime.w,
+      cardX: card.x,
+      lipOff: Math.round((lip.x - card.x) * 100) / 100,
+      backOff: Math.round((back.x - Math.max(card.x + 6, 112)) * 100) / 100,
+      nameOff:
+        Math.round((name.x + name.w / 2 - (card.x + card.w / 2)) * 100) / 100,
+    };
+    steps.push(step);
+    return step;
+  };
+  await read("100%");
+  await page.keyboard.press("Meta+Equal");
+  await page.waitForTimeout(SLIDE_MS + 300);
+  await read("110%");
+  await shot(page, "zoom-110-open");
+  for (let i = 0; i < 4; i += 1) await page.keyboard.press("Meta+Equal");
+  await page.waitForTimeout(SLIDE_MS + 300);
+  await read("150%");
+  await shot(page, "zoom-150-open");
+  await page.keyboard.press("Meta+0");
+  await page.waitForTimeout(SLIDE_MS + 300);
+  await read("Meta+0");
+  checks.text_zoom = { steps };
+  for (const step of steps) {
+    expect(Math.abs(step.lipOff as number)).toBeLessThan(0.5);
+    expect(Math.abs(step.backOff as number)).toBeLessThan(0.5);
+    expect(Math.abs(step.nameOff as number)).toBeLessThan(1);
+  }
+  expect(steps.map((step) => step.font)).toEqual([
+    "16px",
+    "17.6px",
+    "24px",
+    "16px",
+  ]);
+});
+
+test("smallest window: the rail steps aside for the card and comes back with it", async ({
+  page,
+}) => {
+  await openApp(page, { frame: true, size: { width: 800, height: 500 } });
+  const railState = () =>
+    page.evaluate(() =>
+      document.querySelector("[data-frame]")?.getAttribute("data-state"),
+    );
+  const before = await railState();
+  await openRuntime(page);
+  await page.waitForTimeout(SLIDE_MS + 300);
+  const open = {
+    rail: await railState(),
+    runtime: (await box(page, RUNTIME)) as Box,
+    card: (await conversationCard(page)) as Box,
+    name: (await box(page, '[data-testid="shell-lip-name"]')) as Box,
+  };
+  // The open state is column-open-800's shot.
+  await page.getByRole("button", { name: /^Close .* sessions$/ }).click();
+  await page.waitForTimeout(SLIDE_MS + 300);
+  const closed = {
+    rail: await railState(),
+    card: (await conversationCard(page)) as Box,
+  };
+  const closedFile = await shot(page, "smallest-closed-800");
+  // The owner opening the rail again while the card is open is kept.
+  await page.evaluate(() => {
+    window.location.hash = "#/agents";
+  });
+  await expect(
+    page.locator("[data-runtime-connection-key]").first(),
+  ).toBeVisible({ timeout: 20000 });
+  await openRuntime(page);
+  await page.waitForTimeout(SLIDE_MS + 300);
+  await page.getByTestId("shell-lip-toggle").click();
+  await page.waitForTimeout(SLIDE_MS + 300);
+  await page.setViewportSize({ width: 801, height: 500 });
+  await page.waitForTimeout(300);
+  const kept = await railState();
+  const keptFile = await shot(page, "smallest-owner-reopened-800");
+  checks.smallest_window = {
+    openShot: path.join(dir, "column-open-800.png"),
+    ownerReopenedShot: keptFile,
+    closedShot: closedFile,
+    before,
+    open,
+    conversationCardWidth: open.card.w,
+    closed,
+    ownerReopenedKept: kept,
+    ok:
+      before === "expanded" &&
+      open.rail === "collapsed" &&
+      open.card.w >= 24 * 16 &&
+      open.name.w > 0 &&
+      closed.rail === "expanded" &&
+      kept === "expanded",
+  };
+  expect(before).toBe("expanded");
+  expect(open.rail).toBe("collapsed");
+  expect(open.runtime.x).toBe(PLACES + GAP);
+  expect(open.card.w).toBeGreaterThanOrEqual(24 * 16);
+  expect(open.name.w).toBeGreaterThan(0);
+  expect(closed.rail).toBe("expanded");
+  expect(closed.card.x).toBe(PLACES + RAIL + GAP);
+  expect(kept).toBe("expanded");
+});
+
+test("by day on the glass: the card is in the shell's card list, its shadow on the floor", async ({
+  page,
+}) => {
+  await openApp(page, { frame: true, colorScheme: "light" });
+  // The frosted glass, which the mock can draw once it is told it is the app.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("polyphonic-frame", "glass");
+    (window as unknown as { isTauri: boolean }).isTauri = true;
+  });
+  await page.reload();
+  await expect(
+    page.locator("[data-runtime-connection-key]").first(),
+  ).toBeVisible({ timeout: 20000 });
+  await openRuntime(page);
+  await page.waitForTimeout(SLIDE_MS + 300);
+  const file = await shot(page, "day-glass-open");
+  const day = await page.evaluate(() => {
+    const shadows = [
+      ...document.querySelectorAll<HTMLElement>("[data-luca-frame-shadow]"),
+    ].map((s) => ({
+      left: s.style.left,
+      width: s.style.width,
+      opacity: s.style.opacity,
+    }));
+    const card = document.querySelector("[data-luca-runtime-card]");
+    return {
+      glass: document.documentElement.getAttribute("data-luca-frame-glass"),
+      shadows,
+      runtimeBoxShadow: card ? getComputedStyle(card).boxShadow : null,
+    };
+  });
+  checks.day_card_list = { shot: file, ...day };
+  expect(day.glass).toBe("frosted");
+  expect(day.shadows).toContainEqual({
+    left: "268px",
+    width: "352px",
+    opacity: "1",
+  });
+  expect(day.shadows).toHaveLength(3);
+  expect(day.runtimeBoxShadow).toBe("none");
 });
 
 test("narrow: under 768 it is a sheet, as today", async ({ browser, page }) => {

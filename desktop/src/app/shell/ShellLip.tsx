@@ -75,15 +75,24 @@ function useLipCardSpan(
     // (shell-runtime.css). Its resting width is written straight to the
     // lip from the mutation's own callback, before the next frame is drawn,
     // so the lip's part starts its glide on the card's first frame instead
-    // of a frame or more behind it; the state then agrees with it.
+    // of a frame or more behind it; the state then agrees with it. Its body
+    // holds the card's 22 rem through the slide, so it changes size only
+    // when the text does (⌘+ and ⌘−): it is watched for that too.
     let beside: HTMLElement | null = null;
+    let besideWidth = 0;
+    const besideSize = new ResizeObserver(() => syncBeside());
     const syncBeside = () => {
       const found = document.querySelector<HTMLElement>(
         '[data-luca-frame-row] > [data-luca-runtime-card="open"] > [data-luca-runtime-card-body]',
       );
-      if (found === beside) return;
-      beside = found;
-      const width = found?.offsetWidth ?? 0;
+      if (found !== beside) {
+        if (beside) besideSize.unobserve(beside);
+        if (found) besideSize.observe(found);
+        beside = found;
+      }
+      const width = found ? found.getBoundingClientRect().width : 0;
+      if (width === besideWidth) return;
+      besideWidth = width;
       const left = shellFrameCardLeft({
         railOpen: railOpen.current,
         besideRail: width,
@@ -185,6 +194,7 @@ function useLipCardSpan(
     return () => {
       cancelAnimationFrame(frame);
       mutations.disconnect();
+      besideSize.disconnect();
       observer?.disconnect();
       window.removeEventListener("resize", place);
     };

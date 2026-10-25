@@ -45,20 +45,15 @@
   margin-left: var(--mn-card-gap);
 }
 
-/* It opens from nothing, and closes back to nothing, with its gaps. */
-@starting-style {
-  :root[data-luca-frame="solid"]
-    [data-luca-frame-row]
-    > [data-luca-runtime-card="open"] {
-    margin-left: 0;
-    margin-right: 0;
-    width: 0;
-  }
-}
-
+/* It opens from nothing, and closes back to nothing, with its gaps. It is
+ * drawn at nothing ("opening") until the page draws steadily, then opens
+ * (RuntimeSessionsPanel's useRuntimeCard). */
 :root[data-luca-frame="solid"]
   [data-luca-frame-row]
-  > [data-luca-runtime-card="closing"] {
+  > :is(
+    [data-luca-runtime-card="opening"],
+    [data-luca-runtime-card="closing"]
+  ) {
   margin-left: 0;
   margin-right: 0;
   width: 0;
@@ -74,8 +69,7 @@
   width: 22rem;
 }
 
-/* On glass: the cards' own light at night (shell-glass.css), and no white
- * edge by day. */
+/* On glass at night: the cards' own light (shell-glass.css). */
 :root:root[data-luca-frame-glass].dark
   [data-luca-frame-row]
   > [data-luca-runtime-card] {
@@ -85,7 +79,15 @@
     0 18px 44px rgb(0 0 0 / 0.32);
 }
 
-:root:root[data-luca-frame-glass]:not(.dark)
+/* By day, wherever the shell's one shadow layer lies beneath the cards (on
+ * the glass, and on Paper's floor with WP-06), the card wears no edge of its
+ * own: the layer casts its shadow with every other card's and fades it as
+ * the card narrows (shellGlass.ts, CARD_SELECTOR), so it draws no outline
+ * and shades no neighbour. Where there is no layer it keeps the cards' edge,
+ * as the rail's card does. */
+:root:root[data-luca-frame="solid"]:not(.dark):has(
+    > body > [data-luca-frame-shadows]
+  )
   [data-luca-frame-row]
   > [data-luca-runtime-card] {
   box-shadow: none;

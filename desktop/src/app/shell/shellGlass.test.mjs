@@ -323,10 +323,10 @@ test("traffic lights sit at 16 on the lip's line, 22", () => {
 
 // ── the cards on the glass ──────────────────────────────────────────────
 
-test("the card set is glass-floor.css's, and the frame's rail card", () => {
+test("the card set is glass-floor.css's, the frame's rail card and the runtime sessions card", () => {
   assert.equal(
     CARD_SELECTOR,
-    '[data-luca-card], [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])), [data-frame] [data-sidebar="sidebar"]',
+    '[data-luca-card], [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])), [data-frame] [data-sidebar="sidebar"], [data-luca-frame-row] > [data-luca-runtime-card]',
   );
 });
 
