@@ -1946,14 +1946,19 @@ test("WP-05b: the Frame row's choice holds still when it changes, at the smalles
 test("WP-07b: on a glass frame the places' mark is a piece of the card", async ({
   browser,
 }) => {
-  // Liquid Glass, then the frosted glass, each in a fresh page.
-  for (const liquid of [true, false]) {
+  // Liquid Glass, then the frosted glass, by night and by day, each in a
+  // fresh page.
+  for (const [liquid, light] of [
+    [true, false],
+    [false, false],
+    [true, true],
+  ] as const) {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
     });
     const page = await context.newPage();
     await openGlass(page, `/#/channels/${GENERAL_CHANNEL_ID}`, {
-      light: false,
+      light,
       liquid,
     });
     const layer = page.locator('[data-testid="shell-places"] .luca-marks');
@@ -1973,6 +1978,14 @@ test("WP-07b: on a glass frame the places' mark is a piece of the card", async (
         (element) => getComputedStyle(element).backgroundColor,
       ),
     ).toBe(surface);
+    // The place paints nothing over its mark: by day a plate there turned
+    // the paper into a grey dip (seen in the test app, 2026-10-25).
+    expect(
+      await page
+        .locator('[data-testid="shell-places"] .luca-place[data-current]')
+        .first()
+        .evaluate((element) => getComputedStyle(element).backgroundColor),
+    ).toBe("rgba(0, 0, 0, 0)");
     await context.close();
   }
 });

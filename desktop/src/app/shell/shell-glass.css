@@ -68,10 +68,10 @@
   color: var(--luca-frame-faint);
 }
 
-/* Where you are, until the glass frame's own marks come (WP-07b, WP-03): the
- * frame's plate. */
+/* Where you are is the mark beneath the place, a piece of the card
+ * (shell-marks.css); the place itself paints nothing over it. */
 :root[data-luca-frame-glass] .luca-place[data-current] {
-  background: var(--luca-frame-plate);
+  background: transparent;
   box-shadow: none;
   color: var(--luca-frame-ink);
 }
