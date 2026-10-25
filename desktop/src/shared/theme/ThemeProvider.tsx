@@ -1067,8 +1067,9 @@ export function ThemeProvider({
 
   // Liquid Glass: the page tells the native glass where the frame is.
   useShellGlassReporter(frameDrawn === "liquid", isDark, fullscreen);
-  // By day the cards' shadows lie on the glass beneath all of them.
-  useShellGlassShadows(frameDrawn !== "solid" && !isDark);
+  // By day the cards' shadows lie beneath all of them: on the glass, and on
+  // Paper's floor.
+  useShellGlassShadows(shellFrame && mainWindow && !isDark);
 
   // The traffic lights sit on the lip's line under the frame, and go back to
   // the window's configured place when the flag goes off again.

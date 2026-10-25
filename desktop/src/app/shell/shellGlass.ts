@@ -505,10 +505,12 @@ const measureShadow = (card: HTMLElement): CardShadow => {
 };
 
 /**
- * The cards' shadows on the glass by day (SHELL_SPEC.md, "Glass: Liquid
- * Glass", the cards): one layer beneath all the cards at once, so no card
- * shades its neighbour, with one shadow where each card lies, kept in place
- * as they move. shell-glass.css draws it only on the glass, by day.
+ * The cards' shadows by day (SHELL_SPEC.md, "Black (Paper in light)" and
+ * "Glass: Liquid Glass", the cards): one layer beneath all the cards at once,
+ * so no card shades its neighbour, with one shadow where each card lies, kept
+ * in place as they move. It is made whenever the frame is drawn by day;
+ * shell-glass.css draws it on the glass, shell-light.css on Paper's floor,
+ * each with its own values.
  */
 export function useShellGlassShadows(active: boolean) {
   React.useEffect(() => {
