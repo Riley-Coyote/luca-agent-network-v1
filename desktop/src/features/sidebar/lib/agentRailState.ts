@@ -27,6 +27,40 @@ export function readExpandedAgents(
   }
 }
 
+/**
+ * The shell's rail remembers expansion per home (Luca, a project, an agent, a
+ * fleet), in the same owner-and-workspace scope as the agent rail. Agents fall
+ * back to what the agent rail stored, so turning the shell on keeps them.
+ */
+export function railHomesStorageKey(
+  owner: string,
+  relay: string,
+  community: string,
+) {
+  return `polyphonic.rail-homes.v1:${encodeURIComponent(relay)}:${encodeURIComponent(community)}:${owner.toLowerCase()}`;
+}
+
+const RAIL_HOME_ID =
+  /^(luca|agent:[a-f0-9]{64}|(project|fleet|room):.{1,1024})$/;
+
+export function readExpandedHomes(
+  storage: Pick<Storage, "getItem">,
+  key: string,
+): Record<string, boolean> {
+  try {
+    const value: unknown = JSON.parse(storage.getItem(key) ?? "{}");
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        ([home, expanded]) =>
+          RAIL_HOME_ID.test(home) && typeof expanded === "boolean",
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
 /** Luca's groups and historical conversations remain reachable outside the singleton row. */
 export function standaloneConversations(
   items: readonly ChatListItem[],

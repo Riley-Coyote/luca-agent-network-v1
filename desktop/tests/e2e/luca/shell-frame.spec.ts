@@ -211,9 +211,26 @@ const CONVERSATION_CARD =
   '[data-testid="conversation-workspace-grid"] [data-luca-card]';
 const ROUTE_CARD = "[data-buzz-content-surface]";
 
-async function openGeneral(page: Page) {
-  await page.getByTestId("channel-general").click();
-  await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
+/** The mock's #general. Under the frame it is opened by its route: the rail
+ *  groups chats by home there (WP-02), and this spec measures the frame, not
+ *  the rail. With the flag off, today's row is clicked, as on the base. */
+const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+
+async function openGeneral(page: Page, { frame = true } = {}) {
+  if (!frame) {
+    await page.getByTestId("channel-general").click();
+    await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
+    return;
+  }
+  await page.waitForSelector('[data-testid="app-sidebar"]');
+  await page.evaluate((id) => {
+    location.hash = `#/channels/${id}`;
+  }, GENERAL_CHANNEL_ID);
+  // Generous: on a busy machine the conversation's screen loads late.
+  await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
 }
 
 /** Whether a press at (x, y) asks the window to start dragging. */
@@ -759,7 +776,7 @@ test("flag off draws the base build exactly", async ({ browser }, info) => {
     // The residents' eyes above the composer live on their own clock; with
     // Reduce Motion they hold still, so two captures can match by hash.
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-    await openGeneral(page);
+    await openGeneral(page, { frame: false });
     await page.mouse.move(1439, 899);
     const conversation = await shot(page, dir, `flag-off-conversation${label}`);
     await page.getByTestId("open-artifacts-view").click();

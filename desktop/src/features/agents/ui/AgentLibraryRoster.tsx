@@ -26,6 +26,7 @@ function isMockPreview(): boolean {
 }
 
 export function AgentLibraryRoster({
+  after,
   fillPane = false,
   filter,
   onAdd,
@@ -40,6 +41,8 @@ export function AgentLibraryRoster({
   showAdd = true,
   showFooter = true,
 }: {
+  /** Below the residents: the shell's Runtimes section (WP-02). */
+  after?: React.ReactNode;
   fillPane?: boolean;
   filter: AgentLibraryFilter;
   onAdd: () => void;
@@ -203,6 +206,7 @@ export function AgentLibraryRoster({
             </p>
           </div>
         )}
+        {after}
       </div>
 
       {showFooter ? (

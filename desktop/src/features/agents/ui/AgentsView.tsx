@@ -40,6 +40,9 @@ import {
 } from "@/shared/ui/dialog";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
+import { RuntimeRailSection } from "@/features/runtime-sessions/RuntimeRailSection";
+import { requestOpenRuntimeSessions } from "@/features/runtime-sessions/openRuntimeSessionsEvent";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useElementWidth } from "@/shared/hooks/use-mobile";
 import {
   AgentLibraryRoster,
@@ -77,6 +80,7 @@ export function AgentsView({
   selectedPersonaId: string | null;
   selectedPubkey: string | null;
 }) {
+  const shellFrame = useShellFrameEnabled();
   const agents = useManagedAgentActions();
   const personas = usePersonaActions();
   const operatorSettings = useOperatorForgeSettingsQuery();
@@ -325,6 +329,15 @@ export function AgentsView({
             }
           >
             <AgentLibraryRoster
+              after={
+                // The shell moves Runtimes out of the rail and onto this page.
+                shellFrame ? (
+                  <RuntimeRailSection
+                    onSelect={requestOpenRuntimeSessions}
+                    selectedRuntimeKey={null}
+                  />
+                ) : undefined
+              }
               fillPane={isSinglePaneLibrary}
               filter={filter}
               onAdd={() => setIsAddOpen(true)}

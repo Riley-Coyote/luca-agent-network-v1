@@ -1,0 +1,323 @@
+/* ── the shell's rail ────────────────────────────────────────────────
+ * docs/luca/rail-system/SPEC.md, "The rail, ironed out"; every measure is the
+ * shell study's (desktop/src/testing/shellStudy/shellStudy.css, "the
+ * conversations rail"). Luca first; then every place you talk, each with its
+ * sessions nested under its name, on a thread.
+ *
+ * The selection is not drawn here: a home's row carries `data-active` and
+ * today's pill (RailGlass) follows it until the shell's marks take over. The
+ * open session under it is marked by light alone: its words and its stretch
+ * of the thread brighten. Text is rem, so ⌘+ and ⌘− scale it. */
+
+:root[data-luca-shell] [data-shell-rail] {
+  --rail-ink: hsl(var(--mn-ink));
+  --rail-muted: hsl(var(--mn-ink-muted));
+  --rail-faint: hsl(var(--mn-ink-faint));
+  --rail-plate: hsl(var(--mn-ink) / 0.06);
+  --rail-thread: hsl(var(--mn-ink) / 0.16);
+  display: flex;
+  flex-direction: column;
+  padding: 6px 3px 20px;
+}
+
+/* ── section labels: PROJECTS, AGENTS, FLEETS (Fragment Mono caps, 11) ── */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-section {
+  margin-top: 14px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-section-head {
+  align-items: center;
+  color: var(--rail-faint);
+  display: flex;
+  height: 26px;
+  justify-content: space-between;
+  padding: 0 6px 0 10px;
+}
+
+/* The section's + and a home's + are the same small round control. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-add {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--rail-faint);
+  display: flex;
+  flex: none;
+  height: 22px;
+  justify-content: center;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 22px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-add svg {
+  height: 14px;
+  stroke-width: 1.75;
+  width: 14px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-add:hover {
+  background: var(--rail-plate);
+  color: var(--rail-ink);
+}
+
+/* ── a home: Luca, a project, an agent, a fleet ─────────────────────
+ * The whole row is one button (the hit, beneath); the chevron and the +
+ * sit above it. The row is the sidebar's menu button for the selection
+ * only; its shape and colours are set here. Its corners are the study's
+ * 8, never a capsule (SHELL_SPEC.md, "Where you are"), the same as its
+ * sessions; the menu-button attribute outranks the glass rail's capsule
+ * rule (railGlass.css), which the rail sits inside. Today's pill draws its
+ * own shape, so it still fits. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row[data-sidebar="menu-button"] {
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--rail-muted);
+  display: flex;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 5px 0 10px;
+  position: relative;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:not([data-active]):hover {
+  background: var(--rail-plate);
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-row-hit {
+  border-radius: inherit;
+  inset: 0;
+  position: absolute;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-row-name {
+  color: var(--rail-muted);
+  letter-spacing: -0.006em;
+  line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: relative;
+  text-overflow: ellipsis;
+  transition: color 120ms;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:hover
+  .luca-rail-row-name,
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row[data-active]
+  .luca-rail-row-name {
+  color: var(--rail-ink);
+}
+
+/* The chevron, right after the name: › closed, turned a quarter open. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-chevron {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--rail-faint);
+  display: flex;
+  flex: none;
+  height: 20px;
+  justify-content: center;
+  margin-left: 1px;
+  position: relative;
+  width: 18px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-chevron svg {
+  height: 12px;
+  stroke-width: 2;
+  transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1);
+  width: 12px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-chevron[aria-expanded="true"]
+  svg {
+  transform: rotate(90deg);
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-chevron:hover {
+  color: var(--rail-ink);
+}
+
+/* One trailing slot: the unread dot, or "working…", or (on hover and focus)
+ * the +. Never two at once; the + wins. Keyboard focus shows it too, but a
+ * click on the chevron does not. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-row-end {
+  align-items: center;
+  display: flex;
+  height: 100%;
+  justify-content: flex-end;
+  margin-left: auto;
+  min-width: 22px;
+  pointer-events: none;
+  position: relative;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-row-end > * {
+  pointer-events: auto;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-signal {
+  align-items: center;
+  display: flex;
+  padding-right: 6px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row-end
+  > .luca-rail-row-add {
+  /* Always in the Tab order, so the keyboard can reach it; unseen and
+   * untouchable until the row is hovered or focused. */
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 4px;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:is(:hover, :has(:focus-visible))
+  .luca-rail-row-end
+  > .luca-rail-row-add {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row:is(:hover, :has(:focus-visible))
+  .luca-rail-signal {
+  visibility: hidden;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-dot {
+  border-radius: 999px;
+  display: block;
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-working {
+  color: var(--rail-faint);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-working::after {
+  content: "…";
+}
+
+/* ── a home's sessions, on a thread ──────────────────────────────────
+ * The way Claude Code nests a session's tasks: quieter than their home, no
+ * timestamps, and the open one lit. */
+:root[data-luca-shell] [data-shell-rail] .luca-rail-sessions {
+  border: 0;
+  margin: 1px 0 6px 11px;
+  min-width: 0;
+  padding: 0 0 0 13px;
+  position: relative;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-sessions::before {
+  background: var(--rail-thread);
+  bottom: 6px;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 6px;
+  width: 1px;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session {
+  align-items: center;
+  border-radius: 8px;
+  color: var(--rail-faint);
+  display: flex;
+  font-size: 0.8125rem; /* 13, the frame's second size (SHELL_SPEC.md, Type) */
+  gap: 8px;
+  height: 28px;
+  justify-content: space-between;
+  padding-right: 10px;
+  position: relative;
+  text-align: left;
+  transition: color 120ms;
+  width: 100%;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session:hover {
+  color: var(--rail-muted);
+}
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-session[data-current] {
+  color: var(--rail-ink);
+}
+
+/* The open session's stretch of the thread, lit to its words' tone. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-session[data-current]::before {
+  background: var(--rail-ink);
+  bottom: 6px;
+  content: "";
+  left: -13px;
+  position: absolute;
+  top: 6px;
+  width: 1px;
+}
+
+@media (prefers-contrast: more) {
+  :root[data-luca-shell]
+    [data-shell-rail]
+    .luca-rail-session[data-current]::before {
+    left: -13.5px;
+    width: 2px;
+  }
+}
+
+/* Focus: the row's own edge brightening in place, as in the glass rail. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  :is(
+    .luca-rail-row-hit,
+    .luca-rail-session,
+    .luca-rail-add,
+    .luca-rail-chevron
+  ):focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--rail-ink) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* Reduce Motion: expansion is instant, and nothing in the rail eases. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell]
+    [data-shell-rail]
+    :is(
+      .luca-rail-chevron svg,
+      .luca-rail-row-name,
+      .luca-rail-session,
+      .luca-rail-add
+    ) {
+    transition: none;
+  }
+}

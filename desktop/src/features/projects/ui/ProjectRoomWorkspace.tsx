@@ -61,7 +61,9 @@ function contextStatus(viewModel: ProjectNavigatorViewModel) {
   return "No connected context";
 }
 
-function ProjectDetailsDialog({
+/** A project's name, its counts and its grouping: opened from the room
+ *  column's footer, and from a project's row in the shell's rail. */
+export function ProjectDetailsDialog({
   onOpenChange,
   open,
   viewModel,

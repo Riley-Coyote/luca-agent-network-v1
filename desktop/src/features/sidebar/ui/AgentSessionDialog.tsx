@@ -12,20 +12,26 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 
-/** Separate sessions use the existing private room and resident attachment path. */
+/** Separate sessions use the existing private room and resident attachment path.
+ *  With companions it is a fleet's session: every member joins the one room. */
 export function AgentSessionDialog({
   agent,
+  companions = [],
   onClose,
   onCreated,
 }: {
   agent: ManagedAgent;
+  companions?: readonly ManagedAgent[];
   onClose: () => void;
   onCreated: (channelId: string) => void;
 }) {
+  const together = [agent.name, ...companions.map((each) => each.name)].join(
+    " + ",
+  );
   const inputId = React.useId();
   const create = useCreateChannelMutation();
   const attach = useAttachManagedAgentToChannelMutation(null);
-  const [name, setName] = React.useState(`Session with ${agent.name}`);
+  const [name, setName] = React.useState(`Session with ${together}`);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
   const createdId = React.useRef<string | null>(null);
@@ -56,12 +62,14 @@ export function AgentSessionDialog({
         ).id;
       createdId.current = id;
       if (!alive.current) return;
-      await attach.mutateAsync({
-        channelId: id,
-        agent,
-        role: "bot",
-        ensureRunning: true,
-      });
+      for (const member of [agent, ...companions]) {
+        await attach.mutateAsync({
+          channelId: id,
+          agent: member,
+          role: "bot",
+          ensureRunning: true,
+        });
+      }
       if (alive.current) {
         onCreated(id);
         onClose();
@@ -87,7 +95,7 @@ export function AgentSessionDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New session with {agent.name}</DialogTitle>
+          <DialogTitle>New session with {together}</DialogTitle>
           <DialogDescription>
             A separate private conversation. Existing sessions stay where they
             are.
@@ -111,7 +119,7 @@ export function AgentSessionDialog({
               {createdId.current && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   The private conversation was saved. Retry to finish adding{" "}
-                  {agent.name}, or find it under Projects.
+                  {together}, or find it under Projects.
                 </p>
               )}
             </div>

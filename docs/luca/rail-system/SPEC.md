@@ -103,7 +103,9 @@ and groups appear twice. That goes.
 - Up and down move between visible rows; Right opens a parent (or moves into its first session); Left closes it (or
   moves back to the parent). This exists for agents today (`AgentRail.tsx`); every parent gets it.
 - The `+` is reachable by Tab on the row and has a label ("New session with Wren", "New room in Tidepool").
-- Rows keep the 999 px capsule hit shape and the focus ring the glass rail uses.
+- Rows keep the focus ring the glass rail uses; their hit shape has 8 px corners, never a capsule, as the shell's
+  study and `SHELL_SPEC.md` ("Where you are": "a capsule at this size reads cheap") have it. Homes and their sessions
+  share that one corner. (Amended 2026-10-24 in WP-02's fix pass; this line said "the 999 px capsule hit shape".)
 - Reduce Motion: expansion is instant.
 
 ## Decisions (Riley)
