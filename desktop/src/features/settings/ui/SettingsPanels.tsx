@@ -72,6 +72,7 @@ import {
   SYNTAX_THEMES,
   type SyntaxThemeName,
   getThemePair,
+  isGlassTheme,
 } from "@/shared/theme/theme-loader";
 import {
   BUZZ_GRADIENT_STOPS,
@@ -426,7 +427,18 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   const shouldReduceMotion = useReducedMotion();
 
   const previewVarsByTheme = useThemePreviewVars();
-  const { pairedLight, lightOnly, darkOnly } = useThemeCategories();
+  const categories = useThemeCategories();
+  // Under the frame the glass themes retire (SHELL_SPEC.md, Decided 7): the
+  // Glass frame is the see-through window now, so their tiles leave.
+  const { pairedLight, lightOnly, darkOnly } = useMemo(() => {
+    if (!shellFrame) return categories;
+    const kept = (name: SyntaxThemeName) => !isGlassTheme(name);
+    return {
+      pairedLight: categories.pairedLight.filter(kept),
+      lightOnly: categories.lightOnly.filter(kept),
+      darkOnly: categories.darkOnly.filter(kept),
+    };
+  }, [categories, shellFrame]);
 
   // Determine the active mode from current state
   const activeMode: AppearanceMode = followSystem
