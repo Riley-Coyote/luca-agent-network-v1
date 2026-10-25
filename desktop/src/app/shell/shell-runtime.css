@@ -1,0 +1,100 @@
+/* ------------------------------------------------------------------
+ * THE RUNTIME SESSIONS CARD (docs/luca/rail-system/SHELL_SPEC.md, "The
+ * rail", Decided 12; SHELL_BUILD.md, WP-08c). Every rule keys on
+ * `<html data-luca-frame="solid">`, which the shell sets only while the
+ * `shell-frame` flag is on, and on the panel's own `data-luca-runtime-card`,
+ * which it carries only then.
+ *
+ * While open, the runtime sessions column is a card of its own between the
+ * rail's and the conversation's: 22 rem wide, the cards' material, edge and
+ * corners (10), top flush with the lip, 6 above the window's bottom, 4 from
+ * the rail's card (the rail's own footprint carries that 4) and 4 from the
+ * conversation's, which moves over to make room. With the rail closed it
+ * sits 4 from the places column. It opens from nothing and closes to
+ * nothing on the rail's slide (460 ms, the rail's curve), its body held at
+ * its width and clipped, as the rail's rows are; instantly under Reduce
+ * Motion. Narrow (under 768) it stays a sheet, as today.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-frame="solid"]
+  [data-luca-frame-row]
+  > [data-luca-runtime-card] {
+  align-self: stretch;
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-size: 256px 256px;
+  border: 0;
+  border-radius: var(--radius);
+  box-shadow: var(--mn-card-edge);
+  height: auto;
+  margin: 0 var(--mn-card-gap) var(--luca-frame-edge) 0;
+  overflow: hidden;
+  transition:
+    width var(--luca-frame-slide),
+    margin var(--luca-frame-slide);
+  width: 22rem;
+  /* The rows inside read on the card as they did on the rail's floor. */
+  --sidebar-background: var(--mn-surface);
+}
+
+/* With the rail closed, the places' edge and the 4 beside it. */
+:root[data-luca-frame="solid"]
+  [data-luca-frame-row]
+  > [data-frame][data-collapsible="offcanvas"]
+  ~ [data-luca-runtime-card="open"] {
+  margin-left: var(--mn-card-gap);
+}
+
+/* It opens from nothing, and closes back to nothing, with its gaps. */
+@starting-style {
+  :root[data-luca-frame="solid"]
+    [data-luca-frame-row]
+    > [data-luca-runtime-card="open"] {
+    margin-left: 0;
+    margin-right: 0;
+    width: 0;
+  }
+}
+
+:root[data-luca-frame="solid"]
+  [data-luca-frame-row]
+  > [data-luca-runtime-card="closing"] {
+  margin-left: 0;
+  margin-right: 0;
+  width: 0;
+}
+
+/* The body keeps the card's open width while the card narrows. */
+.luca-runtime-card__body {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  height: 100%;
+  position: relative;
+  width: 22rem;
+}
+
+/* On glass: the cards' own light at night (shell-glass.css), and no white
+ * edge by day. */
+:root:root[data-luca-frame-glass].dark
+  [data-luca-frame-row]
+  > [data-luca-runtime-card] {
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.25),
+    0 18px 44px rgb(0 0 0 / 0.32);
+}
+
+:root:root[data-luca-frame-glass]:not(.dark)
+  [data-luca-frame-row]
+  > [data-luca-runtime-card] {
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame="solid"]
+    [data-luca-frame-row]
+    > [data-luca-runtime-card] {
+    transition: none;
+  }
+}

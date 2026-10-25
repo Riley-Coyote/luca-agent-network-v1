@@ -24,6 +24,8 @@ import {
   SheetTitle,
 } from "@/shared/ui/sheet";
 import { cn } from "@/shared/lib/cn";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import "@/app/shell/shell-runtime.css";
 
 import {
   useRuntimeSessionContextMutation,
@@ -43,13 +45,47 @@ import {
 
 const SLOW_SESSION_READ_MS = 4_000;
 
+/** The rail's slide (SHELL_SPEC.md, "Motion"), which the runtime sessions
+ *  card opens and closes on under the frame (Decided 12). */
+const SHELL_CARD_SLIDE_MS = 460;
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+
+/**
+ * Under the frame the card closes on the rail's motion, so the runtime it
+ * showed is held for one slide after it goes (shell-runtime.css narrows it);
+ * otherwise, under Reduce Motion, and as a sheet, it goes at once, as today.
+ * Reopening, or another runtime, ends the hold.
+ */
+function useClosingRuntime(
+  runtime: RuntimeConnectionStatusV1 | null,
+  hold: boolean,
+) {
+  const [previous, setPrevious] = React.useState(runtime);
+  const [held, setHeld] = React.useState<RuntimeConnectionStatusV1 | null>(
+    null,
+  );
+  if (runtime !== previous) {
+    setPrevious(runtime);
+    setHeld(!runtime && hold && !prefersReducedMotion() ? previous : null);
+  }
+  React.useEffect(() => {
+    if (!held) return;
+    const timer = window.setTimeout(() => setHeld(null), SHELL_CARD_SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [held]);
+  return { closing: !runtime && held !== null, shown: runtime ?? held };
+}
+
 export function RuntimeSessionsPanel({
   contextScopeKey,
   isMobile,
   onClose,
   onOpenBrain,
   onStartContext,
-  runtime,
+  runtime: runtimeProp,
 }: {
   contextScopeKey: string | null;
   isMobile: boolean;
@@ -61,6 +97,9 @@ export function RuntimeSessionsPanel({
   ) => boolean;
   runtime: RuntimeConnectionStatusV1 | null;
 }) {
+  const frame = useShellFrameEnabled();
+  const { closing, shown } = useClosingRuntime(runtimeProp, frame && !isMobile);
+  const runtime = shown;
   if (!runtime) return null;
 
   const content = (
@@ -103,10 +142,23 @@ export function RuntimeSessionsPanel({
     <aside
       aria-label={`${runtime.label} local sessions`}
       className="relative z-10 hidden h-full w-[22rem] shrink-0 flex-col border-r border-border/45 bg-sidebar text-sidebar-foreground md:flex"
+      data-luca-runtime-card={
+        frame ? (closing ? "closing" : "open") : undefined
+      }
       data-testid="runtime-sessions-panel"
       id="runtime-sessions-panel"
+      inert={closing ? true : undefined}
     >
-      {content}
+      {/* Under the frame the card narrows as it opens and closes; its body
+          keeps its width so the rows hold still and are clipped, as the
+          rail's are (shell-runtime.css). */}
+      {frame ? (
+        <div className="luca-runtime-card__body" data-luca-runtime-card-body="">
+          {content}
+        </div>
+      ) : (
+        content
+      )}
     </aside>
   );
 }
