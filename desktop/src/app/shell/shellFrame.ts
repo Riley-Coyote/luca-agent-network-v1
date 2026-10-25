@@ -8,6 +8,11 @@ import { isMacPlatform } from "@/shared/lib/platform";
  *  the stored, dragged width does not apply. */
 export const SHELL_FRAME_RAIL_WIDTH = 220;
 
+/** The frame's motion: the rail opens and closes over 460 ms, and what rides
+ *  with it (the conversation's card, the huddle's band) keeps the same time
+ *  (SHELL_SPEC.md, "Motion"; `--luca-frame-slide` in shell-frame.css). */
+export const SHELL_FRAME_SLIDE_MS = 460;
+
 export const shellFrameSidebarStyle = {
   "--sidebar-width": `${SHELL_FRAME_RAIL_WIDTH}px`,
   "--sidebar-rail-width": `${SHELL_FRAME_RAIL_WIDTH}px`,

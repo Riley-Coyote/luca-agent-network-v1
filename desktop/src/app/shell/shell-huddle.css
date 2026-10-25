@@ -1,0 +1,411 @@
+/* ------------------------------------------------------------------
+ * THE HUDDLE BAR IN THE FRAME (docs/luca/rail-system/SHELL_SPEC.md, "The
+ * huddle bar", Decided 8; SHELL_BUILD.md, WP-08e). Every rule keys on
+ * `<html data-luca-frame>`, which the shell sets only while the
+ * `shell-frame` flag is on; without it the drawer of components.css is
+ * untouched.
+ *
+ * Today the whole app surface shortens from the bottom to reveal a black
+ * drawer beneath it. In the frame the surface stays whole and the bar rises
+ * into the frame's band beneath the cards: the cards end above it, and it
+ * sits on the floor (on the glass in the Glass frame) from the places'
+ * edge (44) to the window's right edge less 6, with 6 below it. The places'
+ * foot stays where it is; the band runs beside it.
+ *
+ *   ┌────┬──────────┬─┬───────────────────────────┐
+ *   │    │ rail's   │ │ the conversation's card   │
+ *   │ ⚙  └──────────┘ └───────────────────────────┘  ← the cards end 44 above
+ *   │ S    ◉ ⌄  ◖ ⌄  ▤   ◍ ☺ ⧉ ⊕   ⏻ Leave           the window's bottom
+ *   └──────────────────────────────────────────────┘  ← the bar: 32, 6 below
+ *
+ * Fixed points, as the lip's: the band sits in the frame, beside the
+ * places, which ignore the app's text zoom.
+ * ------------------------------------------------------------------ */
+
+/* The band's rise, as one length every card reads: 0 at rest, the bar and
+ * the 6 above it while a huddle is live. Registered, so it travels on the
+ * rail's own curve and every card's bottom with it, frame by frame, without
+ * touching the cards' own transitions. */
+@property --luca-huddle-band {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+:root[data-luca-frame] .buzz-huddle-shell {
+  /* The bar (32) and the 6 between it and the cards. */
+  --luca-huddle-bar: 32px;
+  --luca-huddle-band-open: calc(var(--luca-huddle-bar) + 6px);
+  --luca-huddle-band: 0px;
+  /* A card's bottom inset in the frame: the edge, and the band while live. */
+  --luca-frame-card-bottom: calc(
+    var(--luca-frame-edge, 6px) +
+    var(--luca-huddle-band)
+  );
+  transition: --luca-huddle-band var(--luca-frame-slide);
+  /* The band waits beneath the window's bottom edge; clipped, never
+   * scrollable, so focus moving into the page can't scroll the frame up
+   * to it (overflow: hidden still scrolls by script and focus). */
+  overflow: clip;
+}
+
+:root[data-luca-frame] .buzz-huddle-shell[data-huddle-open="true"] {
+  --luca-huddle-band: var(--luca-huddle-band-open);
+}
+
+/* ── the cards end above the band ─────────────────────────────────── */
+/* The rail's card and Settings' section list (fixed boxes). */
+:root[data-luca-frame]
+  .buzz-huddle-shell
+  [data-frame]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list]) {
+  bottom: var(--luca-frame-card-bottom);
+}
+
+/* The conversation's card and the right cards (the inset carries their
+ * bottom edge), and Settings' panels (their host carries it). */
+:root[data-luca-frame]
+  .buzz-huddle-shell
+  :is(main[data-buzz-glass-inset], [data-luca-settings-card-host]) {
+  padding-bottom: var(--luca-frame-card-bottom);
+}
+
+/* The runtime sessions card reads --luca-frame-card-bottom itself
+ * (shell-runtime.css), so it ends where the other cards do. */
+
+/* ── the band ──────────────────────────────────────────────────────── */
+/* Its holder: from the places' edge to the window's right less 6, 6 above
+ * the window's bottom. It rises with the cards' edge, out from under the
+ * window's bottom edge, so it is always 6 below them; at rest it is hidden
+ * beneath the window. Above the app surface (z-index 10), which paints the
+ * floor beneath it. */
+.luca-huddle-band {
+  bottom: 6px;
+  height: var(--luca-huddle-bar, 32px);
+  left: var(--luca-frame-places, 44px);
+  position: absolute;
+  right: 6px;
+  transform: translateY(
+    calc(var(--luca-huddle-band-open, 38px) - var(--luca-huddle-band))
+  );
+  z-index: 20;
+}
+
+/* The bar wears no card: no surface, the frame's words. The warning tone
+ * is the page's own (the drawer's red was tuned for its black). */
+.luca-huddle-band .buzz-huddle-drawer {
+  --background: var(--mn-floor);
+  --foreground: var(--mn-ink);
+  --muted-foreground: var(--mn-ink-muted);
+  --primary: var(--mn-ink);
+  --primary-foreground: var(--mn-floor);
+  --destructive: inherit;
+  --destructive-foreground: inherit;
+  background: transparent;
+  color: var(--luca-frame-ink, hsl(var(--mn-ink)));
+  color-scheme: normal;
+  gap: 10px;
+  height: 100%;
+  padding: 0 10px;
+}
+
+/* The lip's spacing: 2 between the buttons of a group, 10 between groups. */
+.luca-huddle-band .buzz-huddle-drawer > .justify-self-center {
+  gap: 10px;
+}
+
+.luca-huddle-band .buzz-huddle-drawer > .justify-self-center > div {
+  gap: 2px;
+}
+
+/* Its controls stand on the conversation card's axis, as the lip's name
+ * does (the axis the composer above them is centred on): the bar's own
+ * start moves to the card's left (268 with the rail open, the places' edge
+ * with it closed), on the rail's motion. The band itself stays put. */
+.luca-huddle-band .buzz-huddle-drawer {
+  padding-left: calc(var(--luca-huddle-beside, 224px) + 10px);
+  transition: padding-left var(--luca-frame-slide);
+}
+
+:root[data-luca-frame]
+  .buzz-huddle-shell:has([data-frame][data-collapsible="offcanvas"])
+  .luca-huddle-band {
+  --luca-huddle-beside: 0px;
+}
+
+/* Every control is the lip's button (`.luca-lip-button`, shell-header.css):
+ * 24, corners 7, icons 15 at stroke 1.7, the frame's second tone; the
+ * plate on hover. In the 32 band that leaves 4 above and 4 below. */
+.luca-huddle-band .buzz-huddle-drawer button {
+  background: transparent;
+  border-radius: 7px;
+  box-shadow: none;
+  color: var(--luca-frame-muted, hsl(var(--mn-ink-muted)));
+  height: 24px;
+  min-width: 24px;
+  padding: 0;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 24px;
+}
+
+.luca-huddle-band .buzz-huddle-drawer button svg {
+  height: 15px;
+  stroke-width: 1.7;
+  width: 15px;
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  button:not(.rounded-r-none, .buzz-huddle-split-chevron):is(
+    :hover:not(:disabled),
+    [aria-pressed="true"],
+    [data-state="open"]
+  ) {
+  background: var(--luca-frame-plate, hsl(var(--mn-ink) / 0.06));
+  color: var(--luca-frame-ink, hsl(var(--mn-ink)));
+}
+
+.luca-huddle-band .buzz-huddle-drawer button:disabled {
+  color: var(--luca-frame-faint, hsl(var(--mn-ink-faint)));
+  opacity: 0.5;
+}
+
+/* The split controls (the microphone and the speaker, each with its
+ * settings): one 24 tile and a narrow 16 one beside it, drawn as one
+ * button. The plate, the warning plate and the focus ring belong to the
+ * pair, so they always close on the pair's round corners; the half under
+ * the pointer, open or focused is a step stronger in its word. */
+.luca-huddle-band .buzz-huddle-drawer div:has(> .buzz-huddle-split-chevron) {
+  border-radius: 7px;
+  transition: background-color 120ms;
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  :is(.rounded-r-none, .buzz-huddle-split-chevron) {
+  background: transparent;
+  border-radius: 7px;
+}
+
+.luca-huddle-band .buzz-huddle-drawer .buzz-huddle-split-chevron {
+  min-width: 16px;
+  width: 16px;
+}
+
+.luca-huddle-band .buzz-huddle-drawer .buzz-huddle-split-chevron svg {
+  height: 12px;
+  width: 12px;
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  div:has(> .buzz-huddle-split-chevron):has(
+    > button:is(:hover:not(:disabled), [data-state="open"], :focus-visible)
+  ) {
+  background: var(--luca-frame-plate, hsl(var(--mn-ink) / 0.06));
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  div:not(:has(> button.bg-destructive))
+  > :is(.rounded-r-none, .buzz-huddle-split-chevron):is(
+    :hover:not(:disabled),
+    [data-state="open"],
+    :focus-visible
+  ) {
+  color: var(--luca-frame-ink, hsl(var(--mn-ink)));
+}
+
+/* The microphone's level, scaled to the narrow tile. */
+.luca-huddle-band .buzz-huddle-split-chevron > span[aria-hidden="true"],
+.luca-huddle-band .buzz-huddle-split-chevron > span[aria-hidden="true"] > span {
+  height: 12px;
+  width: 10px;
+}
+
+.luca-huddle-band .buzz-huddle-mic-meter-bar {
+  max-height: 12px;
+  width: 2px;
+}
+
+/* Muted (the microphone, agent speech): the page's warning tone on the
+ * pair's own plate, so the state still reads at a glance on the floor. */
+.luca-huddle-band .buzz-huddle-drawer
+  div:has(> .buzz-huddle-split-chevron):has(> button.bg-destructive) {
+  background: hsl(var(--destructive) / 0.1);
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  div:has(> .buzz-huddle-split-chevron):has(> button.bg-destructive):has(
+    > button:is(:hover:not(:disabled), [data-state="open"], :focus-visible)
+  ) {
+  background: hsl(var(--destructive) / 0.14);
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  div:has(> button.bg-destructive)
+  > :is(.rounded-r-none, .buzz-huddle-split-chevron) {
+  color: hsl(var(--destructive));
+}
+
+/* Leave: a word, drawn as the lip's Join (shell-header.css) in the
+ * warning tone on its plate: 24 high, corners 7, the icon in rem beside
+ * the word; the word as the lip's name, 13 at 550. */
+.luca-huddle-band .buzz-huddle-drawer button[data-huddle-leave] {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+  font-size: 0.8125rem;
+  font-weight: 550;
+  gap: 5px;
+  height: auto;
+  line-height: 1;
+  min-height: 24px;
+  padding: 0 9px 0 7px;
+  width: auto;
+}
+
+.luca-huddle-band .buzz-huddle-drawer button[data-huddle-leave] svg {
+  height: 0.875rem;
+  width: 0.875rem;
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  button[data-huddle-leave]:hover:not(:disabled) {
+  background: hsl(var(--destructive) / 0.14);
+  color: hsl(var(--destructive));
+}
+
+/* The participants' count, as the places' badge. */
+.luca-huddle-band .buzz-huddle-drawer button > span.rounded-full {
+  background: var(--luca-frame-ink, hsl(var(--mn-ink)));
+  box-shadow: none;
+  color: hsl(var(--mn-floor));
+  height: 13px;
+  line-height: 13px;
+  min-width: 13px;
+  padding: 0 3px;
+  right: -3px;
+  top: -3px;
+}
+
+/* The push-to-talk ring sits on the floor, not on the old drawer's black,
+ * round on the pair's corners. */
+.luca-huddle-band .buzz-huddle-drawer .ring-offset-background {
+  border-radius: 7px;
+  --tw-ring-offset-color: transparent;
+}
+
+/* Focus: the lip's ring, 1 inside, ink at 55%; a split control's on the
+ * whole pair. */
+.luca-huddle-band .buzz-huddle-drawer
+  button:not(.rounded-r-none, .buzz-huddle-split-chevron):focus-visible,
+.luca-huddle-band
+  .buzz-huddle-drawer
+  div:has(> .buzz-huddle-split-chevron):has(> button:focus-visible) {
+  box-shadow: none;
+  outline: 1px solid
+    color-mix(
+      in srgb,
+      var(--luca-frame-ink, hsl(var(--mn-ink))) 55%,
+      transparent
+    );
+  outline-offset: -1px;
+}
+
+.luca-huddle-band
+  .buzz-huddle-drawer
+  :is(.rounded-r-none, .buzz-huddle-split-chevron):focus-visible {
+  box-shadow: none;
+  outline: none;
+}
+
+/* ── what opens from the bar ──────────────────────────────────────── */
+/* Its tooltips, popovers and the first huddle's hint open in the page's
+ * own layer (portalled, out of the band's reach), and wore the black
+ * drawer's materials. In the frame there is no drawer: the tooltips are
+ * the frame's own (the app's tooltip: the primary fill, 28 tall, no edge,
+ * no shadow), and the popovers and the hint are the app's popover, in the
+ * page's palette. */
+:root[data-luca-frame] .buzz-huddle-tooltip {
+  --primary: inherit;
+  --primary-foreground: inherit;
+  border: 0;
+  box-shadow: none;
+}
+
+:root[data-luca-frame] .buzz-huddle-popover {
+  --background: inherit;
+  --foreground: inherit;
+  --primary: inherit;
+  --primary-foreground: inherit;
+  --secondary: inherit;
+  --secondary-foreground: inherit;
+  --muted: inherit;
+  --muted-foreground: inherit;
+  --accent: inherit;
+  --accent-foreground: inherit;
+  --popover: inherit;
+  --popover-foreground: inherit;
+  --destructive: inherit;
+  --destructive-foreground: inherit;
+  --border: inherit;
+  --input: inherit;
+  --ring: inherit;
+  /* The app's popover surface (popoverSurface.ts). */
+  background: color-mix(
+    in srgb,
+    hsl(var(--background)) 80%,
+    hsl(var(--muted)) 20%
+  );
+  border-color: hsl(var(--border) / 0.6);
+  color: hsl(var(--popover-foreground));
+  color-scheme: normal;
+}
+
+/* The quick chat's launcher keeps 14 inside the conversation card's corner:
+ * while a huddle is live it rises with the band (20 + 38), on the same
+ * motion. The open panel keeps its 20 (SHELL_SPEC.md, "Search, dialogs,
+ * toasts, the quick chat panel"). */
+/* Beside the shell's own colour transitions for buttons
+ * (`:root[data-luca-shell] :is(button, …)`), which it would otherwise lose. */
+:root[data-luca-frame] [data-quickchat] button.qc-launcher {
+  transition:
+    bottom var(--luca-frame-slide),
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+:root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"])
+  [data-quickchat]
+  button.qc-launcher {
+  bottom: 58px;
+}
+
+@media (max-width: 480px) {
+  :root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"])
+    [data-quickchat]
+    button.qc-launcher {
+    bottom: 50px;
+  }
+}
+
+/* Reduce Motion: the band and the cards are instant. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame] .buzz-huddle-shell,
+  .luca-huddle-band .buzz-huddle-drawer {
+    transition: none;
+  }
+
+  :root[data-luca-frame] [data-quickchat] button.qc-launcher {
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+}
