@@ -98,6 +98,8 @@ LOST. LOST is a failure unless the spec retires it.
 | WP-02b the rail, finished | 2026-10-25, merge `54a98f0a1` | Groups named by their members; column mode without nested rooms; aria-expanded; first row at 6; slot order; Runtimes on the Agents page aligned and lit on hover; Conversations returns to the conversation you left; Search's first Escape. |
 | WP-04 the header into the lip | 2026-10-25, merge `c43649156` | The card's header is gone: layout, open as window and details in the lip's right end; Join, presence and the ephemeral badge there; panes name the focused one in the lip and the others quietly; the description as the name's tooltip. |
 | WP-07a glass plumbing | 2026-10-25, merge `9f19579f0` | The Frame setting and row; the reporter for Liquid Glass; the frosted fallback; the veil; glass word tones on the lip and places; daytime shadows under the cards on glass; `set_traffic_lights_inset`. The glass marks only `data-luca-frame-glass`. Rust not compiled yet (disk under 20 GB): WP-07b. |
+| WP-01b the frame, finished | 2026-10-25, merge `e4996cc0d` | The avatar as the study's, its menu beside it, the DEV chip in it; the rail's foot and every card's edge grained; New conversation fills its card; Conversations opens a closed rail. At the merge it shares the lip's edge measure with WP-04 and the Conversations place with WP-02b. |
+| WP-03 the solid marks | 2026-10-25, merge `26c6d14b3` | The study's marks engine ported (14 unit tests): a plate on the current place and on the open home, sliding and stretching on the house springs, closing to a point with the rail; the old pill and the native pour retired under the flag. At the merge the rail's top breath keeps WP-02b's form. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -915,3 +917,181 @@ selectable and drawn as today (by hash against the base).
 
 **Checks JSON keys:** `tiles_hidden`, `obsidian_moves`, `crystalline_moves`, `moves_once`, `flag_off_restores`,
 `glass_floor_stands_down`, `flag_off_identical`, `gates`.
+
+## WP-08a · The avatar: communities, its dot, its states (2026-10-25, Riley and Claude's design; Riley: "Take your recommended pick for all 12 decisions", Decided 1 and 4)
+
+**Why.** The avatar at the foot of the places column is the person's own place: their presence, their status, their
+communities, feedback. Read `SHELL_SPEC.md`: "The community strip", "The places column", "The footer's status cards",
+Decided 1 and 4. WP-01b left the avatar's small remaining items here.
+
+**Base.** The integration branch with WP-01b and WP-03 landed. WP-08b (the status cards and dots) is built at the same
+time: it owns the dot's *source*; you own the avatar's drawing of it. Your styles go in
+`desktop/src/app/shell/shell-avatar.css` (new), imported after the other shell stylesheets.
+
+**Files in scope:**
+- `desktop/src/features/sidebar/ui/CommunityRail.tsx` and where it is mounted (`AppShell.tsx`, only that mount);
+- `desktop/src/features/sidebar/ui/SidebarProfileCard.tsx`, `desktop/src/features/profile/ui/ProfilePopover.tsx`;
+- `desktop/src/app/shell/ShellPlaces.tsx` (only the avatar);
+- `shell-avatar.css` and its import line;
+- tests.
+
+**Decisions** (only under the `shell-frame` flag; with it off, the strip and the profile card are today's):
+1. **The community strip goes.** With more than one community, the avatar's menu lists them (the menu's existing
+   switcher slot), with the current one marked, and switching works as the strip's did (the key-based remount, the
+   reset singletons). The places column keeps the window's left edge in every case.
+2. **The avatar carries no presence dot** under the frame: presence is in its menu. Its one dot is the connection
+   problem (decision 3).
+3. **A connection problem shows as a dot on the avatar** while the rail is closed (the same state the rail's
+   connection card shows when open), drawn in the app's warning tone, 6 points, cut into the disc's lower right. Read
+   the state from where WP-08b puts it; until it lands, read the connection card's own state.
+4. **The avatar responds like a place:** a hover and an open state (the disc at ink 20%, on the places' 120 ms colour
+   transition), and the places' tooltip with the person's name.
+5. **The DEV chip's letters sit on its centre** (in the menu only): cancel the trailing letter spacing, paddings 2 top
+   and 3 bottom.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated; the mock seeded with two
+communities for decision 1):
+- `communities-in-menu` and a switch that lands in the other community;
+- `no-strip` (the places at x 0 with two communities);
+- `avatar-rest`, `avatar-hover`, `avatar-open`, `avatar-tooltip`;
+- `connection-dot` (rail closed, relay down);
+- `dev-chip` (measured centring);
+- the flag-off shots (one community and two) compared by hash to the base.
+
+**Checks JSON keys:** `communities_in_menu`, `switch_works`, `strip_gone`, `no_presence_dot`, `connection_dot`,
+`avatar_states`, `avatar_tooltip`, `dev_chip_centred`, `flag_off_identical`, `gates`.
+
+## WP-08b · The status cards and their dots; the reconnecting card retires (2026-10-25, Riley and Claude's design; Decided 4)
+
+**Why.** The rail's footer cards (connection, relay, background task, update available) stay at the foot of the rail's
+card. While the rail is closed, a connection problem is a dot on the avatar (WP-08a draws it) and an available update
+a dot on Settings. The reconnecting card (`RelayConnectionOverlay`), which shows only while the rail is closed, would
+sit over the places, so it retires. Read `SHELL_SPEC.md`: "The footer's status cards", "The reconnecting card",
+Decided 4.
+
+**Base.** The integration branch with WP-01b and WP-03 landed. WP-08a is built at the same time.
+
+**Files in scope:**
+- the rail's footer status cards (in `AppSidebar.tsx` and their own components: only their placement in the card and
+  their state's export);
+- `desktop/src/app/RelayConnectionOverlay.tsx` and its mount;
+- `desktop/src/app/shell/ShellPlaces.tsx` (only the Settings tile's dot);
+- a small shared state for "connection problem" and "update available" in `desktop/src/app/shell/` (new), which
+  WP-08a's avatar dot reads;
+- tests.
+
+**Decisions** (only under the `shell-frame` flag):
+1. **The four status cards** sit at the foot of the rail's card, inside it, in the card's material, as today's order.
+   With the rail closed they're hidden with the card.
+2. **An available update is a dot on Settings** while the rail is closed (the app's accent, 6 points, at the tile's
+   top right, 4 in), and the tile's name becomes "Settings, update available". It goes when the rail opens (the card
+   says it there).
+3. **The reconnecting card never shows under the frame;** the avatar's dot (WP-08a) and the rail's connection card say
+   it.
+4. **One source for both dots:** export the connection problem and the update state once, so the avatar, Settings
+   and the cards never disagree.
+
+**Verification** (Playwright headless, flag on unless stated): `cards-in-rail` (each card, open rail); `update-dot`
+(rail closed, an update staged); `reconnecting` (relay down, rail closed: no overlay, the state exported); the flag-off
+shots, the overlay still shown with the flag off, compared by hash to the base.
+
+**Checks JSON keys:** `cards_in_rail`, `update_dot`, `overlay_retired`, `one_source`, `flag_off_identical`, `gates`.
+
+## WP-08c · The runtime sessions card (2026-10-25, Riley and Claude's design; Decided 12)
+
+**Why.** The runtime sessions column (`RuntimeSessionsPanel`, 22 rem, opened beside the rail from New conversation)
+becomes a card of its own between the rail's and the conversation's while it is open. Read `SHELL_SPEC.md`, "The rail"
+(its runtime sessions bullet) and Decided 12.
+
+**Base.** The integration branch with WP-01b and WP-03 landed. Your styles go in
+`desktop/src/app/shell/shell-runtime.css` (new).
+
+**Files in scope:** `desktop/src/features/runtime-sessions/` (only the panel's placement), the frame's layout in
+`AppShell.tsx` (only the column's slot), `ShellLip.tsx`'s `besideRail` (it already reads the column), the new
+stylesheet, tests.
+
+**Decisions** (only under the `shell-frame` flag):
+1. **While open it is a card:** 22 rem wide, the cards' material, edge and corners (10), top flush with the lip, 6
+   above the bottom, 4 from the rail's card and 4 from the conversation's, which moves over to make room.
+2. **It opens and closes on the rail's motion** (460 ms, the rail's curve), instantly under Reduce Motion; the lip's
+   back, forward and name follow the conversation card.
+3. **With the rail closed** it sits 4 from the places column.
+4. **Narrow (under 768):** a sheet, as today.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on): `column-open` (all four gaps measured),
+`rail-closed`, a motion trace, `narrow`, the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `card_geometry`, `gaps`, `motion`, `rail_closed`, `narrow`, `lip_follows`, `flag_off_identical`,
+`gates`.
+
+## WP-08e · The huddle bar in the frame (2026-10-25, Riley and Claude's design; Decided 8)
+
+**Why.** Today the whole app surface shortens from the bottom to reveal a full-width huddle bar beneath it. In the
+shell the bar rises into the frame beneath the cards: the cards shorten, and the bar sits in the frame's band below
+them, on the floor in Black (on the glass in Glass). Read `SHELL_SPEC.md`, "The huddle bar", Decided 8.
+
+**Base.** The integration branch with WP-01b and WP-03 landed. Your styles go in `desktop/src/app/shell/shell-huddle.css`
+(new).
+
+**Files in scope:** `desktop/src/features/huddle/components/HuddleBar.tsx` and its mount, the frame's layout where the
+cards' bottom inset is set (only the huddle's band), the new stylesheet, tests.
+
+**Decisions** (only under the `shell-frame` flag):
+1. **While a huddle is live,** every card (rail's, conversation's, right cards, runtime sessions) ends above the bar's
+   band, and the bar sits in the frame below them, left of the places column's foot to the window's right edge less 6,
+   with 6 below it. It wears no card of its own: its controls sit on the floor (the frame's words and buttons, as the
+   lip's).
+2. **It rises and falls on the rail's motion,** the cards shortening with it; instantly under Reduce Motion.
+3. **The places column's foot** (Settings, avatar) stays where it is; the band runs beside it.
+4. Everything the bar does today (join, leave, mute, participants, the timer) works the same.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on): a huddle staged in the mock: `huddle-live`
+(the band and the cards' new bottom measured), `huddle-rail-closed`, a motion trace, every control used once; the
+flag-off shots (with and without a huddle) compared by hash to the base.
+
+**Checks JSON keys:** `band_geometry`, `cards_shorten`, `controls_on_floor`, `motion`, `controls_work`,
+`flag_off_identical`, `gates`.
+
+## WP-08g · The window's corners and the frame's edges (2026-10-25, Riley and Claude's design)
+
+**Why.** The last surfaces `SHELL_SPEC.md` lists that meet the frame: the companion control's halo, the Canvas in focus,
+the content's drift between places, the loading gates and the window with no native lights. Read the spec's "Search,
+dialogs, toasts, the quick chat panel", "The right cards" (the Canvas), "The places column" (`RAIL_ORDER`), "The
+window" (boot backing, full screen, without native lights, loading gates). WP-03's reviewers left three small items in
+the marks, which are here too.
+
+**Base.** The integration branch with WP-01b and WP-03 landed. Your styles go in `desktop/src/app/shell/shell-edges.css`
+(new).
+
+**Files in scope:** `companionAppControl.css` and its component (only the halo and the badge under the frame); the
+Canvas's focus layout (only its top under the frame); `app/navigationChoreography.ts` (`RAIL_ORDER`); the loading
+gates (`AppLoadingGate`, `CommunitySwitchGate`, the boot splash) and `index.html`'s boot paint (only under the frame);
+`ShellLip.tsx` (only the no-lights and full-screen positions of the toggle); `marks.ts`, `ShellMarks.tsx`,
+`shell-marks.css` (only the three mark items); the new stylesheet; tests.
+
+**Decisions** (only under the `shell-frame` flag):
+1. **The companion's halo** takes the window's corner less 3 (13), so it stays concentric; its badge moves below the
+   lip (its top 6 below the lip's 36).
+2. **The Canvas in focus** is top flush with the lip, 6 from the right, bottom and left.
+3. **The content's drift between places** follows the places' order (`RAIL_ORDER`), so moving down the column moves
+   the page the same way.
+4. **The loading gates** paint the frame's floor (the palette's, or Paper's recess in light), and stay clear when the
+   Glass frame is on; they keep their own 44-point drag band.
+5. **Without native lights** (another platform, a browser, the end-to-end tests) the toggle sits at the lip's left
+   padding (16) and the tooltips name Ctrl instead of ⌘. In full screen (the lights gone) the toggle moves to where the
+   first light was (16), and back, forward and the name keep their places on the card.
+6. **The marks:**
+   - the first mark after the page appears swells from a point, like every later one (a group counts as having
+     appeared once its layer has shown its first page, with or without a mark);
+   - under Increase Contrast a plate mark carries a 1-point inset outline at ink 50%;
+   - in the narrow-window sheet, a row's focus background shows only for keyboard focus (`:focus-visible`), so it
+     never reads as a second mark.
+
+**Verification** (Playwright headless, flag on unless stated): one screenshot or measurement per decision (the halo's
+radius and the badge's top measured; the Canvas's box; a drift direction trace between two places; a gate's floor in
+dark, light and glass; the toggle's x with and without lights and in full screen, faked; the first mark's first frame;
+Increase Contrast; the sheet's focus); the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `halo`, `badge`, `canvas_focus`, `drift_order`, `gates_floor`, `no_lights_toggle`,
+`fullscreen_toggle`, `ctrl_tooltips`, `first_mark_swells`, `contrast_outline`, `sheet_focus`, `flag_off_identical`,
+`gates`.
