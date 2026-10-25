@@ -1,0 +1,118 @@
+/* ── the avatar (SHELL_BUILD.md, WP-08a; SHELL_SPEC.md, "The places
+ * column", "The community strip", Decided 1 and 4) ─────────────────────
+ * The person's own place, at the foot of the places column. Every rule here
+ * is the frame's alone: the profile card, with the flag off, never carries
+ * these classes. */
+
+/* It responds like a place: hovered or open, the disc deepens from the ink
+ * at 14% to 20%, on the places' 120 ms colour transition. */
+.luca-shell-avatar [data-testid="shell-profile-avatar"] {
+  transition: background-color 120ms;
+}
+
+.luca-shell-avatar:is(:hover, [data-open])
+  [data-testid="shell-profile-avatar"] {
+  background-color: hsl(var(--mn-ink) / 0.2);
+}
+
+/* Its one dot: a connection problem, in the app's warning tone, 6, cut into
+ * the disc's lower right (the cut is MaskedAvatarBadgeFrame's). */
+.luca-shell-avatar-dot {
+  background: var(--ui-warning);
+  border-radius: 999px;
+  display: block;
+  height: 6px;
+  width: 6px;
+}
+
+/* ── the communities, in its menu ────────────────────────────────────── */
+.luca-shell-community-icon {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.08);
+  border-radius: 6px;
+  color: hsl(var(--mn-ink));
+  display: flex;
+  flex: none;
+  font-size: 0.625rem;
+  font-weight: 600;
+  height: 20px;
+  justify-content: center;
+  overflow: hidden;
+  width: 20px;
+}
+
+.luca-shell-community-icon img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+/* A mention count on another community, as the places' own count. */
+.luca-shell-community-count {
+  background: hsl(var(--mn-ink));
+  border-radius: 999px;
+  color: hsl(var(--mn-floor));
+  flex: none;
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 14px;
+  min-width: 14px;
+  padding: 0 4px;
+  text-align: center;
+}
+
+/* Its actions, for the keyboard and the pointer alike: quiet until the row
+ * is hovered or holds focus. */
+.luca-shell-community-more {
+  align-items: center;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  flex: none;
+  height: 22px;
+  justify-content: center;
+  margin-right: 6px;
+  opacity: 0;
+  transition:
+    opacity 120ms,
+    background-color 120ms;
+  width: 22px;
+}
+
+.luca-shell-community-more svg {
+  height: 14px;
+  width: 14px;
+}
+
+.group\/community:is(:hover, :focus-within) .luca-shell-community-more,
+.luca-shell-community-more[data-state="open"] {
+  opacity: 1;
+}
+
+.luca-shell-community-more:hover,
+.luca-shell-community-more[data-state="open"] {
+  background: hsl(var(--mn-ink) / 0.08);
+}
+
+.luca-shell-community-more:focus-visible {
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* ── the DEV chip, in the menu: its letters on its centre ───────────────
+ * Capitals tracked at 0.2em leave the last letter's tracking as space on
+ * its right; the letters take it back, and the paddings (2 above, 3 below)
+ * set the capitals' ink on the chip's middle. The D's side bearing is about
+ * a point wider than the V's, so the letters sit half a point left, measured
+ * (tests/e2e/luca/shell-avatar.spec.ts). */
+.luca-dev-chip {
+  padding-bottom: 3px;
+  padding-top: 2px;
+}
+
+.luca-dev-chip__letters {
+  left: -0.5px;
+  margin-right: calc(-1 * var(--type-caps-wider-tracking, 0.2em));
+  position: relative;
+}

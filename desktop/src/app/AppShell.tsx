@@ -105,7 +105,11 @@ import { useDueReminderBadgeCount } from "@/features/reminders/hooks";
 import { RemindMeLaterProvider } from "@/features/reminders/ui/RemindMeLaterProvider";
 import { useReminderNotifications } from "@/features/reminders/useReminderNotifications";
 import { AppSidebar } from "@/features/sidebar/ui/AppSidebar";
-import { CommunityRail } from "@/features/sidebar/ui/CommunityRail";
+import {
+  CommunityRail,
+  ShellCommunityMenuSource,
+} from "@/features/sidebar/ui/CommunityRail";
+import { ShellAvatarConnectionSource } from "@/features/sidebar/ui/SidebarProfileCard";
 import { useChannelMutes } from "@/features/sidebar/lib/useChannelMutes";
 import { useChannelStars } from "@/features/sidebar/lib/useChannelStars";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -945,16 +949,28 @@ export function AppShell() {
                     )}
                   >
                     <BuzzTheme.GradientLayer />
-                    {hasCommunityRail ? (
-                      <CommunityRail
-                        activeCommunityId={
-                          communitiesHook.activeCommunity?.id ?? null
+                    {/* Under the frame the strip goes: its communities are
+                        in the avatar's menu (SHELL_SPEC.md, Decided, 1). */}
+                    {hasCommunityRail
+                      ? React.createElement(
+                          shellFrame ? ShellCommunityMenuSource : CommunityRail,
+                          {
+                            activeCommunityId:
+                              communitiesHook.activeCommunity?.id ?? null,
+                            onAddCommunity: addCommunityDialog.openDialog,
+                            onRemoveCommunity: communitiesHook.removeCommunity,
+                            onSwitchCommunity: handleSwitchCommunity,
+                            onUpdateCommunity: communitiesHook.updateCommunity,
+                            communities: communitiesHook.communities,
+                          },
+                        )
+                      : null}
+                    {shellFrame ? (
+                      <ShellAvatarConnectionSource
+                        problem={
+                          relayConnectionCard.showSidebarRelayConnectionCard &&
+                          !relayConnectionCard.isRelayConnectionSuccess
                         }
-                        onAddCommunity={addCommunityDialog.openDialog}
-                        onRemoveCommunity={communitiesHook.removeCommunity}
-                        onSwitchCommunity={handleSwitchCommunity}
-                        onUpdateCommunity={communitiesHook.updateCommunity}
-                        communities={communitiesHook.communities}
                       />
                     ) : null}
                     <ConversationWorkspaceProvider
