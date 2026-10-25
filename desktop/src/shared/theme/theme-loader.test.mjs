@@ -18,6 +18,7 @@ import {
   isLightTheme,
   loadThemeData,
   resolveShikiThemeName,
+  resolveSystemTheme,
   settleGlassThemeMove,
   THEME_CACHE_KEY,
   THEME_STORAGE_KEY,
@@ -199,4 +200,32 @@ test("frame off, nothing recorded: nothing is written", () => {
 test("the successors are the dark default and Paper", () => {
   assert.equal(GLASS_THEME_SUCCESSORS[OBSIDIAN_THEME_NAME], "vitesse-black");
   assert.equal(GLASS_THEME_SUCCESSORS[CRYSTALLINE_THEME_NAME], "paper");
+});
+
+test("frame on: the two defaults are each other's System pair", () => {
+  assert.equal(getThemePair(PAPER_THEME_NAME, true), DEFAULT_THEME_NAME);
+  assert.equal(getThemePair(DEFAULT_THEME_NAME, true), PAPER_THEME_NAME);
+  // Every other pair is as it was: Slate still turns to Paper by day, and
+  // Vitesse Light keeps Vitesse Dark.
+  assert.equal(getThemePair(BUZZ_THEME_NAME, true), PAPER_THEME_NAME);
+  assert.equal(getThemePair("vitesse-light", true), "vitesse-dark");
+  assert.equal(getThemePair("catppuccin-latte", true), "catppuccin-mocha");
+});
+
+test("frame off: the pairs are exactly as before", () => {
+  assert.equal(getThemePair(PAPER_THEME_NAME), BUZZ_THEME_NAME);
+  assert.equal(getThemePair(DEFAULT_THEME_NAME), "vitesse-light");
+  assert.equal(getThemePair(PAPER_THEME_NAME, false), BUZZ_THEME_NAME);
+  assert.equal(getThemePair(DEFAULT_THEME_NAME, false), "vitesse-light");
+});
+
+test("frame on, System mode: a moved glass owner has Paper by day and Vitesse Black by night", () => {
+  for (const from of [OBSIDIAN_THEME_NAME, CRYSTALLINE_THEME_NAME]) {
+    const moved = GLASS_THEME_SUCCESSORS[from];
+    assert.equal(resolveSystemTheme(moved, true, true), DEFAULT_THEME_NAME);
+    assert.equal(resolveSystemTheme(moved, false, true), PAPER_THEME_NAME);
+  }
+  // Flag off, the same stored values resolve as they always did.
+  assert.equal(resolveSystemTheme(PAPER_THEME_NAME, true), BUZZ_THEME_NAME);
+  assert.equal(resolveSystemTheme(DEFAULT_THEME_NAME, false), "vitesse-light");
 });

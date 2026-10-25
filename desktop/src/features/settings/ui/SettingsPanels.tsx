@@ -68,6 +68,7 @@ import {
 } from "@/shared/theme/ThemeProvider";
 import {
   BUZZ_DARK_THEME_NAME,
+  DEFAULT_THEME_NAME,
   LIGHT_THEMES,
   SYNTAX_THEMES,
   type SyntaxThemeName,
@@ -264,8 +265,11 @@ function pairedThemeLabel(lightName: string): string {
  *
  * For paired themes, we deduplicate by only keeping the light member
  * (the dark member is shown alongside it as a preview).
+ *
+ * `framed`: the shell's frame is on, so the pairs are its own (Paper with
+ * Vitesse Black; theme-loader's FRAMED_THEME_PAIRS).
  */
-function useThemeCategories() {
+function useThemeCategories(framed: boolean) {
   return useMemo(() => {
     const pairedLight: SyntaxThemeName[] = [];
     const lightOnly: SyntaxThemeName[] = [];
@@ -276,7 +280,7 @@ function useThemeCategories() {
     for (const name of SYNTAX_THEMES) {
       if (isBuzzTheme(name)) continue;
       if (LIGHT_THEMES.has(name)) {
-        const pair = getThemePair(name);
+        const pair = getThemePair(name, framed);
         if (pair) {
           darkPairMembers.add(pair);
         }
@@ -289,7 +293,7 @@ function useThemeCategories() {
       if (darkPairMembers.has(name)) continue;
 
       if (LIGHT_THEMES.has(name)) {
-        const pair = getThemePair(name);
+        const pair = getThemePair(name, framed);
         if (pair) {
           pairedLight.push(name);
         } else {
@@ -301,23 +305,24 @@ function useThemeCategories() {
     }
 
     return { pairedLight, lightOnly, darkOnly };
-  }, []);
+  }, [framed]);
 }
 
 function PairedThemeTile({
   isActive,
   lightName,
+  darkName,
   lightVars,
   darkVars,
   onSelect,
 }: {
   isActive: boolean;
   lightName: SyntaxThemeName;
+  darkName: SyntaxThemeName;
   lightVars: ThemePreviewVars | null;
   darkVars: ThemePreviewVars | null;
   onSelect: () => void;
 }) {
-  const darkName = getThemePair(lightName);
   return (
     <button
       aria-pressed={isActive}
@@ -333,7 +338,7 @@ function PairedThemeTile({
             ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
             : "group-hover:ring-2 group-hover:ring-border",
         )}
-        darkGradient={darkName ? BUZZ_GRADIENT_STOPS[darkName] : undefined}
+        darkGradient={BUZZ_GRADIENT_STOPS[darkName]}
         darkVars={darkVars}
         lightGradient={BUZZ_GRADIENT_STOPS[lightName]}
         lightVars={lightVars}
@@ -427,7 +432,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   const shouldReduceMotion = useReducedMotion();
 
   const previewVarsByTheme = useThemePreviewVars();
-  const categories = useThemeCategories();
+  const categories = useThemeCategories(shellFrame);
   // Under the frame the glass themes retire (SHELL_SPEC.md, Decided 7): the
   // Glass frame is the see-through window now, so their tiles leave.
   const { pairedLight, lightOnly, darkOnly } = useMemo(() => {
@@ -472,10 +477,21 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
     // run so "Ash" appears once rather than twice. Void follows as its own
     // named dark theme.
     const pairedDark = pairedLight
-      .map((l) => getThemePair(l))
+      .map((l) => getThemePair(l, shellFrame))
       .filter((name): name is SyntaxThemeName => !!name && !isBuzzTheme(name));
-    return [BUZZ_DARK_THEME_NAME, ...pairedDark, ...darkOnly];
-  }, [pairedLight, darkOnly]);
+    const dark: SyntaxThemeName[] = [
+      BUZZ_DARK_THEME_NAME,
+      ...pairedDark,
+      ...darkOnly,
+    ];
+    if (!shellFrame) return dark;
+    // Under the frame the dark default leads, as Paper leads Light: it is
+    // where Obsidian's owners were moved (SHELL_SPEC.md, Decided 7).
+    return [
+      DEFAULT_THEME_NAME,
+      ...dark.filter((name) => name !== DEFAULT_THEME_NAME),
+    ];
+  }, [pairedLight, darkOnly, shellFrame]);
 
   const handleModeSelect = (mode: AppearanceMode) => {
     setSelectedMode(mode);
@@ -483,7 +499,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       setFollowSystem(true);
       // If the current theme is unpaired, resolveSystemTheme can't switch it
       // with the OS. Fall back to the first paired theme so System mode works.
-      const pair = getThemePair(selectedThemeName as SyntaxThemeName);
+      const pair = getThemePair(
+        selectedThemeName as SyntaxThemeName,
+        shellFrame,
+      );
       if (!pair && pairedLight.length > 0) {
         setTheme(pairedLight[0]);
       }
@@ -500,7 +519,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       const needsDark = mode === "dark" && currentIsLight;
       const needsLight = mode === "light" && !currentIsLight;
       if (needsDark || needsLight) {
-        const pair = getThemePair(selectedThemeName as SyntaxThemeName);
+        const pair = getThemePair(
+          selectedThemeName as SyntaxThemeName,
+          shellFrame,
+        );
         if (pair && LIGHT_THEMES.has(pair) === (mode === "light")) {
           setTheme(pair);
         } else {
@@ -525,7 +547,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
   /** Check if a paired theme (by its light member) is the active selection */
   const isPairActive = (lightName: SyntaxThemeName) => {
-    const darkName = getThemePair(lightName);
+    const darkName = getThemePair(lightName, shellFrame);
     return selectedThemeName === lightName || selectedThemeName === darkName;
   };
 
@@ -612,10 +634,11 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
             ) : null}
             {selectedMode === "system" &&
               pairedLight.map((lightName) => {
-                const darkName = getThemePair(lightName);
+                const darkName = getThemePair(lightName, shellFrame);
                 if (!darkName) return null;
                 return (
                   <PairedThemeTile
+                    darkName={darkName}
                     darkVars={getVars(darkName)}
                     isActive={isPairActive(lightName)}
                     key={lightName}

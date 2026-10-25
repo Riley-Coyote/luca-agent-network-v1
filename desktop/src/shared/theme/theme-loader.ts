@@ -14,7 +14,8 @@ import type { ThemeRegistrationRaw } from "shiki";
  * profile with nothing stored under `buzz-theme`: an existing install keeps
  * whatever it last chose. Follow-system defaults OFF (see `ThemeProvider`),
  * so a fresh install opens dark whatever the Mac's appearance is; turning it
- * on pairs Vitesse Black with Vitesse Light (see `THEME_PAIRS`).
+ * on pairs Vitesse Black with Vitesse Light (see `THEME_PAIRS`), or with
+ * Paper under the shell's frame (see `FRAMED_THEME_PAIRS`).
  */
 export const DEFAULT_THEME_NAME = "vitesse-black";
 
@@ -508,11 +509,35 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
   ]);
 
 /**
+ * Under the shell's frame the app's two defaults are each other's System
+ * pair (SHELL_SPEC.md, "Light and dark": the dark default is Vitesse Black,
+ * the light one Paper), so the glass pair's owners, moved onto them
+ * (Decided 7), still breathe between one dark and one light: Paper by day,
+ * Vitesse Black by night, whichever of the two they were moved to. These
+ * take the place of Paper ↔ Slate and Vitesse Black → Vitesse Light only
+ * under the frame; Slate keeps its own pair (→ Paper) and Vitesse Light its
+ * own (↔ Vitesse Dark).
+ */
+const FRAMED_THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
+  new Map([
+    [PAPER_THEME_NAME, DEFAULT_THEME_NAME],
+    [DEFAULT_THEME_NAME, PAPER_THEME_NAME],
+  ]);
+
+/**
  * Get the counterpart theme for system theme switching.
  * Returns the paired theme if one exists, or null if the theme has no pair.
+ * `framed`: the shell's frame is on (its pairs for the two defaults).
  */
-export function getThemePair(name: SyntaxThemeName): SyntaxThemeName | null {
-  return THEME_PAIRS.get(name) ?? null;
+export function getThemePair(
+  name: SyntaxThemeName,
+  framed = false,
+): SyntaxThemeName | null {
+  return (
+    (framed ? FRAMED_THEME_PAIRS.get(name) : undefined) ??
+    THEME_PAIRS.get(name) ??
+    null
+  );
 }
 
 /**
@@ -522,6 +547,7 @@ export function getThemePair(name: SyntaxThemeName): SyntaxThemeName | null {
 export function resolveSystemTheme(
   selectedTheme: SyntaxThemeName,
   systemIsDark: boolean,
+  framed = false,
 ): SyntaxThemeName {
   const selectedIsLight = isLightTheme(selectedTheme);
   const needsSwitch =
@@ -529,7 +555,7 @@ export function resolveSystemTheme(
 
   if (!needsSwitch) return selectedTheme;
 
-  const pair = getThemePair(selectedTheme);
+  const pair = getThemePair(selectedTheme, framed);
   return pair ?? selectedTheme;
 }
 

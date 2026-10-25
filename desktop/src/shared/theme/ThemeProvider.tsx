@@ -990,15 +990,21 @@ export function ThemeProvider({
   // the main window can under the shell's frame (applyShellWindowAppearance).
   const windowThemeAllowed = shellFrame || !mainWindow;
 
-  // Resolve the effective theme based on follow-system preference
+  // Resolve the effective theme based on follow-system preference. Under the
+  // frame the two defaults pair with each other (theme-loader's
+  // FRAMED_THEME_PAIRS), so the glass pair's owners keep a day and a night.
   const effectiveTheme = (() => {
     if (!followSystem || !isValidThemeName(selectedTheme)) return selectedTheme;
-    return resolveSystemTheme(selectedTheme as SyntaxThemeName, systemIsDark);
+    return resolveSystemTheme(
+      selectedTheme as SyntaxThemeName,
+      systemIsDark,
+      shellFrame,
+    );
   })();
 
   // Check if the selected theme has a pair (for UI hint)
   const hasPair = isValidThemeName(selectedTheme)
-    ? getThemePair(selectedTheme as SyntaxThemeName) !== null
+    ? getThemePair(selectedTheme as SyntaxThemeName, shellFrame) !== null
     : false;
 
   const frameDrawn: FrameDrawn =

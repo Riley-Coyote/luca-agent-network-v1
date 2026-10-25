@@ -286,13 +286,25 @@
 }
 
 :root[data-luca-frame="solid"] [data-frame] [data-sidebar="sidebar"] {
-  background-color: hsl(var(--mn-surface));
-  background-image: var(--mn-card-finish, none);
   background-size: 256px 256px;
   border-radius: var(--radius);
   box-shadow: var(--mn-card-edge);
   overflow: hidden;
   padding-right: 0;
+}
+
+/* The card's paint, in every palette. Slate (theme.css's
+ * `[data-buzz-sidebar]` and `[data-buzz-translucent]` rules, 0,5,0) clears
+ * the rail's `.bg-sidebar` to show the floor through it: under the frame the
+ * rail is a card of its own, never the floor and never glass, so the paint
+ * names the element's own `.bg-sidebar:not([data-buzz-flat])` and outranks
+ * them (0,6,0). Only the paint: the card's edge and shadow above stay where
+ * the glass's own (shell-glass.css) can answer them. */
+:root[data-luca-frame="solid"]
+  [data-frame]
+  [data-sidebar="sidebar"].bg-sidebar:not([data-buzz-flat]) {
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
 }
 
 /* Inside the card, what was painted as the rail's floor is the card's:

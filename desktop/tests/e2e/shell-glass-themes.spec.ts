@@ -36,14 +36,18 @@ test.beforeEach(({ page }) => {
  *  frame flag as it starts. Reloads keep whatever the app stored since. */
 async function seedProfile(
   page: Page,
-  { theme, shellFrame }: { theme: string; shellFrame: boolean },
+  {
+    theme,
+    shellFrame,
+    followSystem = false,
+  }: { theme: string; shellFrame: boolean; followSystem?: boolean },
 ) {
   await page.addInitScript(
-    ({ key, theme: value, on, accent }) => {
+    ({ key, theme: value, on, accent, system }) => {
       if (window.sessionStorage.getItem("wp08d-seeded")) return;
       window.sessionStorage.setItem("wp08d-seeded", "1");
       window.localStorage.setItem("buzz-theme", value);
-      window.localStorage.setItem("buzz-follow-system", "false");
+      window.localStorage.setItem("buzz-follow-system", String(system));
       window.localStorage.setItem("buzz-accent-color", accent);
       const raw = window.localStorage.getItem(key);
       const overrides = raw ? JSON.parse(raw) : {};
@@ -55,6 +59,7 @@ async function seedProfile(
       theme,
       on: shellFrame,
       accent: ACCENT,
+      system: followSystem,
     },
   );
 }
@@ -304,6 +309,105 @@ test("the move happens once: a later palette and frame survive reloads and the f
     move: null,
   });
 });
+
+// ── System mode: the glass pair's owners keep a day and a night ─────────
+
+// Under the frame the two defaults pair with each other, so whichever glass
+// member was stored, the moved owner has Paper by day and Vitesse Black by
+// night, and the Paper · Vitesse Black pair reads as chosen in System.
+for (const glass of ["obsidian", "crystalline"]) {
+  for (const scheme of ["dark", "light"] as const) {
+    test(`System mode, ${glass} stored, ${scheme} Mac: the defaults' pair`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await fakeTauri(page);
+      await installMockBridge(page);
+      await seedProfile(page, {
+        theme: glass,
+        shellFrame: true,
+        followSystem: true,
+      });
+      await openAppearance(page);
+      const expected = scheme === "dark" ? "vitesse-black" : "paper";
+      await expect
+        .poll(() => profile(page).then((p) => p.palette))
+        .toBe(expected);
+      const now = await profile(page);
+      console.log(`[system ${glass} ${scheme}] ${JSON.stringify(now)}`);
+      expect(now).toMatchObject({
+        dark: scheme === "dark",
+        storedFrame: "glass",
+        followSystem: "true",
+        move: { from: glass },
+      });
+      await expect(page.getByTestId("appearance-mode-system")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      const pair = page.getByTestId("theme-pair-paper");
+      await expect(pair).toHaveAttribute("aria-pressed", "true");
+      await expect(pair).toBeInViewport();
+      await shoot(page, `system-${glass}-${scheme}`);
+    });
+  }
+}
+
+// ── Dark under the frame leads with the dark default ────────────────────
+
+test("flag on: Dark leads with Vitesse Black, where Obsidian's owners land", async ({
+  page,
+}) => {
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await seedProfile(page, { theme: "obsidian", shellFrame: true });
+  await openAppearance(page);
+  await page.getByTestId("appearance-mode-dark").click();
+  await waitForAnimations(page);
+  const ids = (await tileIds(page)).filter((id): id is string => !!id);
+  expect(ids[0]).toBe("theme-option-vitesse-black");
+  expect(ids.filter((id) => id === "theme-option-vitesse-black")).toHaveLength(
+    1,
+  );
+  const chosen = page.getByTestId("theme-option-vitesse-black");
+  await expect(chosen).toHaveAttribute("aria-pressed", "true");
+  await expect(chosen).toBeInViewport();
+});
+
+// ── the rail is a card in every palette ─────────────────────────────────
+
+// Slate clears the rail's .bg-sidebar to show its floor (theme.css); under
+// the frame the rail's card keeps its own surface, Black frame and Glass.
+for (const frame of ["solid", "glass"] as const) {
+  test(`flag on, Slate, ${frame} frame: the rail's card is painted`, async ({
+    page,
+  }) => {
+    await fakeTauri(page);
+    await installMockBridge(page);
+    await seedProfile(page, { theme: "buzz", shellFrame: true });
+    await page.addInitScript(
+      ({ key, value }) => window.localStorage.setItem(key, value),
+      { key: FRAME_KEY, value: frame },
+    );
+    await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`, {
+      waitUntil: "domcontentloaded",
+    });
+    const card = page.locator('[data-frame] [data-sidebar="sidebar"]');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await waitForAnimations(page);
+    const paint = await card.evaluate((el) => {
+      const probe = document.createElement("div");
+      probe.style.backgroundColor = "hsl(var(--mn-surface))";
+      el.appendChild(probe);
+      const surface = getComputedStyle(probe).backgroundColor;
+      probe.remove();
+      return { bg: getComputedStyle(el).backgroundColor, surface };
+    });
+    console.log(`[slate rail ${frame}] ${JSON.stringify(paint)}`);
+    expect(paint.bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paint.bg).toBe(paint.surface);
+  });
+}
 
 // ── Appearance without the two tiles ────────────────────────────────────
 
