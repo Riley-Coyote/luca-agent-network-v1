@@ -1,0 +1,80 @@
+/* ------------------------------------------------------------------
+ * WHERE YOU ARE: the shell's solid marks (docs/luca/rail-system/
+ * SHELL_SPEC.md, "Where you are"; the study's `.shell-mark*` in
+ * desktop/src/testing/shellStudy/shellStudy.css is the reference for every
+ * value). Drawn by ShellMarks.tsx, moved by marks.ts.
+ *
+ * Solid, never clear glass, and squircle-cornered, never a pill: a capsule
+ * reads cheap at this size. Two materials, whichever the surface beneath
+ * lets read, chosen by one attribute on the layer (`data-mark-material`):
+ * - the plate: the page's ink at 7.5%, the app's hover and sent-bubble
+ *   material, with a lit top; on the Black frame and on the rail's card;
+ * - the card: a piece of the card's own surface, grain and lit top, standing
+ *   on a glass frame (WP-07b turns it on).
+ * While a mark moves its light rises a little (`--wet`, from marks.ts).
+ * ------------------------------------------------------------------ */
+
+/* A layer beneath the words it marks: the places column and the rail's
+ * rows each hold one, behind everything in them. */
+.luca-marks {
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+/* The rail's rows hold their layer: it scrolls with them, and the card
+ * clips it. */
+:root[data-luca-frame] [data-testid="sidebar-scroll-content"] {
+  isolation: isolate;
+  position: relative;
+}
+
+.luca-mark {
+  border-radius: 8px;
+  left: 0;
+  position: absolute;
+  top: 0;
+  visibility: hidden;
+  will-change: transform;
+}
+
+.luca-mark--place {
+  border-radius: 9px;
+}
+
+.luca-marks[data-mark-material="plate"] .luca-mark {
+  background: hsl(var(--mn-ink) / calc(0.075 + var(--wet, 0) * 0.03));
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
+}
+
+/* A piece of the card standing on the glass: its surface and grain, its
+ * lit top, and the soft shadow the light from above leaves under it. */
+.luca-marks[data-mark-material="card"] .luca-mark {
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-size: 256px 256px;
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / calc(0.12 + var(--wet, 0) * 0.28)),
+    0 0 0 0.5px rgb(255 255 255 / 0.06),
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 6px 16px rgb(0 0 0 / 0.22);
+}
+
+/* In daylight a plate is a printed tint, told by its tone alone (a lit
+ * edge would be a drawn line on paper), and a piece of card is paper with
+ * its shadow. */
+:root:not(.dark) .luca-marks[data-mark-material="plate"] .luca-mark {
+  box-shadow: none;
+}
+
+:root:not(.dark) .luca-marks[data-mark-material="card"] .luca-mark {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / calc(0.1 + var(--wet, 0) * 0.06)),
+    0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
+}
+
+/* The current place's icon in the page's ink, on its mark. */
+.luca-place[data-current] {
+  color: hsl(var(--mn-ink));
+}

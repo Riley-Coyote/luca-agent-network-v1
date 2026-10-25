@@ -17,6 +17,7 @@ import {
   preloadBrainSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
+import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -31,8 +32,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
  * column 44 wide under the lip, its icons on the traffic lights' axis (22).
  * New conversation and Search; then the places; Settings and the avatar at
  * the foot. Every one is the app's existing action: this column only gives
- * them their new home. The current place wears a static plate until the
- * moving marks come (WP-03).
+ * them their new home. The current place is marked by the places' mark
+ * (ShellMarks.tsx), which slides between them.
  */
 
 type PlacesView =
@@ -266,6 +267,7 @@ export function ShellPlaces({
   const unreadDot = hasUnread && (railClosed || here === "settings");
   return (
     <nav aria-label="Places" className="luca-places" data-testid="shell-places">
+      <ShellPlacesMarks current={here} />
       <div className="luca-places-group">
         <PlaceTile
           label="New conversation"

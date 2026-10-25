@@ -7,6 +7,7 @@ import {
   railHomesStorageKey,
 } from "@/features/sidebar/lib/agentRailState";
 import { useAppShell } from "@/app/AppShellContext";
+import { ShellRailMarks } from "@/app/shell/ShellMarks";
 import { subscribeOpenRuntimeSessions } from "@/features/runtime-sessions/openRuntimeSessionsEvent";
 import type { RailHome } from "@/features/sidebar/lib/railHomes";
 import { ShellRail } from "@/features/sidebar/ui/ShellRail";
@@ -931,8 +932,17 @@ export function AppSidebar({
               data-rail-glass=""
               data-testid="sidebar-scroll-content"
             >
-              <RailGlass />
-              <NativeRailGlass />
+              {/* Under the frame the rail's solid mark replaces today's
+                  pill and the native pour, which are never drawn or
+                  attached there (SHELL_SPEC.md, "Where you are"). */}
+              {frame ? (
+                <ShellRailMarks />
+              ) : (
+                <>
+                  <RailGlass />
+                  <NativeRailGlass />
+                </>
+              )}
               {isLoading ? (
                 <SidebarLoadingContent shape={sidebarLoadingShape} />
               ) : null}
