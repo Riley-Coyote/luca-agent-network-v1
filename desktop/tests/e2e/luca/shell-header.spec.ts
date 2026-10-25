@@ -721,9 +721,11 @@ test("the conversation header in the lip", async ({ page }, info) => {
     forum,
     project_room:
       "Not exercised here: the mock has no project room. In code, under the flag a project room keeps its room picker in a header of its own in the card (WP-02's room setting has not landed), with its actions in the lip and its measured top padding.",
+    // Forums lose their band too (WP-04b): no header in the card, their
+    // actions in the lip.
     ok:
-      forum.in_card_header === 1 &&
-      forum.lip_slot_items === 0 &&
+      forum.in_card_header === 0 &&
+      forum.lip_slot_items === 3 &&
       forum.update_indicator === 0,
   };
 
