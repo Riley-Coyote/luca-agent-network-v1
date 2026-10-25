@@ -1,0 +1,49 @@
+/* ── the status cards and their dots (WP-08b) ─────────────────────────
+ * docs/luca/rail-system/SHELL_SPEC.md, "The footer's status cards",
+ * Decided 4. Only under the frame.
+ */
+
+/* An available update while the rail's card is out of sight: a dot in the
+ * app's accent, 6, at the Settings tile's top right, 4 in from its corner,
+ * where Conversations wears its unread dot. Under the Luca shell the accent
+ * is the neutral one, the frame's ink. */
+.luca-place-update-dot {
+  background: hsl(var(--buzz-selected-accent, var(--mn-ink)));
+  border-radius: 999px;
+  height: 6px;
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 6px;
+}
+
+/* The footer's cards wear the rail card's own material: the card's plate
+ * (the ink at 3.5%, at 6% under the pointer), no outline and no shadow of
+ * their own, corners of the rail's rows. Before, each was a plate of the
+ * floor with a rim, a hole cut in the card. */
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type {
+  background: var(--mn-plate);
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type:hover:not(:disabled) {
+  background: var(--mn-plate-hover);
+  border-color: transparent;
+}
+
+/* At the card's foot, 8 from its edges and 8 apart: the footer's own
+ * padding and gap, without the margins each card brought from the floor. */
+:root[data-luca-frame] [data-frame] [data-sidebar="footer"] > * {
+  margin-bottom: 0;
+}

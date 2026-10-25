@@ -18,6 +18,7 @@ import {
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
+import { useShellStatus } from "@/app/shell/useShellStatus";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
 import type { Channel, SearchHit } from "@/shared/api/types";
@@ -93,6 +94,7 @@ function PlaceTile({
   onPreload,
   shortcut,
   testId,
+  update,
 }: {
   badge?: number;
   children: React.ReactNode;
@@ -104,13 +106,21 @@ function PlaceTile({
   onPreload?: () => void;
   shortcut?: string;
   testId: string;
+  /** An available update: the app's accent dot, where the unread dot sits. */
+  update?: boolean;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           aria-current={current ? "page" : undefined}
-          aria-label={dot ? `${label}, unread` : label}
+          aria-label={
+            update
+              ? `${label}, update available`
+              : dot
+                ? `${label}, unread`
+                : label
+          }
           className="luca-place"
           data-current={current ? "true" : undefined}
           data-testid={testId}
@@ -125,6 +135,13 @@ function PlaceTile({
               aria-hidden="true"
               className={cn(UNREAD_DOT_CLASS, "luca-place-dot")}
               data-testid={`${testId}-unread`}
+            />
+          ) : null}
+          {update ? (
+            <span
+              aria-hidden="true"
+              className="motion-enter-signal luca-place-update-dot"
+              data-testid={`${testId}-update`}
             />
           ) : null}
           {badge && badge > 0 ? (
@@ -265,8 +282,19 @@ export function ShellPlaces({
   // Settings puts its section list in the rail's card, so there the rail,
   // and every unread row on it, is never on screen: the dot always speaks.
   const unreadDot = hasUnread && (railClosed || here === "settings");
+  // The rail's card says an available update with its footer card; while
+  // that card is out of sight, Settings says it with a dot (Decided 4).
+  const status = useShellStatus();
+  const updateDot =
+    status.updateAvailable && (railClosed || here === "settings");
   return (
-    <nav aria-label="Places" className="luca-places" data-testid="shell-places">
+    <nav
+      aria-label="Places"
+      className="luca-places"
+      data-connection-problem={status.connectionProblem ? "" : undefined}
+      data-testid="shell-places"
+      data-update-available={status.updateAvailable ? "" : undefined}
+    >
       <ShellPlacesMarks current={here} />
       <div className="luca-places-group">
         <PlaceTile
@@ -345,6 +373,7 @@ export function ShellPlaces({
           onPreload={() => void preloadSettingsSurface()}
           shortcut={`${key},`}
           testId="open-settings-view"
+          update={updateDot}
         >
           <Settings />
         </PlaceTile>

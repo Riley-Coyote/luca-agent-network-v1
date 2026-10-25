@@ -32,6 +32,7 @@ export default defineConfig({
         "**/ui-log-bridge.spec.ts",
         "**/popout-shell.spec.ts",
         "**/shell-glass.spec.ts",
+        "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
         "**/key-import-reveal.spec.ts",
