@@ -23,6 +23,8 @@ type ProfileAvatarWithStatusProps = {
   iconClassName?: string;
   label: string;
   size: number;
+  /** See MaskedAvatarBadgeFrame: px keeps the box fixed against text zoom. */
+  sizeUnit?: "rem" | "px";
   status?: PresenceStatus;
   statusTestId?: string;
   testId?: string;
@@ -57,6 +59,7 @@ export function ProfileAvatarWithStatus({
   iconClassName,
   label,
   size,
+  sizeUnit,
   status,
   statusTestId,
   testId,
@@ -100,6 +103,7 @@ export function ProfileAvatarWithStatus({
       curve={STATUS_DOT_MASK_CURVE}
       cutout={cutout}
       size={size}
+      sizeUnit={sizeUnit}
     >
       <ProfileAvatar
         avatarUrl={avatarUrl}

@@ -20,7 +20,9 @@
 /* ── the slot, at the lip's right end ─────────────────────────────── */
 /* It rides in the lip's part over the card (`.luca-lip-card`), which moves
  * with the card and takes the pointer only on its buttons: the slot's gaps
- * still move the window. */
+ * still move the window. With panes side by side it stands over the
+ * focused one, 8 from that pane's own right edge (ShellLip writes
+ * --lip-pane-right; 0 with one pane). */
 .luca-lip-actions {
   align-items: center;
   display: flex;
@@ -28,8 +30,31 @@
   height: 24px;
   pointer-events: none;
   position: absolute;
-  right: 8px;
+  right: calc(8px + var(--lip-pane-right, 0px));
   top: 10px;
+}
+
+/* The name stays on its axis (the card's, or the focused pane's beside
+ * others) and keeps --lip-name-room clear on each side: 100, or the slot's
+ * width past its 8 and a 12 gap when that is more (ShellLip measures it),
+ * so a person's presence or the ephemeral badge never meets a long name.
+ * With one pane and a narrow slot this is shell-frame.css's own rule. */
+.luca-lip-card > .luca-lip-name {
+  left: calc(
+    var(--lip-pane-left, 0px) +
+    (100% - var(--lip-pane-left, 0px) - var(--lip-pane-right, 0px)) /
+    2
+  );
+  max-width: max(
+    0px,
+    calc(
+      100% -
+      var(--lip-pane-left, 0px) -
+      var(--lip-pane-right, 0px) -
+      2 *
+      var(--lip-name-room, 100px)
+    )
+  );
 }
 
 .luca-lip-actions > * {
@@ -84,9 +109,11 @@
   width: 24px;
 }
 
-.luca-lip-presence__avatar {
-  height: 22px;
-  width: 22px;
+/* The avatar's box is fixed points, as the tiles are (sizeUnit="px",
+ * ChannelScreenHeader); its initials follow the text zoom down but stop
+ * where they would outgrow the disc. */
+.luca-lip-presence__face {
+  font-size: min(0.6875rem, 11px);
 }
 
 /* An ephemeral conversation's badge: a glyph in the frame's second tone,
@@ -108,18 +135,22 @@
 }
 
 /* Join, in the actions' place: the app's own filled button, at the lip's
- * height and corners. */
-.luca-lip-join {
+ * height and corners. Its word is text, so it follows the text zoom: the
+ * line box is the word's own and the icon is sized in rem beside it (14 at
+ * 100%), and the button grows past 24 only when they need it. */
+.luca-lip-actions .luca-lip-join {
   border-radius: 7px;
   gap: 5px;
-  height: 24px;
+  height: auto;
+  line-height: 1;
+  min-height: 24px;
   padding: 0 9px 0 7px;
 }
 
 .luca-lip-actions .luca-lip-join svg {
-  height: 14px;
+  height: 0.875rem;
   stroke-width: 1.7;
-  width: 14px;
+  width: 0.875rem;
 }
 
 /* ── the card's top edge ──────────────────────────────────────────── */
@@ -150,14 +181,31 @@
   top: 0;
 }
 
-/* The day's label parks just below the fade, where it rests before you
- * scroll (the reading area's top padding), instead of half under the card's
- * edge. With a header still in the card (a project room's picker), the
- * padding is that header's height, and the label parks beneath it. */
-:root[data-luca-frame="solid"]
-  [data-luca-timeline-viewport]
-  [data-testid="message-timeline-day-divider"] {
-  top: var(--buzz-channel-content-top-padding, 22px);
+/* The day's label needs nothing here: the timeline already parks it at its
+ * scroller's padding edge (TimelineMessageList, DayDivider), which is the
+ * 22 below the card's top, just under the fade. */
+
+/* ── an unfocused pane's name ─────────────────────────────────────── */
+/* Panes side by side: the lip names the focused pane; each other pane names
+ * its own conversation quietly at its top, inside the fade's 22, centred on
+ * the pane, in the frame's second tone (SHELL_SPEC.md, Decided 5). */
+.luca-shell-pane-name {
+  color: hsl(var(--mn-ink-muted));
+  font-weight: 500;
+  height: 22px;
+  left: 50%;
+  letter-spacing: 0.01em;
+  line-height: 22px;
+  margin: 0;
+  max-width: calc(100% - 48px);
+  overflow: hidden;
+  /* Its tooltip is the conversation's description. */
+  pointer-events: auto;
+  position: absolute;
+  text-overflow: ellipsis;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 /* ── the headers that remain (the forum's, a project room's picker) ── */

@@ -13,7 +13,10 @@ import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralC
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
-import { WorkspaceLayoutMenuButton } from "@/features/conversation-workspace";
+import {
+  useConversationWorkspace,
+  WorkspaceLayoutMenuButton,
+} from "@/features/conversation-workspace";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
@@ -99,6 +102,13 @@ export function ChannelScreenHeader({
   // others are isolated from them: RightCardsSlotBoundary); only it speaks
   // in the lip, as only its name does.
   const ownsRightCards = useRightCardsSlot() !== null;
+  // Several panes side by side: each other pane names its conversation
+  // quietly at its own top (SHELL_SPEC.md, Decided 5).
+  const workspace = useConversationWorkspace();
+  const quietPaneName =
+    !ownsRightCards &&
+    workspace !== null &&
+    workspace.layout.preset !== "single";
   const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
   const primaryDmIsResident = Boolean(
     primaryDmParticipant &&
@@ -137,6 +147,7 @@ export function ChannelScreenHeader({
         onToggleMembers={onToggleMembers}
         popoutWindowsEnabled={popoutWindowsEnabled}
         projectRoomNavigation={projectRoomNavigation}
+        quietPaneName={quietPaneName}
         showDmPresence={
           activeChannel?.channelType === "dm" &&
           primaryDmParticipant !== null &&
@@ -268,6 +279,7 @@ function ShellChannelHeader({
   onToggleMembers,
   popoutWindowsEnabled,
   projectRoomNavigation,
+  quietPaneName,
   showDmPresence,
   transparentChrome,
 }: {
@@ -284,6 +296,8 @@ function ShellChannelHeader({
   onToggleMembers: () => void;
   popoutWindowsEnabled: boolean;
   projectRoomNavigation: ChannelScreenHeaderProps["projectRoomNavigation"];
+  /** An unfocused pane beside others: its name, quietly, at its own top. */
+  quietPaneName: boolean;
   showDmPresence: boolean;
   transparentChrome: boolean;
 }) {
@@ -292,13 +306,14 @@ function ShellChannelHeader({
       {showDmPresence ? (
         <span className="luca-lip-presence">
           <ProfileAvatarWithStatus
-            avatarClassName="text-2xs"
+            avatarClassName="luca-lip-presence__face text-2xs"
             avatarUrl={activeDmAvatarUrl}
             className="luca-lip-presence__avatar"
             geometry={DM_LIP_AVATAR_STATUS_GEOMETRY}
             iconClassName="h-3 w-3"
             label={activeChannelTitle}
             size={DM_LIP_AVATAR_SIZE}
+            sizeUnit="px"
             status={activeDmPresenceStatus ?? "offline"}
             statusTestId="chat-presence-badge"
             testId="chat-header-dm-avatar"
@@ -386,12 +401,20 @@ function ShellChannelHeader({
           visibility={activeChannel?.visibility}
         />
       ) : (
-        <div
-          aria-hidden="true"
-          className="luca-shell-card-top"
-          data-testid="shell-card-top-veil"
-        >
-          <div className="luca-conversation-veil-top luca-shell-veil-top" />
+        <div className="luca-shell-card-top" data-testid="shell-card-top-veil">
+          <div
+            aria-hidden="true"
+            className="luca-conversation-veil-top luca-shell-veil-top"
+          />
+          {quietPaneName ? (
+            <p
+              className="luca-shell-pane-name text-2xs"
+              data-testid="shell-pane-name"
+              title={getChannelDescription(activeChannel)}
+            >
+              {activeChannelTitle}
+            </p>
+          ) : null}
         </div>
       )}
     </>
