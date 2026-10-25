@@ -1087,6 +1087,10 @@ export const ChannelPane = React.memo(function ChannelPane({
     <LucaGreetingChoicesContext.Provider value={lucaChoicesContext}>
       <ResidentStopContext.Provider value={residentStopContext}>
         <div className="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+          {/* A side card fills the pane: the header draws nothing here, but
+              under the shell's frame it still sends the conversation's
+              actions up into the lip (ChannelScreenHeader, WP-04b). */}
+          {isSinglePanelView ? header : null}
           {!isSinglePanelView ? (
             <section
               aria-label="Channel messages and composer"

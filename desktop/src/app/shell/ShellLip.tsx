@@ -240,9 +240,10 @@ export function ShellLip({
     setShellLipActionsSlot(element);
   }, []);
   const besideRail = useLipCardSpan(lipCard, lipSlot);
-  // Panes side by side with the focused one empty: the lip names nothing
-  // (its actions' slot is empty too, as no pane holds the right cards), so
-  // no other pane's quiet name is doubled here (WP-04b).
+  // Panes side by side with the focused one empty: the lip names nothing,
+  // so no other pane's quiet name is doubled here, and its slot holds only
+  // the workspace's layout menu, which the empty pane sends up
+  // (ConversationWorkspaceFrame), no conversation's actions (WP-04b).
   const workspace = useConversationWorkspace();
   const focusedPaneEmpty =
     channel !== null &&

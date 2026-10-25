@@ -1,10 +1,16 @@
 import * as React from "react";
+import { createPortal } from "react-dom";
 
+import { useShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useMainInsetWidth } from "@/shared/layout/MainInsetContext";
 import { RightCardsSlotBoundary } from "@/shared/layout/RightCardsSlot";
 import { cn } from "@/shared/lib/cn";
 import { useConversationWorkspace } from "./ConversationWorkspaceContext";
-import { WorkspaceLayoutControlsProvider } from "./WorkspaceLayoutMenu";
+import {
+  WorkspaceLayoutControlsProvider,
+  WorkspaceLayoutMenuButton,
+} from "./WorkspaceLayoutMenu";
 import {
   projectWorkspaceLayout,
   type WorkspaceConversationRef,
@@ -15,6 +21,34 @@ import {
 
 const MIN_USABLE_PANE_WIDTH_PX = 440;
 const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
+
+/**
+ * The focused pane holds no conversation, under the shell's frame: the lip
+ * names nothing and holds no conversation's actions, but the workspace's own
+ * control stays, so the layout can still be changed or undone from here. Its
+ * tile stands at the lip's right end, 8 from this pane's right edge, as a
+ * conversation's actions would (ShellLip, shell-header.css; WP-04b).
+ */
+function EmptyPaneLipActions({
+  onPresetChange,
+  preset,
+}: {
+  onPresetChange: (preset: WorkspacePreset) => void;
+  preset: WorkspacePreset;
+}) {
+  const shellFrame = useShellFrameEnabled();
+  const lipSlot = useShellLipActionsSlot();
+  if (!shellFrame || !lipSlot) return null;
+  return createPortal(
+    <WorkspaceLayoutControlsProvider
+      onPresetChange={onPresetChange}
+      preset={preset}
+    >
+      <WorkspaceLayoutMenuButton />
+    </WorkspaceLayoutControlsProvider>,
+    lipSlot,
+  );
+}
 
 function presetColumnCount(preset: WorkspacePreset) {
   if (preset === "columns-2" || preset === "three" || preset === "grid-4") {
@@ -274,9 +308,17 @@ export function ConversationWorkspaceFrame({
                     </RightCardsSlotBoundary>
                   </WorkspaceLayoutControlsProvider>
                 ) : (
-                  <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                    Choose a conversation from the sidebar.
-                  </div>
+                  <>
+                    {focused ? (
+                      <EmptyPaneLipActions
+                        onPresetChange={changePreset}
+                        preset={workspace.layout.preset}
+                      />
+                    ) : null}
+                    <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                      Choose a conversation from the sidebar.
+                    </div>
+                  </>
                 )}
               </div>
             </article>

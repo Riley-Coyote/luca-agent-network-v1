@@ -1,14 +1,20 @@
 import * as React from "react";
 
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import {
   useRoomProjectCatalog,
   useRoomProjects,
 } from "@/features/channels/lib/roomProjects";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
-import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
+import {
+  resolveChannelDisplayLabel,
+  resolveGroupChatMembersName,
+} from "@/features/sidebar/lib/channelLabels";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import type { Channel } from "@/shared/api/types";
 
 /** One conversation, under the name the owner would recognise it by. */
@@ -128,6 +134,24 @@ export function usePopoutConversations(
   });
   const dmProfiles = dmProfilesQuery.data?.profiles;
 
+  // Under the shell's frame an unnamed group chat is named by its members
+  // ("Luca + Wren", Luca first), as the rail and the main window's lip name
+  // it, never the comma form: in the picker, the document title and the
+  // window title alike (SHELL_BUILD.md, WP-04b, decision 9).
+  const shellFrame = useShellFrameEnabled();
+  const hasGroupChat = React.useMemo(
+    () =>
+      shellFrame &&
+      channels.some(
+        (channel) =>
+          channel.channelType === "dm" && channel.participantPubkeys.length > 1,
+      ),
+    [channels, shellFrame],
+  );
+  const agentsQuery = useManagedAgentsQuery({ enabled: hasGroupChat });
+  const agents = agentsQuery.data;
+  const primaryPubkey = useCanonicalLucaPubkey();
+
   const projectByChannelId = useRoomProjects(channels, currentPubkey, relayUrl);
   const projectCatalog = useRoomProjectCatalog(
     channels,
@@ -140,11 +164,29 @@ export function usePopoutConversations(
       groupConversations(
         channels,
         (channel) =>
+          (hasGroupChat
+            ? resolveGroupChatMembersName(channel, {
+                agents: agents ?? [],
+                channels,
+                currentPubkey,
+                primaryPubkey,
+                profiles: dmProfiles,
+              })
+            : null) ??
           resolveChannelDisplayLabel(channel, currentPubkey, dmProfiles),
         projectByChannelId,
         projectCatalog,
       ),
-    [channels, currentPubkey, dmProfiles, projectByChannelId, projectCatalog],
+    [
+      agents,
+      channels,
+      currentPubkey,
+      dmProfiles,
+      hasGroupChat,
+      primaryPubkey,
+      projectByChannelId,
+      projectCatalog,
+    ],
   );
 
   return React.useMemo(() => {

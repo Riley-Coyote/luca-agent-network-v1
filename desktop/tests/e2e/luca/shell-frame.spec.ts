@@ -497,9 +497,9 @@ test("the frame, Black, dark", async ({ page }, info) => {
     const rightEdge = await edgeLight(page, right);
     checks.edge_light_right_card = { ...rightEdge, ok: edgeLit(rightEdge) };
   }
-  await page
-    .getByRole("button", { name: "Open conversation details", exact: true })
-    .click();
+  // Close the details card from the lip: while it is open the button reads
+  // "Close conversation details" (WP-04b).
+  await page.getByTestId("shell-lip-details").click();
   await page.waitForTimeout(500);
 
   // ── rail-closed, sampled every frame on the way ───────────────────
