@@ -4,7 +4,13 @@ import test from "node:test";
 import {
   deriveShellRoute,
   shouldBounceForChannelNotification,
+  windowDragHandleHeight,
 } from "./AppShell.helpers.ts";
+
+test("windowDragHandleHeight_isTheLipUnderTheShellFrame", () => {
+  assert.equal(windowDragHandleHeight(false), 44);
+  assert.equal(windowDragHandleHeight(true), 36);
+});
 
 test("shouldBounceForChannelNotification_allowsTopLevelChannelMessages", () => {
   assert.equal(shouldBounceForChannelNotification([["h", "channel"]]), true);

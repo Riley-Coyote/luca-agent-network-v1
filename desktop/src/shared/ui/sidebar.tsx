@@ -205,6 +205,10 @@ const Sidebar = React.forwardRef<
     railCompanionOpen?: boolean;
     /** Applied to the outermost rail element — the one that owns `--sidebar-width`. */
     rootStyle?: React.CSSProperties;
+    /** The shell's frame (SHELL_SPEC.md): the rail is a card beside the
+     *  places column. Its closed card is inert, and it peeks from the places'
+     *  edge. The card's look and motion are `shell-frame.css`'s. */
+    frame?: boolean;
   }
 >(
   (
@@ -216,6 +220,7 @@ const Sidebar = React.forwardRef<
       children,
       railCompanionOpen = false,
       rootStyle,
+      frame = false,
       ...props
     },
     ref,
@@ -338,10 +343,12 @@ const Sidebar = React.forwardRef<
         onMouseLeave={canPeek ? closePeek : undefined}
         data-variant={variant}
         data-side={side}
+        data-frame={frame ? "true" : undefined}
         style={rootStyle}
       >
         {/* This is what handles the sidebar gap on desktop */}
         <div
+          data-sidebar-gap=""
           className={cn(
             // The gap IS the rail's footprint under the reading plane, so it
             // travels on the rail's own duration and curve: the card's leading
@@ -387,6 +394,11 @@ const Sidebar = React.forwardRef<
               : "group-data-[collapsible=icon]:w-(--sidebar-width-icon)",
             className,
           )}
+          inert={
+            frame && state === "collapsed" && !(canPeek && peek)
+              ? true
+              : undefined
+          }
           {...props}
         >
           <div
@@ -406,6 +418,17 @@ const Sidebar = React.forwardRef<
             />
           ) : null}
         </div>
+        {frame && canPeek && !railCompanionOpen ? (
+          // Under the frame the closed card has no edge of its own to aim at:
+          // the places column's inner edge, just left of it, is the peek zone.
+          <div
+            aria-hidden
+            className="absolute inset-y-0 -left-2 z-30 w-2"
+            data-sidebar-peek-edge=""
+            data-testid="sidebar-frame-peek-edge"
+            onMouseEnter={openPeek}
+          />
+        ) : null}
       </div>
     );
   },

@@ -79,7 +79,12 @@ import {
   SectionQuickAction,
 } from "@/features/sidebar/ui/CustomChannelSection";
 import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
-import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
+import {
+  SidebarProfileAvatarMenu,
+  SidebarProfileCard,
+} from "@/features/sidebar/ui/SidebarProfileCard";
+import { ShellPlaces } from "@/app/shell/ShellPlaces";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { SidebarConnectionStatusCard } from "@/features/sidebar/ui/SidebarConnectionStatusCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import {
@@ -178,6 +183,9 @@ export function AppSidebar({
   onUnstarChannel,
 }: AppSidebarProps) {
   const activeWorkingByChannelId = useActiveWorkingChannelsById();
+  // The shell's frame (SHELL_SPEC.md): search, the primary menu and the
+  // profile card move to the places column; the rail becomes a card.
+  const frame = useShellFrameEnabled();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
   const { open: sidebarOpen, openMobile, setOpenMobile } = useSidebar();
@@ -693,6 +701,48 @@ export function AppSidebar({
   return React.createElement(
     React.Fragment,
     null,
+    frame ? (
+      <ShellPlaces
+        avatar={
+          <SidebarProfileAvatarMenu
+            isPresencePending={isPresencePending}
+            onClearUserStatus={onClearUserStatus}
+            onOpenSettings={onSelectSettings}
+            onSendFeedback={onSendFeedback}
+            onSetPresenceStatus={onSetPresenceStatus}
+            onSetUserStatus={onSetUserStatus}
+            profile={profile}
+            resolvedDisplayName={resolvedDisplayName}
+            selfPresenceStatus={selfPresenceStatus}
+            selfUserStatus={selfUserStatus}
+          />
+        }
+        homeBadgeCount={homeBadgeCount}
+        key="shell-places"
+        onNewConversation={handleNewMessageNavigation}
+        onSelectAgents={onSelectAgents}
+        onSelectArtifacts={onSelectArtifacts}
+        onSelectBrain={onSelectBrain}
+        onSelectConversations={onSelectHome}
+        onSelectInbox={onSelectInbox}
+        onSelectPulse={onSelectPulse}
+        onSelectSettings={onSelectSettings}
+        search={{
+          channelLabels: dmChannelLabels,
+          channels: searchChannels,
+          currentPubkey,
+          focusRequest: searchFocusRequest,
+          onBrowseChannels,
+          onCreateAgent,
+          onCreateChannel: handleOpenCreateChannel,
+          onOpenChannel: onSelectChannel,
+          onOpenDm,
+          onOpenResult: onOpenSearchResult,
+          suggestionChannels: channels,
+        }}
+        selectedView={selectedView}
+      />
+    ) : null,
     newSessionAgent ? (
       <AgentSessionDialog
         key={`${activeCommunity?.id}:${currentPubkey}:${newSessionAgent.pubkey}`}
@@ -711,50 +761,55 @@ export function AppSidebar({
       // defeats the point of an identity mark.
       collapsible="offcanvas"
       data-testid="app-sidebar"
+      frame={frame}
       variant="sidebar"
     >
       <div
         className="relative flex min-h-0 w-(--sidebar-rail-width) flex-1 shrink flex-col overflow-hidden"
         data-testid="app-sidebar-scroll-anchor"
       >
-        <AppSidebarPinnedHeader
-          channelLabels={dmChannelLabels}
-          currentPubkey={currentPubkey}
-          onBrowseChannels={onBrowseChannels}
-          onCreateAgent={onCreateAgent}
-          onCreateChannel={handleOpenCreateChannel}
-          onOpenDm={onOpenDm}
-          onOpenSearchResult={onOpenSearchResult}
-          onSelectChannel={onSelectChannel}
-          searchChannels={searchChannels}
-          searchFocusRequest={searchFocusRequest}
-          suggestionChannels={channels}
-        />
+        {frame ? null : (
+          <>
+            <AppSidebarPinnedHeader
+              channelLabels={dmChannelLabels}
+              currentPubkey={currentPubkey}
+              onBrowseChannels={onBrowseChannels}
+              onCreateAgent={onCreateAgent}
+              onCreateChannel={handleOpenCreateChannel}
+              onOpenDm={onOpenDm}
+              onOpenSearchResult={onOpenSearchResult}
+              onSelectChannel={onSelectChannel}
+              searchChannels={searchChannels}
+              searchFocusRequest={searchFocusRequest}
+              suggestionChannels={channels}
+            />
 
-        {/* Search and nav are CHROME; only the rooms scroll. They used to
+            {/* Search and nav are CHROME; only the rooms scroll. They used to
             scroll away with the list, which is why the rail had no stable
             division. The hairline below is not permanent furniture — it fades
             in only once content has actually passed under it, so at rest the
             rail is unbroken. That is the detail people feel and cannot name. */}
-        <div
-          className={cn(
-            "shrink-0 px-[3px] pb-1 transition-[border-color] duration-200",
-            "border-b",
-            isRoomListScrolled ? "border-border/60" : "border-transparent",
-          )}
-        >
-          <AppSidebarPrimaryMenu
-            homeBadgeCount={homeBadgeCount}
-            onNewMessage={handleNewMessageNavigation}
-            onSelectAgents={onSelectAgents}
-            onSelectBrain={onSelectBrain}
-            onSelectArtifacts={onSelectArtifacts}
-            onSelectInbox={onSelectInbox}
-            onSelectPulse={onSelectPulse}
-            onSelectSettings={onSelectSettings}
-            selectedView={selectedView}
-          />
-        </div>
+            <div
+              className={cn(
+                "shrink-0 px-[3px] pb-1 transition-[border-color] duration-200",
+                "border-b",
+                isRoomListScrolled ? "border-border/60" : "border-transparent",
+              )}
+            >
+              <AppSidebarPrimaryMenu
+                homeBadgeCount={homeBadgeCount}
+                onNewMessage={handleNewMessageNavigation}
+                onSelectAgents={onSelectAgents}
+                onSelectBrain={onSelectBrain}
+                onSelectArtifacts={onSelectArtifacts}
+                onSelectInbox={onSelectInbox}
+                onSelectPulse={onSelectPulse}
+                onSelectSettings={onSelectSettings}
+                selectedView={selectedView}
+              />
+            </div>
+          </>
+        )}
 
         <div
           className="relative flex min-h-0 flex-1 flex-col"
@@ -1094,28 +1149,30 @@ export function AppSidebar({
                 />
               </div>
             ) : null}
-            <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarProfileCard
-                  activeCommunity={activeCommunity}
-                  isPresencePending={isPresencePending}
-                  onOpenAddCommunity={onOpenAddCommunity}
-                  onOpenSettings={onSelectSettings}
-                  onSendFeedback={onSendFeedback}
-                  onRemoveCommunity={onRemoveCommunity}
-                  onSetPresenceStatus={onSetPresenceStatus}
-                  onSetUserStatus={onSetUserStatus}
-                  onClearUserStatus={onClearUserStatus}
-                  onSwitchCommunity={onSwitchCommunity}
-                  onUpdateCommunity={onUpdateCommunity}
-                  profile={profile}
-                  resolvedDisplayName={resolvedDisplayName}
-                  selfPresenceStatus={selfPresenceStatus}
-                  selfUserStatus={selfUserStatus}
-                  communities={communities}
-                />
-              </SidebarMenuItem>
-            </SidebarMenu>
+            {frame ? null : (
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarProfileCard
+                    activeCommunity={activeCommunity}
+                    isPresencePending={isPresencePending}
+                    onOpenAddCommunity={onOpenAddCommunity}
+                    onOpenSettings={onSelectSettings}
+                    onSendFeedback={onSendFeedback}
+                    onRemoveCommunity={onRemoveCommunity}
+                    onSetPresenceStatus={onSetPresenceStatus}
+                    onSetUserStatus={onSetUserStatus}
+                    onClearUserStatus={onClearUserStatus}
+                    onSwitchCommunity={onSwitchCommunity}
+                    onUpdateCommunity={onUpdateCommunity}
+                    profile={profile}
+                    resolvedDisplayName={resolvedDisplayName}
+                    selfPresenceStatus={selfPresenceStatus}
+                    selfUserStatus={selfUserStatus}
+                    communities={communities}
+                  />
+                </SidebarMenuItem>
+              </SidebarMenu>
+            )}
           </SidebarFooter>
         </div>
       </div>
@@ -1234,7 +1291,7 @@ export function AppSidebar({
       />
       {deleteChannelDialog}
       {leaveChannelDialog}
-      <SidebarRail />
+      {frame ? null : <SidebarRail />}
     </Sidebar>,
     <RuntimeSessionsPanel
       contextScopeKey={runtimeContextScopeKey}

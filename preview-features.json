@@ -58,6 +58,14 @@
       "platforms": [
         "desktop"
       ]
+    },
+    {
+      "id": "shell-frame",
+      "name": "The shell's frame",
+      "description": "A thin black frame holding two cards: the conversations rail and the conversation",
+      "platforms": [
+        "desktop"
+      ]
     }
   ]
 }
