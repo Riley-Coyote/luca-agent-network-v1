@@ -45,7 +45,8 @@ type PlacesView =
   | "artifacts"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "settings";
 
 type PlaceId =
   | "conversations"
@@ -53,7 +54,8 @@ type PlaceId =
   | "inbox"
   | "agents"
   | "activity"
-  | "brain";
+  | "brain"
+  | "settings";
 
 /** Which place a view belongs to. */
 export function placeOfView(view: PlacesView): PlaceId | null {
@@ -73,6 +75,8 @@ export function placeOfView(view: PlacesView): PlaceId | null {
       return "activity";
     case "brain":
       return "brain";
+    case "settings":
+      return "settings";
     default:
       return null;
   }
@@ -315,6 +319,7 @@ export function ShellPlaces({
       </div>
       <div className="luca-places-group luca-places-end">
         <PlaceTile
+          current={here === "settings"}
           label="Settings"
           onClick={onSelectSettings}
           onPreload={() => void preloadSettingsSurface()}

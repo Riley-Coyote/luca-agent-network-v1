@@ -1,0 +1,157 @@
+/* ------------------------------------------------------------------
+ * SETTINGS IN THE FRAME (docs/luca/rail-system/SHELL_SPEC.md, "Settings";
+ * SHELL_BUILD.md, WP-05). Every rule keys on `<html data-luca-frame>`,
+ * which the shell sets only while the `shell-frame` flag is on.
+ *
+ * The frame stays on /settings: the lip and the places, Settings marked.
+ * The section list takes the rail card's place (220 at x 44, top flush with
+ * the lip, 6 above the window's bottom), opening and closing as the rail
+ * does; the panels fill the conversation card's place (4 from the list's
+ * card, or at the places' edge with it closed; 6 from the window's right
+ * and bottom). The rows are the rail's, as the study draws them
+ * (shellStudy.css, "the conversations rail").
+ *
+ * The rules shared with the rail's card (its footprint, its surface) are
+ * `shell-frame.css`'s and already reach any framed rail; the ones here are
+ * the card's own panel, spelled for the section list.
+ * ------------------------------------------------------------------ */
+
+/* ── the section list's card ─────────────────────────────────────── */
+:root[data-luca-frame="solid"] [data-frame] > [data-luca-settings-list] {
+  bottom: var(--luca-frame-edge);
+  height: auto;
+  transition: width var(--luca-frame-slide);
+  translate: none;
+  width: var(--sidebar-width);
+}
+
+/* Closed, it narrows to nothing and then is gone, as the rail's card is. */
+:root[data-luca-frame="solid"]
+  [data-frame][data-collapsible="offcanvas"]
+  > [data-luca-settings-list] {
+  transition:
+    width var(--luca-frame-slide),
+    visibility 0s linear 460ms;
+  visibility: hidden;
+  width: 0;
+}
+
+:root[data-luca-frame="solid"]
+  [data-frame][data-peek="true"]
+  > [data-luca-settings-list] {
+  transition: width var(--luca-frame-slide);
+  visibility: visible;
+  width: var(--sidebar-width);
+}
+
+/* ── the panels' card ────────────────────────────────────────────── */
+/* As the conversation's: the host carries the right and bottom edge, with
+ * a point of room (and the same negative margin) on the sides that touch
+ * the card, so its edge light falls inside the host's clip. */
+:root[data-luca-frame="solid"] [data-luca-settings-card-host] {
+  margin: -1px 0 0 -1px;
+  padding: 1px var(--luca-frame-edge) var(--luca-frame-edge) 1px;
+}
+
+:root[data-luca-frame="solid"]
+  [data-luca-settings-frame]
+  [data-luca-settings-card-host]
+  > [data-luca-conversation-surface] {
+  margin: 0;
+}
+
+/* ── the section list ────────────────────────────────────────────── */
+/* Its width is held while the card narrows, so the rows are clipped, not
+ * reflowed. */
+.luca-settings-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 6px 20px;
+  scrollbar-width: none;
+  -webkit-user-select: none;
+  user-select: none;
+  width: var(--sidebar-width);
+}
+
+.luca-settings-list::-webkit-scrollbar {
+  display: none;
+}
+
+.luca-settings-group + .luca-settings-group {
+  margin-top: 14px;
+}
+
+/* A group's name, in the rail's structure voice. */
+.luca-settings-group-head {
+  align-items: center;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  height: 26px;
+  padding: 0 6px 0 10px;
+}
+
+/* A section, as a home on the rail: 30 tall, the words at 14 in the
+ * second tone, the ink on hover and where you are. */
+.luca-settings-row {
+  align-items: center;
+  border-radius: 8px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  height: 30px;
+  letter-spacing: -0.006em;
+  padding: 0 5px 0 10px;
+  position: relative;
+  text-align: left;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 100%;
+}
+
+.luca-settings-row-name {
+  line-height: 1.5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.luca-settings-row:hover:not([data-current]) {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+/* Where you are, until the moving marks come (WP-03): a plate on the
+ * card's own tone, the page's ink at 7.5%. */
+.luca-settings-row[data-current] {
+  background: hsl(var(--mn-ink) / 0.075);
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-settings-row:focus-visible {
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* The build, said quietly at the card's foot. */
+.luca-settings-version {
+  color: hsl(var(--mn-ink-faint));
+  flex: none;
+  padding: 0 16px 12px;
+  -webkit-user-select: text;
+  user-select: text;
+  white-space: nowrap;
+}
+
+/* Reduce Motion: the list's card is instant, as the rail's is. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame="solid"] [data-frame] > [data-luca-settings-list],
+  :root[data-luca-frame="solid"]
+    [data-frame]:is([data-collapsible], [data-peek])
+    > [data-luca-settings-list] {
+    transition: none;
+  }
+}

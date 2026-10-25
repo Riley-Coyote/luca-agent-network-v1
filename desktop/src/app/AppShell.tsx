@@ -24,6 +24,7 @@ import {
   shellFrameSidebarStyle,
   useShellFrameRootAttribute,
 } from "@/app/shell/shellFrame";
+import { ShellSettingsPlaces } from "@/app/shell/ShellSettingsPlaces";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { preloadPrimaryNavigationSurfaces } from "@/app/navigation/preloadPrimarySurfaces";
@@ -92,6 +93,7 @@ import { useArchiveSync } from "@/features/local-archive/archiveSyncManager";
 import { useObserverArchiveReconciliation } from "@/features/local-archive/useObserverArchiveSeed";
 import { useAgentMetricArchiveSeed } from "@/features/local-archive/useAgentMetricArchiveSeed";
 import { useProfileQuery } from "@/features/profile/hooks";
+import { resolveSelfDisplayName } from "@/features/profile/lib/identity";
 import { SendFeedbackController } from "@/features/settings/ui/SendFeedbackController";
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -955,15 +957,19 @@ export function AppShell() {
                         className="min-h-0 flex-1 flex-col overflow-hidden"
                         style={shellFrame ? shellFrameSidebarStyle : undefined}
                       >
-                        {!settingsOpen && shellFrame ? (
+                        {shellFrame ? (
                           <ShellLip
                             canGoBack={canGoBack}
                             canGoForward={canGoForward}
-                            channel={activeChannel}
+                            channel={settingsOpen ? null : activeChannel}
                             currentPubkey={identityQuery.data?.pubkey}
                             onGoBack={goBack}
                             onGoForward={goForward}
-                            pageName={shellFramePageName(selectedView)}
+                            pageName={
+                              settingsOpen
+                                ? "Settings"
+                                : shellFramePageName(selectedView)
+                            }
                           />
                         ) : null}
                         {!settingsOpen && !shellFrame ? (
@@ -976,12 +982,114 @@ export function AppShell() {
                           />
                         ) : null}
                         {settingsOpen ? (
-                          <div className="flex min-h-0 flex-1 overflow-hidden">
+                          <div
+                            className="flex min-h-0 flex-1 overflow-hidden"
+                            data-luca-frame-row={shellFrame ? "" : undefined}
+                            data-luca-settings-frame={
+                              shellFrame ? "" : undefined
+                            }
+                          >
+                            {/* The frame stays in Settings: its places, with
+                                Settings marked (SHELL_SPEC.md, "Settings"). */}
+                            {shellFrame ? (
+                              <ShellSettingsPlaces
+                                avatarMenu={{
+                                  isPresencePending: presenceSession.isPending,
+                                  onClearUserStatus: () =>
+                                    setUserStatusMutation.mutate({
+                                      text: "",
+                                      emoji: "",
+                                    }),
+                                  onOpenSettings: handleOpenSettings,
+                                  onSendFeedback: () =>
+                                    setIsSendFeedbackOpen(true),
+                                  onSetPresenceStatus: (status) =>
+                                    presenceSession.setStatus(status),
+                                  onSetUserStatus: (text, emoji) =>
+                                    setUserStatusMutation.mutate({
+                                      text,
+                                      emoji,
+                                    }),
+                                  profile: profileQuery.data,
+                                  resolvedDisplayName: resolveSelfDisplayName({
+                                    identityDisplayName:
+                                      identityQuery.data?.displayName,
+                                    profileDisplayName:
+                                      profileQuery.data?.displayName,
+                                    pubkey: identityQuery.data?.pubkey,
+                                  }),
+                                  selfPresenceStatus:
+                                    presenceSession.currentStatus,
+                                  selfUserStatus: deferredPubkey
+                                    ? (selfStatusQuery.data?.[
+                                        deferredPubkey.toLowerCase()
+                                      ] ?? undefined)
+                                    : undefined,
+                                }}
+                                places={{
+                                  hasUnread: unreadChannelIds.size > 0,
+                                  homeBadgeCount: inboxSidebarBadgeCount,
+                                  onNewConversation: handleOpenNewDm,
+                                  onSelectAgents: () => void goAgents(),
+                                  onSelectArtifacts: () => void goArtifacts(),
+                                  onSelectBrain: () => void goBrain(),
+                                  onSelectConversations: () => void goHome(),
+                                  onSelectInbox: () =>
+                                    void (inboxSurfaceEnabled
+                                      ? goInbox()
+                                      : goHome()),
+                                  onSelectPulse: () => void goPulse(),
+                                  // Already here: pressing it keeps your place.
+                                  onSelectSettings: () => {},
+                                }}
+                                search={{
+                                  channels,
+                                  currentPubkey: identityQuery.data?.pubkey,
+                                  fallbackDisplayName:
+                                    identityQuery.data?.displayName,
+                                  focusRequest: searchFocusRequest,
+                                  onBrowseChannels: handleOpenBrowseChannels,
+                                  onCreateAgent: () => requestOpenCreateAgent(),
+                                  // The create dialog lives with the rail:
+                                  // leave Settings, then open it there.
+                                  onCreateChannel: () => {
+                                    void goHome();
+                                    handleOpenCreateChannel();
+                                  },
+                                  onOpenChannel: (channelId) =>
+                                    void goChannel(channelId),
+                                  onOpenDm: async ({ pubkeys }) => {
+                                    try {
+                                      const directMessage =
+                                        await openDmMutation.mutateAsync({
+                                          pubkeys,
+                                        });
+                                      await goChannel(directMessage.id);
+                                    } catch (error) {
+                                      toast.error(
+                                        "Couldn't open the conversation",
+                                        {
+                                          description:
+                                            error instanceof Error
+                                              ? error.message
+                                              : String(error),
+                                        },
+                                      );
+                                      throw error;
+                                    }
+                                  },
+                                  onOpenResult: handleOpenSearchResult,
+                                  suggestionChannels: sidebarChannels,
+                                }}
+                              />
+                            ) : null}
                             {/* One broken settings panel must not take the
                                 rail and every conversation with it. */}
                             <AppErrorBoundary screen="Settings">
                               <React.Suspense
-                                fallback={<SettingsLoadingFallback />}
+                                fallback={
+                                  <SettingsLoadingFallback frame={shellFrame} />
+                                }
                               >
                                 <LazySettingsScreen
                                   currentPubkey={identityQuery.data?.pubkey}
