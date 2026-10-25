@@ -26,8 +26,19 @@ export type MarkMaterial = "plate" | "card";
  *  when it has. */
 const RAIL_SLIDE_MS = 460;
 
-const ACTIVE_HOME_ROW =
-  '[data-sidebar="menu-button"][data-home][data-active="true"]';
+const HOME_ROW = '[data-sidebar="menu-button"][data-home]';
+const ACTIVE_HOME_ROW = `${HOME_ROW}[data-active="true"]`;
+
+/** Whether the rail's card is open or peeking, read from its frame's
+ *  wrapper; a layer with no wrapper (the narrow window's sheet) is open. */
+function railCardOpen(layer: HTMLElement) {
+  const wrapper = layer.closest<HTMLElement>("[data-frame]");
+  return (
+    !wrapper ||
+    wrapper.dataset.state === "expanded" ||
+    wrapper.dataset.peek === "true"
+  );
+}
 
 const reduceMotion = () =>
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -132,14 +143,23 @@ export function ShellRailMarks({
   material?: MarkMaterial;
 }) {
   const layerRef = React.useRef<HTMLDivElement>(null);
-  // Whether the rail's card is open (or peeking) and done sliding.
-  const shownRef = React.useRef(false);
+  // Whether the rail's card is open (or peeking) and done sliding; null
+  // until the layer's first look, which reads it from the card itself.
+  const shownRef = React.useRef<boolean | null>(null);
   const sync = useMarkGroup(
     layerRef,
     "luca-mark luca-mark--row",
     (group, layer) => {
+      // The layer's first page is the rail as it first shows: open at
+      // first, its mark is simply there; closed, the page has no mark and
+      // the mark that comes with opening swells in (marks.ts).
+      if (shownRef.current === null) shownRef.current = railCardOpen(layer);
+      const host = layer.parentElement;
+      // Open, its first page is its rows' first showing: until they render
+      // (the conversations still loading) it has shown nothing yet.
+      if (shownRef.current && !host?.querySelector(HOME_ROW)) return;
       const row = shownRef.current
-        ? layer.parentElement?.querySelector(ACTIVE_HOME_ROW)
+        ? host?.querySelector(ACTIVE_HOME_ROW)
         : null;
       group.show(
         row?.getAttribute("data-home") ?? null,
@@ -154,10 +174,7 @@ export function ShellRailMarks({
     if (!layer || !host) return;
     // The rail's card: open, closed or peeking, on its frame's wrapper.
     const wrapper = layer.closest<HTMLElement>("[data-frame]");
-    const open = () =>
-      !wrapper ||
-      wrapper.dataset.state === "expanded" ||
-      wrapper.dataset.peek === "true";
+    const open = () => railCardOpen(layer);
     let timer = 0;
     const follow = () => {
       window.clearTimeout(timer);
@@ -177,7 +194,7 @@ export function ShellRailMarks({
         sync();
       }, RAIL_SLIDE_MS);
     };
-    // Open at first, the mark is simply there.
+    // As the first look found it (above); a change since is followed.
     shownRef.current = open();
     sync();
 

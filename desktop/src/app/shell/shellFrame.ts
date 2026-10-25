@@ -1,4 +1,3 @@
-import { isTauri } from "@tauri-apps/api/core";
 import * as React from "react";
 
 import type { AppView } from "@/app/AppShell.helpers";
@@ -49,9 +48,17 @@ export function shellFramePageName(view: AppView): string {
   }
 }
 
-/** The key the frame's tooltips name (SHELL_SPEC.md, "The window"): ⌘ in
- *  the Mac app's own window; Ctrl wherever there are no native lights:
- *  another platform, a browser, the end-to-end tests. */
-export function shellShortcutKey(): "⌘" | "Ctrl+" {
-  return isMacPlatform() && isTauri() ? "⌘" : "Ctrl+";
+/** The keys the frame's tooltips name (SHELL_SPEC.md, "Keyboard"), read
+ *  from the same test the shortcuts' own handlers use
+ *  (`hasPrimaryShortcutModifier`, useBackForwardControls): ⌘ on a Mac, the
+ *  app's window or a browser alike; Ctrl elsewhere. Back and forward are
+ *  ⌘[ and ⌘] on a Mac and Alt+← and Alt+→ elsewhere. */
+export function shellShortcuts(): {
+  key: "⌘" | "Ctrl+";
+  back: string;
+  forward: string;
+} {
+  return isMacPlatform()
+    ? { key: "⌘", back: "⌘[", forward: "⌘]" }
+    : { key: "Ctrl+", back: "Alt+←", forward: "Alt+→" };
 }

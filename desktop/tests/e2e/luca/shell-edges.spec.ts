@@ -302,7 +302,7 @@ const companionAgent = {
   channelNames: ["general"],
 };
 
-test("the companion's halo is concentric and its badge stands below the lip", async ({
+test("the companion's halo is concentric and its badge stands below the lip, on the card's axis", async ({
   page,
 }) => {
   test.setTimeout(120_000);
@@ -330,9 +330,7 @@ test("the companion's halo is concentric and its badge stands below the lip", as
       pointer: style.pointerEvents,
     };
   });
-  const badge = await box(page, '[data-testid="app-control-badge"]');
   const lip = await box(page, '[data-testid="shell-lip"]');
-  const name = await box(page, '[data-testid="shell-lip-name"]');
   checks.halo = {
     measured: halo,
     expected: { inset: 3, radius: "13px", window_radius: 16 },
@@ -342,27 +340,72 @@ test("the companion's halo is concentric and its badge stands below the lip", as
       halo.pointer === "none",
   };
   const lipBottom = lip ? lip.y + lip.h : null;
-  checks.badge = {
-    measured: {
-      top: badge?.y,
-      lip_bottom: lipBottom,
-      below_lip_by: badge && lipBottom !== null ? badge.y - lipBottom : null,
+  /** The badge against the name: both on the conversation card's axis. */
+  const onAxis = async () => {
+    await settle(page);
+    const badge = await box(page, '[data-testid="app-control-badge"]');
+    const name = await box(page, '[data-testid="shell-lip-name"]');
+    const card = await box(page, '[data-testid="shell-lip"] .luca-lip-card');
+    const centre = (b: Box | null) =>
+      b ? Math.round((b.x + b.w / 2) * 100) / 100 : null;
+    return {
+      top: badge?.y ?? null,
+      badge_axis: centre(badge),
+      name_axis: centre(name),
+      badge_span: badge ? [badge.x, badge.x + badge.w] : null,
+      card_span: card ? [card.x, card.x + card.w] : null,
       clear_of_the_name: badge && name ? badge.y >= name.y + name.h : null,
-      centred:
-        badge !== null
-          ? Math.abs(badge.x + badge.w / 2 - 1440 / 2) <= 0.5
-          : null,
-    },
-    expected: { top: 42, below_lip_by: 6 },
-    ok: badge?.y === 42 && lipBottom === 36,
+    };
   };
+  const good = (m: Awaited<ReturnType<typeof onAxis>>) =>
+    m.top === 42 &&
+    m.badge_axis !== null &&
+    m.name_axis !== null &&
+    Math.abs(m.badge_axis - m.name_axis) <= 0.5 &&
+    m.badge_span !== null &&
+    m.card_span !== null &&
+    m.badge_span[0] >= m.card_span[0] + 15.5 &&
+    m.badge_span[1] <= m.card_span[1] - 15.5;
+  const open1440 = await onAxis();
   await shot(page, "01-halo-window");
   await shot(page, "01-halo-corner", {
     clip: { x: 0, y: 0, width: 120, height: 90 },
   });
   await shot(page, "01-halo-badge", {
-    clip: { x: 520, y: 0, width: 400, height: 90 },
+    clip: { x: 600, y: 0, width: 500, height: 90 },
   });
+  await page.getByTestId("shell-lip-toggle").click();
+  await expect(page.getByTestId("shell-lip-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  const closed1440 = await onAxis();
+  await shot(page, "01-badge-rail-closed", {
+    clip: { x: 500, y: 0, width: 500, height: 90 },
+  });
+  await page.getByTestId("shell-lip-toggle").click();
+  await expect(page.getByTestId("shell-lip-toggle")).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await page.setViewportSize({ width: 800, height: 500 });
+  const open800 = await onAxis();
+  await shot(page, "01-badge-800x500");
+  checks.badge = {
+    measured: {
+      lip_bottom: lipBottom,
+      rail_open_1440: open1440,
+      rail_closed_1440: closed1440,
+      rail_open_800x500: open800,
+    },
+    expected: {
+      top: 42,
+      below_lip_by: 6,
+      axis: "the name's (the conversation card's)",
+      within_the_card_less: 16,
+    },
+    ok: lipBottom === 36 && good(open1440) && good(closed1440) && good(open800),
+  };
   // At a narrow window the badge stays below the lip too.
   await page.setViewportSize({ width: 740, height: 600 });
   const narrow = await box(page, '[data-testid="app-control-badge"]');
@@ -946,40 +989,171 @@ async function setFullscreen(page: Page, on: boolean) {
   }, on);
 }
 
-test("without native lights the toggle sits at 16 and tooltips say Ctrl", async ({
-  page,
+/** The page believes it runs on `platform` (navigator.platform), as the
+ *  shortcuts' handlers and the tooltips read it. */
+function fakePlatform(platform: string) {
+  return async (page: Page) => {
+    await page.addInitScript((value) => {
+      Object.defineProperty(Navigator.prototype, "platform", {
+        configurable: true,
+        get: () => value,
+      });
+    }, platform);
+  };
+}
+
+/** Whether the keys toggle the rail, goes back and goes forward,
+ *  from a place's page (nothing editable focused), after two places. */
+async function shortcutsThatWork(
+  page: Page,
+  keys: { rail: string; back: string; forward: string },
+) {
+  const toggle = page.getByTestId("shell-lip-toggle");
+  const expanded = () => toggle.getAttribute("aria-expanded");
+  const hash = () => page.evaluate(() => window.location.hash);
+  await page.getByTestId("open-artifacts-view").click();
+  await expect.poll(hash).toContain("artifacts");
+  await page.getByTestId("open-agents-view").click();
+  await expect.poll(hash).toContain("agents");
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  const rail0 = await expanded();
+  await page.keyboard.press(keys.rail);
+  await page.waitForTimeout(400);
+  const rail1 = await expanded();
+  await page.keyboard.press(keys.rail);
+  await page.waitForTimeout(400);
+  const at = await hash();
+  await page.keyboard.press(keys.back);
+  await page.waitForTimeout(400);
+  const back = await hash();
+  await page.keyboard.press(keys.forward);
+  await page.waitForTimeout(400);
+  const forward = await hash();
+  return {
+    keys,
+    rail: { before: rail0, after: rail1, ok: rail0 !== rail1 },
+    back: { from: at, to: back, ok: back !== at && back.includes("artifacts") },
+    forward: { to: forward, ok: forward === at },
+  };
+}
+
+/** The avatar menu's Settings key, read from the menu itself. */
+async function avatarSettingsKey(page: Page) {
+  await page.getByTestId("shell-profile-avatar-button").click();
+  const kbd = page
+    .getByRole("menuitem", { name: /^Settings/ })
+    .locator("kbd")
+    .first();
+  await expect(kbd).toBeVisible({ timeout: 10_000 });
+  const text = (await kbd.innerText()).trim();
+  await page.keyboard.press("Escape");
+  return text;
+}
+
+test("without native lights the toggle heads the places' column and the tooltips name keys that work", async ({
+  browser,
 }) => {
-  test.setTimeout(120_000);
-  await openApp(page, {
-    route: `#/channels/${GENERAL_CHANNEL_ID}`,
-    reducedMotion: true,
-  });
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
-    timeout: 20_000,
-  });
-  const positions = await lipPositions(page);
-  const tips = await tooltips(page);
-  await shot(page, "05-lip-no-lights", {
-    clip: { x: 0, y: 0, width: 520, height: 80 },
-  });
+  test.setTimeout(180_000);
+  const results: Record<string, unknown> = {};
+  let positions: Awaited<ReturnType<typeof lipPositions>> | null = null;
+  let tipsOk = true;
+  for (const run of [
+    {
+      name: "mac_browser",
+      platform: "MacIntel",
+      keys: {
+        rail: "Meta+s",
+        back: "Meta+BracketLeft",
+        forward: "Meta+BracketRight",
+      },
+      dead: "Control+s",
+      expect: {
+        rail: "(⌘S)",
+        back: "Go back (⌘[)",
+        forward: "Go forward (⌘])",
+        newConversation: "New conversation ⌘N",
+        settings: "Settings ⌘,",
+        avatar: "⌘,",
+      },
+    },
+    {
+      name: "windows",
+      platform: "Win32",
+      keys: {
+        rail: "Control+s",
+        back: "Alt+ArrowLeft",
+        forward: "Alt+ArrowRight",
+      },
+      dead: "Meta+s",
+      expect: {
+        rail: "(Ctrl+S)",
+        back: "Go back (Alt+←)",
+        forward: "Go forward (Alt+→)",
+        newConversation: "New conversation Ctrl+N",
+        settings: "Settings Ctrl+,",
+        avatar: "Ctrl+,",
+      },
+    },
+  ]) {
+    const context = await browser.newContext({ deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    await openApp(page, {
+      route: `#/channels/${GENERAL_CHANNEL_ID}`,
+      reducedMotion: true,
+      before: fakePlatform(run.platform),
+    });
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
+      timeout: 20_000,
+    });
+    const platform = await page.evaluate(() => navigator.platform);
+    if (run.name === "mac_browser") {
+      positions = await lipPositions(page);
+      await shot(page, "05-lip-no-lights", {
+        clip: { x: 0, y: 0, width: 520, height: 80 },
+      });
+      await shot(page, "05-toggle-heads-the-places", {
+        clip: { x: 0, y: 0, width: 60, height: 140 },
+      });
+    }
+    const tips = await tooltips(page);
+    const avatar = await avatarSettingsKey(page);
+    const work = await shortcutsThatWork(page, run.keys);
+    // The key the tooltip does not name does nothing.
+    const toggle = page.getByTestId("shell-lip-toggle");
+    const before = await toggle.getAttribute("aria-expanded");
+    await page.keyboard.press(run.dead);
+    await page.waitForTimeout(400);
+    const deadOk = (await toggle.getAttribute("aria-expanded")) === before;
+    const named =
+      tips.lip[0]?.endsWith(run.expect.rail) === true &&
+      tips.lip[1] === run.expect.back &&
+      tips.lip[2] === run.expect.forward &&
+      tips.places[0] === run.expect.newConversation &&
+      tips.places[1] === run.expect.settings &&
+      avatar === run.expect.avatar;
+    const ok =
+      named && work.rail.ok && work.back.ok && work.forward.ok && deadOk;
+    tipsOk &&= ok;
+    results[run.name] = {
+      platform,
+      tips,
+      avatar_menu_settings: avatar,
+      pressed: work,
+      [`${run.dead}_does_nothing`]: deadOk,
+      ok,
+    };
+    await context.close();
+  }
   checks.no_lights_toggle = {
     measured: positions,
-    expected: { toggle: 16, toggle_y: 10, back: 274 },
+    expected: { toggle: 10, toggle_centre: 22, toggle_y: 10, back: 274 },
     ok:
-      positions.toggle === 16 &&
+      positions?.toggle === 10 &&
       positions.toggle_y === 10 &&
       positions.back === 274,
   };
-  checks.ctrl_tooltips = {
-    browser: tips,
-    ok:
-      tips.lip[0]?.endsWith("(Ctrl+S)") === true &&
-      tips.lip[1] === "Go back (Ctrl+[)" &&
-      tips.lip[2] === "Go forward (Ctrl+])" &&
-      tips.places[0] === "New conversation Ctrl+N" &&
-      tips.places[1] === "Settings Ctrl+,",
-  };
-  verdict("no_lights_toggle");
+  checks.ctrl_tooltips = { browser: results, ok: tipsOk };
+  verdict("no_lights_toggle", "ctrl_tooltips");
 });
 
 test("with the Mac's lights the toggle sits past them, and in full screen where the first one was", async ({
@@ -989,7 +1163,10 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
   await openApp(page, {
     route: `#/channels/${GENERAL_CHANNEL_ID}`,
     reducedMotion: true,
-    before: fakeTauri,
+    before: async (page) => {
+      await fakePlatform("MacIntel")(page);
+      await fakeTauri(page);
+    },
   });
   await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
     timeout: 20_000,
@@ -1004,7 +1181,7 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
   await setFullscreen(page, true);
   await expect
     .poll(async () => (await lipPositions(page)).toggle, { timeout: 5_000 })
-    .toBe(16);
+    .toBe(10);
   const full = await lipPositions(page);
   // The same toggle position as without lights, by design; shown across
   // the whole lip, back, forward and the name in their places.
@@ -1016,16 +1193,16 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
     .poll(async () => (await lipPositions(page)).toggle, { timeout: 5_000 })
     .toBe(78);
   const again = await lipPositions(page);
-  const ctrl = checks.ctrl_tooltips as { ok?: boolean } | undefined;
   const nativeTipsOk =
     tips.lip[0]?.endsWith("(⌘S)") === true &&
     tips.lip[1] === "Go back (⌘[)" &&
+    tips.lip[2] === "Go forward (⌘])" &&
     tips.places[0] === "New conversation ⌘N" &&
     tips.places[1] === "Settings ⌘,";
-  checks.ctrl_tooltips = {
-    ...(ctrl ?? {}),
-    native_mac_window: { platform, ...tips },
-    ok: Boolean(ctrl?.ok) && nativeTipsOk,
+  checks.tooltips_native_mac_window = {
+    platform,
+    ...tips,
+    ok: nativeTipsOk,
   };
   checks.fullscreen_toggle = {
     platform,
@@ -1034,13 +1211,13 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
     windowed_again: again,
     ok:
       windowed.toggle === 78 &&
-      full.toggle === 16 &&
+      full.toggle === 10 &&
       again.toggle === 78 &&
       full.back === windowed.back &&
       full.forward === windowed.forward &&
       full.name === windowed.name,
   };
-  verdict("fullscreen_toggle", "ctrl_tooltips");
+  verdict("fullscreen_toggle", "tooltips_native_mac_window");
 });
 
 // ── 6. the marks ─────────────────────────────────────────────────────
@@ -1110,6 +1287,117 @@ async function firstMarkTrace(page: Page, origin: string) {
   };
 }
 
+type MarkFrame = { t: number; w: number; h: number };
+
+/** Records the rail's newest mark on every frame from the page's very
+ *  start; `restartRailTrace` starts the record over (an action to come). */
+async function recordRailMark(page: Page) {
+  await page.addInitScript(() => {
+    const host = window as unknown as {
+      __RAIL_MARK__: MarkFrame[];
+      __RAIL_TRACE__: () => void;
+    };
+    let run = 0;
+    host.__RAIL_TRACE__ = () => {
+      const mine = ++run;
+      host.__RAIL_MARK__ = [];
+      const look = () => {
+        if (mine !== run) return;
+        const mark = document.querySelector<HTMLElement>(
+          '[data-testid="shell-rail-marks"] > .luca-mark:last-child',
+        );
+        if (mark && mark.style.visibility === "visible") {
+          host.__RAIL_MARK__.push({
+            t: Math.round(performance.now()),
+            w: Number.parseFloat(mark.style.width) || 0,
+            h: Number.parseFloat(mark.style.height) || 0,
+          });
+        }
+        if (host.__RAIL_MARK__.length < 40) requestAnimationFrame(look);
+      };
+      requestAnimationFrame(look);
+    };
+    host.__RAIL_TRACE__();
+  });
+}
+
+async function restartRailTrace(page: Page) {
+  await page.evaluate(() =>
+    (window as unknown as { __RAIL_TRACE__: () => void }).__RAIL_TRACE__(),
+  );
+}
+
+/** The rail mark's visible frames so far: its first and its last. */
+async function railMarkFrames(page: Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (window as unknown as { __RAIL_MARK__: MarkFrame[] }).__RAIL_MARK__
+              .length,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThanOrEqual(30);
+  const frames = await page.evaluate(
+    () => (window as unknown as { __RAIL_MARK__: MarkFrame[] }).__RAIL_MARK__,
+  );
+  const first = frames[0] ?? null;
+  const last = frames.at(-1) ?? null;
+  return {
+    first,
+    last,
+    widths: frames.slice(0, 8).map((frame) => frame.w),
+    // Simply there: its first visible frame is already its settled size.
+    still:
+      first !== null &&
+      last !== null &&
+      Math.abs(first.w - last.w) < 1 &&
+      Math.abs(first.h - last.h) < 1,
+  };
+}
+
+/** The rail's mark where the rail's layer shows its first page: at launch
+ *  on a conversation, back from Settings, and as the narrow sheet opens.
+ *  And, against them, a mark after a first page without one: the rail
+ *  opened after launching closed. */
+async function railFirstPages(page: Page) {
+  await recordRailMark(page);
+  await openApp(page, {
+    route: `#/channels/${GENERAL_CHANNEL_ID}`,
+    bridge: { managedAgents: [LUCA_AGENT] },
+  });
+  const launch = await railMarkFrames(page);
+  await shot(page, "06-rail-mark-at-launch", {
+    clip: { x: 0, y: 36, width: 280, height: 600 },
+  });
+
+  await page.getByTestId("open-settings-view").click();
+  await expect(page.getByTestId("shell-rail-marks")).toHaveCount(0, {
+    timeout: 10_000,
+  });
+  await restartRailTrace(page);
+  await page.getByTestId("global-back").click();
+  const fromSettings = await railMarkFrames(page);
+
+  // The rail closed, then opened: its first page (closed) had no mark, so
+  // the mark that comes with opening swells in.
+  await page.getByTestId("shell-lip-toggle").click();
+  await page.waitForTimeout(900);
+  await restartRailTrace(page);
+  await page.getByTestId("shell-lip-toggle").click();
+  const reopened = await railMarkFrames(page);
+
+  await page.setViewportSize({ width: 700, height: 500 });
+  await page.waitForTimeout(900);
+  await restartRailTrace(page);
+  await page.getByTestId("shell-lip-toggle").click();
+  await expect(page.locator('[data-mobile="true"]')).toBeVisible();
+  const sheet = await railMarkFrames(page);
+  return { launch, fromSettings, reopened, sheet };
+}
+
 test("the first mark after the page appears swells from a point", async ({
   browser,
 }) => {
@@ -1121,6 +1409,9 @@ test("the first mark after the page appears swells from a point", async ({
     clip: { x: 0, y: 36, width: 60, height: 360 },
   });
   await ours.close();
+  const railContext = await browser.newContext({ deviceScaleFactor: 2 });
+  const rail = await railFirstPages(await railContext.newPage());
+  await railContext.close();
 
   checks.first_mark_swells = {
     page: "#/workflows (no place) → Agents",
@@ -1129,13 +1420,21 @@ test("the first mark after the page appears swells from a point", async ({
     // the marks' unit test (firstMarkAfterAPageWithout_swellsFromAPoint),
     // which fails on the engine as it was.
     before: "see marks.test.mjs",
+    // A mark on a layer's first page is simply there: the rail's at launch,
+    // back from Settings and as the narrow sheet opens; the rail opened
+    // after a first page without one swells.
+    rail,
     ok:
       trace.marks_before === 0 &&
       trace.first_shown !== null &&
       trace.first_shown.w < 28 &&
       trace.widths.length > 2 &&
       trace.last?.w === 28 &&
-      trace.last?.h === 28,
+      trace.last?.h === 28 &&
+      rail.launch.still &&
+      rail.fromSettings.still &&
+      rail.sheet.still &&
+      !rail.reopened.still,
   };
   verdict("first_mark_swells");
 });

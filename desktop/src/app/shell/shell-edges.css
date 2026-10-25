@@ -9,13 +9,32 @@
 /* ── the companion's halo ─────────────────────────────────────────────
  * 3 in from the window's edge, so its corner is the window's less 3 (13),
  * concentric with it; square in full screen, where the window is. Its badge
- * stands below the lip, 6 under its 36, clear of the lip's words. */
+ * stands below the lip, 6 under its 36, clear of the lip's words, and on the
+ * conversation card's axis, under the name and over the day labels: the
+ * lip publishes the card's left and right (ShellLip.tsx), and the badge
+ * rides the rail's slide with them. No wider than the card less 32. */
 :root[data-luca-frame] .polyphonic-control-halo {
   border-radius: max(0px, calc(var(--luca-frame-window-radius, 16px) - 3px));
 }
 
 :root[data-luca-frame] .polyphonic-control-badge {
   top: calc(var(--luca-frame-lip, 36px) + var(--luca-frame-edge, 6px));
+  left: calc(
+    var(--luca-frame-card-left, 0px) +
+    (
+      100vw -
+      var(--luca-frame-card-left, 0px) -
+      var(--luca-frame-card-right, 0px)
+    ) /
+    2
+  );
+  max-width: calc(
+    100vw -
+    var(--luca-frame-card-left, 0px) -
+    var(--luca-frame-card-right, 0px) -
+    32px
+  );
+  transition: left var(--luca-frame-slide);
 }
 
 /* ── the Canvas in focus ──────────────────────────────────────────────
@@ -49,8 +68,9 @@
 
 /* ── the lip without native lights ────────────────────────────────────
  * Another platform, a browser, the end-to-end tests, and full screen (the
- * lights gone): the toggle takes the lip's left padding, 16, where the first
- * light was. Back, forward and the name keep their places on the card. */
+ * lights gone): the toggle stands where the first light was, its centre on
+ * the lights' axis (22), the axis the places stand on, so it heads their
+ * column. Back, forward and the name keep their places on the card. */
 .luca-lip[data-lights="none"] .luca-lip-toggle {
-  left: 16px;
+  left: 10px;
 }

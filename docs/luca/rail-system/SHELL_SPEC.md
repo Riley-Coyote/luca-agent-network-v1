@@ -190,7 +190,9 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
 - **Full screen:** the lights go away; the lip's toggle moves to where the first light was, and back, forward and the
   conversation's name keep their places on the card.
 - **Without native lights** (another platform, a browser, the end-to-end tests) the toggle sits at the lip's left
-  padding, as the strip's no-lights branch does today, and tooltips name Ctrl instead of ⌘.
+  padding, where the first light was (its centre on the places' axis, 22). Tooltips name the keys the platform's
+  handlers take: Ctrl instead of ⌘ off the Mac, and Alt+← and Alt+→ for back and forward there; a browser on a Mac
+  takes ⌘.
 - **The lights move for the whole window,** so check them on every frameless screen too (setup, loading, errors,
   membership) in the same change.
 - **The loading gates** (`AppLoadingGate`, `CommunitySwitchGate`, the boot splash) paint the frame's floor, or stay
