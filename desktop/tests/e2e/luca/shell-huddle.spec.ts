@@ -141,7 +141,10 @@ async function box(page: Page, selector: string): Promise<Box | null> {
 
 /** Bob says hello in #general, and the owner starts a huddle from his card,
  *  the way it is done in the app; the bar shows once the huddle is live. */
-async function startHuddle(page: Page) {
+async function startHuddle(
+  page: Page,
+  { dismissHint = true }: { dismissHint?: boolean } = {},
+) {
   // The owner and Bob, as once Bob has joined.
   await page.evaluate(
     (who) => {
@@ -184,9 +187,16 @@ async function startHuddle(page: Page) {
     .getByTestId(`user-profile-popover-huddle-${TEST_IDENTITIES.bob.pubkey}`)
     .click();
   await expect(page.locator(BAR)).toBeVisible({ timeout: 15_000 });
-  // The headphones hint opens once on the first huddle; it is today's.
+  if (!dismissHint) return;
+  // The headphones hint opens once on the first huddle; it is today's. In
+  // the frame it opens once the bar has risen (460 ms), so it gets room.
   const gotIt = page.getByRole("button", { name: "Got it" });
-  if (await gotIt.isVisible().catch(() => false)) {
+  if (
+    await gotIt
+      .waitFor({ state: "visible", timeout: 1_500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await gotIt.click({ timeout: 5_000 }).catch(() => undefined);
   }
   await expect(gotIt).toHaveCount(0, { timeout: 5_000 });
@@ -883,5 +893,827 @@ test("flag off draws the base build exactly", async ({ browser }, info) => {
     expect
       .soft((result[key] as { identical: boolean }).identical, key)
       .toBe(true);
+  }
+});
+
+// ── the review's fixes ───────────────────────────────────────────────
+
+/** Colours at CSS points, from the page's own pixels, and the contrast of a
+ *  solid CSS colour (an element's word) on one of them. */
+async function contrastOn(
+  page: Page,
+  probes: { name: string; selector: string; at: [number, number] }[],
+) {
+  const png = await page.screenshot();
+  return page.evaluate(
+    async ({ b64, probes }) => {
+      const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+      const bitmap = await createImageBitmap(
+        new Blob([bytes], { type: "image/png" }),
+      );
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext(
+        "2d",
+      ) as OffscreenCanvasRenderingContext2D;
+      context.drawImage(bitmap, 0, 0);
+      const scale = bitmap.width / window.innerWidth;
+      const px = (x: number, y: number) =>
+        Array.from(
+          context.getImageData(
+            Math.round(x * scale),
+            Math.round(y * scale),
+            1,
+            1,
+          ).data,
+        ).slice(0, 3);
+      const solid = (css: string, over: number[]) => {
+        const c = new OffscreenCanvas(1, 1).getContext(
+          "2d",
+        ) as OffscreenCanvasRenderingContext2D;
+        c.fillStyle = css;
+        c.fillRect(0, 0, 1, 1);
+        const [r, g, b, a] = Array.from(c.getImageData(0, 0, 1, 1).data);
+        const k = a / 255;
+        return [r, g, b].map((v, i) => Math.round(v * k + over[i] * (1 - k)));
+      };
+      const lum = (rgb: number[]) => {
+        const f = (v: number) => {
+          const c = v / 255;
+          return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2]);
+      };
+      const ratio = (a: number[], b: number[]) => {
+        const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+        return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100;
+      };
+      return probes.map(({ name, selector, at }) => {
+        const element = document.querySelector(selector);
+        if (!element) return { name, missing: true };
+        const r = element.getBoundingClientRect();
+        const ground = px(r.left + at[0], r.top + at[1]);
+        const word = solid(getComputedStyle(element).color, ground);
+        return { name, word, ground, contrast: ratio(word, ground) };
+      });
+    },
+    { b64: png.toString("base64"), probes },
+  );
+}
+
+/** The hint's placement (its popper wrapper, without its own entrance) and
+ *  the speaker pair's top, every frame from the bar's first frame. */
+async function traceHint(page: Page, ms = 1600) {
+  await page.evaluate((ms) => {
+    const samples: (number | null)[][] = [];
+    const w = window as unknown as {
+      __HINT__: (number | null)[][];
+      __HINT_DONE__: boolean;
+    };
+    w.__HINT__ = samples;
+    w.__HINT_DONE__ = false;
+    let start = 0;
+    const step = () => {
+      const bar = document.querySelector(".buzz-huddle-drawer.grid");
+      if (bar && !start) start = performance.now();
+      if (start) {
+        const hint = document.querySelector(
+          '[aria-label="Headphones recommended"]',
+        );
+        const wrapper = hint?.parentElement?.getBoundingClientRect();
+        const pair = bar
+          ?.querySelector('[aria-label="Speaker settings"]')
+          ?.parentElement?.getBoundingClientRect();
+        const controls = Array.from(bar?.querySelectorAll("button") ?? []).map(
+          (b) => b.getBoundingClientRect(),
+        );
+        // Does the hint cover any control?
+        const covers =
+          wrapper && hint
+            ? controls.some(
+                (c) =>
+                  c.left < wrapper.right &&
+                  c.right > wrapper.left &&
+                  c.top < wrapper.bottom &&
+                  c.bottom > wrapper.top,
+              )
+            : false;
+        samples.push([
+          Math.round(performance.now() - start),
+          wrapper ? Math.round(wrapper.bottom * 10) / 10 : null,
+          pair ? Math.round(pair.top * 10) / 10 : null,
+          covers ? 1 : 0,
+        ]);
+        if (performance.now() - start > ms) {
+          w.__HINT_DONE__ = true;
+          return;
+        }
+      }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, ms);
+}
+
+test("the first huddle's hint waits for the bar to rise", async ({
+  browser,
+}, info) => {
+  test.setTimeout(420_000);
+  const dir = shotsDir(info.outputPath());
+  const runs: Record<string, unknown>[] = [];
+  const files: string[] = [];
+  for (let run = 1; run <= 10; run += 1) {
+    const paper = run === 10;
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      permissions: ["microphone"],
+    });
+    const page = await context.newPage();
+    if (paper) {
+      await page.addInitScript(() =>
+        window.localStorage.setItem("buzz-theme", "paper"),
+      );
+    }
+    await openApp(page, { frame: true, scheme: paper ? "light" : "dark" });
+    await openGeneral(page);
+    await traceHint(page);
+    await startHuddle(page, { dismissHint: false });
+    if (run === 1 || paper) {
+      // Where the reviewers saw it misplaced: 0.9 s after the start.
+      await page.waitForTimeout(500);
+      const file = path.join(
+        dir,
+        `fix-hint-${paper ? "paper" : "dark"}-0.9s-1440x900.png`,
+      );
+      await page.screenshot({
+        path: file,
+        clip: { x: 260, y: 640, width: 1180, height: 260 },
+      });
+      files.push(file);
+    }
+    await page.waitForFunction(
+      () => (window as unknown as { __HINT_DONE__: boolean }).__HINT_DONE__,
+      undefined,
+      { timeout: 20_000 },
+    );
+    const samples = await page.evaluate(
+      () => (window as unknown as { __HINT__: (number | null)[][] }).__HINT__,
+    );
+    const shown = samples.filter((s) => s[1] !== null);
+    const offsets = shown.map(
+      (s) => Math.round(((s[2] as number) - (s[1] as number)) * 10) / 10,
+    );
+    runs.push({
+      run,
+      palette: paper ? "paper" : "dark",
+      first_shown_ms: shown[0]?.[0] ?? null,
+      frames_shown: shown.length,
+      frames_covering_controls: shown.filter((s) => s[3] === 1).length,
+      gap_to_controls: {
+        min: offsets.length ? Math.min(...offsets) : null,
+        max: offsets.length ? Math.max(...offsets) : null,
+      },
+      at_500ms: samples.find((s) => (s[0] as number) >= 500) ?? null,
+    });
+    await context.close();
+  }
+  writeFileSync(
+    path.join(dir, "checks-fix-hint.json"),
+    JSON.stringify({ hint: runs, files }, null, 2),
+  );
+  for (const r of runs) {
+    expect
+      .soft(r.frames_shown as number, `run ${r.run} shown`)
+      .toBeGreaterThan(0);
+    expect.soft(r.frames_covering_controls, `run ${r.run} covers`).toBe(0);
+    const g = r.gap_to_controls as { min: number; max: number };
+    expect
+      .soft(Math.abs(g.min - 10), `run ${r.run} min`)
+      .toBeLessThanOrEqual(0.6);
+    expect
+      .soft(Math.abs(g.max - 10), `run ${r.run} max`)
+      .toBeLessThanOrEqual(0.6);
+  }
+});
+
+test("the bar's controls: the lip's buttons, the page's warning tone, the pairs' plates", async ({
+  browser,
+}, info) => {
+  test.setTimeout(300_000);
+  const dir = shotsDir(info.outputPath());
+  const out: Record<string, unknown> = {};
+  for (const palette of ["dark", "paper"] as const) {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      permissions: ["microphone"],
+    });
+    const page = await context.newPage();
+    if (palette === "paper") {
+      await page.addInitScript(() =>
+        window.localStorage.setItem("buzz-theme", "paper"),
+      );
+    }
+    await openApp(page, {
+      frame: true,
+      scheme: palette === "paper" ? "light" : "dark",
+    });
+    await openGeneral(page);
+    await startHuddle(page);
+    await openGeneral(page);
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(700);
+    const result: Record<string, unknown> = {};
+    const bandBox = (await box(page, BAND)) as Box;
+    const crop = (name: string) => {
+      const file = path.join(dir, `fix-${palette}-${name}.png`);
+      return settle(page)
+        .then(() =>
+          page.screenshot({
+            path: file,
+            clip: {
+              x: bandBox.x + 200,
+              y: bandBox.y - 8,
+              width: 760,
+              height: bandBox.h + 14,
+            },
+          }),
+        )
+        .then(() => file);
+    };
+
+    // The sizes, against the lip's own button and Join.
+    if (palette === "dark") {
+      result.sizes = await page.evaluate(() => {
+        const bar = document.querySelector(".buzz-huddle-drawer.grid");
+        const band = document
+          .querySelector('[data-testid="shell-huddle-band"]')
+          ?.getBoundingClientRect();
+        const m = (e: Element | null | undefined) => {
+          if (!e) return null;
+          const r = e.getBoundingClientRect();
+          const s = getComputedStyle(e);
+          const svg = e.querySelector("svg");
+          return {
+            w: Math.round(r.width * 10) / 10,
+            h: Math.round(r.height * 10) / 10,
+            top_in_band: band ? Math.round((r.top - band.top) * 10) / 10 : null,
+            radius: s.borderTopLeftRadius,
+            padding: s.padding,
+            gap: s.columnGap,
+            icon: svg
+              ? `${svg.getBoundingClientRect().width}x${svg.getBoundingClientRect().height} @${getComputedStyle(svg).strokeWidth}`
+              : null,
+          };
+        };
+        const named = (n: string) =>
+          bar?.querySelector(`button[aria-label="${n}"]`);
+        const groups = Array.from(
+          bar?.querySelectorAll(".justify-self-center > div") ?? [],
+        );
+        return {
+          lip_button: m(document.querySelector(".luca-lip-button")),
+          mute_microphone: m(named("Mute microphone")),
+          audio_settings: m(named("Audio settings")),
+          view_thread: m(named("View huddle thread")),
+          emoji: m(named("Emoji reactions")),
+          leave: m(bar?.querySelector("[data-huddle-leave]")),
+          mic_pair: m(named("Audio settings")?.parentElement),
+          group_gaps: groups.map((g) => getComputedStyle(g).columnGap),
+          between_groups: getComputedStyle(
+            bar?.querySelector(".justify-self-center") as Element,
+          ).columnGap,
+        };
+      });
+    }
+
+    // Leave and the muted states: the page's warning tone.
+    await page.getByRole("button", { name: "Mute microphone" }).click();
+    await page.getByRole("button", { name: "Mute agent speech" }).click();
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(300);
+    const leave = "[data-huddle-leave]";
+    const micPair =
+      '.buzz-huddle-drawer.grid div:has(> [aria-label="Audio settings"])';
+    result.warning = {
+      destructive: await page.evaluate(() => ({
+        page: getComputedStyle(document.documentElement)
+          .getPropertyValue("--destructive")
+          .trim(),
+        bar: getComputedStyle(
+          document.querySelector(".buzz-huddle-drawer.grid") as Element,
+        )
+          .getPropertyValue("--destructive")
+          .trim(),
+      })),
+      at_rest: await contrastOn(page, [
+        { name: "leave_word", selector: leave, at: [3, 12] },
+        {
+          name: "muted_mic_icon",
+          selector: '[aria-label="Unmute microphone"]',
+          at: [2, 12],
+        },
+        {
+          name: "muted_speech_icon",
+          selector: '[aria-label="Unmute agent speech"]',
+          at: [2, 12],
+        },
+      ]),
+      pair_styles: await page.evaluate((s) => {
+        const pair = document.querySelector(s);
+        if (!pair) return null;
+        return {
+          pair_background: getComputedStyle(pair).backgroundColor,
+          pair_radius: getComputedStyle(pair).borderRadius,
+          halves: Array.from(pair.querySelectorAll(":scope > button")).map(
+            (b) => getComputedStyle(b).backgroundColor,
+          ),
+        };
+      }, micPair),
+    };
+    (result as Record<string, unknown>).muted_shot = await crop(
+      "muted-mic-and-speech",
+    );
+    await page.locator(leave).hover();
+    await page.waitForTimeout(250);
+    (result.warning as Record<string, unknown>).hover = await contrastOn(page, [
+      { name: "leave_word_hovered", selector: leave, at: [3, 12] },
+    ]);
+    (result as Record<string, unknown>).leave_hover_shot =
+      await crop("leave-hover");
+
+    // The transcript's error words, in the warning tone.
+    await page.evaluate(() => {
+      if (window.__HUDDLE_STAGE__) {
+        window.__HUDDLE_STAGE__.failing = ["set_huddle_transcription_enabled"];
+      }
+    });
+    await page.getByRole("button", { name: "Start transcript" }).click();
+    const error = page.getByText(/Transcript failed/);
+    await expect(error).toBeVisible();
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(250);
+    (result.warning as Record<string, unknown>).transcript_error =
+      await contrastOn(page, [
+        {
+          name: "transcript_error_words",
+          selector: ".buzz-huddle-drawer.grid span.text-destructive",
+          at: [2, 3],
+        },
+      ]);
+    await page.evaluate(() => {
+      if (window.__HUDDLE_STAGE__) window.__HUDDLE_STAGE__.failing = [];
+    });
+    await page.getByRole("button", { name: "Unmute microphone" }).click();
+    await page.getByRole("button", { name: "Unmute agent speech" }).click();
+
+    // The pairs: hovered on each half, and focused.
+    const pairStyle = () =>
+      page.evaluate((s) => {
+        const pair = document.querySelector(s) as Element;
+        const st = getComputedStyle(pair);
+        return {
+          pair_background: st.backgroundColor,
+          pair_radius: st.borderRadius,
+          pair_outline: `${st.outlineStyle} ${st.outlineWidth}`,
+          halves: Array.from(pair.querySelectorAll(":scope > button")).map(
+            (b) => ({
+              label: b.getAttribute("aria-label"),
+              background: getComputedStyle(b).backgroundColor,
+              color: getComputedStyle(b).color,
+              outline: getComputedStyle(b).outlineStyle,
+            }),
+          ),
+        };
+      }, micPair);
+    await page.getByRole("button", { name: "Mute microphone" }).hover();
+    await page.waitForTimeout(250);
+    result.pair_hover_main = await pairStyle();
+    result.pair_hover_main_shot = await crop("hover-mute-microphone");
+    await page.getByRole("button", { name: "Audio settings" }).hover();
+    await page.waitForTimeout(250);
+    result.pair_hover_chevron = await pairStyle();
+    result.pair_hover_chevron_shot = await crop("hover-audio-settings");
+    await page.mouse.move(700, 300);
+    await page.getByRole("button", { name: "Mute microphone" }).focus();
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+    await page.waitForTimeout(250);
+    result.pair_focus = await pairStyle();
+    result.pair_focus_shot = await crop("focus-mute-microphone");
+    await page.mouse.move(700, 300);
+    out[palette] = result;
+    await context.close();
+  }
+  writeFileSync(
+    path.join(dir, "checks-fix-controls.json"),
+    JSON.stringify(out, null, 2),
+  );
+  for (const palette of ["dark", "paper"]) {
+    const r = out[palette] as {
+      warning: {
+        at_rest: { name: string; contrast: number }[];
+        hover: { contrast: number }[];
+        transcript_error: { contrast: number }[];
+      };
+      pair_hover_main: {
+        pair_background: string;
+        halves: { background: string }[];
+      };
+    };
+    const rest = Object.fromEntries(
+      r.warning.at_rest.map((x) => [x.name, x.contrast]),
+    );
+    expect
+      .soft(rest.leave_word, `${palette} leave`)
+      .toBeGreaterThanOrEqual(4.5);
+    expect
+      .soft(rest.muted_mic_icon, `${palette} mic`)
+      .toBeGreaterThanOrEqual(3);
+    expect
+      .soft(rest.muted_speech_icon, `${palette} speech`)
+      .toBeGreaterThanOrEqual(3);
+    expect
+      .soft(r.warning.hover[0].contrast, `${palette} leave hover`)
+      .toBeGreaterThanOrEqual(4.5);
+    expect
+      .soft(r.warning.transcript_error[0].contrast, `${palette} error`)
+      .toBeGreaterThanOrEqual(4.5);
+    expect.soft(r.pair_hover_main.pair_background).not.toBe("rgba(0, 0, 0, 0)");
+    for (const half of r.pair_hover_main.halves) {
+      expect.soft(half.background).toBe("rgba(0, 0, 0, 0)");
+    }
+  }
+});
+
+test("the quick chat launcher rides the band", async ({ page }, info) => {
+  test.setTimeout(240_000);
+  const dir = shotsDir(info.outputPath());
+  const LAUNCHER = '[data-testid="quickchat-launcher"]';
+  const out: Record<string, unknown> = {};
+  await openApp(page, { frame: true });
+  await openGeneral(page);
+  const measure = () =>
+    page.evaluate(
+      ({ launcher, card }) => {
+        const l = document.querySelector(launcher)?.getBoundingClientRect();
+        const c = document.querySelector(card)?.getBoundingClientRect();
+        return {
+          launcher: l
+            ? { left: l.left, top: l.top, right: l.right, bottom: l.bottom }
+            : null,
+          card_bottom: c?.bottom ?? null,
+          card_right: c?.right ?? null,
+          inside_corner:
+            l && c
+              ? {
+                  bottom: Math.round((c.bottom - l.bottom) * 100) / 100,
+                  right: Math.round((c.right - l.right) * 100) / 100,
+                }
+              : null,
+        };
+      },
+      { launcher: LAUNCHER, card: CONVERSATION_CARD },
+    );
+  out.before_huddle_1440x900 = await measure();
+  // Rise, traced: the launcher's bottom against the card's, every frame.
+  await page.evaluate(
+    ({ launcher, card }) => {
+      const samples: number[][] = [];
+      const w = window as unknown as {
+        __QC__: number[][];
+        __QC_DONE__: boolean;
+      };
+      w.__QC__ = samples;
+      w.__QC_DONE__ = false;
+      const start = performance.now();
+      const step = () => {
+        const l = document.querySelector(launcher)?.getBoundingClientRect();
+        const c = document.querySelector(card)?.getBoundingClientRect();
+        if (l && c) {
+          samples.push([
+            Math.round(performance.now() - start),
+            Math.round(c.bottom * 10) / 10,
+            Math.round(l.bottom * 10) / 10,
+          ]);
+        }
+        const first = samples[0]?.[1];
+        const moved = samples.find((s) => Math.abs(s[1] - first) > 0.05);
+        if (moved && performance.now() - start - moved[0] > 1200) {
+          w.__QC_DONE__ = true;
+          return;
+        }
+        if (performance.now() - start > 20_000) {
+          w.__QC_DONE__ = true;
+          return;
+        }
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    },
+    { launcher: LAUNCHER, card: CONVERSATION_CARD },
+  );
+  await startHuddle(page);
+  await page.waitForFunction(
+    () => (window as unknown as { __QC_DONE__: boolean }).__QC_DONE__,
+    undefined,
+    { timeout: 30_000 },
+  );
+  const rise = await page.evaluate(
+    () => (window as unknown as { __QC__: number[][] }).__QC__,
+  );
+  const moving = rise.filter((s) => s[1] > 856.5 && s[1] < 893.5);
+  const gaps = rise.map((s) => Math.round((s[1] - s[2]) * 10) / 10);
+  out.rise = {
+    frames_in_motion: moving.length,
+    gap_to_card_bottom: { min: Math.min(...gaps), max: Math.max(...gaps) },
+    samples: rise.filter((_s, i) => i % 3 === 0).slice(0, 40),
+  };
+  await openGeneral(page);
+  await page.mouse.move(700, 300);
+  for (const size of [
+    { width: 1440, height: 900 },
+    { width: 800, height: 500 },
+  ]) {
+    const label = `${size.width}x${size.height}`;
+    await page.setViewportSize(size);
+    await page.waitForTimeout(800);
+    out[`live_${label}`] = await measure();
+    const file = path.join(dir, `fix-quickchat-launcher-live-${label}.png`);
+    await settle(page);
+    await page.screenshot({
+      path: file,
+      clip: {
+        x: size.width - 300,
+        y: size.height - 200,
+        width: 300,
+        height: 200,
+      },
+    });
+    out[`live_${label}_shot`] = file;
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.waitForTimeout(800);
+  // The open panel keeps its 20.
+  await page.locator(LAUNCHER).click();
+  const panel = page.getByTestId("quickchat-panel");
+  await expect(panel).toBeVisible();
+  await page.waitForTimeout(300);
+  const p = (await box(page, '[data-testid="quickchat-panel"]')) as Box;
+  out.panel_open = {
+    bottom_gap: Math.round((900 - (p.y + p.h)) * 100) / 100,
+    right_gap: Math.round((1440 - (p.x + p.w)) * 100) / 100,
+  };
+  await page.keyboard.press("Escape");
+  if (await panel.isVisible()) {
+    await page.getByRole("button", { name: "Minimize Quick Chat" }).click({
+      timeout: 5_000,
+    });
+  }
+  await expect(page.locator(LAUNCHER)).toBeVisible({ timeout: 5_000 });
+  await page.waitForTimeout(300);
+  // Leave: it falls back to its 20.
+  await page.getByRole("button", { name: "Leave huddle" }).click();
+  await page.waitForTimeout(900);
+  out.after_leave_1440x900 = await measure();
+  // Reduce Motion: no in-between frames.
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  const t = await page.evaluate(
+    (launcher) =>
+      getComputedStyle(document.querySelector(launcher) as Element)
+        .transitionProperty,
+    LAUNCHER,
+  );
+  out.reduced_motion_transition = t;
+  writeFileSync(
+    path.join(dir, "checks-fix-quickchat.json"),
+    JSON.stringify(out, null, 2),
+  );
+  for (const key of [
+    "live_1440x900",
+    "live_800x500",
+    "before_huddle_1440x900",
+    "after_leave_1440x900",
+  ]) {
+    const m = out[key] as { inside_corner: { bottom: number; right: number } };
+    expect
+      .soft(Math.abs(m.inside_corner.bottom - 14), key)
+      .toBeLessThanOrEqual(0.6);
+  }
+  const g = (out.rise as { gap_to_card_bottom: { min: number; max: number } })
+    .gap_to_card_bottom;
+  expect.soft(Math.abs(g.min - 14)).toBeLessThanOrEqual(0.6);
+  expect.soft(Math.abs(g.max - 14)).toBeLessThanOrEqual(0.6);
+  expect.soft(String(out.reduced_motion_transition)).not.toContain("bottom");
+});
+
+test("what opens from the bar wears the page's materials", async ({
+  browser,
+}, info) => {
+  test.setTimeout(300_000);
+  const dir = shotsDir(info.outputPath());
+  const out: Record<string, unknown> = {};
+  const tooltip = (page: Page) =>
+    page.evaluate(() => {
+      const content = Array.from(
+        document.querySelectorAll(
+          "[data-radix-popper-content-wrapper] > [data-side]",
+        ),
+      ).find((e) => (e as HTMLElement).innerText.trim().length > 0);
+      if (!content) return null;
+      const s = getComputedStyle(content);
+      const r = content.getBoundingClientRect();
+      return {
+        text: (content as HTMLElement).innerText.trim(),
+        background: s.backgroundColor,
+        color: s.color,
+        height: Math.round(r.height * 10) / 10,
+        box_shadow: s.boxShadow,
+        border: `${s.borderTopWidth} ${s.borderTopStyle}`,
+      };
+    });
+  for (const palette of ["dark", "paper"] as const) {
+    const context = await browser.newContext({
+      deviceScaleFactor: 2,
+      permissions: ["microphone"],
+    });
+    const page = await context.newPage();
+    if (palette === "paper") {
+      await page.addInitScript(() =>
+        window.localStorage.setItem("buzz-theme", "paper"),
+      );
+    }
+    await openApp(page, {
+      frame: true,
+      scheme: palette === "paper" ? "light" : "dark",
+    });
+    await openGeneral(page);
+    const result: Record<string, unknown> = {};
+    // The frame's own tooltip, beside: the Settings place.
+    await page.getByTestId("open-settings-view").hover();
+    await page.waitForTimeout(900);
+    result.places_tooltip = await tooltip(page);
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(400);
+
+    // The first huddle's hint, in the page's popover.
+    await startHuddle(page, { dismissHint: false });
+    const hint = page.locator('[aria-label="Headphones recommended"]');
+    await expect(hint).toBeVisible({ timeout: 3_000 });
+    await page.waitForTimeout(400);
+    result.hint = await contrastOn(page, [
+      {
+        name: "hint_title",
+        selector: '[aria-label="Headphones recommended"] p.font-medium',
+        at: [-6, 6],
+      },
+      {
+        name: "hint_body",
+        selector: '[aria-label="Headphones recommended"] p.text-ink-muted',
+        at: [-6, 6],
+      },
+    ]);
+    const hb = (await box(
+      page,
+      '[aria-label="Headphones recommended"]',
+    )) as Box;
+    const hintFile = path.join(dir, `fix-${palette}-first-huddle-hint.png`);
+    await settle(page);
+    await page.screenshot({
+      path: hintFile,
+      clip: {
+        x: hb.x - 20,
+        y: hb.y - 20,
+        width: hb.w + 40,
+        height: 900 - hb.y + 20,
+      },
+    });
+    result.hint_shot = hintFile;
+    await page.getByRole("button", { name: "Got it" }).click();
+    await openGeneral(page);
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(500);
+
+    // A bar control's tooltip.
+    await page.getByRole("button", { name: "Add agent to huddle" }).hover();
+    await page.waitForTimeout(900);
+    result.bar_tooltip = await tooltip(page);
+    const tipFile = path.join(dir, `fix-${palette}-bar-tooltip.png`);
+    const bandBox = (await box(page, BAND)) as Box;
+    await page.screenshot({
+      path: tipFile,
+      clip: {
+        x: bandBox.x + 300,
+        y: bandBox.y - 60,
+        width: 600,
+        height: bandBox.h + 66,
+      },
+    });
+    result.bar_tooltip_shot = tipFile;
+    await page.mouse.move(700, 300);
+    await page.waitForTimeout(400);
+
+    // The audio settings popover.
+    await page.getByRole("button", { name: "Audio settings" }).click();
+    const pop = "[data-radix-popper-content-wrapper] .buzz-huddle-popover";
+    await expect(page.locator(pop)).toBeVisible();
+    await page.waitForTimeout(300);
+    result.audio_settings = {
+      surface: await page.evaluate(
+        (s) =>
+          getComputedStyle(document.querySelector(s) as Element)
+            .backgroundColor,
+        pop,
+      ),
+      contrast: await contrastOn(page, [
+        {
+          name: "input_mode_label",
+          selector: `${pop} span.text-xs.font-medium`,
+          at: [-6, 6],
+        },
+        { name: "push_to_talk_shortcut", selector: `${pop} kbd`, at: [-14, 6] },
+        {
+          name: "volume_percent",
+          selector: `${pop} span.text-muted-foreground`,
+          at: [-30, 6],
+        },
+      ]),
+    };
+    const pb = (await box(page, pop)) as Box;
+    const popFile = path.join(dir, `fix-${palette}-audio-settings-open.png`);
+    await page.screenshot({
+      path: popFile,
+      clip: {
+        x: pb.x - 20,
+        y: pb.y - 20,
+        width: pb.w + 40,
+        height: 900 - pb.y + 20,
+      },
+    });
+    result.audio_settings_shot = popFile;
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+
+    // The participants.
+    await page
+      .getByRole("button", { name: /Show huddle participants/ })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Participants" }),
+    ).toBeVisible();
+    await page.waitForTimeout(300);
+    const pp = "[data-radix-popper-content-wrapper] .buzz-huddle-popover";
+    result.participants = await contrastOn(page, [
+      { name: "count", selector: `${pp} h2 + span`, at: [-8, 6] },
+      { name: "in_huddle", selector: `${pp} li .text-ink-faint`, at: [-50, 6] },
+    ]);
+    const ppb = (await box(page, pp)) as Box;
+    const partFile = path.join(dir, `fix-${palette}-participants-open.png`);
+    await page.screenshot({
+      path: partFile,
+      clip: {
+        x: ppb.x - 20,
+        y: ppb.y - 20,
+        width: ppb.w + 40,
+        height: 900 - ppb.y + 20,
+      },
+    });
+    result.participants_shot = partFile;
+    await page.keyboard.press("Escape");
+    // The app's own popover surface, for comparison: the avatar's menu.
+    out[palette] = result;
+    await context.close();
+  }
+  writeFileSync(
+    path.join(dir, "checks-fix-surfaces.json"),
+    JSON.stringify(out, null, 2),
+  );
+  for (const palette of ["dark", "paper"]) {
+    const r = out[palette] as Record<string, unknown>;
+    const places = r.places_tooltip as {
+      background: string;
+      height: number;
+      box_shadow: string;
+    };
+    const bar = r.bar_tooltip as {
+      background: string;
+      height: number;
+      box_shadow: string;
+    };
+    expect
+      .soft(bar.background, `${palette} tooltip fill`)
+      .toBe(places.background);
+    expect.soft(bar.height, `${palette} tooltip height`).toBe(places.height);
+    expect.soft(bar.box_shadow, `${palette} tooltip shadow`).toBe("none");
+    const all = [
+      ...(r.hint as { name: string; contrast: number }[]),
+      ...(
+        r.audio_settings as { contrast: { name: string; contrast: number }[] }
+      ).contrast,
+      ...(r.participants as { name: string; contrast: number }[]),
+    ];
+    for (const c of all) {
+      expect
+        .soft(c.contrast, `${palette} ${c.name}`)
+        .toBeGreaterThanOrEqual(4.5);
+    }
   }
 });

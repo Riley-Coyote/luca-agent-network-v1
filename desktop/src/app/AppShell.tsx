@@ -1424,6 +1424,7 @@ export function AppShell() {
                   >
                     <HuddleBar
                       className="h-full"
+                      enterMs={shellFrame ? SHELL_FRAME_SLIDE_MS : undefined}
                       exitMs={shellFrame ? SHELL_FRAME_SLIDE_MS : undefined}
                       onOpenThread={(channelId, messageId) => {
                         void goChannel(channelId, {

@@ -56,6 +56,10 @@ type HuddleState = {
 
 type HuddleBarProps = {
   className?: string;
+  /** How long the bar takes to arrive where it rests, so what opens
+   *  against it (the first huddle's headphones hint) waits until it is
+   *  there. Today's drawer: 0, the hint opens with the bar. */
+  enterMs?: number;
   /** How long the bar stays drawn after the huddle ends, so it can go with
    *  its surroundings' motion. Today's drawer: 260 ms. */
   exitMs?: number;
@@ -151,6 +155,7 @@ function huddleReactionTags(
 
 export function HuddleBar({
   className,
+  enterMs = 0,
   exitMs = HUDDLE_DRAWER_EXIT_MS,
   onOpenThread,
   onVisibilityChange,
@@ -338,6 +343,36 @@ export function HuddleBar({
     const id = window.setTimeout(() => setRenderedState(null), exitMs);
     return () => window.clearTimeout(id);
   }, [exitMs, isHuddleVisible, state]);
+
+  // Whether the bar has arrived (after `enterMs`, at once under Reduce
+  // Motion). Until then a popover anchored to its controls would be placed
+  // against controls still on their way, and left there.
+  const [hasArrived, setHasArrived] = React.useState(false);
+  React.useEffect(() => {
+    if (!isHuddleVisible) {
+      setHasArrived(false);
+      return;
+    }
+    if (enterMs <= 0) return;
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    let frame = 0;
+    // The move starts a commit after the bar mounts: a frame past it.
+    const id = window.setTimeout(
+      () => {
+        frame = window.requestAnimationFrame(() => {
+          frame = window.requestAnimationFrame(() => setHasArrived(true));
+        });
+      },
+      reduced ? 0 : enterMs,
+    );
+    return () => {
+      window.clearTimeout(id);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [enterMs, isHuddleVisible]);
+  const isBarInPlace = enterMs <= 0 || hasArrived;
 
   const barState = isHuddleVisible && state ? state : renderedState;
   const reactionChannelId = barState?.ephemeral_channel_id ?? null;
@@ -648,7 +683,10 @@ export function HuddleBar({
           <SpeakerControls
             ttsEnabled={ttsEnabled}
             showHeadphonesHint={
-              aecMissing && !headphonesHintDismissed && !isDrawerClosing
+              aecMissing &&
+              !headphonesHintDismissed &&
+              !isDrawerClosing &&
+              isBarInPlace
             }
             onHeadphonesHintDismiss={() => setHeadphonesHintDismissed(true)}
             onToggleTts={async () => {

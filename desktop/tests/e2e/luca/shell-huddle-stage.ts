@@ -38,6 +38,9 @@ export type HuddleStage = {
   /** Who is in the huddle the moment it starts, before the member list. */
   participantsOnJoin: string[];
   calls: { command: string; payload: unknown }[];
+  /** Commands that fail, as the Rust side's errors (to show the bar's
+   *  error words). */
+  failing?: string[];
 };
 
 declare global {
@@ -171,6 +174,9 @@ export async function installHuddleStage(page: Page) {
       let real: Invoke | undefined;
       const wrapper: Invoke = async (command, payload, options) => {
         if (!real) throw new Error("no invoke yet");
+        if (stage.failing?.includes(command)) {
+          throw new Error("the model is not installed");
+        }
         const result = await answer(real, command, payload);
         if (result.handled) {
           if (command !== "push_audio_pcm") {

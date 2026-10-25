@@ -74,4 +74,39 @@ describe("the huddle bar in the frame (WP-08e)", () => {
     assert.match(bar, /const HUDDLE_DRAWER_EXIT_MS = 260;/);
     assert.match(bar, /import "@\/app\/shell\/shell-huddle\.css";/);
   });
+
+  it("opens the first huddle's hint only once the bar has risen", async () => {
+    const shell = await read("../AppShell.tsx");
+    assert.match(
+      shell,
+      /enterMs=\{shellFrame \? SHELL_FRAME_SLIDE_MS : undefined\}/,
+    );
+    const bar = await read("../../features/huddle/components/HuddleBar.tsx");
+    assert.match(bar, /enterMs = 0,/);
+    assert.match(bar, /const isBarInPlace = enterMs <= 0 \|\| hasArrived;/);
+    assert.match(bar, /!isDrawerClosing &&\s*isBarInPlace/);
+  });
+
+  it("draws the bar in the page's warning tone, as the lip's buttons", async () => {
+    const css = await read("./shell-huddle.css");
+    assert.match(css, /--destructive: inherit;/);
+    assert.match(
+      css,
+      /border-radius: 7px;\s*box-shadow: none;[\s\S]*height: 24px;/,
+    );
+    assert.match(css, /stroke-width: 1\.7;/);
+    assert.doesNotMatch(css, /border-(top|bottom)-(left|right)-radius: 0/);
+  });
+
+  it("gives what opens from the bar the page's own materials", async () => {
+    const css = await read("./shell-huddle.css");
+    assert.match(css, /:root\[data-luca-frame\] \.buzz-huddle-tooltip \{/);
+    assert.match(css, /:root\[data-luca-frame\] \.buzz-huddle-popover \{/);
+  });
+
+  it("raises the quick chat's launcher with the band, never its panel", async () => {
+    const css = await read("./shell-huddle.css");
+    assert.match(css, /button\.qc-launcher \{\s*bottom: 58px;/);
+    assert.doesNotMatch(css, /\.qc-panel/);
+  });
 });
