@@ -352,6 +352,9 @@ build_candidate() {
     # Scoped candidate-only compile setting; never contacts the shared dev relay.
     export BUZZ_RELAY_URL='buzz-local://on-this-device'
     [[ "$NATIVE_GLASS" != 1 ]] || export LUCA_BUILD_NATIVE_GLASS=1
+    # The rail-glass candidate is the shell's test app (docs/luca/rail-system/
+    # SHELL_BUILD.md): its page is built with the shell's frame switched on.
+    [[ "$NATIVE_GLASS" != 1 ]] || export VITE_LUCA_SHELL_FRAME=1
     signing="$SIGNING_IDENTITY"
     if [[ -z "$signing" ]]; then
         signing=$(/usr/bin/security find-identity -v -p codesigning 2>/dev/null | /usr/bin/sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' | /usr/bin/head -1)
