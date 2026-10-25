@@ -906,8 +906,9 @@ test("one owner: the glass marks only data-luca-frame-glass", async ({
     light: false,
     liquid: true,
   });
-  // The frame's own attribute (WP-01's) is never written here.
-  expect(await rootAttribute(page, "data-luca-frame")).toBeNull();
+  // The frame's own attribute is WP-01's ("solid" while the frame is drawn):
+  // the glass never writes it.
+  expect(await rootAttribute(page, "data-luca-frame")).not.toBe("glass");
   // A frame that marks itself solid keeps its mark through the glass going
   // and coming back.
   await page.evaluate(() =>

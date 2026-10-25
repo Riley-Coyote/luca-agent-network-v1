@@ -331,7 +331,7 @@ test.describe("the shell's rail", () => {
       "true",
     );
     await session(page, ROOM.monday).click();
-    await expect(page.getByTestId("chat-title")).toHaveText("Monday plan");
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("Monday plan");
     await expect(home(page, agentId(WREN))).toHaveAttribute(
       "data-active",
       "true",
@@ -377,7 +377,7 @@ test.describe("the shell's rail", () => {
       "data-active",
       "true",
     );
-    await expect(page.getByTestId("chat-title")).toHaveText(
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(
       /Palette|Design review/,
     );
     await shoot(page, "05-fleet-open");
@@ -435,7 +435,9 @@ test.describe("the shell's rail", () => {
     await page
       .getByRole("button", { name: "Start session", exact: true })
       .click();
-    await expect(page.getByTestId("chat-title")).toHaveText("Release notes");
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(
+      "Release notes",
+    );
     await expect(atlas).toHaveAttribute("data-active", "true");
     await expect(
       page.locator(
@@ -1292,7 +1294,7 @@ test.describe("the rail, finished (WP-02b)", () => {
     await page.screenshot({ path: searchPath });
     shots.push(searchPath);
     await result.click();
-    await expect(page.getByTestId("chat-title")).toHaveText(
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(
       "Landing page copy",
       { timeout: 20000 },
     );
@@ -1311,7 +1313,7 @@ test.describe("the rail, finished (WP-02b)", () => {
       "true",
     );
     measured.cmd_k_room = {
-      opened: await page.getByTestId("chat-title").textContent(),
+      opened: await page.getByTestId("shell-lip-name").textContent(),
       projectActive: await home(page, "project:tidepool").getAttribute(
         "data-active",
       ),
@@ -1383,9 +1385,12 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
     const results: unknown[] = [];
     for (const place of places) {
       await page.goto(`/?e2e=mock#/channels/${ROOM.monday}`);
-      await expect(page.getByTestId("chat-title")).toHaveText("Monday plan", {
-        timeout: 20000,
-      });
+      await expect(page.getByTestId("shell-lip-name")).toHaveText(
+        "Monday plan",
+        {
+          timeout: 20000,
+        },
+      );
       await page.getByTestId(place).click();
       await expect
         .poll(() => page.evaluate(() => window.location.hash))
@@ -1395,7 +1400,9 @@ test.describe("the rail, finished: review fixes (WP-02b)", () => {
       await expect
         .poll(() => page.evaluate(() => window.location.hash))
         .toContain(`/channels/${ROOM.monday}`);
-      await expect(page.getByTestId("chat-title")).toHaveText("Monday plan");
+      await expect(page.getByTestId("shell-lip-name")).toHaveText(
+        "Monday plan",
+      );
       results.push({
         place,
         away,

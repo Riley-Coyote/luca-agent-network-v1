@@ -166,10 +166,25 @@ async function stageUpdate(page: Page) {
   await page.getByTestId("settings-back-to-app").click();
 }
 
+/** The mock's #general, opened by its route: under the frame the rail groups
+ *  chats by home (WP-02). Retried past a fresh page's own first redirect. */
+const GENERAL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+
 async function openGeneral(page: Page) {
-  await page.getByTestId("channel-general").click();
-  await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
+  await page.waitForSelector('[data-testid="app-sidebar"] [data-channel-id]', {
+    timeout: 20_000,
+  });
+  await expect(async () => {
+    await page.evaluate((id) => {
+      window.location.hash = `#/channels/${id}`;
+    }, GENERAL_ID);
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
+  await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible({
+    timeout: 20_000,
+  });
 }
 
 async function openDesign(page: Page) {
