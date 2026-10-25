@@ -14479,6 +14479,8 @@ export function maybeInstallE2eTauriMocks() {
       // `isTauri` walks the card exactly as the desktop does.
       case "set_window_vibrancy":
       case "set_main_window_traffic_lights_hidden":
+      case "set_traffic_lights_inset":
+      case "plugin:window|set_theme":
       case "center_window_on_its_monitor":
       case "plugin:window|set_size":
       case "plugin:window|set_position":

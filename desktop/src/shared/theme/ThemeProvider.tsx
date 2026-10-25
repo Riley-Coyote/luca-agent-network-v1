@@ -10,8 +10,23 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
+import {
+  applyFrameVibrancy,
+  drawnFrame,
+  type Frame,
+  type FrameDrawn,
+  glassFrameOffered,
+  readFrame,
+  TRAFFIC_LIGHTS,
+  useNativeGlassAnnounced,
+  useReducedTransparency,
+  useShellGlassReporter,
+  useShellGlassShadows,
+  writeFrame,
+} from "@/app/shell/shellGlass";
 import { usePolyphonicFloatingCard } from "@/features/onboarding/polyphonicOnboardingScene";
 import { invokeTauri } from "@/shared/api/tauri";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
   createGraphiteThemeVars,
@@ -66,9 +81,9 @@ const BUZZ_VIBRANCY_MATERIAL = "sidebar";
  * (Finder/Notes/Mail sidebars). `under-window-background` was tried first and
  * rejected by eye: it mixes in its own grey base and desaturates, rendering
  * mush over any wallpaper. `sidebar` adapts to the window's effective
- * appearance — which {@link applyWindowAppearance} pins to the glass theme's
- * polarity — so Obsidian gets the dark smoky variant and Crystalline the
- * milky light one, exactly as a native app would.
+ * appearance — which {@link applyShellWindowAppearance} pins to the palette's
+ * polarity under the shell's frame — so Obsidian gets the dark smoky variant
+ * and Crystalline the milky light one, exactly as a native app would.
  */
 const GLASS_VIBRANCY_MATERIAL = "sidebar";
 const REDUCED_TRANSPARENCY_QUERY = "(prefers-reduced-transparency: reduce)";
@@ -107,6 +122,15 @@ type ThemeContextValue = {
   setTheme: (name: string) => void;
   setAccentColor: (color: string) => void;
   setFollowSystem: (enabled: boolean) => void;
+  /** The Frame setting (`shell-frame` only): solid, or glass. Independent of
+   *  the mode, so stored beside follow-system rather than in it. */
+  frame: Frame;
+  setFrame: (frame: Frame) => void;
+  /** What the frame is drawn as here, now: solid whenever the flag is off. */
+  frameDrawn: FrameDrawn;
+  /** Whether Glass is offered here (not in a browser), and whether it is
+   *  Apple's Liquid Glass (the native glass announced) or the older glass. */
+  glassFrame: { offered: boolean; liquid: boolean };
 };
 
 type ThemeProviderProps = {
@@ -495,34 +519,106 @@ async function applyPopoutGlass(themeName: string) {
 let glassVibrancyRequest = 0;
 
 /**
- * Pin the window's effective appearance to the glass theme's polarity.
+ * Under the shell's frame the window's appearance follows the palette for
+ * every palette, the glass themes among them, so the traffic lights and the
+ * glass beneath the page match it (SHELL_SPEC.md, "The native glass").
  *
- * `NSVisualEffectMaterial` renders per the WINDOW's appearance, not the app
- * theme — without this, picking Crystalline on a dark-mode Mac composites
- * light scrims over the material's dark variant (grey mud). Glass themes pin
- * light/dark to match themselves; every other theme clears the override so
- * the window follows macOS again.
+ * Only under the frame: the main window's permission to set its appearance
+ * (`core:window:allow-set-theme`) arrives with it. Before it the main window
+ * asked for the glass themes' appearance and was refused every time, so with
+ * the flag off the page asks for nothing, and the window behaves exactly as
+ * it always has (a pop-out has always had the permission, and keeps it).
  *
- * Interplay with follow-system: the override changes what the webview's
- * `prefers-color-scheme` and `onThemeChanged` report. Under follow-system the
- * override always AGREES with macOS (System resolves the glass pair by OS
- * appearance), so the signal stays truthful; the follow-system effect also
- * clears any stale override before seeding, covering the manual-pick → System
- * transition.
+ * While follow-system is on the palette follows macOS, and so does an
+ * unpinned window: pinning it there would stop macOS's own appearance
+ * changes from reaching the page at all (the window would report the pin).
  */
-async function applyWindowAppearance(themeName: string) {
+async function applyShellWindowAppearance(
+  themeName: string,
+  followSystem: boolean,
+) {
   if (!isTauri()) return;
   try {
-    if (isGlassTheme(themeName)) {
-      await getCurrentWindow().setTheme(
-        themeName === CRYSTALLINE_THEME_NAME ? "light" : "dark",
-      );
-    } else {
-      await getCurrentWindow().setTheme(null);
-    }
+    await getCurrentWindow().setTheme(
+      followSystem ? null : isLightTheme(themeName) ? "light" : "dark",
+    );
   } catch (error) {
     console.warn("window appearance override unavailable", error);
   }
+}
+
+/**
+ * `<html data-luca-frame-glass="liquid|frosted">` while the glass is really
+ * beneath the page; absent on the solid frame. shell-glass.css keys on it.
+ * It is this file's alone: `data-luca-frame` belongs to the frame itself
+ * (WP-01's shell-frame.css), and says only that the frame is drawn.
+ */
+function markFrameGlass(glass: Exclude<FrameDrawn, "solid"> | null) {
+  const root = document.documentElement;
+  if (glass) root.setAttribute("data-luca-frame-glass", glass);
+  else root.removeAttribute("data-luca-frame-glass");
+}
+
+/** The newest frame-glass request is the only one allowed to mark the page. */
+let frameGlassRequest = 0;
+
+/**
+ * The frosted frame (macOS before 26, and builds without the native glass):
+ * Apple's older glass through the vibrancy path the app ships, installed
+ * last in the window's chain so no theme's clear lands after it. The page
+ * goes clear only once the layer is there; if it can't be, the frame stays
+ * solid rather than showing through to nothing.
+ */
+async function applyFrameGlass(drawn: FrameDrawn, dark: boolean) {
+  const requestToken = ++frameGlassRequest;
+  if (drawn !== "frosted") return;
+  try {
+    // The Buzz palettes keep their installed layer across mode changes; this
+    // one replaces it, so theirs is rebuilt the next time it is asked for.
+    buzzVibrancyEnabled = false;
+    await applyFrameVibrancy(drawn, dark, invokeTauri);
+    if (requestToken !== frameGlassRequest) return;
+    markFrameGlass("frosted");
+  } catch (error) {
+    console.warn("frame glass unavailable", error);
+    if (requestToken !== frameGlassRequest) return;
+    markFrameGlass(null);
+  }
+}
+
+/** Whether this window is in full screen (its corners are square there). */
+function useWindowFullscreen(enabled: boolean) {
+  const [fullscreen, setFullscreen] = useState(false);
+  useEffect(() => {
+    if (!enabled || !isTauri()) {
+      setFullscreen(false);
+      return;
+    }
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const current = getCurrentWindow();
+    const check = () => {
+      void current
+        .isFullscreen()
+        .then((value) => {
+          if (!disposed) setFullscreen(value);
+        })
+        .catch(() => {});
+    };
+    check();
+    void current
+      .onResized(check)
+      .then((stop) => {
+        if (disposed) stop();
+        else unlisten = stop;
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [enabled]);
+  return fullscreen;
 }
 
 /**
@@ -844,6 +940,18 @@ export function ThemeProvider({
   // behind it. The native material handshake below is gated on this.
   const floatingCard = usePolyphonicFloatingCard();
 
+  // The shell's frame (preview `shell-frame`): the Frame setting, and what it
+  // draws on this machine. With the flag off nothing below touches the window.
+  const shellFrame = useShellFrameEnabled();
+  const [frame, setFrameState] = useState<Frame>(() => readFrame());
+  const nativeGlass = useNativeGlassAnnounced();
+  const reducedTransparency = useReducedTransparency();
+  const inTauri = isTauri();
+  const mainWindow = !isPopoutWindow();
+  // Whether this window may set its own appearance: a pop-out always could;
+  // the main window can under the shell's frame (applyShellWindowAppearance).
+  const windowThemeAllowed = shellFrame || !mainWindow;
+
   // Resolve the effective theme based on follow-system preference
   const effectiveTheme = (() => {
     if (!followSystem || !isValidThemeName(selectedTheme)) return selectedTheme;
@@ -854,6 +962,26 @@ export function ThemeProvider({
   const hasPair = isValidThemeName(selectedTheme)
     ? getThemePair(selectedTheme as SyntaxThemeName) !== null
     : false;
+
+  const frameDrawn: FrameDrawn =
+    shellFrame && mainWindow
+      ? drawnFrame(frame, {
+          tauri: inTauri,
+          mac: isMacPlatform(),
+          announced: nativeGlass,
+          reducedTransparency,
+        })
+      : "solid";
+  const paletteDark = !isLightTheme(effectiveTheme);
+  // Everything the window's chain must answer to under the frame, as one
+  // value, so with the flag off the chain re-runs exactly as it always did.
+  const frameChainKey =
+    shellFrame && mainWindow
+      ? `${frameDrawn}|${followSystem ? "system" : "pinned"}`
+      : "off";
+  const fullscreen = useWindowFullscreen(
+    shellFrame && mainWindow && frameDrawn !== "solid",
+  );
 
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
@@ -875,6 +1003,10 @@ export function ThemeProvider({
     });
   }, [effectiveTheme]);
 
+  // frameChainKey carries frameDrawn and followSystem under the flag, and
+  // paletteDark follows effectiveTheme: listing them too would re-run the
+  // chain on follow-system flips with the flag off, which it never did.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see above
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
     // The native window material belongs to the window that owns its floor,
@@ -901,12 +1033,65 @@ export function ThemeProvider({
     // land last and leave the window with nothing behind it. Appearance is
     // pinned BEFORE the glass layer installs so the material renders its
     // correct light/dark variant from the first frame.
+    //
+    // Under the shell's frame the appearance follows every palette, and the
+    // frame's own frosted glass goes in last, after any theme's layer.
+    const framed = frameChainKey !== "off";
     void applyBuzzVibrancy(effectiveTheme)
-      .then(() => applyWindowAppearance(effectiveTheme))
+      .then(() =>
+        framed
+          ? applyShellWindowAppearance(effectiveTheme, followSystem)
+          : undefined,
+      )
       .then(() => {
-        void applyGlassVibrancy(effectiveTheme);
+        const glass = applyGlassVibrancy(effectiveTheme);
+        if (framed) {
+          void glass.then(() => applyFrameGlass(frameDrawn, paletteDark));
+        }
       });
-  }, [effectiveTheme, floatingCard]);
+  }, [effectiveTheme, floatingCard, frameChainKey]);
+
+  // `<html data-luca-frame-glass>` under the flag. The frosted glass marks
+  // itself once its layer is installed (applyFrameGlass); until then, solid.
+  useEffect(() => {
+    markFrameGlass(
+      shellFrame && mainWindow && frameDrawn === "liquid" ? "liquid" : null,
+    );
+  }, [frameDrawn, mainWindow, shellFrame]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (fullscreen) root.setAttribute("data-luca-window-fullscreen", "");
+    else root.removeAttribute("data-luca-window-fullscreen");
+  }, [fullscreen]);
+
+  // Liquid Glass: the page tells the native glass where the frame is.
+  useShellGlassReporter(frameDrawn === "liquid", isDark, fullscreen);
+  // By day the cards' shadows lie on the glass beneath all of them.
+  useShellGlassShadows(frameDrawn !== "solid" && !isDark);
+
+  // The traffic lights sit on the lip's line under the frame, and go back to
+  // the window's configured place when the flag goes off again.
+  const lightsMoved = useRef(false);
+  useEffect(() => {
+    if (!inTauri || !mainWindow || !isMacPlatform()) return;
+    if (shellFrame) {
+      lightsMoved.current = true;
+      void invokeTauri<void>("set_traffic_lights_inset", {
+        ...TRAFFIC_LIGHTS,
+      }).catch((error) => {
+        console.warn("traffic lights inset unavailable", error);
+      });
+    } else if (lightsMoved.current) {
+      lightsMoved.current = false;
+      void invokeTauri<void>("set_traffic_lights_inset", {
+        x: null,
+        centre: null,
+      }).catch((error) => {
+        console.warn("traffic lights inset unavailable", error);
+      });
+    }
+  }, [inTauri, mainWindow, shellFrame]);
 
   // One-time hygiene: the retired per-theme glass toggle and material
   // picker left these keys behind; the two-glass system stores nothing.
@@ -947,18 +1132,23 @@ export function ThemeProvider({
     // immediately when macOS appearance changes, so use it as the reliable app
     // signal while retaining matchMedia for the browser build.
     if (isTauri()) {
-      // A glass theme may have pinned the window appearance
-      // ({@link applyWindowAppearance}), and both matchMedia and the native
-      // theme report the OVERRIDE, not macOS. Clear it before seeding so
-      // enabling follow-system after a manual glass pick reads the real OS
-      // appearance; the vibrancy effect re-pins for the resolved theme.
-      void getCurrentWindow()
-        .setTheme(null)
-        .then(() => getCurrentWindow().theme())
-        .then((native) => {
-          if (!disposed && native) setSystemIsDark(native === "dark");
-        })
-        .catch(() => {});
+      // A pinned palette may have pinned the window appearance
+      // ({@link applyShellWindowAppearance}, {@link applyPopoutGlass}), and
+      // both matchMedia and the native theme report the OVERRIDE, not macOS.
+      // Clear it before seeding so enabling follow-system after a manual pick
+      // reads the real OS appearance; the vibrancy effect re-pins for the
+      // resolved theme. The main window may only do so under the shell's
+      // frame (its permission arrives with it): before it the request was
+      // refused, and nothing after it ran.
+      if (windowThemeAllowed) {
+        void getCurrentWindow()
+          .setTheme(null)
+          .then(() => getCurrentWindow().theme())
+          .then((native) => {
+            if (!disposed && native) setSystemIsDark(native === "dark");
+          })
+          .catch(() => {});
+      }
       void getCurrentWindow()
         .onThemeChanged(({ payload }) => {
           if (!disposed) setSystemIsDark(payload === "dark");
@@ -980,7 +1170,7 @@ export function ThemeProvider({
       mq.removeEventListener("change", handleMediaChange);
       unlistenNativeTheme?.();
     };
-  }, [followSystem]);
+  }, [followSystem, windowThemeAllowed]);
 
   // Re-apply the accent when the user picks a new swatch or the effective theme
   // changes. applyTheme already applies the (Buzz-neutral-aware) accent in the
@@ -1006,6 +1196,11 @@ export function ThemeProvider({
     setFollowSystemState(enabled);
   }, []);
 
+  const setFrame = useCallback((next: Frame) => {
+    writeFrame(next);
+    setFrameState(next);
+  }, []);
+
   const value: ThemeContextValue = {
     themeName: effectiveTheme,
     selectedThemeName: selectedTheme,
@@ -1017,6 +1212,13 @@ export function ThemeProvider({
     setTheme,
     setAccentColor,
     setFollowSystem,
+    frame,
+    setFrame,
+    frameDrawn,
+    glassFrame: {
+      offered: glassFrameOffered({ tauri: inTauri }),
+      liquid: nativeGlass,
+    },
   };
 
   return (

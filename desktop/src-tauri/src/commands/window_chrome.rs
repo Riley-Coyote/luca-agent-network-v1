@@ -350,6 +350,135 @@ pub fn set_main_window_traffic_lights_hidden(window: tauri::Window, hidden: bool
     let _ = hidden;
 }
 
+/// Where the shell's frame wants the main window's traffic lights, in points:
+/// the first button's left edge from the window's left, and the line their
+/// centres sit on from the window's top. `None` is the configured place.
+#[cfg(target_os = "macos")]
+static TRAFFIC_LIGHTS_INSET: Mutex<Option<(f64, f64)>> = Mutex::new(None);
+
+/// Whether the main window already re-applies the inset after it changes size.
+#[cfg(target_os = "macos")]
+static TRAFFIC_LIGHTS_FOLLOWING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
+fn traffic_lights_inset() -> Option<(f64, f64)> {
+    TRAFFIC_LIGHTS_INSET.lock().ok().and_then(|inset| *inset)
+}
+
+/// Move the standard window buttons so the first one's left edge is `x` from
+/// the window's left and their centres sit `centre` from its top.
+///
+/// This is how the window's own `trafficLightPosition` is applied (tao's
+/// `inset_traffic_lights`): the title bar's container is made tall enough to
+/// hold the buttons at that line, and the buttons are spaced as AppKit spaced
+/// them. Only public AppKit: `standardWindowButton`, `superview`, `frame`,
+/// `setFrame`, `setFrameOrigin`. In full screen the buttons belong to the
+/// menu bar's reveal, so nothing moves.
+#[cfg(target_os = "macos")]
+fn place_traffic_lights(ns_window: &objc2_app_kit::NSWindow, x: f64, centre: f64) {
+    use objc2_app_kit::{NSWindowButton, NSWindowStyleMask};
+
+    if ns_window
+        .styleMask()
+        .contains(NSWindowStyleMask::FullScreen)
+    {
+        return;
+    }
+    let (Some(close), Some(miniaturize), Some(zoom)) = (
+        ns_window.standardWindowButton(NSWindowButton::CloseButton),
+        ns_window.standardWindowButton(NSWindowButton::MiniaturizeButton),
+        ns_window.standardWindowButton(NSWindowButton::ZoomButton),
+    ) else {
+        return;
+    };
+    // SAFETY: `superview` returns the view's live superview (or nil) without
+    // retaining it internally; `Retained` holds each one for as long as it is
+    // used here, on the main thread that owns them.
+    let Some(container) =
+        (unsafe { close.superview() }).and_then(|title_bar| unsafe { title_bar.superview() })
+    else {
+        return;
+    };
+
+    let close_frame = close.frame();
+    let top = (centre - close_frame.size.height / 2.0).max(0.0);
+    let height = close_frame.size.height + top;
+    let mut container_frame = container.frame();
+    container_frame.size.height = height;
+    container_frame.origin.y = ns_window.frame().size.height - height;
+    container.setFrame(container_frame);
+
+    let spacing = miniaturize.frame().origin.x - close_frame.origin.x;
+    for (index, button) in [close, miniaturize, zoom].iter().enumerate() {
+        let mut origin = button.frame().origin;
+        origin.x = x + index as f64 * spacing;
+        button.setFrameOrigin(origin);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_traffic_lights_inset<R: tauri::Runtime>(window: &tauri::Window<R>) {
+    match traffic_lights_inset() {
+        Some((x, centre)) => {
+            with_ns_window(window, "place the traffic lights", move |ns_window| {
+                place_traffic_lights(ns_window, x, centre);
+            });
+        }
+        // The window's own view puts its configured position back the next
+        // time it draws, so ask it to.
+        None => with_ns_window(window, "restore the traffic lights", |ns_window| {
+            if let Some(view) = ns_window.contentView() {
+                view.setNeedsDisplay(true);
+            }
+        }),
+    }
+}
+
+/// Place the main window's traffic lights for the shell's frame: the first
+/// button's left edge `x` points from the window's left, their centres
+/// `centre` points from its top. Without both, they go back to the window's
+/// configured place (`trafficLightPosition`).
+///
+/// The window re-applies its configured position whenever its view redraws,
+/// so the inset is applied again after every resize (leaving full screen is
+/// one) and focus change. Scoped to the main window; elsewhere a no-op.
+#[tauri::command]
+pub fn set_traffic_lights_inset(window: tauri::Window, x: Option<f64>, centre: Option<f64>) {
+    if window.label() != "main" {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let inset = match (x, centre) {
+            (Some(x), Some(centre)) if x.is_finite() && centre.is_finite() => Some((x, centre)),
+            _ => None,
+        };
+        match TRAFFIC_LIGHTS_INSET.lock() {
+            Ok(mut stored) => *stored = inset,
+            Err(_) => {
+                luca_log!(warn, "luca-window: traffic lights inset is unavailable");
+                return;
+            }
+        }
+        if !TRAFFIC_LIGHTS_FOLLOWING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let follower = window.clone();
+            window.on_window_event(move |event| {
+                if matches!(
+                    event,
+                    tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Focused(_)
+                ) && traffic_lights_inset().is_some()
+                {
+                    apply_traffic_lights_inset(&follower);
+                }
+            });
+        }
+        apply_traffic_lights_inset(&window);
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (x, centre);
+}
+
 /// Put a window in the middle of the monitor it is actually on.
 ///
 /// `Window::center` measures against the PRIMARY display, so a window sitting

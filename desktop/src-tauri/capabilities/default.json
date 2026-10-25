@@ -21,6 +21,7 @@
     "core:window:allow-unminimize",
     "core:window:allow-show",
     "core:window:allow-close",
+    "core:window:allow-set-theme",
     "notification:default",
     "opener:default",
     "websocket:default",
