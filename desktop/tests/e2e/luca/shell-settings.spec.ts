@@ -141,6 +141,11 @@ function inCardPlace(b: Box | null, W: number, H: number, left: number) {
 }
 
 async function openGeneral(page: Page) {
+  // From Settings, the Conversations place leads back to the rail.
+  if ((await page.getByTestId("settings-view").count()) > 0) {
+    await page.getByTestId("shell-place-conversations").click();
+    await expect(page.getByTestId("settings-view")).toHaveCount(0);
+  }
   await page.getByTestId("channel-general").click();
   await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
 }
@@ -558,7 +563,7 @@ test("Settings in the frame", async ({ page }, info) => {
   const smallList = await box(page, LIST_CARD);
   const smallPanels = await box(page, PANELS_CARD);
   const listScrolls = await page.evaluate(() => {
-    const element = document.querySelector(".luca-settings-list");
+    const element = document.querySelector(".luca-settings-scroll");
     return element ? element.scrollHeight > element.clientHeight : null;
   });
   checks.min_window = {
@@ -613,6 +618,359 @@ test("Settings in the frame", async ({ page }, info) => {
   checks.failing = failing;
   writeFileSync(
     path.join(dir, "checks.json"),
+    `${JSON.stringify({ checks, files }, null, 2)}\n`,
+  );
+  expect(failing).toEqual([]);
+});
+
+/** Answers the app's version as the real app does (the mock has none), so
+ *  the section list's foot is drawn. */
+async function answerVersion(page: Page) {
+  await page.evaluate(() => {
+    const internals = (
+      window as unknown as {
+        __TAURI_INTERNALS__: {
+          invoke: (cmd: string, ...rest: unknown[]) => Promise<unknown>;
+        };
+      }
+    ).__TAURI_INTERNALS__;
+    const invoke = internals.invoke.bind(internals);
+    internals.invoke = (cmd, ...rest) =>
+      cmd === "plugin:app|version"
+        ? Promise.resolve("0.5.0-beta.14")
+        : invoke(cmd, ...rest);
+  });
+}
+
+/** Presses Escape until the search dialog is gone (at most three times)
+ *  and says how many it took. */
+async function escapesToCloseSearch(page: Page) {
+  for (let press = 1; press <= 3; press += 1) {
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(350);
+    if ((await page.getByTestId("search-dialog-input").count()) === 0) {
+      return press;
+    }
+  }
+  return -1;
+}
+
+/** The version line against the rows and the card, at the list's top and
+ *  at its end. */
+async function measureFoot(page: Page) {
+  return page.evaluate(() => {
+    const rect = (s: string) =>
+      document.querySelector(s)?.getBoundingClientRect() ?? null;
+    const scroller = document.querySelector(
+      ".luca-settings-scroll",
+    ) as HTMLElement;
+    const read = () => {
+      const card = rect('[data-luca-settings-list] [data-sidebar="sidebar"]');
+      const view = scroller.getBoundingClientRect();
+      const version = rect('[data-testid="settings-version"]');
+      const about = rect('[data-testid="settings-nav-about"]');
+      const head = [...document.querySelectorAll(".luca-settings-group-head")]
+        .at(-1)
+        ?.getBoundingClientRect();
+      return {
+        card_bottom: card ? card.y + card.height : null,
+        scroll_bottom: view.y + view.height,
+        version_top: version?.y ?? null,
+        version_bottom: version ? version.y + version.height : null,
+        about_bottom: about ? about.y + about.height : null,
+        application_head_top: head?.y ?? null,
+        version_after_about:
+          !!version && !!about && version.y >= about.y + about.height,
+      };
+    };
+    scroller.scrollTop = 0;
+    const top = read();
+    scroller.scrollTop = scroller.scrollHeight;
+    const end = read();
+    const scrolls = scroller.scrollHeight > scroller.clientHeight;
+    return { scrolls, top, end };
+  });
+}
+
+test("the review's fixes", async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
+  const dir = shotsDir(info.outputPath());
+  const checks: Record<string, unknown> = {};
+  const files: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => consoleErrors.push(error.message));
+  await openApp(page, { frame: true });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-luca-frame",
+    "solid",
+    { timeout: 60_000 },
+  );
+  await answerVersion(page);
+  await openGeneral(page);
+
+  // ── ⌘K and ⌘N work in Settings, where their places are ────────────
+  await openSettingsFromPlaces(page);
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await page.keyboard.press("Meta+k");
+  const searchOpened = await page
+    .getByTestId("search-dialog-input")
+    .waitFor({ state: "visible", timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  await page.waitForTimeout(300);
+  files.push(await shot(page, dir, "fix-cmd-k-in-settings"));
+  const escapesInSettings = await escapesToCloseSearch(page);
+  const afterEscape = page.url();
+  const stillInSettings = await page.getByTestId("settings-view").count();
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await page.keyboard.press("Meta+n");
+  const newConversation = await page
+    .waitForURL(/#\/messages\/new/, { timeout: 3_000 })
+    .then(() => true)
+    .catch(() => false);
+  const leftSettings = (await page.getByTestId("settings-view").count()) === 0;
+  // ⌘⇧N (a new channel) and ⌘⇧A stay as they were in Settings: off.
+  await openSettingsFromPlaces(page);
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await page.keyboard.press("Meta+Shift+a");
+  await page.waitForTimeout(300);
+  const shiftAStays = /#\/settings/.test(page.url());
+  // The same, in a conversation, for comparison.
+  await openGeneral(page);
+  await page.mouse.move(900, 600);
+  await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await page.keyboard.press("Meta+k");
+  await expect(page.getByTestId("search-dialog-input")).toBeVisible();
+  await page.waitForTimeout(300);
+  const escapesInConversation = await escapesToCloseSearch(page);
+  checks.cmd_k_cmd_n_in_settings = {
+    cmd_k_opens_search: searchOpened,
+    escapes_to_close_search_in_settings: escapesInSettings,
+    escapes_to_close_search_in_conversation: escapesInConversation,
+    escape_closes_search_only: /#\/settings/.test(afterEscape),
+    settings_after_escape: stillInSettings,
+    cmd_n_url: page.url(),
+    cmd_n_opens_new_conversation: newConversation,
+    cmd_n_leaves_settings: leftSettings,
+    cmd_shift_a_unchanged_in_settings: shiftAStays,
+    ok:
+      searchOpened &&
+      escapesInSettings > 0 &&
+      escapesInSettings === escapesInConversation &&
+      /#\/settings/.test(afterEscape) &&
+      stillInSettings === 1 &&
+      newConversation &&
+      leftSettings &&
+      shiftAStays,
+  };
+
+  // ── the panels' card holds still as Settings opens ────────────────
+  // The settings chunk is cached by now (opened above).
+  await openGeneral(page);
+  await page.waitForTimeout(400);
+  const arrival = await page.evaluate(
+    () =>
+      new Promise<{
+        frames: Array<{ t: number; host: string; surface: string }>;
+        transitions: string[];
+      }>((resolve) => {
+        const frames: Array<{ t: number; host: string; surface: string }> = [];
+        const transitions = new Set<string>();
+        const start = performance.now();
+        (
+          document.querySelector(
+            '[data-testid="open-settings-view"]',
+          ) as HTMLElement
+        ).click();
+        const step = () => {
+          const t = performance.now() - start;
+          const host = document.querySelector(
+            '[data-testid="settings-view"]',
+          ) as HTMLElement | null;
+          const surface = document.querySelector(
+            '[data-testid="settings-content-surface"]',
+          ) as HTMLElement | null;
+          if (host) {
+            frames.push({
+              t: Math.round(t),
+              host: getComputedStyle(host).opacity,
+              surface: surface ? getComputedStyle(surface).opacity : "none",
+            });
+            for (const animation of host.getAnimations()) {
+              const name =
+                animation instanceof CSSTransition
+                  ? `transition:${animation.transitionProperty}`
+                  : animation.constructor.name;
+              transitions.add(name);
+            }
+          }
+          if (t < 320) requestAnimationFrame(step);
+          else resolve({ frames, transitions: [...transitions] });
+        };
+        requestAnimationFrame(step);
+      }),
+  );
+  checks.panels_card_still_on_open = {
+    frames_sampled: arrival.frames.length,
+    first_frames: arrival.frames.slice(0, 4),
+    min_host_opacity: Math.min(
+      ...arrival.frames.map((frame) => Number(frame.host)),
+    ),
+    host_animations: arrival.transitions,
+    ok:
+      arrival.frames.length >= 5 &&
+      arrival.frames.every((frame) => frame.host === "1") &&
+      arrival.transitions.length === 0,
+  };
+  // A frame caught right after the click: the card is already drawn.
+  await openGeneral(page);
+  await page.waitForTimeout(400);
+  await page.getByTestId("open-settings-view").click();
+  const early = path.join(dir, "fix-settings-arriving-early-1440x900.png");
+  await page.screenshot({ path: early });
+  files.push(early);
+
+  // ── the unread dot on Conversations, in Settings ──────────────────
+  await openGeneral(page);
+  await page.waitForTimeout(300);
+  const dotInConversation = await page
+    .getByTestId("shell-place-conversations-unread")
+    .count();
+  const unreadRows = await page.getByTestId(/^channel-unread/).count();
+  await openSettingsFromPlaces(page);
+  await page.mouse.move(700, 500);
+  await page.waitForTimeout(300);
+  const dotSettingsOpen = await page
+    .getByTestId("shell-place-conversations-unread")
+    .count();
+  const dotBox = await box(
+    page,
+    '[data-testid="shell-place-conversations-unread"]',
+  );
+  const placesShot = path.join(dir, "fix-unread-dot-settings-list-open.png");
+  await settle(page);
+  await page.screenshot({
+    path: placesShot,
+    clip: { x: 0, y: 0, width: 300, height: 260 },
+  });
+  files.push(placesShot);
+  await page.getByTestId("shell-lip-toggle").click();
+  await page.waitForTimeout(700);
+  const dotSettingsClosed = await page
+    .getByTestId("shell-place-conversations-unread")
+    .count();
+  await page.getByTestId("shell-lip-toggle").click();
+  await page.waitForTimeout(700);
+  checks.unread_dot_in_settings = {
+    unread_rows_on_rail: unreadRows,
+    dot_in_conversation_rail_open: dotInConversation,
+    dot_in_settings_list_open: dotSettingsOpen,
+    dot_in_settings_list_closed: dotSettingsClosed,
+    dot_box: dotBox,
+    conversations_label: await page
+      .getByTestId("shell-place-conversations")
+      .getAttribute("aria-label"),
+    ok:
+      dotInConversation === 0 &&
+      dotSettingsOpen === 1 &&
+      dotSettingsClosed === 1,
+  };
+
+  // ── the version line at the list's foot ───────────────────────────
+  const foot: Record<string, unknown> = {};
+  for (const [name, size] of [
+    ["1440x900", { width: 1440, height: 900 }],
+    ["800x500", { width: 800, height: 500 }],
+    ["800x510", { width: 800, height: 510 }],
+  ] as const) {
+    await page.setViewportSize(size);
+    await page.mouse.move(size.width - 1, size.height - 1);
+    await page.waitForTimeout(500);
+    const measured = await measureFoot(page);
+    const scroller = page.locator(".luca-settings-scroll");
+    await scroller.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    const clip = {
+      x: 40,
+      y: size.height - 120,
+      width: 232,
+      height: 120,
+    };
+    const topShot = path.join(dir, `fix-foot-${name}-top.png`);
+    await settle(page);
+    await page.screenshot({ path: topShot, clip });
+    files.push(topShot);
+    if (measured.scrolls) {
+      await scroller.evaluate((element) => {
+        element.scrollTop = element.scrollHeight;
+      });
+      const endShot = path.join(dir, `fix-foot-${name}-end.png`);
+      await settle(page);
+      await page.screenshot({ path: endShot, clip });
+      files.push(endShot);
+      await scroller.evaluate((element) => {
+        element.scrollTop = 0;
+      });
+    }
+    foot[name] = measured;
+  }
+  const big = foot["1440x900"] as Awaited<ReturnType<typeof measureFoot>>;
+  const small = [foot["800x500"], foot["800x510"]] as Array<
+    Awaited<ReturnType<typeof measureFoot>>
+  >;
+  checks.version_in_list_scroll = {
+    ...foot,
+    ok:
+      // With room: no scroll, the version (its 12 of padding below the
+      // words) rests on the card's foot.
+      !big.scrolls &&
+      big.top.version_bottom !== null &&
+      big.top.card_bottom !== null &&
+      Math.abs(big.top.card_bottom - big.top.version_bottom) <= 1 &&
+      big.top.version_after_about &&
+      // Without: one scroll to the card's own edge; at its end every row of
+      // Application shows and the version follows About.
+      small.every(
+        (m) =>
+          m.scrolls &&
+          m.top.card_bottom !== null &&
+          Math.abs(m.top.scroll_bottom - m.top.card_bottom) <= 1 &&
+          m.end.version_after_about &&
+          m.end.about_bottom !== null &&
+          m.end.version_bottom !== null &&
+          m.end.version_bottom <= m.end.scroll_bottom + 0.5,
+      ),
+  };
+
+  // ── flag off: ⌘K in Settings is as the base (no dialog) ───────────
+  const context = await browser.newContext({ deviceScaleFactor: 2 });
+  const off = await context.newPage();
+  await openApp(off, { frame: false, origin: new URL(page.url()).origin });
+  await expect(
+    off.locator("[data-luca-conversation-surface]").first(),
+  ).toBeAttached({ timeout: 60_000 });
+  await off.keyboard.press("ControlOrMeta+,");
+  await expect(off.getByTestId("settings-view")).toBeVisible();
+  await off.evaluate(() => (document.activeElement as HTMLElement)?.blur());
+  await off.keyboard.press("Meta+k");
+  await off.waitForTimeout(600);
+  checks.flag_off_cmd_k_unchanged = {
+    search_dialog: await off.getByTestId("search-dialog-input").count(),
+    ok: (await off.getByTestId("search-dialog-input").count()) === 0,
+  };
+  await context.close();
+
+  checks.console = { errors: consoleErrors, ok: consoleErrors.length === 0 };
+  const failing = Object.entries(checks)
+    .filter(([, value]) => !(value as { ok?: boolean }).ok)
+    .map(([key]) => key);
+  checks.failing = failing;
+  writeFileSync(
+    path.join(dir, "checks-fixes.json"),
     `${JSON.stringify({ checks, files }, null, 2)}\n`,
   );
   expect(failing).toEqual([]);

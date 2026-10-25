@@ -48,23 +48,25 @@ function SettingsFrameLoadingFallback() {
         frame
         variant="sidebar"
       >
-        <div className="luca-settings-list">
-          {FRAME_NAV_GROUPS.map((group) => (
-            <div className="luca-settings-group" key={group.key}>
-              <div className="luca-settings-group-head">
-                <Skeleton className="h-2.5 w-16" />
-              </div>
-              {Array.from({ length: group.rows }, (_, row) => (
-                <div
-                  className="luca-settings-row"
-                  // biome-ignore lint/suspicious/noArrayIndexKey: a fixed skeleton.
-                  key={row}
-                >
-                  <Skeleton className="h-3 w-24" />
+        <div className="luca-settings-scroll">
+          <div className="luca-settings-list">
+            {FRAME_NAV_GROUPS.map((group) => (
+              <div className="luca-settings-group" key={group.key}>
+                <div className="luca-settings-group-head">
+                  <Skeleton className="h-2.5 w-16" />
                 </div>
-              ))}
-            </div>
-          ))}
+                {Array.from({ length: group.rows }, (_, row) => (
+                  <div
+                    className="luca-settings-row"
+                    // biome-ignore lint/suspicious/noArrayIndexKey: a fixed skeleton.
+                    key={row}
+                  >
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       </Sidebar>
       <SidebarInset

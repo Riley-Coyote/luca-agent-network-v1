@@ -803,7 +803,9 @@ export function AppShell() {
     setIsCreateChannelOpen(true);
   }, []);
   React.useLayoutEffect(() => {
-    if (settingsOpen) {
+    // Settings has no Search or New conversation of its own, except under the
+    // frame, where the places column offers both: there their keys stay live.
+    if (settingsOpen && !shellFrame) {
       return;
     }
 
@@ -822,6 +824,10 @@ export function AppShell() {
       }
 
       const key = event.key.toLowerCase();
+      if (settingsOpen && !(key === "k" || (key === "n" && !event.shiftKey))) {
+        return;
+      }
+
       if (key === "k" && !event.shiftKey) {
         event.preventDefault();
         handleOpenSearch();
@@ -870,6 +876,7 @@ export function AppShell() {
     handleOpenSearch,
     goHome,
     settingsOpen,
+    shellFrame,
   ]);
   useSettingsShortcuts({
     onClose: handleCloseSettings,

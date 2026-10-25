@@ -61,21 +61,28 @@
 }
 
 /* ── the section list ────────────────────────────────────────────── */
-/* Its width is held while the card narrows, so the rows are clipped, not
- * reflowed. */
-.luca-settings-list {
+/* The list and the build's version share one scroll, so the card's own
+ * edge is the only thing that clips them. Its width is held while the card
+ * narrows, so the rows are clipped, not reflowed. */
+.luca-settings-scroll {
+  display: flex;
   flex: 1;
+  flex-direction: column;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px 6px 20px;
   scrollbar-width: none;
-  -webkit-user-select: none;
-  user-select: none;
   width: var(--sidebar-width);
 }
 
-.luca-settings-list::-webkit-scrollbar {
+.luca-settings-scroll::-webkit-scrollbar {
   display: none;
+}
+
+.luca-settings-list {
+  flex: none;
+  padding: 6px 6px 20px;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .luca-settings-group + .luca-settings-group {
@@ -136,10 +143,12 @@ button.luca-settings-row:hover:not([data-current]) {
   outline-offset: -1px;
 }
 
-/* The build, said quietly at the card's foot. */
+/* The build, said quietly at the card's foot: the free room above it
+ * pushes it down; with none, it follows the last row and scrolls with it. */
 .luca-settings-version {
   color: hsl(var(--mn-ink-faint));
   flex: none;
+  margin-top: auto;
   padding: 0 16px 12px;
   -webkit-user-select: text;
   user-select: text;

@@ -245,7 +245,9 @@ export function ShellPlaces({
       ? !sidebar.openMobile
       : !sidebar.open
     : false;
-  const unreadDot = hasUnread && railClosed;
+  // Settings puts its section list in the rail's card, so there the rail,
+  // and every unread row on it, is never on screen: the dot always speaks.
+  const unreadDot = hasUnread && (railClosed || here === "settings");
   return (
     <nav aria-label="Places" className="luca-places" data-testid="shell-places">
       <div className="luca-places-group">

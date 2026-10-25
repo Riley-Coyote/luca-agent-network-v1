@@ -276,7 +276,12 @@ export function SettingsView({
         variant="sidebar"
       >
         {frame ? (
-          <>
+          // One scroll for the list and the build: with room the version
+          // rests at the card's foot, without it follows the last row.
+          <div
+            className="luca-settings-scroll"
+            data-testid="settings-section-scroll"
+          >
             <SettingsFrameSectionList
               groups={visibleNavGroups}
               onSelect={selectSection}
@@ -290,7 +295,7 @@ export function SettingsView({
                 v{appVersion}
               </p>
             ) : null}
-          </>
+          </div>
         ) : (
           <>
             <div
@@ -356,8 +361,11 @@ export function SettingsView({
 
       <SidebarInset
         className={cn(
-          "isolate relative min-h-0 min-w-0 overflow-hidden bg-sidebar motion-safe:transition-opacity motion-safe:duration-200",
-          isLoaded ? "opacity-100" : "opacity-0",
+          "isolate relative min-h-0 min-w-0 overflow-hidden bg-sidebar",
+          // Under the frame the card holds still, as every place's does; only
+          // the section's content arrives (NavigationTransition).
+          !frame && "motion-safe:transition-opacity motion-safe:duration-200",
+          !frame && (isLoaded ? "opacity-100" : "opacity-0"),
         )}
         data-buzz-shadow-viewport
         data-luca-settings-card-host={frame ? "" : undefined}
