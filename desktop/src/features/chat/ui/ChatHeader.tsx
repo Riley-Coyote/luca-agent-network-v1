@@ -15,6 +15,7 @@ import { toast } from "sonner";
 
 import type { ChannelType, ChannelVisibility } from "@/shared/api/types";
 import { UpdateIndicator } from "@/features/settings/UpdateIndicator";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import { channelChrome } from "@/shared/layout/chromeLayout";
 import { Button } from "@/shared/ui/button";
@@ -116,6 +117,9 @@ export function ChatHeader({
   transparentChrome = false,
 }: ChatHeaderProps) {
   const trimmedDescription = description?.trim() ?? "";
+  // Under the shell's frame an update is a dot on Settings (WP-08), not a
+  // button in the conversation's header (SHELL_SPEC.md, Decided 4).
+  const shellFrame = useShellFrameEnabled();
 
   async function handleCopyTitle() {
     const value = title.trim();
@@ -222,7 +226,7 @@ export function ChatHeader({
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          <UpdateIndicator />
+          {shellFrame ? null : <UpdateIndicator />}
           {actions ? <div className="shrink-0">{actions}</div> : null}
         </div>
       </div>

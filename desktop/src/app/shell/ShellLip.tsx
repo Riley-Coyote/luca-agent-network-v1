@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
 import type { Channel } from "@/shared/api/types";
+import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
@@ -13,7 +14,8 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
  * the window's top 36, on the floor. The rail's toggle at 78; back and forward
  * riding with the conversation card at max(card's left + 6, 112); and, until
  * the tabs come, the open page's name centred on the conversation card's axis.
- * Both live in the lip's part over the card, which moves with the card.
+ * Both live in the lip's part over the card, which moves with the card; so
+ * does the slot at its right end for the open conversation's actions (WP-04).
  * Its empty part is the window's title bar (useTauriWindowDrag).
  *
  * Fixed points on purpose, as the top chrome was: it sits beside the native
@@ -229,6 +231,14 @@ export function ShellLip({
             )}
           </span>
         </h1>
+        {/* The open conversation's actions, at the lip's right end: the
+            conversation portals them in (lipActionsSlot.ts, shell-header.css).
+            After the name, so Tab meets them after back and forward. */}
+        <div
+          className="luca-lip-actions"
+          data-testid="shell-lip-actions"
+          ref={setShellLipActionsSlot}
+        />
       </div>
     </header>
   );

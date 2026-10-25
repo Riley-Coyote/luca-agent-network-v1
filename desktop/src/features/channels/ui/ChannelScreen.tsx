@@ -67,7 +67,12 @@ import {
   useMainInsetRef,
   useMainInsetWidth,
 } from "@/shared/layout/MainInsetContext";
-import { channelContentTopPaddingMeasurement } from "@/shared/layout/chromeLayout";
+import {
+  channelContentTopPaddingMeasurement,
+  chromeCssVars,
+  SHELL_FRAME_CHANNEL_CONTENT_TOP_PADDING,
+} from "@/shared/layout/chromeLayout";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useMeasuredCssVariable } from "@/shared/layout/useMeasuredCssVariable";
 import { useIsMobile, useMediaBreakpoint } from "@/shared/hooks/use-mobile";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
@@ -717,11 +722,19 @@ export function ChannelScreen({
       isMobileViewport,
       mainInsetWidthPx: stableShellWidthPx,
     });
+  // Under the shell's frame the card has no header to measure (the forum's
+  // and a project room's picker excepted, ChannelScreenHeader): the reading
+  // area's top padding is fixed, on this conversation alone.
+  const shellFrame = useShellFrameEnabled();
+  const fixedTopPadding =
+    shellFrame &&
+    activeChannel?.channelType !== "forum" &&
+    !projectRoomNavigation;
   const channelHeaderChromeRef = useMeasuredCssVariable({
     targetRef: mainInsetRef,
     ...channelContentTopPaddingMeasurement,
     resetKey: activeChannelId,
-    enabled: !isSinglePanelView,
+    enabled: !isSinglePanelView && !fixedTopPadding,
   });
 
   const handleManageChannel = React.useCallback(() => {
@@ -915,7 +928,17 @@ export function ChannelScreen({
           open={welcomeAgentCreate.isOpen}
           sendError={welcomeAgentCreate.error}
         />
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+          style={
+            fixedTopPadding
+              ? ({
+                  [chromeCssVars.channelContentTopPadding]:
+                    SHELL_FRAME_CHANNEL_CONTENT_TOP_PADDING,
+                } as React.CSSProperties)
+              : undefined
+          }
+        >
           {activeChannel ? (
             activeChannel.channelType === "forum" ? (
               <ForumChannelContent

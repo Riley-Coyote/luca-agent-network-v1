@@ -1,0 +1,175 @@
+/* ------------------------------------------------------------------
+ * THE CONVERSATION HEADER, DISSOLVED INTO THE LIP (WP-04;
+ * docs/luca/rail-system/SHELL_SPEC.md, "The conversation's card",
+ * Decided 3 and 4; the study, desktop/src/testing/shellStudy/, is the
+ * reference for every value). Only while the shell's frame is drawn
+ * (`<html data-luca-frame="solid">`, the `shell-frame` flag).
+ *
+ * The conversation's card has no header of its own: its name is the lip's,
+ * and its actions stand at the lip's right end, over the card, 8 from the
+ * card's right edge, as the lip's own buttons (24 tiles, 15 icons at stroke
+ * 1.7, corners 7, the frame's second tone: `.luca-lip-button`,
+ * shell-frame.css). Before them, a person's presence in a direct
+ * conversation and an ephemeral conversation's badge; in a conversation
+ * you haven't joined, Join takes the actions' place. The card keeps only a
+ * short fade under its top edge, as tall as its reading area's top padding.
+ *
+ * Fixed points, as the lip is.
+ * ------------------------------------------------------------------ */
+
+/* ── the slot, at the lip's right end ─────────────────────────────── */
+/* It rides in the lip's part over the card (`.luca-lip-card`), which moves
+ * with the card and takes the pointer only on its buttons: the slot's gaps
+ * still move the window. */
+.luca-lip-actions {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+  height: 24px;
+  pointer-events: none;
+  position: absolute;
+  right: 8px;
+  top: 10px;
+}
+
+.luca-lip-actions > * {
+  flex: none;
+  pointer-events: auto;
+}
+
+/* The workspace's layout menu is the app's shared trigger: drawn here as
+ * the lip's own tile. Spelled out to win over its button's utilities. */
+.luca-lip-actions [data-testid="workspace-layout-menu"] {
+  background: transparent;
+  border-radius: 7px;
+  box-shadow: none;
+  color: hsl(var(--mn-ink-muted));
+  height: 24px;
+  padding: 0;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 24px;
+}
+
+.luca-lip-actions [data-testid="workspace-layout-menu"] svg {
+  height: 15px;
+  stroke-width: 1.7;
+  width: 15px;
+}
+
+/* Hovered, or its menu open: the frame's plate, as the lip's toggle. */
+.luca-lip-actions
+:is([data-testid="workspace-layout-menu"], .luca-lip-button):is(
+  :hover,
+  [data-state="open"]
+):not(:disabled) {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-lip-actions [data-testid="workspace-layout-menu"]:focus-visible {
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* A person's presence, on the lip's line inside a tile's 24. */
+.luca-lip-presence {
+  align-items: center;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  margin-right: 2px;
+  width: 24px;
+}
+
+.luca-lip-presence__avatar {
+  height: 22px;
+  width: 22px;
+}
+
+/* An ephemeral conversation's badge: a glyph in the frame's second tone,
+ * drawn as the tiles' icons are. */
+.luca-lip-glyph {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.luca-lip-actions .luca-lip-glyph svg {
+  color: inherit;
+  height: 15px;
+  stroke-width: 1.7;
+  width: 15px;
+}
+
+/* Join, in the actions' place: the app's own filled button, at the lip's
+ * height and corners. */
+.luca-lip-join {
+  border-radius: 7px;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px 0 7px;
+}
+
+.luca-lip-actions .luca-lip-join svg {
+  height: 14px;
+  stroke-width: 1.7;
+  width: 14px;
+}
+
+/* ── the card's top edge ──────────────────────────────────────────── */
+/* No band: a short fade under the card's top edge, as tall as the reading
+ * area's top padding (22), so messages scrolled up dissolve into the card
+ * at its edge rather than cut off against it. It takes no room in the
+ * column. The veil's own surface (the card's tone and grain) is the
+ * conversation veil's; only its height and its ramp are the frame's. */
+.luca-shell-card-top {
+  height: 0;
+  pointer-events: none;
+  position: relative;
+  z-index: 40;
+}
+
+/* Spelled out to outrank the dark shell's own veil ramp
+ * (conversation-shell.css). */
+:root[data-luca-frame="solid"][data-luca-shell]
+  .luca-shell-card-top
+  .luca-conversation-veil-top.luca-shell-veil-top {
+  height: var(--buzz-channel-content-top-padding, 22px);
+  left: 0;
+  -webkit-mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, #000, transparent);
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+
+/* The day's label parks just below the fade, where it rests before you
+ * scroll (the reading area's top padding), instead of half under the card's
+ * edge. With a header still in the card (a project room's picker), the
+ * padding is that header's height, and the label parks beneath it. */
+:root[data-luca-frame="solid"]
+  [data-luca-timeline-viewport]
+  [data-testid="message-timeline-day-divider"] {
+  top: var(--buzz-channel-content-top-padding, 22px);
+}
+
+/* ── the headers that remain (the forum's, a project room's picker) ── */
+/* The title has moved up into the lip. With the strip gone, a closed
+ * rail leaves nothing to dodge. */
+:root[data-luca-frame="solid"] [data-testid="chat-title"] {
+  display: none;
+}
+
+:root[data-luca-frame="solid"]
+  [data-collapsible="offcanvas"]
+  ~ *
+  [data-testid="chat-header"] {
+  padding-left: 22px;
+}

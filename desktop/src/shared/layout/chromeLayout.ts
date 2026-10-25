@@ -9,6 +9,10 @@
 // other makes the lights overflow the strip onto the content below.
 export const TOP_CHROME_HEIGHT_DEFAULT = "32px";
 export const CHANNEL_CONTENT_TOP_PADDING_DEFAULT = "5.75rem";
+/** Under the shell's frame the conversation's card has no header: its
+ *  timeline's top padding is fixed at the shell study's reading area
+ *  (`shellStudy.css` `.shell-reading`, 22 at the top), not measured. */
+export const SHELL_FRAME_CHANNEL_CONTENT_TOP_PADDING = "22px";
 export const NATIVE_TRAFFIC_LIGHT_INSET_DEFAULT = "80px";
 
 export const chromeCssVars = {
