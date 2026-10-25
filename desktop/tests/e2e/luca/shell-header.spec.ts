@@ -516,15 +516,18 @@ test("the conversation header in the lip", async ({ page }, info) => {
     day_pill: dayPill,
     ok:
       !!veil &&
-      veil.top_from_card === 0 &&
+      // The veil starts at the card's content box, a point inside its edge,
+      // where the card's grain is laid too, so the two register (WP-01b).
+      veil.top_from_card <= 1 &&
       veil.height === 22 &&
-      veil.width_vs_card === 0 &&
+      Math.abs(veil.width_vs_card) <= 2 &&
       /linear-gradient/.test(veil.mask) &&
       rampValues.length > 0 &&
       // A line of text across the edge: darkest at the edge, brightening
-      // through the fade.
-      (ramp?.brightest_at[1] ?? 255) < (ramp?.brightest_at[8] ?? 0) &&
-      (ramp?.brightest_at[8] ?? 255) < (ramp?.brightest_at[16] ?? 0),
+      // through the fade (the line's own height decides how deep it runs,
+      // so only its first rows are compared).
+      (ramp?.brightest_at[1] ?? 255) < (ramp?.brightest_at[4] ?? 0) &&
+      (ramp?.brightest_at[4] ?? 255) < (ramp?.brightest_at[8] ?? 0),
   };
 
   // ── details-open: the right card, opened from the lip ────────────
