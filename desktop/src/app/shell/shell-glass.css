@@ -5,19 +5,20 @@
  * in front of the glass, behind the lip and the cards, so the frame's words
  * read over a bright desktop; the cards float on it, lit from above.
  *
- * `<html data-luca-frame="glass">` is set by ThemeProvider only once the glass
- * is really there (the native glass announced, or the frosted vibrancy
- * installed), never in a browser and never under Reduce Transparency.
+ * `<html data-luca-frame-glass="liquid|frosted">` is set by ThemeProvider
+ * only once the glass is really there (the native glass announced, or the
+ * frosted vibrancy installed), never in a browser and never under Reduce
+ * Transparency. Every rule here keys on it alone: `data-luca-frame` is the
+ * frame's own (WP-01's shell-frame.css), and says only that it is drawn.
  *
  * Every value is the shell study's, cited by its line in
  * desktop/src/testing/shellStudy/shellStudy.css, for Claude to tune by eye in
  * the test app (WP-07b).
  * ------------------------------------------------------------------ */
 
-/* The frame's words. The lip and the places read these tones, falling back to
- * the app's ink on the solid frame. */
-:root[data-luca-frame="glass"] {
-  /* At night a warm white over the glass (shellStudy.css:46-50). */
+/* The frame's words, as the study names its tones. */
+:root[data-luca-frame-glass] {
+  /* At night a warm white over the glass (shellStudy.css:45-50). */
   --luca-frame-ink: rgb(250 248 243 / 0.96);
   --luca-frame-muted: rgb(250 248 243 / 0.76);
   --luca-frame-faint: rgb(250 248 243 / 0.56);
@@ -25,12 +26,13 @@
   --luca-frame-thread: rgb(255 255 255 / 0.22);
   /* The veil at Soft (shellStudy.css:108). */
   --luca-frame-veil: 0.22;
-  /* The window's corner (shellStudy.css:1421); square in full screen. */
+  /* The window's corner (shellStudy.css:1419-1422); square in full screen. */
   --luca-frame-window-radius: 16px;
 }
 
-:root[data-luca-frame="glass"]:not(.dark) {
-  /* By day the page's own ink, solved for daylight (shellStudy.css:1265-1269). */
+:root[data-luca-frame-glass]:not(.dark) {
+  /* By day the page's own ink, solved for daylight (shellStudy.css:1262-
+   * 1269). */
   --luca-frame-ink: hsl(var(--mn-ink));
   --luca-frame-muted: hsl(var(--mn-ink) / 0.84);
   --luca-frame-faint: hsl(var(--mn-ink) / 0.66);
@@ -38,8 +40,50 @@
   --luca-frame-thread: hsl(var(--mn-ink) / 0.18);
 }
 
-:root[data-luca-frame="glass"][data-luca-window-fullscreen] {
+:root[data-luca-frame-glass][data-luca-window-fullscreen] {
   --luca-frame-window-radius: 0px;
+}
+
+/* The frame's words wear the tones (the frame is WP-01's: its lip and its
+ * places, shell-frame.css). The study: the lip's buttons (shellStudy.css:
+ * 265-291), the open page's name (shellStudy.css:318-348), the places
+ * (shellStudy.css:462-500), their focus ring (shellStudy.css:798-810). */
+:root[data-luca-frame-glass] :is(.luca-lip, .luca-lip-name) {
+  color: var(--luca-frame-ink);
+}
+
+:root[data-luca-frame-glass]
+  :is(.luca-lip-button, .luca-place, .luca-place-search button) {
+  color: var(--luca-frame-muted);
+}
+
+:root[data-luca-frame-glass] .luca-lip-button:hover:not(:disabled),
+:root[data-luca-frame-glass] .luca-place:hover:not([data-current]),
+:root[data-luca-frame-glass] .luca-place-search button:hover {
+  background: var(--luca-frame-plate);
+  color: var(--luca-frame-ink);
+}
+
+:root[data-luca-frame-glass] .luca-lip-button:disabled {
+  color: var(--luca-frame-faint);
+}
+
+/* Where you are, until the glass frame's own marks come (WP-07b, WP-03): the
+ * frame's plate. */
+:root[data-luca-frame-glass] .luca-place[data-current] {
+  background: var(--luca-frame-plate);
+  box-shadow: none;
+  color: var(--luca-frame-ink);
+}
+
+:root[data-luca-frame-glass]
+  :is(
+    .luca-lip-button,
+    .luca-place,
+    .luca-place-search button,
+    .luca-shell-avatar
+  ):focus-visible {
+  outline-color: color-mix(in srgb, var(--luca-frame-ink) 55%, transparent);
 }
 
 /* Every layer that paints the floor clears: the list railGlass.css already
@@ -47,9 +91,9 @@
  * own `[data-sidebar="sidebar"]` (the rail is a card in the shell, and cards
  * are never glass), plus the shell's own floor (`[data-luca-frame-floor]`) and
  * the root itself (shellStudy.css:60). */
-:root[data-luca-frame="glass"],
-:root[data-luca-frame="glass"] body,
-:root[data-luca-frame="glass"]
+:root[data-luca-frame-glass],
+:root[data-luca-frame-glass] body,
+:root[data-luca-frame-glass]
   :is(
     .luca-theme-shell-layer,
     .buzz-huddle-shell,
@@ -65,9 +109,9 @@
 /* The veil: one layer in front of the glass, behind the lip and the cards
  * (z-index -1 in the root's stacking context, beneath every box of the page).
  * At night black (shellStudy.css:104), by day the paper's own tone
- * (shellStudy.css:1273), at Soft. Natively nothing of ours paints past the
- * window's rounded corners (shellStudy.css:1419-1422). */
-:root[data-luca-frame="glass"] body::before {
+ * (shellStudy.css:1271-1273), at Soft. Natively nothing of ours paints past
+ * the window's rounded corners (shellStudy.css:1419-1422). */
+:root[data-luca-frame-glass] body::before {
   background: rgb(0 0 0 / var(--luca-frame-veil));
   border-radius: var(--luca-frame-window-radius);
   content: "";
@@ -77,23 +121,68 @@
   z-index: -1;
 }
 
-:root[data-luca-frame="glass"]:not(.dark) body::before {
+:root[data-luca-frame-glass]:not(.dark) body::before {
   background: hsl(var(--mn-floor) / var(--luca-frame-veil));
 }
 
-/* The cards on the glass at night: their top edges catch the light from
- * above, and they leave a soft shadow on the glass. No outline: the light and
- * the shadow draw the edge (shellStudy.css:830-837). */
-:root[data-luca-shell][data-luca-frame="glass"].dark [data-luca-card] {
+/* The cards on the glass: every card the shell has. glass-floor.css's own
+ * list (a card, and a route's surface that is itself the card, not the clear
+ * plane that holds a workspace's cards), and the rail's card under the frame
+ * (WP-01's shell-frame.css, `[data-frame] [data-sidebar="sidebar"]`). A place
+ * that fills the conversation's card instead of painting its own inside it
+ * (WP-01) is not a card of its own. The `:root:root` outranks the solid
+ * frame's card edges (conversation-shell.css:373, and WP-01's rail card).
+ *
+ * At night their top edges catch the light from above, and they leave a soft
+ * shadow on the glass. No outline: the light and the shadow draw the edge
+ * (shellStudy.css:826-837). */
+:root:root[data-luca-frame-glass].dark
+  :is(
+    [data-luca-card],
+    [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
+      [data-luca-conversation-surface] *
+    ),
+    [data-frame] [data-sidebar="sidebar"]
+  ) {
   box-shadow:
     0 -0.5px 0 rgb(255 255 255 / 0.12),
     0 1px 2px rgb(0 0 0 / 0.25),
     0 18px 44px rgb(0 0 0 / 0.32);
 }
 
-/* By day no white edges: white on white says nothing (shellStudy.css:1317-
- * 1321). The ink-cast shadow beneath all the cards at once is drawn by the
- * frame's own layout, so no card shades its neighbour. */
-:root[data-luca-shell][data-luca-frame="glass"]:not(.dark) [data-luca-card] {
+/* By day no white edges: white on white says nothing (shellStudy.css:1314-
+ * 1321). Their shadow lies on the glass beneath all of them at once (below),
+ * so no card shades its neighbour. */
+:root:root[data-luca-frame-glass]:not(.dark)
+  :is(
+    [data-luca-card],
+    [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])):not(
+      [data-luca-conversation-surface] *
+    ),
+    [data-frame] [data-sidebar="sidebar"]
+  ) {
   box-shadow: none;
+}
+
+/* The cards' shadows by day: one layer on the glass, above the veil and
+ * beneath every card, one shadow where each card lies (shellGlass.ts,
+ * useShellGlassShadows, places them and fades the rail's as it narrows).
+ * The study's `.shell-shadows` (shellStudy.css:1323-1360). */
+[data-luca-frame-shadows] {
+  display: none;
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+:root[data-luca-frame-glass]:not(.dark) [data-luca-frame-shadows] {
+  display: block;
+}
+
+[data-luca-frame-shadow] {
+  box-shadow:
+    0 1px 2px hsl(var(--mn-ink) / 0.08),
+    0 16px 40px -10px hsl(var(--mn-ink) / 0.22);
+  position: absolute;
 }

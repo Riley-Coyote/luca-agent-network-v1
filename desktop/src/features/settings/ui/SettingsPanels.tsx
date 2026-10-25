@@ -51,7 +51,7 @@ import {
   solidFrameName,
   type Frame,
 } from "@/app/shell/shellGlass";
-import { useFeatureEnabled } from "@/shared/features/useFeatureEnabled";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import { Switch } from "@/shared/ui/switch";
 import {
@@ -413,7 +413,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
 
   // The shell's frame brings its own Frame row; its glass replaces the rail
   // glass test builds' settings.
-  const shellFrame = useFeatureEnabled("shell-frame");
+  const shellFrame = useShellFrameEnabled();
 
   // First-party app palettes pin a neutral accent so their authored selection
   // and focus hierarchy cannot be overwritten by a stored chromatic swatch.
@@ -722,18 +722,24 @@ function FrameSetting() {
             })}
           </p>
         </div>
+        {/* The study's segment (shellStudy.css:1137-1155): a track of the
+            ink at 6%; the chosen option the ink at 14% at night, and by day
+            a piece of paper standing up on its track, like Send
+            (shellStudy.css:1382-1388), never a darker dip. */}
         <fieldset
           aria-labelledby="appearance-frame-label"
-          className="flex gap-1 rounded-full bg-background/50 p-1"
+          className="flex gap-1 rounded-full bg-[hsl(var(--mn-ink)/0.06)] p-1"
         >
           {choices.map(([value, label]) => (
             <button
               aria-pressed={chosen === value}
               className={cn(
                 "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                chosen === value
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
+                chosen !== value
+                  ? "text-muted-foreground hover:text-foreground"
+                  : isDark
+                    ? "bg-[hsl(var(--mn-ink)/0.14)] text-foreground"
+                    : "bg-[hsl(var(--mn-surface))] text-foreground shadow-[0_0.5px_1px_hsl(var(--mn-ink)/0.22),0_1px_3px_hsl(var(--mn-ink)/0.1)]",
               )}
               data-testid={`appearance-frame-${value}`}
               key={value}

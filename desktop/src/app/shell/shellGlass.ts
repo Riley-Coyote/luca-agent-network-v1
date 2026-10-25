@@ -285,20 +285,48 @@ export function useReducedTransparency() {
 }
 
 /**
- * The conversation's card: the leftmost card on the page outside the rail.
+ * Every card the shell has: glass-floor.css's own list (a card, and a route's
+ * surface that is itself the card, not the clear plane that holds a
+ * workspace's cards), and the rail's card under the frame (WP-01's
+ * shell-frame.css). shell-glass.css lights the same set.
+ */
+export const CARD_SELECTOR = [
+  "[data-luca-card]",
+  "[data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))",
+  '[data-frame] [data-sidebar="sidebar"]',
+].join(", ");
+
+/** The rail's card under the frame (WP-01). */
+const RAIL_CARD_SELECTOR = '[data-frame] [data-sidebar="sidebar"]';
+
+/** The cards that rest on the frame: every card not inside another one, on
+ *  screen and shown. */
+export function frameCards(doc: Document = document) {
+  const all = [...doc.querySelectorAll<HTMLElement>(CARD_SELECTOR)];
+  return all.filter((card) => {
+    if (all.some((other) => other !== card && other.contains(card))) {
+      return false;
+    }
+    const rect = card.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return false;
+    return getComputedStyle(card).visibility === "visible";
+  });
+}
+
+/**
+ * The conversation's card: the leftmost card on the frame outside the rail.
  * (The rail's own card, when the frame gives it one, is not the one the glass
  * is told about: `sync` in ShellStudy.tsx sends the conversation card.)
  */
 export function conversationCard(doc: Document = document) {
   let best: HTMLElement | null = null;
   let bestX = Number.POSITIVE_INFINITY;
-  for (const card of doc.querySelectorAll<HTMLElement>("[data-luca-card]")) {
+  for (const card of frameCards(doc)) {
     if (card.closest('[data-testid="app-sidebar"]')) continue;
-    const rect = card.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) continue;
-    if (rect.x < bestX) {
+    const { x } = card.getBoundingClientRect();
+    if (x < bestX) {
       best = card;
-      bestX = rect.x;
+      bestX = x;
     }
   }
   return best;
@@ -319,6 +347,76 @@ const measureCard = (card: HTMLElement | null): GlassFrame["card"] => {
 /** The rail slides over 460 ms (SHELL_SPEC.md, "Motion"); a little longer, so
  *  the last frame of any transition is reported. */
 const FOLLOW_MS = 520;
+
+/**
+ * Calls `onLayout` whenever the frame's layout may have changed: a resize of
+ * the window or of a card, a route or a pane coming and going, and every
+ * frame while something slides. Returns the way to stop.
+ */
+function watchLayout(
+  onLayout: () => void,
+  watched: () => readonly Element[],
+  ignore?: Node,
+) {
+  const root = document.documentElement;
+  let pending = 0;
+  const later = () => {
+    if (pending) return;
+    pending = requestAnimationFrame(() => {
+      pending = 0;
+      onLayout();
+    });
+  };
+  let following = 0;
+  let until = 0;
+  const follow = () => {
+    until = performance.now() + FOLLOW_MS;
+    if (following) return;
+    const step = () => {
+      onLayout();
+      following = performance.now() < until ? requestAnimationFrame(step) : 0;
+    };
+    following = requestAnimationFrame(step);
+  };
+
+  const resizes = new ResizeObserver(later);
+  resizes.observe(root);
+  let observed = new Set<Element>();
+  const watch = () => {
+    const next = new Set(watched());
+    for (const element of observed) {
+      if (!next.has(element)) resizes.unobserve(element);
+    }
+    for (const element of next) {
+      if (!observed.has(element)) resizes.observe(element);
+    }
+    observed = next;
+  };
+  watch();
+  // A route swaps the card; a drawer or a second pane comes and goes.
+  const mutations = new MutationObserver((records) => {
+    if (ignore && records.every((record) => ignore.contains(record.target))) {
+      return;
+    }
+    watch();
+    later();
+  });
+  mutations.observe(document.body, { childList: true, subtree: true });
+  window.addEventListener("resize", later);
+  document.addEventListener("transitionrun", follow, true);
+  document.addEventListener("animationstart", follow, true);
+  void document.fonts?.ready.then(later);
+
+  return () => {
+    mutations.disconnect();
+    resizes.disconnect();
+    window.removeEventListener("resize", later);
+    document.removeEventListener("transitionrun", follow, true);
+    document.removeEventListener("animationstart", follow, true);
+    if (pending) cancelAnimationFrame(pending);
+    if (following) cancelAnimationFrame(following);
+  };
+}
 
 /**
  * Tells the native glass where the frame is while `active`: the settings
@@ -354,58 +452,14 @@ export function useShellGlassReporter(
     reportRef.current = report;
     reporter.start();
     report();
-
-    let pending = 0;
-    const later = () => {
-      if (pending) return;
-      pending = requestAnimationFrame(() => {
-        pending = 0;
-        report();
-      });
-    };
-    let following = 0;
-    let until = 0;
-    const follow = () => {
-      until = performance.now() + FOLLOW_MS;
-      if (following) return;
-      const step = () => {
-        report();
-        following = performance.now() < until ? requestAnimationFrame(step) : 0;
-      };
-      following = requestAnimationFrame(step);
-    };
-
-    const resizes = new ResizeObserver(later);
-    resizes.observe(root);
-    let watched: HTMLElement | null = null;
-    const watch = () => {
+    const stop = watchLayout(report, () => {
       const card = conversationCard();
-      if (card === watched) return;
-      if (watched) resizes.unobserve(watched);
-      if (card) resizes.observe(card);
-      watched = card;
-    };
-    watch();
-    // A route swaps the card; a drawer or a second pane comes and goes.
-    const mutations = new MutationObserver(() => {
-      watch();
-      later();
+      return card ? [card] : [];
     });
-    mutations.observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", later);
-    document.addEventListener("transitionrun", follow, true);
-    document.addEventListener("animationstart", follow, true);
-    void document.fonts?.ready.then(later);
 
     return () => {
       reportRef.current = null;
-      mutations.disconnect();
-      resizes.disconnect();
-      window.removeEventListener("resize", later);
-      document.removeEventListener("transitionrun", follow, true);
-      document.removeEventListener("animationstart", follow, true);
-      if (pending) cancelAnimationFrame(pending);
-      if (following) cancelAnimationFrame(following);
+      stop();
       // The page draws the whole frame itself again.
       reporter.stop();
     };
@@ -417,6 +471,80 @@ export function useShellGlassReporter(
   React.useEffect(() => {
     reportRef.current?.();
   }, [isDark, fullscreen]);
+}
+
+/** Where one card's shadow lies on the glass. */
+export type CardShadow = Box & { r: number; opacity: number };
+
+/**
+ * A card's shadow: where it lies, its corners, and how strongly it is cast.
+ * The rail's fades as its card narrows, gone once it is closed
+ * (shellStudy.css:1345-1355); every other card's is cast in full.
+ */
+export function cardShadow(
+  rect: Box,
+  radius: number,
+  rail: { full: number } | null,
+): CardShadow {
+  const opacity =
+    rail && rail.full > 0 ? Math.max(0, Math.min(1, rect.w / rail.full)) : 1;
+  return { ...rect, r: radius, opacity };
+}
+
+const measureShadow = (card: HTMLElement): CardShadow => {
+  const rect = card.getBoundingClientRect();
+  const style = getComputedStyle(card);
+  const rail = card.matches(RAIL_CARD_SELECTOR)
+    ? { full: Number.parseFloat(style.getPropertyValue("--sidebar-width")) }
+    : null;
+  return cardShadow(
+    { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+    Number.parseFloat(style.borderTopLeftRadius) || 0,
+    rail,
+  );
+};
+
+/**
+ * The cards' shadows on the glass by day (SHELL_SPEC.md, "Glass: Liquid
+ * Glass", the cards): one layer beneath all the cards at once, so no card
+ * shades its neighbour, with one shadow where each card lies, kept in place
+ * as they move. shell-glass.css draws it only on the glass, by day.
+ */
+export function useShellGlassShadows(active: boolean) {
+  React.useEffect(() => {
+    if (!active) return;
+    const layer = document.createElement("div");
+    layer.setAttribute("aria-hidden", "true");
+    layer.setAttribute("data-luca-frame-shadows", "");
+    layer.setAttribute("data-testid", "shell-glass-shadows");
+    document.body.append(layer);
+    const shadows: HTMLElement[] = [];
+    const draw = () => {
+      const cards = frameCards().map(measureShadow);
+      while (shadows.length < cards.length) {
+        const shadow = document.createElement("span");
+        shadow.setAttribute("data-luca-frame-shadow", "");
+        layer.append(shadow);
+        shadows.push(shadow);
+      }
+      while (shadows.length > cards.length) shadows.pop()?.remove();
+      cards.forEach((card, index) => {
+        const { style } = shadows[index];
+        style.left = `${card.x}px`;
+        style.top = `${card.y}px`;
+        style.width = `${card.w}px`;
+        style.height = `${card.h}px`;
+        style.borderRadius = `${card.r}px`;
+        style.opacity = String(card.opacity);
+      });
+    };
+    draw();
+    const stop = watchLayout(draw, frameCards, layer);
+    return () => {
+      stop();
+      layer.remove();
+    };
+  }, [active]);
 }
 
 // ── the traffic lights ──────────────────────────────────────────────────

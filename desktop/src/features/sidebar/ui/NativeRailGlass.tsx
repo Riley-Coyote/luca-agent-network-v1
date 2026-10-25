@@ -4,7 +4,7 @@ import {
   NATIVE_GLASS_SETTINGS_EVENT,
   readNativeGlassChoice,
 } from "@/features/sidebar/ui/NativeGlassSettings";
-import { useFeatureEnabled } from "@/shared/features/useFeatureEnabled";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 /**
  * THE RAIL IN APPLE'S REAL GLASS (native test builds).
@@ -94,7 +94,7 @@ export function NativeRailGlass() {
   const [opaque, setOpaque] = React.useState(
     () => window.matchMedia(REDUCED_TRANSPARENCY).matches,
   );
-  const shellFrame = useFeatureEnabled("shell-frame");
+  const shellFrame = useShellFrameEnabled();
   const on = present && !opaque && !shellFrame;
 
   React.useEffect(() => {

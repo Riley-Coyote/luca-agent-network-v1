@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   applyFrameVibrancy,
+  CARD_SELECTOR,
+  cardShadow,
   createGlassReporter,
   drawnFrame,
   FRAME_STORAGE_KEY,
@@ -317,4 +319,40 @@ test("reduce transparency sends off: the reporter stops when the frame leaves li
 
 test("traffic lights sit at 16 on the lip's line, 22", () => {
   assert.deepEqual({ ...TRAFFIC_LIGHTS }, { x: 16, centre: 22 });
+});
+
+// ── the cards on the glass ──────────────────────────────────────────────
+
+test("the card set is glass-floor.css's, and the frame's rail card", () => {
+  assert.equal(
+    CARD_SELECTOR,
+    '[data-luca-card], [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])), [data-frame] [data-sidebar="sidebar"]',
+  );
+});
+
+test("a card's shadow lies where it is, cast in full", () => {
+  assert.deepEqual(cardShadow({ x: 268, y: 36, w: 1166, h: 858 }, 10, null), {
+    x: 268,
+    y: 36,
+    w: 1166,
+    h: 858,
+    r: 10,
+    opacity: 1,
+  });
+});
+
+test("the rail's shadow fades as its card narrows, gone when shut", () => {
+  const rail = { full: 220 };
+  const at = (w) => cardShadow({ x: 44, y: 36, w, h: 858 }, 10, rail).opacity;
+  assert.equal(at(220), 1);
+  assert.equal(at(110), 0.5);
+  assert.equal(at(0), 0);
+  // Peeking wider than its stored width never casts more than in full.
+  assert.equal(at(260), 1);
+  // A rail whose full width can't be read is cast in full.
+  assert.equal(
+    cardShadow({ x: 44, y: 36, w: 110, h: 858 }, 10, { full: Number.NaN })
+      .opacity,
+    1,
+  );
 });
