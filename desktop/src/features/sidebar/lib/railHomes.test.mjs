@@ -158,7 +158,8 @@ test("a group is named by its members, never by one of its chats", () => {
     // Several chats, one member nobody can name: counted, not a chat's name.
     chat("random", [ATLAS, STRANGER]),
     chat("engineering", [STRANGER, ATLAS]),
-    // A group chat and a room with the same members: both are sessions.
+    // A group chat and a room with the same members: the group's own chat
+    // is the home's conversation, and only the named room nests.
     chat("lw-dm", [WREN, LUCA], "dm", "Luca, Wren"),
     chat("lw-room", [LUCA, WREN], "stream", "Plan review"),
     // An unnamed group chat alone: its own name is its members.
@@ -187,10 +188,15 @@ test("a group is named by its members, never by one of its chats", () => {
 
   const lucaWren = fleetOf(LUCA, WREN);
   assert.equal(lucaWren.name, "Luca + Wren");
-  assert.equal(lucaWren.main, null);
+  assert.equal(lucaWren.main?.channel.id, "lw-dm");
   assert.deepEqual(
     lucaWren.sessions.map((item) => item.channel.id),
-    ["lw-room", "lw-dm"],
+    ["lw-room"],
+  );
+  // No session takes the group chat's comma-joined label.
+  assert.equal(
+    lucaWren.sessions.some((item) => item.label === "Luca, Wren"),
+    false,
   );
 
   const atlasWren = fleetOf(ATLAS, WREN);

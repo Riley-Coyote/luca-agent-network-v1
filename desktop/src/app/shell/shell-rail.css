@@ -17,8 +17,9 @@
   --rail-thread: hsl(var(--mn-ink) / 0.16);
   display: flex;
   flex-direction: column;
-  /* No top padding of its own: the frame's scroll anchor already holds the
-   * first row 6 below the card's top, as in the study (shell-frame.css). */
+  /* No top padding of its own: the rail's scroller already holds the first
+   * row 6 below the card's top, inside the scroll, as in the study
+   * (shell-frame.css). */
   padding: 0 3px 20px;
 }
 
@@ -323,6 +324,8 @@
 :root[data-luca-frame="solid"]
   [data-agents-runtimes]
   [data-runtime-connection-key] {
+  /* The roster's corner, as the rows sit under it. */
+  border-radius: var(--radius);
   gap: 12px;
   /* 12 to the slot, less the row's 1-point border. */
   padding-left: 11px;
@@ -335,6 +338,24 @@
   width: 32px;
 }
 
+/* In the rail these rows were lit by the glass pill; here they take the
+ * rail's own hover: the plate, and the name and icon at full ink. The
+ * menu-button attribute outranks the shell's rule that keeps a menu row
+ * still under the pointer (conversation-shell.css), as the rail's rows do. */
+:root[data-luca-frame="solid"]
+  [data-agents-runtimes]
+  [data-runtime-connection-key][data-sidebar="menu-button"]:hover {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-frame="solid"]
+  [data-agents-runtimes]
+  [data-runtime-connection-key]:hover
+  > :first-child {
+  color: hsl(var(--mn-ink));
+}
+
 /* Reduce Motion: expansion is instant, and nothing in the rail eases. */
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-shell]
@@ -344,7 +365,10 @@
       .luca-rail-row-name,
       .luca-rail-session,
       .luca-rail-add
-    ) {
+    ),
+  :root[data-luca-frame="solid"]
+    [data-agents-runtimes]
+    [data-runtime-connection-key] {
     transition: none;
   }
 }

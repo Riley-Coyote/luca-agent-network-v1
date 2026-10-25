@@ -14,7 +14,8 @@ import { type ChatListItem, sortChats } from "./chatListModel";
  *      under Fleets, one fleet per set of members. A group is named by its
  *      members, never by one of its chats: a group with one chat is that chat,
  *      by its own name; a group with several is named "Luca + Wren" and holds
- *      each chat as a session by its own name. (When fleets get a record and
+ *      each chat as a session by its own name, except the group's own unnamed
+ *      chat, which the home's row opens. (When fleets get a record and
  *      a name of their own, the record's name wins.);
  *   3. otherwise a chat with one participant lives under that agent (Luca's
  *      under Luca);
@@ -107,10 +108,15 @@ function settle(home: RailHome, chats: ChatListItem[]) {
     main = pubkey
       ? (sorted.find((item) => isDirectWith(item, pubkey)) ?? null)
       : null;
-  } else if (home.kind === "fleet" && sorted.length === 1) {
+  } else if (home.kind === "fleet") {
     // A group with one chat, or a room only the owner is in, is that chat.
-    // With several, every chat is a session and none stands for the group.
-    main = sorted[0] ?? null;
+    // With several, the group's own unnamed chat (its direct conversation)
+    // stands for the group, the way an agent's 1:1 does, and only the named
+    // rooms nest; without one, every chat is a session.
+    main =
+      sorted.length === 1
+        ? (sorted[0] ?? null)
+        : (sorted.find((item) => item.channel.channelType === "dm") ?? null);
   }
   home.main = main;
   home.sessions = main ? sorted.filter((item) => item !== main) : sorted;

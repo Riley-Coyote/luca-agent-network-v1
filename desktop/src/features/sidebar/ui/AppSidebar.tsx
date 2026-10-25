@@ -648,6 +648,28 @@ export function AppSidebar({
     onNewMessage();
   }, [onNewMessage]);
 
+  // Conversations is the way back from a place (Library, Agents, …): it
+  // returns to the conversation you stepped out of, while it still exists,
+  // and only otherwise to the new-conversation screen.
+  const lastConversationIdRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (selectedChannelId) lastConversationIdRef.current = selectedChannelId;
+  }, [selectedChannelId]);
+  const handleSelectConversations = React.useCallback(() => {
+    const last = lastConversationIdRef.current;
+    if (
+      last &&
+      channels.some(
+        (channel) =>
+          channel.id === last && channel.isMember && !channel.archivedAt,
+      )
+    ) {
+      onSelectChannel(last);
+      return;
+    }
+    onSelectHome();
+  }, [channels, onSelectChannel, onSelectHome]);
+
   const handleSelectRuntime = React.useCallback(
     (runtime: RuntimeConnectionStatusV1) => {
       if (selectedView !== "messages") {
@@ -773,7 +795,7 @@ export function AppSidebar({
         onSelectAgents={onSelectAgents}
         onSelectArtifacts={onSelectArtifacts}
         onSelectBrain={onSelectBrain}
-        onSelectConversations={onSelectHome}
+        onSelectConversations={handleSelectConversations}
         onSelectInbox={onSelectInbox}
         onSelectPulse={onSelectPulse}
         onSelectSettings={onSelectSettings}

@@ -681,6 +681,8 @@ test.describe("the shell's rail", () => {
 
     // Room search moves to Search: a room is found by name.
     await page.getByTestId("open-search").click();
+    // The dialog focuses its input a frame after it opens; type once it has.
+    await expect(page.getByTestId("search-dialog-input")).toBeFocused();
     await page.keyboard.type("Landing page");
     const result = page.getByTestId(`search-result-channel-${ROOM.landing}`);
     await expect(result).toBeVisible({ timeout: 10000 });
@@ -1280,6 +1282,8 @@ test.describe("the rail, finished (WP-02b)", () => {
     await boot(page, { shell: true });
     await expect(home(page, "project:tidepool")).toBeVisible();
     await page.getByTestId("open-search").click();
+    // The dialog focuses its input a frame after it opens; type once it has.
+    await expect(page.getByTestId("search-dialog-input")).toBeFocused();
     await page.keyboard.type("Landing page");
     const result = page.getByTestId(`search-result-channel-${ROOM.landing}`);
     await expect(result).toBeVisible({ timeout: 10000 });
@@ -1320,6 +1324,306 @@ test.describe("the rail, finished (WP-02b)", () => {
 
   test.afterAll(() => {
     console.log("WP02B MEASURED", JSON.stringify(measured));
+  });
+});
+
+/** The reviewers' findings on WP-02b, each proven fixed where it was found. */
+const fixes: Record<string, unknown> = {};
+test.describe("the rail, finished: review fixes (WP-02b)", () => {
+  test("one Escape closes Search opened by ⌘K", async ({ page }) => {
+    await boot(page, { shell: true });
+    await expect(home(page, "luca")).toBeVisible();
+    const runs: unknown[] = [];
+    for (const route of ["#/pulse", "#/agents"]) {
+      await page.goto(`/?e2e=mock${route}`);
+      await expect(page.getByTestId("shell-places")).toBeVisible({
+        timeout: 20000,
+      });
+      await page.mouse.move(1400, 880);
+      await page.keyboard.press("ControlOrMeta+k");
+      const dialog = page.getByTestId("search-results");
+      await expect(dialog).toBeVisible();
+      await expect(page.getByTestId("search-dialog-input")).toBeFocused();
+      // Give a tooltip every chance to open on its own delay.
+      await page.waitForTimeout(900);
+      const tooltips = await page.locator('[role="tooltip"]').count();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      runs.push({
+        route,
+        tooltipsWhileOpen: tooltips,
+        closedByOneEscape: true,
+      });
+      expect(tooltips).toBe(0);
+    }
+    // The tile's own tooltip still shows on hover, once Search is closed.
+    await page.getByTestId("shell-place-search").hover();
+    await expect(page.locator('[role="tooltip"]')).toHaveText(/Search/, {
+      timeout: 5000,
+    });
+    // Clicking the tile and one Escape, as before.
+    await page.getByTestId("open-search").click();
+    await expect(page.getByTestId("search-results")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("search-results")).toBeHidden();
+    fixes.search_escape = runs;
+  });
+
+  test("Conversations returns to the conversation you left", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true });
+    await expect(home(page, "luca")).toBeVisible();
+    const places = [
+      "open-artifacts-view",
+      "open-agents-view",
+      "open-activity-view",
+      "open-brain-setup",
+    ];
+    const results: unknown[] = [];
+    for (const place of places) {
+      await page.goto(`/?e2e=mock#/channels/${ROOM.monday}`);
+      await expect(page.getByTestId("chat-title")).toHaveText("Monday plan", {
+        timeout: 20000,
+      });
+      await page.getByTestId(place).click();
+      await expect
+        .poll(() => page.evaluate(() => window.location.hash))
+        .not.toContain(ROOM.monday);
+      const away = await page.evaluate(() => window.location.hash);
+      await page.getByTestId("shell-place-conversations").click();
+      await expect
+        .poll(() => page.evaluate(() => window.location.hash))
+        .toContain(`/channels/${ROOM.monday}`);
+      await expect(page.getByTestId("chat-title")).toHaveText("Monday plan");
+      results.push({
+        place,
+        away,
+        back: await page.evaluate(() => window.location.hash),
+      });
+    }
+    const inbox = page.getByTestId("open-inbox-view");
+    if ((await inbox.count()) > 0) {
+      await inbox.click();
+      await page.getByTestId("shell-place-conversations").click();
+      await expect
+        .poll(() => page.evaluate(() => window.location.hash))
+        .toContain(`/channels/${ROOM.monday}`);
+      results.push({ place: "open-inbox-view", back: "monday" });
+    }
+    // With no conversation opened yet, Conversations is the new one.
+    await page.goto("/?e2e=mock#/artifacts");
+    await page.reload();
+    await expect(page.getByTestId("shell-places")).toBeVisible({
+      timeout: 20000,
+    });
+    await page.getByTestId("shell-place-conversations").click();
+    await expect
+      .poll(() => page.evaluate(() => window.location.hash))
+      .toContain("/messages/new");
+    fixes.conversations_place = {
+      results,
+      freshLoad: await page.evaluate(() => window.location.hash),
+    };
+    await shoot(page, "40-conversations-place-fresh", page.locator("body"));
+  });
+
+  test("scrolled rows slip under the card's top edge", async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 500 });
+    await boot(page, { shell: true });
+    await expect(home(page, "luca")).toBeVisible();
+    const closed = page.locator(
+      '[data-shell-rail] [data-chevron][data-expanded="false"]',
+    );
+    while ((await closed.count()) > 0) await closed.first().click();
+    const geometry = (scrollTop: number) =>
+      page.evaluate((top) => {
+        const card = document.querySelector('[data-sidebar="sidebar"]');
+        const scroller = document.querySelector(
+          '[data-testid="app-sidebar-scroll-anchor"] [data-sidebar="content"]',
+        );
+        const row = document.querySelector("[data-shell-rail] [data-home]");
+        if (!card || !scroller || !row) return null;
+        scroller.scrollTop = top;
+        return {
+          scrollTop: scroller.scrollTop,
+          cardTop: card.getBoundingClientRect().top,
+          scrollerTop: scroller.getBoundingClientRect().top,
+          firstRowTop: row.getBoundingClientRect().top,
+          firstRowOffset:
+            row.getBoundingClientRect().top - card.getBoundingClientRect().top,
+        };
+      }, scrollTop);
+    const rest = await geometry(0);
+    expect(rest?.firstRowOffset).toBe(6);
+    expect(rest?.scrollerTop).toBe(rest?.cardTop);
+    await page.mouse.move(780, 480);
+    await waitForAnimations(page);
+    const restPath = `${SHOTS}/41-rail-top-rest-800.png`;
+    await page.screenshot({
+      path: restPath,
+      clip: { x: 44, y: 30, width: 226, height: 60 },
+    });
+    shots.push(restPath);
+    const scrolled = await geometry(18);
+    expect(scrolled?.scrollTop).toBe(18);
+    // The viewport starts at the card's top, so the first row runs under
+    // the card's edge instead of being cut 6 inside it.
+    expect(scrolled?.scrollerTop).toBe(scrolled?.cardTop);
+    expect(scrolled?.firstRowTop).toBe((scrolled?.cardTop ?? 0) + 6 - 18);
+    await waitForAnimations(page);
+    const scrolledPath = `${SHOTS}/42-rail-top-scrolled-800.png`;
+    await page.screenshot({
+      path: scrolledPath,
+      clip: { x: 44, y: 30, width: 226, height: 60 },
+    });
+    shots.push(scrolledPath);
+    fixes.rail_scroll_clip = { rest, scrolled };
+  });
+
+  test("a group's own chat is its home's conversation, not a session", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true });
+    await expect(home(page, "luca")).toBeVisible();
+    const planReview = "0e6a0000-0000-4000-8000-000000000009";
+    await page.evaluate(
+      async ({ id, luca, wren }) => {
+        const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
+        const emit = window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__;
+        if (!invoke || !emit) throw new Error("Expected the mock bridge.");
+        const real = crypto.randomUUID.bind(crypto);
+        let spent = false;
+        Object.defineProperty(crypto, "randomUUID", {
+          configurable: true,
+          writable: true,
+          value: () => {
+            if (spent) return real();
+            spent = true;
+            return id;
+          },
+        });
+        try {
+          await invoke("create_channel", {
+            channelType: "stream",
+            description: "",
+            name: "Plan review",
+            visibility: "private",
+          });
+        } finally {
+          Object.defineProperty(crypto, "randomUUID", {
+            configurable: true,
+            writable: true,
+            value: real,
+          });
+        }
+        await invoke("add_channel_members", {
+          channelId: id,
+          pubkeys: [luca, wren],
+          role: "bot",
+        });
+        emit({
+          channelId: id,
+          content: "Plan review: first notes.",
+          createdAt: Math.floor(Date.now() / 1000),
+          pubkey: "deadbeef".repeat(8),
+        });
+        await window.__BUZZ_E2E_QUERY_CLIENT__?.invalidateQueries();
+      },
+      { id: planReview, luca: LUCA, wren: WREN },
+    );
+    const fleet = home(page, fleetId(LUCA, WREN));
+    // The new room makes the group's home one with sessions; open it.
+    const chevron = fleet.locator("[data-chevron]");
+    await expect(chevron).toHaveCount(1, { timeout: 20000 });
+    if ((await chevron.getAttribute("data-expanded")) === "false")
+      await chevron.click();
+    await expect(
+      page.locator(`[data-shell-rail] [data-channel-id="${planReview}"]`),
+    ).toHaveCount(1, { timeout: 20000 });
+    const read = await page.evaluate(
+      (id) => {
+        const row = document.querySelector<HTMLElement>(
+          `[data-shell-rail] [data-home="${id}"]`,
+        );
+        const group = row?.closest("[data-home-group]");
+        return {
+          name: row?.querySelector(".luca-rail-row-name")?.textContent ?? null,
+          channel: row?.dataset.channelId ?? null,
+          sessions: [
+            ...(group?.querySelectorAll<HTMLElement>(".luca-rail-session") ??
+              []),
+          ].map((el) => el.textContent ?? ""),
+        };
+      },
+      fleetId(LUCA, WREN),
+    );
+    console.log("FLEET OWN CHAT", JSON.stringify(read));
+    expect(read.name).toBe("Luca + Wren");
+    expect(read.channel).not.toBeNull();
+    expect(read.sessions).toEqual(["Plan review"]);
+    expect(read.sessions.some((title) => title.includes(","))).toBe(false);
+    // The home's row opens the group's own chat.
+    await hit(page, fleetId(LUCA, WREN)).click(ON_NAME);
+    await expect
+      .poll(() => page.evaluate(() => window.location.hash))
+      .toContain(`/channels/${read.channel}`);
+    await expect(fleet).toHaveAttribute("data-active", "true");
+    fixes.fleet_own_chat = { ...read, opened: read.channel };
+    await shoot(page, "43-fleet-own-chat");
+  });
+
+  test("Runtimes rows on the Agents page answer hover", async ({ page }) => {
+    await boot(page, { shell: true });
+    await page.goto("/?e2e=mock#/agents");
+    const row = page
+      .getByTestId("agents-view")
+      .locator("[data-agents-runtimes] [data-runtime-connection-key]")
+      .first();
+    await expect(row).toBeVisible({ timeout: 20000 });
+    await page.mouse.move(1400, 880);
+    await waitForAnimations(page);
+    const style = () =>
+      row.evaluate((el) => {
+        const name = el.querySelector(".truncate") as HTMLElement | null;
+        const slot = el.firstElementChild as HTMLElement | null;
+        const s = getComputedStyle(el);
+        return {
+          background: s.backgroundColor,
+          radius: s.borderTopLeftRadius,
+          name: name ? getComputedStyle(name).color : null,
+          slot: slot ? getComputedStyle(slot).color : null,
+        };
+      });
+    const rest = await style();
+    const roster = await page
+      .locator('[data-testid^="agent-library-row-"]')
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    const box = await row.boundingBox();
+    const section = page
+      .getByTestId("agents-view")
+      .locator("[data-agents-runtimes]");
+    const restPath = `${SHOTS}/44-runtimes-rest.png`;
+    await section.screenshot({ path: restPath });
+    shots.push(restPath);
+    await row.hover();
+    await waitForAnimations(page);
+    const hover = await style();
+    const hoverPath = `${SHOTS}/45-runtimes-hover.png`;
+    await section.screenshot({ path: hoverPath });
+    shots.push(hoverPath);
+    console.log("RUNTIMES HOVER", JSON.stringify({ rest, hover, roster, box }));
+    expect(rest.background).toBe("rgba(0, 0, 0, 0)");
+    expect(hover.background).not.toBe(rest.background);
+    expect(hover.name).not.toBe(rest.name);
+    expect(hover.slot).not.toBe(rest.slot);
+    expect(rest.radius).toBe(roster);
+    fixes.runtimes_hover = { rest, hover, rosterRadius: roster };
+  });
+
+  test.afterAll(() => {
+    console.log("WP02B FIXES", JSON.stringify(fixes));
   });
 });
 
