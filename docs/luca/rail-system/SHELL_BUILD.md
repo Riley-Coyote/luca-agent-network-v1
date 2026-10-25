@@ -92,6 +92,7 @@ LOST. LOST is a failure unless the spec retires it.
 
 | Package | Landed | What |
 |---|---|---|
+| WP-01 the frame, Black, dark | 2026-10-24, merge `bfda2d8a0` | The lip, the places, the rail's card and the conversation's card, behind `shell-frame`. Flag off matches the base by hash. Review fixed the cards' edge light, the lip riding the card's slide, and the unread dot on Conversations; the small rest went to WP-01b. 4,204 unit tests pass. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -422,3 +423,185 @@ identical `shell-frame` entry to `preview-features.json` yourself so you can tes
 - `glass_css_values` (each with its source line);
 - `flag_off_identical`;
 - `gates` (including cargo check and clippy).
+
+## WP-01b · The frame, finished (2026-10-24, Claude's design, from WP-01's review)
+
+**Why.** WP-01's reviewers measured a few small differences from the study that its fix round left for later, and its
+builder asked two questions. This package closes them. Read WP-01's section above, and `SHELL_SPEC.md`, "The places
+column" and "The frame, as decided".
+
+**Base.** The integration branch with WP-01 landed. WP-04 (the header) and WP-05 (Settings) are built at the same
+time; WP-02 (the rail) and WP-07a (glass plumbing) are still running from the base before WP-01. Your worktree and
+branch: in your dispatch.
+
+**Files in scope:**
+- `desktop/src/shared/styles/globals/shell-frame.css` (only the rules these decisions name, and new rules for them);
+- `desktop/src/features/sidebar/ui/SidebarProfileCard.tsx` (the avatar and the DEV chip under the frame);
+- `desktop/src/features/profile/ui/ProfilePopover.tsx` (only optional placement props; their defaults keep today's
+  placement exactly);
+- `desktop/src/features/sidebar/ui/AppSidebar.tsx` (only the Conversations tile's handler, `onSelectConversations`);
+- `desktop/tests/e2e/luca/shell-frame.spec.ts` and unit tests.
+
+**Untouched:**
+- the lip (`ShellLip.tsx`) and the conversation header (WP-04);
+- Settings (WP-05);
+- the rail's rows (WP-02);
+- light mode beyond not breaking (WP-06).
+
+**Decisions** (only under the `shell-frame` flag; with it off, nothing changes):
+1. **The avatar** reads as the study's `.shell-avatar`:
+   - the disc is painted once, at the ink at 14%, with the fallback inside it transparent (today two layers stack to
+     about 36%);
+   - the initial is `text-xs`, weight 550.
+2. **The avatar's menu opens beside it,** to the right of the places column: side right, aligned to the avatar's
+   bottom, 8 from the column. It no longer covers the avatar or Settings.
+3. **The DEV build chip** (dev builds only) moves into the avatar's menu, beside the name at its top.
+4. **The rail card's foot has no seam.** The footer's fade is drawn as the card itself (the card's grain over its
+   surface, masked from opaque at the bottom to clear), the way `.luca-conversation-veil-*` is drawn, so the grain
+   never stops at a line.
+5. **The grain reaches every card's edge.** The conversation card and the route cards (Library, Agents, Activity,
+   Brain, New conversation) lose their 1-point grainless ring, as the rail card already has, without anything inside
+   them moving.
+6. **New conversation fills the card:** its body (`[data-testid="new-message-body"]`) paints no surface of its own,
+   as was done for Library, Agents and Activity.
+7. **Conversations, pressed while the rail is closed** and you're already in a conversation, opens the rail with its
+   motion (the same as the toggle and ⌘S). From any other place it still goes to the last conversation.
+
+Still later, not here:
+- communities moving into the avatar's menu (WP-08);
+- the reconnecting overlay retiring (WP-08).
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, deviceScaleFactor 2, flag on unless stated):
+- `avatar` (the disc and its initial, measured against the study);
+- `avatar-menu` (open beside the column, with nothing covered);
+- `rail-foot` (the grain's brightness and spread, measured down the card's last 40 points);
+- `card-edge` (the grain at the conversation card's outer point, against the rail card's);
+- `new-conversation` (no flat panel);
+- `conversations-reopens-rail` (before and after);
+- the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `avatar_disc`, `avatar_initial`, `menu_placement`, `dev_chip`, `rail_foot_seam`,
+`card_edge_grain`, `new_conversation_surface`, `conversations_opens_rail`, `flag_off_identical`, `gates`.
+
+## WP-04 · The conversation header into the lip (2026-10-24, Riley and Claude's design; Riley: "Take your recommended pick for all 12 decisions")
+
+**Why.** In the shell, the conversation's card has no header of its own. Its name is already in the lip (WP-01), and
+its actions move up beside it. Read `SHELL_SPEC.md`: "The conversation's card" (the header bullets), "Decided" 3 and
+4, and "Keyboard".
+
+**Base.** The integration branch with WP-01 landed. With the flag on, the card still shows an empty 56-point band with
+the actions at its right: that band is what you remove. WP-05 (Settings) and WP-01b (polish) are built at the same
+time. Your worktree and branch: in your dispatch.
+
+**Your styles** go in `desktop/src/app/shell/shell-header.css` (new), imported by `globals.css` right after
+`shell-frame.css`. The two header rules at the end of `shell-frame.css` (the hidden `chat-title` and the stood-down
+dodge) are yours: move them into your stylesheet.
+
+**Files in scope:**
+- `desktop/src/features/chat/ui/ChatHeader.tsx`, `desktop/src/features/channels/ui/ChannelScreenHeader.tsx`;
+- `desktop/src/features/channels/ui/ChannelScreen.tsx` (only the measured top padding);
+- `desktop/src/app/shell/ShellLip.tsx` (only a right-hand slot inside the lip's part over the card,
+  `.luca-lip-card`);
+- `desktop/src/shared/layout/chromeLayout.ts` (only the top padding's value under the flag);
+- `shell-header.css`, `globals.css` (its one import line);
+- tests.
+
+**Untouched:**
+- the right cards' own header (`AuxiliaryPanelHeader`) and the Canvas's header, which keep their own heights;
+- the forum, project and new-conversation screens' headers;
+- the project room column (WP-02 makes it an option);
+- the update dot (WP-08);
+- light mode beyond not breaking (WP-06).
+
+**Decisions** (only under the `shell-frame` flag; with it off, the header is today's, exactly):
+1. **The actions move to the lip's right end,** over the conversation's card, 8 from its right edge, as the lip's own
+   buttons:
+   - 24-point tiles, 15-point icons at stroke 1.7, corners 7, in the frame's second tone, like the lip's toggle;
+   - hover plate, focus ring, tooltips with their keys;
+   - the actions: layout, open as window (only while the pop-out feature is on), and conversation details.
+
+   How they reach the lip (a portal into the slot, or lifting their state) is your choice; report which.
+2. **In a conversation you haven't joined,** the Join button takes the actions' place there, as it does in the header
+   today.
+3. **Just before the actions:** a person's presence avatar in a direct conversation, and an ephemeral conversation's
+   badge.
+4. **The project room picker** shows only in the "In a column" mode (WP-02 brings that setting; until it lands, keep
+   the picker where it is today and report it). In the rail mode the rail holds the rooms.
+5. **The header's update indicator** is not drawn under the flag; WP-08 brings the dot on Settings.
+6. **The header is gone from the card.** Under the flag:
+   - the timeline's top padding is fixed at the study's reading area (`shellStudy.css` `.shell-reading`, 22 at the
+     top);
+   - the top veil becomes a short fade under the card's top edge, the height of that padding.
+7. **The slot follows the card.** The lip's part over the card already moves with it; check the slot's buttons ride
+   along when the rail opens and closes, and stay clickable (that part ignores the pointer except on its buttons).
+8. **Tab order:** the lip's left cluster, then its right-hand actions, then the places (SHELL_SPEC "Keyboard").
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated). Screenshots:
+- `channel` (#general, the actions in the lip);
+- `dm` (a direct conversation with the presence avatar);
+- `not-joined` (an open channel you aren't a member of: Join in the lip);
+- `ephemeral` (the badge);
+- `details-open` (the right card, opened from the lip);
+- `rail-closed` (the slot followed the card);
+- `scrolled` (messages fading under the card's top edge);
+- the flag-off shots compared by hash to the base.
+
+Make a capability map: every header control, and its new home.
+
+**Checks JSON keys:** `actions_in_lip`, `join_in_lip`, `presence_and_badge`, `room_picker_modes`,
+`update_indicator_hidden`, `top_padding`, `veil_fade`, `slot_follows_card`, `tab_order`, `flag_off_identical`,
+`capability_map_lost` (0), `gates`.
+
+## WP-05 · Settings in the frame (2026-10-24, Riley and Claude's design; Riley: "Take your recommended pick for all 12 decisions")
+
+**Why.** Today Settings takes over the whole window, swapping the rail and the top strip for its own sidebar. In the
+shell it keeps the frame. Read `SHELL_SPEC.md`, "Settings" under "What each surface of the app becomes".
+
+**Base.** The integration branch with WP-01 landed. With the flag on, Settings is still today's full-window layout
+(byte-identical to the flag off). WP-04 (the header) and WP-01b (polish) are built at the same time. Your worktree and
+branch: in your dispatch.
+
+**Your styles** go in `desktop/src/app/shell/shell-settings.css` (new), imported by `globals.css` right after
+`shell-frame.css`.
+
+**Files in scope:**
+- `desktop/src/app/AppShell.tsx` (only the Settings branch);
+- `desktop/src/features/settings/ui/SettingsView.tsx`, `SettingsScreen.tsx`, `SettingsLoadingFallback.tsx`;
+- `desktop/src/app/shell/ShellPlaces.tsx` (only to mark Settings as the current place);
+- `shell-settings.css`, `globals.css` (its one import line);
+- tests.
+
+**Untouched:**
+- the panels' contents, `SettingsPanels.tsx` (WP-07a and WP-02 each add one row there);
+- the mobile layout under 768, beyond keeping it working;
+- light mode beyond not breaking (WP-06).
+
+**Decisions** (only under the `shell-frame` flag; with it off, Settings is today's, exactly):
+1. **On `/settings` the frame stays:** the lip (with back and forward) and the places column, with Settings as the
+   current place.
+2. **The section list** (today's settings sidebar, its four groups and twelve sections) takes the rail card's place:
+   - the same card, 220 wide at x 44, top flush with the lip, 6 above the bottom;
+   - rows in the rail's row style as the study draws them (`shellStudy.css`, "the conversations rail"); WP-02 is
+     restyling the rail's own rows at the same time.
+3. **The panels fill the conversation's card.**
+4. **"Back to app" goes.** Back, or the Conversations place, leaves Settings. Escape still closes it.
+5. **The section list opens and closes like the rail.** The effect that forces the rail open in Settings goes. In
+   Settings the lip's toggle and ⌘S close and open the section list's card, with the rail's motion.
+6. **The narrow and loading states are the frame.** The narrow-width header (today's "Back to app" and menu) and the
+   loading skeleton (`SettingsLoadingFallback`) are redrawn as the frame: lip, places and the two cards.
+7. ⌘, still toggles Settings; section switches still replace the history entry.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, flag on unless stated). Screenshots:
+- `appearance` (Settings → Appearance);
+- `agents` (the wide Agents section);
+- `list-closed` (the section list closed with the toggle);
+- `loading` (the skeleton);
+- `escape` (Escape back to the conversation);
+- `narrow` (under 768);
+- the flag-off shots compared by hash to the base.
+
+Make a capability map: every control of the old settings sidebar, and its new home.
+
+**Checks JSON keys:** `frame_kept`, `section_list_card`, `panels_in_card`, `back_and_escape`, `toggle_closes_list`,
+`shortcut_toggles`, `history_replace`, `loading_skeleton`, `narrow_layout`, `flag_off_identical`,
+`capability_map_lost` (0), `gates`.
