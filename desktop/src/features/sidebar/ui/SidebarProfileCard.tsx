@@ -227,3 +227,93 @@ export function SidebarProfileCard({
     </div>
   );
 }
+
+type SidebarProfileAvatarMenuProps = Pick<
+  SidebarProfileCardProps,
+  | "isPresencePending"
+  | "onOpenSettings"
+  | "onSendFeedback"
+  | "onSetPresenceStatus"
+  | "onSetUserStatus"
+  | "onClearUserStatus"
+  | "profile"
+  | "resolvedDisplayName"
+  | "selfPresenceStatus"
+  | "selfUserStatus"
+>;
+
+/**
+ * The profile card's menu on its own: the avatar at the foot of the shell's
+ * places column (SHELL_SPEC.md, "The places column"). The same menu as the
+ * card's (presence, status, Settings, feedback), opened from the avatar alone.
+ */
+export function SidebarProfileAvatarMenu({
+  isPresencePending,
+  onOpenSettings,
+  onSendFeedback,
+  onSetPresenceStatus,
+  onSetUserStatus,
+  onClearUserStatus,
+  profile,
+  resolvedDisplayName,
+  selfPresenceStatus,
+  selfUserStatus,
+}: SidebarProfileAvatarMenuProps) {
+  const selfProfileCache = useSelfProfileCache();
+  const [open, setOpen] = React.useState(false);
+  return (
+    <ProfilePopover
+      open={open}
+      onOpenChange={setOpen}
+      avatarDataUrl={selfProfileCache?.avatarDataUrl ?? null}
+      avatarUrl={profile?.avatarUrl ?? null}
+      currentStatus={selfPresenceStatus}
+      displayName={resolvedDisplayName}
+      isStatusPending={isPresencePending}
+      onClearUserStatus={onClearUserStatus}
+      onOpenSettings={onOpenSettings}
+      onSendFeedback={onSendFeedback}
+      onSetStatus={onSetPresenceStatus ?? (() => {})}
+      onSetUserStatus={onSetUserStatus}
+      userStatusEmoji={selfUserStatus?.emoji}
+      userStatusText={selfUserStatus?.text}
+    >
+      <button
+        aria-label={`Open profile menu for ${resolvedDisplayName}`}
+        className="luca-shell-avatar"
+        data-testid="shell-profile-avatar-button"
+        type="button"
+      >
+        <MaskedAvatarBadgeFrame
+          badge={
+            <span
+              aria-label={getPresenceLabel(selfPresenceStatus)}
+              className="flex h-2.5 w-2.5 items-center justify-center rounded-full"
+              data-testid="shell-self-presence-badge"
+              role="img"
+            >
+              <PresenceDot
+                className="h-1.5 w-1.5"
+                status={selfPresenceStatus}
+              />
+            </span>
+          }
+          badgeBox={{ bottom: -1, height: 10, right: -1, width: 10 }}
+          className="h-6 w-6"
+          curve={STATUS_DOT_MASK_CURVE}
+          cutout={{ cx: 20.5, cy: 20.5, r: 5.5 }}
+          size={24}
+        >
+          <ProfileAvatar
+            avatarDataUrl={selfProfileCache?.avatarDataUrl ?? null}
+            avatarUrl={profile?.avatarUrl ?? null}
+            className="h-full w-full text-2xs"
+            iconClassName="h-3 w-3"
+            label={resolvedDisplayName}
+            testId="shell-profile-avatar"
+          />
+        </MaskedAvatarBadgeFrame>
+      </button>
+    </ProfilePopover>
+  );
+}

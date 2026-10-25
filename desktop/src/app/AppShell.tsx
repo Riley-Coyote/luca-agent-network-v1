@@ -18,6 +18,13 @@ import { AppShellOverlays } from "@/app/AppShellOverlays";
 import { usePopoutRequests } from "@/app/popout/usePopoutRequests";
 import { LiftedPane } from "@/features/panes/LiftedPane";
 import { AppTopChrome } from "@/app/AppTopChrome";
+import { ShellLip } from "@/app/shell/ShellLip";
+import {
+  shellFramePageName,
+  shellFrameSidebarStyle,
+  useShellFrameRootAttribute,
+} from "@/app/shell/shellFrame";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { preloadPrimaryNavigationSurfaces } from "@/app/navigation/preloadPrimarySurfaces";
 import { useBackForwardControls } from "@/app/navigation/useBackForwardControls";
@@ -197,6 +204,10 @@ export function AppShell() {
   // on. While it is off the nav item, the `/inbox` route, and every
   // inbox-derived badge count are suppressed; nothing else changes.
   const inboxSurfaceEnabled = useInboxSurfaceEnabled();
+  // The shell's frame (SHELL_SPEC.md), a preview feature: the lip, the places
+  // column and two cards. Off, everything below is as it was.
+  const shellFrame = useShellFrameEnabled();
+  useShellFrameRootAttribute(shellFrame);
   const { selectedChannelId, selectedView } = React.useMemo(
     () =>
       deriveShellRoute(location.pathname, {
@@ -207,10 +218,12 @@ export function AppShell() {
   // Library, Agents and Activity bring their own canvas: the route root is
   // the floor host and paints the one focal card, so the shell's card steps
   // aside for them (BuzzThemeSurfaces.ContentSurface).
+  // Under the shell's frame every route fills the one conversation card.
   const routeOwnsFloor =
-    selectedView === "artifacts" ||
-    selectedView === "agents" ||
-    selectedView === "pulse";
+    !shellFrame &&
+    (selectedView === "artifacts" ||
+      selectedView === "agents" ||
+      selectedView === "pulse");
   const selectedProjectId = React.useMemo(() => {
     if (!location.pathname.startsWith("/projects/")) return null;
     const [, , rawProjectId] = location.pathname.split("/");
@@ -938,8 +951,22 @@ export function AppShell() {
                     <ConversationWorkspaceProvider
                       controller={conversationWorkspace}
                     >
-                      <SidebarProvider className="min-h-0 flex-1 flex-col overflow-hidden">
-                        {!settingsOpen ? (
+                      <SidebarProvider
+                        className="min-h-0 flex-1 flex-col overflow-hidden"
+                        style={shellFrame ? shellFrameSidebarStyle : undefined}
+                      >
+                        {!settingsOpen && shellFrame ? (
+                          <ShellLip
+                            canGoBack={canGoBack}
+                            canGoForward={canGoForward}
+                            channel={activeChannel}
+                            currentPubkey={identityQuery.data?.pubkey}
+                            onGoBack={goBack}
+                            onGoForward={goForward}
+                            pageName={shellFramePageName(selectedView)}
+                          />
+                        ) : null}
+                        {!settingsOpen && !shellFrame ? (
                           <AppTopChrome
                             canGoBack={canGoBack}
                             canGoForward={canGoForward}
@@ -999,7 +1026,10 @@ export function AppShell() {
                             </AppErrorBoundary>
                           </div>
                         ) : (
-                          <div className="flex min-h-0 flex-1 overflow-hidden">
+                          <div
+                            className="flex min-h-0 flex-1 overflow-hidden"
+                            data-luca-frame-row={shellFrame ? "" : undefined}
+                          >
                             <AppSidebar
                               activeCommunity={communitiesHook.activeCommunity}
                               channels={sidebarChannels}

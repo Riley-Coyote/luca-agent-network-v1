@@ -12,6 +12,7 @@ export default {
         "3xs": "0.5rem", // 8px — tiny glyphs / micro labels
         badge: "0.625rem", // 10px — compact status badges
         chat: "0.9375rem", // 15px — dense conversation content
+        lip: "0.8125rem", // 13px — the shell frame's words (the lip's page name)
         // 40px — onboarding page titles (tightened tracking for large display type)
         title: ["2.5rem", { lineHeight: "1.15", letterSpacing: "-0.02em" }],
         // 36px — the backup-step private key, shown large in monospace

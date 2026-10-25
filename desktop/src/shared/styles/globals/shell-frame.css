@@ -1,0 +1,424 @@
+/* ------------------------------------------------------------------
+ * THE SHELL'S FRAME, Black, dark (docs/luca/rail-system/SHELL_SPEC.md;
+ * the study, desktop/src/testing/shellStudy/, is the reference for every
+ * value). A preview feature: every rule here keys on
+ * `<html data-luca-frame="solid">`, which the shell sets only while the
+ * `shell-frame` flag is on.
+ *
+ * A thin frame on the floor (the lip, the window's top 36; the places, a
+ * column of 44 under it) holds two cards of one material: the rail's (220,
+ * from the places' edge, 6 above the window's bottom) and the
+ * conversation's (4 from the rail's card, or at the places' edge when the
+ * rail is closed; 6 from the window's right and bottom; top flush with the
+ * lip). Closing the rail narrows its card to nothing over 460 ms, its rows
+ * held still and clipped, and the conversation's card follows its edge.
+ *
+ * Fixed points, as the top chrome was: the frame sits beside the native
+ * traffic lights, which ignore the app's text zoom.
+ * ------------------------------------------------------------------ */
+
+:root[data-luca-frame="solid"] {
+  --luca-frame-lip: 36px;
+  --luca-frame-places: 44px;
+  --luca-frame-edge: 6px;
+  --luca-frame-slide: 460ms cubic-bezier(0.32, 0.72, 0, 1);
+  /* The workspace's own measures, as the spec gives them under the frame. */
+  --mn-card-lip: var(--luca-frame-edge);
+  --mn-card-gap: 4px;
+}
+
+/* The row under the lip: the places, the rail's card, the conversation's. */
+:root[data-luca-frame="solid"] [data-luca-frame-row] {
+  padding-top: var(--luca-frame-lip);
+}
+
+/* ── the lip ───────────────────────────────────────────────────────── */
+.luca-lip {
+  color: hsl(var(--mn-ink));
+  cursor: default;
+  height: var(--luca-frame-lip, 36px);
+  left: 0;
+  position: absolute;
+  right: 0;
+  top: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  z-index: 45;
+}
+
+.luca-lip-button {
+  align-items: center;
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 24px;
+}
+
+.luca-lip-button svg {
+  height: 15px;
+  stroke-width: 1.7;
+  width: 15px;
+}
+
+.luca-lip-button:hover:not(:disabled) {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-lip-button:disabled {
+  color: hsl(var(--mn-ink-faint));
+  opacity: 0.5;
+}
+
+.luca-lip-toggle {
+  left: 78px;
+  position: absolute;
+  top: 10px;
+}
+
+/* The lip's part over the conversation card: it moves with the card, on
+ * the rail's own curve. Its left is where the card comes to rest
+ * (--card-left, from the rail's state); its right is the card's right,
+ * which ShellLip writes as a right card opens. As the study does it. With
+ * the rail closed it spans the toggle, so only its buttons take the pointer:
+ * the toggle stays pressable and the rest of the lip still drags. */
+.luca-lip-card {
+  bottom: 0;
+  left: var(--card-left, 268px);
+  pointer-events: none;
+  position: absolute;
+  right: var(--luca-frame-edge, 6px);
+  top: 0;
+  transition: left var(--luca-frame-slide);
+}
+
+/* Back and forward at max(card's left + 6, 112). */
+.luca-lip-history {
+  display: flex;
+  gap: 2px;
+  pointer-events: auto;
+  left: max(6px, calc(112px - var(--card-left, 268px)));
+  position: absolute;
+  top: 10px;
+  transition: left var(--luca-frame-slide);
+}
+
+/* The open page's name, on the conversation card's own axis, no wider than
+ * the card less 200. */
+.luca-lip-name {
+  color: hsl(var(--mn-ink));
+  display: flex;
+  font-weight: 550;
+  height: 28px;
+  left: 50%;
+  letter-spacing: -0.003em;
+  line-height: 28px;
+  margin: 0;
+  max-width: max(0px, calc(100% - 200px));
+  overflow: hidden;
+  position: absolute;
+  top: 8px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.luca-lip-name__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── the places ────────────────────────────────────────────────────── */
+.luca-places {
+  align-items: center;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 14px;
+  padding: 7px 0 12px;
+  position: relative;
+  -webkit-user-select: none;
+  user-select: none;
+  width: var(--luca-frame-places, 44px);
+  z-index: 2;
+}
+
+.luca-places-group {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.luca-places-end {
+  margin-top: auto;
+}
+
+.luca-place,
+.luca-place-search button {
+  align-items: center;
+  border-radius: 9px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  transition:
+    color 120ms,
+    background-color 120ms;
+  width: 28px;
+}
+
+.luca-place svg,
+.luca-place-search button svg {
+  height: 16px;
+  stroke-width: 1.6;
+  width: 16px;
+}
+
+.luca-place:hover:not([data-current]),
+.luca-place-search button:hover {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
+/* Where you are, until the moving marks come (WP-03): a plate, the page's
+ * ink at 7.5%, the app's hover and sent-bubble material. */
+.luca-place[data-current] {
+  background: hsl(var(--mn-ink) / 0.075);
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-place-badge {
+  background: hsl(var(--mn-ink));
+  border-radius: 999px;
+  color: hsl(var(--mn-floor));
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 13px;
+  min-width: 13px;
+  padding: 0 3px;
+  position: absolute;
+  right: -3px;
+  top: -3px;
+}
+
+/* An unread conversation while the rail is closed: the app's unread dot,
+ * 6, at the Conversations tile's top right, 4 in from its corner. */
+.luca-place-dot {
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+}
+
+.luca-shell-avatar {
+  border-radius: 999px;
+  display: flex;
+  height: 24px;
+  margin-top: 4px;
+  width: 24px;
+}
+
+:is(
+  .luca-lip-button,
+  .luca-place,
+  .luca-place-search button,
+  .luca-shell-avatar
+):focus-visible {
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* ── the rail's card ──────────────────────────────────────────────────
+ * The shadcn rail, made a card under the frame: its footprint is the card
+ * and the 4 beside it, its panel 6 short of the window's bottom, its surface
+ * the cards' own (surface, the dark card edge, the grain), corners 10. It
+ * closes by narrowing, not by sliding away. */
+:root[data-luca-frame="solid"] [data-frame] > [data-sidebar-gap] {
+  transition: width var(--luca-frame-slide);
+  width: calc(var(--sidebar-width) + var(--mn-card-gap));
+}
+
+:root[data-luca-frame="solid"]
+  [data-frame][data-collapsible="offcanvas"]
+  > [data-sidebar-gap] {
+  width: 0;
+}
+
+:root[data-luca-frame="solid"] [data-frame] > [data-testid="app-sidebar"] {
+  bottom: var(--luca-frame-edge);
+  height: auto;
+  transition: width var(--luca-frame-slide);
+  translate: none;
+  width: var(--sidebar-width);
+}
+
+/* Closed, the card is gone once it has narrowed to nothing: a card of no
+ * width would still draw its edge light, a second rim on the conversation
+ * card's left. It hides when the slide ends and shows the moment it opens. */
+:root[data-luca-frame="solid"]
+  [data-frame][data-collapsible="offcanvas"]
+  > [data-testid="app-sidebar"] {
+  transition:
+    width var(--luca-frame-slide),
+    visibility 0s linear 460ms;
+  visibility: hidden;
+  width: 0;
+}
+
+/* Peeking, the closed card opens over the conversation's, as before. */
+:root[data-luca-frame="solid"]
+  [data-frame][data-peek="true"]
+  > [data-testid="app-sidebar"] {
+  transition: width var(--luca-frame-slide);
+  visibility: visible;
+  width: var(--sidebar-width);
+}
+
+:root[data-luca-frame="solid"] [data-frame] [data-sidebar="sidebar"] {
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-size: 256px 256px;
+  border-radius: var(--radius);
+  box-shadow: var(--mn-card-edge);
+  overflow: hidden;
+  padding-right: 0;
+}
+
+/* Inside the card, what was painted as the rail's floor is the card's:
+ * the footer (the status cards) and its fade dissolve into the card's
+ * surface, and its wrapper lets the card's grain through. */
+:root[data-luca-frame="solid"] [data-frame] [data-sidebar="sidebar"] {
+  --sidebar-background: var(--mn-surface);
+}
+
+:root[data-luca-frame="solid"] [data-frame] [data-sidebar="footer"],
+:root[data-luca-frame="solid"] [data-frame] [data-buzz-glass-footer-wrap] {
+  --buzz-sidebar-edge-fade-surface: hsl(var(--mn-surface));
+  --buzz-sidebar-edge-fade-transparent: hsl(var(--mn-surface) / 0);
+  background: transparent;
+}
+
+/* The rows begin a breath inside the card's top edge. */
+:root[data-luca-frame="solid"]
+  [data-frame]
+  [data-testid="app-sidebar-scroll-anchor"] {
+  padding-top: var(--luca-frame-edge);
+}
+
+/* ── the conversation's card ──────────────────────────────────────────
+ * Top flush with the lip, 6 from the window's right and bottom. The inset
+ * carries the right and bottom edge, so the right cards share it. */
+/* The cards' edge light (the lit top, the rim) is drawn half a point
+ * outside their box, and the inset and the route's plane both clip. Each
+ * clip is given one point of room on the sides that touch a card, and a
+ * negative margin the same size, so nothing moves and the light falls inside
+ * the clip: on a black floor that light is what draws the card. */
+:root[data-luca-frame="solid"] main[data-buzz-glass-inset] {
+  margin: -1px 0 0 -1px;
+  padding: 1px var(--luca-frame-edge) var(--luca-frame-edge) 1px;
+}
+
+:root[data-luca-frame="solid"]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface] {
+  margin: 0;
+}
+
+:root[data-luca-frame="solid"] [data-testid="conversation-workspace-grid"] {
+  padding: 0;
+}
+
+/* The clear planes that hold a route's cards (a conversation's workspace,
+ * and Library, Agents and Activity, which bring their own card) clip too;
+ * the same point of room, all round. The surface that is itself the card
+ * keeps its clip, for its own corners. */
+:root[data-luca-frame="solid"]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:has([data-luca-workspace-floor]),
+:root[data-luca-frame="solid"] [data-buzz-content-plane] {
+  margin: -1px;
+  padding: 1px;
+}
+
+/* The right cards: 4 from the conversation's card, which the slot carries
+ * itself, so the routed card's span is the conversation card's (the lip
+ * centres the name on it). The workspace grid's own right gap stands down;
+ * its selector is restated to outrank it. */
+:root[data-luca-frame="solid"] [data-luca-right-cards] {
+  padding: 0 0 0 var(--mn-card-gap);
+}
+
+:root[data-luca-frame="solid"]
+  [data-luca-right-cards]:has([data-panel-open="false"]):not(
+    :has([data-panel-open="true"])
+  ) {
+  padding-left: 0;
+}
+
+:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-floor-host]:has(> [data-luca-right-cards]:not(:empty))
+  [data-testid="conversation-workspace-grid"] {
+  padding-right: 0;
+}
+
+/* One card for every place: Library, Agents and Activity fill the
+ * conversation's card instead of painting their own inside it. Their root
+ * is a floor host holding a card; under the frame both go clear. Spelled out
+ * in full to outrank the card finish's selector. */
+:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]
+  [data-luca-floor-host] {
+  background: transparent;
+}
+
+:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface] {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  margin: 0;
+}
+
+/* The conversation header's title has moved up into the lip; its actions
+ * stay until WP-04. With the strip gone, it no longer dodges anything. */
+:root[data-luca-frame="solid"] [data-testid="chat-title"] {
+  display: none;
+}
+
+:root[data-luca-frame="solid"]
+  [data-collapsible="offcanvas"]
+  ~ *
+  [data-testid="chat-header"] {
+  padding-left: 22px;
+}
+
+/* Reduce Motion: the rail's card, the conversation's and the lip over it
+ * are instant. Spelled out to outrank the closed and peeking card. */
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-frame="solid"]
+    [data-frame]
+    > :is([data-sidebar-gap], [data-testid="app-sidebar"]),
+  :root[data-luca-frame="solid"]
+    [data-frame]:is([data-collapsible], [data-peek])
+    > [data-testid="app-sidebar"],
+  .luca-lip-card,
+  .luca-lip-history {
+    transition: none;
+  }
+}

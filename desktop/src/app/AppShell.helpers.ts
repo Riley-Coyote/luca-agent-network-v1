@@ -15,6 +15,21 @@ export type AppView =
   | "projects";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
+/** Under the shell's frame the band is the lip's 36, so a press on the cards'
+ *  top edge never moves the window (SHELL_SPEC.md, "Dragging the window"). */
+const SHELL_FRAME_DRAG_HANDLE_HEIGHT = 36;
+
+/** The window's drag band, by whether the shell's frame is drawn. */
+export function windowDragHandleHeight(frame: boolean): number {
+  return frame ? SHELL_FRAME_DRAG_HANDLE_HEIGHT : WINDOW_DRAG_HANDLE_HEIGHT;
+}
+
+function shellFrameDrawn(): boolean {
+  return (
+    typeof document !== "undefined" &&
+    document.documentElement.hasAttribute("data-luca-frame")
+  );
+}
 const TAURI_DRAG_REGION_ATTR = "data-tauri-drag-region";
 const WINDOW_DRAG_INTERACTIVE_SELECTOR =
   'button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [role="radio"], [role="switch"], [role="option"], [contenteditable="true"], [tabindex]:not([tabindex="-1"])';
@@ -70,11 +85,18 @@ function isTauriDragRegionEvent(event: MouseEvent | PointerEvent) {
 }
 
 export function isWindowDragHandleEvent(event: MouseEvent | PointerEvent) {
+  const frame = shellFrameDrawn();
+  // Under the frame only the lip moves the window: the cards' own drag marks
+  // (the conversation header's) no longer reach below it.
+  if (frame && event.clientY > windowDragHandleHeight(true)) {
+    return false;
+  }
+
   if (isTauriDragRegionEvent(event)) {
     return true;
   }
 
-  if (event.clientY > WINDOW_DRAG_HANDLE_HEIGHT) {
+  if (event.clientY > windowDragHandleHeight(frame)) {
     return false;
   }
 
