@@ -1026,6 +1026,7 @@ pub fn run() {
             transfer_builderlab_community,
             title_bar_double_click,
             set_main_window_traffic_lights_hidden,
+            set_traffic_lights_inset,
             center_window_on_its_monitor,
             set_artifact_canvas_window_open,
             get_preview_session,

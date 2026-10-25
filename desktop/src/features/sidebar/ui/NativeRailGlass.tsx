@@ -4,6 +4,7 @@ import {
   NATIVE_GLASS_SETTINGS_EVENT,
   readNativeGlassChoice,
 } from "@/features/sidebar/ui/NativeGlassSettings";
+import { useFeatureEnabled } from "@/shared/features/useFeatureEnabled";
 
 /**
  * THE RAIL IN APPLE'S REAL GLASS (native test builds).
@@ -24,6 +25,9 @@ import {
  * are untouched. With Reduce Transparency the page keeps drawing its own
  * floor and card, and the glass stands down. The plan:
  * docs/luca/native-rail-glass/PLAN.md.
+ *
+ * Under the shell's frame (`shell-frame`) it stands aside: the frame's own
+ * reporter (app/shell/shellGlass.ts) tells the glass where things are.
  */
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -90,7 +94,8 @@ export function NativeRailGlass() {
   const [opaque, setOpaque] = React.useState(
     () => window.matchMedia(REDUCED_TRANSPARENCY).matches,
   );
-  const on = present && !opaque;
+  const shellFrame = useFeatureEnabled("shell-frame");
+  const on = present && !opaque && !shellFrame;
 
   React.useEffect(() => {
     if (present) return;

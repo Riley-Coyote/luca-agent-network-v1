@@ -31,6 +31,7 @@ export default defineConfig({
         "**/app-error-boundary.spec.ts",
         "**/ui-log-bridge.spec.ts",
         "**/popout-shell.spec.ts",
+        "**/shell-glass.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
         "**/key-import-reveal.spec.ts",

@@ -1,0 +1,99 @@
+/* ── the page under glass ────────────────────────────────────────────
+ * The Glass frame (SHELL_SPEC.md, "Glass: Liquid Glass" and "Glass where
+ * Liquid Glass can't be"): Apple's glass is beneath the page, natively, so
+ * the page stops painting the floor and lets it show. A veil of our own lies
+ * in front of the glass, behind the lip and the cards, so the frame's words
+ * read over a bright desktop; the cards float on it, lit from above.
+ *
+ * `<html data-luca-frame="glass">` is set by ThemeProvider only once the glass
+ * is really there (the native glass announced, or the frosted vibrancy
+ * installed), never in a browser and never under Reduce Transparency.
+ *
+ * Every value is the shell study's, cited by its line in
+ * desktop/src/testing/shellStudy/shellStudy.css, for Claude to tune by eye in
+ * the test app (WP-07b).
+ * ------------------------------------------------------------------ */
+
+/* The frame's words. The lip and the places read these tones, falling back to
+ * the app's ink on the solid frame. */
+:root[data-luca-frame="glass"] {
+  /* At night a warm white over the glass (shellStudy.css:46-50). */
+  --luca-frame-ink: rgb(250 248 243 / 0.96);
+  --luca-frame-muted: rgb(250 248 243 / 0.76);
+  --luca-frame-faint: rgb(250 248 243 / 0.56);
+  --luca-frame-plate: rgb(255 255 255 / 0.1);
+  --luca-frame-thread: rgb(255 255 255 / 0.22);
+  /* The veil at Soft (shellStudy.css:108). */
+  --luca-frame-veil: 0.22;
+  /* The window's corner (shellStudy.css:1421); square in full screen. */
+  --luca-frame-window-radius: 16px;
+}
+
+:root[data-luca-frame="glass"]:not(.dark) {
+  /* By day the page's own ink, solved for daylight (shellStudy.css:1265-1269). */
+  --luca-frame-ink: hsl(var(--mn-ink));
+  --luca-frame-muted: hsl(var(--mn-ink) / 0.84);
+  --luca-frame-faint: hsl(var(--mn-ink) / 0.66);
+  --luca-frame-plate: hsl(var(--mn-ink) / 0.07);
+  --luca-frame-thread: hsl(var(--mn-ink) / 0.18);
+}
+
+:root[data-luca-frame="glass"][data-luca-window-fullscreen] {
+  --luca-frame-window-radius: 0px;
+}
+
+/* Every layer that paints the floor clears: the list railGlass.css already
+ * clears for `data-luca-native-glass` (railGlass.css:171-186), less the rail's
+ * own `[data-sidebar="sidebar"]` (the rail is a card in the shell, and cards
+ * are never glass), plus the shell's own floor (`[data-luca-frame-floor]`) and
+ * the root itself (shellStudy.css:60). */
+:root[data-luca-frame="glass"],
+:root[data-luca-frame="glass"] body,
+:root[data-luca-frame="glass"]
+  :is(
+    .luca-theme-shell-layer,
+    .buzz-huddle-shell,
+    .buzz-huddle-app-surface,
+    [data-buzz-glass-inset],
+    [data-luca-floor-host],
+    [data-luca-frame-floor]
+  ) {
+  /* biome-ignore lint/complexity/noImportantStyles: the glass frame must clear every layer that paints the floor, whatever its own layer or specificity (index.html's boot paint is inline); it applies only once the glass is really beneath the page */
+  background: transparent !important;
+}
+
+/* The veil: one layer in front of the glass, behind the lip and the cards
+ * (z-index -1 in the root's stacking context, beneath every box of the page).
+ * At night black (shellStudy.css:104), by day the paper's own tone
+ * (shellStudy.css:1273), at Soft. Natively nothing of ours paints past the
+ * window's rounded corners (shellStudy.css:1419-1422). */
+:root[data-luca-frame="glass"] body::before {
+  background: rgb(0 0 0 / var(--luca-frame-veil));
+  border-radius: var(--luca-frame-window-radius);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+:root[data-luca-frame="glass"]:not(.dark) body::before {
+  background: hsl(var(--mn-floor) / var(--luca-frame-veil));
+}
+
+/* The cards on the glass at night: their top edges catch the light from
+ * above, and they leave a soft shadow on the glass. No outline: the light and
+ * the shadow draw the edge (shellStudy.css:830-837). */
+:root[data-luca-shell][data-luca-frame="glass"].dark [data-luca-card] {
+  box-shadow:
+    0 -0.5px 0 rgb(255 255 255 / 0.12),
+    0 1px 2px rgb(0 0 0 / 0.25),
+    0 18px 44px rgb(0 0 0 / 0.32);
+}
+
+/* By day no white edges: white on white says nothing (shellStudy.css:1317-
+ * 1321). The ink-cast shadow beneath all the cards at once is drawn by the
+ * frame's own layout, so no card shades its neighbour. */
+:root[data-luca-shell][data-luca-frame="glass"]:not(.dark) [data-luca-card] {
+  box-shadow: none;
+}
