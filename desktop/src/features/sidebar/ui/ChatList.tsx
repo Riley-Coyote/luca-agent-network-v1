@@ -224,37 +224,51 @@ export function ChatRowContextMenu({
   unreadChannelIds,
   onMarkChannelRead,
   onMarkChannelUnread,
+  projectMenuItems,
 }: ChatRowMenuProps & {
   children: React.ReactElement;
   items: readonly ChatListItem[];
   unreadChannelIds: ReadonlySet<string>;
+  /** A project row's own menu (the shell's rail): rows carrying
+   *  `data-project-id` open it. Without it, only chat rows have a menu. */
+  projectMenuItems?: (projectId: string) => React.ReactNode;
 }) {
-  const [channelId, setChannelId] = React.useState<string | null>(null);
-  const item = channelId
-    ? (items.find((candidate) => candidate.channel.id === channelId) ?? null)
-    : null;
-  const rowUnder = (event: React.SyntheticEvent) =>
-    event.target instanceof Element
-      ? (event.target
-          .closest("[data-channel-id]")
-          ?.getAttribute("data-channel-id") ?? null)
+  const [row, setRow] = React.useState<{
+    kind: "channel" | "project";
+    id: string;
+  } | null>(null);
+  const item =
+    row?.kind === "channel"
+      ? (items.find((candidate) => candidate.channel.id === row.id) ?? null)
       : null;
+  const rowUnder = (event: React.SyntheticEvent) => {
+    if (!(event.target instanceof Element)) return null;
+    const found = event.target.closest(
+      projectMenuItems
+        ? "[data-channel-id], [data-project-id]"
+        : "[data-channel-id]",
+    );
+    const channelId = found?.getAttribute("data-channel-id");
+    if (channelId) return { kind: "channel" as const, id: channelId };
+    const projectId = found?.getAttribute("data-project-id");
+    return projectId ? { kind: "project" as const, id: projectId } : null;
+  };
   return (
     <ContextMenu>
       <ContextMenuTrigger
         asChild
         onContextMenuCapture={(event) => {
-          const id = rowUnder(event);
-          if (!id) {
+          const under = rowUnder(event);
+          if (!under) {
             // Not a row: nothing to offer, so the trigger below must not open.
             event.stopPropagation();
             return;
           }
-          setChannelId(id);
+          setRow(under);
         }}
         // A touch long-press opens without a contextmenu event; name the row
         // at the press instead.
-        onPointerDownCapture={(event) => setChannelId(rowUnder(event))}
+        onPointerDownCapture={(event) => setRow(rowUnder(event))}
       >
         {children}
       </ContextMenuTrigger>
@@ -266,6 +280,8 @@ export function ChatRowContextMenu({
             onMarkChannelRead={onMarkChannelRead}
             onMarkChannelUnread={onMarkChannelUnread}
           />
+        ) : row?.kind === "project" && projectMenuItems ? (
+          projectMenuItems(row.id)
         ) : null}
       </ContextMenuContent>
     </ContextMenu>

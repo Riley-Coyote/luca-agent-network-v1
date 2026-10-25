@@ -488,6 +488,200 @@ test.describe("the shell's rail", () => {
     await expect(hit(page, "luca")).toBeFocused();
   });
 
+  test("home rows have the study's 8-point corners, at rest, hover and focus", async ({
+    page,
+  }) => {
+    const radii = (selector: string) =>
+      page.evaluate(
+        (sel) =>
+          [...document.querySelectorAll<HTMLElement>(sel)].map((el) => {
+            const hitEl = el.querySelector<HTMLElement>(".luca-rail-row-hit");
+            return {
+              row: getComputedStyle(el).borderRadius,
+              hit: hitEl ? getComputedStyle(hitEl).borderRadius : null,
+            };
+          }),
+        selector,
+      );
+    // Every home row, and the hit beneath it, at rest.
+    const rest = await radii("[data-shell-rail] .luca-rail-row");
+    console.log("RADIUS REST", JSON.stringify(rest.slice(0, 3)), rest.length);
+    expect(rest.length).toBeGreaterThan(5);
+    for (const r of rest) expect(r).toEqual({ row: "8px", hit: "8px" });
+
+    // Hover: the plate is the study's colour on 8-point corners.
+    const atlas = home(page, agentId(ATLAS));
+    await atlas.hover();
+    const hover = await atlas.evaluate((el) => ({
+      radius: getComputedStyle(el).borderRadius,
+      background: getComputedStyle(el).backgroundColor,
+    }));
+    console.log("RADIUS HOVER", JSON.stringify(hover));
+    expect(hover.radius).toBe("8px");
+    expect(hover.background).not.toBe("rgba(0, 0, 0, 0)");
+    await waitForAnimations(page);
+    const hoverPath = `${SHOTS}/11-hover-row-8px.png`;
+    await atlas.screenshot({ path: hoverPath });
+    shots.push(hoverPath);
+
+    // Keyboard focus: the ring follows the same corners.
+    await page.mouse.move(1400, 880);
+    await hit(page, "luca").focus();
+    await page.keyboard.press("ArrowDown");
+    const focused = hit(page, "project:studio-site");
+    await expect(focused).toBeFocused();
+    const ring = await focused.evaluate((el) => ({
+      focusVisible: el.matches(":focus-visible"),
+      radius: getComputedStyle(el).borderRadius,
+      outline: `${getComputedStyle(el).outlineWidth} ${getComputedStyle(el).outlineStyle} ${getComputedStyle(el).outlineColor}`,
+      offset: getComputedStyle(el).outlineOffset,
+    }));
+    console.log("RADIUS FOCUS", JSON.stringify(ring));
+    expect(ring.focusVisible).toBe(true);
+    expect(ring.radius).toBe("8px");
+    await waitForAnimations(page);
+    const focusPath = `${SHOTS}/12-focus-row-8px.png`;
+    await home(page, "project:studio-site").screenshot({ path: focusPath });
+    shots.push(focusPath);
+
+    // A home and its own sessions share one corner; the + stays round.
+    await home(page, "project:tidepool").locator("[data-chevron]").click();
+    const shapes = await page.evaluate(() => ({
+      home: getComputedStyle(
+        document.querySelector('[data-home="project:tidepool"]') as Element,
+      ).borderRadius,
+      session: getComputedStyle(
+        document.querySelector(
+          '[data-home-group="project:tidepool"] .luca-rail-session',
+        ) as Element,
+      ).borderRadius,
+      plus: getComputedStyle(
+        document.querySelector(".luca-rail-row-add") as Element,
+      ).borderRadius,
+    }));
+    console.log("RADIUS SHAPES", JSON.stringify(shapes));
+    expect(shapes.home).toBe("8px");
+    expect(shapes.session).toBe("8px");
+    expect(shapes.plus).toBe("999px");
+  });
+
+  test("a project's details and sources keep a home on its row", async ({
+    page,
+  }) => {
+    // Rooms in the rail (the default): the room column is not there.
+    await hit(page, "project:tidepool").click(ON_NAME);
+    await expect(home(page, "project:tidepool")).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    await expect(page.getByTestId("project-room-navigator")).toHaveCount(0);
+
+    // The project row's menu: Project details and Sources.
+    await home(page, "project:tidepool").click({
+      button: "right",
+      ...ON_NAME,
+    });
+    await expect(page.getByTestId("rail-project-details")).toBeVisible();
+    await expect(page.getByTestId("rail-project-sources")).toBeVisible();
+    await waitForAnimations(page);
+    const menuPath = `${SHOTS}/13-project-row-menu.png`;
+    await page.screenshot({
+      path: menuPath,
+      clip: { x: 0, y: 0, width: 560, height: 520 },
+    });
+    shots.push(menuPath);
+
+    // Project details: rename the project.
+    await page.getByTestId("rail-project-details").click();
+    const dialog = page.getByTestId("project-details-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByLabel("Project name")).toHaveValue("Tidepool");
+    await expect(dialog).toContainText("2 rooms");
+    await waitForAnimations(page);
+    const dialogPath = `${SHOTS}/14-project-details-from-rail.png`;
+    await page.screenshot({ path: dialogPath });
+    shots.push(dialogPath);
+    await dialog.getByLabel("Project name").fill("Tidepool East");
+    await dialog.getByRole("button", { name: "Save changes" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      home(page, "project:tidepool").locator(".luca-rail-row-name"),
+    ).toHaveText("Tidepool East");
+
+    // Remove the grouping: the project leaves, its rooms stay.
+    await home(page, "project:tidepool").click({
+      button: "right",
+      ...ON_NAME,
+    });
+    await page.getByTestId("rail-project-details").click();
+    await page
+      .getByTestId("project-details-dialog")
+      .getByRole("button", { name: "Remove grouping" })
+      .click();
+    await page
+      .getByTestId("project-delete-grouping-dialog")
+      .getByRole("button", { name: "Remove grouping" })
+      .click();
+    await expect(home(page, "project:tidepool")).toHaveCount(0);
+    // Its rooms are loose now, each in its agent's home: Chapter nine
+    // (with Atlas) under Atlas, Landing page copy (with Wren) under Wren.
+    for (const [pubkey, room] of [
+      [ATLAS, ROOM.chapter],
+      [WREN, ROOM.landing],
+    ] as const) {
+      const chevron = home(page, agentId(pubkey)).locator("[data-chevron]");
+      if ((await chevron.getAttribute("aria-expanded")) === "false")
+        await chevron.click();
+      await expect(session(page, room)).toBeVisible();
+    }
+
+    // The keyboard's menu key (Shift+F10) on a focused project row.
+    await hit(page, "project:studio-site").focus();
+    await page.keyboard.press("Shift+F10");
+    const byKey = await page
+      .getByTestId("rail-project-details")
+      .isVisible()
+      .catch(() => false);
+    console.log("PROJECT MENU BY SHIFT+F10", byKey);
+    expect(byKey).toBe(true);
+    // The menu takes focus, so Enter opens the details from the keyboard.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("project-details-dialog")).toBeVisible();
+    await expect(
+      page.getByTestId("project-details-dialog").getByLabel("Project name"),
+    ).toHaveValue("Studio site");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("project-details-dialog")).toHaveCount(0);
+
+    // Sources: Brain, from the row's menu.
+    await home(page, "project:studio-site").click({
+      button: "right",
+      ...ON_NAME,
+    });
+    await page.getByTestId("rail-project-sources").click();
+    await expect(page).toHaveURL(/#\/brain/);
+
+    // A chat row's menu is unchanged: Mark as read / unread.
+    await page.goto("/?e2e=mock#/pulse");
+    await expect(home(page, "luca")).toBeVisible({ timeout: 20000 });
+    await home(page, "luca").click({ button: "right", ...ON_NAME });
+    const chatMenu = page.getByRole("menu");
+    await expect(chatMenu).toBeVisible();
+    console.log(
+      "CHAT ROW MENU",
+      (await chatMenu.innerText()).replace(/\n/g, " | "),
+    );
+    await expect(page.getByTestId("rail-project-details")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // Room search moves to Search: a room is found by name.
+    await page.getByTestId("open-search").click();
+    await page.keyboard.type("Landing page");
+    const result = page.getByTestId(`search-result-channel-${ROOM.landing}`);
+    await expect(result).toBeVisible({ timeout: 10000 });
+  });
+
   test("Runtimes lives on the Agents page, and Project rooms is a setting", async ({
     page,
   }) => {

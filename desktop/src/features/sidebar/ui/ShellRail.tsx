@@ -1,7 +1,8 @@
 import * as React from "react";
-import { ChevronRight, Plus } from "lucide-react";
+import { BookOpen, ChevronRight, FolderCog, Plus } from "lucide-react";
 
 import "@/app/shell/shell-rail.css";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import {
   readLastProjectRoom,
   type RoomProject,
@@ -17,7 +18,14 @@ import {
   type RailHome,
 } from "@/features/sidebar/lib/railHomes";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
+import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
+import { ProjectDetailsDialog } from "@/features/projects/ui/ProjectRoomWorkspace";
 import { ChatRowContextMenu } from "@/features/sidebar/ui/ChatList";
+import {
+  ContextMenuIconSlot,
+  deferMenuAction,
+} from "@/features/sidebar/ui/sidebarMenuHelpers";
+import { ContextMenuItem } from "@/shared/ui/context-menu";
 
 /**
  * The shell's rail (docs/luca/rail-system/SPEC.md, "The rail, ironed out"):
@@ -82,8 +90,30 @@ export function addLabel(home: RailHome) {
 }
 
 /** Up and Down between visible rows; Right opens a home or steps into its
- *  first session; Left closes it or steps back out to it. */
+ *  first session; Left closes it or steps back out to it. The menu key (or
+ *  Shift+F10) opens the focused row's menu, as a right-click would: a
+ *  project's details live there, so the keyboard must reach them too. */
 function railKeys(event: React.KeyboardEvent<HTMLDivElement>) {
+  if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+    const target = document.activeElement;
+    if (
+      !(target instanceof HTMLElement) ||
+      !target.matches("[data-rail-focus]") ||
+      !event.currentTarget.contains(target)
+    )
+      return;
+    event.preventDefault();
+    const box = target.getBoundingClientRect();
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: box.left + 14,
+        clientY: box.bottom,
+      }),
+    );
+    return;
+  }
   if (!["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft"].includes(event.key))
     return;
   const rows = [
@@ -191,6 +221,54 @@ export function ShellRail({
     [storageKey],
   );
 
+  // A project's details (its name, its grouping) and its sources: in the
+  // room column's footer when rooms sit in a column, and on the project
+  // row's menu here, so they keep a home when the rooms nest in the rail.
+  const { goBrain } = useAppNavigation();
+  const [details, setDetails] = React.useState<{
+    projectId: string;
+    open: boolean;
+  } | null>(null);
+  const detailsProjectId = details?.projectId ?? null;
+  const detailsProject = detailsProjectId
+    ? (projects.find((project) => project.id === detailsProjectId) ?? null)
+    : null;
+  const detailsViewModel = React.useMemo(
+    () =>
+      detailsProject
+        ? buildProjectNavigatorViewModel({
+            channels: items.map((item) => item.channel),
+            project: detailsProject,
+            projectByChannelId,
+          })
+        : null,
+    [detailsProject, items, projectByChannelId],
+  );
+  const projectMenuItems = (projectId: string) => (
+    <>
+      <ContextMenuItem
+        data-testid="rail-project-details"
+        onSelect={() =>
+          deferMenuAction(() => setDetails({ projectId, open: true }))
+        }
+      >
+        <ContextMenuIconSlot>
+          <FolderCog className="h-4 w-4" />
+        </ContextMenuIconSlot>
+        Project details…
+      </ContextMenuItem>
+      <ContextMenuItem
+        data-testid="rail-project-sources"
+        onSelect={() => deferMenuAction(() => void goBrain())}
+      >
+        <ContextMenuIconSlot>
+          <BookOpen className="h-4 w-4" />
+        </ContextMenuIconSlot>
+        Sources in Brain
+      </ContextMenuItem>
+    </>
+  );
+
   const agentsByPubkey = React.useMemo(
     () => new Map(agents.map((agent) => [agent.pubkey.toLowerCase(), agent])),
     [agents],
@@ -254,45 +332,57 @@ export function ShellRail({
   };
 
   return (
-    <ChatRowContextMenu
-      items={items}
-      onMarkChannelRead={onMarkChannelRead}
-      onMarkChannelUnread={onMarkChannelUnread}
-      unreadChannelIds={unreadChannelIds}
-    >
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the agent rail's always have (AgentRail.tsx). */}
-      <div
-        className="luca-shell-rail"
-        data-shell-rail=""
-        data-testid="chat-list"
-        onKeyDown={railKeys}
+    <>
+      <ChatRowContextMenu
+        items={items}
+        onMarkChannelRead={onMarkChannelRead}
+        onMarkChannelUnread={onMarkChannelUnread}
+        projectMenuItems={projectMenuItems}
+        unreadChannelIds={unreadChannelIds}
       >
-        {homes.luca ? row(homes.luca) : null}
-        {SECTIONS.map((section) => (
-          <section
-            aria-label={section.title}
-            className="luca-rail-section"
-            data-testid={`rail-section-${section.kind}`}
-            key={section.kind}
-          >
-            <div className="luca-rail-section-head type-eyebrow">
-              <span>{section.title}</span>
-              <button
-                aria-label={section.add}
-                className="luca-rail-add"
-                data-testid={section.testId}
-                onClick={create[section.kind]}
-                title={section.add}
-                type="button"
-              >
-                <Plus aria-hidden />
-              </button>
-            </div>
-            {sectionHomes[section.kind].map(row)}
-          </section>
-        ))}
-      </div>
-    </ChatRowContextMenu>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the agent rail's always have (AgentRail.tsx). */}
+        <div
+          className="luca-shell-rail"
+          data-shell-rail=""
+          data-testid="chat-list"
+          onKeyDown={railKeys}
+        >
+          {homes.luca ? row(homes.luca) : null}
+          {SECTIONS.map((section) => (
+            <section
+              aria-label={section.title}
+              className="luca-rail-section"
+              data-testid={`rail-section-${section.kind}`}
+              key={section.kind}
+            >
+              <div className="luca-rail-section-head type-eyebrow">
+                <span>{section.title}</span>
+                <button
+                  aria-label={section.add}
+                  className="luca-rail-add"
+                  data-testid={section.testId}
+                  onClick={create[section.kind]}
+                  title={section.add}
+                  type="button"
+                >
+                  <Plus aria-hidden />
+                </button>
+              </div>
+              {sectionHomes[section.kind].map(row)}
+            </section>
+          ))}
+        </div>
+      </ChatRowContextMenu>
+      {detailsViewModel ? (
+        <ProjectDetailsDialog
+          onOpenChange={(open) =>
+            setDetails((current) => (current ? { ...current, open } : null))
+          }
+          open={details?.open ?? false}
+          viewModel={detailsViewModel}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -379,6 +469,7 @@ function HomeRow({
         data-channel-id={home.main?.channel.id}
         data-home={home.id}
         data-home-kind={home.kind}
+        data-project-id={home.project?.id}
         data-sidebar="menu-button"
         data-testid={`rail-home-${home.id}`}
       >

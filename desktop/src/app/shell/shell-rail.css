@@ -63,11 +63,17 @@
 /* ── a home: Luca, a project, an agent, a fleet ─────────────────────
  * The whole row is one button (the hit, beneath); the chevron and the +
  * sit above it. The row is the sidebar's menu button for the selection
- * only; its shape and colours are set here. */
-:root[data-luca-shell] [data-shell-rail] .luca-rail-row {
+ * only; its shape and colours are set here. Its corners are the study's
+ * 8, never a capsule (SHELL_SPEC.md, "Where you are"), the same as its
+ * sessions; the menu-button attribute outranks the glass rail's capsule
+ * rule (railGlass.css), which the rail sits inside. Today's pill draws its
+ * own shape, so it still fits. */
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row[data-sidebar="menu-button"] {
   align-items: center;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   color: var(--rail-muted);
   display: flex;
   height: 30px;
