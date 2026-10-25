@@ -163,7 +163,28 @@ async function stageUpdate(page: Page) {
   await expect(page.getByTestId("settings-panel-updates")).toContainText(
     "Update downloaded. Click to apply.",
   );
-  await page.getByTestId("settings-back-to-app").click();
+  // Settings in the frame has no "Back to app" (WP-05): Escape leaves it.
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("settings-view")).toHaveCount(0);
+}
+
+/** Mock conversations the frame's tests open by route (the shell's rail groups
+ *  chats by home, so their old rows aren't there to click). */
+const CHANNEL_IDS = {
+  "deep-history": "feedf00d-0000-4000-8000-000000000007",
+  "bob-tyler": "7eb9f239-9393-50b0-bd76-d85eef0511c7",
+  watercooler: "a27e1ee9-76a6-5bdf-a5d5-1d85610dad11",
+} as const;
+
+async function openChannel(page: Page, name: keyof typeof CHANNEL_IDS) {
+  await expect(async () => {
+    await page.evaluate((id) => {
+      window.location.hash = `#/channels/${id}`;
+    }, CHANNEL_IDS[name]);
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(name, {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
 }
 
 /** The mock's #general, opened by its route: under the frame the rail groups
@@ -441,8 +462,7 @@ test("the conversation header in the lip", async ({ page }, info) => {
 
   // ── scrolled: messages fading under the card's top edge ───────────
   // A conversation long enough to scroll.
-  await page.getByTestId("channel-deep-history").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("deep-history");
+  await openChannel(page, "deep-history");
   await page.waitForTimeout(1200);
   const scrolledBy = await page.evaluate(() => {
     const scroller = document.querySelector<HTMLElement>(
@@ -589,8 +609,7 @@ test("the conversation header in the lip", async ({ page }, info) => {
 
   // ── dm: a person's presence, just before the actions ─────────────
   // bob-tyler: a person (alice is a resident, whose DM shows no presence).
-  await page.getByTestId("channel-bob-tyler").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("bob-tyler");
+  await openChannel(page, "bob-tyler");
   await page.mouse.move(700, 500);
   await page.waitForTimeout(400);
   files.push(await shot(page, dir, "dm"));
@@ -686,8 +705,7 @@ test("the conversation header in the lip", async ({ page }, info) => {
   (checks.join_in_lip as Record<string, unknown>).joined_then_actions = true;
 
   // ── the forum keeps its own header; a project room keeps its picker ─
-  await page.getByTestId("channel-watercooler").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("watercooler");
+  await openChannel(page, "watercooler");
   await page.mouse.move(700, 500);
   await page.waitForTimeout(500);
   files.push(await shot(page, dir, "forum"));
