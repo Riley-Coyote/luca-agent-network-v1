@@ -73,6 +73,42 @@ async function openApp(
   }
 }
 
+/** Mock conversations opened by route: under the frame the rail groups chats
+ *  by home (WP-02), so their old rows aren't there to click. */
+const CHANNEL_IDS: Record<string, string> = {
+  "bob-tyler": "7eb9f239-9393-50b0-bd76-d85eef0511c7",
+  general: "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50",
+  random: "9dae0116-799b-5071-a0a8-fdd30a91a35d",
+  engineering: "1c7e1c02-87bb-5e88-b2da-5a7a9432d0c9",
+};
+
+async function openChannel(page: Page, name: string) {
+  await expect(async () => {
+    await page.evaluate((id) => {
+      window.location.hash = `#/channels/${id}`;
+    }, CHANNEL_IDS[name]);
+    await expect(page.getByTestId("shell-lip-name")).toHaveText(name, {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
+}
+
+/** The mock's #general, opened by its route: under the frame the rail groups
+ *  chats by home (WP-02). Retried past a fresh page's own first redirect. */
+async function openGeneral(page: Page) {
+  await page.waitForSelector('[data-testid="app-sidebar"] [data-channel-id]', {
+    timeout: 20_000,
+  });
+  await expect(async () => {
+    await page.evaluate(() => {
+      window.location.hash = "#/channels/9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
+    });
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
+}
+
 async function settle(page: Page) {
   await page.evaluate(
     () =>
@@ -158,8 +194,7 @@ test("the day's label rests on its own rule", async ({ page }, info) => {
     { width: 800, height: 500 },
   ]) {
     await openApp(page, size);
-    await page.getByTestId("channel-general").click();
-    await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
+    await openGeneral(page);
     await expect(
       page.getByTestId("message-timeline-day-divider").first(),
     ).toBeVisible();
@@ -275,7 +310,7 @@ test("a long name keeps clear of presence and the badge", async ({
   expect(Math.abs((axis?.card ?? 0) - (axis?.name ?? 99))).toBeLessThan(1.5);
 
   // A person's presence: the longest DM name the mock has, at 800.
-  await page.getByTestId("channel-bob-tyler").click();
+  await openChannel(page, "bob-tyler");
   await expect(page.getByTestId("shell-lip-name")).toHaveText("bob-tyler");
   await page.mouse.move(700, 400);
   await settle(page);
@@ -292,8 +327,7 @@ test("a long name keeps clear of presence and the badge", async ({
   };
   expect(Number.parseFloat(room)).toBeCloseTo(Math.max(100, slotWidth + 20), 0);
   // With three actions alone (84 wide) the room is the base 100.
-  await page.getByTestId("channel-general").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
+  await openGeneral(page);
   await settle(page);
   const plainRoom = await page.evaluate(() =>
     getComputedStyle(
@@ -322,8 +356,7 @@ test("presence and Join hold to the lip under text zoom", async ({
     await page.evaluate((size) => {
       document.documentElement.style.fontSize = size;
     }, px);
-    await page.getByTestId("channel-bob-tyler").click();
-    await expect(page.getByTestId("shell-lip-name")).toHaveText("bob-tyler");
+    await openChannel(page, "bob-tyler");
     await page.mouse.move(1000, 600);
     await settle(page);
     const avatar = await page.evaluate((slot) => {
@@ -420,8 +453,7 @@ test("the lip's name carries the conversation's description", async ({
   await openApp(page);
   const result: Record<string, string | null> = {};
   for (const name of ["general", "random", "engineering"]) {
-    await page.getByTestId(`channel-${name}`).click();
-    await expect(page.getByTestId("shell-lip-name")).toHaveText(name);
+    await openChannel(page, name);
     result[name] = await page
       .getByTestId("shell-lip-name")
       .getAttribute("title");
@@ -442,15 +474,13 @@ test("panes side by side: the lip is the focused pane's", async ({
   const dir = shotsDir(info.outputPath());
   const result: Record<string, unknown> = {};
   await openApp(page);
-  await page.getByTestId("channel-general").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
+  await openGeneral(page);
   await page.getByTestId("workspace-layout-menu").click();
   await page.getByTestId("workspace-preset-columns-2").click();
   await expect(page.locator(PANE("slot-2"))).toBeVisible();
   // engineering into the right pane, then focus the left.
   await page.locator(PANE("slot-2")).click();
-  await page.getByTestId("channel-engineering").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("engineering");
+  await openChannel(page, "engineering");
 
   const measure = async (label: string) => {
     await page.mouse.move(1000, 600);

@@ -528,9 +528,10 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
 
   // ── where you are, by day ─────────────────────────────────────────
   const plate = await inkAt(page, 0.075);
+  // Where you are is the places' sliding mark (WP-03), not the tile itself.
   const placeCurrent = await edges(
     page,
-    '[data-testid="shell-place-conversations"]',
+    '[data-testid="shell-places"] .luca-mark--place',
   );
   const railPill = await edges(page, "[data-frame] .luca-rail-glass");
   const railPillRim = await page.evaluate(() => {
@@ -839,11 +840,12 @@ test("Paper by day, 1440 × 900", async ({ page, browser }, info) => {
   for (const id of chosenSelectors) {
     focusRings.push(await keyboardFocus(page, `[data-testid="${id}"]`));
   }
-  // The picture: the Frame row's chosen Paper, focused by keyboard.
+  // The picture: the Mode row's chosen Light, focused by keyboard (in a
+  // browser the Frame row is a statement, not a control: WP-05b).
   await page
-    .locator('[data-testid="appearance-frame-solid"]')
+    .locator('[data-testid="appearance-mode-light"]')
     .scrollIntoViewIfNeeded();
-  await keyboardFocus(page, '[data-testid="appearance-frame-solid"]');
+  await keyboardFocus(page, '[data-testid="appearance-mode-light"]');
   files.push(await shot(page, dir, "settings-chosen-focused"));
   await page.evaluate(() => (document.activeElement as HTMLElement)?.blur());
 
