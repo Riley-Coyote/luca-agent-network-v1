@@ -55,6 +55,7 @@ import {
   glassFrameName,
   solidFrameName,
   type Frame,
+  useReducedTransparency,
 } from "@/app/shell/shellGlass";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
@@ -783,64 +784,76 @@ const MESSAGE_TEXT_CHOICES = [
 /**
  * The Frame row, under the shell's frame (SHELL_SPEC.md, "The frame setting"):
  * Black (Paper in light) or Glass, named "Liquid Glass" where Apple's is
- * beneath the page; Glass is not offered in a browser, which can't see the
- * desktop. One plain sentence under it says what the choice draws.
+ * beneath the page. Glass is offered only where it can be drawn (the app, on
+ * a Mac); elsewhere the row is a statement, the label and its sentence. One
+ * plain sentence under it says what the choice draws, here and now: under
+ * Reduce Transparency the glass stays chosen, drawn solid (WP-05b, 6).
  */
 function FrameSetting() {
   const { frame, setFrame, glassFrame, isDark } = useTheme();
+  const reducedTransparency = useReducedTransparency();
   const chosen: Frame = glassFrame.offered ? frame : "solid";
   const choices: (readonly [Frame, string])[] = [
     ["solid", solidFrameName(isDark)],
+    ["glass", glassFrameName({ announced: glassFrame.liquid })],
   ];
-  if (glassFrame.offered) {
-    choices.push(["glass", glassFrameName({ announced: glassFrame.liquid })]);
-  }
 
   return (
     <SettingsOptionGroup className="mb-4" data-testid="appearance-frame">
-      <SettingsOptionRow className="flex-wrap">
-        <div className="min-w-0">
-          <p className="text-sm font-medium" id="appearance-frame-label">
+      {/* As the study's setting (shellStudy.css:1230-1253): the label and
+          its choice share one line, and the sentence sits beneath on its
+          own, so its length never moves the choice. */}
+      <SettingsOptionRow className="flex-col items-stretch justify-center gap-1.5">
+        <div className="flex items-center justify-between gap-4">
+          <p
+            className="min-w-0 text-sm font-medium"
+            id="appearance-frame-label"
+          >
             Frame
           </p>
-          <p
-            className="text-sm font-normal text-muted-foreground"
-            data-testid="appearance-frame-sentence"
-          >
-            {frameSentence(chosen, {
-              isDark,
-              announced: glassFrame.liquid,
-            })}
-          </p>
-        </div>
-        {/* The study's segment (shellStudy.css:1137-1155): a track of the
-            ink at 6%; the chosen option the ink at 14% at night, and by day
-            a piece of paper standing up on its track, like Send
-            (shellStudy.css:1382-1388), never a darker dip. */}
-        <fieldset
-          aria-labelledby="appearance-frame-label"
-          className="flex gap-1 rounded-full bg-[hsl(var(--mn-ink)/0.06)] p-1"
-        >
-          {choices.map(([value, label]) => (
-            <button
-              aria-pressed={chosen === value}
-              className={cn(
-                "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                chosen !== value
-                  ? "text-muted-foreground hover:text-foreground"
-                  : isDark
-                    ? "bg-[hsl(var(--mn-ink)/0.14)] text-foreground"
-                    : "bg-[hsl(var(--mn-surface))] text-foreground shadow-[0_0.5px_1px_hsl(var(--mn-ink)/0.22),0_1px_3px_hsl(var(--mn-ink)/0.1)]",
-              )}
-              data-testid={`appearance-frame-${value}`}
-              key={value}
-              onClick={() => setFrame(value)}
-              type="button"
+          {/* The study's segment (shellStudy.css:1137-1155): a track of the
+              ink at 6%; the chosen option the ink at 14% at night, and by day
+              a piece of paper standing up on its track, like Send
+              (shellStudy.css:1382-1388), never a darker dip. */}
+          {glassFrame.offered ? (
+            <fieldset
+              aria-describedby="appearance-frame-sentence"
+              aria-labelledby="appearance-frame-label"
+              className="flex gap-1 rounded-full bg-[hsl(var(--mn-ink)/0.06)] p-1"
             >
-              {label}
-            </button>
-          ))}
-        </fieldset>
+              {choices.map(([value, label]) => (
+                <button
+                  aria-pressed={chosen === value}
+                  className={cn(
+                    "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                    chosen !== value
+                      ? "text-muted-foreground hover:text-foreground"
+                      : isDark
+                        ? "bg-[hsl(var(--mn-ink)/0.14)] text-foreground"
+                        : "bg-[hsl(var(--mn-surface))] text-foreground shadow-[0_0.5px_1px_hsl(var(--mn-ink)/0.22),0_1px_3px_hsl(var(--mn-ink)/0.1)]",
+                  )}
+                  data-testid={`appearance-frame-${value}`}
+                  key={value}
+                  onClick={() => setFrame(value)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
+          ) : null}
+        </div>
+        <p
+          className="text-sm font-normal text-muted-foreground"
+          data-testid="appearance-frame-sentence"
+          id="appearance-frame-sentence"
+        >
+          {frameSentence(chosen, {
+            isDark,
+            announced: glassFrame.liquid,
+            reducedTransparency,
+          })}
+        </p>
       </SettingsOptionRow>
     </SettingsOptionGroup>
   );

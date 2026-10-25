@@ -29,6 +29,36 @@ function SettingsPanelSkeleton() {
 }
 
 /**
+ * The panel under the frame, in the loaded panel's own column (SettingsView:
+ * the section's padding, then `mx-auto w-full max-w-4xl`), its header shaped
+ * as the section's (PageHeader: a 32 title line, 4 between, a 24 line), so
+ * nothing moves when the section arrives.
+ */
+function SettingsFramePanelSkeleton() {
+  return (
+    <div
+      className="mx-auto w-full max-w-4xl"
+      data-testid="settings-loading-panel"
+    >
+      <div className="flex h-8 items-center">
+        <Skeleton className="h-6 w-40" />
+      </div>
+      <div className="mt-1 flex h-6 items-center">
+        <Skeleton className="h-4 w-72 max-w-full" />
+      </div>
+      <div className="mt-12 space-y-6">
+        {FIELD_ROWS.map((row) => (
+          <div key={row}>
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="mt-2 h-9 w-full rounded-lg" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Under the shell's frame the skeleton is the frame's two cards (the lip and
  * the places are the shell's, already drawn): the section list's card, open
  * or closed as the list is, and the panels' card, in the same places and
@@ -78,8 +108,8 @@ function SettingsFrameLoadingFallback() {
           data-buzz-content-surface
           data-luca-conversation-surface
         >
-          <section className="min-h-0 flex-1 px-5 pt-6 sm:px-6">
-            <SettingsPanelSkeleton />
+          <section className="min-h-0 flex-1 overflow-hidden px-5 pb-12 pt-6 sm:px-6">
+            <SettingsFramePanelSkeleton />
           </section>
         </div>
       </SidebarInset>

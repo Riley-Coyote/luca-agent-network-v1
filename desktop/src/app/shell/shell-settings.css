@@ -143,8 +143,15 @@ button.luca-settings-row:hover:not([data-current]) {
   outline-offset: -1px;
 }
 
-/* The build, said quietly at the card's foot: the free room above it
- * pushes it down; with none, it follows the last row and scrolls with it. */
+/* Under keyboard focus the current row keeps its lit top: the ring is drawn
+ * around the plate, not instead of its light. */
+.luca-settings-row[data-current]:focus-visible {
+  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
+}
+
+/* The build, said quietly at the card's foot (text-2xs, the faint tone):
+ * the free room above it pushes it down; with none, it follows the last row
+ * and scrolls with it. */
 .luca-settings-version {
   color: hsl(var(--mn-ink-faint));
   flex: none;

@@ -87,9 +87,39 @@ test("glass is Liquid Glass when the native glass announced, Glass otherwise", (
   assert.equal(glassFrameName({ announced: false }), "Glass");
 });
 
-test("glass is not offered outside Tauri", () => {
-  assert.equal(glassFrameOffered({ tauri: false }), false);
-  assert.equal(glassFrameOffered({ tauri: true }), true);
+test("glass is offered only where it can be drawn: Tauri on a Mac", () => {
+  assert.equal(glassFrameOffered({ tauri: false, mac: true }), false);
+  assert.equal(glassFrameOffered({ tauri: true, mac: true }), true);
+  // Windows' own glass comes with the app's Windows build.
+  assert.equal(glassFrameOffered({ tauri: true, mac: false }), false);
+  assert.equal(glassFrameOffered({ tauri: false, mac: false }), false);
+});
+
+test("under Reduce Transparency the glass stays chosen and says it is drawn solid", () => {
+  assert.equal(
+    frameSentence("glass", {
+      isDark: true,
+      announced: true,
+      reducedTransparency: true,
+    }),
+    "Liquid Glass, drawn solid while Reduce Transparency is on.",
+  );
+  assert.equal(
+    frameSentence("glass", {
+      isDark: false,
+      announced: false,
+      reducedTransparency: true,
+    }),
+    "Glass, drawn solid while Reduce Transparency is on.",
+  );
+  assert.equal(
+    frameSentence("solid", {
+      isDark: true,
+      announced: true,
+      reducedTransparency: true,
+    }),
+    "Solid black, nothing showing through it.",
+  );
 });
 
 test("the sentence says what each choice draws", () => {
@@ -165,6 +195,26 @@ test("frosted vibrancy: under-window background by day", () => {
     state: "active",
     cornerRadius: 16,
   });
+});
+
+test("frosted vibrancy: square corners in full screen", () => {
+  assert.equal(frostedVibrancyArgs(true, true).cornerRadius, 0);
+  assert.equal(frostedVibrancyArgs(false, true).cornerRadius, 0);
+  assert.equal(frostedVibrancyArgs(true, false).cornerRadius, 16);
+});
+
+test("applyFrameVibrancy sends the full-screen corner", async () => {
+  const calls = [];
+  const invoke = async (command, args) => {
+    calls.push([command, args]);
+    return null;
+  };
+  await applyFrameVibrancy("frosted", true, invoke, true);
+  await applyFrameVibrancy("frosted", true, invoke, false);
+  assert.deepEqual(
+    calls.map(([, args]) => args.cornerRadius),
+    [0, 16],
+  );
 });
 
 test("applyFrameVibrancy calls set_window_vibrancy only for the frosted frame", async () => {

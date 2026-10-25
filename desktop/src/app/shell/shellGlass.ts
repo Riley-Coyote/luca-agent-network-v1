@@ -72,9 +72,12 @@ export type GlassEnvironment = {
   reducedTransparency: boolean;
 };
 
-/** A browser can't see the desktop, so Glass is offered only in the app. */
-export const glassFrameOffered = (env: Pick<GlassEnvironment, "tauri">) =>
-  env.tauri;
+/** Glass is offered only where it can be drawn: in the app on a Mac. A
+ *  browser can't see the desktop, and Windows' own glass comes with the app's
+ *  Windows build (SHELL_BUILD.md, WP-05b, 6). */
+export const glassFrameOffered = (
+  env: Pick<GlassEnvironment, "tauri" | "mac">,
+) => env.tauri && env.mac;
 
 /** The choice is named for what it draws (SHELL_SPEC.md, "Glass where Liquid
  *  Glass can't be"). */
@@ -83,11 +86,20 @@ export const glassFrameName = (env: Pick<GlassEnvironment, "announced">) =>
 
 export const solidFrameName = (isDark: boolean) => (isDark ? "Black" : "Paper");
 
-/** The one plain sentence under the row (SHELL_SPEC.md, "The frame setting"). */
+/** The one plain sentence under the row (SHELL_SPEC.md, "The frame setting"):
+ *  what the choice draws, here and now. Under Reduce Transparency the glass
+ *  stays chosen and is drawn solid, and the sentence says so. */
 export function frameSentence(
   frame: Frame,
-  { isDark, announced }: { isDark: boolean; announced: boolean },
+  {
+    isDark,
+    announced,
+    reducedTransparency = false,
+  }: { isDark: boolean; announced: boolean; reducedTransparency?: boolean },
 ) {
+  if (frame === "glass" && reducedTransparency) {
+    return `${glassFrameName({ announced })}, drawn solid while Reduce Transparency is on.`;
+  }
   if (frame === "glass") {
     return announced
       ? "Liquid Glass, your desktop showing through it."
@@ -118,14 +130,15 @@ export const WINDOW_RADIUS = 16;
  * `set_window_vibrancy`'s arguments for the frosted frame: held in its in-use
  * look so it never turns flat grey when the window rests; the Heads-up
  * display at night (Riley's favourite); by day the under-window background,
- * a provisional pick for Riley to judge in the lab.
+ * a provisional pick for Riley to judge in the lab. Square in full screen,
+ * as the window is (SHELL_SPEC.md, "Full screen").
  */
-export function frostedVibrancyArgs(isDark: boolean) {
+export function frostedVibrancyArgs(isDark: boolean, fullscreen = false) {
   return {
     enabled: true,
     material: isDark ? "hud-window" : "under-window-background",
     state: "active",
-    cornerRadius: WINDOW_RADIUS,
+    cornerRadius: fullscreen ? 0 : WINDOW_RADIUS,
   };
 }
 
@@ -134,15 +147,17 @@ type Invoke = (
   args: Record<string, unknown>,
 ) => Promise<unknown>;
 
-/** Installs the frosted glass behind the page when the frame draws it.
- *  Resolves true once it is there; false when the frame isn't frosted. */
+/** Installs the frosted glass behind the page when the frame draws it, with
+ *  the window's corners (square in full screen). Resolves true once it is
+ *  there; false when the frame isn't frosted. */
 export async function applyFrameVibrancy(
   drawn: FrameDrawn,
   isDark: boolean,
   invoke: Invoke,
+  fullscreen = false,
 ): Promise<boolean> {
   if (drawn !== "frosted") return false;
-  await invoke("set_window_vibrancy", frostedVibrancyArgs(isDark));
+  await invoke("set_window_vibrancy", frostedVibrancyArgs(isDark, fullscreen));
   return true;
 }
 

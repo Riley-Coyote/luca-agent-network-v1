@@ -83,6 +83,48 @@ export function placeOfView(view: PlacesView): PlaceId | null {
   }
 }
 
+/**
+ * The place that held keyboard focus when its column went (SHELL_BUILD.md,
+ * WP-05b, 1).
+ * Settings and the app each draw their own places column (ShellSettingsPlaces,
+ * AppSidebar), so a place that opens or closes Settings takes its tile away
+ * with the column it was in, and focus would fall to the page. The column
+ * that replaces it gives focus to the same place. Kept for a moment only: it
+ * is one swap's hand-over, not state, and holds nothing of a community.
+ */
+let placeInFocus: { testId: string; at: number } | null = null;
+const HAND_OVER_MS = 2_000;
+
+/** Hands focus from the column that goes to the one that comes. */
+function usePlaceFocusHandOver(nav: React.RefObject<HTMLElement | null>) {
+  React.useEffect(() => {
+    const held = placeInFocus;
+    placeInFocus = null;
+    if (!held || Date.now() - held.at > HAND_OVER_MS) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    nav.current
+      ?.querySelector<HTMLElement>(`[data-testid="${held.testId}"]`)
+      ?.focus({ preventScroll: true });
+  }, [nav]);
+  // A layout effect's cleanup runs before the column leaves the page, while
+  // its focused tile still holds focus.
+  React.useLayoutEffect(() => {
+    const column = nav.current;
+    return () => {
+      const active = document.activeElement;
+      if (!column || !active || !column.contains(active)) return;
+      // Keyboard focus only: a pointer press leaves focus where macOS leaves
+      // it, and a tile focused by script would show its tooltip.
+      if (!active.matches(":focus-visible")) return;
+      const testId = active
+        .closest("[data-testid]")
+        ?.getAttribute("data-testid");
+      if (testId) placeInFocus = { testId, at: Date.now() };
+    };
+  }, [nav]);
+}
+
 function PlaceTile({
   badge,
   children,
@@ -265,8 +307,15 @@ export function ShellPlaces({
   // Settings puts its section list in the rail's card, so there the rail,
   // and every unread row on it, is never on screen: the dot always speaks.
   const unreadDot = hasUnread && (railClosed || here === "settings");
+  const nav = React.useRef<HTMLElement>(null);
+  usePlaceFocusHandOver(nav);
   return (
-    <nav aria-label="Places" className="luca-places" data-testid="shell-places">
+    <nav
+      aria-label="Places"
+      className="luca-places"
+      data-testid="shell-places"
+      ref={nav}
+    >
       <ShellPlacesMarks current={here} />
       <div className="luca-places-group">
         <PlaceTile

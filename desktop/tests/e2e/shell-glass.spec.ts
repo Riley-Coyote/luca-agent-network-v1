@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 import { expect, test, type Page } from "@playwright/test";
 
@@ -197,14 +197,14 @@ async function shootRow(page: Page, path: string) {
 
 // ── the Appearance row ─────────────────────────────────────────────────
 
-test("browser, dark: Black only, its sentence, no glass", async ({ page }) => {
+test("browser, dark: a statement, its sentence, no glass", async ({ page }) => {
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);
   const row = frameRow(page);
   await expect(row).toBeVisible();
-  await expect(page.getByTestId("appearance-frame-solid")).toHaveText("Black");
-  await expect(page.getByTestId("appearance-frame-glass")).toHaveCount(0);
+  // Nothing to choose in a browser: the label and its sentence (WP-05b, 6).
+  await expect(row.locator("fieldset, button")).toHaveCount(0);
   await expect(page.getByTestId("appearance-frame-sentence")).toHaveText(
     "Solid black, nothing showing through it.",
   );
@@ -217,13 +217,12 @@ test("browser, dark: Black only, its sentence, no glass", async ({ page }) => {
   await shootRow(page, `${SHOTS}/row-browser-dark.png`);
 });
 
-test("browser, light: Paper only, its sentence", async ({ page }) => {
+test("browser, light: a statement, its sentence", async ({ page }) => {
   await seedTheme(page, "paper");
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);
-  await expect(page.getByTestId("appearance-frame-solid")).toHaveText("Paper");
-  await expect(page.getByTestId("appearance-frame-glass")).toHaveCount(0);
+  await expect(frameRow(page).locator("fieldset, button")).toHaveCount(0);
   await expect(page.getByTestId("appearance-frame-sentence")).toHaveText(
     "Solid paper, nothing showing through it.",
   );
@@ -237,9 +236,8 @@ test("browser: a stored glass choice still draws solid", async ({ page }) => {
   await installMockBridge(page);
   await setShellFrame(page, true);
   await openAppearance(page);
-  await expect(page.getByTestId("appearance-frame-solid")).toHaveAttribute(
-    "aria-pressed",
-    "true",
+  await expect(page.getByTestId("appearance-frame-sentence")).toHaveText(
+    "Solid black, nothing showing through it.",
   );
   expect(await rootAttribute(page, "data-luca-frame-glass")).toBeNull();
 });
@@ -1527,4 +1525,420 @@ test.describe("with the frame merged", () => {
       caret: "hide",
     });
   });
+});
+
+// ── WP-05b: the Frame row says what is drawn ────────────────────────────
+// docs/luca/rail-system/SHELL_BUILD.md, "WP-05b", decisions 6 and 7. Each
+// test writes its measurements beside its shots, in wp05b-<check>.json.
+
+const SHOTS_05B = process.env.WP05B_SHOTS ?? SHOTS;
+
+function record05b(key: string, value: Record<string, unknown>) {
+  mkdirSync(SHOTS_05B, { recursive: true });
+  writeFileSync(
+    `${SHOTS_05B}/wp05b-${key}.json`,
+    `${JSON.stringify(value, null, 2)}\n`,
+  );
+}
+
+/** A Tauri window off the Mac (Windows): the platform the page reads. */
+async function fakeWindows(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "platform", {
+      configurable: true,
+      get: () => "Win32",
+    });
+  });
+}
+
+/** Full screen, switchable while the page runs: the window answers
+ *  `is_fullscreen` with it, and a resize says it changed (as macOS does). */
+async function fakeFullscreen(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __FAKE_FULLSCREEN__: boolean;
+      __TAURI_INTERNALS__: {
+        invoke: (cmd: string, ...rest: unknown[]) => Promise<unknown>;
+      };
+    };
+    const internals = w.__TAURI_INTERNALS__;
+    const invoke = internals.invoke.bind(internals);
+    w.__FAKE_FULLSCREEN__ = false;
+    internals.invoke = (cmd, ...rest) =>
+      cmd === "plugin:window|is_fullscreen"
+        ? Promise.resolve(w.__FAKE_FULLSCREEN__)
+        : invoke(cmd, ...rest);
+  });
+}
+
+const setFullscreen = (page: Page, on: boolean) =>
+  page.evaluate((value) => {
+    const w = window as unknown as {
+      __FAKE_FULLSCREEN__: boolean;
+      __BUZZ_E2E_EMIT_TAURI_EVENT__: (event: string, payload: unknown) => void;
+    };
+    w.__FAKE_FULLSCREEN__ = value;
+    w.__BUZZ_E2E_EMIT_TAURI_EVENT__("tauri://resize", {
+      width: 2880,
+      height: 1800,
+    });
+  }, on);
+
+test("WP-05b: in a browser the Frame row is a statement", async ({ page }) => {
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const row = frameRow(page);
+  const read = await row.evaluate((element) => ({
+    controls: element.querySelectorAll("fieldset, button, [role=radio]").length,
+    label: element.querySelector("#appearance-frame-label")?.textContent,
+    sentence: element.querySelector('[data-testid="appearance-frame-sentence"]')
+      ?.textContent,
+  }));
+  await shootRow(page, `${SHOTS_05B}/wp05b-row-browser-statement.png`);
+  const ok =
+    read.controls === 0 &&
+    read.label === "Frame" &&
+    read.sentence === "Solid black, nothing showing through it.";
+  record05b("browser_statement", { ...read, ok });
+  expect(ok).toBe(true);
+});
+
+test("WP-05b: Glass is offered only where it can be drawn", async ({
+  page,
+  browser,
+}) => {
+  // Tauri off the Mac: nothing but the solid frame can be drawn yet.
+  await fakeWindows(page);
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "glass"),
+  );
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const windows = {
+    platform: await page.evaluate(() => navigator.platform),
+    controls: await frameRow(page).locator("fieldset, button").count(),
+    sentence: await page.getByTestId("appearance-frame-sentence").innerText(),
+    glass_mark: await rootAttribute(page, "data-luca-frame-glass"),
+  };
+  await shootRow(page, `${SHOTS_05B}/wp05b-row-tauri-windows.png`);
+
+  // Tauri on a Mac: both choices.
+  const context = await browser.newContext({
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 2,
+  });
+  const mac = await context.newPage();
+  await fakeTauri(mac);
+  await installMockBridge(mac);
+  await setShellFrame(mac, true);
+  await openAppearance(mac);
+  const macRead = {
+    platform: await mac.evaluate(() => navigator.platform),
+    choices: await frameRow(mac)
+      .locator("fieldset button")
+      .evaluateAll((buttons) => buttons.map((b) => b.textContent)),
+  };
+  await context.close();
+  const ok =
+    windows.platform === "Win32" &&
+    windows.controls === 0 &&
+    windows.sentence === "Solid black, nothing showing through it." &&
+    windows.glass_mark === null &&
+    /mac/i.test(macRead.platform) &&
+    macRead.choices.join("|") === "Black|Glass";
+  record05b("glass_offered_where_drawn", { windows, mac: macRead, ok });
+  expect(ok).toBe(true);
+});
+
+test("WP-05b: under Reduce Transparency Liquid Glass stays chosen, drawn solid", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "glass"),
+  );
+  await fakeReducedTransparency(page);
+  await fakeNativeGlass(page);
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const sentence = page.getByTestId("appearance-frame-sentence");
+  await expect(sentence).toHaveText(
+    "Liquid Glass, your desktop showing through it.",
+  );
+  const before = await rootAttribute(page, "data-luca-frame-glass");
+  await page.evaluate(() =>
+    (
+      window as typeof window & {
+        __setReducedTransparency__?: (on: boolean) => void;
+      }
+    ).__setReducedTransparency__?.(true),
+  );
+  await expect(sentence).toHaveText(
+    "Liquid Glass, drawn solid while Reduce Transparency is on.",
+  );
+  const reduced = {
+    sentence: await sentence.innerText(),
+    glass_pressed: await page
+      .getByTestId("appearance-frame-glass")
+      .getAttribute("aria-pressed"),
+    solid_pressed: await page
+      .getByTestId("appearance-frame-solid")
+      .getAttribute("aria-pressed"),
+    glass_mark: await rootAttribute(page, "data-luca-frame-glass"),
+    stored: await page.evaluate(() =>
+      window.localStorage.getItem("polyphonic-frame"),
+    ),
+  };
+  await shootRow(page, `${SHOTS_05B}/wp05b-row-reduce-transparency.png`);
+  await page.evaluate(() =>
+    (
+      window as typeof window & {
+        __setReducedTransparency__?: (on: boolean) => void;
+      }
+    ).__setReducedTransparency__?.(false),
+  );
+  await expect(sentence).toHaveText(
+    "Liquid Glass, your desktop showing through it.",
+  );
+  const ok =
+    before === "liquid" &&
+    reduced.glass_pressed === "true" &&
+    reduced.solid_pressed === "false" &&
+    reduced.glass_mark === null &&
+    reduced.stored === "glass";
+  record05b("reduce_transparency_words", {
+    before_mark: before,
+    reduced,
+    after: await sentence.innerText(),
+    ok,
+  });
+  expect(ok).toBe(true);
+});
+
+test("WP-05b: the sentence describes the Frame choice", async ({ page }) => {
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const read = await page.evaluate(() => {
+    const fieldset = document.querySelector(
+      '[data-testid="appearance-frame"] fieldset',
+    );
+    const id = fieldset?.getAttribute("aria-describedby") ?? null;
+    const target = id ? document.getElementById(id) : null;
+    return {
+      described_by: id,
+      target_testid: target?.getAttribute("data-testid") ?? null,
+      target_text: target?.textContent ?? null,
+      labelled_by: fieldset?.getAttribute("aria-labelledby") ?? null,
+    };
+  });
+  // What a screen reader is told about the group.
+  const group = page.locator('[data-testid="appearance-frame"] fieldset');
+  const snapshot = await group.ariaSnapshot();
+  await expect(group).toHaveAccessibleDescription(
+    "Solid black, nothing showing through it.",
+  );
+  await expect(group).toHaveAccessibleName("Frame");
+  const ok =
+    read.target_testid === "appearance-frame-sentence" &&
+    read.target_text === "Solid black, nothing showing through it." &&
+    read.labelled_by === "appearance-frame-label";
+  record05b("described_by", {
+    ...read,
+    aria_snapshot: snapshot,
+    accessible_description: "Solid black, nothing showing through it.",
+    accessible_name: "Frame",
+    ok,
+  });
+  expect(ok).toBe(true);
+});
+
+test("WP-05b: in full screen the frosted glass has square corners", async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    window.localStorage.setItem("polyphonic-frame", "glass"),
+  );
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  await expect
+    .poll(() => rootAttribute(page, "data-luca-frame-glass"))
+    .toBe("frosted");
+  await fakeFullscreen(page);
+  const vibrancy = async () =>
+    (await commandLog(page)).filter(
+      (entry) => entry.command === "set_window_vibrancy",
+    );
+  const windowed = (await vibrancy()).at(-1)?.payload ?? null;
+
+  await setFullscreen(page, true);
+  await expect
+    .poll(async () => (await vibrancy()).at(-1)?.payload?.cornerRadius)
+    .toBe(0);
+  const entered = {
+    payload: (await vibrancy()).at(-1)?.payload ?? null,
+    fullscreen_mark: await rootAttribute(page, "data-luca-window-fullscreen"),
+    glass_mark: await rootAttribute(page, "data-luca-frame-glass"),
+    veil_radius: await page.evaluate(
+      () => getComputedStyle(document.body, "::before").borderTopLeftRadius,
+    ),
+  };
+  await paintDesktop(page);
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: `${SHOTS_05B}/wp05b-frosted-fullscreen-corner.png`,
+    clip: { x: 0, y: 0, width: 320, height: 200 },
+  });
+
+  await setFullscreen(page, false);
+  await expect
+    .poll(async () => (await vibrancy()).at(-1)?.payload?.cornerRadius)
+    .toBe(16);
+  const left = {
+    payload: (await vibrancy()).at(-1)?.payload ?? null,
+    fullscreen_mark: await rootAttribute(page, "data-luca-window-fullscreen"),
+    veil_radius: await page.evaluate(
+      () => getComputedStyle(document.body, "::before").borderTopLeftRadius,
+    ),
+  };
+  await waitForAnimations(page);
+  await page.screenshot({
+    path: `${SHOTS_05B}/wp05b-frosted-windowed-corner.png`,
+    clip: { x: 0, y: 0, width: 320, height: 200 },
+  });
+  const ok =
+    (windowed as { cornerRadius?: number } | null)?.cornerRadius === 16 &&
+    (entered.payload as { cornerRadius?: number; material?: string } | null)
+      ?.cornerRadius === 0 &&
+    (entered.payload as { material?: string } | null)?.material ===
+      "hud-window" &&
+    entered.fullscreen_mark === "" &&
+    entered.glass_mark === "frosted" &&
+    entered.veil_radius === "0px" &&
+    (left.payload as { cornerRadius?: number } | null)?.cornerRadius === 16 &&
+    left.fullscreen_mark === null &&
+    left.veil_radius === "16px";
+  record05b("fullscreen_square_frost", { windowed, entered, left, ok });
+  expect(ok).toBe(true);
+});
+
+for (const glass of ["liquid", "frosted"] as const) {
+  test(`WP-05b: Settings under ${glass} glass leaves the frame's right and bottom clear`, async ({
+    page,
+  }) => {
+    await page.addInitScript(() =>
+      window.localStorage.setItem("polyphonic-frame", "glass"),
+    );
+    if (glass === "liquid") await fakeNativeGlass(page);
+    await fakeTauri(page);
+    await installMockBridge(page);
+    await setShellFrame(page, true);
+    await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`);
+    await page.getByText("Hey team — checking in.").waitFor();
+    await expect
+      .poll(() => rootAttribute(page, "data-luca-frame-glass"))
+      .toBe(glass);
+    // What paints first at the frame's right and bottom edge, and the
+    // corner between them: the root (the glass) or a layer above it.
+    const edges = () =>
+      page.evaluate(() => {
+        const { innerWidth: w, innerHeight: h } = window;
+        const points: Record<string, [number, number]> = {
+          right: [w - 3, h / 2],
+          bottom: [w / 2, h - 3],
+          corner: [w - 3, h - 3],
+        };
+        return Object.fromEntries(
+          Object.entries(points).map(([name, [x, y]]) => {
+            const top = document
+              .elementsFromPoint(x, y)
+              .find(
+                (element) =>
+                  getComputedStyle(element).backgroundColor !==
+                  "rgba(0, 0, 0, 0)",
+              );
+            return [name, top?.tagName.toLowerCase() ?? "clear"];
+          }),
+        );
+      });
+    const conversation = await edges();
+    await page.getByTestId("open-settings-view").click();
+    await expect(page.locator("[data-luca-settings-card-host]")).toBeVisible();
+    await expect(page.locator('[data-testid^="settings-panel-"]')).toBeVisible({
+      timeout: 15_000,
+    });
+    await waitForAnimations(page);
+    const settings = await edges();
+    await paintDesktop(page);
+    await waitForAnimations(page);
+    await page.screenshot({
+      path: `${SHOTS_05B}/wp05b-settings-${glass}-edges.png`,
+      clip: { x: 1300, y: 760, width: 140, height: 140 },
+    });
+    const clear = (read: Record<string, string>) =>
+      Object.values(read).every((tag) => tag === "html" || tag === "clear");
+    const ok = clear(conversation) && clear(settings);
+    record05b(`settings_glass_edges_${glass}`, { conversation, settings, ok });
+    expect(ok).toBe(true);
+  });
+}
+
+test("WP-05b: the Frame row's choice holds still when it changes, at the smallest window", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 800, height: 500 });
+  await fakeReducedTransparency(page);
+  await fakeNativeGlass(page);
+  await fakeTauri(page);
+  await installMockBridge(page);
+  await setShellFrame(page, true);
+  await openAppearance(page);
+  const geometry = () =>
+    page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector(selector)?.getBoundingClientRect();
+        return rect
+          ? [rect.x, rect.y, rect.width, rect.height].map((n) =>
+              Math.round(n * 10),
+            )
+          : null;
+      };
+      return {
+        row: box('[data-testid="appearance-frame"]'),
+        solid: box('[data-testid="appearance-frame-solid"]'),
+        glass: box('[data-testid="appearance-frame-glass"]'),
+      };
+    });
+  const sentence = page.getByTestId("appearance-frame-sentence");
+  await expect(sentence).toHaveText("Solid black, nothing showing through it.");
+  const solid = await geometry();
+  await page.getByTestId("appearance-frame-glass").click();
+  await expect(sentence).toHaveText(
+    "Liquid Glass, your desktop showing through it.",
+  );
+  const glass = await geometry();
+  await page.evaluate(() =>
+    (
+      window as typeof window & {
+        __setReducedTransparency__?: (on: boolean) => void;
+      }
+    ).__setReducedTransparency__?.(true),
+  );
+  await expect(sentence).toHaveText(
+    "Liquid Glass, drawn solid while Reduce Transparency is on.",
+  );
+  const reduced = await geometry();
+  await shootRow(page, `${SHOTS_05B}/wp05b-row-800-reduce-transparency.png`);
+  const same = (a: unknown, b: unknown) =>
+    JSON.stringify(a) === JSON.stringify(b);
+  const ok = solid.row !== null && same(solid, glass) && same(solid, reduced);
+  record05b("frame_row_holds_still", { solid, glass, reduced, ok });
+  expect(ok).toBe(true);
 });
