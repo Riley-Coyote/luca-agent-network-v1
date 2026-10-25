@@ -264,7 +264,8 @@ test("Settings in the frame", async ({ page }, info) => {
       iconCentres.length >= 8 &&
       iconCentres.every((cx) => cx === 22) &&
       current.join(",") === "open-settings-view" &&
-      toggle?.x === 78 &&
+      // No native lights in a browser: the toggle at the lip's 16 (WP-08g).
+      toggle?.x === 16 &&
       toggle.y === 10 &&
       back?.x === 274 &&
       back.y === 10 &&

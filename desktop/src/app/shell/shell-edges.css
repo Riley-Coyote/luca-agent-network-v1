@@ -1,0 +1,56 @@
+/* ------------------------------------------------------------------
+ * THE WINDOW'S CORNERS AND THE FRAME'S EDGES (docs/luca/rail-system/
+ * SHELL_SPEC.md: "Search, dialogs, toasts, the quick chat panel", "The right
+ * cards", "The window"; SHELL_BUILD.md, WP-08g). The last surfaces that meet
+ * the frame, each only while it is drawn (`<html data-luca-frame>`, or a
+ * loading gate the frame marks itself, below).
+ * ------------------------------------------------------------------ */
+
+/* ── the companion's halo ─────────────────────────────────────────────
+ * 3 in from the window's edge, so its corner is the window's less 3 (13),
+ * concentric with it; square in full screen, where the window is. Its badge
+ * stands below the lip, 6 under its 36, clear of the lip's words. */
+:root[data-luca-frame] .polyphonic-control-halo {
+  border-radius: max(0px, calc(var(--luca-frame-window-radius, 16px) - 3px));
+}
+
+:root[data-luca-frame] .polyphonic-control-badge {
+  top: calc(var(--luca-frame-lip, 36px) + var(--luca-frame-edge, 6px));
+}
+
+/* ── the Canvas in focus ──────────────────────────────────────────────
+ * Under 1024 the Canvas fills the content area: the conversation card's own
+ * box, so its top is flush with the lip and it stands 6 from the window's
+ * right and bottom, as the cards do. The slot's 4 beside the conversation
+ * card stands down: there is no card beside it. */
+:root[data-luca-frame][data-artifact-canvas-mode="focus"]
+  [data-luca-right-cards] {
+  inset: 0;
+  padding: 0;
+}
+
+/* ── the loading gates ────────────────────────────────────────────────
+ * The boot splash, the app's loading gate and the community switch paint
+ * the frame's floor while the frame is on (App.tsx marks them; the frame's
+ * own attribute is not on the page yet): the palette's floor at night, its
+ * recess by day (Paper's #eceae6). Over the glass they stay clear, so the
+ * glass and the veil show through. Their own 44-point drag band stays. */
+:root [data-luca-frame-gate] {
+  background-color: hsl(var(--mn-floor));
+}
+
+:root:not(.dark) [data-luca-frame-gate] {
+  background-color: hsl(var(--mn-recess));
+}
+
+:root[data-luca-frame-glass] [data-luca-frame-gate] {
+  background: transparent;
+}
+
+/* ── the lip without native lights ────────────────────────────────────
+ * Another platform, a browser, the end-to-end tests, and full screen (the
+ * lights gone): the toggle takes the lip's left padding, 16, where the first
+ * light was. Back, forward and the name keep their places on the card. */
+.luca-lip[data-lights="none"] .luca-lip-toggle {
+  left: 16px;
+}

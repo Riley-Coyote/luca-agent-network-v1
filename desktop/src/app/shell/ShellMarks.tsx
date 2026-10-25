@@ -181,6 +181,16 @@ export function ShellRailMarks({
     shownRef.current = open();
     sync();
 
+    // The narrow window's sheet opens under the pointer that pressed the
+    // lip's toggle; until it moves, the row it rests on is not lit as if
+    // hovered, so it never reads as a second mark (shell-marks.css).
+    const sheet = layer.closest<HTMLElement>('[data-mobile="true"]');
+    const pointerMoved = () => sheet?.removeAttribute("data-pointer-still");
+    if (sheet) {
+      sheet.setAttribute("data-pointer-still", "");
+      window.addEventListener("pointermove", pointerMoved, { once: true });
+    }
+
     const states = new MutationObserver(follow);
     if (wrapper) {
       states.observe(wrapper, {
@@ -203,6 +213,7 @@ export function ShellRailMarks({
     void document.fonts?.ready.then(() => sync());
     return () => {
       window.clearTimeout(timer);
+      window.removeEventListener("pointermove", pointerMoved);
       states.disconnect();
       rows.disconnect();
       resizes.disconnect();

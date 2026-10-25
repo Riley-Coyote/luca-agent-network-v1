@@ -260,6 +260,31 @@ test("back_swellsFromAPoint", () => {
   assert.deepEqual([last.x, last.y, last.w, last.h], [6, 6, 208, 30]);
 });
 
+test("firstMarkAfterAPageWithout_swellsFromAPoint", () => {
+  // The first page had no mark (a page with no place, the rail closed):
+  // the group has appeared all the same, so the first mark swells in.
+  const { engine, group, layer } = engineOf();
+  group.show(null, null);
+  assert.equal(layer.children.length, 0, "nothing to mark yet");
+  group.show("a", { x: 8, y: 119, w: 28, h: 28 });
+  const first = boxOf(layer.children[0]);
+  assert.equal(first.visible, false, "a point is not drawn");
+  engine.advance(1 / 60);
+  const early = boxOf(layer.children[0]);
+  assert.ok(early.w > 0 && early.w < 28, `swelling (${early.w})`);
+  assert.ok(Math.abs(early.x + early.w / 2 - 22) < 0.5, "from its middle");
+  const last = run(engine, layer).at(-1)[0];
+  assert.deepEqual([last.x, last.y, last.w, last.h], [8, 119, 28, 28]);
+});
+
+test("aNewLook_startsOverAsAFirstPage", () => {
+  const { engine, group, layer } = engineOf();
+  group.show(null, null);
+  engine.stop();
+  group.show("a", { x: 8, y: 119, w: 28, h: 28 });
+  assert.equal(boxOf(layer.children[0]).w, 28, "simply there");
+});
+
 test("sameMarkMoved_followsAtOnce", () => {
   const { engine, group, layer } = engineOf();
   group.show("a", { x: 6, y: 100, w: 208, h: 30 });

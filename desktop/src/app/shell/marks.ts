@@ -222,6 +222,10 @@ export class MarkGroup {
 
   /** Where the mark is now, or nowhere. */
   show(id: string | null, rect: Rect | null) {
+    // The layer has shown its first page once it is first asked, with a mark
+    // or without one: from then on every mark that comes swells in.
+    const appeared = this.appeared;
+    this.appeared = true;
     if (!id || !rect || rect.w < 1 || rect.h < 1) {
       this.leave();
       return;
@@ -242,13 +246,12 @@ export class MarkGroup {
       return;
     }
     this.chosen = id;
-    // The first mark since the page appeared is simply there; later ones
-    // swell from where marks go.
-    const swell = this.appeared && !reduce;
+    // A mark on the page's first showing is simply there; every mark after
+    // it swells from where marks go, the first one included.
+    const swell = appeared && !reduce;
     const piece = this.add(swell ? sunk(rect) : rect);
     if (swell) piece.aim(rect, [SWELL, SWELL, SWELL, SWELL]);
     this.current = piece;
-    this.appeared = true;
     this.engine.wake();
   }
 

@@ -1,7 +1,9 @@
+import { isTauri } from "@tauri-apps/api/core";
 import * as React from "react";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import { SHELL_FRAME_ATTRIBUTE_VALUE } from "@/shared/features/shellFrame";
+import { isMacPlatform } from "@/shared/lib/platform";
 
 /** The rail's card is fixed at 220 under the frame (SHELL_SPEC.md, Decided 2):
  *  the stored, dragged width does not apply. */
@@ -45,4 +47,11 @@ export function shellFramePageName(view: AppView): string {
     default:
       return "Conversations";
   }
+}
+
+/** The key the frame's tooltips name (SHELL_SPEC.md, "The window"): ⌘ in
+ *  the Mac app's own window; Ctrl wherever there are no native lights:
+ *  another platform, a browser, the end-to-end tests. */
+export function shellShortcutKey(): "⌘" | "Ctrl+" {
+  return isMacPlatform() && isTauri() ? "⌘" : "Ctrl+";
 }

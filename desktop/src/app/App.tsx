@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import { router } from "@/app/router";
+import "@/app/shell/shell-edges.css";
 import { isLucaFeatureEnabled } from "@/app/lucaFeatureFlags";
 import {
   createPersonalHomeTenancy,
@@ -69,6 +70,7 @@ import {
   type AddCommunityDeepLinkPayload,
   listenForDeepLinks,
 } from "@/shared/deep-link";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 import { StartupWindowDragRegion } from "@/shared/ui/StartupWindowDragRegion";
 import { Button } from "@/shared/ui/button";
@@ -158,6 +160,9 @@ function AppLoadingGate() {
   // the gate keeps the canvas but shows no spinner, so the door → card
   // handoff reads as one motion however many gates it crosses.
   const passage = usePolyphonicScene().stage !== "off";
+  // Under the shell's frame the gate paints the frame's floor, or stays clear
+  // over the glass (shell-edges.css). An onboarding passage stays frameless.
+  const framed = useShellFrameEnabled() && !passage;
   return (
     <div
       className={cn(
@@ -166,6 +171,7 @@ function AppLoadingGate() {
           ? "buzz-onboarding-neutral-theme buzz-startup-shell"
           : "buzz-setup-loading-shell",
       )}
+      data-luca-frame-gate={framed ? "" : undefined}
       data-testid="app-loading-gate"
       role="status"
     >
@@ -180,6 +186,7 @@ function AppLoadingGate() {
 // unless the switch takes long, so fast switches don't flash the boot splash.
 function CommunitySwitchGate() {
   const [showSpinner, setShowSpinner] = useState(false);
+  const framed = useShellFrameEnabled();
 
   useEffect(() => {
     const timer = window.setTimeout(
@@ -192,6 +199,7 @@ function CommunitySwitchGate() {
   return (
     <div
       className="flex min-h-dvh items-center justify-center bg-background"
+      data-luca-frame-gate={framed ? "" : undefined}
       data-testid="community-switch-gate"
       role="status"
     >

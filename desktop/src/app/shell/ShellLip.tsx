@@ -5,9 +5,12 @@ import { getChannelDescription } from "@/features/channels/lib/channelDescriptio
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
-import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
+import {
+  SHELL_FRAME_RAIL_WIDTH,
+  shellShortcutKey,
+} from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
-import { isMacPlatform } from "@/shared/lib/platform";
+import { useNativeMacChrome } from "@/shared/lib/useNativeMacChrome";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
 /**
@@ -238,7 +241,11 @@ export function ShellLip({
   }, []);
   const besideRail = useLipCardSpan(lipCard, lipSlot);
   const railOpen = sidebar ? sidebar.open : true;
-  const key = isMacPlatform() ? "⌘" : "Ctrl+";
+  const key = shellShortcutKey();
+  // The Mac's lights on the lip: the toggle sits past them at 78. Without
+  // them (another platform, a browser, full screen) it takes the lip's left
+  // padding, 16, where the first light was (shell-edges.css).
+  const nativeLights = useNativeMacChrome();
   const cardLeft = shellFrameCardLeft({
     railOpen: railOpen && !sidebar?.isMobile,
     besideRail,
@@ -247,6 +254,7 @@ export function ShellLip({
   return (
     <header
       className="luca-lip"
+      data-lights={nativeLights ? "native" : "none"}
       data-testid="shell-lip"
       style={{ "--card-left": `${cardLeft}px` } as React.CSSProperties}
     >

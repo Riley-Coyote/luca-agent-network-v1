@@ -381,7 +381,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
   checks.lip_controls = {
     toggle: { x: toggle.x, y: toggle.y, size: toggle.w },
     back: { x: back.x, y: back.y },
-    ok: toggle.x === 78 && toggle.y === 10 && back.x === 274 && back.y === 10,
+    // No native lights in a browser: the toggle at the lip's 16 (WP-08g).
+    ok: toggle.x === 16 && toggle.y === 10 && back.x === 274 && back.y === 10,
   };
 
   // The name is the conversation header's own title source.
