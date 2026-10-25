@@ -301,13 +301,6 @@
   background: transparent;
 }
 
-/* The rows begin a breath inside the card's top edge. */
-:root[data-luca-frame="solid"]
-  [data-frame]
-  [data-testid="app-sidebar-scroll-anchor"] {
-  padding-top: var(--luca-frame-edge);
-}
-
 /* ── the conversation's card ──────────────────────────────────────────
  * Top flush with the lip, 6 from the window's right and bottom. The inset
  * carries the right and bottom edge, so the right cards share it. */

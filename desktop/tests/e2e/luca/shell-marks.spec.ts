@@ -592,8 +592,9 @@ test.describe("the solid marks, under the frame", () => {
       mark: rail ?? null,
       row,
       study: study?.row ?? "study not reachable: not compared",
-      // The rows' own top is WP-02's: the mark is measured on its row, and
-      // against the study's by size and inset.
+      // The first row sits 6 below the card's top, as in the study (the
+      // list's own padding, inside the scroll), so the mark's box is the
+      // study's, top included.
       row_top_vs_study: study ? (row?.y ?? 0) - study.row.y : null,
       style: railStyle,
       study_style: study?.rowStyle ?? null,
@@ -606,6 +607,7 @@ test.describe("the solid marks, under the frame", () => {
         railStyle.layer === "plate" &&
         (!study ||
           (rail.x === study.row.x &&
+            rail.y === study.row.y &&
             rail.w === study.row.w &&
             rail.h === study.row.h &&
             railStyle.background === study.rowStyle?.background &&
@@ -902,21 +904,22 @@ test.describe("the solid marks, under the frame", () => {
     const scroller = await box(page, RAIL_SCROLL);
     const card = await box(page, RAIL_CARD);
     const rowSel = '[data-testid="rail-home-luca"]';
-    // Luca's row scrolled up past the scroller's top edge: 18 of its 30
+    // Luca's row scrolled up past the card's top edge: 18 of its 30
     // under the edge, 12 still showing.
     const scrolled = await page.evaluate(
-      ({ rowSel, scrollSel }) => {
+      ({ rowSel, cardSel, scrollSel }) => {
         const row = document.querySelector(rowSel) as HTMLElement;
+        const card = document.querySelector(cardSel) as HTMLElement;
         const scroll = document.querySelector(scrollSel) as HTMLElement;
         const r = row.getBoundingClientRect();
-        const s = scroll.getBoundingClientRect();
-        scroll.scrollTop += r.top - s.top + 18;
+        const c = card.getBoundingClientRect();
+        scroll.scrollTop += r.top - c.top + 18;
         return {
           scroll_top: scroll.scrollTop,
           range: scroll.scrollHeight - scroll.clientHeight,
         };
       },
-      { rowSel, scrollSel: RAIL_SCROLL },
+      { rowSel, cardSel: RAIL_CARD, scrollSel: RAIL_SCROLL },
     );
     await marksAtRest(page);
     const row = await box(page, rowSel);
@@ -929,27 +932,42 @@ test.describe("the solid marks, under the frame", () => {
       mark.w === row.w &&
       mark.h === row.h;
     let clip: Record<string, unknown> = { ok: false };
-    if (row && scroller && mark) {
-      const edge = scroller.y;
+    if (row && scroller && card && mark) {
+      // The card clips, not a line inside it: the scrolling area begins
+      // at the card's own top, and the plate runs right up under its lit
+      // edge (35.5), as in the study.
+      const edge = card.y;
       const x = row.x + row.w - 40;
-      const [inside, past, beside] = await colours(page, [
-        [x, edge + 5],
-        [x, edge - 3],
-        [row.x - 3, edge - 3],
-      ]);
+      const [under1, under3, under5, inside, past, beside] = await colours(
+        page,
+        [
+          [x, edge + 1],
+          [x, edge + 3],
+          [x, edge + 5],
+          [x, edge + 9],
+          [x, edge - 3],
+          [row.x - 3, edge - 3],
+        ],
+      );
       const grey = (c?: number[]) => (c ? (c[0] + c[1] + c[2]) / 3 : 0);
+      const band = [under1, under3, under5].map(grey);
       clip = {
-        scroller_top: edge,
+        card_top: edge,
+        scroller_top: scroller.y,
         mark_top: mark.y,
+        plate_under_the_edge: [under1, under3, under5],
         inside_mark: inside,
         mark_past_the_edge: past,
         card_past_the_edge: beside,
         ok:
+          scroller.y === edge &&
           mark.y < edge - 8 &&
-          // A plate lifts the card's black by about 11 greys: past the
-          // edge none of it shows, only the card (its lit top and grain
-          // vary by a few).
-          grey(inside) - grey(past) >= 8 &&
+          // The plate (grey 21-27 on this card) shows from just under
+          // the card's lit top: no empty band of bare card.
+          band.every((g) => g >= 20) &&
+          grey(inside) >= 20 &&
+          // Past the card's edge none of it shows, only what is above
+          // the card (its lit top and grain vary by a few).
           Math.abs(grey(past) - grey(beside)) <= 5,
       };
     }
