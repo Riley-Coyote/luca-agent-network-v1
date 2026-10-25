@@ -50,6 +50,11 @@ type MaskedAvatarBadgeFrameProps = {
   cutout?: AvatarBadgeCircle;
   maskTransition?: React.ComponentProps<typeof motion.path>["transition"];
   size: number;
+  /** The unit the frame's box is drawn in: rem (the default) grows and
+   *  shrinks with the app's text zoom; px holds it fixed, for chrome that
+   *  keeps fixed points (the shell's lip). The badge is placed in percents
+   *  of the box, so it follows either way. */
+  sizeUnit?: "rem" | "px";
 };
 
 export type AvatarBadgeCurve = Partial<{
@@ -392,12 +397,14 @@ export function MaskedAvatarBadgeFrame({
   cutout,
   maskTransition,
   size,
+  sizeUnit = "rem",
 }: MaskedAvatarBadgeFrameProps) {
   const shouldMask = Boolean(badge && badgeBox && cutout);
   const maskPolygon = cutout
     ? getRoundedAvatarMaskPolygon(size, cutout, curve)
     : undefined;
-  const sizeStyle = { height: toRem(size), width: toRem(size) };
+  const box = sizeUnit === "px" ? `${size}px` : toRem(size);
+  const sizeStyle = { height: box, width: box };
   const badgeMotionTarget =
     badgeBox && cutout
       ? getBadgeMotionTarget(size, badgeBox, cutout)

@@ -1,8 +1,10 @@
 import * as React from "react";
 import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 
+import { getChannelDescription } from "@/features/channels/lib/channelDescription";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
 import type { Channel } from "@/shared/api/types";
+import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
 import { isMacPlatform } from "@/shared/lib/platform";
@@ -13,7 +15,8 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
  * the window's top 36, on the floor. The rail's toggle at 78; back and forward
  * riding with the conversation card at max(card's left + 6, 112); and, until
  * the tabs come, the open page's name centred on the conversation card's axis.
- * Both live in the lip's part over the card, which moves with the card.
+ * Both live in the lip's part over the card, which moves with the card; so
+ * does the slot at its right end for the open conversation's actions (WP-04).
  * Its empty part is the window's title bar (useTauriWindowDrag).
  *
  * Fixed points on purpose, as the top chrome was: it sits beside the native
@@ -24,6 +27,11 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
 const PLACES_WIDTH = 44;
 const CARD_GAP = 4;
 const WINDOW_EDGE = 6;
+/** The name keeps this much clear of the lip's part on each side, more when
+ *  the actions' slot is wider (its width, its 8 from the edge and a 12 gap),
+ *  so it stays on its axis without running into them (shell-header.css). */
+const NAME_ROOM_MIN = 100;
+const NAME_ROOM_PAST_SLOT = 8 + 12;
 
 /** Where the conversation card's left edge comes to rest: the places' edge,
  *  past the rail's card and its gap while the rail is open. The lip takes it
@@ -52,10 +60,15 @@ export function shellFrameCardLeft({
  *  callback, which runs after layout and before paint, so it lands in the
  *  same frame as the card it follows. Also reports what stands beside the
  *  rail (the runtime sessions column), which never animates. */
-function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
+function useLipCardSpan(
+  lipCard: React.RefObject<HTMLDivElement | null>,
+  lipSlot: React.RefObject<HTMLDivElement | null>,
+) {
   const [besideRail, setBesideRail] = React.useState(0);
   React.useLayoutEffect(() => {
     let card: Element | null = null;
+    let pane: Element | null = null;
+    let slot: Element | null = null;
     let observer: ResizeObserver | null = null;
     const place = () => {
       const element = lipCard.current;
@@ -63,23 +76,59 @@ function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
       const lip = element.offsetParent ?? document.documentElement;
       // The card's content edge: a clear plane holding the cards keeps a
       // point of padding for their edge light (shell-frame.css).
-      const right = card
-        ? lip.getBoundingClientRect().right -
-          (card.getBoundingClientRect().right -
-            Number.parseFloat(getComputedStyle(card).paddingRight || "0"))
+      const cardRect = card?.getBoundingClientRect();
+      const cardStyle = card ? getComputedStyle(card) : null;
+      const contentLeft = cardRect
+        ? cardRect.left + Number.parseFloat(cardStyle?.paddingLeft || "0")
+        : 0;
+      const contentRight = cardRect
+        ? cardRect.right - Number.parseFloat(cardStyle?.paddingRight || "0")
+        : 0;
+      const right = cardRect
+        ? lip.getBoundingClientRect().right - contentRight
         : WINDOW_EDGE;
       element.style.right = `${Math.max(0, right)}px`;
+      // Panes side by side: the name and the actions are the focused pane's
+      // (SHELL_SPEC.md, Decided 5), so they stand over it, the actions 8
+      // from its own right edge. Taken from the card, which the lip's part
+      // mirrors, so it holds through the rail's slide.
+      const paneRect = pane?.getBoundingClientRect();
+      const paneLeft =
+        cardRect && paneRect ? Math.max(0, paneRect.left - contentLeft) : 0;
+      const paneRight =
+        cardRect && paneRect ? Math.max(0, contentRight - paneRect.right) : 0;
+      element.style.setProperty("--lip-pane-left", `${paneLeft}px`);
+      element.style.setProperty("--lip-pane-right", `${paneRight}px`);
+      const slotWidth = slot ? (slot as HTMLElement).offsetWidth : 0;
+      const room = Math.max(
+        NAME_ROOM_MIN,
+        slotWidth > 0 ? slotWidth + NAME_ROOM_PAST_SLOT : 0,
+      );
+      element.style.setProperty("--lip-name-room", `${room}px`);
     };
     const look = () => {
       const found = document.querySelector(
         "[data-buzz-content-surface], [data-buzz-content-plane]",
       );
-      if (found !== card) {
+      // The focused pane, only while more than one is shown.
+      const panes = document.querySelectorAll(
+        '[data-testid="conversation-workspace-grid"] > [data-luca-card]',
+      );
+      const focusedPane =
+        panes.length > 1
+          ? (Array.from(panes).find(
+              (candidate) => candidate.getAttribute("data-focused") === "true",
+            ) ?? null)
+          : null;
+      const foundSlot = lipSlot.current;
+      if (found !== card || focusedPane !== pane || foundSlot !== slot) {
         observer?.disconnect();
         card = found;
-        if (card) {
-          observer = new ResizeObserver(place);
-          observer.observe(card);
+        pane = focusedPane;
+        slot = foundSlot;
+        observer = new ResizeObserver(place);
+        for (const target of [card, pane, slot]) {
+          if (target) observer.observe(target);
         }
       }
       place();
@@ -96,7 +145,11 @@ function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(look);
     });
-    mutations.observe(document.body, { childList: true, subtree: true });
+    mutations.observe(document.body, {
+      attributeFilter: ["data-focused"],
+      childList: true,
+      subtree: true,
+    });
     window.addEventListener("resize", place);
     return () => {
       cancelAnimationFrame(frame);
@@ -104,7 +157,7 @@ function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
       observer?.disconnect();
       window.removeEventListener("resize", place);
     };
-  }, [lipCard]);
+  }, [lipCard, lipSlot]);
   return besideRail;
 }
 
@@ -173,7 +226,12 @@ export function ShellLip({
 }) {
   const sidebar = useOptionalSidebar();
   const lipCard = React.useRef<HTMLDivElement>(null);
-  const besideRail = useLipCardSpan(lipCard);
+  const lipSlot = React.useRef<HTMLDivElement | null>(null);
+  const setLipSlot = React.useCallback((element: HTMLDivElement | null) => {
+    lipSlot.current = element;
+    setShellLipActionsSlot(element);
+  }, []);
+  const besideRail = useLipCardSpan(lipCard, lipSlot);
   const railOpen = sidebar ? sidebar.open : true;
   const key = isMacPlatform() ? "⌘" : "Ctrl+";
   const cardLeft = shellFrameCardLeft({
@@ -217,7 +275,12 @@ export function ShellLip({
             <ChevronRight />
           </LipButton>
         </div>
-        <h1 className="luca-lip-name text-lip" data-testid="shell-lip-name">
+        <h1
+          className="luca-lip-name text-lip"
+          data-testid="shell-lip-name"
+          // The conversation's description, as its header's title had it.
+          title={channel ? getChannelDescription(channel) : undefined}
+        >
           <span className="luca-lip-name__text">
             {channel ? (
               <ConversationName
@@ -229,6 +292,14 @@ export function ShellLip({
             )}
           </span>
         </h1>
+        {/* The open conversation's actions, at the lip's right end: the
+            conversation portals them in (lipActionsSlot.ts, shell-header.css).
+            After the name, so Tab meets them after back and forward. */}
+        <div
+          className="luca-lip-actions"
+          data-testid="shell-lip-actions"
+          ref={setLipSlot}
+        />
       </div>
     </header>
   );

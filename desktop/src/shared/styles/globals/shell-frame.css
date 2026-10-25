@@ -399,18 +399,7 @@
   margin: 0;
 }
 
-/* The conversation header's title has moved up into the lip; its actions
- * stay until WP-04. With the strip gone, it no longer dodges anything. */
-:root[data-luca-frame="solid"] [data-testid="chat-title"] {
-  display: none;
-}
-
-:root[data-luca-frame="solid"]
-  [data-collapsible="offcanvas"]
-  ~ *
-  [data-testid="chat-header"] {
-  padding-left: 22px;
-}
+/* The conversation header's rules: app/shell/shell-header.css (WP-04). */
 
 /* Reduce Motion: the rail's card, the conversation's and the lip over it
  * are instant. Spelled out to outrank the closed and peeking card. */

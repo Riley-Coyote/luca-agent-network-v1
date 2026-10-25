@@ -1,17 +1,22 @@
 import { LogIn, PanelRight, PictureInPicture2 } from "lucide-react";
 import type * as React from "react";
+import { createPortal } from "react-dom";
 
 import {
   openChannelPopout,
   usePopoutWindowsEnabled,
 } from "@/app/popout/popoutFeature";
 import { isPopoutWindow } from "@/app/popout/popoutMode";
+import { useShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { ChatHeader } from "@/features/chat/ui/ChatHeader";
 import type { EphemeralChannelDisplay } from "@/features/channels/lib/ephemeralChannel";
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
 import type { ActiveDmHeaderParticipant } from "@/features/channels/useActiveChannelHeader";
 import { ChannelHeaderStatusBadge } from "@/features/channels/ui/ChannelHeaderStatusBadge";
-import { WorkspaceLayoutMenuButton } from "@/features/conversation-workspace";
+import {
+  useConversationWorkspace,
+  WorkspaceLayoutMenuButton,
+} from "@/features/conversation-workspace";
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectRoomPicker } from "@/features/projects/ui/ProjectRoomPicker";
@@ -20,6 +25,8 @@ import {
   ProfileAvatarWithStatus,
   scaleProfileAvatarStatusGeometry,
 } from "@/features/profile/ui/ProfileAvatarWithStatus";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { useRightCardsSlot } from "@/shared/layout/RightCardsSlot";
 import { Button } from "@/shared/ui/button";
 import type {
   Channel,
@@ -32,6 +39,13 @@ const DM_HEADER_AVATAR_SIZE = 32;
 const DM_HEADER_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
   DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
   DM_HEADER_AVATAR_SIZE,
+);
+/** In the lip the presence avatar sits on the lip's line, inside its tiles'
+ *  24 (shell-header.css). */
+const DM_LIP_AVATAR_SIZE = 22;
+const DM_LIP_AVATAR_STATUS_GEOMETRY = scaleProfileAvatarStatusGeometry(
+  DEFAULT_HOVER_PROFILE_STATUS_GEOMETRY,
+  DM_LIP_AVATAR_SIZE,
 );
 
 type ChannelScreenHeaderProps = {
@@ -82,6 +96,19 @@ export function ChannelScreenHeader({
 }: ChannelScreenHeaderProps) {
   const popoutWindowsEnabled = usePopoutWindowsEnabled();
   const popoutWindow = isPopoutWindow();
+  const shellFrame = useShellFrameEnabled();
+  const lipSlot = useShellLipActionsSlot();
+  // The pane that holds the shell's right cards is the focused one (the
+  // others are isolated from them: RightCardsSlotBoundary); only it speaks
+  // in the lip, as only its name does.
+  const ownsRightCards = useRightCardsSlot() !== null;
+  // Several panes side by side: each other pane names its conversation
+  // quietly at its own top (SHELL_SPEC.md, Decided 5).
+  const workspace = useConversationWorkspace();
+  const quietPaneName =
+    !ownsRightCards &&
+    workspace !== null &&
+    workspace.layout.preset !== "single";
   const primaryDmParticipant = activeDmHeaderParticipants[0] ?? null;
   const primaryDmIsResident = Boolean(
     primaryDmParticipant &&
@@ -100,6 +127,36 @@ export function ChannelScreenHeader({
   // header would restate the title 36px below it and offer actions that are
   // inert in a second window — two bars, ~92px of chrome, one message visible.
   if (popoutWindow) return null;
+
+  // Under the shell's frame the card has no header (SHELL_SPEC.md, "The
+  // conversation's card"; SHELL_BUILD.md, WP-04): the name is the lip's, and
+  // the actions, the Join button, a person's presence and the ephemeral badge
+  // stand at the lip's right end. The forum keeps its own header.
+  if (shellFrame && activeChannel?.channelType !== "forum") {
+    return (
+      <ShellChannelHeader
+        activeChannel={activeChannel}
+        activeChannelEphemeralDisplay={activeChannelEphemeralDisplay}
+        activeChannelTitle={activeChannelTitle}
+        activeDmAvatarUrl={activeDmAvatarUrl}
+        activeDmPresenceStatus={activeDmPresenceStatus}
+        chromeWrapperRef={chromeWrapperRef}
+        isJoining={isJoining}
+        lipSlot={ownsRightCards ? lipSlot : null}
+        onJoinChannel={showJoinButton ? onJoinChannel : undefined}
+        onToggleMembers={onToggleMembers}
+        popoutWindowsEnabled={popoutWindowsEnabled}
+        projectRoomNavigation={projectRoomNavigation}
+        quietPaneName={quietPaneName}
+        showDmPresence={
+          activeChannel?.channelType === "dm" &&
+          primaryDmParticipant !== null &&
+          !primaryDmIsResident
+        }
+        transparentChrome={transparentChrome}
+      />
+    );
+  }
 
   const actions = activeChannel ? (
     showJoinButton ? (
@@ -196,5 +253,170 @@ export function ChannelScreenHeader({
       transparentChrome={transparentChrome}
       visibility={activeChannel?.visibility}
     />
+  );
+}
+
+/**
+ * The conversation's header under the shell's frame: its occupants portal into
+ * the lip's right-hand slot (lipActionsSlot.ts), in the order the lip reads
+ * them: a person's presence, the ephemeral badge, then Join or the actions
+ * (layout, open as window, conversation details), the last 8 from the card's
+ * right edge. The card keeps only a short fade under its top edge, the height
+ * of its reading area's top padding (22, chromeLayout.ts). A project room
+ * keeps its room picker in the card until the rail's room setting lands
+ * (WP-02).
+ */
+function ShellChannelHeader({
+  activeChannel,
+  activeChannelEphemeralDisplay,
+  activeChannelTitle,
+  activeDmAvatarUrl,
+  activeDmPresenceStatus,
+  chromeWrapperRef,
+  isJoining,
+  lipSlot,
+  onJoinChannel,
+  onToggleMembers,
+  popoutWindowsEnabled,
+  projectRoomNavigation,
+  quietPaneName,
+  showDmPresence,
+  transparentChrome,
+}: {
+  activeChannel: Channel | null;
+  activeChannelEphemeralDisplay: EphemeralChannelDisplay | null;
+  activeChannelTitle: string;
+  activeDmAvatarUrl: string | null;
+  activeDmPresenceStatus: PresenceStatus | null;
+  chromeWrapperRef?: React.Ref<HTMLDivElement>;
+  isJoining: boolean;
+  lipSlot: HTMLElement | null;
+  /** Present only while the Join button stands in the actions' place. */
+  onJoinChannel?: () => Promise<void>;
+  onToggleMembers: () => void;
+  popoutWindowsEnabled: boolean;
+  projectRoomNavigation: ChannelScreenHeaderProps["projectRoomNavigation"];
+  /** An unfocused pane beside others: its name, quietly, at its own top. */
+  quietPaneName: boolean;
+  showDmPresence: boolean;
+  transparentChrome: boolean;
+}) {
+  const lipActions = activeChannel ? (
+    <>
+      {showDmPresence ? (
+        <span className="luca-lip-presence">
+          <ProfileAvatarWithStatus
+            avatarClassName="luca-lip-presence__face text-2xs"
+            avatarUrl={activeDmAvatarUrl}
+            className="luca-lip-presence__avatar"
+            geometry={DM_LIP_AVATAR_STATUS_GEOMETRY}
+            iconClassName="h-3 w-3"
+            label={activeChannelTitle}
+            size={DM_LIP_AVATAR_SIZE}
+            sizeUnit="px"
+            status={activeDmPresenceStatus ?? "offline"}
+            statusTestId="chat-presence-badge"
+            testId="chat-header-dm-avatar"
+          />
+        </span>
+      ) : null}
+      {activeChannelEphemeralDisplay ? (
+        <span
+          className="luca-lip-glyph"
+          title={activeChannelEphemeralDisplay.tooltipLabel}
+        >
+          <ChannelHeaderStatusBadge
+            ephemeralDisplay={activeChannelEphemeralDisplay}
+          />
+        </span>
+      ) : null}
+      {onJoinChannel ? (
+        <Button
+          className="luca-lip-join"
+          data-testid="shell-lip-join"
+          disabled={isJoining}
+          onClick={() => void onJoinChannel()}
+          size="xs"
+          variant="default"
+        >
+          <LogIn />
+          <span className="text-lip">{isJoining ? "Joining…" : "Join"}</span>
+        </Button>
+      ) : (
+        <>
+          <WorkspaceLayoutMenuButton />
+          {popoutWindowsEnabled ? (
+            <button
+              aria-label="Open as window"
+              className="luca-lip-button"
+              data-testid="open-channel-popout"
+              onClick={() => {
+                void openChannelPopout(
+                  activeChannel.id,
+                  activeChannelTitle,
+                ).catch((error) => {
+                  console.warn("pop-out window unavailable", error);
+                });
+              }}
+              title="Open as window"
+              type="button"
+            >
+              <PictureInPicture2 />
+            </button>
+          ) : null}
+          <button
+            aria-label="Open conversation details"
+            className="luca-lip-button"
+            data-testid="shell-lip-details"
+            onClick={onToggleMembers}
+            title="Conversation details"
+            type="button"
+          >
+            <PanelRight />
+          </button>
+        </>
+      )}
+    </>
+  ) : null;
+
+  return (
+    <>
+      {lipSlot && lipActions ? createPortal(lipActions, lipSlot) : null}
+      {projectRoomNavigation ? (
+        <ChatHeader
+          belowSystemChrome
+          channelType={activeChannel?.channelType}
+          chromeWrapperRef={chromeWrapperRef}
+          conversation
+          description={getChannelDescription(activeChannel)}
+          subtitle={null}
+          title={activeChannelTitle}
+          titleControl={
+            <ProjectRoomPicker
+              onSelectRoom={projectRoomNavigation.onSelectRoom}
+              viewModel={projectRoomNavigation.viewModel}
+            />
+          }
+          transparentChrome={transparentChrome}
+          visibility={activeChannel?.visibility}
+        />
+      ) : (
+        <div className="luca-shell-card-top" data-testid="shell-card-top-veil">
+          <div
+            aria-hidden="true"
+            className="luca-conversation-veil-top luca-shell-veil-top"
+          />
+          {quietPaneName ? (
+            <p
+              className="luca-shell-pane-name text-2xs"
+              data-testid="shell-pane-name"
+              title={getChannelDescription(activeChannel)}
+            >
+              {activeChannelTitle}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </>
   );
 }

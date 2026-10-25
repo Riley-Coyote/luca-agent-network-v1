@@ -19,6 +19,7 @@
 @import "./globals/progress.css";
 @import "./globals/conversation-shell.css";
 @import "./globals/shell-frame.css";
+@import "../../app/shell/shell-header.css";
 @import "../../app/shell/shell-settings.css";
 @import "./globals/glass-floor.css";
 @import "./globals/panes.css";
