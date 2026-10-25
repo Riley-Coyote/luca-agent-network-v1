@@ -188,14 +188,6 @@
   color: hsl(var(--mn-ink));
 }
 
-/* Where you are, until the moving marks come (WP-03): a plate, the page's
- * ink at 7.5%, the app's hover and sent-bubble material. */
-.luca-place[data-current] {
-  background: hsl(var(--mn-ink) / 0.075);
-  box-shadow: inset 0 0.5px 0 hsl(var(--mn-ink) / 0.08);
-  color: hsl(var(--mn-ink));
-}
-
 .luca-place-badge {
   background: hsl(var(--mn-ink));
   border-radius: 999px;
