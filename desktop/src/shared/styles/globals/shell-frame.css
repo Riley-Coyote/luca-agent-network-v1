@@ -420,17 +420,29 @@
  * cards' transparent 1-point border kept the grain a point inside them (and
  * WebKit draws a grain that runs under a transparent border fainter across
  * the whole card), so the border goes and a point of padding takes its
- * place: the content box, and everything in it, stays where it was. */
+ * place: the content box, and everything in it, stays where it was. The
+ * grain is still laid from the content box, where the veils' copies of it
+ * start, so the two register; it repeats out to the card's outer edge. */
 :root[data-luca-frame="solid"]
   [data-buzz-content-surface]:not(:has([data-luca-workspace-floor])),
 :root[data-luca-frame="solid"] [data-luca-workspace-floor] [data-luca-card] {
   border-width: 0;
   padding: 1px;
+  background-origin: content-box;
 }
 
-/* New conversation fills the card: its body paints no surface of its own. */
+/* New conversation fills the card: its body paints no surface of its own,
+ * and its header no band of its own (nothing scrolls under it, so it needs
+ * no veil); the To field keeps its own outline. */
 :root[data-luca-frame="solid"] [data-testid="new-message-body"] {
   background: transparent;
+}
+
+:root[data-luca-frame="solid"] [data-testid="new-message-header"] {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-bottom-color: transparent;
 }
 
 /* The conversation header's title has moved up into the lip; its actions

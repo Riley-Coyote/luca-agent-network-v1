@@ -61,12 +61,19 @@ function useLipCardSpan(lipCard: React.RefObject<HTMLDivElement | null>) {
       const element = lipCard.current;
       if (!element) return;
       const lip = element.offsetParent ?? document.documentElement;
-      // The card's content edge: a clear plane holding the cards keeps a
-      // point of padding for their edge light (shell-frame.css).
+      // The card's edge. A clear plane holding the cards keeps a point of
+      // padding for their edge light, so its card ends at its content edge;
+      // a surface that is itself the card (Library, Agents, …) ends at its
+      // outer edge, its point of padding inside it (shell-frame.css).
+      const plane =
+        card?.matches("[data-buzz-content-plane]") ||
+        card?.querySelector("[data-luca-workspace-floor]") != null;
       const right = card
         ? lip.getBoundingClientRect().right -
           (card.getBoundingClientRect().right -
-            Number.parseFloat(getComputedStyle(card).paddingRight || "0"))
+            (plane
+              ? Number.parseFloat(getComputedStyle(card).paddingRight || "0")
+              : 0))
         : WINDOW_EDGE;
       element.style.right = `${Math.max(0, right)}px`;
     };

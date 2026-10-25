@@ -808,6 +808,29 @@ const STUDY_URL =
 type Region = { x: number; y: number; w: number; h: number };
 type Stats = { mean: number; sd: number };
 
+/** The lip's part over the card, against the card it names. */
+async function lipOnCard(page: Page) {
+  return page.evaluate(() => {
+    const name = document.querySelector('[data-testid="shell-lip-name"]');
+    const lip = document.querySelector(".luca-lip-card");
+    const card =
+      document.querySelector(
+        '[data-testid="conversation-workspace-grid"] [data-luca-card]',
+      ) ?? document.querySelector("[data-buzz-content-surface]");
+    if (!name || !lip || !card) return null;
+    const n = name.getBoundingClientRect();
+    const c = card.getBoundingClientRect();
+    const nameCx = n.x + n.width / 2;
+    const cardCx = c.x + c.width / 2;
+    return {
+      lip_right: getComputedStyle(lip).right,
+      name_cx: nameCx,
+      card_cx: cardCx,
+      ok: Math.abs(nameCx - cardCx) <= 0.25,
+    };
+  });
+}
+
 /** Grey statistics of regions of the rendered page, in device pixels. */
 async function pixelStats(page: Page, regions: Region[]): Promise<Stats[]> {
   const png = await page.screenshot();
@@ -1192,6 +1215,53 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
     });
     files.push(file);
   }
+  // ── top veil: its copy of the grain registers with the card's ──────
+  // The card's grain is laid from its content box, where the veil starts;
+  // across the veil's fade (the 16 points under the header) the grain keeps
+  // the card's spread instead of two offset copies averaging out.
+  const veilRegistration = await page.evaluate((selector) => {
+    const card = document.querySelector(selector) as HTMLElement;
+    const veil = document.querySelector(
+      ".luca-conversation-veil-top",
+    ) as HTMLElement;
+    const c = card.getBoundingClientRect();
+    const v = veil.getBoundingClientRect();
+    const cs = getComputedStyle(card);
+    return {
+      origin: cs.backgroundOrigin,
+      content_left: c.x + Number.parseFloat(cs.paddingLeft),
+      content_top: c.y + Number.parseFloat(cs.paddingTop),
+      veil_left: v.x,
+      veil_top: v.y,
+      veil_bottom: v.y + v.height,
+    };
+  }, CONVERSATION_CARD);
+  const fadeRows = card
+    ? await pixelStats(
+        page,
+        Array.from({ length: 16 }, (_, i) => ({
+          x: Math.round((card.x + 32) * 2),
+          y: Math.round((veilRegistration.veil_bottom - 16 + i) * 2),
+          w: 960,
+          h: 2,
+        })),
+      )
+    : [];
+  const fadeSd = fadeRows.map((row) => row.sd);
+  checks.top_veil_registration = {
+    ...veilRegistration,
+    fade_min_sd: Math.min(...fadeSd),
+    fade_mean_sd: fadeSd.reduce((a, b) => a + b, 0) / (fadeSd.length || 1),
+    ok:
+      veilRegistration.content_left === veilRegistration.veil_left &&
+      veilRegistration.content_top === veilRegistration.veil_top &&
+      fadeSd.length === 16 &&
+      Math.min(...fadeSd) >= 1.75,
+  };
+
+  const lipNames: Record<string, unknown> = {
+    general: await lipOnCard(page),
+  };
   const routes: [string, string][] = [
     ["open-artifacts-view", "library"],
     ["open-agents-view", "agents"],
@@ -1206,6 +1276,7 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
     await page.waitForTimeout(700);
     await settle(page);
     edges[label] = await cardEdgeGrain(page, ROUTE_CARD);
+    lipNames[label] = await lipOnCard(page);
     if (label === "new_conversation") {
       await expect(page.getByTestId("new-message-body")).toBeVisible();
       const body = await box(page, '[data-testid="new-message-body"]');
@@ -1228,10 +1299,48 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
             h: 200,
           },
         ]);
+        // Its header paints no band and draws no line of its own: the
+        // card's grain runs under it as under the body.
+        const header = await page.evaluate(() => {
+          const element = document.querySelector(
+            '[data-testid="new-message-header"]',
+          ) as HTMLElement;
+          const cs = getComputedStyle(element);
+          const r = element.getBoundingClientRect();
+          return {
+            background: cs.backgroundColor,
+            backdrop: cs.backdropFilter,
+            border_bottom: cs.borderBottomColor,
+            bottom: r.y + r.height,
+          };
+        });
+        const [band, line] = await pixelStats(page, [
+          {
+            x: Math.round((body.x + body.w - 540) * 2),
+            y: Math.round((header.bottom - 8) * 2),
+            w: 1000,
+            h: 14,
+          },
+          {
+            x: Math.round((body.x + body.w - 540) * 2),
+            y: Math.round((header.bottom - 1) * 2),
+            w: 1000,
+            h: 2,
+          },
+        ]);
         newConversation = {
           background,
           open_body: open,
-          ok: background === "rgba(0, 0, 0, 0)" && open.sd >= 1,
+          header: { ...header, band, line },
+          ok:
+            background === "rgba(0, 0, 0, 0)" &&
+            open.sd >= 1 &&
+            header.background === "rgba(0, 0, 0, 0)" &&
+            header.backdrop === "none" &&
+            header.border_bottom === "rgba(0, 0, 0, 0)" &&
+            Math.abs(band.mean - open.mean) <= 0.5 &&
+            Math.abs(line.mean - open.mean) <= 0.5 &&
+            band.sd >= 1,
         };
       }
     }
@@ -1254,6 +1363,15 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
       ) <= 1,
   };
   checks.new_conversation_surface = newConversation;
+  checks.lip_name_on_card = {
+    ...lipNames,
+    ok: Object.values(lipNames).every(
+      (entry) =>
+        !!entry &&
+        (entry as { ok: boolean; lip_right: string }).ok &&
+        (entry as { lip_right: string }).lip_right === "6px",
+    ),
+  };
 
   // ── Conversations opens the closed rail in a conversation ─────────
   const reopens: Record<string, unknown> = {};
