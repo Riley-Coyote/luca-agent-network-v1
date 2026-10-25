@@ -24,23 +24,58 @@ import type { router as appRouter } from "@/app/router";
  * these attributes — the outlet falls back to `NavigationTransition`.
  */
 
-/** Rail sections in visual order, top to bottom. */
-const RAIL_ORDER: ReadonlyArray<readonly [prefix: string, index: number]> = [
-  ["/artifacts", 0],
-  ["/messages/new", 1],
-  ["/inbox", 2],
-  ["/agents", 3],
-  ["/pulse", 4],
-  ["/brain", 5],
-  ["/settings", 6],
-];
+/** Sections in visual order, top to bottom, and where home ("/") sits. */
+export type NavOrder = {
+  readonly home: number;
+  readonly sections: ReadonlyArray<readonly [prefix: string, index: number]>;
+};
+
+/** The rail's sections, top to bottom; home is the inbox seat. */
+const RAIL_ORDER: NavOrder = {
+  home: 2,
+  sections: [
+    ["/artifacts", 0],
+    ["/messages/new", 1],
+    ["/inbox", 2],
+    ["/agents", 3],
+    ["/pulse", 4],
+    ["/brain", 5],
+    ["/settings", 6],
+  ],
+};
+
+/**
+ * Under the shell's frame the places column is the geography
+ * (docs/luca/rail-system/SHELL_SPEC.md, "The places column"): New
+ * conversation, Search (a dialog, not a page), Conversations (home), Library,
+ * Inbox (behind its flag), Agents, Activity, Brain, then Settings at the foot.
+ * Moving down the column moves the page the same way.
+ */
+const PLACES_ORDER: NavOrder = {
+  home: 2,
+  sections: [
+    ["/messages/new", 0],
+    ["/artifacts", 3],
+    ["/inbox", 4],
+    ["/agents", 5],
+    ["/pulse", 6],
+    ["/brain", 7],
+    ["/settings", 8],
+  ],
+};
+
+/** The order the drift follows: the places' while the shell's frame is
+ *  drawn (`<html data-luca-frame>`), the rail's otherwise. */
+export function navOrder(framed: boolean): NavOrder {
+  return framed ? PLACES_ORDER : RAIL_ORDER;
+}
 
 /** Route prefixes that read as a detail surface below their section. */
 const DETAIL_PREFIXES = ["/channels/", "/projects/", "/workflows/"];
 
-function railIndex(pathname: string): number | null {
-  if (pathname === "/") return 2; // home is the inbox seat
-  for (const [prefix, index] of RAIL_ORDER) {
+function railIndex(pathname: string, order: NavOrder): number | null {
+  if (pathname === "/") return order.home;
+  for (const [prefix, index] of order.sections) {
     if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return index;
   }
   return null;
@@ -58,7 +93,11 @@ export type NavMotion =
   | "same"
   | "swap";
 
-export function resolveNavMotion(from: string, to: string): NavMotion {
+export function resolveNavMotion(
+  from: string,
+  to: string,
+  order: NavOrder = RAIL_ORDER,
+): NavMotion {
   if (from === to) return "same";
   const fromDetail = isDetail(from);
   const toDetail = isDetail(to);
@@ -70,8 +109,8 @@ export function resolveNavMotion(from: string, to: string): NavMotion {
   // fading the whole plane dissolves furniture that never moved. This
   // used to resolve to "swap", which is the plain crossfade.
   if (fromDetail && toDetail) return "same";
-  const a = railIndex(from);
-  const b = railIndex(to);
+  const a = railIndex(from, order);
+  const b = railIndex(to, order);
   if (a === null || b === null || a === b) return "swap";
   return b > a ? "down" : "up";
 }
@@ -85,7 +124,11 @@ let clearTimer: number | null = null;
 
 function stamp(from: string, to: string) {
   const root = document.documentElement;
-  root.dataset.navMotion = resolveNavMotion(from, to);
+  root.dataset.navMotion = resolveNavMotion(
+    from,
+    to,
+    navOrder(root.hasAttribute("data-luca-frame")),
+  );
   if (wantsDissolve(from, to)) {
     root.dataset.navDissolve = "1";
   } else {

@@ -36,6 +36,36 @@
     <script>
       (() => {
         var cached, bg, parsed;
+        // The shell's frame: on in a test app built with it, else by its
+        // preview override (`shared/features/store.ts`, the newest
+        // `buzz-feature-overrides-v<N>`). The main window only: a pop-out
+        // keeps its own bar and glass.
+        // Vite writes the build's flag in here: "1" in a test app built with
+        // the frame, the placeholder itself otherwise.
+        var frameBuild = "%VITE_LUCA_SHELL_FRAME%";
+        var shellFrameOn = () => {
+          if (/[?&]window=popout(?:&|$)/.test(window.location.search)) {
+            return false;
+          }
+          if (frameBuild === "1") return true;
+          let newest = -1;
+          let overrides = null;
+          for (let i = 0; i < window.localStorage.length; i += 1) {
+            const key = window.localStorage.key(i) || "";
+            const match = /^buzz-feature-overrides-v(\d+)$/.exec(key);
+            if (match && Number(match[1]) > newest) {
+              newest = Number(match[1]);
+              overrides = window.localStorage.getItem(key);
+            }
+          }
+          return overrides ? JSON.parse(overrides)["shell-frame"] === true : false;
+        };
+        // The Frame setting's Glass, drawn as Liquid Glass (`shellGlass.ts`):
+        // the native glass has announced itself and transparency is allowed.
+        var liquidGlassFrame = () =>
+          window.localStorage.getItem("polyphonic-frame") === "glass" &&
+          Boolean(window.__POLYPHONIC_NATIVE_GLASS__) &&
+          !window.matchMedia("(prefers-reduced-transparency: reduce)").matches;
         try {
           if (window.__BUZZ_FIRST_RUN__ === true) {
             // A new owner opens in Vitesse Black (#000, dark) whatever the
@@ -62,6 +92,22 @@
           }
           parsed = JSON.parse(cached);
           bg = parsed.vars["--background"];
+          if (shellFrameOn()) {
+            // Under the shell's frame (preview `shell-frame`) the first paint
+            // is the frame's own: clear over Apple's Liquid Glass, which
+            // announces itself before this runs; otherwise the palette's
+            // floor at night and its recess by day, as the loading gate
+            // paints it (shell-edges.css).
+            if (liquidGlassFrame()) {
+              // Marked as ThemeProvider marks it, so the page's floors clear
+              // from the first paint (shell-glass.css); it takes it from here.
+              document.documentElement.setAttribute("data-luca-frame-glass", "liquid");
+              document.documentElement.style.backgroundColor = "transparent";
+              bg = null;
+            } else {
+              bg = parsed.vars[parsed.isDark ? "--mn-floor" : "--mn-recess"] || bg;
+            }
+          }
           if (bg) document.documentElement.style.backgroundColor = `hsl(${bg})`;
           // Match the cached light/dark class so themed vars resolve correctly
           // before ThemeProvider mounts.

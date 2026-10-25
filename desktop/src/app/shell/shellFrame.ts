@@ -2,6 +2,7 @@ import * as React from "react";
 
 import type { AppView } from "@/app/AppShell.helpers";
 import { SHELL_FRAME_ATTRIBUTE_VALUE } from "@/shared/features/shellFrame";
+import { isMacPlatform } from "@/shared/lib/platform";
 
 /** The rail's card is fixed at 220 under the frame (SHELL_SPEC.md, Decided 2):
  *  the stored, dragged width does not apply. */
@@ -45,4 +46,19 @@ export function shellFramePageName(view: AppView): string {
     default:
       return "Conversations";
   }
+}
+
+/** The keys the frame's tooltips name (SHELL_SPEC.md, "Keyboard"), read
+ *  from the same test the shortcuts' own handlers use
+ *  (`hasPrimaryShortcutModifier`, useBackForwardControls): ⌘ on a Mac, the
+ *  app's window or a browser alike; Ctrl elsewhere. Back and forward are
+ *  ⌘[ and ⌘] on a Mac and Alt+← and Alt+→ elsewhere. */
+export function shellShortcuts(): {
+  key: "⌘" | "Ctrl+";
+  back: string;
+  forward: string;
+} {
+  return isMacPlatform()
+    ? { key: "⌘", back: "⌘[", forward: "⌘]" }
+    : { key: "Ctrl+", back: "Alt+←", forward: "Alt+→" };
 }

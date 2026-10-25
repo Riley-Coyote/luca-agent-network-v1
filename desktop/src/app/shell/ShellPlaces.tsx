@@ -25,7 +25,7 @@ import { ShellRailSignalsContext } from "@/features/sidebar/ui/SidebarProfileCar
 import type { Channel, SearchHit } from "@/shared/api/types";
 import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import { cn } from "@/shared/lib/cn";
-import { isMacPlatform } from "@/shared/lib/platform";
+import { shellShortcuts } from "@/app/shell/shellFrame";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
@@ -315,7 +315,7 @@ export function ShellPlaces({
 }: ShellPlacesProps) {
   const inboxEnabled = useInboxSurfaceEnabled();
   const here = placeOfView(selectedView);
-  const key = isMacPlatform() ? "⌘" : "Ctrl+";
+  const { key } = shellShortcuts();
   const sidebar = useOptionalSidebar();
   const railClosed = sidebar
     ? sidebar.isMobile

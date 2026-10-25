@@ -9,9 +9,9 @@ import {
 } from "@/features/conversation-workspace";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
-import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
+import { SHELL_FRAME_RAIL_WIDTH, shellShortcuts } from "@/app/shell/shellFrame";
 import { cn } from "@/shared/lib/cn";
-import { isMacPlatform } from "@/shared/lib/platform";
+import { useNativeMacChrome } from "@/shared/lib/useNativeMacChrome";
 import { useOptionalSidebar } from "@/shared/ui/sidebar";
 
 /**
@@ -31,6 +31,10 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
 const PLACES_WIDTH = 44;
 const CARD_GAP = 4;
 const WINDOW_EDGE = 6;
+/** The conversation card's left and right, on the root, for what stands on
+ *  its axis outside the lip (the companion's badge, shell-edges.css). */
+const CARD_LEFT_PROPERTY = "--luca-frame-card-left";
+const CARD_RIGHT_PROPERTY = "--luca-frame-card-right";
 /** The name keeps this much clear of the lip's part on each side, more when
  *  the actions' slot is wider (its width, its 8 from the edge and a 12 gap),
  *  so it stays on its axis without running into them (shell-header.css). */
@@ -134,6 +138,12 @@ function useLipCardSpan(
         ? lip.getBoundingClientRect().right - contentRight
         : WINDOW_EDGE;
       element.style.right = `${Math.max(0, right)}px`;
+      // Published for what stands on the card's axis outside the lip: the
+      // companion's badge (shell-edges.css).
+      document.documentElement.style.setProperty(
+        CARD_RIGHT_PROPERTY,
+        `${Math.max(0, right)}px`,
+      );
       // Panes side by side: the name and the actions are the focused pane's
       // (SHELL_SPEC.md, Decided 5), so they stand over it, the actions 8
       // from its own right edge. Taken from the card, which the lip's part
@@ -201,6 +211,7 @@ function useLipCardSpan(
       besideSize.disconnect();
       observer?.disconnect();
       window.removeEventListener("resize", place);
+      document.documentElement.style.removeProperty(CARD_RIGHT_PROPERTY);
     };
   }, [lipCard, lipSlot, railOpen]);
   return besideRail;
@@ -296,15 +307,33 @@ export function ShellLip({
   const railBesideCardsRef = React.useRef(railBesideCards);
   railBesideCardsRef.current = railBesideCards;
   const besideRail = useLipCardSpan(lipCard, lipSlot, railBesideCardsRef);
-  const key = isMacPlatform() ? "⌘" : "Ctrl+";
+  const shortcuts = shellShortcuts();
+  // The Mac's lights on the lip: the toggle sits past them at 78. Without
+  // them (another platform, a browser, full screen) it stands where the first
+  // light was, on the places' axis (22; shell-edges.css).
+  const nativeLights = useNativeMacChrome();
   const cardLeft = shellFrameCardLeft({
     railOpen: railBesideCards,
     besideRail,
   });
 
+  React.useLayoutEffect(() => {
+    document.documentElement.style.setProperty(
+      CARD_LEFT_PROPERTY,
+      `${cardLeft}px`,
+    );
+  }, [cardLeft]);
+  React.useLayoutEffect(
+    () => () => {
+      document.documentElement.style.removeProperty(CARD_LEFT_PROPERTY);
+    },
+    [],
+  );
+
   return (
     <header
       className="luca-lip"
+      data-lights={nativeLights ? "native" : "none"}
       data-testid="shell-lip"
       style={{ "--card-left": `${cardLeft}px` } as React.CSSProperties}
     >
@@ -313,7 +342,7 @@ export function ShellLip({
         className="luca-lip-toggle"
         data-sidebar="trigger"
         disabled={!sidebar}
-        label={`${railOpen ? "Close" : "Open"} the ${railName} (${key}S)`}
+        label={`${railOpen ? "Close" : "Open"} the ${railName} (${shortcuts.key}S)`}
         onClick={() => sidebar?.toggleSidebar()}
         testId="shell-lip-toggle"
       >
@@ -323,7 +352,7 @@ export function ShellLip({
         <div className="luca-lip-history">
           <LipButton
             disabled={!canGoBack}
-            label={`Go back (${key}[)`}
+            label={`Go back (${shortcuts.back})`}
             onClick={onGoBack}
             testId="global-back"
           >
@@ -331,7 +360,7 @@ export function ShellLip({
           </LipButton>
           <LipButton
             disabled={!canGoForward}
-            label={`Go forward (${key}])`}
+            label={`Go forward (${shortcuts.forward})`}
             onClick={onGoForward}
             testId="global-forward"
           >

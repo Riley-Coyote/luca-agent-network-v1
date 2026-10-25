@@ -74,6 +74,28 @@
     0 4px 12px -2px hsl(var(--mn-ink) / 0.12);
 }
 
+/* Increase Contrast: a plate carries a 1-point outline inside its edge at
+ * the ink's 50%, so where you are still reads on any surface. A piece of
+ * card keeps its edge light and shadow. */
+@media (prefers-contrast: more) {
+  :root:root .luca-marks[data-mark-material="plate"] .luca-mark {
+    box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.5);
+  }
+}
+
+/* The narrow window's sheet holds one mark. A row's own background answers
+ * the keyboard's focus alone (:focus-visible, shell-rail.css), never focus
+ * the sheet hands it as it opens; and the sheet opens under a pointer that
+ * pressed the lip's toggle and has not moved, so the row beneath it stays
+ * unlit until the pointer moves (ShellMarks.tsx): neither reads as a second
+ * mark. */
+:root[data-luca-shell]
+  [data-mobile="true"][data-pointer-still]
+  [data-shell-rail]
+  .luca-rail-row:not([data-active]):hover {
+  background: transparent;
+}
+
 /* The current place's icon in the page's ink, on its mark. */
 .luca-place[data-current] {
   color: hsl(var(--mn-ink));
