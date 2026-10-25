@@ -6,6 +6,7 @@ import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSid
 import { cn } from "@/shared/lib/cn";
 import { useIsMobile } from "@/shared/hooks/use-mobile";
 import { useRelayConnection } from "@/shared/api/useRelayConnection";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useSidebar } from "@/shared/ui/sidebar";
 
 type RelayConnectionOverlayProps = {
@@ -24,6 +25,11 @@ type RelayConnectionOverlayProps = {
  * Also surfaces non-unreachable disconnect errors (e.g. auth rejections)
  * when the sidebar is hidden, since those errors are only rendered inside
  * the sidebar footer, which is off-canvas when collapsed.
+ *
+ * Under the shell's frame it retires (SHELL_SPEC.md, "The reconnecting
+ * card", Decided 4): it would sit over the places column. There a closed
+ * rail says a connection problem with the dot on the avatar, and opening it
+ * shows the card in the rail's footer (app/shell/shellStatus.ts).
  */
 export function RelayConnectionOverlay({
   card,
@@ -34,13 +40,14 @@ export function RelayConnectionOverlay({
   const { open: sidebarOpen, openMobile } = useSidebar();
   const isMobile = useIsMobile();
   const connectionState = useRelayConnection();
+  const frame = useShellFrameEnabled();
 
   // Show the overlay when the sidebar surface isn't visible:
   // - Desktop: sidebar is collapsed (open === false)
   // - Mobile: the sheet is closed (openMobile === false)
   const isSidebarSurfaceHidden = isMobile ? !openMobile : !sidebarOpen;
   const shouldShowReconnectCard =
-    card.showSidebarRelayConnectionCard && isSidebarSurfaceHidden;
+    !frame && card.showSidebarRelayConnectionCard && isSidebarSurfaceHidden;
 
   // Show a non-unreachable error (e.g. auth rejection) when the sidebar is
   // hidden and the reconnect card isn't already covering it.
@@ -49,6 +56,7 @@ export function RelayConnectionOverlay({
     !card.hasRelayUnreachableError &&
     connectionState === "disconnected";
   const shouldShowErrorFallback =
+    !frame &&
     hasNonUnreachableError &&
     isSidebarSurfaceHidden &&
     !shouldShowReconnectCard;

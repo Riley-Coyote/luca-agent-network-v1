@@ -1,0 +1,138 @@
+/* ── the status cards and their dots (WP-08b) ─────────────────────────
+ * docs/luca/rail-system/SHELL_SPEC.md, "The footer's status cards",
+ * Decided 4. Only under the frame.
+ */
+
+/* An available update while the rail's card is out of sight: a dot, 6, at
+ * the Settings tile's top right, 4 in from its corner, where Conversations
+ * wears its unread dot. Under Luca the app's accent is the neutral one, the
+ * gear's own ink, so the dot wears the shell's one signal colour instead,
+ * the unread dot's: a colour the gear never takes on, at rest, under the
+ * pointer or as the current place. */
+.luca-place-update-dot {
+  background: hsl(var(--mn-signal));
+  border-radius: 999px;
+  height: 6px;
+  pointer-events: none;
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  width: 6px;
+}
+
+/* The gear's top-right tooth reaches under the dot, so the glyph gives way:
+ * a 1 cut around the dot, taken out of the icon itself, so it holds on any
+ * ground (the floor, a hover plate, the current place's mark, the glass).
+ * The dot's centre is 7 in from the tile's top right; the 16 icon sits
+ * centred in the 28 tile, 6 in, so in the icon's own box that centre is at
+ * (100% - 1, 1), and the cut runs to the dot's 3 plus 1. */
+.luca-place:has(> .luca-place-update-dot) > svg {
+  mask-image: radial-gradient(
+    circle at calc(100% - 1px) 1px,
+    transparent 4px,
+    #000 4.5px
+  );
+}
+
+/* The footer's cards wear the rail card's own material: the card's plate
+ * (the ink at 3.5%, at 6% under the pointer), no outline and no shadow of
+ * their own, corners of the rail's rows. Before, each was a plate of the
+ * floor with a rim, a hole cut in the card. */
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type {
+  background: var(--mn-plate);
+  border-color: transparent;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type:hover:not(:disabled) {
+  background: var(--mn-plate-hover);
+  border-color: transparent;
+}
+
+/* Keyboard focus: the plate keeps no shadow, so the ring Tailwind draws
+ * with box-shadow can't show. The face takes the frame's own focus instead,
+ * the one its rows and places wear: a 1 outline in the ink at 55%, inside
+ * the edge. */
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type:focus-visible {
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+/* On the rail's grid, in fixed points like the rail card itself, so with
+ * the text scale only the words grow. The plates sit 6 in from the card's
+ * sides, as its rows do, 8 apart; the words start 16 in, on the rail's
+ * axis (6 + 10); the icon sits in its own 20, centred on the column of the
+ * section's + and the unread dots (6 + 6 + 10 in from the right). */
+:root[data-luca-frame] [data-frame] [data-sidebar="footer"]:not(:empty) {
+  gap: 8px;
+  padding: 8px 6px 6px;
+}
+
+/* At the card's foot, without the margins each card brought from the
+ * floor. */
+:root[data-luca-frame] [data-frame] [data-sidebar="footer"] > * {
+  margin-bottom: 0;
+}
+
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type {
+  border-width: 0;
+  gap: 8px;
+  padding: 10px 6px 10px 10px;
+}
+
+/* The words' column: its 40 floor, in points. */
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type
+  > span:first-child {
+  min-height: 40px;
+}
+
+/* The icon's box, the glyph's own 20, and the glyph held inside it. */
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type
+  > span:last-child,
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type
+  > span:last-child
+  > span {
+  height: 20px;
+  width: 20px;
+}
+
+:root[data-luca-frame]
+  [data-frame]
+  [data-sidebar="footer"]
+  [class*="group/sidebar-compact-action-card"]
+  > button:first-of-type
+  > span:last-child
+  > span
+  > * {
+  max-height: 100%;
+  max-width: 100%;
+}

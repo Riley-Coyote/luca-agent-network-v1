@@ -105,6 +105,8 @@ import { SidebarBackgroundTaskCard } from "@/features/sidebar/ui/SidebarBackgrou
 import { SidebarUpdateCard } from "@/features/settings/SidebarUpdateCard";
 import { useUpdaterContext } from "@/features/settings/hooks/UpdaterProvider";
 import { shouldShowSidebarUpdateCard } from "@/features/settings/sidebarUpdateCardVisibility";
+import { connectionCardsOf } from "@/app/shell/shellStatus";
+import { useShellStatus } from "@/app/shell/useShellStatus";
 import type { Channel, ChannelVisibility } from "@/shared/api/types";
 import {
   Sidebar,
@@ -238,8 +240,22 @@ export function AppSidebar({
   }, [selectedView]);
   const [isSidebarUpdateCardDismissed, setIsSidebarUpdateCardDismissed] =
     React.useState(false);
-  const showSidebarUpdateCard =
-    canShowSidebarUpdateCard && !isSidebarUpdateCardDismissed;
+  // Under the frame the footer's cards read the one status the dots read
+  // (app/shell/shellStatus.ts), so the cards, the avatar and Settings never
+  // disagree; the update's dismissal lives there too.
+  const shellStatus = useShellStatus();
+  const showSidebarUpdateCard = frame
+    ? shellStatus.updateAvailable
+    : canShowSidebarUpdateCard && !isSidebarUpdateCardDismissed;
+  const dismissSidebarUpdateCard = frame
+    ? shellStatus.dismissUpdate
+    : () => setIsSidebarUpdateCardDismissed(true);
+  const connectionCards = connectionCardsOf(relayConnectionCard, errorMessage);
+  // The footer's cards used to leave while the rail was closed, so the
+  // reconnecting overlay could stand in. Under the frame the overlay is
+  // retired and the closed rail's card hides (and inerts) its whole content,
+  // so the cards stay mounted and close and open with it, as its rows do.
+  const footerCardsMounted = isMobile ? openMobile : frame || sidebarOpen;
   const [dmActionsMenuOpen, setDmActionsMenuOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const [isRoomListScrolled, setIsRoomListScrolled] = React.useState(false);
@@ -1256,15 +1272,14 @@ export function AppSidebar({
                 than one in the footer and one as loose red text halfway up the
                 channel list. */}
             {errorMessage &&
-            !relayConnectionCard.hasRelayUnreachableError &&
-            (isMobile ? openMobile : sidebarOpen) ? (
+            connectionCards.statusCard &&
+            footerCardsMounted ? (
               <SidebarConnectionStatusCard
                 className="mb-2"
                 errorMessage={errorMessage}
               />
             ) : null}
-            {relayConnectionCard.showSidebarRelayConnectionCard &&
-            (isMobile ? openMobile : sidebarOpen) ? (
+            {connectionCards.relayCard && footerCardsMounted ? (
               <SidebarRelayConnectionCard
                 className="mb-2"
                 isConnected={relayConnectionCard.isRelayConnectionSuccess}
@@ -1276,14 +1291,12 @@ export function AppSidebar({
                 onReconnect={relayConnectionCard.onReconnectRelay}
               />
             ) : null}
-            {(isMobile ? openMobile : sidebarOpen) ? (
+            {footerCardsMounted ? (
               <SidebarBackgroundTaskCard className="mb-2" />
             ) : null}
             {showSidebarUpdateCard ? (
               <div className="mb-2">
-                <SidebarUpdateCard
-                  onDismiss={() => setIsSidebarUpdateCardDismissed(true)}
-                />
+                <SidebarUpdateCard onDismiss={dismissSidebarUpdateCard} />
               </div>
             ) : null}
             {frame ? null : (

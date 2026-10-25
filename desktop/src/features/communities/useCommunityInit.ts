@@ -30,6 +30,7 @@ import { resetManagedPresentationStore } from "@/features/messages/managedPresen
 import { resetActivityTraceStore } from "@/features/messages/activity/activityTraceStore";
 import { resetFailedSendRetryState } from "@/features/messages/lib/failedSendRetryState";
 import { resetRuntimeSessionContextHandoff } from "@/features/runtime-sessions/runtimeSessionHandoff";
+import { resetShellStatus } from "@/app/shell/shellStatus";
 
 import {
   initFirstCommunity,
@@ -65,6 +66,7 @@ function resetCommunityState(): void {
   resetPaneState();
   resetBackgroundTasks();
   resetAgentColumnStore();
+  resetShellStatus();
 }
 
 type CommunityInitResult =

@@ -128,6 +128,7 @@ import { useMessageDeepLinks } from "@/shared/useMessageDeepLinks";
 import { SidebarInset, SidebarProvider } from "@/shared/ui/sidebar";
 import { RelayConnectionOverlay } from "@/app/RelayConnectionOverlay";
 import { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
+import { usePublishShellConnection } from "@/app/shell/useShellStatus";
 import { NavigationTransition } from "@/shared/ui/NavigationTransition";
 
 const SUPPORTS_VIEW_TRANSITIONS =
@@ -392,6 +393,8 @@ export function AppShell() {
     channelsErrorMessage,
     communitiesHook.activeCommunity?.relayUrl,
   );
+  // The one source for the status cards and their dots (WP-08b).
+  usePublishShellConnection(relayConnectionCard, channelsErrorMessage);
   const memberChannels = React.useMemo(
     () => channels.filter((channel) => channel.isMember),
     [channels],
