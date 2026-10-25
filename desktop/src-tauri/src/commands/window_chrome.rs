@@ -401,9 +401,18 @@ fn place_traffic_lights(ns_window: &objc2_app_kit::NSWindow, x: f64, centre: f64
         return;
     };
 
+    // AppKit keeps the buttons a fixed distance above the container's bottom
+    // edge (9 points on macOS 27; tao assumes none, which on 27 lifts them to
+    // a centre of 13), so the container is as tall as the line they centre on
+    // plus half a button plus that distance.
     let close_frame = close.frame();
-    let top = (centre - close_frame.size.height / 2.0).max(0.0);
-    let height = close_frame.size.height + top;
+    let in_container = close.convertRect_toView(close.bounds(), Some(&container));
+    let below = if container.isFlipped() {
+        container.bounds().size.height - (in_container.origin.y + in_container.size.height)
+    } else {
+        in_container.origin.y
+    };
+    let height = centre.max(close_frame.size.height / 2.0) + close_frame.size.height / 2.0 + below;
     let mut container_frame = container.frame();
     container_frame.size.height = height;
     container_frame.origin.y = ns_window.frame().size.height - height;
