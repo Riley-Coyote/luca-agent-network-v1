@@ -3,6 +3,10 @@ import { ChevronLeft, ChevronRight, PanelLeft } from "lucide-react";
 
 import { getChannelDescription } from "@/features/channels/lib/channelDescription";
 import { useActiveChannelHeader } from "@/features/channels/useActiveChannelHeader";
+import {
+  useConversationWorkspace,
+  workspaceSlot,
+} from "@/features/conversation-workspace";
 import type { Channel } from "@/shared/api/types";
 import { setShellLipActionsSlot } from "@/app/shell/lipActionsSlot";
 import { SHELL_FRAME_RAIL_WIDTH } from "@/app/shell/shellFrame";
@@ -213,6 +217,7 @@ export function ShellLip({
   onGoBack,
   onGoForward,
   pageName,
+  railName = "conversations rail",
 }: {
   canGoBack: boolean;
   canGoForward: boolean;
@@ -223,6 +228,9 @@ export function ShellLip({
   onGoForward: () => void;
   /** The page's own name when no conversation is open. */
   pageName: string;
+  /** What the toggle opens and closes, in its words: the conversations
+   *  rail, or Settings' section list (WP-04b). */
+  railName?: string;
 }) {
   const sidebar = useOptionalSidebar();
   const lipCard = React.useRef<HTMLDivElement>(null);
@@ -232,6 +240,16 @@ export function ShellLip({
     setShellLipActionsSlot(element);
   }, []);
   const besideRail = useLipCardSpan(lipCard, lipSlot);
+  // Panes side by side with the focused one empty: the lip names nothing
+  // (its actions' slot is empty too, as no pane holds the right cards), so
+  // no other pane's quiet name is doubled here (WP-04b).
+  const workspace = useConversationWorkspace();
+  const focusedPaneEmpty =
+    channel !== null &&
+    workspace !== null &&
+    workspace.layout.preset !== "single" &&
+    !workspaceSlot(workspace.layout, workspace.layout.focusedSlotId).activeTab;
+  const named = focusedPaneEmpty ? null : channel;
   const railOpen = sidebar ? sidebar.open : true;
   const key = isMacPlatform() ? "⌘" : "Ctrl+";
   const cardLeft = shellFrameCardLeft({
@@ -250,7 +268,7 @@ export function ShellLip({
         className="luca-lip-toggle"
         data-sidebar="trigger"
         disabled={!sidebar}
-        label={`${railOpen ? "Close" : "Open"} the conversations rail (${key}S)`}
+        label={`${railOpen ? "Close" : "Open"} the ${railName} (${key}S)`}
         onClick={() => sidebar?.toggleSidebar()}
         testId="shell-lip-toggle"
       >
@@ -279,15 +297,12 @@ export function ShellLip({
           className="luca-lip-name text-lip"
           data-testid="shell-lip-name"
           // The conversation's description, as its header's title had it.
-          title={channel ? getChannelDescription(channel) : undefined}
+          title={named ? getChannelDescription(named) : undefined}
         >
           <span className="luca-lip-name__text">
-            {channel ? (
-              <ConversationName
-                channel={channel}
-                currentPubkey={currentPubkey}
-              />
-            ) : (
+            {named ? (
+              <ConversationName channel={named} currentPubkey={currentPubkey} />
+            ) : focusedPaneEmpty ? null : (
               pageName
             )}
           </span>

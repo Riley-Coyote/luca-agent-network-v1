@@ -60,7 +60,24 @@ describe("the lip's right-hand slot (WP-04)", () => {
 
   it("gives the lip's name the conversation's description", async () => {
     const lip = await read("./ShellLip.tsx");
-    assert.match(lip, /title=\{channel \? getChannelDescription\(channel\)/);
+    assert.match(lip, /title=\{named \? getChannelDescription\(named\)/);
+  });
+
+  it("names nothing over an empty focused pane (WP-04b)", async () => {
+    const lip = await read("./ShellLip.tsx");
+    assert.match(lip, /const named = focusedPaneEmpty \? null : channel;/);
+    assert.match(
+      lip,
+      /workspaceSlot\(workspace\.layout, workspace\.layout\.focusedSlotId\)/,
+    );
+  });
+
+  it("fades every lip button over 120 ms, past the shell's blanket 150 (WP-04b)", async () => {
+    const header = await read("./shell-header.css");
+    assert.match(
+      header,
+      /:root\[data-luca-frame="solid"\]\s+\.luca-lip\s+:is\(\.luca-lip-button, \[data-testid="workspace-layout-menu"\]\) \{\s+transition:\s+color 120ms,\s+background-color 120ms;/,
+    );
   });
 
   it("keeps the name clear of a wider slot, on the focused pane's axis", async () => {

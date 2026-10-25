@@ -1,10 +1,17 @@
 import * as React from "react";
 
+import { useManagedAgentsQuery } from "@/features/agents/hooks";
+import { useChannelsQuery } from "@/features/channels/hooks";
 import { useEphemeralChannelDisplay } from "@/features/channels/useEphemeralChannelDisplay";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import { usePresenceQuery } from "@/features/presence/hooks";
 import { useUsersBatchQuery } from "@/features/profile/hooks";
 import { resolveUserLabel } from "@/features/profile/lib/identity";
-import { resolveChannelDisplayLabel } from "@/features/sidebar/lib/channelLabels";
+import {
+  resolveChannelDisplayLabel,
+  resolveGroupChatMembersName,
+} from "@/features/sidebar/lib/channelLabels";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import type { Channel, PresenceStatus } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
@@ -83,13 +90,33 @@ export function useActiveChannelHeader(
     [activeDmParticipants, activeDmProfilesQuery.data?.profiles, currentPubkey],
   );
 
+  // Under the shell's frame an unnamed group chat is named by its members,
+  // as the rail names it ("Luca + Wren"), wherever its name is shown: the
+  // lip, a pane's quiet name, the window a pop-out opens (WP-04b).
+  const shellFrame = useShellFrameEnabled();
+  const namesGroup = shellFrame && activeDmParticipants.length > 1;
+  const agentsQuery = useManagedAgentsQuery({ enabled: namesGroup });
+  const channelsQuery = useChannelsQuery({ enabled: namesGroup });
+  const primaryPubkey = useCanonicalLucaPubkey();
+  const groupName =
+    namesGroup && activeChannel
+      ? resolveGroupChatMembersName(activeChannel, {
+          agents: agentsQuery.data ?? [],
+          channels: channelsQuery.data ?? [],
+          currentPubkey,
+          primaryPubkey,
+          profiles: activeDmProfilesQuery.data?.profiles,
+        })
+      : null;
+
   return {
     activeChannelTitle: activeChannel
-      ? resolveChannelDisplayLabel(
+      ? (groupName ??
+        resolveChannelDisplayLabel(
           activeChannel,
           currentPubkey,
           activeDmProfilesQuery.data?.profiles,
-        )
+        ))
       : "Channels",
     activeDmAvatarUrl,
     activeDmHeaderParticipants,

@@ -977,6 +977,7 @@ export function AppShell() {
                                 ? "Settings"
                                 : shellFramePageName(selectedView)
                             }
+                            railName={settingsOpen ? "section list" : undefined}
                           />
                         ) : null}
                         {!settingsOpen && !shellFrame ? (

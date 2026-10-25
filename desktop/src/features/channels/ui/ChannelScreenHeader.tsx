@@ -67,6 +67,9 @@ type ChannelScreenHeaderProps = {
   currentPubkey?: string;
   isAddBotOpen?: boolean;
   isJoining?: boolean;
+  /** The conversation details card is open: the lip's details button shows
+   *  it (SHELL_BUILD.md, WP-04b). */
+  detailsOpen?: boolean;
   showHeaderContent?: boolean;
   transparentChrome?: boolean;
   onAddBotOpenChange?: (open: boolean) => void;
@@ -88,6 +91,7 @@ export function ChannelScreenHeader({
   agentPubkeys,
   projectRoomNavigation,
   chromeWrapperRef,
+  detailsOpen = false,
   isJoining = false,
   onJoinChannel,
   onToggleMembers,
@@ -131,8 +135,9 @@ export function ChannelScreenHeader({
   // Under the shell's frame the card has no header (SHELL_SPEC.md, "The
   // conversation's card"; SHELL_BUILD.md, WP-04): the name is the lip's, and
   // the actions, the Join button, a person's presence and the ephemeral badge
-  // stand at the lip's right end. The forum keeps its own header.
-  if (shellFrame && activeChannel?.channelType !== "forum") {
+  // stand at the lip's right end. A forum's too (WP-04b): its actions move
+  // into the lip like every other conversation's, and its band goes.
+  if (shellFrame) {
     return (
       <ShellChannelHeader
         activeChannel={activeChannel}
@@ -141,6 +146,7 @@ export function ChannelScreenHeader({
         activeDmAvatarUrl={activeDmAvatarUrl}
         activeDmPresenceStatus={activeDmPresenceStatus}
         chromeWrapperRef={chromeWrapperRef}
+        detailsOpen={detailsOpen}
         isJoining={isJoining}
         lipSlot={ownsRightCards ? lipSlot : null}
         onJoinChannel={showJoinButton ? onJoinChannel : undefined}
@@ -273,6 +279,7 @@ function ShellChannelHeader({
   activeDmAvatarUrl,
   activeDmPresenceStatus,
   chromeWrapperRef,
+  detailsOpen,
   isJoining,
   lipSlot,
   onJoinChannel,
@@ -289,6 +296,7 @@ function ShellChannelHeader({
   activeDmAvatarUrl: string | null;
   activeDmPresenceStatus: PresenceStatus | null;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
+  detailsOpen: boolean;
   isJoining: boolean;
   lipSlot: HTMLElement | null;
   /** Present only while the Join button stands in the actions' place. */
@@ -306,7 +314,7 @@ function ShellChannelHeader({
       {showDmPresence ? (
         <span className="luca-lip-presence">
           <ProfileAvatarWithStatus
-            avatarClassName="luca-lip-presence__face text-2xs"
+            avatarClassName="luca-lip-presence__face text-xs"
             avatarUrl={activeDmAvatarUrl}
             className="luca-lip-presence__avatar"
             geometry={DM_LIP_AVATAR_STATUS_GEOMETRY}
@@ -365,11 +373,20 @@ function ShellChannelHeader({
             </button>
           ) : null}
           <button
-            aria-label="Open conversation details"
+            aria-expanded={detailsOpen}
+            aria-label={
+              detailsOpen
+                ? "Close conversation details"
+                : "Open conversation details"
+            }
             className="luca-lip-button"
             data-testid="shell-lip-details"
             onClick={onToggleMembers}
-            title="Conversation details"
+            title={
+              detailsOpen
+                ? "Close conversation details"
+                : "Conversation details"
+            }
             type="button"
           >
             <PanelRight />
