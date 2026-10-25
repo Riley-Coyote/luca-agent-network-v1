@@ -289,7 +289,7 @@ export function SettingsView({
             />
             {appVersion ? (
               <p
-                className="luca-settings-version text-xs"
+                className="luca-settings-version text-2xs"
                 data-testid="settings-version"
               >
                 v{appVersion}

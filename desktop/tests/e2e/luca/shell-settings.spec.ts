@@ -61,6 +61,12 @@ async function openApp(
 ) {
   await page.setViewportSize(size);
   await page.emulateMedia({ colorScheme: "dark" });
+  // Every shot in the Vitesse Black palette, the dark default (WP-05b, 5).
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("buzz-theme")) {
+      localStorage.setItem("buzz-theme", "vitesse-black");
+    }
+  });
   await installMockBridge(page);
   // After the bridge's own seed, so this one decides the frame.
   await page.addInitScript(
@@ -89,11 +95,39 @@ async function settle(page: Page) {
   await waitForAnimations(page);
 }
 
+/** The palette every shot was taken in, by file (WP-05b, 5). */
+const palettes = new Map<string, string | null>();
+
+const paletteOf = (page: Page) =>
+  page.evaluate(() => localStorage.getItem("buzz-theme"));
+
 async function shot(page: Page, dir: string, name: string) {
   await settle(page);
   const file = path.join(dir, `${name}.png`);
   await page.screenshot({ path: file });
+  palettes.set(file, await paletteOf(page));
   return file;
+}
+
+/** Empty frame: the floor at the window's foot, beneath the panels' card
+ *  (6 tall, nothing drawn on it), so a click there only takes focus away. */
+async function clickEmptyFrame(page: Page) {
+  const size = page.viewportSize() ?? { width: 1440, height: 900 };
+  const point = { x: Math.round(size.width * 0.6), y: size.height - 3 };
+  const target = await page.evaluate(({ x, y }) => {
+    const element = document.elementFromPoint(x, y);
+    return {
+      tag: element?.tagName ?? null,
+      interactive: !!element?.closest(
+        "button, a, input, select, textarea, [role=button], [role=radio]",
+      ),
+      inCard: !!element?.closest(
+        "[data-luca-conversation-surface], [data-sidebar=sidebar]",
+      ),
+    };
+  }, point);
+  await page.mouse.click(point.x, point.y);
+  return { point, ...target };
 }
 
 const sha = (file: string) =>
@@ -419,7 +453,18 @@ test("Settings in the frame", async ({ page }, info) => {
     focused_after_down: arrowed,
     ok: arrowed === "settings-nav-notifications",
   };
-  await page.mouse.click(900, 600);
+  // Focus leaves on a click on empty frame: on the panels, Appearance's
+  // palette tiles lie under the pointer, and a click there changed the
+  // palette of every shot after it (WP-05b, 5).
+  const blur = await clickEmptyFrame(page);
+  checks.blur_click = {
+    ...blur,
+    palette_after: await paletteOf(page),
+    ok:
+      !blur.interactive &&
+      !blur.inCard &&
+      (await paletteOf(page)) === "vitesse-black",
+  };
 
   // ── the toggle closes the list, with the rail's motion ────────────
   const slide = await sampleListSlide(page, 620);
@@ -623,6 +668,14 @@ test("Settings in the frame", async ({ page }, info) => {
       inCardPlace(narrowPanels, 700, 600, 44) &&
       narrowHeader === 0 &&
       sheetClosedAfterPick,
+  };
+
+  const shotPalettes = Object.fromEntries(
+    files.map((file) => [path.basename(file), palettes.get(file) ?? null]),
+  );
+  checks.spec_palette = {
+    shots: shotPalettes,
+    ok: Object.values(shotPalettes).every((name) => name === "vitesse-black"),
   };
 
   checks.console = { errors: consoleErrors, ok: true };
@@ -845,6 +898,7 @@ test("the review's fixes", async ({ page, browser }, info) => {
   await page.getByTestId("open-settings-view").click();
   const early = path.join(dir, "fix-settings-arriving-early-1440x900.png");
   await page.screenshot({ path: early });
+  palettes.set(early, await paletteOf(page));
   files.push(early);
 
   // ── the unread dot on Conversations, in Settings ──────────────────
@@ -870,6 +924,7 @@ test("the review's fixes", async ({ page, browser }, info) => {
     path: placesShot,
     clip: { x: 0, y: 0, width: 300, height: 260 },
   });
+  palettes.set(placesShot, await paletteOf(page));
   files.push(placesShot);
   await page.getByTestId("shell-lip-toggle").click();
   await page.waitForTimeout(700);
@@ -917,6 +972,7 @@ test("the review's fixes", async ({ page, browser }, info) => {
     const topShot = path.join(dir, `fix-foot-${name}-top.png`);
     await settle(page);
     await page.screenshot({ path: topShot, clip });
+    palettes.set(topShot, await paletteOf(page));
     files.push(topShot);
     if (measured.scrolls) {
       await scroller.evaluate((element) => {
@@ -925,6 +981,7 @@ test("the review's fixes", async ({ page, browser }, info) => {
       const endShot = path.join(dir, `fix-foot-${name}-end.png`);
       await settle(page);
       await page.screenshot({ path: endShot, clip });
+      palettes.set(endShot, await paletteOf(page));
       files.push(endShot);
       await scroller.evaluate((element) => {
         element.scrollTop = 0;
@@ -978,6 +1035,14 @@ test("the review's fixes", async ({ page, browser }, info) => {
   };
   await context.close();
 
+  const fixPalettes = Object.fromEntries(
+    files.map((file) => [path.basename(file), palettes.get(file) ?? null]),
+  );
+  checks.spec_palette = {
+    shots: fixPalettes,
+    ok: Object.values(fixPalettes).every((name) => name === "vitesse-black"),
+  };
+
   checks.console = { errors: consoleErrors, ok: consoleErrors.length === 0 };
   const failing = Object.entries(checks)
     .filter(([, value]) => !(value as { ok?: boolean }).ok)
@@ -985,6 +1050,282 @@ test("the review's fixes", async ({ page, browser }, info) => {
   checks.failing = failing;
   writeFileSync(
     path.join(dir, "checks-fixes.json"),
+    `${JSON.stringify({ checks, files }, null, 2)}\n`,
+  );
+  expect(failing).toEqual([]);
+});
+
+/** Which place has focus, if focus is on a place. */
+const focusedPlace = (page: Page) =>
+  page.evaluate(() => {
+    const active = document.activeElement;
+    return {
+      testid: active?.getAttribute("data-testid") ?? null,
+      in_places: !!active?.closest('[data-testid="shell-places"]'),
+      focus_visible: !!active?.matches(":focus-visible"),
+    };
+  });
+
+/** Presses a place from the keyboard: focus it, then Enter. */
+async function pressPlace(page: Page, testId: string) {
+  await page.getByTestId(testId).focus();
+  await page.keyboard.press("Enter");
+}
+
+test("Settings and the Frame row, finished (WP-05b)", async ({
+  page,
+}, info) => {
+  test.setTimeout(240_000);
+  const dir = shotsDir(info.outputPath());
+  const checks: Record<string, unknown> = {};
+  const files: string[] = [];
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => consoleErrors.push(error.message));
+  await openApp(page, { frame: true });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-luca-frame",
+    "solid",
+    { timeout: 60_000 },
+  );
+  await answerVersion(page);
+  await openGeneral(page);
+
+  // ── 1. focus stays on the place you pressed ───────────────────────
+  // Opening: Settings, from the app's column into Settings' own.
+  await pressPlace(page, "open-settings-view");
+  await expect(page.getByTestId("settings-view")).toBeVisible();
+  await expect(page.locator('[data-testid^="settings-panel-"]')).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(600);
+  const opened = await focusedPlace(page);
+  const openShot = path.join(dir, "wp05b-focus-settings-opened.png");
+  await settle(page);
+  await page.screenshot({
+    path: openShot,
+    clip: { x: 0, y: 0, width: 320, height: 900 },
+  });
+  palettes.set(openShot, await paletteOf(page));
+  files.push(openShot);
+  // Closing: Conversations, from Settings' column back into the app's.
+  await pressPlace(page, "shell-place-conversations");
+  await expect(page.getByTestId("settings-view")).toHaveCount(0);
+  await page.waitForTimeout(600);
+  const closed = await focusedPlace(page);
+  const closeShot = path.join(dir, "wp05b-focus-settings-closed.png");
+  await settle(page);
+  await page.screenshot({
+    path: closeShot,
+    clip: { x: 0, y: 0, width: 320, height: 900 },
+  });
+  palettes.set(closeShot, await paletteOf(page));
+  files.push(closeShot);
+  // Another place out of Settings: Library.
+  await openGeneral(page);
+  await pressPlace(page, "open-settings-view");
+  await expect(page.getByTestId("settings-view")).toBeVisible();
+  await page.waitForTimeout(400);
+  await pressPlace(page, "open-artifacts-view");
+  await expect(page.getByTestId("settings-view")).toHaveCount(0);
+  await page.waitForTimeout(600);
+  const library = await focusedPlace(page);
+  // A pointer press hands nothing over (as on macOS, where a press doesn't
+  // focus the button), so no tooltip is left standing in the new column.
+  await openGeneral(page);
+  await page.getByTestId("open-settings-view").click();
+  await expect(page.getByTestId("settings-view")).toBeVisible();
+  await page.mouse.move(1439, 899);
+  await page.waitForTimeout(600);
+  const clicked = {
+    ...(await focusedPlace(page)),
+    tooltips: await page.getByRole("tooltip").count(),
+  };
+  checks.focus_kept = {
+    opened_settings: opened,
+    closed_by_conversations: closed,
+    closed_by_library: library,
+    opened_by_pointer: clicked,
+    ok:
+      opened.testid === "open-settings-view" &&
+      opened.in_places &&
+      closed.testid === "shell-place-conversations" &&
+      closed.in_places &&
+      library.testid === "open-artifacts-view" &&
+      library.in_places &&
+      !clicked.in_places &&
+      clicked.tooltips === 0,
+  };
+
+  // ── 2. the version line: text-2xs, the faint tone ─────────────────
+  const version = await page.evaluate(() => {
+    const line = document.querySelector('[data-testid="settings-version"]');
+    const head = document.querySelector(".luca-settings-group-head");
+    const probe = document.createElement("span");
+    probe.className = "text-2xs";
+    document.body.append(probe);
+    const twoXs = getComputedStyle(probe).fontSize;
+    probe.remove();
+    return line
+      ? {
+          text: line.textContent,
+          size: getComputedStyle(line).fontSize,
+          text_2xs: twoXs,
+          colour: getComputedStyle(line).color,
+          faint: head ? getComputedStyle(head).color : null,
+          classes: line.className,
+        }
+      : null;
+  });
+  await page.mouse.move(1439, 899);
+  // The line itself, close: About above it, the card's foot below.
+  const footShot = path.join(dir, "wp05b-version-line.png");
+  await settle(page);
+  const line = await box(page, '[data-testid="settings-version"]');
+  await page.screenshot({
+    path: footShot,
+    clip: line
+      ? { x: 44, y: line.y - 24, width: 160, height: line.h + 30 }
+      : { x: 40, y: 780, width: 232, height: 120 },
+  });
+  palettes.set(footShot, await paletteOf(page));
+  files.push(footShot);
+  checks.version_size = {
+    ...version,
+    ok:
+      !!version &&
+      version.size === "11px" &&
+      version.size === version.text_2xs &&
+      version.colour === version.faint,
+  };
+
+  // ── 4. the current row keeps its lit top under keyboard focus ─────
+  await page.getByTestId("settings-nav-appearance").click();
+  await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
+  await clickEmptyFrame(page);
+  const restingShadow = await page
+    .getByTestId("settings-nav-appearance")
+    .evaluate((element) => getComputedStyle(element).boxShadow);
+  // From the keyboard: down to Notifications, up to Appearance.
+  await page.getByTestId("settings-nav-security").focus();
+  await page.keyboard.press("ArrowDown");
+  const focusedRow = await page.evaluate(() => {
+    const active = document.activeElement as HTMLElement | null;
+    return {
+      testid: active?.getAttribute("data-testid") ?? null,
+      current: active?.getAttribute("aria-current") ?? null,
+      focus_visible: !!active?.matches(":focus-visible"),
+      shadow: active ? getComputedStyle(active).boxShadow : null,
+      outline: active
+        ? `${getComputedStyle(active).outlineStyle} ${getComputedStyle(active).outlineWidth}`
+        : null,
+    };
+  });
+  await page.mouse.move(1439, 899);
+  const rowShot = path.join(dir, "wp05b-current-row-focused.png");
+  await settle(page);
+  const rowBox = await box(page, '[data-testid="settings-nav-appearance"]');
+  await page.screenshot({
+    path: rowShot,
+    clip: rowBox
+      ? { x: rowBox.x - 6, y: rowBox.y - 6, width: rowBox.w + 12, height: 42 }
+      : { x: 44, y: 36, width: 220, height: 200 },
+  });
+  palettes.set(rowShot, await paletteOf(page));
+  files.push(rowShot);
+  checks.focus_lit_top = {
+    resting_shadow: restingShadow,
+    focused: focusedRow,
+    ok:
+      focusedRow.testid === "settings-nav-appearance" &&
+      focusedRow.current === "page" &&
+      focusedRow.focus_visible &&
+      /inset/.test(focusedRow.shadow ?? "") &&
+      focusedRow.shadow === restingShadow &&
+      focusedRow.outline === "solid 1px",
+  };
+  await clickEmptyFrame(page);
+
+  // ── 3. the skeleton's panel sits in the loaded panel's column ─────
+  const release: Array<() => void> = [];
+  await page.route(/SettingsScreen-[^/]*\.js$/, async (route) => {
+    await new Promise<void>((resolve) => release.push(resolve));
+    await route.continue().catch(() => undefined);
+  });
+  await boot(page, new URL(page.url()).origin);
+  await openGeneral(page);
+  await page.getByTestId("open-settings-view").click();
+  await expect(page.getByTestId("settings-loading-fallback")).toBeVisible();
+  await page.mouse.move(1439, 899);
+  await page.waitForTimeout(500);
+  files.push(await shot(page, dir, "wp05b-skeleton"));
+  const skeleton = await page.evaluate(() => {
+    const column = document
+      .querySelector('[data-testid="settings-loading-panel"]')
+      ?.getBoundingClientRect();
+    const title = document
+      .querySelector('[data-testid="settings-loading-panel"] > div')
+      ?.getBoundingClientRect();
+    return column && title
+      ? { x: column.x, y: column.y, w: column.width, title_h: title.height }
+      : null;
+  });
+  for (const go of release) go();
+  await expect(page.locator('[data-testid^="settings-panel-"]')).toBeVisible({
+    timeout: 20_000,
+  });
+  await page.waitForTimeout(800);
+  files.push(await shot(page, dir, "wp05b-skeleton-loaded"));
+  const loaded = await page.evaluate(() => {
+    const column = document
+      .querySelector('[data-testid="settings-content-scroll"] > div')
+      ?.getBoundingClientRect();
+    const title = document
+      .querySelector('[data-testid^="settings-panel-"] h1')
+      ?.getBoundingClientRect();
+    return column && title
+      ? {
+          x: column.x,
+          y: column.y,
+          w: column.width,
+          title_h: title.height,
+          title_y: title.y,
+          section: document
+            .querySelector('[data-testid^="settings-panel-"]')
+            ?.getAttribute("data-testid"),
+        }
+      : null;
+  });
+  checks.skeleton_column = {
+    skeleton,
+    loaded,
+    ok:
+      !!skeleton &&
+      !!loaded &&
+      Math.abs(skeleton.x - loaded.x) <= 0.5 &&
+      Math.abs(skeleton.y - loaded.y) <= 0.5 &&
+      Math.abs(skeleton.w - loaded.w) <= 0.5 &&
+      skeleton.title_h === loaded.title_h,
+  };
+
+  // ── 5. every shot here in Vitesse Black ───────────────────────────
+  const shotPalettes = Object.fromEntries(
+    files.map((file) => [path.basename(file), palettes.get(file) ?? null]),
+  );
+  checks.spec_palette = {
+    shots: shotPalettes,
+    ok: Object.values(shotPalettes).every((name) => name === "vitesse-black"),
+  };
+
+  checks.console = { errors: consoleErrors, ok: consoleErrors.length === 0 };
+  const failing = Object.entries(checks)
+    .filter(([, value]) => !(value as { ok?: boolean }).ok)
+    .map(([key]) => key);
+  checks.failing = failing;
+  writeFileSync(
+    path.join(dir, "checks-wp05b.json"),
     `${JSON.stringify({ checks, files }, null, 2)}\n`,
   );
   expect(failing).toEqual([]);

@@ -569,14 +569,18 @@ let frameGlassRequest = 0;
  * goes clear only once the layer is there; if it can't be, the frame stays
  * solid rather than showing through to nothing.
  */
-async function applyFrameGlass(drawn: FrameDrawn, dark: boolean) {
+async function applyFrameGlass(
+  drawn: FrameDrawn,
+  dark: boolean,
+  fullscreen: boolean,
+) {
   const requestToken = ++frameGlassRequest;
   if (drawn !== "frosted") return;
   try {
     // The Buzz palettes keep their installed layer across mode changes; this
     // one replaces it, so theirs is rebuilt the next time it is asked for.
     buzzVibrancyEnabled = false;
-    await applyFrameVibrancy(drawn, dark, invokeTauri);
+    await applyFrameVibrancy(drawn, dark, invokeTauri, fullscreen);
     if (requestToken !== frameGlassRequest) return;
     markFrameGlass("frosted");
   } catch (error) {
@@ -982,6 +986,9 @@ export function ThemeProvider({
   const fullscreen = useWindowFullscreen(
     shellFrame && mainWindow && frameDrawn !== "solid",
   );
+  // Read when the frosted glass is installed, which the chain does late.
+  const fullscreenRef = useRef(fullscreen);
+  fullscreenRef.current = fullscreen;
 
   useEffect(() => {
     if (!isValidThemeName(effectiveTheme)) return;
@@ -1046,10 +1053,22 @@ export function ThemeProvider({
       .then(() => {
         const glass = applyGlassVibrancy(effectiveTheme);
         if (framed) {
-          void glass.then(() => applyFrameGlass(frameDrawn, paletteDark));
+          void glass.then(() =>
+            applyFrameGlass(frameDrawn, paletteDark, fullscreenRef.current),
+          );
         }
       });
   }, [effectiveTheme, floatingCard, frameChainKey]);
+
+  // Full screen squares the frosted glass's corners, and leaving it rounds
+  // them again: the glass, once installed, is installed again with them.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only entering or leaving full screen re-installs it; the chain above installs it for every other change
+  useEffect(() => {
+    if (frameDrawn !== "frosted") return;
+    const root = document.documentElement;
+    if (root.getAttribute("data-luca-frame-glass") !== "frosted") return;
+    void applyFrameGlass(frameDrawn, paletteDark, fullscreen);
+  }, [fullscreen]);
 
   // `<html data-luca-frame-glass>` under the flag. The frosted glass marks
   // itself once its layer is installed (applyFrameGlass); until then, solid.
@@ -1216,7 +1235,7 @@ export function ThemeProvider({
     setFrame,
     frameDrawn,
     glassFrame: {
-      offered: glassFrameOffered({ tauri: inTauri }),
+      offered: glassFrameOffered({ tauri: inTauri, mac: isMacPlatform() }),
       liquid: nativeGlass,
     },
   };
