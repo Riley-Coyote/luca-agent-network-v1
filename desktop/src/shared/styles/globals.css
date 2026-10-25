@@ -23,6 +23,7 @@
 @import "../../app/shell/shell-settings.css";
 @import "../../app/shell/shell-marks.css";
 @import "../../app/shell/shell-status.css";
+@import "../../app/shell/shell-avatar.css";
 @import "../../app/shell/shell-light.css";
 @import "./globals/glass-floor.css";
 @import "./globals/panes.css";

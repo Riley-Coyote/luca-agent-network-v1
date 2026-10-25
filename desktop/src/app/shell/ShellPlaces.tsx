@@ -21,6 +21,7 @@ import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
 import { useShellStatus } from "@/app/shell/useShellStatus";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
+import { ShellRailSignalsContext } from "@/features/sidebar/ui/SidebarProfileCard";
 import type { Channel, SearchHit } from "@/shared/api/types";
 import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import { cn } from "@/shared/lib/cn";
@@ -323,14 +324,15 @@ export function ShellPlaces({
     : false;
   // Settings puts its section list in the rail's card, so there the rail,
   // and every unread row on it, is never on screen: the dot always speaks.
-  const unreadDot = hasUnread && (railClosed || here === "settings");
+  // The same holds for the status cards at the rail's foot (the avatar's dot).
+  const railSignalsSpeak = railClosed || here === "settings";
+  const unreadDot = hasUnread && railSignalsSpeak;
   const nav = React.useRef<HTMLElement>(null);
   usePlaceFocusHandOver(nav);
   // The rail's card says an available update with its footer card; while
   // that card is out of sight, Settings says it with a dot (Decided 4).
   const status = useShellStatus();
-  const updateDot =
-    status.updateAvailable && (railClosed || here === "settings");
+  const updateDot = status.updateAvailable && railSignalsSpeak;
   return (
     <nav
       aria-label="Places"
@@ -422,7 +424,9 @@ export function ShellPlaces({
         >
           <Settings />
         </PlaceTile>
-        {avatar}
+        <ShellRailSignalsContext.Provider value={railSignalsSpeak}>
+          {avatar}
+        </ShellRailSignalsContext.Provider>
       </div>
     </nav>
   );
