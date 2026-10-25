@@ -19,22 +19,46 @@
  * both themes fully opaque from their solid tokens — asserted in e2e.
  *
  * The legacy data-buzz-translucent system (theme.css) remains a PARALLEL
- * system owning buzz; deliberately untouched. */
+ * system owning buzz; deliberately untouched.
+ *
+ * Under the shell's frame (<html data-luca-frame>, preview `shell-frame`)
+ * the two themes retire and every rule here stands down: the frame's glass
+ * (shell-glass.css) draws the see-through window (SHELL_SPEC.md, "The glass
+ * themes", Decided 7). The guard is wrapped in :where() so it adds no
+ * specificity, and with the flag off the cascade is exactly as it was. */
 
 /* ── the window yields to the desktop ─────────────────────────────
    The scrim can only read if nothing opaque sits between the vibrancy
    view and the plate. Root, body, and the huddle shells step aside. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"] body,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-theme="obsidian"],
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
+  body,
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .buzz-huddle-shell,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .buzz-huddle-app-surface,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"] body,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-theme="crystalline"],
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
+  body,
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .buzz-huddle-shell,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .buzz-huddle-app-surface {
   background-color: transparent;
   background-image: none;
@@ -45,84 +69,140 @@
    wallpaper, not only a searchlight. Crystalline never drops below a
    bright base — light glass treats the desktop as a tint, never the
    ground (the light-over-dark-mud fix; see the glass audit). */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .luca-theme-shell-layer {
   background-color: rgb(5 5 8 / 0.12);
   background-image: none;
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .luca-theme-shell-layer {
   background-color: rgb(250 249 247 / 0.72);
   background-image: none;
 }
 
 /* ── everything that paints floor/sidebar color above the plate yields ── */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-sidebar="sidebar"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .group\/sidebar-wrapper,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-testid="app-sidebar"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-luca-floor-host],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-luca-floor],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-buzz-glass-inset],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-buzz-glass-footer-wrap],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .group\/sidebar-wrapper
   .bg-sidebar:not([data-buzz-flat]),
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-testid="community-rail"].bg-sidebar,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-sidebar="sidebar"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .group\/sidebar-wrapper,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-testid="app-sidebar"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-luca-floor-host],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-luca-floor],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-buzz-glass-inset],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-buzz-glass-footer-wrap],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .group\/sidebar-wrapper
   .bg-sidebar:not([data-buzz-flat]),
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-testid="community-rail"].bg-sidebar {
   background-color: transparent;
   background-image: none;
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-sidebar="sidebar"]
   [data-sidebar="footer"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-sidebar="sidebar"]
   [data-sidebar="footer"] {
   background-color: transparent;
   background-image: none;
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"]::before,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-sidebar="sidebar"]
   [data-sidebar="footer"]::before,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-sidebar="sidebar"]
   [data-testid="sidebar-pinned-header"]::before,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-sidebar="sidebar"]
   [data-sidebar="footer"]::before {
   background: none;
@@ -131,9 +211,13 @@
 /* ── the card weather ─────────────────────────────────────────────
    Cards do not go opaque; they are the same backdrop under a deeper
    local scrim. Strokes die; edges are light and shadow. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-luca-card] {
   background: rgb(4 4 7 / 0.56);
   border-color: transparent;
@@ -142,9 +226,13 @@
     0 1px 2px rgb(0 0 0 / 0.22),
     0 10px 30px rgb(0 0 0 / 0.2);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-luca-card] {
   background: rgb(252 251 249 / 0.82);
   border-color: transparent;
@@ -154,12 +242,16 @@
     0 10px 30px rgb(0 0 0 / 0.1);
 }
 /* nested cards deepen one step so stacking still reads */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-luca-card]
   [data-luca-card] {
   background: rgb(4 4 7 / 0.42);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-luca-card]
   [data-luca-card] {
   background: rgb(252 251 249 / 0.66);
@@ -168,36 +260,48 @@
 /* Native glass cards share the same desktop backdrop at the selector seam.
    Suppress each card's contact shadow there; its translucent scrim runs to
    the divider without a second dark band or overlapping weather. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .group\/sidebar-wrapper:has(
     [data-testid="agent-chats-column"][data-panel-open="true"]
   )
   [data-testid="conversation-workspace-grid"][data-luca-joinable]
   > [data-luca-card]:first-child,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .group\/sidebar-wrapper:has(
     [data-testid="agent-chats-column"][data-panel-open="true"]
   )
   [data-testid="conversation-workspace-grid"][data-luca-joinable]
   > [data-luca-card]:first-child,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .group\/sidebar-wrapper:has(
     [data-testid="agent-chats-column"][data-panel-open="true"]
   )
   [data-luca-floor-host]
   > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .group\/sidebar-wrapper:has(
     [data-testid="agent-chats-column"][data-panel-open="true"]
   )
   [data-luca-floor-host]
   > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
     :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
   )
   [data-testid="agent-chats-column"][data-luca-card][data-panel-open="true"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .group\/sidebar-wrapper:has([data-luca-conversation-surface]):not(
     :has([data-testid="conversation-workspace-grid"]:not([data-luca-joinable]))
   )
@@ -209,13 +313,17 @@
    The composer well and the sent bubble are one role — what you are
    typing and what you have sent — a recessed glass darkened by stacking
    on the card weather, never an opaque sticker. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-testid="message-composer"] {
   background: rgb(0 0 0 / 0.3);
   border-color: transparent;
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-testid="message-composer"] {
   background: rgb(255 255 255 / 0.55);
   border-color: transparent;
@@ -228,16 +336,16 @@
    reminder and the highlight fade) — so glass retunes the tokens instead of
    overriding the element. The bubble turns to held glass AND keeps every
    interaction state; an element-level override here would freeze them. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-  [data-luca-glass-fallback]
-) {
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-theme="obsidian"]:not([data-luca-glass-fallback]) {
   --mn-plate-strong: rgb(255 255 255 / 0.075);
   --mn-plate-strong-hover: rgb(255 255 255 / 0.11);
 }
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-    [data-luca-glass-fallback]
-  ) {
+  :root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback]) {
     --mn-plate-strong: rgb(255 255 255 / 0.55);
     --mn-plate-strong-hover: rgb(255 255 255 / 0.68);
   }
@@ -248,15 +356,15 @@
    backing there instead of the native material. Fade the timeline content
    itself beneath the floating chrome, including the virtualized timeline.
    Held things use one light tint over the card instead of stacking black. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-    [data-luca-glass-fallback]
-  )
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
   :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
   background: transparent;
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-    [data-luca-glass-fallback]
-  )
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
   [data-luca-timeline-viewport] {
   -webkit-mask-image: linear-gradient(
     to bottom,
@@ -273,23 +381,23 @@
     transparent calc(100% - var(--composer-overlay-height, 6rem) + 3rem)
   );
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-    [data-luca-glass-fallback]
-  )
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
   [data-testid="message-composer"] {
   background: rgb(255 255 255 / 0.075);
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     [data-luca-timeline-viewport] {
     -webkit-mask-image: none;
     mask-image: none;
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .luca-conversation-veil-top {
     background: linear-gradient(
       to bottom,
@@ -299,9 +407,9 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .luca-conversation-veil-bottom {
     background: linear-gradient(
       to top,
@@ -311,20 +419,24 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-    [data-luca-glass-fallback]
-  ) {
+  :root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback]) {
     --mn-plate-strong: hsl(var(--mn-raised));
     --mn-plate-strong-hover: hsl(var(--mn-raised));
   }
 }
 /* Native palettes keep the real composer border transparent; the shared
    directional overlay owns focus in every material. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-testid="message-composer"]:focus-within {
   border-color: transparent;
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-testid="message-composer"]:focus-within {
   border-color: transparent;
 }
@@ -345,18 +457,30 @@
    app targets (WKWebView on macOS 15+, Chromium harnesses) honors the
    unprefixed property. The literals stay in source as a dev-mode and
    older-WebKit courtesy. */
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"] {
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-theme="obsidian"],
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-theme="crystalline"] {
   --glass-deep-blur: blur(40px) saturate(150%);
   --glass-frost-blur: blur(20px) saturate(140%);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [role="dialog"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [role="menu"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   .luca-pane-float,
-:root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"]
   [data-testid="message-timeline-day-divider"]
   > p {
   background: rgb(4 4 7 / 0.74);
@@ -364,13 +488,21 @@
   -webkit-backdrop-filter: blur(40px) saturate(150%);
   backdrop-filter: var(--glass-deep-blur);
 }
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [role="dialog"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [role="menu"],
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   .luca-pane-float,
-:root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"]
   [data-testid="message-timeline-day-divider"]
   > p {
   background: rgb(252 251 249 / 0.8);
@@ -393,38 +525,38 @@
    vibrancy IPC failed — in both cases each component simply keeps its own
    solid paint, which IS the correct restored look. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     [data-testid="project-room-navigator"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     [data-testid="chat-header"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     [data-testid="project-room-navigator"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     [data-testid="chat-header"] {
     background-color: transparent;
     background-image: none;
   }
   /* Sticky header occlusion moves to the shared backdrop element, frosted
    like a native toolbar so scrolled content dims beneath it. */
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     [data-testid="channel-shared-header-backdrop"] {
     background: rgb(4 4 7 / 0.6);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
     backdrop-filter: var(--glass-frost-blur);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     [data-testid="channel-shared-header-backdrop"] {
     background: rgb(252 251 249 / 0.72);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
@@ -433,87 +565,87 @@
   /* Held-thing and panel utilities. Values sit in the two-weather family:
    bg-muted things are held (recessed) glass, background/NN things are
    card-family scrims one step apart, card/NN things are faint washes. */
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .bg-muted {
     background-color: rgb(0 0 0 / 0.3);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     :is(.bg-muted\/15, .bg-muted\/20) {
     background-color: rgb(0 0 0 / 0.14);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .bg-muted\/50 {
     background-color: rgb(0 0 0 / 0.22);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     :is(.bg-background\/20, .bg-card\/20, .bg-card\/30, .bg-card\/40) {
     background-color: rgb(4 4 7 / 0.24);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     :is(.bg-background\/55, .bg-background\/65, .bg-background\/70) {
     background-color: rgb(4 4 7 / 0.42);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .bg-background\/80 {
     background-color: rgb(4 4 7 / 0.5);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"]:not([data-luca-glass-fallback])
     .bg-background\/95 {
     background-color: rgb(4 4 7 / 0.62);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     .bg-muted {
     background-color: rgb(255 255 255 / 0.55);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     :is(.bg-muted\/15, .bg-muted\/20) {
     background-color: rgb(255 255 255 / 0.3);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     .bg-muted\/50 {
     background-color: rgb(255 255 255 / 0.42);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     :is(.bg-background\/20, .bg-card\/20, .bg-card\/30, .bg-card\/40) {
     background-color: rgb(252 251 249 / 0.4);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     :is(.bg-background\/55, .bg-background\/65, .bg-background\/70) {
     background-color: rgb(252 251 249 / 0.66);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     .bg-background\/80 {
     background-color: rgb(252 251 249 / 0.72);
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"]:not(
-      [data-luca-glass-fallback]
-    )
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"]:not([data-luca-glass-fallback])
     .bg-background\/95 {
     background-color: rgb(252 251 249 / 0.82);
   }
@@ -523,27 +655,47 @@
    Collapse every transparency to the solid tokens. Specificity note:
    the theme attribute is repeated so these outrank the weather rules
    above without inventing new guards. */
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-glass-fallback][data-luca-theme="obsidian"],
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   body,
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+  :not([data-luca-frame])
+)[data-luca-glass-fallback][data-luca-theme="crystalline"],
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   body {
   background-color: hsl(var(--mn-floor));
 }
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   .luca-theme-shell-layer,
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   .luca-theme-shell-layer {
   background-color: hsl(var(--mn-floor));
 }
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [data-luca-card],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [data-luca-card] {
   background: hsl(var(--mn-surface));
   backdrop-filter: none;
@@ -552,28 +704,48 @@
 /* Held things and deep panels collapse too — parity with the
    reduced-transparency block, so a failed IPC never leaves a translucent
    surface floating over nothing. */
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [data-testid="message-composer"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [data-testid="message-composer"] {
   background: hsl(var(--mn-raised));
 }
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [role="dialog"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [role="menu"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   .luca-pane-float,
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="obsidian"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="obsidian"]
   [data-testid="message-timeline-day-divider"]
   > p,
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [role="dialog"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [role="menu"],
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   .luca-pane-float,
-:root[data-luca-shell][data-luca-native][data-luca-glass-fallback][data-luca-theme="crystalline"]
+:root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-glass-fallback][data-luca-theme="crystalline"]
   [data-testid="message-timeline-day-divider"]
   > p {
   background: hsl(var(--mn-raised));
@@ -586,69 +758,121 @@
    same switch the OS honors. The theme attribute is repeated on the
    plate rule for specificity (it must beat the weather rules). */
 @media (prefers-reduced-transparency: reduce) {
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="obsidian"][data-luca-theme],
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     body,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+    :not([data-luca-frame])
+  )[data-luca-theme="crystalline"][data-luca-theme],
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     body {
     background-color: hsl(var(--mn-floor));
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     .luca-theme-shell-layer,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-luca-floor-host],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-luca-floor],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     .luca-theme-shell-layer,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-luca-floor-host],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-luca-floor] {
     background-color: hsl(var(--mn-floor));
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-luca-card],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])),
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-luca-card] {
     background: hsl(var(--mn-surface));
     box-shadow: none;
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-message-anatomy="bubble"][data-message-side="own"]
     [data-message-column]
     > [data-message-plate],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-testid="message-composer"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-message-anatomy="bubble"][data-message-side="own"]
     [data-message-column]
     > [data-message-plate],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-testid="message-composer"] {
     background: hsl(var(--mn-raised));
   }
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [role="dialog"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [role="menu"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     .luca-pane-float,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="obsidian"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="obsidian"][data-luca-theme]
     [data-testid="message-timeline-day-divider"]
     > p,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [role="dialog"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [role="menu"],
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     .luca-pane-float,
-  :root[data-luca-shell][data-luca-native][data-luca-theme="crystalline"][data-luca-theme]
+  :root[data-luca-shell][data-luca-native]:where(
+      :not([data-luca-frame])
+    )[data-luca-theme="crystalline"][data-luca-theme]
     [data-testid="message-timeline-day-divider"]
     > p {
     background: hsl(var(--mn-raised));

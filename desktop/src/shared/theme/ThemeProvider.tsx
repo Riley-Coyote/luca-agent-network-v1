@@ -13,6 +13,7 @@ import { isPopoutWindow } from "@/app/popout/popoutMode";
 import {
   applyFrameVibrancy,
   drawnFrame,
+  FRAME_STORAGE_KEY,
   type Frame,
   type FrameDrawn,
   glassFrameOffered,
@@ -26,6 +27,8 @@ import {
 } from "@/app/shell/shellGlass";
 import { usePolyphonicFloatingCard } from "@/features/onboarding/polyphonicOnboardingScene";
 import { invokeTauri } from "@/shared/api/tauri";
+import { resolveShellFrameEnabled } from "@/shared/features/shellFrame";
+import { getOverrides } from "@/shared/features/store";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { isMacPlatform } from "@/shared/lib/platform";
 import {
@@ -55,11 +58,13 @@ import {
   FOLLOW_SYSTEM_KEY,
   type SyntaxThemeName,
   extractThemeInfo,
+  GLASS_THEME_SUCCESSORS,
   getThemePair,
   isGlassTheme,
   isLightTheme,
   loadThemeData,
   resolveSystemTheme,
+  settleGlassThemeMove,
 } from "./theme-loader";
 
 export { THEME_STORAGE_KEY };
@@ -792,6 +797,23 @@ async function applyBuzzVibrancy(themeName: string) {
   }
 }
 
+/**
+ * The glass themes retire under the shell's frame (SHELL_SPEC.md, Decided 7):
+ * settle the move, or its return, against storage. Returns the theme to show
+ * now, or null when nothing changed.
+ */
+function settleGlassThemes(shellFrame: boolean): string | null {
+  try {
+    return settleGlassThemeMove(
+      shellFrame,
+      window.localStorage,
+      FRAME_STORAGE_KEY,
+    );
+  } catch {
+    return null;
+  }
+}
+
 /** Apply cached CSS vars synchronously to prevent FOUC. */
 function applyCachedVars(): string | null {
   try {
@@ -915,7 +937,14 @@ export function ThemeProvider({
   defaultTheme = DEFAULT_THEME_NAME,
 }: ThemeProviderProps) {
   // Apply cached vars synchronously before first render
-  const [selectedTheme, setSelectedTheme] = useState<string>(() => {
+  const [chosenTheme, setSelectedTheme] = useState<string>(() => {
+    // Before the cache paints, so a glass theme's cache is never replayed.
+    settleGlassThemes(
+      resolveShellFrameEnabled(
+        getOverrides(),
+        import.meta.env.VITE_LUCA_SHELL_FRAME,
+      ),
+    );
     applyCachedVars();
     return readStoredTheme(defaultTheme);
   });
@@ -943,7 +972,16 @@ export function ThemeProvider({
   // The shell's frame (preview `shell-frame`): the Frame setting, and what it
   // draws on this machine. With the flag off nothing below touches the window.
   const shellFrame = useShellFrameEnabled();
-  const [frame, setFrameState] = useState<Frame>(() => readFrame());
+  const [chosenFrame, setFrameState] = useState<Frame>(() => readFrame());
+  // Under the frame a glass theme is never drawn. When the flag turns on
+  // while the app runs, the page already shows where the move lands, in the
+  // same render, so the window's chain never runs for the retired theme; the
+  // effect below then stores it.
+  const retiring = shellFrame && isGlassTheme(chosenTheme);
+  const selectedTheme = retiring
+    ? (GLASS_THEME_SUCCESSORS[chosenTheme] ?? chosenTheme)
+    : chosenTheme;
+  const frame: Frame = retiring ? "glass" : chosenFrame;
   const nativeGlass = useNativeGlassAnnounced();
   const reducedTransparency = useReducedTransparency();
   const inTauri = isTauri();
@@ -952,15 +990,21 @@ export function ThemeProvider({
   // the main window can under the shell's frame (applyShellWindowAppearance).
   const windowThemeAllowed = shellFrame || !mainWindow;
 
-  // Resolve the effective theme based on follow-system preference
+  // Resolve the effective theme based on follow-system preference. Under the
+  // frame the two defaults pair with each other (theme-loader's
+  // FRAMED_THEME_PAIRS), so the glass pair's owners keep a day and a night.
   const effectiveTheme = (() => {
     if (!followSystem || !isValidThemeName(selectedTheme)) return selectedTheme;
-    return resolveSystemTheme(selectedTheme as SyntaxThemeName, systemIsDark);
+    return resolveSystemTheme(
+      selectedTheme as SyntaxThemeName,
+      systemIsDark,
+      shellFrame,
+    );
   })();
 
   // Check if the selected theme has a pair (for UI hint)
   const hasPair = isValidThemeName(selectedTheme)
-    ? getThemePair(selectedTheme as SyntaxThemeName) !== null
+    ? getThemePair(selectedTheme as SyntaxThemeName, shellFrame) !== null
     : false;
 
   const frameDrawn: FrameDrawn =
@@ -979,6 +1023,15 @@ export function ThemeProvider({
     shellFrame && mainWindow
       ? `${frameDrawn}|${followSystem ? "system" : "pinned"}`
       : "off";
+  // The frame turned on or off while the app runs: the glass themes move, or
+  // come back (at boot the state initialisers above have already settled it).
+  useEffect(() => {
+    const theme = settleGlassThemes(shellFrame);
+    // The frame setting may come back without the theme (chosen since).
+    setFrameState(readFrame());
+    if (theme) setSelectedTheme(theme);
+  }, [shellFrame]);
+
   const fullscreen = useWindowFullscreen(
     shellFrame && mainWindow && frameDrawn !== "solid",
   );

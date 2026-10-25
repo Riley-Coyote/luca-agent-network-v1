@@ -14,7 +14,8 @@ import type { ThemeRegistrationRaw } from "shiki";
  * profile with nothing stored under `buzz-theme`: an existing install keeps
  * whatever it last chose. Follow-system defaults OFF (see `ThemeProvider`),
  * so a fresh install opens dark whatever the Mac's appearance is; turning it
- * on pairs Vitesse Black with Vitesse Light (see `THEME_PAIRS`).
+ * on pairs Vitesse Black with Vitesse Light (see `THEME_PAIRS`), or with
+ * Paper under the shell's frame (see `FRAMED_THEME_PAIRS`).
  */
 export const DEFAULT_THEME_NAME = "vitesse-black";
 
@@ -113,6 +114,107 @@ export const GLASS_THEMES: ReadonlySet<string> = new Set([
 /** Whether a theme is one of the two glass appearances. */
 export function isGlassTheme(name: string): boolean {
   return GLASS_THEMES.has(name);
+}
+
+/**
+ * Under the shell's frame the glass themes retire (SHELL_SPEC.md, "The glass
+ * themes" and Decided 7): the Glass frame is the see-through window now.
+ * Each moves to its base palette, with the Glass frame.
+ */
+export const GLASS_THEME_SUCCESSORS: Readonly<Record<string, string>> = {
+  [OBSIDIAN_THEME_NAME]: DEFAULT_THEME_NAME,
+  [CRYSTALLINE_THEME_NAME]: PAPER_THEME_NAME,
+};
+
+/**
+ * Where the move is remembered: which glass theme someone was on, what they
+ * were moved to, and what the frame setting held before, so turning the flag
+ * off again gives them back what they had.
+ */
+export const GLASS_THEME_MOVE_KEY = "polyphonic-glass-theme-moved";
+
+type GlassThemeMove = { from: string; to: string; frame: string | null };
+
+type MoveStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+function readGlassThemeMove(storage: MoveStorage): GlassThemeMove | null {
+  try {
+    const raw = storage.getItem(GLASS_THEME_MOVE_KEY);
+    if (!raw) return null;
+    const move = JSON.parse(raw) as Partial<GlassThemeMove>;
+    if (typeof move.from !== "string" || !isGlassTheme(move.from)) return null;
+    if (typeof move.to !== "string") return null;
+    return {
+      from: move.from,
+      to: move.to,
+      frame: typeof move.frame === "string" ? move.frame : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Move someone off a glass theme under the shell's frame, or give it back
+ * when the frame goes off again. Returns the theme to show now, or null when
+ * nothing changed. Only the theme and the frame setting are touched: the
+ * accent, the mode and every other palette stay as chosen.
+ *
+ * - Frame on, a glass theme stored: the move is recorded (once: an earlier
+ *   record is kept), the base palette and the Glass frame are stored, and a
+ *   glass theme's paint cache is dropped so it is never replayed.
+ * - Frame off, a move recorded: the record goes; the glass theme returns if
+ *   the base palette is still the one chosen, and the frame setting returns
+ *   if it is still Glass. A choice made since is kept.
+ */
+export function settleGlassThemeMove(
+  shellFrame: boolean,
+  storage: MoveStorage,
+  frameKey: string,
+): string | null {
+  try {
+    const stored = storage.getItem(THEME_STORAGE_KEY);
+    if (shellFrame) {
+      if (!stored || !isGlassTheme(stored)) return null;
+      const to = GLASS_THEME_SUCCESSORS[stored];
+      if (!readGlassThemeMove(storage)) {
+        const move: GlassThemeMove = {
+          from: stored,
+          to,
+          frame: storage.getItem(frameKey),
+        };
+        storage.setItem(GLASS_THEME_MOVE_KEY, JSON.stringify(move));
+      }
+      storage.setItem(THEME_STORAGE_KEY, to);
+      storage.setItem(frameKey, "glass");
+      const cache = storage.getItem(THEME_CACHE_KEY);
+      if (cache) {
+        try {
+          const { themeName } = JSON.parse(cache) as { themeName?: unknown };
+          if (typeof themeName === "string" && isGlassTheme(themeName)) {
+            storage.removeItem(THEME_CACHE_KEY);
+          }
+        } catch {
+          storage.removeItem(THEME_CACHE_KEY);
+        }
+      }
+      return to;
+    }
+
+    const move = readGlassThemeMove(storage);
+    storage.removeItem(GLASS_THEME_MOVE_KEY);
+    if (!move) return null;
+    if (storage.getItem(frameKey) === "glass") {
+      if (move.frame === null) storage.removeItem(frameKey);
+      else storage.setItem(frameKey, move.frame);
+    }
+    if (stored !== move.to) return null;
+    storage.setItem(THEME_STORAGE_KEY, move.from);
+    return move.from;
+  } catch {
+    // Storage unavailable: nothing moves, and the theme shows as stored.
+    return null;
+  }
 }
 
 /** The Luca shell uses GitHub Dark for its syntax-highlighting baseline. */
@@ -407,11 +509,35 @@ export const THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
   ]);
 
 /**
+ * Under the shell's frame the app's two defaults are each other's System
+ * pair (SHELL_SPEC.md, "Light and dark": the dark default is Vitesse Black,
+ * the light one Paper), so the glass pair's owners, moved onto them
+ * (Decided 7), still breathe between one dark and one light: Paper by day,
+ * Vitesse Black by night, whichever of the two they were moved to. These
+ * take the place of Paper ↔ Slate and Vitesse Black → Vitesse Light only
+ * under the frame; Slate keeps its own pair (→ Paper) and Vitesse Light its
+ * own (↔ Vitesse Dark).
+ */
+const FRAMED_THEME_PAIRS: ReadonlyMap<SyntaxThemeName, SyntaxThemeName> =
+  new Map([
+    [PAPER_THEME_NAME, DEFAULT_THEME_NAME],
+    [DEFAULT_THEME_NAME, PAPER_THEME_NAME],
+  ]);
+
+/**
  * Get the counterpart theme for system theme switching.
  * Returns the paired theme if one exists, or null if the theme has no pair.
+ * `framed`: the shell's frame is on (its pairs for the two defaults).
  */
-export function getThemePair(name: SyntaxThemeName): SyntaxThemeName | null {
-  return THEME_PAIRS.get(name) ?? null;
+export function getThemePair(
+  name: SyntaxThemeName,
+  framed = false,
+): SyntaxThemeName | null {
+  return (
+    (framed ? FRAMED_THEME_PAIRS.get(name) : undefined) ??
+    THEME_PAIRS.get(name) ??
+    null
+  );
 }
 
 /**
@@ -421,6 +547,7 @@ export function getThemePair(name: SyntaxThemeName): SyntaxThemeName | null {
 export function resolveSystemTheme(
   selectedTheme: SyntaxThemeName,
   systemIsDark: boolean,
+  framed = false,
 ): SyntaxThemeName {
   const selectedIsLight = isLightTheme(selectedTheme);
   const needsSwitch =
@@ -428,7 +555,7 @@ export function resolveSystemTheme(
 
   if (!needsSwitch) return selectedTheme;
 
-  const pair = getThemePair(selectedTheme);
+  const pair = getThemePair(selectedTheme, framed);
   return pair ?? selectedTheme;
 }
 
