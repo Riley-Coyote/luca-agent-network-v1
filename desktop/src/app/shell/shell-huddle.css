@@ -280,6 +280,17 @@
   color: hsl(var(--destructive));
 }
 
+/* By day the floor is the paper's recess (WP-06), a shade below the page:
+ * the warning words (Leave, and an error's words) take a fifth of the ink so
+ * they still read at 4.5:1. */
+:root:not(.dark)
+  .luca-huddle-band
+  .buzz-huddle-drawer
+  button[data-huddle-leave]:is(*, :hover:not(:disabled)),
+:root:not(.dark) .luca-huddle-band .buzz-huddle-drawer span.text-destructive {
+  color: color-mix(in oklab, hsl(var(--destructive)) 80%, hsl(var(--mn-ink)));
+}
+
 /* The participants' count, as the places' badge. */
 .luca-huddle-band .buzz-huddle-drawer button > span.rounded-full {
   background: var(--luca-frame-ink, hsl(var(--mn-ink)));
