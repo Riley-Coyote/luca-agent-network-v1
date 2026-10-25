@@ -2,6 +2,7 @@ import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ArrowLeft, Menu } from "lucide-react";
 
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
 import {
@@ -93,6 +94,82 @@ function SettingsSectionButton({
   );
 }
 
+type SettingsNavGroup = {
+  label: string;
+  sections: Array<(typeof settingsSections)[number]>;
+};
+
+/** Up and down move between the section list's rows, as on the rail. */
+function sectionListKeys(event: React.KeyboardEvent<HTMLElement>) {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  const rows = [
+    ...event.currentTarget.querySelectorAll<HTMLElement>("[data-settings-row]"),
+  ];
+  const index = rows.indexOf(document.activeElement as HTMLElement);
+  if (index < 0) return;
+  event.preventDefault();
+  const next = event.key === "ArrowDown" ? index + 1 : index - 1;
+  rows[Math.max(0, Math.min(rows.length - 1, next))]?.focus();
+}
+
+/**
+ * The section list as the rail's card holds it under the shell's frame
+ * (SHELL_SPEC.md, "Settings"): its groups in the rail's structure voice,
+ * its sections as the rail's rows (the study's "conversations rail"), the
+ * current one on a plate. Styles: `app/shell/shell-settings.css`.
+ */
+function SettingsFrameSectionList({
+  groups,
+  onSelect,
+  section,
+}: {
+  groups: SettingsNavGroup[];
+  onSelect: (section: SettingsSection) => void;
+  section: SettingsSection;
+}) {
+  const id = React.useId();
+  return (
+    <nav
+      aria-label="Settings sections"
+      className="luca-settings-list"
+      data-testid="settings-section-list"
+      onKeyDown={sectionListKeys}
+    >
+      {groups.map((group, index) => (
+        <section
+          aria-labelledby={`${id}-${index}`}
+          className="luca-settings-group"
+          key={group.label}
+        >
+          <div
+            className="luca-settings-group-head type-eyebrow"
+            id={`${id}-${index}`}
+          >
+            {group.label}
+          </div>
+          {group.sections.map((entry) => {
+            const current = entry.value === section;
+            return (
+              <button
+                aria-current={current ? "page" : undefined}
+                className="luca-settings-row text-sm"
+                data-current={current ? "true" : undefined}
+                data-settings-row=""
+                data-testid={`settings-nav-${entry.value}`}
+                key={entry.value}
+                onClick={() => onSelect(entry.value)}
+                type="button"
+              >
+                <span className="luca-settings-row-name">{entry.label}</span>
+              </button>
+            );
+          })}
+        </section>
+      ))}
+    </nav>
+  );
+}
+
 export function SettingsView({
   currentPubkey,
   fallbackDisplayName,
@@ -117,6 +194,10 @@ export function SettingsView({
     setOpenMobile,
   } = useSidebar();
   const visibleSections = settingsSections;
+  // The shell's frame (SHELL_SPEC.md, "Settings"): the frame stays, the
+  // section list takes the rail card's place and the panels the
+  // conversation card's.
+  const frame = useShellFrameEnabled();
 
   const [isLoaded, setIsLoaded] = React.useState(false);
   const [appVersion, setAppVersion] = React.useState<string | null>(null);
@@ -138,11 +219,13 @@ export function SettingsView({
     }
   }, [onSectionChange, section]);
 
+  // Under the frame the section list opens and closes like the rail, so
+  // nothing forces it open.
   React.useEffect(() => {
-    if (!isMobile && !sidebarOpen) {
+    if (!frame && !isMobile && !sidebarOpen) {
       setSidebarOpen(true);
     }
-  }, [isMobile, setSidebarOpen, sidebarOpen]);
+  }, [frame, isMobile, setSidebarOpen, sidebarOpen]);
 
   React.useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -187,80 +270,117 @@ export function SettingsView({
       <Sidebar
         className="!border-r-0"
         collapsible="offcanvas"
+        data-luca-settings-list={frame ? "" : undefined}
         data-testid="settings-sidebar"
+        frame={frame}
         variant="sidebar"
       >
-        <div
-          aria-hidden="true"
-          className={cn("shrink-0", topChromeBackdrop.height)}
-          data-tauri-drag-region
-        />
-        <SidebarHeader
-          className="cursor-default select-none pb-0 pt-3"
-          data-tauri-drag-region
-        >
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                data-testid="settings-back-to-app"
-                onClick={onClose}
-                tooltip="Back to app"
-                type="button"
+        {frame ? (
+          // One scroll for the list and the build: with room the version
+          // rests at the card's foot, without it follows the last row.
+          <div
+            className="luca-settings-scroll"
+            data-testid="settings-section-scroll"
+          >
+            <SettingsFrameSectionList
+              groups={visibleNavGroups}
+              onSelect={selectSection}
+              section={section}
+            />
+            {appVersion ? (
+              <p
+                className="luca-settings-version text-xs"
+                data-testid="settings-version"
               >
-                <ArrowLeft className="h-4 w-4" />
-                <span>Back to app</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </SidebarHeader>
-
-        <SidebarContent>
-          {visibleNavGroups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu aria-label={`${group.label} settings sections`}>
-                  {group.sections.map((entry) => (
-                    <SettingsSectionButton
-                      active={entry.value === section}
-                      key={entry.value}
-                      onSelect={selectSection}
-                      section={entry}
-                    />
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
-        </SidebarContent>
-
-        <SidebarFooter>
-          {appVersion ? (
-            <p
-              className="px-2 pb-1 text-xs text-ink-faint"
-              data-buzz-sidebar-secondary
-              data-testid="settings-version"
+                v{appVersion}
+              </p>
+            ) : null}
+          </div>
+        ) : (
+          <>
+            <div
+              aria-hidden="true"
+              className={cn("shrink-0", topChromeBackdrop.height)}
+              data-tauri-drag-region
+            />
+            <SidebarHeader
+              className="cursor-default select-none pb-0 pt-3"
+              data-tauri-drag-region
             >
-              v{appVersion}
-            </p>
-          ) : null}
-        </SidebarFooter>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    data-testid="settings-back-to-app"
+                    onClick={onClose}
+                    tooltip="Back to app"
+                    type="button"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    <span>Back to app</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarHeader>
+
+            <SidebarContent>
+              {visibleNavGroups.map((group) => (
+                <SidebarGroup key={group.label}>
+                  <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu
+                      aria-label={`${group.label} settings sections`}
+                    >
+                      {group.sections.map((entry) => (
+                        <SettingsSectionButton
+                          active={entry.value === section}
+                          key={entry.value}
+                          onSelect={selectSection}
+                          section={entry}
+                        />
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              ))}
+            </SidebarContent>
+
+            <SidebarFooter>
+              {appVersion ? (
+                <p
+                  className="px-2 pb-1 text-xs text-ink-faint"
+                  data-buzz-sidebar-secondary
+                  data-testid="settings-version"
+                >
+                  v{appVersion}
+                </p>
+              ) : null}
+            </SidebarFooter>
+          </>
+        )}
       </Sidebar>
 
       <SidebarInset
         className={cn(
-          "isolate relative min-h-0 min-w-0 overflow-hidden bg-sidebar motion-safe:transition-opacity motion-safe:duration-200",
-          isLoaded ? "opacity-100" : "opacity-0",
+          "isolate relative min-h-0 min-w-0 overflow-hidden bg-sidebar",
+          // Under the frame the card holds still, as every place's does; only
+          // the section's content arrives (NavigationTransition).
+          !frame && "motion-safe:transition-opacity motion-safe:duration-200",
+          !frame && (isLoaded ? "opacity-100" : "opacity-0"),
         )}
         data-buzz-shadow-viewport
+        data-luca-settings-card-host={frame ? "" : undefined}
         data-testid="settings-view"
       >
-        <div
-          aria-hidden="true"
-          className={cn("relative z-10 shrink-0", topChromeBackdrop.height)}
-          data-tauri-drag-region
-        />
-        {isMobile ? (
+        {frame ? null : (
+          <div
+            aria-hidden="true"
+            className={cn("relative z-10 shrink-0", topChromeBackdrop.height)}
+            data-tauri-drag-region
+          />
+        )}
+        {/* Under the frame the lip is the narrow window's header too: its
+            toggle opens the section list, back and Conversations leave. */}
+        {isMobile && !frame ? (
           <header className="relative z-20 flex h-12 shrink-0 items-center justify-between border-b border-border/55 px-3">
             <button
               aria-label="Back to app"

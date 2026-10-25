@@ -45,7 +45,8 @@ type PlacesView =
   | "artifacts"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "settings";
 
 type PlaceId =
   | "conversations"
@@ -53,7 +54,8 @@ type PlaceId =
   | "inbox"
   | "agents"
   | "activity"
-  | "brain";
+  | "brain"
+  | "settings";
 
 /** Which place a view belongs to. */
 export function placeOfView(view: PlacesView): PlaceId | null {
@@ -73,6 +75,8 @@ export function placeOfView(view: PlacesView): PlaceId | null {
       return "activity";
     case "brain":
       return "brain";
+    case "settings":
+      return "settings";
     default:
       return null;
   }
@@ -241,7 +245,9 @@ export function ShellPlaces({
       ? !sidebar.openMobile
       : !sidebar.open
     : false;
-  const unreadDot = hasUnread && railClosed;
+  // Settings puts its section list in the rail's card, so there the rail,
+  // and every unread row on it, is never on screen: the dot always speaks.
+  const unreadDot = hasUnread && (railClosed || here === "settings");
   return (
     <nav aria-label="Places" className="luca-places" data-testid="shell-places">
       <div className="luca-places-group">
@@ -315,6 +321,7 @@ export function ShellPlaces({
       </div>
       <div className="luca-places-group luca-places-end">
         <PlaceTile
+          current={here === "settings"}
           label="Settings"
           onClick={onSelectSettings}
           onPreload={() => void preloadSettingsSurface()}

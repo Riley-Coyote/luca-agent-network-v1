@@ -222,15 +222,23 @@ async function openGeneral(page: Page, { frame = true } = {}) {
     await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
     return;
   }
-  await page.waitForSelector('[data-testid="app-sidebar"]');
-  await page.evaluate((id) => {
-    location.hash = `#/channels/${id}`;
-  }, GENERAL_CHANNEL_ID);
+  await page.waitForSelector('[data-testid="app-sidebar"] [data-channel-id]', {
+    timeout: 20_000,
+  });
+  // Retried, because a fresh page's own first redirect can land after the
+  // route is set.
+  await expect(async () => {
+    await page.evaluate((id) => {
+      location.hash = `#/channels/${id}`;
+    }, GENERAL_CHANNEL_ID);
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
+      timeout: 3_000,
+    });
+  }).toPass({ timeout: 30_000 });
   // Generous: on a busy machine the conversation's screen loads late.
   await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("general");
 }
 
 /** Whether a press at (x, y) asks the window to start dragging. */
@@ -760,6 +768,8 @@ test("the frame, Black, dark", async ({ page }, info) => {
 });
 
 test("flag off draws the base build exactly", async ({ browser }, info) => {
+  // Two builds captured in turn; a busy machine needs the room.
+  test.setTimeout(120_000);
   const dir = shotsDir(info.outputPath());
   const reachable = await fetch(BASE_URL)
     .then((response) => response.ok)
