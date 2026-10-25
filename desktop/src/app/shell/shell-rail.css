@@ -17,7 +17,9 @@
   --rail-thread: hsl(var(--mn-ink) / 0.16);
   display: flex;
   flex-direction: column;
-  padding: 6px 3px 20px;
+  /* No top padding of its own: the frame's scroll anchor already holds the
+   * first row 6 below the card's top, as in the study (shell-frame.css). */
+  padding: 0 3px 20px;
 }
 
 /* ── section labels: PROJECTS, AGENTS, FLEETS (Fragment Mono caps, 11) ── */
@@ -141,7 +143,7 @@
 
 :root[data-luca-shell]
   [data-shell-rail]
-  .luca-rail-chevron[aria-expanded="true"]
+  .luca-rail-chevron[data-expanded="true"]
   svg {
   transform: rotate(90deg);
 }
@@ -211,12 +213,16 @@
   width: 6px;
 }
 
-:root[data-luca-shell] [data-shell-rail] .luca-rail-working {
+:root[data-luca-shell]
+  [data-shell-rail]
+  :is(.luca-rail-working, .luca-rail-status) {
   color: var(--rail-faint);
   letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
+/* Only work in progress trails off ("working…", "Waking…"); a status such
+ * as "Needs attention" is the same tone and size, and ends. */
 :root[data-luca-shell] [data-shell-rail] .luca-rail-working::after {
   content: "…";
 }
@@ -247,7 +253,7 @@
   border-radius: 8px;
   color: var(--rail-faint);
   display: flex;
-  font-size: 0.8125rem; /* 13, the frame's second size (SHELL_SPEC.md, Type) */
+  /* 13, the frame's second size: the text-lip token (SHELL_SPEC.md, Type). */
   gap: 8px;
   height: 28px;
   justify-content: space-between;
@@ -306,6 +312,27 @@
   ):focus-visible {
   outline: 1px solid color-mix(in srgb, var(--rail-ink) 55%, transparent);
   outline-offset: -1px;
+}
+
+/* ── Runtimes on the Agents page ─────────────────────────────────────
+ * Runtimes left the rail for the Agents page (WP-02). Its rows take the
+ * roster's geometry there: the harness's icon in a slot as wide as an
+ * agent's mark (32), so it sits on the marks' axis, and its name on the
+ * roster's text edge, 12 after it (AgentLibraryRoster's row: 12 in, a mark
+ * of 32, a gap of 12). The rows keep their height and their words. */
+:root[data-luca-frame="solid"]
+  [data-agents-runtimes]
+  [data-runtime-connection-key] {
+  gap: 12px;
+  /* 12 to the slot, less the row's 1-point border. */
+  padding-left: 11px;
+}
+
+:root[data-luca-frame="solid"]
+  [data-agents-runtimes]
+  [data-runtime-connection-key]
+  > :first-child {
+  width: 32px;
 }
 
 /* Reduce Motion: expansion is instant, and nothing in the rail eases. */

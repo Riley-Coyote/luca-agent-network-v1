@@ -655,60 +655,59 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
       )}
 
       <ConversationAppearanceSettings currentPubkey={currentPubkey} />
-      <ProjectRoomsSetting />
       <RuntimeRailPinsSettings />
     </section>
   );
 }
 
-/** The shell's one rail choice (WP-02): where a project's rooms are listed. */
+/** The shell's one rail choice (WP-02): where a project's rooms are listed.
+ *  The Conversation group's last row, divided like its neighbours. */
 function ProjectRoomsSetting() {
   const shellFrame = useShellFrameEnabled();
   const placement = useProjectRoomsPlacement();
   if (!shellFrame) return null;
   return (
-    <div className="mt-8">
-      <SettingsOptionGroup>
-        <SettingsOptionRow className="flex-wrap">
-          <div className="min-w-0">
-            <p className="text-sm font-medium">Project rooms</p>
-            <p className="text-sm font-normal text-muted-foreground">
-              {placement === "rail"
-                ? "Listed under each project in the rail."
-                : "Listed in a column beside the conversation."}
-            </p>
-          </div>
-          <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
-            <legend className="sr-only">Project rooms</legend>
-            {(
-              [
-                ["rail", "In the rail"],
-                ["column", "In a column"],
-              ] as const satisfies readonly (readonly [
-                ProjectRoomsPlacement,
-                string,
-              ])[]
-            ).map(([value, label]) => (
-              <button
-                aria-pressed={placement === value}
-                className={cn(
-                  "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                  placement === value
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                data-testid={`project-rooms-${value}`}
-                key={value}
-                onClick={() => setProjectRoomsPlacement(value)}
-                type="button"
-              >
-                {label}
-              </button>
-            ))}
-          </fieldset>
-        </SettingsOptionRow>
-      </SettingsOptionGroup>
-    </div>
+    <SettingsOptionRow
+      className="flex-wrap border-t border-border/30"
+      data-testid="project-rooms-setting"
+    >
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Project rooms</p>
+        <p className="text-sm font-normal text-muted-foreground">
+          {placement === "rail"
+            ? "Listed under each project in the rail."
+            : "Listed in a column beside the conversation."}
+        </p>
+      </div>
+      <fieldset className="flex gap-1 rounded-full bg-background/50 p-1">
+        <legend className="sr-only">Project rooms</legend>
+        {(
+          [
+            ["rail", "In the rail"],
+            ["column", "In a column"],
+          ] as const satisfies readonly (readonly [
+            ProjectRoomsPlacement,
+            string,
+          ])[]
+        ).map(([value, label]) => (
+          <button
+            aria-pressed={placement === value}
+            className={cn(
+              "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              placement === value
+                ? "bg-muted text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            data-testid={`project-rooms-${value}`}
+            key={value}
+            onClick={() => setProjectRoomsPlacement(value)}
+            type="button"
+          >
+            {label}
+          </button>
+        ))}
+      </fieldset>
+    </SettingsOptionRow>
   );
 }
 
@@ -884,6 +883,7 @@ function ConversationAppearanceSettings({
             ))}
           </fieldset>
         </SettingsOptionRow>
+        <ProjectRoomsSetting />
       </SettingsOptionGroup>
     </div>
   );
