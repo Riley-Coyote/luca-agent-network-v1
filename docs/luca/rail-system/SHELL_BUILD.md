@@ -93,6 +93,7 @@ LOST. LOST is a failure unless the spec retires it.
 | Package | Landed | What |
 |---|---|---|
 | WP-01 the frame, Black, dark | 2026-10-24, merge `bfda2d8a0` | The lip, the places, the rail's card and the conversation's card, behind `shell-frame`. Flag off matches the base by hash. Review fixed the cards' edge light, the lip riding the card's slide, and the unread dot on Conversations; the small rest went to WP-01b. 4,204 unit tests pass. |
+| WP-02 the rail, ironed out | 2026-10-24, merge `aa4b0d29c` | Luca first, then Projects, Agents and Fleets, each home's sessions on a thread, one home per chat; Runtimes on the Agents page; the Project rooms setting. Review fixed the homes' corners and gave a project's details a home on its row. At the merge the rail reads the frame's own switch, and the frame's spec opens #general by its route. Both specs pass together (the frame's motion trace needed one retry under load); 4,210 unit tests pass. A group named after one of its chats, and the small rest, went to WP-02b. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -605,3 +606,141 @@ Make a capability map: every control of the old settings sidebar, and its new ho
 **Checks JSON keys:** `frame_kept`, `section_list_card`, `panels_in_card`, `back_and_escape`, `toggle_closes_list`,
 `shortcut_toggles`, `history_replace`, `loading_skeleton`, `narrow_layout`, `flag_off_identical`,
 `capability_map_lost` (0), `gates`.
+
+## WP-02b · The rail, finished (2026-10-24, Claude's design, from WP-02's review and its merge)
+
+**Why.** WP-02 landed (merge `aa4b0d29c`). Its reviewers measured several small differences that the fix round left
+for later, and the merge showed one real problem: the rail names a group of chats after one of them. Read WP-02's
+section above and `SPEC.md`.
+
+**Base.** The integration branch with WP-01 and WP-02 landed. WP-03 (the marks) is built at the same time; WP-04,
+WP-05, WP-01b and WP-07a are still running from earlier bases. Your styles stay in `shell-rail.css`. Your worktree and
+branch: in your dispatch.
+
+**Files in scope:**
+- `desktop/src/features/sidebar/ui/ShellRail.tsx`, `desktop/src/app/shell/shell-rail.css`;
+- `desktop/src/features/sidebar/lib/railHomes.ts` and its test;
+- `desktop/src/features/settings/ui/SettingsPanels.tsx` (only the Project rooms row);
+- `desktop/src/features/runtime-sessions/RuntimeRailPinsSettings.tsx` (only its words under the flag);
+- `desktop/src/features/agents/ui/AgentsView.tsx` (only the Runtimes rows' geometry);
+- the onboarding anchor's publisher (`usePublishFieldAnchor`, wherever Luca's row now is);
+- `docs/luca/rail-system/SPEC.md` (only the lines named below);
+- `desktop/tests/e2e/luca/shell-rail.spec.ts` and unit tests.
+
+**Untouched:**
+- the marks and today's pill (WP-03);
+- the frame (`shell-frame.css`, `ShellLip.tsx`, `ShellPlaces.tsx`);
+- the conversation header (WP-04).
+
+**Decisions** (only under the `shell-frame` flag; with it off, nothing changes):
+1. **A group is named by its members, never by one of its chats.** Today the rail gathers every chat with the same
+   members into one Fleets home named after the first chat, so #general holds #random and #engineering. Instead:
+   - a group with one chat: the home is that chat, by its own name (no chevron);
+   - a group with several chats: the home is named by its members ("Luca + Wren", Luca first, then by name), and each
+     chat is a session under it by its own name; opening the home opens the most recent;
+   - when fleets get their own record and name (later, not here), the record's name wins.
+
+   The unit test still proves no chat appears twice, and adds these cases.
+2. **"In a column" mode** draws project homes as today's rail does: no chevron and no nested rooms, so rooms never
+   appear twice.
+3. **Keyboard and screen readers:** a home with sessions carries `aria-expanded` and `aria-controls` on its focusable
+   button. The chevron stays a mouse-only target (`aria-hidden`, out of the tab order); Right and Left already open
+   and close.
+4. **The first row sits 6 below the rail card's top,** as in the study. After the merge it sits at 12, because WP-01's
+   scroll-anchor padding and the list's own 6 add up. Keep one of the two.
+5. **The trailing slot's order is the study's:** status or "working…" first, then the unread dot; the `+` still wins
+   on hover and focus.
+6. **Only work in progress gets an ellipsis.** "working…" and "Waking…" keep theirs. "Needs attention" and other
+   statuses get none: their own class, the same tone and size, no `::after`.
+7. **Sessions use the `text-lip` token** (WP-01's 0.8125rem), not a literal.
+8. **The Project rooms row** becomes the last row of the Conversation group in Settings → Appearance (a divided row
+   like its neighbours, no gap or untitled card of its own).
+9. **Runtimes on the Agents page** take the roster's geometry: the icon on the agents' marks' axis, the name on the
+   roster's text edge.
+10. **Runtime pins in Settings:** under the flag, the "Sidebar runtimes" group reads "Runtimes", with the line "Choose
+    which installed harnesses appear on the Agents page."
+11. **Onboarding's travelling anchor** (`usePublishFieldAnchor`, today on Luca's rail mark, which has no glyph now)
+    is published on Luca's row name.
+12. **`SPEC.md`:**
+    - "A row": homes muted, sessions faint, the thread the ink at 16%, the open session's text and segment at full
+      ink;
+    - the corner line: rows have 8-point corners, never a pill (as `SHELL_SPEC.md`);
+    - a project's details and sources live on its row's menu (right-click, the menu key, Shift+F10), and its rooms
+      are found by Search.
+
+**Verification** (Playwright headless, 1440 × 900, flag on unless stated), with the default mock and your seeded data:
+- `groups` (the default mock: every named chat findable by its own name, with no group named after a chat);
+- `column-mode` (no nested rooms);
+- `first-row` (Luca's row measured 6 below the card's top);
+- `slot-order` (unread and working on one home);
+- `needs-attention`;
+- `settings-row`;
+- `agents-runtimes` (the axes measured);
+- `cmd-k-room` (Search finds a project's room and opens it);
+- the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `group_naming`, `no_chat_twice`, `column_mode`, `aria_expanded`, `first_row_offset`,
+`slot_order`, `status_ellipsis`, `session_token`, `settings_row`, `runtimes_geometry`, `runtime_pins_words`,
+`onboarding_anchor`, `spec_md`, `cmd_k_room`, `flag_off_identical`, `gates`.
+
+## WP-03 · Where you are: the solid marks (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
+
+**Why.** In the shell, where you are is shown by a solid mark that slides between places. It replaces today's glass
+pill on the rail and WP-01's still plate on the places. Read `SHELL_SPEC.md`, "Where you are" and "The rail's selection
+glass". The engine is the study's: `desktop/src/testing/shellStudy/marks.ts`, its materials in `shellStudy.css`
+(`.shell-marks`, `.shell-mark*`), and how `ShellStudy.tsx` places them (`marks.places.show`, `marks.rail.show`). Watch
+them move in the study on your own server (`/scripts/shell-lab.template.html?experience=shell&mode=dark&frame=solid`).
+
+**Base.** The integration branch with WP-01 and WP-02 landed. WP-02b (the rail, finished) is built at the same time.
+Your styles go in `desktop/src/app/shell/shell-marks.css` (new), imported by `globals.css` right after
+`shell-frame.css`. Your worktree and branch: in your dispatch.
+
+**Files in scope:**
+- `desktop/src/app/shell/marks.ts` (new: the study's engine, ported, with unit tests of its springs and settling);
+- `desktop/src/app/shell/ShellMarks.tsx` (new), `shell-marks.css` (new), `globals.css` (its one import line);
+- `desktop/src/app/shell/ShellPlaces.tsx` (only to give the places' mark its layer and stop drawing the still plate);
+- `desktop/src/shared/styles/globals/shell-frame.css` (only to remove the still plate's rule, "Where you are, until the
+  moving marks come");
+- where today's rail pill and native pour are mounted (`RailGlass.tsx`, `NativeRailGlass.tsx`, and the component that
+  renders them): under the flag, neither is drawn or attached;
+- tests.
+
+**Untouched:**
+- the rail's rows (WP-02b); they already carry what you need: the home row of what is open has `data-active="true"`
+  (`[data-sidebar="menu-button"][data-home]`), the open session `data-current` and `aria-current="page"`;
+- the lip's tabs (later);
+- the glass frame's marks (WP-07b);
+- light beyond not breaking (WP-06).
+
+**Decisions** (only under the `shell-frame` flag; with it off, today's pill and pour are untouched):
+1. **Two marks on the Black frame, both plates:** the page's ink at 7.5%, an 8% lit inset at the top, rising a little
+   while moving (the study's `--wet`).
+   - The places' mark: 9-point corners, on the current place's tile.
+   - The rail's mark: 8-point corners, on the home row carrying `data-active`. It lives in the rail card's own
+     coordinates, scrolls with the rows and is clipped by the card.
+2. **The open session is lit, not marked** (WP-02 already lights it).
+3. **The study's motion, unchanged:** springs stepped 240 times a second, the edge facing the move leading, the far
+   edge following, settling on whole pixels.
+   - A place with no mark, or the rail closing: the mark closes to a point at its middle, and swells back from one.
+   - A resize, or a section opening above the mark: it follows at once.
+   - Reduce Motion: every mark is simply where it belongs.
+4. **The material is a data choice:** `plate` now; `card` on a glass frame, which WP-07b turns on. Write it so that
+   switch is one attribute.
+5. **Today's rail pill and native pour retire under the flag:** never drawn, never attached, and the native side gets
+   no calls. Their code goes in WP-09.
+6. **Accessibility:** the marks are decorative (`aria-hidden`). Current place and page are already said by
+   `aria-current`.
+
+**Verification** (Playwright headless, 1440 × 900 and 800 × 500, deviceScaleFactor 2, flag on unless stated):
+- `places-mark` and `rail-mark` (measured against the study: box, corners, colour);
+- a motion trace, sampled every frame, moving between two places and between two homes far apart (the stretch, and
+  the settle on whole pixels);
+- `rail-closing` (the mark closes to a point; reopening, it swells back);
+- `reduce-motion` (instant);
+- `scrolled` (the rail's mark scrolls with its row and is clipped by the card);
+- `session-open` (the home row marked, the session lit, no second mark);
+- no pill and no native pour calls under the flag (the mock bridge's command log);
+- the flag-off shots compared by hash to the base.
+
+**Checks JSON keys:** `places_mark`, `rail_mark`, `motion_trace`, `whole_pixels`, `rail_closing`, `reduce_motion`,
+`scroll_clip`, `session_lit_not_marked`, `pill_retired`, `native_pour_calls` (0), `flag_off_identical`, `gates`.
