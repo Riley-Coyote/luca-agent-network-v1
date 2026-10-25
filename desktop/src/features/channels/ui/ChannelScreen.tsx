@@ -722,14 +722,12 @@ export function ChannelScreen({
       isMobileViewport,
       mainInsetWidthPx: stableShellWidthPx,
     });
-  // Under the shell's frame the card has no header to measure (the forum's
-  // and a project room's picker excepted, ChannelScreenHeader): the reading
-  // area's top padding is fixed, on this conversation alone.
+  // Under the shell's frame the card has no header to measure (a project
+  // room's picker excepted, ChannelScreenHeader): the reading area's top
+  // padding is fixed, on this conversation alone. A forum's post list too
+  // (WP-04b).
   const shellFrame = useShellFrameEnabled();
-  const fixedTopPadding =
-    shellFrame &&
-    activeChannel?.channelType !== "forum" &&
-    !projectRoomNavigation;
+  const fixedTopPadding = shellFrame && !projectRoomNavigation;
   const channelHeaderChromeRef = useMeasuredCssVariable({
     targetRef: mainInsetRef,
     ...channelContentTopPaddingMeasurement,
@@ -871,6 +869,7 @@ export function ChannelScreen({
         projectRoomNavigation={projectRoomNavigation}
         chromeWrapperRef={channelHeaderChromeRef}
         currentPubkey={currentPubkey}
+        detailsOpen={!popoutWindow && isConversationContextOpen}
         isAddBotOpen={isAddBotOpen}
         isJoining={joinChannelMutation.isPending}
         onAddBotOpenChange={setIsAddBotOpen}
@@ -907,6 +906,8 @@ export function ChannelScreen({
       handleOpenProfilePanelForSurface,
       handleToggleMembers,
       isSinglePanelView,
+      popoutWindow,
+      isConversationContextOpen,
     ],
   );
 

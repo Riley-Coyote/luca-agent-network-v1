@@ -245,7 +245,7 @@ transparent 42-point strip of controls floating at the top-left. Each surface be
   fill the conversation's card like Brain, New conversation and the conversations do.
 - **The conversation header** (`features/chat/ui/ChatHeader.tsx`, `features/channels/ui/ChannelScreenHeader.tsx`)
   loses its title, which moves up into the lip (the conversation's name, and later its tab). Its actions (layout; open as window, shown while the pop-out feature is
-  on; conversation details) move to the lip's right end, over the card, as quiet 13-point icons (Decided, 3). Its other
+  on; conversation details) move to the lip's right end, over the card, as quiet icons at the lip's own size, 15 (Decided, 3). Its other
   occupants: the Join button takes the actions' place there in a conversation you haven't joined, as it does today; a
   person's presence avatar in a direct conversation and an ephemeral conversation's badge sit just before the actions;
   the project room picker gives way to the rail's rooms (`SPEC.md`); the header's update indicator becomes the dot on
@@ -356,7 +356,7 @@ each is marked there as "Decided, n".
    strip goes (not: a strip left of the places).
 2. **The rail card's width:** fixed at 220, the proportion the frame was judged at (not: resizable 220 to 420).
 3. **The conversation's actions** (layout, open as window, details): at the lip's right end, over the card, as quiet
-   13-point icons (not: a row inside the card's top).
+   icons at the lip's own size, 15, like its toggle, back and forward (not: a row inside the card's top).
 4. **Status cards** (connection, relay, background task, update): at the bottom of the rail's card; while the rail is
    closed, a dot on the avatar for a connection problem and on Settings for an update (not: in the places column).
 5. **Panes side by side:** the lip's tabs belong to the focused pane; each other pane shows its conversation's name

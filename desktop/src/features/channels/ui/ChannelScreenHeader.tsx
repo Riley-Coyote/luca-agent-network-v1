@@ -67,6 +67,9 @@ type ChannelScreenHeaderProps = {
   currentPubkey?: string;
   isAddBotOpen?: boolean;
   isJoining?: boolean;
+  /** The conversation details card is open: the lip's details button shows
+   *  it (SHELL_BUILD.md, WP-04b). */
+  detailsOpen?: boolean;
   showHeaderContent?: boolean;
   transparentChrome?: boolean;
   onAddBotOpenChange?: (open: boolean) => void;
@@ -88,6 +91,7 @@ export function ChannelScreenHeader({
   agentPubkeys,
   projectRoomNavigation,
   chromeWrapperRef,
+  detailsOpen = false,
   isJoining = false,
   onJoinChannel,
   onToggleMembers,
@@ -121,7 +125,6 @@ export function ChannelScreenHeader({
     !activeChannel.archivedAt &&
     onJoinChannel;
 
-  if (!showHeaderContent) return null;
   // A pop-out draws ONE bar, and it is the window's own (`PopoutShell`): it
   // carries the conversation's name as a picker and the window controls. This
   // header would restate the title 36px below it and offer actions that are
@@ -131,8 +134,13 @@ export function ChannelScreenHeader({
   // Under the shell's frame the card has no header (SHELL_SPEC.md, "The
   // conversation's card"; SHELL_BUILD.md, WP-04): the name is the lip's, and
   // the actions, the Join button, a person's presence and the ephemeral badge
-  // stand at the lip's right end. The forum keeps its own header.
-  if (shellFrame && activeChannel?.channelType !== "forum") {
+  // stand at the lip's right end. A forum's too (WP-04b): its actions move
+  // into the lip like every other conversation's, and its band goes. The lip
+  // is the frame, not the card: while a side card fills the conversation's
+  // card at a small window (the single-panel view), the lip keeps its actions
+  // so Details can show it is open and close it (WP-04b); only what sits in
+  // the card itself (the fade, a pane's quiet name, a room's picker) goes.
+  if (shellFrame) {
     return (
       <ShellChannelHeader
         activeChannel={activeChannel}
@@ -141,6 +149,7 @@ export function ChannelScreenHeader({
         activeDmAvatarUrl={activeDmAvatarUrl}
         activeDmPresenceStatus={activeDmPresenceStatus}
         chromeWrapperRef={chromeWrapperRef}
+        detailsOpen={detailsOpen}
         isJoining={isJoining}
         lipSlot={ownsRightCards ? lipSlot : null}
         onJoinChannel={showJoinButton ? onJoinChannel : undefined}
@@ -148,6 +157,7 @@ export function ChannelScreenHeader({
         popoutWindowsEnabled={popoutWindowsEnabled}
         projectRoomNavigation={projectRoomNavigation}
         quietPaneName={quietPaneName}
+        showCardContent={showHeaderContent}
         showDmPresence={
           activeChannel?.channelType === "dm" &&
           primaryDmParticipant !== null &&
@@ -157,6 +167,8 @@ export function ChannelScreenHeader({
       />
     );
   }
+
+  if (!showHeaderContent) return null;
 
   const actions = activeChannel ? (
     showJoinButton ? (
@@ -273,6 +285,7 @@ function ShellChannelHeader({
   activeDmAvatarUrl,
   activeDmPresenceStatus,
   chromeWrapperRef,
+  detailsOpen,
   isJoining,
   lipSlot,
   onJoinChannel,
@@ -280,6 +293,7 @@ function ShellChannelHeader({
   popoutWindowsEnabled,
   projectRoomNavigation,
   quietPaneName,
+  showCardContent,
   showDmPresence,
   transparentChrome,
 }: {
@@ -289,6 +303,7 @@ function ShellChannelHeader({
   activeDmAvatarUrl: string | null;
   activeDmPresenceStatus: PresenceStatus | null;
   chromeWrapperRef?: React.Ref<HTMLDivElement>;
+  detailsOpen: boolean;
   isJoining: boolean;
   lipSlot: HTMLElement | null;
   /** Present only while the Join button stands in the actions' place. */
@@ -298,6 +313,9 @@ function ShellChannelHeader({
   projectRoomNavigation: ChannelScreenHeaderProps["projectRoomNavigation"];
   /** An unfocused pane beside others: its name, quietly, at its own top. */
   quietPaneName: boolean;
+  /** False while a side card fills the conversation's card (the
+   *  single-panel view): only the lip's actions are drawn. */
+  showCardContent: boolean;
   showDmPresence: boolean;
   transparentChrome: boolean;
 }) {
@@ -306,7 +324,7 @@ function ShellChannelHeader({
       {showDmPresence ? (
         <span className="luca-lip-presence">
           <ProfileAvatarWithStatus
-            avatarClassName="luca-lip-presence__face text-2xs"
+            avatarClassName="luca-lip-presence__face text-xs"
             avatarUrl={activeDmAvatarUrl}
             className="luca-lip-presence__avatar"
             geometry={DM_LIP_AVATAR_STATUS_GEOMETRY}
@@ -365,11 +383,20 @@ function ShellChannelHeader({
             </button>
           ) : null}
           <button
-            aria-label="Open conversation details"
+            aria-expanded={detailsOpen}
+            aria-label={
+              detailsOpen
+                ? "Close conversation details"
+                : "Open conversation details"
+            }
             className="luca-lip-button"
             data-testid="shell-lip-details"
             onClick={onToggleMembers}
-            title="Conversation details"
+            title={
+              detailsOpen
+                ? "Close conversation details"
+                : "Conversation details"
+            }
             type="button"
           >
             <PanelRight />
@@ -382,7 +409,7 @@ function ShellChannelHeader({
   return (
     <>
       {lipSlot && lipActions ? createPortal(lipActions, lipSlot) : null}
-      {projectRoomNavigation ? (
+      {!showCardContent ? null : projectRoomNavigation ? (
         <ChatHeader
           belowSystemChrome
           channelType={activeChannel?.channelType}

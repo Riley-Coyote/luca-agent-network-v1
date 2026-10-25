@@ -754,8 +754,9 @@ test("the conversation header in the lip", async ({ page }, info) => {
       smallName.x + smallName.w <= (smallItems[0]?.x ?? 0),
   };
   // At this size the details take the conversation's card (the app's
-  // single-panel view, as today): the conversation's actions stand down
-  // with its header, and the card's own close returns them.
+  // single-panel view, as today). The lip is the frame, not the card: the
+  // conversation's actions stay in it, Details showing it is open
+  // (WP-04b), and the card's own close still returns the conversation.
   await page.getByTestId("shell-lip-details").click();
   await expect(
     page.getByRole("heading", { name: "Conversation", exact: true }),
@@ -764,12 +765,19 @@ test("the conversation header in the lip", async ({ page }, info) => {
   await page.mouse.move(400, 300);
   files.push(await shot(page, dir, "details-open-800"));
   const singlePanelSlot = await slotItems(page);
+  const detailsExpanded = await page
+    .getByTestId("shell-lip-details")
+    .getAttribute("aria-expanded");
   await page.keyboard.press("Escape");
-  await expect(page.getByTestId("shell-lip-details")).toBeVisible();
+  await expect(page.getByTestId("shell-lip-details")).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
   small.details_open = {
     slot_while_open: singlePanelSlot.length,
+    details_expanded_while_open: detailsExpanded,
     actions_back_after_close: true,
-    ok: singlePanelSlot.length === 0,
+    ok: singlePanelSlot.length === 3 && detailsExpanded === "true",
   };
   checks.smallest_window = small;
   void W;

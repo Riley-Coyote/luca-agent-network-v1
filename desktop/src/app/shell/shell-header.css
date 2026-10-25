@@ -99,6 +99,24 @@
   outline-offset: -1px;
 }
 
+/* Every button in the lip fades over 120 ms, as the study's do (the toggle,
+ * back, forward and the actions). Spelled out to outrank the shell's blanket
+ * 150 ms for every button (theme.css, specificity 0,3,0). */
+:root[data-luca-frame="solid"]
+  .luca-lip
+  :is(.luca-lip-button, [data-testid="workspace-layout-menu"]) {
+  transition:
+    color 120ms,
+    background-color 120ms;
+}
+
+/* Conversation details, while its card is open: the plate and the ink, as
+ * the toggle wears them on hover (ChannelScreenHeader sets aria-expanded). */
+.luca-lip-actions .luca-lip-button[aria-expanded="true"] {
+  background: hsl(var(--mn-ink) / 0.06);
+  color: hsl(var(--mn-ink));
+}
+
 /* A person's presence, on the lip's line inside a tile's 24. */
 .luca-lip-presence {
   align-items: center;
@@ -113,7 +131,21 @@
  * ChannelScreenHeader); its initials follow the text zoom down but stop
  * where they would outgrow the disc. */
 .luca-lip-presence__face {
-  font-size: min(0.6875rem, 11px);
+  font-size: min(0.75rem, 12px);
+}
+
+/* Without a picture, the frame's avatar material: a disc at ink 14% and
+ * the initials in ink at weight 550 (the study's .shell-avatar). The avatar's
+ * own tinted backdrop and shadow give way to it. */
+.luca-lip-presence [data-testid="chat-header-dm-avatar"] {
+  background: transparent;
+  box-shadow: none;
+}
+
+.luca-lip-presence [data-testid="chat-header-dm-avatar-fallback"] {
+  background: hsl(var(--mn-ink) / 0.14);
+  color: hsl(var(--mn-ink));
+  font-weight: 550;
 }
 
 /* An ephemeral conversation's badge: a glyph in the frame's second tone,
@@ -135,7 +167,8 @@
 }
 
 /* Join, in the actions' place: the app's own filled button, at the lip's
- * height and corners. Its word is text, so it follows the text zoom: the
+ * height and corners, and the lip's focus ring (1, ink 55%) drawn outside
+ * its fill. Its word is text, so it follows the text zoom: the
  * line box is the word's own and the icon is sized in rem beside it (14 at
  * 100%), and the button grows past 24 only when they need it. */
 .luca-lip-actions .luca-lip-join {
@@ -145,6 +178,12 @@
   line-height: 1;
   min-height: 24px;
   padding: 0 9px 0 7px;
+}
+
+.luca-lip-actions .luca-lip-join:focus-visible {
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: 1px;
 }
 
 .luca-lip-actions .luca-lip-join svg {
