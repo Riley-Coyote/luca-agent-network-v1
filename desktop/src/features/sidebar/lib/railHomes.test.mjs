@@ -136,6 +136,93 @@ test("one home per chat, by the four rules", () => {
   assert.deepEqual(idsOf(byName.get("Scratch")), ["lonely"]);
 });
 
+test("a group is named by its members, never by one of its chats", () => {
+  const STRANGER = "9".repeat(64);
+  const OTHER = "8".repeat(64);
+  const build = (items, names) =>
+    buildRailHomes({
+      items,
+      agents: [
+        { name: "Luca", pubkey: LUCA },
+        { name: "Atlas", pubkey: ATLAS },
+        { name: "Wren", pubkey: WREN },
+      ],
+      primaryPubkey: LUCA,
+      projects: [],
+      projectByChannelId: new Map(),
+      names,
+    });
+  const items = [
+    // One chat: the home is that chat, by its own name, with no sessions.
+    chat("general", [ATLAS, STRANGER, OTHER], "stream", "general"),
+    // Several chats, one member nobody can name: counted, not a chat's name.
+    chat("random", [ATLAS, STRANGER]),
+    chat("engineering", [STRANGER, ATLAS]),
+    // A group chat and a room with the same members: the group's own chat
+    // is the home's conversation, and only the named room nests.
+    chat("lw-dm", [WREN, LUCA], "dm", "Luca, Wren"),
+    chat("lw-room", [LUCA, WREN], "stream", "Plan review"),
+    // An unnamed group chat alone: its own name is its members.
+    chat("aw-dm", [WREN, ATLAS], "dm", "Atlas, Wren"),
+  ];
+  const homes = build(items);
+  const fleets = new Map(homes.fleets.map((home) => [home.id, home]));
+  const fleetOf = (...members) =>
+    fleets.get(`fleet:${[...members].sort().join("+")}`);
+  const labels = new Set(items.map((item) => item.label));
+
+  const general = fleetOf(ATLAS, STRANGER, OTHER);
+  assert.equal(general.name, "general");
+  assert.equal(general.main?.channel.id, "general");
+  assert.deepEqual(general.sessions, []);
+  assert.equal(general.membersName, "Atlas + 2 others");
+
+  const atlasStranger = fleetOf(ATLAS, STRANGER);
+  assert.equal(atlasStranger.name, "Atlas + 1 other");
+  assert.equal(atlasStranger.main, null);
+  assert.deepEqual(
+    atlasStranger.sessions.map((item) => item.channel.id),
+    ["engineering", "random"],
+  );
+  assert.equal(labels.has(atlasStranger.name), false);
+
+  const lucaWren = fleetOf(LUCA, WREN);
+  assert.equal(lucaWren.name, "Luca + Wren");
+  assert.equal(lucaWren.main?.channel.id, "lw-dm");
+  assert.deepEqual(
+    lucaWren.sessions.map((item) => item.channel.id),
+    ["lw-room"],
+  );
+  // No session takes the group chat's comma-joined label.
+  assert.equal(
+    lucaWren.sessions.some((item) => item.label === "Luca, Wren"),
+    false,
+  );
+
+  const atlasWren = fleetOf(ATLAS, WREN);
+  assert.equal(atlasWren.name, "Atlas + Wren");
+  assert.equal(atlasWren.main?.channel.id, "aw-dm");
+  assert.deepEqual(atlasWren.sessions, []);
+
+  // No chat twice, none lost.
+  const placed = railHomeList(homes).flatMap(idsOf);
+  assert.equal(placed.length, items.length);
+  assert.equal(new Set(placed).size, placed.length);
+
+  // Profile names fill in members who are not agents.
+  const named = build(items, new Map([[STRANGER, "Kai"]]));
+  assert.equal(
+    named.fleets.find((home) => home.id === atlasStranger.id)?.name,
+    "Atlas + Kai",
+  );
+  // Nobody nameable at all: still the members, counted.
+  const strangers = build([
+    chat("x1", [STRANGER, OTHER]),
+    chat("x2", [OTHER, STRANGER]),
+  ]);
+  assert.equal(strangers.fleets[0]?.name, "2 people");
+});
+
 test("the active home is the parent of whatever is open", () => {
   const homes = scene();
   assert.equal(activeRailHome(homes, "wren-monday", null)?.name, "Wren");

@@ -20,6 +20,10 @@ import {
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectDetailsDialog } from "@/features/projects/ui/ProjectRoomWorkspace";
+import { usePublishFieldAnchor } from "@/features/onboarding/polyphonicOnboardingGeometry";
+import { useUsersBatchQuery } from "@/features/profile/hooks";
+import { resolveIdentityDisplayName } from "@/features/profile/lib/identity";
+import { useProjectRoomsPlacement } from "@/features/sidebar/lib/projectRoomsPlacement";
 import { ChatRowContextMenu } from "@/features/sidebar/ui/ChatList";
 import {
   ContextMenuIconSlot,
@@ -86,7 +90,7 @@ const SECTIONS = [
 export function addLabel(home: RailHome) {
   return home.kind === "project"
     ? `New room in ${home.name}`
-    : `New session with ${home.name}`;
+    : `New session with ${home.membersName || home.name}`;
 }
 
 /** Up and Down between visible rows; Right opens a home or steps into its
@@ -126,10 +130,16 @@ function railKeys(event: React.KeyboardEvent<HTMLDivElement>) {
     event.preventDefault();
     rows[Math.max(0, Math.min(rows.length - 1, to))]?.focus();
   };
+  // The home's own button says whether it is open; the chevron (a mouse
+  // target, hidden from the keyboard and screen readers) does the toggling.
   const chevron = () =>
     focused
       .closest("[data-home-group]")
       ?.querySelector<HTMLElement>("[data-chevron]");
+  const homeButton = () =>
+    focused
+      .closest("[data-home-group]")
+      ?.querySelector<HTMLElement>('[data-rail-focus="home"]');
   if (event.key === "ArrowDown") move(index + 1);
   else if (event.key === "ArrowUp") move(index - 1);
   else if (event.key === "ArrowRight") {
@@ -137,7 +147,7 @@ function railKeys(event: React.KeyboardEvent<HTMLDivElement>) {
     const toggle = chevron();
     if (!toggle) return;
     event.preventDefault();
-    if (toggle.getAttribute("aria-expanded") === "false") toggle.click();
+    if (focused.getAttribute("aria-expanded") === "false") toggle.click();
     else move(index + 1);
   } else if (event.key === "ArrowLeft") {
     if (focused.dataset.railFocus === "session") {
@@ -148,10 +158,9 @@ function railKeys(event: React.KeyboardEvent<HTMLDivElement>) {
         ?.focus();
       return;
     }
-    const toggle = chevron();
-    if (toggle?.getAttribute("aria-expanded") === "true") {
+    if (homeButton()?.getAttribute("aria-expanded") === "true") {
       event.preventDefault();
-      toggle.click();
+      chevron()?.click();
     }
   }
 }
@@ -178,6 +187,35 @@ export function ShellRail({
   onMarkChannelRead,
   onMarkChannelUnread,
 }: ShellRailProps) {
+  // People in the rail's chats who are not agents, named from their
+  // profiles, so a group is named by its members and never by a chat.
+  const strangers = React.useMemo(() => {
+    const known = new Set(agents.map((agent) => agent.pubkey.toLowerCase()));
+    return [
+      ...new Set(
+        items.flatMap((item) =>
+          item.participants.map((pubkey) => pubkey.toLowerCase()),
+        ),
+      ),
+    ].filter((pubkey) => !known.has(pubkey));
+  }, [agents, items]);
+  const profiles = useUsersBatchQuery(strangers).data?.profiles;
+  const names = React.useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const pubkey of strangers) {
+      const profile = profiles?.[pubkey];
+      if (!profile) continue;
+      const name = resolveIdentityDisplayName({
+        displayName: profile.displayName,
+        name: profile.name,
+        nip05Handle: profile.nip05Handle,
+        pubkey,
+      });
+      // "Person" is the resolver's own stand-in, not a name.
+      if (name !== "Person") byKey.set(pubkey, name);
+    }
+    return byKey;
+  }, [profiles, strangers]);
   const homes = React.useMemo(
     () =>
       buildRailHomes({
@@ -186,9 +224,13 @@ export function ShellRail({
         primaryPubkey,
         projects,
         projectByChannelId,
+        names,
       }),
-    [agents, items, primaryPubkey, projectByChannelId, projects],
+    [agents, items, names, primaryPubkey, projectByChannelId, projects],
   );
+  // "In a column": a project's rooms sit in the room column beside the
+  // conversation, so the project's row nests nothing (as today's rail).
+  const roomsInColumn = useProjectRoomsPlacement() === "column";
   const active = activeRailHome(homes, selectedChannelId, selectedProjectId);
 
   const [expanded, setExpanded] = React.useState<Record<string, boolean>>(
@@ -274,8 +316,9 @@ export function ShellRail({
     [agents],
   );
 
+  const flat = (home: RailHome) => roomsInColumn && home.kind === "project";
   const openHome = (home: RailHome) => {
-    if (home.sessions.length > 0) setOpen(home.id, true);
+    if (home.sessions.length > 0 && !flat(home)) setOpen(home.id, true);
     if (home.kind === "project" && home.project) {
       const remembered = readLastProjectRoom(home.project.id);
       const preferred = home.sessions.some(
@@ -305,6 +348,7 @@ export function ShellRail({
       active={active?.id === home.id}
       agent={home.pubkey ? agentsByPubkey.get(home.pubkey) : undefined}
       expanded={expanded[home.id] ?? false}
+      flat={flat(home)}
       home={home}
       key={home.id}
       onAdd={(target) => {
@@ -386,6 +430,11 @@ export function ShellRail({
   );
 }
 
+/** A status the agent is in, not work in progress: no ellipsis. */
+function StatusLabel({ children }: { children: string }) {
+  return <span className="luca-rail-status text-2xs">{children}</span>;
+}
+
 function WorkingLabel({ count }: { count: number }) {
   return (
     <span className="luca-rail-working text-2xs">
@@ -407,6 +456,7 @@ function HomeRow({
   active,
   agent,
   expanded,
+  flat,
   home,
   onAdd,
   onOpen,
@@ -419,6 +469,8 @@ function HomeRow({
   active: boolean;
   agent: AgentRailAgent | undefined;
   expanded: boolean;
+  /** Nest nothing: a project whose rooms sit in a column. */
+  flat: boolean;
   home: RailHome;
   onAdd: (home: RailHome) => void;
   onOpen: (home: RailHome) => void;
@@ -439,12 +491,15 @@ function HomeRow({
       count + (workingByChannelId?.get(item.channel.id)?.agentCount ?? 0),
     0,
   );
-  const status = agent?.waking
+  // Only work in progress trails off: "Waking…" and "working…" keep their
+  // ellipsis; a status such as "Needs attention" has none.
+  const waking = Boolean(agent?.waking);
+  const status = waking
     ? "Waking"
     : agent?.lastError
       ? "Needs attention"
       : null;
-  const nested = home.sessions.length > 0;
+  const nested = !flat && home.sessions.length > 0;
   const mainOpen =
     active &&
     (home.main
@@ -452,14 +507,21 @@ function HomeRow({
       : !home.sessions.some((item) => item.channel.id === selectedChannelId));
   // A resident still arriving has no record to start a session with yet.
   const canAdd = !agent?.pubkey.includes(":");
-  const signal = unread ? (
-    <UnreadDot />
+  // The study's order: a status or "working…" first, then the unread dot.
+  const signal = waking ? (
+    <span className="luca-rail-working text-2xs">Waking</span>
   ) : status ? (
-    <span className="luca-rail-working text-2xs">{status}</span>
+    <StatusLabel>{status}</StatusLabel>
   ) : working > 0 ? (
     <WorkingLabel count={working} />
+  ) : unread ? (
+    <UnreadDot />
   ) : null;
   const sessionsId = `rail-sessions-${home.id}`;
+  // Onboarding's travelling mark lands on Luca's name: Luca's row has no
+  // glyph under the shell, so its name is where the mark settles.
+  const nameRef = React.useRef<HTMLSpanElement>(null);
+  usePublishFieldAnchor(nameRef, "app", home.kind === "luca");
 
   return (
     <div className="luca-rail-home" data-home-group={home.id}>
@@ -474,7 +536,9 @@ function HomeRow({
         data-testid={`rail-home-${home.id}`}
       >
         <button
+          aria-controls={nested ? sessionsId : undefined}
           aria-current={mainOpen ? "page" : undefined}
+          aria-expanded={nested ? expanded : undefined}
           aria-label={[
             home.name,
             unread ? "unread" : null,
@@ -488,15 +552,21 @@ function HomeRow({
           title={home.name}
           type="button"
         />
-        <span aria-hidden className="luca-rail-row-name text-sm">
+        <span
+          aria-hidden
+          className="luca-rail-row-name text-sm"
+          data-onboarding-anchor={home.kind === "luca" ? "" : undefined}
+          ref={nameRef}
+        >
           {home.name}
         </span>
         {nested ? (
+          // A mouse target only: the home's own button carries the state, and
+          // Right and Left open and close it from the keyboard.
           <button
-            aria-controls={expanded ? sessionsId : undefined}
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "Hide" : "Show"} ${home.name}'s sessions`}
+            aria-hidden
             className="luca-rail-chevron"
+            data-expanded={expanded ? "true" : "false"}
             data-chevron=""
             onClick={() => onToggle(!expanded)}
             tabIndex={-1}
@@ -520,13 +590,17 @@ function HomeRow({
           ) : null}
         </span>
       </div>
-      {nested && expanded ? (
+      {nested ? (
+        // Always present, so the home's aria-controls names something; its
+        // sessions are drawn only while it is open, so nothing hidden is ever
+        // counted as unread above or below (useUnreadOverflow).
         <fieldset
           aria-label={`${home.name}'s sessions`}
           className="luca-rail-sessions"
+          hidden={!expanded}
           id={sessionsId}
         >
-          {home.sessions.map((item) => {
+          {(expanded ? home.sessions : []).map((item) => {
             const current = item.channel.id === selectedChannelId;
             const isUnread = !current && unreadChannelIds.has(item.channel.id);
             const busy = workingByChannelId?.get(item.channel.id)?.agentCount;
@@ -536,7 +610,7 @@ function HomeRow({
                 aria-label={[item.label, isUnread ? "unread" : null]
                   .filter(Boolean)
                   .join(", ")}
-                className="luca-rail-session"
+                className="luca-rail-session text-lip"
                 data-channel-id={item.channel.id}
                 data-current={current ? "true" : undefined}
                 data-rail-focus="session"
@@ -547,10 +621,10 @@ function HomeRow({
                 type="button"
               >
                 <span className="luca-rail-session-title">{item.label}</span>
-                {isUnread ? (
-                  <UnreadDot />
-                ) : busy ? (
+                {busy ? (
                   <WorkingLabel count={busy} />
+                ) : isUnread ? (
+                  <UnreadDot />
                 ) : null}
               </button>
             );

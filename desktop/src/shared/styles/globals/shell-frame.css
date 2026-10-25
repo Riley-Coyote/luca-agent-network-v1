@@ -309,10 +309,14 @@
   background: transparent;
 }
 
-/* The rows begin a breath inside the card's top edge. */
+/* The rows begin a breath inside the card's top edge. The breath is the
+ * scroller's own padding, so it scrolls away with the rows and they slip
+ * under the card's lit top edge, as in the study, rather than being cut on
+ * a line 6 inside it. */
 :root[data-luca-frame="solid"]
   [data-frame]
-  [data-testid="app-sidebar-scroll-anchor"] {
+  [data-testid="app-sidebar-scroll-anchor"]
+  [data-sidebar="content"] {
   padding-top: var(--luca-frame-edge);
 }
 

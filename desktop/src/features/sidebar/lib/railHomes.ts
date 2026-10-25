@@ -11,7 +11,12 @@ import { type ChatListItem, sortChats } from "./chatListModel";
  * Every chat lands in exactly one home:
  *   1. a chat that belongs to a project lives under that project;
  *   2. otherwise a chat with more than one other participant (a group) lives
- *      under Fleets, one fleet per set of members;
+ *      under Fleets, one fleet per set of members. A group is named by its
+ *      members, never by one of its chats: a group with one chat is that chat,
+ *      by its own name; a group with several is named "Luca + Wren" and holds
+ *      each chat as a session by its own name, except the group's own unnamed
+ *      chat, which the home's row opens. (When fleets get a record and
+ *      a name of their own, the record's name wins.);
  *   3. otherwise a chat with one participant lives under that agent (Luca's
  *      under Luca);
  *   4. a chat with one participant who is not in the agent list (a removed
@@ -36,6 +41,9 @@ export type RailHome = {
   pubkey: string | null;
   /** A fleet's members, lowercase and sorted; empty for every other kind. */
   members: string[];
+  /** A fleet's members by name ("Luca + Wren"), whatever the home is called:
+   *  the + starts a session with them. Empty for every other kind. */
+  membersName: string;
   project: RoomProject | null;
   /** The newest activity anywhere in the home (ms), which orders fleets. */
   mostRecent: number;
@@ -101,10 +109,14 @@ function settle(home: RailHome, chats: ChatListItem[]) {
       ? (sorted.find((item) => isDirectWith(item, pubkey)) ?? null)
       : null;
   } else if (home.kind === "fleet") {
-    // The group chat itself, or the room that is the whole of a room home.
+    // A group with one chat, or a room only the owner is in, is that chat.
+    // With several, the group's own unnamed chat (its direct conversation)
+    // stands for the group, the way an agent's 1:1 does, and only the named
+    // rooms nest; without one, every chat is a session.
     main =
-      sorted.find((item) => item.channel.channelType === "dm") ??
-      (home.id.startsWith("room:") ? (sorted[0] ?? null) : null);
+      sorted.length === 1
+        ? (sorted[0] ?? null)
+        : (sorted.find((item) => item.channel.channelType === "dm") ?? null);
   }
   home.main = main;
   home.sessions = main ? sorted.filter((item) => item !== main) : sorted;
@@ -125,12 +137,16 @@ export function buildRailHomes({
   primaryPubkey,
   projects,
   projectByChannelId,
+  names,
 }: {
   items: readonly ChatListItem[];
   agents: readonly RailHomeAgent[];
   primaryPubkey: string | null;
   projects: readonly RoomProject[];
   projectByChannelId: ReadonlyMap<string, RoomProject>;
+  /** Profile names by key (lowercase), for members who are not agents and
+   *  have no 1:1 to be named by. */
+  names?: ReadonlyMap<string, string>;
 }): RailHomes {
   const primary = primaryPubkey ? normalizePubkey(primaryPubkey) : null;
   const agentNames = new Map(
@@ -158,6 +174,7 @@ export function buildRailHomes({
     sessions: [],
     pubkey: null,
     members: [],
+    membersName: "",
     project: null,
     mostRecent: 0,
     ...fields,
@@ -209,7 +226,7 @@ export function buildRailHomes({
     const known = agentNames.get(pubkey);
     if (known) return known;
     const direct = items.find((item) => isDirectWith(item, pubkey));
-    return direct?.label ?? null;
+    return direct?.label ?? names?.get(pubkey) ?? null;
   };
 
   // Agents: every resident in display order, then anyone else by recency.
@@ -241,7 +258,13 @@ export function buildRailHomes({
       const members = membersOf(chats[0]);
       const each = home({ id, kind: "fleet", name: "", members });
       settle(each, chats);
-      each.name = fleetName(members, nameOf, primary, each);
+      each.membersName = membersName(members, nameOf, primary);
+      // One chat: the home is that chat, by its own name (an unnamed group
+      // chat's own name is its members). Several: the members' name.
+      each.name =
+        each.main && each.main.channel.channelType !== "dm"
+          ? each.main.label
+          : each.membersName;
       fleets.push(each);
     } else {
       // A room only the owner is in, under Fleets by its own name.
@@ -265,29 +288,35 @@ export function buildRailHomes({
   };
 }
 
-/** "Luca + Wren": Luca first, then the members by name. A group chat without
- *  a name shows its members until it is named; when a member can't be named,
- *  the group chat's own label stands in. */
-function fleetName(
+/** "Luca + Wren": Luca first, then the members by name. Members nobody can
+ *  name are counted ("Luca + Wren + 1 other"), so a group is never named after
+ *  one of its chats. */
+export function membersName(
   members: readonly string[],
   nameOf: (pubkey: string) => string | null,
   primary: string | null,
-  home: RailHome,
 ) {
-  const names = members.map((pubkey) => ({ pubkey, name: nameOf(pubkey) }));
-  if (names.every((entry) => entry.name)) {
-    return names
-      .sort((a, b) =>
-        a.pubkey === primary
-          ? -1
-          : b.pubkey === primary
-            ? 1
-            : (a.name ?? "").localeCompare(b.name ?? ""),
-      )
-      .map((entry) => entry.name)
-      .join(" + ");
+  const named = members.flatMap((pubkey) => {
+    const name = nameOf(pubkey);
+    return name ? [{ pubkey, name }] : [];
+  });
+  named.sort((a, b) =>
+    a.pubkey === primary
+      ? -1
+      : b.pubkey === primary
+        ? 1
+        : a.name.localeCompare(b.name),
+  );
+  const unnamed = members.length - named.length;
+  const parts = named.map((entry) => entry.name);
+  if (unnamed > 0) {
+    parts.push(
+      named.length === 0
+        ? `${unnamed} people`
+        : `${unnamed} ${unnamed === 1 ? "other" : "others"}`,
+    );
   }
-  return home.main?.label ?? home.sessions[0]?.label ?? "Group";
+  return parts.join(" + ");
 }
 
 /** Every home in the rail's order, Luca first. */

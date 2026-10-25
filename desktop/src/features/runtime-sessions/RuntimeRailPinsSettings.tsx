@@ -5,6 +5,7 @@ import {
   SettingsOptionGroup,
   SettingsOptionRow,
 } from "@/features/settings/ui/SettingsOptionGroup";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { HarnessLogo, HARNESS_LABELS } from "@/shared/ui/HarnessLogo";
 import { Switch } from "@/shared/ui/switch";
 
@@ -34,6 +35,8 @@ function connectionStatus(
 }
 
 export function RuntimeRailPinsSettings() {
+  // Under the shell, Runtimes left the rail for the Agents page.
+  const shellFrame = useShellFrameEnabled();
   const statusQuery = useRuntimeConnectionsQuery();
   const catalogQuery = useAcpRuntimesQuery();
   const { isReady, pins, setFamilyPinned } = useCurrentRuntimeRailPins();
@@ -57,10 +60,13 @@ export function RuntimeRailPinsSettings() {
 
   return (
     <div className="mt-8" data-testid="runtime-rail-pins-settings">
-      <h3 className="mb-2 px-1 text-sm font-medium">Sidebar runtimes</h3>
+      <h3 className="mb-2 px-1 text-sm font-medium">
+        {shellFrame ? "Runtimes" : "Sidebar runtimes"}
+      </h3>
       <p className="mb-3 px-1 text-sm leading-6 text-muted-foreground">
-        Choose which installed harnesses stay within reach. Native Hermes and
-        OpenClaw residents remain in the Agent Library.
+        {shellFrame
+          ? "Choose which installed harnesses appear on the Agents page."
+          : "Choose which installed harnesses stay within reach. Native Hermes and OpenClaw residents remain in the Agent Library."}
       </p>
       <SettingsOptionGroup>
         {SUPPORTED_RUNTIME_RAIL_FAMILIES.map((family, index) => {
@@ -90,7 +96,11 @@ export function RuntimeRailPinsSettings() {
                 </div>
               </div>
               <Switch
-                aria-label={`Show ${label} in the runtime rail`}
+                aria-label={
+                  shellFrame
+                    ? `Show ${label} on the Agents page`
+                    : `Show ${label} in the runtime rail`
+                }
                 checked={pinned.has(family)}
                 data-testid={switchId}
                 disabled={!isReady}

@@ -331,11 +331,14 @@ export function AgentsView({
             <AgentLibraryRoster
               after={
                 // The shell moves Runtimes out of the rail and onto this page.
+                // Its rows take the roster's geometry (shell-rail.css).
                 shellFrame ? (
-                  <RuntimeRailSection
-                    onSelect={requestOpenRuntimeSessions}
-                    selectedRuntimeKey={null}
-                  />
+                  <div data-agents-runtimes="">
+                    <RuntimeRailSection
+                      onSelect={requestOpenRuntimeSessions}
+                      selectedRuntimeKey={null}
+                    />
+                  </div>
                 ) : undefined
               }
               fillPane={isSinglePaneLibrary}

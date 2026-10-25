@@ -144,7 +144,19 @@ function PlaceTile({
  * Search is today's search dialog; this tile is its trigger. Its tooltip
  * stands down once the tile is pressed, until the pointer leaves: left open,
  * it sat over the dialog and took the dialog's first Escape.
+ *
+ * The dialog is portalled, but React still bubbles its events through this
+ * tile, so the dialog's input taking focus (however it opened: a press, ⌘K)
+ * and the pointer crossing the dialog read to the tooltip as the tile's own.
+ * Only the tile's own focus and hover may show it.
  */
+const ignoreOutsideTile = (event: React.SyntheticEvent<HTMLElement>) => {
+  if (!event.currentTarget.contains(event.target as Node)) {
+    // Radix skips its own handler once an earlier one has prevented.
+    event.preventDefault();
+  }
+};
+
 function SearchPlace({
   search,
   shortcut,
@@ -156,7 +168,11 @@ function SearchPlace({
   const [pressed, setPressed] = React.useState(false);
   return (
     <Tooltip onOpenChange={(open) => setHinted(open)} open={hinted && !pressed}>
-      <TooltipTrigger asChild>
+      <TooltipTrigger
+        asChild
+        onFocus={ignoreOutsideTile}
+        onPointerMove={ignoreOutsideTile}
+      >
         {/* biome-ignore lint/a11y/noStaticElementInteractions: it only notices presses of the search button inside it, which is the control. */}
         <div
           className="luca-place-search"
