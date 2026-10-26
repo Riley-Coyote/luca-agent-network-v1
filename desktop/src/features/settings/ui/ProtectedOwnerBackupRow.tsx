@@ -8,8 +8,10 @@ import {
 } from "@/shared/api/tauriIdentity";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
+import { useSettingsAppName } from "./SettingsSectionHeader";
 
 export function ProtectedOwnerBackupRow() {
+  const appName = useSettingsAppName();
   const [isOpen, setIsOpen] = React.useState(false);
   const [passphrase, setPassphrase] = React.useState("");
   const [confirmation, setConfirmation] = React.useState("");
@@ -70,8 +72,7 @@ export function ProtectedOwnerBackupRow() {
       {isOpen ? (
         <div className="mt-4 space-y-3 rounded-lg border border-border/60 bg-muted/20 p-3">
           <p className="text-xs leading-5 text-muted-foreground">
-            Choose a unique passphrase. Luca never displays or copies the
-            private key.
+            {`Choose a unique passphrase. ${appName} never displays or copies the private key.`}
           </p>
           <Input
             aria-label="Backup passphrase"

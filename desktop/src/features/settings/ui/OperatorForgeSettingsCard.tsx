@@ -134,7 +134,10 @@ export function OperatorForgeSettingsCard() {
       <HermesInstallationSettings
         onChanged={() => Promise.all([settings.refetch(), runtimes.refetch()])}
       />
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-card/30 p-4">
+      <div
+        className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-card/30 p-4"
+        data-settings-box=""
+      >
         <div>
           <p className="text-sm font-medium">Luca</p>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -192,7 +195,10 @@ export function OperatorForgeSettingsCard() {
         </p>
       ) : null}
       {(activity.data ?? []).length > 0 ? (
-        <details className="rounded-xl border border-border/60 bg-card/20 p-4">
+        <details
+          className="rounded-xl border border-border/60 bg-card/20 p-4"
+          data-settings-box=""
+        >
           <summary className="cursor-pointer text-sm font-medium">
             Provisioning activity
           </summary>
@@ -284,6 +290,7 @@ function HermesInstallationSettings({
     <section
       aria-labelledby="hermes-installation-title"
       className="min-w-0 space-y-3 rounded-xl border border-border/60 bg-card/30 p-4"
+      data-settings-box=""
       data-testid="settings-hermes-installation"
     >
       <div className="space-y-1">

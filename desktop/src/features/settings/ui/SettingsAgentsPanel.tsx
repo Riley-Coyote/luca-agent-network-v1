@@ -44,6 +44,7 @@ import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 import { ResidentAccessControl } from "./ResidentCapabilitySettings";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
+import { useSettingsAppName } from "./SettingsSectionHeader";
 
 const SETTINGS_AGENT_SEARCH_KEYS = [
   "section",
@@ -67,10 +68,10 @@ function agentOriginDescription(resident: ResidentSummaryViewModel) {
     : `${agentOriginLabel(resident)} · ${residentSourceLabel(resident)}`;
 }
 
-function authorityLabel(resident: ResidentSummaryViewModel) {
+function authorityLabel(resident: ResidentSummaryViewModel, appName: string) {
   return resident.kind === "managed_native"
-    ? "Native-managed binding · Luca-managed overlays"
-    : "Luca-managed";
+    ? `Native-managed binding · ${appName}-managed overlays`
+    : `${appName}-managed`;
 }
 
 function identityState(resident: ResidentSummaryViewModel) {
@@ -168,6 +169,7 @@ export function SettingsAgentsPanel() {
   return (
     <section
       className="min-h-[620px] overflow-hidden rounded-2xl border border-border/60 bg-card/30"
+      data-settings-box=""
       data-testid="settings-agents"
     >
       <div className="flex min-h-[620px] min-w-0">
@@ -272,6 +274,7 @@ function AgentSettingsDetail({
   resident: ResidentSummaryViewModel;
   tab: AgentSettingsTab;
 }) {
+  const appName = useSettingsAppName();
   const startOnLaunch = useSetManagedAgentStartOnAppLaunchMutation();
   const autoRestart = useSetManagedAgentAutoRestartMutation();
   const configuration = agentConfigurationViewModel(resident);
@@ -352,19 +355,19 @@ function AgentSettingsDetail({
             <AgentSettingBlock
               icon={ShieldCheck}
               label="Configuration authority"
-              value={authorityLabel(configuration.resident)}
-              detail={`Runtime: ${configuration.authorities.runtime.replaceAll("_", " ")} · Continuity and permissions: Luca managed`}
+              value={authorityLabel(configuration.resident, appName)}
+              detail={`Runtime: ${configuration.authorities.runtime.replaceAll("_", " ")} · Continuity and permissions: ${appName} managed`}
             />
             <AgentSettingBlock
               icon={Info}
               label="Instructions"
               value={
                 managedAgent?.systemPrompt?.trim() ||
-                "No Luca-managed instructions set."
+                `No ${appName}-managed instructions set.`
               }
               detail={
                 resident.kind === "managed_native"
-                  ? "Native instructions remain managed by the native system. Luca does not rewrite them."
+                  ? `Native instructions remain managed by the native system. ${appName} does not rewrite them.`
                   : "Editable from the Agent Library when this runtime supports it."
               }
             />
@@ -396,21 +399,21 @@ function AgentSettingsDetail({
               icon={ShieldCheck}
               label="Permission boundary"
               value="Fail closed"
-              detail="MCP access never grants tool approval. Every protected action still uses Luca’s existing permission flow."
+              detail={`MCP access never grants tool approval. Every protected action still uses ${appName}’s existing permission flow.`}
             />
             <AgentSettingBlock
               icon={LockKeyhole}
               label="Continuity"
               value={
                 resident.pubkey
-                  ? "Available as a Luca-managed overlay"
+                  ? `Available as a ${appName}-managed overlay`
                   : "Available after setup"
               }
               detail="Private continuity jobs never receive MCP tools."
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-muted-foreground">
-                Per-agent Luca MCP grants are managed in Connections & MCP.
+                {`Per-agent ${appName} MCP grants are managed in Connections & MCP.`}
               </p>
               <Button onClick={onOpenMcp} size="sm" variant="outline">
                 Manage MCP access <ArrowUpRight className="ml-1.5 size-3.5" />
@@ -425,7 +428,7 @@ function AgentSettingsDetail({
                 <div>
                   <p className="text-sm font-medium">Wakes with the app</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Luca-managed overlay; native schedules remain untouched.
+                    {`${appName}-managed overlay; native schedules remain untouched.`}
                   </p>
                 </div>
                 <Switch
@@ -442,10 +445,10 @@ function AgentSettingsDetail({
               <SettingsOptionRow className="border-t border-border/50">
                 <div>
                   <p className="text-sm font-medium">
-                    Restart after Luca config changes
+                    {`Restart after ${appName} config changes`}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Applies only to compatible Luca-managed runtime settings.
+                    {`Applies only to compatible ${appName}-managed runtime settings.`}
                   </p>
                 </div>
                 <Switch
@@ -526,7 +529,10 @@ function AgentSettingBlock({
 
 function EmptyConfiguration({ message }: { message: string }) {
   return (
-    <p className="rounded-xl border border-border/50 bg-muted/15 px-4 py-8 text-center text-sm text-muted-foreground">
+    <p
+      className="rounded-xl border border-border/50 bg-muted/15 px-4 py-8 text-center text-sm text-muted-foreground"
+      data-settings-box=""
+    >
       {message}
     </p>
   );

@@ -5,15 +5,19 @@ import {
   SettingsOptionGroup,
   SettingsOptionRow,
 } from "./ui/SettingsOptionGroup";
-import { SettingsSectionHeader } from "./ui/SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./ui/SettingsSectionHeader";
 export function UpdateChecker() {
   const { status, checkForUpdate, installAndRelaunch } = useUpdaterContext();
+  const appName = useSettingsAppName();
 
   return (
     <section className="min-w-0" data-testid="settings-updates">
       <SettingsSectionHeader
         title="Software Updates"
-        description="Keep Luca up to date with the latest features and fixes."
+        description={`Keep ${appName} up to date with the latest features and fixes.`}
       />
 
       <SettingsOptionGroup>

@@ -27,7 +27,10 @@ import {
   DialogTitle,
 } from "@/shared/ui/dialog";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
-import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./SettingsSectionHeader";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
 
 type PairingStep =
@@ -45,6 +48,7 @@ function PairingDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const appName = useSettingsAppName();
   const [step, setStep] = useState<PairingStep>("generating");
   const [qrUri, setQrUri] = useState<string | null>(null);
   const [sasCode, setSasCode] = useState<string | null>(null);
@@ -187,7 +191,7 @@ function PairingDialog({
                 ? "Verify the security code matches your mobile device."
                 : step === "done"
                   ? "Your mobile device is now paired."
-                  : "Scan this QR code with the Luca mobile app to securely pair."}
+                  : `Scan this QR code with the ${appName} mobile app to securely pair.`}
             </DialogDescription>
           </DialogHeader>
 
@@ -253,8 +257,7 @@ function PairingDialog({
                     </p>
                   </div>
                   <p className="text-center text-xs text-muted-foreground">
-                    You are about to transfer your Luca identity to another
-                    device. Only confirm if you initiated this pairing.
+                    {`You are about to transfer your ${appName} identity to another device. Only confirm if you initiated this pairing.`}
                   </p>
                 </div>
 
@@ -321,6 +324,7 @@ export function MobilePairingCard({
 }: {
   currentPubkey?: string;
 }) {
+  const appName = useSettingsAppName();
   const [dialogOpen, setDialogOpen] = useState(false);
 
   return (
@@ -329,9 +333,7 @@ export function MobilePairingCard({
         title="Mobile & devices"
         description={
           <>
-            Connect the Luca mobile app to this relay by scanning a QR code. The
-            connection is secured with end-to-end encryption and a verification
-            code.
+            {`Connect the ${appName} mobile app to this relay by scanning a QR code. The connection is secured with end-to-end encryption and a verification code.`}
           </>
         }
       />
@@ -342,8 +344,7 @@ export function MobilePairingCard({
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Pair mobile companion</p>
             <p className="text-sm font-normal text-muted-foreground">
-              Create an encrypted one-time pairing session. Luca does not
-              fabricate a persistent device registry.
+              {`Create an encrypted one-time pairing session. ${appName} does not fabricate a persistent device registry.`}
             </p>
           </div>
           <Button

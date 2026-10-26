@@ -91,7 +91,10 @@ import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
-import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  SettingsSectionHeader,
+  useSettingsAppName,
+} from "./SettingsSectionHeader";
 import { SettingsAgentsPanel } from "./SettingsAgentsPanel";
 import { ConnectionsMcpSettings } from "./ConnectionsMcpSettings";
 import {
@@ -224,6 +227,22 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     icon: BadgeInfo,
   },
 ];
+
+/**
+ * A section's name as its row says it. Under the shell's frame the app is
+ * Polyphonic, and About needs no name after it (the study's rail: "About";
+ * SHELL_BUILD.md WP-17, 6).
+ */
+export function settingsSectionLabel(
+  section: SettingsSection,
+  framed: boolean,
+): string {
+  if (framed && section === "about") return "About";
+  return (
+    settingsSections.find((entry) => entry.value === section)?.label ??
+    "Settings"
+  );
+}
 
 function formatThemeLabel(name: string): string {
   // The default shell is the Linear-dose ladder ("Slate"); Ash (the
@@ -432,6 +451,12 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   const accentPickerHidden = isFixedNeutralTheme(themeName);
   const shouldReduceMotion = useReducedMotion();
 
+  const appName = useSettingsAppName();
+  // The grid's edges fade into the page's own ground: the card's surface
+  // under the frame (the one card paints it), the background without.
+  const ground = shellFrame ? "--mn-surface" : "--background";
+  const gridFade = (to: "top" | "bottom") =>
+    `linear-gradient(to ${to}, hsl(var(${ground})), hsl(var(${ground}) / 0))`;
   const previewVarsByTheme = useThemePreviewVars();
   const categories = useThemeCategories(shellFrame);
   // Under the frame the glass themes retire (SHELL_SPEC.md, Decided 7): the
@@ -559,40 +584,68 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
     >
       <SettingsSectionHeader
         title="Appearance"
-        description="Choose a theme for Luca."
+        description={`Choose a theme for ${appName}.`}
       />
 
-      {/* Mode selector: System / Light / Dark */}
-      <div className="mb-4 flex gap-2">
-        {(
-          [
-            { mode: "system" as const, label: "System", Icon: SunMoon },
-            { mode: "light" as const, label: "Light", Icon: Sun },
-            { mode: "dark" as const, label: "Dark", Icon: Moon },
-          ] as const
-        ).map(({ mode, label, Icon }) => (
-          <button
-            aria-pressed={selectedMode === mode}
-            className={cn(
-              "flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-              selectedMode === mode
-                ? "border-primary bg-primary/10 text-foreground"
-                : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground",
-            )}
-            data-testid={`appearance-mode-${mode}`}
-            key={mode}
-            onClick={() => handleModeSelect(mode)}
-            type="button"
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
-
       {shellFrame ? (
-        <FrameSetting />
-      ) : (
+        // Under the frame Mode is Frame's segment, on a row of the same
+        // group (WP-17, 3): the study's Appearance, Mode then Frame.
+        <SettingsOptionGroup className="mb-4" data-testid="appearance-frame">
+          <SettingsOptionRow data-testid="appearance-mode">
+            <p
+              className="min-w-0 text-sm font-medium"
+              id="appearance-mode-label"
+            >
+              Mode
+            </p>
+            <SettingsSegment
+              isDark={isDark}
+              labelledBy="appearance-mode-label"
+              onChange={handleModeSelect}
+              options={[
+                ["system", "System"],
+                ["light", "Light"],
+                ["dark", "Dark"],
+              ]}
+              testId={(mode) => `appearance-mode-${mode}`}
+              value={selectedMode}
+            />
+          </SettingsOptionRow>
+          <FrameSetting />
+        </SettingsOptionGroup>
+      ) : null}
+
+      {/* Mode selector: System / Light / Dark */}
+      {shellFrame ? null : (
+        <div className="mb-4 flex gap-2">
+          {(
+            [
+              { mode: "system" as const, label: "System", Icon: SunMoon },
+              { mode: "light" as const, label: "Light", Icon: Sun },
+              { mode: "dark" as const, label: "Dark", Icon: Moon },
+            ] as const
+          ).map(({ mode, label, Icon }) => (
+            <button
+              aria-pressed={selectedMode === mode}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+                selectedMode === mode
+                  ? "border-primary bg-primary/10 text-foreground"
+                  : "border-border/70 text-muted-foreground hover:border-border hover:text-foreground",
+              )}
+              data-testid={`appearance-mode-${mode}`}
+              key={mode}
+              onClick={() => handleModeSelect(mode)}
+              type="button"
+            >
+              <Icon className="h-4 w-4" />
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {shellFrame ? null : (
         <>
           {/* Native glass test builds only: what the card and the rail's selection are made of. */}
           <NativeGlassSettings />
@@ -606,8 +659,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
           aria-hidden="true"
           className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
           style={{
-            background:
-              "linear-gradient(to bottom, hsl(var(--background)), hsl(var(--background) / 0))",
+            background: gridFade("bottom"),
           }}
         />
         {/* Bottom fade — hidden while the accent picker is visible so its
@@ -618,8 +670,7 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3"
             style={{
-              background:
-                "linear-gradient(to top, hsl(var(--background)), hsl(var(--background) / 0))",
+              background: gridFade("top"),
             }}
           />
         ) : null}
@@ -782,6 +833,59 @@ const MESSAGE_TEXT_CHOICES = [
 ] as const satisfies readonly (readonly [MessageTextSize, string])[];
 
 /**
+ * The study's segment (shellStudy.css:1137-1155), as the Frame row draws it
+ * and, under the frame, Mode too (WP-17, 3): a track of the ink at 6%; the
+ * chosen option the ink at 14% at night, and by day a piece of paper
+ * standing up on its track, like Send (shellStudy.css:1382-1388), never a
+ * darker dip.
+ */
+function SettingsSegment<T extends string>({
+  describedBy,
+  isDark,
+  labelledBy,
+  onChange,
+  options,
+  testId,
+  value,
+}: {
+  describedBy?: string;
+  isDark: boolean;
+  labelledBy: string;
+  onChange: (value: T) => void;
+  options: [T, string][];
+  testId: (value: T) => string;
+  value: T;
+}) {
+  return (
+    <fieldset
+      aria-describedby={describedBy}
+      aria-labelledby={labelledBy}
+      className="flex gap-1 rounded-full bg-[hsl(var(--mn-ink)/0.06)] p-1"
+    >
+      {options.map(([option, label]) => (
+        <button
+          aria-pressed={value === option}
+          className={cn(
+            "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+            value !== option
+              ? "text-muted-foreground hover:text-foreground"
+              : isDark
+                ? "bg-[hsl(var(--mn-ink)/0.14)] text-foreground"
+                : "bg-[hsl(var(--mn-surface))] text-foreground shadow-[0_0.5px_1px_hsl(var(--mn-ink)/0.22),0_1px_3px_hsl(var(--mn-ink)/0.1)]",
+          )}
+          data-testid={testId(option)}
+          key={option}
+          onClick={() => onChange(option)}
+          type="button"
+        >
+          {label}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
+/**
  * The Frame row, under the shell's frame (SHELL_SPEC.md, "The frame setting"):
  * Black (Paper in light) or Glass, named "Liquid Glass" where Apple's is
  * beneath the page. Glass is offered only where it can be drawn (the app, on
@@ -793,69 +897,44 @@ function FrameSetting() {
   const { frame, setFrame, glassFrame, isDark } = useTheme();
   const reducedTransparency = useReducedTransparency();
   const chosen: Frame = glassFrame.offered ? frame : "solid";
-  const choices: (readonly [Frame, string])[] = [
+  const choices: [Frame, string][] = [
     ["solid", solidFrameName(isDark)],
     ["glass", glassFrameName({ announced: glassFrame.liquid })],
   ];
 
+  // As the study's setting (shellStudy.css:1230-1253): the label and its
+  // choice share one line, and the sentence sits beneath on its own, so its
+  // length never moves the choice. A row of Appearance's first group.
   return (
-    <SettingsOptionGroup className="mb-4" data-testid="appearance-frame">
-      {/* As the study's setting (shellStudy.css:1230-1253): the label and
-          its choice share one line, and the sentence sits beneath on its
-          own, so its length never moves the choice. */}
-      <SettingsOptionRow className="flex-col items-stretch justify-center gap-1.5">
-        <div className="flex items-center justify-between gap-4">
-          <p
-            className="min-w-0 text-sm font-medium"
-            id="appearance-frame-label"
-          >
-            Frame
-          </p>
-          {/* The study's segment (shellStudy.css:1137-1155): a track of the
-              ink at 6%; the chosen option the ink at 14% at night, and by day
-              a piece of paper standing up on its track, like Send
-              (shellStudy.css:1382-1388), never a darker dip. */}
-          {glassFrame.offered ? (
-            <fieldset
-              aria-describedby="appearance-frame-sentence"
-              aria-labelledby="appearance-frame-label"
-              className="flex gap-1 rounded-full bg-[hsl(var(--mn-ink)/0.06)] p-1"
-            >
-              {choices.map(([value, label]) => (
-                <button
-                  aria-pressed={chosen === value}
-                  className={cn(
-                    "rounded-full px-3 py-1.5 text-xs transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-                    chosen !== value
-                      ? "text-muted-foreground hover:text-foreground"
-                      : isDark
-                        ? "bg-[hsl(var(--mn-ink)/0.14)] text-foreground"
-                        : "bg-[hsl(var(--mn-surface))] text-foreground shadow-[0_0.5px_1px_hsl(var(--mn-ink)/0.22),0_1px_3px_hsl(var(--mn-ink)/0.1)]",
-                  )}
-                  data-testid={`appearance-frame-${value}`}
-                  key={value}
-                  onClick={() => setFrame(value)}
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </fieldset>
-          ) : null}
-        </div>
-        <p
-          className="text-sm font-normal text-muted-foreground"
-          data-testid="appearance-frame-sentence"
-          id="appearance-frame-sentence"
-        >
-          {frameSentence(chosen, {
-            isDark,
-            announced: glassFrame.liquid,
-            reducedTransparency,
-          })}
+    <SettingsOptionRow className="flex-col items-stretch justify-center gap-1.5">
+      <div className="flex items-center justify-between gap-4">
+        <p className="min-w-0 text-sm font-medium" id="appearance-frame-label">
+          Frame
         </p>
-      </SettingsOptionRow>
-    </SettingsOptionGroup>
+        {glassFrame.offered ? (
+          <SettingsSegment
+            describedBy="appearance-frame-sentence"
+            isDark={isDark}
+            labelledBy="appearance-frame-label"
+            onChange={setFrame}
+            options={choices}
+            testId={(value) => `appearance-frame-${value}`}
+            value={chosen}
+          />
+        ) : null}
+      </div>
+      <p
+        className="text-sm font-normal text-muted-foreground"
+        data-testid="appearance-frame-sentence"
+        id="appearance-frame-sentence"
+      >
+        {frameSentence(chosen, {
+          isDark,
+          announced: glassFrame.liquid,
+          reducedTransparency,
+        })}
+      </p>
+    </SettingsOptionRow>
   );
 }
 

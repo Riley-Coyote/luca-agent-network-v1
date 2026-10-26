@@ -24,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/shared/ui/alert-dialog";
 import { Button } from "@/shared/ui/button";
+import { useSettingsAppName } from "./SettingsSectionHeader";
 
 const queryKey = ["resident-capability-settings"] as const;
 const projectNamesQueryKey = ["connected-brain-source-names"] as const;
@@ -271,12 +272,14 @@ export function AccessLevelPicker({
       <AlertDialog onOpenChange={setConfirmOpen} open={confirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Turn on &quot;Don&apos;t ask me&quot;?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Turn on &quot;Don&apos;t ask me&quot;?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {subjectLabel} will act without asking — including messaging
-              people on your behalf, deleting, and the shell tool. Every one
-              of those is still written to the Activity trail, and you can
-              turn this off again anytime.
+              people on your behalf, deleting, and the shell tool. Every one of
+              those is still written to the Activity trail, and you can turn
+              this off again anytime.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -339,8 +342,7 @@ export function HouseholdAccessLevelControl() {
       <div>
         <p className="text-sm font-medium">Default resident access</p>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          New residents inherit this level. Per-resident choices take
-          priority.
+          New residents inherit this level. Per-resident choices take priority.
         </p>
       </div>
       <AccessLevelPicker
@@ -358,6 +360,7 @@ export function ResidentAccessControl({
 }: {
   residentPubkey: string;
 }) {
+  const appName = useSettingsAppName();
   const settings = useCapabilitySettings();
   const projectName = useProjectName();
   const tier = useQuery({
@@ -391,8 +394,7 @@ export function ResidentAccessControl({
     return (
       <section className="space-y-3" role="alert">
         <p className="text-sm text-destructive">
-          This resident’s access policy is unavailable. Luca will continue to
-          fail closed.
+          {`This resident’s access policy is unavailable. ${appName} will continue to fail closed.`}
         </p>
         <Button
           disabled={settings.isFetching}
@@ -453,7 +455,9 @@ export function ResidentAccessControl({
           className="text-xs leading-5 text-muted-foreground"
           data-testid="resident-runtime-tier-note"
         >
-          {tier.data ? runtimeTierNote(tier.data.control, tier.data.family) : null}
+          {tier.data
+            ? runtimeTierNote(tier.data.control, tier.data.family)
+            : null}
         </p>
       </section>
       <section className="space-y-3">
@@ -467,11 +471,13 @@ export function ResidentAccessControl({
         </p>
         {rules.length === 0 && grants.length === 0 ? (
           <p className="text-xs leading-5 text-muted-foreground">
-            Nothing remembered yet. “Always” on a permission card puts it
-            here.
+            Nothing remembered yet. “Always” on a permission card puts it here.
           </p>
         ) : (
-          <div className="divide-y divide-border/50 rounded-xl border border-border/60">
+          <div
+            className="divide-y divide-border/50 rounded-xl border border-border/60"
+            data-settings-box=""
+          >
             {rules.map((rule) => (
               <div
                 className="flex items-center justify-between gap-3 p-3"

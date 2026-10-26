@@ -162,6 +162,162 @@ button.luca-settings-row:hover:not([data-current]) {
   white-space: nowrap;
 }
 
+/* ── a section's page (SHELL_BUILD.md WP-17) ──────────────────────────
+ * Every section is on the shared place page (PlacePage's classes, in
+ * SettingsView): 30 / 28 in, one axis 640 wide, centred on the card, the
+ * group's name over the section's 22 title. The panels keep their own
+ * structure; on this page they lose their boxes, as the study draws a
+ * place's groups (shellStudy.css, `.shell-page-group`): a group is its small
+ * label, a line, and its rows on the axis, with no fill, edge or divider.
+ * `[data-luca-settings-page]` is drawn only under the frame. */
+[data-luca-settings-page] [data-settings-box] {
+  background: none;
+  border-width: 0;
+  border-radius: 0;
+  box-shadow: none;
+  overflow: visible;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* A box's own dividers go with it; a group's rows are spaced, not ruled. */
+[data-luca-settings-page] [data-settings-box] > *,
+[data-luca-settings-page] [data-settings-box] > details > * {
+  border-color: transparent;
+}
+
+/* A box's rows were inset from its edge; on the page they sit on the axis. */
+[data-luca-settings-page]
+  [data-settings-box]
+  > :is(div, p, summary, details):not([class*="pl-"]),
+[data-luca-settings-page] [data-settings-box] > details > :is(summary, div) {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Sign out is a group like the others: set apart by space, not a rule. */
+[data-luca-settings-page] [data-testid="settings-signout"] {
+  border-top-width: 0;
+}
+
+[data-luca-settings-page] [data-testid="settings-signout"] > div {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* A row, as the study's (`.shell-page-group li`): 11 above and below, on
+ * the axis; a nested row keeps its indent. */
+[data-luca-settings-page] [data-settings-option-row] {
+  background: none;
+  min-height: 0;
+  padding-bottom: 11px;
+  padding-right: 0;
+  padding-top: 11px;
+}
+
+[data-luca-settings-page] [data-settings-option-row]:not([class*="pl-"]) {
+  padding-left: 0;
+}
+
+/* A group's head (SettingsSectionHeader): its name as the small label, its
+ * line under it, its action at the end. */
+.luca-settings-group-head-page {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.luca-settings-group-head-page h2 {
+  color: hsl(var(--mn-ink-faint));
+}
+
+.luca-settings-group-line {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  margin-top: 6px;
+}
+
+/* A group after another is set apart by space alone (`.luca-place-group`). */
+[data-luca-settings-page] [data-settings-group-head]:not(:first-child),
+.luca-settings-page-group + .luca-settings-page-group {
+  margin-top: 32px;
+}
+
+.luca-settings-page-group > h2 {
+  color: hsl(var(--mn-ink-faint));
+  margin-bottom: 6px;
+}
+
+/* The panels' own headings name groups too, so they take the same label:
+ * the mono, opened up, in the faint tone (typography.css, `.type-eyebrow`).
+ * A mind's name in Agents stays its name. */
+[data-luca-settings-page]
+  [data-testid^="settings-panel-"]
+  :is(h2, h3):not(.type-eyebrow):not([data-testid="settings-agents"] *) {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono);
+  font-size: var(--type-eyebrow-size);
+  font-weight: 400;
+  letter-spacing: var(--type-caps-tracking);
+  line-height: var(--type-eyebrow-leading);
+  text-transform: uppercase;
+}
+
+/* Every choice of a few is the study's segment (shellStudy.css:1137-1155),
+ * as Mode and Frame draw it: a track of the ink at 6%, the chosen option the
+ * ink at 14% at night, a piece of paper standing on its track by day. */
+[data-luca-settings-page] fieldset.rounded-full {
+  background: hsl(var(--mn-ink) / 0.06);
+}
+
+[data-luca-settings-page] fieldset.rounded-full > button[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.14);
+}
+
+:root:not(.dark)
+  [data-luca-settings-page]
+  fieldset.rounded-full
+  > button[aria-pressed="true"] {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+}
+
+/* A solid button left on the page is Talk's size (shell-mind-space.css,
+ * `.luca-mind-talk`): 30 tall, 13, a radius of 9. */
+[data-luca-settings-page] :is(button, a):is(.bg-primary, .bg-destructive) {
+  border-radius: 9px;
+  font-size: 0.8125rem;
+  height: 30px;
+  padding: 0 14px;
+}
+
+/* The photo's pencil sits on the photo's edge: not a solid shape either,
+ * but a piece of the page standing on it, as the segment's chosen option
+ * stands on its track (by day paper with its shadow; at night the ink at 14%
+ * on the card, opaque, so the photo doesn't show through it). */
+[data-luca-settings-page] button[data-testid="profile-avatar-edit"] {
+  background: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 14%,
+    hsl(var(--mn-surface))
+  );
+  color: hsl(var(--mn-ink));
+}
+
+:root:not(.dark)
+  [data-luca-settings-page]
+  button[data-testid="profile-avatar-edit"] {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+}
+
 /* Reduce Motion: the list's card is instant, as the rail's is. */
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-frame="solid"] [data-frame] > [data-luca-settings-list],
