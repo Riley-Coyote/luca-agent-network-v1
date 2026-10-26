@@ -179,8 +179,11 @@ export function resolvePickId(input: {
 // ── an agent's state word ───────────────────────────────────────────────
 
 export type AgentStateInput = {
-  /** The live signal the Chats rail reads: a turn of theirs is running. */
+  /** A turn of theirs is running, or a runtime task they run (useMindState). */
   working: boolean;
+  /** In a side conversation still going: an exchange with another mind
+   *  (WP-18, Decided 2). */
+  talking?: boolean;
   /** Being brought up (the Chats rail's "Waking"). */
   waking: boolean;
   lastError: string | null | undefined;
@@ -194,11 +197,22 @@ export type AgentStateInput = {
     | "failed";
 };
 
+/** A mind's one state (WP-18, Decided 2), said the same in the Agents rail,
+ *  their head, their profile card and Now. */
+export type MindStateWord =
+  | "waking"
+  | "needs attention"
+  | "working"
+  | "talking"
+  | "resting";
+
 /** The quiet word at an agent's row end (Decided 3), lowercase, as the
  *  study writes them: waking while they are brought up; needs attention for
  *  an error, or a degraded or failed agent; working while a turn of theirs
- *  runs; resting otherwise, however ready they are. */
-export function agentStateWord(agent: AgentStateInput): string {
+ *  or a runtime task of theirs runs; talking while a side conversation of
+ *  theirs is still going (WP-18); resting otherwise, however ready they
+ *  are. */
+export function agentStateWord(agent: AgentStateInput): MindStateWord {
   // The Chats rail's order (ShellRail.tsx): waking, then a problem, then
   // work in progress.
   if (agent.waking) return "waking";
@@ -209,5 +223,6 @@ export function agentStateWord(agent: AgentStateInput): string {
   )
     return "needs attention";
   if (agent.working) return "working";
+  if (agent.talking) return "talking";
   return "resting";
 }

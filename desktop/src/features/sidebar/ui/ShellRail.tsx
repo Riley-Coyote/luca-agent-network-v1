@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useQueries } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { useRouter, useRouterState } from "@tanstack/react-router";
 import { BookOpen, ChevronRight, FolderCog, Plus } from "lucide-react";
 
 import "@/app/shell/shell-rail.css";
@@ -33,6 +33,11 @@ import {
   sideLiveWord,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
+import {
+  clearOpenSide,
+  noteOpenSide,
+  useOpenSideId,
+} from "@/features/exchange/openSide";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
 import { buildProjectNavigatorViewModel } from "@/features/projects/lib/projectNavigator";
 import { ProjectDetailsDialog } from "@/features/projects/ui/ProjectRoomWorkspace";
@@ -373,7 +378,6 @@ export function ShellRail({
   // "In a column": a project's rooms sit in the room column beside the
   // conversation, so the project's row nests nothing (as today's rail).
   const roomsInColumn = useProjectRoomsPlacement() === "column";
-  const active = activeRailHome(homes, selectedChannelId, selectedProjectId);
 
   // Luca's side conversations, among Luca's sessions (WP-14, Decided 6): the
   // exchanges Luca took part in and Luca's runtime tasks.
@@ -398,6 +402,22 @@ export function ShellRail({
     [lucaKey, side.items, side.nameOf, side.roomOf],
   );
 
+  // A side conversation open marks where it belongs (WP-18, Decided 1;
+  // SPEC.md, "Selection"): the glass on Luca's home, that side row lit, and
+  // never the room it happens in.
+  const threadTarget = useRouterState({
+    select: (state) => {
+      const search = state.location.search as Record<string, unknown>;
+      const target = search.thread ?? search.threadRootId ?? search.messageId;
+      return typeof target === "string" && target.length > 0 ? target : null;
+    },
+  });
+  const openSideId = useOpenSideId(selectedChannelId, threadTarget, lucaSide);
+  const sideOpen = Boolean(openSideId && homes.luca);
+  const active = sideOpen
+    ? homes.luca
+    : activeRailHome(homes, selectedChannelId, selectedProjectId);
+
   // When what is open changes from outside the rail (Search, Back and
   // Forward, a link, where the app opens), the rail scrolls its row into
   // view, or its home's when the home is folded. A click in the rail never
@@ -416,10 +436,11 @@ export function ShellRail({
     channelId: selectedChannelId,
   });
   revealing.current = {
-    target:
-      selectedChannelId ??
-      (selectedProjectId ? `project:${selectedProjectId}` : null),
-    channelId: selectedChannelId,
+    target: sideOpen
+      ? `side:${openSideId}`
+      : (selectedChannelId ??
+        (selectedProjectId ? `project:${selectedProjectId}` : null)),
+    channelId: sideOpen ? null : selectedChannelId,
   };
   const reveal = React.useCallback((afterRoute: boolean) => {
     const { target, channelId } = revealing.current;
@@ -443,6 +464,11 @@ export function ShellRail({
     }
     const rail = railRef.current;
     const row =
+      (target.startsWith("side:")
+        ? rail?.querySelector<HTMLElement>(
+            `[data-side-id="${CSS.escape(target.slice(5))}"]`,
+          )
+        : null) ??
       (channelId
         ? rail?.querySelector<HTMLElement>(
             `[data-rail-focus="session"][data-channel-id="${CSS.escape(channelId)}"]`,
@@ -502,6 +528,12 @@ export function ShellRail({
   // row's menu here, so they keep a home when the rooms nest in the rail.
   const { goBrain, goChannel } = useAppNavigation();
   const openSide = (side: RailSideRow) => {
+    const [kind, ...rest] = side.id.split(":");
+    noteOpenSide({
+      conversationId: side.conversationId,
+      id: rest.join(":"),
+      kind: kind === "task" ? "task" : "exchange",
+    });
     if (side.messageId)
       void goChannel(side.conversationId, { messageId: side.messageId });
     else onSelectChannel(side.conversationId);
@@ -569,6 +601,7 @@ export function ShellRail({
     ((home.kind === "luca" || home.kind === "agent") &&
       Boolean(home.pubkey && managed(home.pubkey)));
   const openHome = (home: RailHome) => {
+    clearOpenSide();
     if (home.sessions.length > 0 && !flat(home)) setOpen(home.id, true);
     if (home.kind === "project" && home.project) {
       const remembered = readLastProjectRoom(home.project.id);
@@ -612,8 +645,12 @@ export function ShellRail({
         onAddToHome(target);
       }}
       onOpen={openHome}
-      onSession={onSelectChannel}
+      onSession={(channelId) => {
+        clearOpenSide();
+        onSelectChannel(channelId);
+      }}
       onSide={openSide}
+      openSideId={sideOpen ? openSideId : null}
       side={home.kind === "luca" ? lucaSide : NO_SIDE_ROWS}
       onToggle={(open) => setOpen(home.id, open)}
       selectedChannelId={selectedChannelId}
@@ -786,6 +823,7 @@ function HomeRow({
   onSession,
   onSide,
   onToggle,
+  openSideId,
   selectedChannelId,
   side,
   unreadChannelIds,
@@ -805,6 +843,8 @@ function HomeRow({
   onSession: (channelId: string) => void;
   onSide: (row: RailSideRow) => void;
   onToggle: (open: boolean) => void;
+  /** The side conversation open (WP-18): its row lit, no room's marked. */
+  openSideId: string | null;
   selectedChannelId: string | null;
   /** Luca's side conversations (WP-14); none for any other home. */
   side: readonly RailSideRow[];
@@ -818,14 +858,27 @@ function HomeRow({
       unreadChannelIds.has(item.channel.id),
   );
   const nested = !flat && (home.sessions.length > 0 || side.length > 0);
+  // What the rail marks: the open conversation, unless a side conversation
+  // is open in it (WP-18, Decided 1), when no room's row is marked.
+  const marked = openSideId ? null : selectedChannelId;
+  // The open side row always shows, as an open session does.
+  const listed = React.useMemo(
+    () =>
+      openSideId
+        ? side.map((row) =>
+            row.id === openSideId && !row.live ? { ...row, live: true } : row,
+          )
+        : side,
+    [openSideId, side],
+  );
   // The latest three show, and the open one wherever it falls, and (Luca's)
   // every side conversation still talking; the rest wait behind "N more",
   // which opens to the whole list and ends on "Show fewer".
   const [all, setAll] = React.useState(false);
   const { shown, hidden, total } = shownHomeEntries(
     home.sessions,
-    side,
-    selectedChannelId,
+    listed,
+    marked,
     all,
     createdAtById,
   );
@@ -871,9 +924,10 @@ function HomeRow({
       : null;
   const mainOpen =
     active &&
+    !openSideId &&
     (home.main
-      ? home.main.channel.id === selectedChannelId
-      : !home.sessions.some((item) => item.channel.id === selectedChannelId));
+      ? home.main.channel.id === marked
+      : !home.sessions.some((item) => item.channel.id === marked));
   // The study's order: a status or "working…" first, then the unread dot.
   const signal = waking ? (
     <span className="luca-rail-working text-2xs">waking</span>
@@ -987,14 +1041,18 @@ function HomeRow({
           {(expanded ? shown : []).map((entry) => {
             if (entry.kind === "side") {
               const row = entry.row;
+              const lit = row.id === openSideId;
               const ago = row.shownAt
                 ? relativeTime(new Date(row.shownAt).toISOString())
                 : "";
               return (
                 <button
+                  aria-current={lit ? "page" : undefined}
                   aria-label={[row.label, row.word].filter(Boolean).join(", ")}
                   className="luca-rail-session text-lip"
+                  data-current={lit ? "true" : undefined}
                   data-rail-focus="session"
+                  data-side-id={row.id}
                   data-side-row={row.live ? "live" : "quiet"}
                   data-testid={`rail-side-${row.id}`}
                   key={row.id}
@@ -1018,8 +1076,10 @@ function HomeRow({
               );
             }
             const item = entry.item;
-            const current = item.channel.id === selectedChannelId;
-            const isUnread = !current && unreadChannelIds.has(item.channel.id);
+            const current = item.channel.id === marked;
+            const isUnread =
+              item.channel.id !== selectedChannelId &&
+              unreadChannelIds.has(item.channel.id);
             const busy = workingByChannelId?.get(item.channel.id)?.agentCount;
             const ago = relativeTime(activeAt(item, createdAtById));
             return (
@@ -1077,8 +1137,8 @@ function HomeRow({
                 if (event.currentTarget === document.activeElement)
                   focusAfterToggle.current = shownHomeEntries(
                     home.sessions,
-                    side,
-                    selectedChannelId,
+                    listed,
+                    marked,
                     false,
                     createdAtById,
                   ).shown.length;
