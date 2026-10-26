@@ -1642,3 +1642,86 @@ Needs you (WP-14); a person's profile card.
 
 **Checks JSON keys:** `gathering`, `rust_list_all`, `needs_you_kinds`, `answer_in_place`, `count_badge`,
 `side_feed`, `luca_rows`, `connected_history`, `flag_off_identical`, `gates`.
+
+## WP-09a · The finishing list (2026-10-26, Claude's design, from the reviews of WP-04b to WP-08g; Riley: "anything else that you can do to speed things up - go for it")
+
+**Why.**
+- The reviews of WP-04b through WP-08g left small items in `~/.claude/plans/polyphonic-shell-build/wp09-polish-list.md`.
+  This package fixes the ones that don't touch WP-10, WP-11 or WP-12's files, so it runs beside them.
+- The rest wait for WP-09 after those land: the places' tiles, the lip's back and forward focus, the sheet's Escape,
+  a project room opened from Search, the card's shadow trailing a width change, and Send by day (Riley's eye).
+- It also fixes the window's first size. The app opens maximized on its first run (`tauri.conf.json`
+  `"maximized": true`), which on Riley's screen is edge to edge and nothing like what most people see. And a test
+  app stopped by a kill loses its size, because the window-state plugin saves only on a normal quit.
+
+**Base.**
+- WP-10, WP-11 and WP-12 are being built at the same time. Never touch their files: `ShellPlaces.tsx`, `ShellLip.tsx`,
+  `AppSidebar.tsx`, `ShellRail.tsx`, `railHomes.ts`, `shared/ui/sidebar.tsx`, the shell's card and shadow styles,
+  `AgentsView.tsx`, `PulseScreen.tsx`, `ArtifactLibraryScreen.tsx`.
+- Your styles go in `desktop/src/app/shell/shell-finish.css` (new), imported after the other shell stylesheets.
+
+**Files in scope:**
+- `ChannelScreenHeader.tsx` (Join's transition, Details' open state, a group's presence);
+- the forum's content top (`ForumView.tsx` / `ForumChannelContent.tsx`);
+- the workspace's empty pane (`features/conversation-workspace/`);
+- the timeline's day divider;
+- the right card's tabs by day;
+- the companion control (`companionAppControl.css` and its component);
+- the huddle bar (`features/huddles/`: its tooltips, popovers, first-run hint, count badge and status words);
+- the status cards' own components (their dismiss buttons only);
+- the connection store (only to add its reset to `resetCommunityState()`);
+- Settings' theme tiles;
+- Settings' section list mark (`marks.ts` / `ShellMarks.tsx` and the Settings list, only that);
+- the window: `desktop/src-tauri/tauri.conf.json` (the main window's first size) and `desktop/src-tauri/src/lib.rs`
+  (the window-state plugin and the first run's size);
+- tests.
+
+**Decisions** (under `shell-frame` unless a decision says otherwise):
+1. **Join fades on the lip's 120 ms,** its border colour too, like every lip button.
+2. **Details' open state is the current place's plate** (ink 7.5% with the lit top), so it no longer looks like a
+   hovered closed button.
+3. **A forum's first content sits 22 below the card's top,** as a conversation's does (not 39).
+4. **An empty pane:**
+   - when it's focused, the lip names it in its own empty-state words, so the page's only h1 is never empty;
+   - the layout menu stays reachable there.
+5. **A group conversation's lip** shows its members' initials, not one member's presence avatar.
+6. **The status cards' two small dismiss buttons** show the focus ring the rail's buttons use.
+7. **The connection store resets with the community:** add its reset to `resetCommunityState()` (`CLAUDE.md`'s rule).
+8. **A success-tone card** ("Connected", a task done) carries the green icon alone, on the card's own plate.
+9. **Settings' theme tiles** show keyboard focus.
+   - If a coloured accent from a retired glass theme (Obsidian) still shows after the move to its replacement, it
+     resets to the replacement's accent.
+10. **Settings' section list uses the sliding mark** (WP-03's engine), as the places and the Chats rail do, not a still
+    plate.
+11. **The timeline's day divider** loses its full-width rule under the date (the study has none).
+12. **The right card's tabs by day:** the chosen tab stands up like the study's chosen segment (paper with a soft
+    shadow), not a darker dip.
+13. **The companion control:**
+    - its badge moves off the sticky TODAY pill's axis (below it while the pill shows);
+    - in full screen under Black, its halo's corner goes square, as the window's does.
+14. **The huddle bar** (WP-08e's review):
+    - its tooltips, popovers and first-run hint take the frame's popover material;
+    - its count badge is 10, like the places';
+    - its status words don't squeeze at 800 × 500;
+    - with a right card open, its controls stay on the card's axis;
+    - Quick Chat no longer covers Leave's edge.
+15. **The window's first size** (every build, not only under the flag):
+    - The first run opens at 1440 × 900, or the screen's usable area less 40 on each side if that's smaller, centred,
+      not maximized.
+    - Every later run restores what the person last set (maximized included).
+    - The window-state plugin also saves on resize and move (debounced), so a crash or a kill keeps the size.
+    - The minimum stays 800 × 500.
+
+**Verification** (Playwright headless, flag on unless stated; Rust with `cargo check` and `cargo clippy` through
+`bash scripts/with-internal-build-cache.sh`, inside the queue):
+- One screenshot or measurement per decision: transition durations read from computed styles, the plate's colour, the
+  forum's first offset, the empty pane's h1, initials, focus rings, the store's reset in a unit test, the success
+  card, theme focus, the mark sliding (a two-frame trace), no rule under TODAY, the chosen tab, the badge's box, the
+  halo's radius in a faked full screen, and the huddle items at 800 × 500.
+- For decision 15: a unit test of the first-size rule (screen sizes of 1280 × 800, 1512 × 982 and 5120 × 2880), and
+  `cargo clippy` clean. Claude checks the real window in the test app.
+- The flag-off views compared by hash to the base, except decision 15, which isn't flag-gated.
+
+**Checks JSON keys:** one per decision (`join_fade`, `details_open`, `forum_top`, `empty_pane`, `group_initials`,
+`dismiss_focus`, `store_reset`, `success_card`, `theme_focus`, `settings_mark`, `day_divider`, `day_tabs`,
+`companion_badge`, `companion_halo`, `huddle`, `first_size`), plus `flag_off_identical`, `clippy`, `gates`.
