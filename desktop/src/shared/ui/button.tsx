@@ -4,6 +4,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/shared/lib/cn";
 
+import "./button-quiet.css";
+
 /**
  * FOCUS IS NOT DRAWN HERE, AND THAT IS THE POINT.
  *
@@ -36,6 +38,10 @@ const buttonVariants = cva(
           "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
+        // The shell's one secondary button (SHELL_BUILD.md WP-25, Decided
+        // 1): a plain tint of the ink, no outline. Drawn in
+        // button-quiet.css; pair it with a quiet size.
+        quiet: "luca-button-quiet",
       },
       size: {
         default: "h-9 px-4 py-2",
@@ -44,6 +50,10 @@ const buttonVariants = cva(
         lg: "h-10 px-8",
         icon: "h-8 w-8",
         "icon-xs": "h-6 w-6 [&_svg]:size-3.5",
+        /** On a page or a card: Talk's size, 30 tall, 13, a radius of 9. */
+        quiet: "luca-button-quiet-page",
+        /** In a row, as an answer: the ask's size, 26 tall, 12.5, 8. */
+        "quiet-row": "luca-button-quiet-row",
       },
     },
     defaultVariants: {

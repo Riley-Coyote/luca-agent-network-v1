@@ -21,7 +21,7 @@ import { Button } from "@/shared/ui/button";
  *
  * Its one action is Open their space; beside it, Talk, the space's own word
  * (WP-18, Decided 3). Neither is solid here: Talk is solid only in the
- * space.
+ * space. Both are the shared quiet button, at Talk's size (WP-25, Decided 1).
  */
 export function UserProfilePanelAgentSummary({
   displayName,
@@ -101,7 +101,8 @@ export function UserProfilePanelAgentSummary({
           className="flex-1"
           data-testid="profile-open-their-space"
           onClick={onOpenSpace}
-          variant="outline"
+          size="quiet"
+          variant="quiet"
         >
           Open their space
         </Button>
@@ -111,7 +112,8 @@ export function UserProfilePanelAgentSummary({
             data-testid="user-profile-message"
             disabled={messagePending}
             onClick={onMessage}
-            variant="outline"
+            size="quiet"
+            variant="quiet"
           >
             Talk
           </Button>

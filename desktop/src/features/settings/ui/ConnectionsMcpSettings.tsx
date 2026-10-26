@@ -32,6 +32,7 @@ import {
   type RuntimeConnectionStatusV1,
 } from "@/shared/api/tauriMcp";
 import type { RuntimeBinding } from "@/shared/api/types";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Switch } from "@/shared/ui/switch";
@@ -774,6 +775,8 @@ function ConnectionRow({
   restartSuggestedPubkeys: ReadonlySet<string>;
   separated: boolean;
 }) {
+  // Under the frame Test is the shared quiet button (WP-25, Decided 1).
+  const frame = useShellFrameEnabled();
   const [expanded, setExpanded] = React.useState(false);
   return (
     <div className={separated ? "border-t border-border/50" : undefined}>
@@ -814,8 +817,8 @@ function ConnectionRow({
           <Button
             disabled={pendingId === connection.connectionId}
             onClick={() => void onTest()}
-            size="sm"
-            variant="outline"
+            size={frame ? "quiet" : "sm"}
+            variant={frame ? "quiet" : "outline"}
           >
             Test
           </Button>

@@ -18,6 +18,7 @@ import {
 } from "@/shared/api/tauriMcp";
 import { formatDoctorSummary } from "@/features/settings/lib/doctorSummary";
 import { writeTextToClipboard } from "@/shared/lib/clipboard";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button } from "@/shared/ui/button";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
 import { AppLogActions } from "./AppLogActions";
@@ -119,6 +120,8 @@ export function DefaultsPermissionsSettings() {
 }
 
 export function DiagnosticsSettings() {
+  // Under the frame Recheck is the shared quiet button (WP-25, Decided 1).
+  const frame = useShellFrameEnabled();
   const [runtimes, setRuntimes] = React.useState<RuntimeConnectionStatusV1[]>(
     [],
   );
@@ -156,7 +159,11 @@ export function DiagnosticsSettings() {
     <section className="min-w-0" data-testid="settings-diagnostics">
       <SettingsSectionHeader
         action={
-          <Button onClick={() => void refresh()} size="sm" variant="outline">
+          <Button
+            onClick={() => void refresh()}
+            size={frame ? "quiet" : "sm"}
+            variant={frame ? "quiet" : "outline"}
+          >
             Recheck
           </Button>
         }

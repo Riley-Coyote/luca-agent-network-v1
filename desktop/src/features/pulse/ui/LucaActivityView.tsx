@@ -40,7 +40,10 @@ import {
 } from "@/features/exchange/sideConversations";
 import { noteOpenSide } from "@/features/exchange/openSide";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
-import { useMindState } from "@/features/agents/lib/useMindState";
+import {
+  mindStateLabel,
+  useMindState,
+} from "@/features/agents/lib/useMindState";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 type ActivityResident = {
@@ -282,7 +285,11 @@ function ResidentActivityCard({
             ? runtimeError
               ? "Runtime needs attention"
               : activity.detail
-            : idleDetail(resident)
+            : // A stopped mind says it's off, as the Agents rail, its
+              // head and its profile card do (WP-25, Decided 3).
+              state === "off"
+              ? mindStateLabel(state)
+              : idleDetail(resident)
         }
         testId={`owner-activity-resident-${normalizePubkey(resident.pubkey)}`}
         title={resident.name}

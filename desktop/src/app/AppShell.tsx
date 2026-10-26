@@ -144,10 +144,49 @@ const SUPPORTS_VIEW_TRANSITIONS =
   typeof document !== "undefined" && "startViewTransition" in document;
 import { SettingsLoadingFallback } from "@/features/settings/ui/SettingsLoadingFallback";
 
+type SettingsScreenModule =
+  typeof import("@/features/settings/ui/SettingsScreen");
+
+/** Settings' code, once it has arrived (WP-25, Decided 5). */
+let loadedSettingsScreen: SettingsScreenModule["SettingsScreen"] | null = null;
+let settingsScreenLoad: Promise<SettingsScreenModule> | null = null;
+
+/** Load Settings' code once; every caller shares the one request. A failed
+ *  load is forgotten, so the next visit tries again. */
+function loadSettingsScreen(): Promise<SettingsScreenModule> {
+  settingsScreenLoad ??= import("@/features/settings/ui/SettingsScreen").then(
+    (module) => {
+      loadedSettingsScreen = module.SettingsScreen;
+      return module;
+    },
+    (cause: unknown) => {
+      settingsScreenLoad = null;
+      throw cause;
+    },
+  );
+  return settingsScreenLoad;
+}
+
 const LazySettingsScreen = React.lazy(async () => {
-  const module = await import("@/features/settings/ui/SettingsScreen");
+  const module = await loadSettingsScreen();
   return { default: module.SettingsScreen };
 });
+
+/**
+ * Settings opens at once under the frame (WP-25, Decided 5): its code loads
+ * while the app is idle, and once it has, Settings renders straight away.
+ * React.lazy would still suspend for a tick on its first render, and React
+ * then holds the fallback for its reveal throttle (about 300 ms): the blank
+ * card the first visit showed.
+ */
+function FrameSettingsScreen(
+  props: React.ComponentProps<SettingsScreenModule["SettingsScreen"]>,
+) {
+  // Decided once, on mount: a visit that began lazily stays lazy, so the
+  // panel never remounts (and loses what it holds) when the code arrives.
+  const [Screen] = React.useState(() => loadedSettingsScreen);
+  return Screen ? <Screen {...props} /> : <LazySettingsScreen {...props} />;
+}
 
 /** The one card (SHELL_SPEC.md, "The card"; SHELL_BUILD.md, WP-12): drawn
  *  once beneath the rail and what it opens, and never moved, so closing the
@@ -268,6 +307,15 @@ export function AppShell() {
     if (!startupReady) return;
     void preloadPrimaryNavigationSurfaces();
   }, [startupReady]);
+  React.useEffect(() => {
+    if (!startupReady || !shellFrame) return;
+    loadSettingsScreen().catch(() => {
+      // Opportunistic: the visit itself loads it again.
+    });
+  }, [shellFrame, startupReady]);
+  const SettingsScreenComponent = shellFrame
+    ? FrameSettingsScreen
+    : LazySettingsScreen;
 
   const identityQuery = useIdentityQuery();
   const handleAddCommunity = React.useCallback(
@@ -1164,7 +1212,7 @@ export function AppShell() {
                                   <SettingsLoadingFallback frame={shellFrame} />
                                 }
                               >
-                                <LazySettingsScreen
+                                <SettingsScreenComponent
                                   currentPubkey={identityQuery.data?.pubkey}
                                   fallbackDisplayName={
                                     identityQuery.data?.displayName

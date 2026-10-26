@@ -31,7 +31,7 @@ import {
 } from "@/features/profile/ui/ProfileAvatarEditor";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonVariants } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Spinner } from "@/shared/ui/spinner";
 import { Textarea } from "@/shared/ui/textarea";
@@ -77,6 +77,8 @@ function IdentityRow({
   testId: string;
   copyValue?: string;
 }) {
+  // Under the frame Copy is the shared quiet button (WP-25, Decided 1).
+  const frame = useShellFrameEnabled();
   return (
     <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3">
       <div className="min-w-0 space-y-1">
@@ -92,7 +94,14 @@ function IdentityRow({
       {copyValue ? (
         <button
           aria-label={`Copy ${label}`}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className={
+            frame
+              ? cn(
+                  buttonVariants({ variant: "quiet", size: "quiet" }),
+                  "shrink-0",
+                )
+              : "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          }
           data-testid={`copy-${testId}`}
           onClick={async () => {
             await writeTextToClipboard(copyValue);
@@ -125,16 +134,26 @@ function EditProfileMetadataButton({
   const Icon = isEditing ? Check : Pencil;
   const actionLabel = isEditing ? "Done" : "Edit";
   const accessibleLabel = isEditing ? `Done editing ${label}` : `Edit ${label}`;
+  // Under the frame Edit is the shared quiet button, at Talk's size (WP-25,
+  // Decided 1); Done, the edit's commit, stays solid.
+  const frame = useShellFrameEnabled();
 
   return (
     <button
       aria-label={accessibleLabel}
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
-        isEditing
-          ? "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/90"
-          : "border-transparent bg-muted text-foreground hover:bg-muted/80",
-      )}
+      className={
+        frame && !isEditing
+          ? cn(
+              buttonVariants({ variant: "quiet", size: "quiet" }),
+              "shrink-0 disabled:cursor-not-allowed disabled:opacity-60",
+            )
+          : cn(
+              "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60",
+              isEditing
+                ? "border-transparent bg-primary text-primary-foreground shadow hover:bg-primary/90"
+                : "border-transparent bg-muted text-foreground hover:bg-muted/80",
+            )
+      }
       data-testid={testId}
       disabled={disabled}
       onClick={onClick}
