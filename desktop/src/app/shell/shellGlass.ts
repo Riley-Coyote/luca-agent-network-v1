@@ -391,6 +391,11 @@ const measureCard = (card: HTMLElement | null): GlassFrame["card"] => {
   };
 };
 
+/** What the one card's right edge follows: the content the lip measures
+ *  (ShellLip.tsx, `look`). */
+const ONE_CARD_FOLLOWS_SELECTOR =
+  "[data-buzz-content-surface], [data-buzz-content-plane]";
+
 /** The rail slides over 460 ms (SHELL_SPEC.md, "Motion"); a little longer, so
  *  the last frame of any transition is reported. */
 const FOLLOW_MS = 520;
@@ -430,7 +435,20 @@ function watchLayout(
   resizes.observe(root);
   let observed = new Set<Element>();
   const watch = () => {
-    const next = new Set(watched());
+    const next = new Set<Element>();
+    for (const element of watched()) {
+      if (!element.matches(ONE_CARD_SELECTOR)) {
+        next.add(element);
+        continue;
+      }
+      // Never the one card itself (WP-26): the lip moves its right edge
+      // from inside its own observer (ShellLip.tsx), so a watch on the card
+      // is a resize made during delivery, shallower than the one delivered,
+      // and WebKit reports a ResizeObserver loop. Watch what it follows
+      // instead: the content plane the lip measures (the window is `root`).
+      const follows = document.querySelector(ONE_CARD_FOLLOWS_SELECTOR);
+      if (follows) next.add(follows);
+    }
     for (const element of observed) {
       if (!next.has(element)) resizes.unobserve(element);
     }

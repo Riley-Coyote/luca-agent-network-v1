@@ -334,10 +334,33 @@
  * stand, so the launcher always sits in its bottom-right corner. A gutter
  * down the whole card cost its text about 52 at every size; instead each
  * panel's scroller ends with the launcher's room below its last item
- * (20 + 46 + 8, taken from the card's foot), so the end of its content
+ * (its bottom + 46 + 8, taken from the card's foot), so the end of its content
  * scrolls clear of the button and nothing gives up width. */
+/* The launcher's bottom, as shell-huddle.css sets it: 20, raised to 58 over
+ * a live huddle's band (50 under 480). The foot room follows it, less the
+ * card's own foot (6, plus the band while live: --luca-frame-card-bottom),
+ * so it clears the button however the two rise. */
+:root[data-luca-frame]:has(.qc-launcher) {
+  --luca-quickchat-bottom: 20px;
+}
+
+:root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"]) {
+  --luca-quickchat-bottom: 58px;
+}
+
+@media (max-width: 480px) {
+  :root[data-luca-frame]:has(.buzz-huddle-shell[data-huddle-open="true"]) {
+    --luca-quickchat-bottom: 50px;
+  }
+}
+
 :root[data-luca-frame]:has(.qc-launcher) [data-luca-right-scroll] {
-  padding-bottom: calc(20px + 46px + 8px - 6px);
+  padding-bottom: calc(
+    var(--luca-quickchat-bottom, 20px) +
+    46px +
+    8px -
+    var(--luca-frame-card-bottom, 6px)
+  );
 }
 
 /* A room's settings float their archive and delete at the card's foot, in
