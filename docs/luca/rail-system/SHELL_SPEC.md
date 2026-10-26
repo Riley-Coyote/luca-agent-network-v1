@@ -49,7 +49,8 @@ below.
 ```
 
 - **The lip:** the window's top 36. The traffic lights, the rail's toggle, back and forward, and the tabs share one line
-  at 22. The lights are inset 16 from the window's corner both ways (their top at 16). The toggle sits at 78. Back and
+  at 22. The lights are inset 16 from the window's left and centred on that line (on macOS 27 they're 16 points, so
+  their top is at 14; 12-point lights would sit at 16). The toggle sits at 78. Back and
   forward ride with the conversation card: at `max(card's left + 6, 112)`. Until the tabs come, the open
   conversation's name sits on the card's axis (see Tabs); the tabs, when they come, follow back and forward, 58 further
   on.
