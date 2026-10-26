@@ -38,7 +38,7 @@ Wren  ⌄                                   +   ← + : new session with Wren
 PEOPLE                                        ← shown once there is one
 Sam
 
-ROOMS                                     +   ← shown once there is one; was "Fleets"
+ROOMS                                     +   ← always shown (its + is a way in); was "Fleets"
 Design review
 Luca + Wren
 Browse rooms…
@@ -122,7 +122,8 @@ and groups appear twice. That goes.
   "+ 1 other") until it is named.
 - Its `+` starts a room (most rooms Luca starts for you). Its last rows are **Browse rooms…** (the channel browser:
   join a room you're not in) and **Archived**.
-- Shown once there is at least one room.
+- Always shown (amended 2026-10-26): its `+` and Browse rooms… are ways in, even before the first room. A section
+  shows when it has something in it, or a `+` to make its first thing (`NAVIGATION.md`).
 - Why Fleets went: in code a fleet was only "everyone in this chat", derived from members, with no name, record or
   page. Riley's idea for them (persistent teams such as a design team) lives on as **Groups** in Agents
   (`NAVIGATION.md`); a team's conversations are rooms.

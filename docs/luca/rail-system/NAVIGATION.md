@@ -17,6 +17,9 @@ your minds.**
 The icons pick the place. The rail lists what's in that place. The card shows the one thing you picked. Details open as
 a card on the right. Settings already works this way; every place does.
 
+In every rail, a section shows when it has something in it, or a `+` to make its first thing (2026-10-26, from WP-10's
+review): Agents, Groups and Rooms always show; People, Connected, Signed record and Skills wait for their first.
+
 Riley, 2026-10-25: "the rail should always have the contents of the page you're on." Until now the rail never changed
 (Luca, Projects, Agents, Fleets on every page) and Agents drew a second list inside the card.
 
@@ -78,7 +81,8 @@ The rail, top to bottom (the full rules are `SPEC.md`):
 - **Agents**: your conversation with each other agent.
 - **People**: your direct messages with people. Shown once there is one.
 - **Rooms** `+`: shared rooms outside a project, by their own names; group conversations with several agents or people;
-  then **Browse rooms…** (join one you're not in) and **Archived**. Shown once there is one.
+  then **Browse rooms…** (join one you're not in) and **Archived**. Always shown: its `+` and Browse rooms… are ways
+  in.
 
 Every home shows its latest few conversations with their times; the one you're in is always visible. Opening the app
 lands on Luca. Luca leads with what happened while you were away only when something did; otherwise you land where you
