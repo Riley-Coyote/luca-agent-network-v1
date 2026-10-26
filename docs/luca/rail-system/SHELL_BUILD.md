@@ -107,6 +107,10 @@ LOST. LOST is a failure unless the spec retires it.
 | WP-07a glass plumbing | 2026-10-25, merge `9f19579f0` | The Frame setting and row; the reporter for Liquid Glass; the frosted fallback; the veil; glass word tones on the lip and places; daytime shadows under the cards on glass; `set_traffic_lights_inset`. The glass marks only `data-luca-frame-glass`. Rust not compiled yet (disk under 20 GB): WP-07b. |
 | WP-01b the frame, finished | 2026-10-25, merge `e4996cc0d` | The avatar as the study's, its menu beside it, the DEV chip in it; the rail's foot and every card's edge grained; New conversation fills its card; Conversations opens a closed rail. At the merge it shares the lip's edge measure with WP-04 and the Conversations place with WP-02b. |
 | WP-03 the solid marks | 2026-10-25, merge `26c6d14b3` | The study's marks engine ported (14 unit tests): a plate on the current place and on the open home, sliding and stretching on the house springs, closing to a point with the rail; the old pill and the native pour retired under the flag. At the merge the rail's top breath keeps WP-02b's form. |
+| WP-10 every place's own rail | 2026-10-26, merge `690ef1ffb` | Six places (Search; Chats, Agents, Activity, Library; Settings), each with its own rail and the card showing the pick, picks in the address. A connected app's sessions live in its card; groups have a card. Review: the unread dot stays on Chats everywhere, honest state words, one page for every card, flat rows. The mark's first step on a first visit is partial (WP-09's list). |
+| WP-11 the Chats rail | 2026-10-26, merge `9c09efbc5` | Luca, Projects, Agents, People, Rooms; one home per chat by what it is; Fleets retire; latest three with times, N more and Show fewer; Browse rooms… and Archived; the rail scrolls to what opens; landing on Luca when Luca has news. Review: new chats sort first, even section rhythm, room words, Room settings… At the merge its spec still boots on /pulse, which is Activity's now: WP-15. |
+| WP-12 one card | 2026-10-26, merge `771409c78` | The rail and what it opens lie on one card in every place, drawn once and never moved; the hairline; the fold with a still corner; panes share the card; grain from one origin. Review: the corners, the peek, the closing gap. |
+| WP-09a the finishing list | 2026-10-26, merge `e4d7a4ac2` | The reviews' small items, a project room without its own header, and the window's first size (1440 × 900 or the screen less a margin, kept across runs; its unit tests run at the final Rust build). |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -1727,3 +1731,41 @@ Needs you (WP-14); a person's profile card.
 **Checks JSON keys:** one per decision (`join_fade`, `details_open`, `forum_top`, `empty_pane`, `group_initials`,
 `dismiss_focus`, `store_reset`, `success_card`, `theme_focus`, `settings_mark`, `day_divider`, `day_tabs`,
 `companion_badge`, `companion_halo`, `huddle`, `first_size`), plus `flag_off_identical`, `clippy`, `gates`.
+
+## WP-15 · The frame's tests, brought to the new places (2026-10-26, Claude's design, from the merges of WP-10, WP-11, WP-12 and WP-09a)
+
+**Why.** WP-10, WP-11, WP-12 and WP-09a landed together, and the frame's older specs still assert what they changed:
+- the New conversation, Brain and Inbox tiles;
+- the runtime sessions column;
+- Fleets;
+- two cards with a 4-point gap;
+- `/pulse` showing the Chats rail.
+
+WP-11's own spec boots on `/pulse`, which is Activity's place now, so 13 of its tests can't find the Chats rail.
+
+**Base.** The integration branch with all four merged. WP-13 and WP-14 are built at the same time, each with its own
+new spec; WP-14 also updates `shell-place-rails.spec.ts` for Activity's new first pick. Leave that spec alone unless it
+fails on your base.
+
+**Files in scope:** `desktop/tests/e2e/**` and `desktop/playwright.config.ts`. No app code.
+
+**Decisions:**
+1. Every shell spec boots on the view it means: a conversation for the Chats rail (never `/pulse`), the place itself
+   for a place.
+   - Boot at `/#/…`, without a page query, wherever Back or a pick matters. With a query, the hash router glues it onto
+     the last value on Back (WP-10's finding).
+2. Expectations follow the contracts as amended:
+   - the six places (`NAVIGATION.md`);
+   - the Chats rail (`SPEC.md`);
+   - one card (`SHELL_SPEC.md`);
+   - the connected app's card instead of the runtime sessions column. Move `shell-runtime`'s column checks to that
+     card, or retire them where the spec retires the column.
+3. **Never weaken an assertion to make it pass.** A spec that fails because the app is wrong is reported as an app bug,
+   with how you saw it. It is not edited.
+4. Run the whole shell suite at the end through the queue, then again to tell flakes from failures. Report every
+   failure as:
+   - test fixed;
+   - app bug;
+   - flaky: fails on the base too, or once in two runs.
+
+**Checks JSON keys:** `specs_updated`, `suite_run_1`, `suite_run_2`, `app_bugs`, `flaky`, `gates`.
