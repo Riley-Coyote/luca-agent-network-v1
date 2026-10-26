@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
 
 import "@/app/shell/shell-activity.css";
@@ -15,18 +14,13 @@ import {
   useAskFocusHandoff,
 } from "@/app/shell/placeRails/ManagedAsks";
 import {
-  PlaceAskLink,
   PlaceAskRow,
   PlaceQuietButton,
 } from "@/app/shell/placeRails/PlaceAskRow";
 import { PlacePage, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
-import { isExistingRuntimeTask } from "@/features/capabilities/lib/runtimeTaskPresentation";
-import {
-  RuntimeTaskProposalConfirmation,
-  useProposalDraft,
-} from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useRoomProjects } from "@/features/channels/lib/roomProjects";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -37,18 +31,13 @@ import {
 import {
   exchangeSide,
   namesAsList,
-  runtimeLabel,
   shownAt,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { PendingManagedInput } from "@/shared/api/managedInputs";
 import { resolveExchange } from "@/shared/api/exchanges";
 import { useIdentityQuery } from "@/shared/api/hooks";
-import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
-import {
-  respondRuntimeTaskProposal,
-  type RuntimeTaskProposal,
-} from "@/shared/api/tauriRuntimeTasks";
+import type { RuntimeTaskProposal } from "@/shared/api/tauriRuntimeTasks";
 import type { PendingManagedPermission } from "@/shared/api/types";
 import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
 import { normalizePubkey } from "@/shared/lib/pubkey";
@@ -248,129 +237,6 @@ function NeedsYouItem({
       summary={where("Waiting for you")}
     />
   );
-}
-
-/** Luca's proposal to run Codex or Claude Code: Run · Not now, its defaults
- *  in one faint line, and Change… opening today's form under the row. */
-function ProposalAsk({
-  common,
-  projectSourceIds,
-  proposal,
-  summary,
-  who,
-}: {
-  common: AskCommon;
-  projectSourceIds: string[];
-  proposal: RuntimeTaskProposal;
-  summary: string;
-  who: string;
-}) {
-  const residentNames = React.useMemo(
-    () => new Map([[proposal.residentPubkey, who]]),
-    [proposal.residentPubkey, who],
-  );
-  const draft = useProposalDraft(proposal, projectSourceIds, residentNames);
-  const targets = useQuery({
-    queryKey: ["runtime-task-targets"],
-    queryFn: listRuntimeConnectionStatus,
-    retry: false,
-    staleTime: 10_000,
-  });
-  const [busy, setBusy] = React.useState(false);
-  const [change, setChange] = React.useState(false);
-  const existing = isExistingRuntimeTask(proposal.operation);
-  const folder = existing
-    ? (proposal.targetWorkingFolder ?? null)
-    : (draft?.workingFolder ?? null);
-  const ready =
-    existing ||
-    (targets.data ?? []).some(
-      (runtime) =>
-        runtime.runtimeId === proposal.runtimeFamily &&
-        runtime.readiness === "ready" &&
-        runtime.authentication === "ready",
-    );
-  const canRun = Boolean(folder) && ready;
-  const respond = async (approved: boolean) => {
-    setBusy(true);
-    try {
-      await respondRuntimeTaskProposal(
-        approved && folder
-          ? {
-              approved: true,
-              permissionMode: "normal",
-              proposalId: proposal.proposalId,
-              runtimeFamily: proposal.runtimeFamily,
-              workingFolder: folder,
-            }
-          : { approved: false, proposalId: proposal.proposalId },
-      );
-    } catch (error) {
-      failed(error, "This runtime task proposal is no longer open.");
-      setBusy(false);
-    }
-  };
-  const defaults = [
-    runtimeLabel(proposal.runtimeFamily),
-    existing ? "its own permissions" : "ask when needed",
-    folder ? folderName(folder) : "no folder yet",
-  ].join(" · ");
-  return (
-    <PlaceAskRow
-      {...common}
-      answers={
-        <>
-          <PlaceQuietButton
-            data-testid="needs-you-proposal-run"
-            disabled={busy || !canRun}
-            onClick={() => void respond(true)}
-            title={canRun ? undefined : "Choose its details with Change…"}
-          >
-            Run
-          </PlaceQuietButton>
-          <PlaceQuietButton
-            data-testid="needs-you-proposal-not-now"
-            disabled={busy}
-            onClick={() => void respond(false)}
-          >
-            Not now
-          </PlaceQuietButton>
-        </>
-      }
-      extra={
-        <>
-          <span className="luca-ask-defaults" data-testid="needs-you-defaults">
-            {defaults}
-          </span>
-          <PlaceAskLink
-            aria-expanded={change}
-            data-testid="needs-you-proposal-change"
-            onClick={() => setChange((open) => !open)}
-          >
-            {change ? "Close" : "Change…"}
-          </PlaceAskLink>
-        </>
-      }
-      openLabel={`${proposal.summary}, ${summary}. Open the conversation`}
-      panel={
-        change ? (
-          <RuntimeTaskProposalConfirmation
-            projectSourceIds={projectSourceIds}
-            proposals={[proposal]}
-            residentNames={residentNames}
-          />
-        ) : null
-      }
-      summary={summary}
-      title={proposal.summary}
-    />
-  );
-}
-
-/** The folder's own name, as the defaults line says it. */
-function folderName(path: string) {
-  const parts = path.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? path;
 }
 
 /** A paused exchange's two decisions, as its room's strip offers them. */

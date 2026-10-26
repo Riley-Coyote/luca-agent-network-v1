@@ -3,6 +3,10 @@ import { listen } from "@tauri-apps/api/event";
 import { ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  PermissionAsk,
+  rememberHint,
+} from "@/app/shell/placeRails/ManagedAsks";
 import { resolveManagedPermission } from "@/shared/api/managedPermissions";
 import { managedPermissionOutcomeCopy } from "@/features/messages/lib/managedOperationalStatus";
 import {
@@ -17,11 +21,14 @@ import type {
   ManagedPermissionTense,
   PendingManagedPermission,
 } from "@/shared/api/types";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Button, type ButtonProps } from "@/shared/ui/button";
 
 type ManagedPermissionCardProps = {
   pending: PendingManagedPermission;
   compact?: boolean;
+  /** Who asks, in the ask's words ("Atlas asks"); drawn under the frame. */
+  summary?: string;
 };
 
 /**
@@ -44,32 +51,12 @@ function busyLabel(tense: ManagedPermissionTense): string {
   return tense === "always_here" ? "Saving…" : "Sending…";
 }
 
-/** Read a list the way a person would: "ls and echo", "ls, echo and cat". */
-function readAsList(names: string[]): string {
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/**
- * What "Always" will write down. A compound command is remembered a segment
- * at a time, so the card names every one rather than letting the owner
- * discover them in Settings afterwards.
- */
-function rememberHint(
-  remembers: string[],
-  projectLabel: string | null,
-): string {
-  const where = projectLabel ?? "this project";
-  const tail = "Take it back any time in Settings › Agents › Capabilities.";
-  return remembers.length > 0
-    ? `Remembers ${readAsList(remembers)} for ${where}. ${tail}`
-    : `Remembered for ${where}. ${tail}`;
-}
-
 export function ManagedPermissionCard({
   pending,
   compact = false,
+  summary,
 }: ManagedPermissionCardProps) {
+  const shellFrame = useShellFrameEnabled();
   const [resolving, setResolving] = React.useState<string | null>(null);
   const request = pending.request;
   const structured = request.protocol === "luca.managed.permission.v2";
@@ -115,6 +102,23 @@ export function ManagedPermissionCard({
       setResolving(null);
     }
   }
+
+  // Under the frame, the one drawing every ask has (SHELL_BUILD.md WP-16,
+  // Decided 2): Needs you's row, with the same words and answers, its preview
+  // behind Details. The outcome is still announced from here.
+  if (shellFrame)
+    return (
+      <ul className="luca-ask-list">
+        <PermissionAsk
+          common={{
+            "data-pending-id": pending.pendingId,
+            "data-testid": "managed-permission-card",
+          }}
+          pending={pending}
+          summary={summary ?? "Asks you"}
+        />
+      </ul>
+    );
 
   /** V1: the owner answers in a tense, and the desktop picks the option. */
   const decide = (tense: ManagedPermissionTense) =>

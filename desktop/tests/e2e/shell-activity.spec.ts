@@ -1103,7 +1103,7 @@ test("landing on an exchange: its message in view, named for you", async ({
         : false;
     const stackCards = [
       ...document.querySelectorAll(
-        '[data-testid="managed-permission-card"], [data-testid="runtime-task-confirmation"]',
+        '[data-testid="managed-permission-card"], [data-testid="runtime-task-confirmation"], [data-testid="runtime-task-proposal-row"]',
       ),
     ].filter(visible);
     return {
@@ -1148,7 +1148,8 @@ test("landing on an exchange: its message in view, named for you", async ({
   // Show brings them back.
   await page.getByTestId("pending-held").click();
   await expect(page.getByTestId("managed-permission-card")).toBeVisible();
-  await expect(page.getByTestId("runtime-task-confirmation")).toBeVisible();
+  // The proposal is the ask's one row in the room as well (WP-16).
+  await expect(page.getByTestId("runtime-task-proposal-row")).toBeVisible();
   measure("shot_landing_shown", await shot(page, "exchange-landing-shown"));
 });
 

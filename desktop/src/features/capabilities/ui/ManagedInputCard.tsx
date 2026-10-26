@@ -1,6 +1,12 @@
 import * as React from "react";
 import { MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import {
+  PlaceAskRow,
+  PlaceQuietButton,
+} from "@/app/shell/placeRails/PlaceAskRow";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
 import {
   resolveManagedInput,
@@ -8,19 +14,145 @@ import {
   type PendingManagedInput,
 } from "@/shared/api/managedInputs";
 
-/** Native questions reuse the existing approval surface without granting access. */
+/** Native questions reuse the existing approval surface without granting
+ *  access. Under the frame, the one drawing every ask has (SHELL_BUILD.md
+ *  WP-16, Decided 2): Needs you's row, its form opened under it on request. */
 export function ManagedInputCard({
   pending,
   compact = false,
+  summary,
 }: {
   pending: PendingManagedInput;
   compact?: boolean;
+  /** Who asks, in the ask's words ("Luca asks"); drawn under the frame. */
+  summary?: string;
 }) {
+  const shellFrame = useShellFrameEnabled();
+  if (shellFrame)
+    return (
+      <ul className="luca-ask-list">
+        <QuestionAsk
+          common={{
+            "data-pending-id": pending.pendingId,
+            "data-testid": "managed-input-card",
+          }}
+          pending={pending}
+          summary={summary ?? "Asks you"}
+        />
+      </ul>
+    );
   return (
     <ManagedInputForm
       key={pending.pendingId}
       pending={pending}
       compact={compact}
+      framed={false}
+    />
+  );
+}
+
+/** What a question's row carries besides its ask (ManagedAsks.tsx,
+ *  `AskCommon`): the attributes its list finds it by, and in a list its time
+ *  and its open. */
+type QuestionCommon = {
+  "data-testid": string;
+  note?: string;
+  onOpen?: () => void;
+  openTestId?: string;
+} & { [attribute: `data-${string}`]: string };
+
+/** A question, as one ask row (PlaceAskRow): with one choice field, its
+ *  choices then Send and Skip; otherwise Answer, which opens the form under
+ *  the row. The same in Needs you, a mind's Notebook and the conversation. */
+export function QuestionAsk({
+  common,
+  pending,
+  summary,
+}: {
+  common: QuestionCommon;
+  pending: PendingManagedInput;
+  summary: string;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [choice, setChoice] = React.useState<string | null>(null);
+  const fields = pending.request.fields;
+  const only =
+    fields.length === 1 && fields[0].kind === "single" ? fields[0] : null;
+  const send = async (action: "answered" | "declined") => {
+    setBusy(true);
+    try {
+      await resolveManagedInput(
+        pending.pendingId,
+        action,
+        action === "answered" && only && choice ? { [only.key]: choice } : {},
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "This question is no longer waiting.",
+      );
+      setBusy(false);
+    }
+  };
+  return (
+    <PlaceAskRow
+      {...common}
+      answers={
+        only ? (
+          <>
+            <fieldset aria-label={only.label} className="luca-ask-choices">
+              {only.options.map((option) => (
+                <PlaceQuietButton
+                  disabled={busy}
+                  key={option.value}
+                  onClick={() => setChoice(option.value)}
+                  pressed={choice === option.value}
+                  title={option.description ?? undefined}
+                >
+                  {option.label}
+                </PlaceQuietButton>
+              ))}
+            </fieldset>
+            <PlaceQuietButton
+              data-testid="needs-you-question-send"
+              disabled={busy || !choice}
+              onClick={() => void send("answered")}
+            >
+              Send
+            </PlaceQuietButton>
+            <PlaceQuietButton
+              data-testid="needs-you-question-skip"
+              disabled={busy}
+              onClick={() => void send("declined")}
+            >
+              Skip
+            </PlaceQuietButton>
+          </>
+        ) : (
+          <PlaceQuietButton
+            aria-expanded={open}
+            data-testid="needs-you-question-answer"
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "Close" : "Answer"}
+          </PlaceQuietButton>
+        )
+      }
+      openLabel={`${pending.request.message}, ${summary}. Open the conversation`}
+      panel={
+        !only && open ? (
+          <ManagedInputForm
+            compact
+            framed
+            key={pending.pendingId}
+            pending={pending}
+          />
+        ) : null
+      }
+      summary={summary}
+      title={pending.request.message}
     />
   );
 }
@@ -28,9 +160,13 @@ export function ManagedInputCard({
 function ManagedInputForm({
   pending,
   compact,
+  framed,
 }: {
   pending: PendingManagedInput;
   compact: boolean;
+  /** Opened under its ask's row: the row says the question, the form lies on
+   *  a tint, and its answers are the ask's quiet ones. */
+  framed: boolean;
 }) {
   const [answers, setAnswers] = React.useState<
     Record<string, ManagedInputValue>
@@ -97,8 +233,12 @@ function ManagedInputForm({
   return (
     <section
       aria-label="Agent question required"
-      className="min-w-0 max-w-full border border-border bg-card text-card-foreground shadow-sm"
-      data-testid="managed-input-card"
+      className={
+        framed
+          ? "luca-ask-form text-card-foreground"
+          : "min-w-0 max-w-full border border-border bg-card text-card-foreground shadow-sm"
+      }
+      data-testid={framed ? "managed-input-form" : "managed-input-card"}
       aria-busy={busy}
     >
       <form
@@ -108,19 +248,21 @@ function ManagedInputForm({
           void submit("answered");
         }}
       >
-        <div className="flex items-start gap-3">
-          <MessageCircle
-            aria-hidden
-            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">The agent has a question</p>
-            <p className="mt-1 whitespace-pre-wrap wrap-anywhere text-sm leading-5 text-muted-foreground">
-              {pending.request.message}
-            </p>
+        {framed ? null : (
+          <div className="flex items-start gap-3">
+            <MessageCircle
+              aria-hidden
+              className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">The agent has a question</p>
+              <p className="mt-1 whitespace-pre-wrap wrap-anywhere text-sm leading-5 text-muted-foreground">
+                {pending.request.message}
+              </p>
+            </div>
           </div>
-        </div>
-        <div className="mt-3 grid gap-3">
+        )}
+        <div className={cn("grid gap-3", !framed && "mt-3")}>
           {pending.request.fields.map((field) => (
             <fieldset className="min-w-0" disabled={busy} key={field.key}>
               <legend className="max-w-full wrap-anywhere text-sm font-medium">
@@ -216,20 +358,34 @@ function ManagedInputForm({
             {error}
           </p>
         ) : null}
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-          <Button
-            disabled={busy}
-            onClick={() => void submit("declined")}
-            size="sm"
-            type="button"
-            variant="ghost"
-          >
-            Skip
-          </Button>
-          <Button disabled={busy} size="sm" type="submit">
-            {busy ? "Sending…" : "Send answer"}
-          </Button>
-        </div>
+        {framed ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <PlaceQuietButton disabled={busy} type="submit">
+              {busy ? "Sending…" : "Send"}
+            </PlaceQuietButton>
+            <PlaceQuietButton
+              disabled={busy}
+              onClick={() => void submit("declined")}
+            >
+              Skip
+            </PlaceQuietButton>
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+            <Button
+              disabled={busy}
+              onClick={() => void submit("declined")}
+              size="sm"
+              type="button"
+              variant="ghost"
+            >
+              Skip
+            </Button>
+            <Button disabled={busy} size="sm" type="submit">
+              {busy ? "Sending…" : "Send answer"}
+            </Button>
+          </div>
+        )}
       </form>
     </section>
   );

@@ -5,6 +5,7 @@ import { useFeatureSnapshot } from "./useFeatureEnabled";
 export function useShellFrameEnabled(): boolean {
   return resolveShellFrameEnabled(
     useFeatureSnapshot(),
-    import.meta.env.VITE_LUCA_SHELL_FRAME,
+    // `?.`: node's unit tests render components without Vite's env.
+    import.meta.env?.VITE_LUCA_SHELL_FRAME,
   );
 }
