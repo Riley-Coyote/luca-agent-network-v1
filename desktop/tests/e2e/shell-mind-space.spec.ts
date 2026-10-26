@@ -731,7 +731,7 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
       ".luca-mind-words blockquote",
       ".luca-mind-words figcaption",
       ".luca-mind-piece .luca-mind-thumb",
-      ".luca-mind-ask",
+      "[data-testid='mind-asks'] li.luca-ask",
       ".luca-mind-filter[data-selected]",
       ".luca-mind-filter:not([data-selected])",
       ".luca-mind-day > h2",
@@ -770,31 +770,33 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
   measure("hashes-space", hashes);
 });
 
-test("asks are one line, answered in place; notebook actions stay reachable", async ({
+test("asks are the shared ask row, answered in place; notebook actions stay reachable", async ({
   page,
 }) => {
   await boot(page);
   await openLuca(page);
+  // The asks are the one ask row Needs you uses (WP-09b, Decided 1).
   const asks = page.getByTestId("mind-asks");
-  await expect(asks.locator(".luca-mind-ask")).toHaveCount(2, {
+  await expect(asks.locator("li.luca-ask")).toHaveCount(2, {
     timeout: 20_000,
   });
   await expect(page.getByTestId("mind-entry").first()).toBeVisible({
     timeout: 20_000,
   });
-  const lines = await asks.locator(".luca-mind-ask").evaluateAll((rows) =>
+  const lines = await asks.locator("li.luca-ask").evaluateAll((rows) =>
     rows.map((row) => {
       const box = row.getBoundingClientRect();
-      const answer = row.querySelector<HTMLElement>(".luca-mind-answer");
-      const text = row.querySelector<HTMLElement>(".luca-mind-ask-line p");
+      const answer = row.querySelector<HTMLElement>(".luca-ask-answers button");
+      const text = row.querySelector<HTMLElement>(".luca-place-row-title");
       return {
         height: Math.round(box.height),
-        kind: row.querySelector(".luca-mind-kind")?.textContent,
+        kind: (row as HTMLElement).dataset.askKind ?? null,
+        where: row.querySelector(".luca-place-row-summary")?.textContent,
         question: text?.textContent,
         questionSize: text ? getComputedStyle(text).fontSize : null,
         answer: answer?.textContent,
         answerFill: answer ? getComputedStyle(answer).backgroundColor : null,
-        cardShown: Boolean(row.querySelector("section")),
+        cardShown: Boolean(row.querySelector(".luca-ask-panel")),
       };
     }),
   );
@@ -823,10 +825,11 @@ test("asks are one line, answered in place; notebook actions stay reachable", as
     .first()
     .evaluate((row) => Math.round(row.getBoundingClientRect().top));
   const lineShot = await shot(page, "asks-one-line");
-  await asks.getByRole("button", { name: "Answer" }).first().click();
-  await asks.getByText("Beta", { exact: true }).click();
-  await asks.getByRole("button", { name: "Send answer" }).click();
-  await expect(asks.locator(".luca-mind-ask")).toHaveCount(1, {
+  // A one-choice question is answered on its row: the choice, then Send.
+  const question = asks.getByTestId("mind-ask-question:luca-question-1");
+  await question.getByRole("button", { name: "Beta", exact: true }).click();
+  await question.getByTestId("needs-you-question-send").click();
+  await expect(asks.locator("li.luca-ask")).toHaveCount(1, {
     timeout: 10_000,
   });
   const answered = await shot(page, "asks-answered");

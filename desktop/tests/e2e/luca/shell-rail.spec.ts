@@ -1316,8 +1316,10 @@ test.describe("the rail, finished (WP-02b)", () => {
     await page.screenshot({ path: searchPath });
     shots.push(searchPath);
     await result.click();
+    // The lip names a project room's project first (WP-09b, Decided 3):
+    // "Tidepool / Landing page copy".
     await expect(page.getByTestId("shell-lip-name")).toHaveText(
-      "Landing page copy",
+      "Tidepool/Landing page copy",
       { timeout: 20000 },
     );
     await expect(home(page, "project:tidepool")).toHaveAttribute(

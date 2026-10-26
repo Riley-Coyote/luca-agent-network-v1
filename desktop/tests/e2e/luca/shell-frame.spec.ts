@@ -1306,15 +1306,26 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
       )
     : [];
   const fadeSd = fadeRows.map((row) => row.sd);
+  // Measured against the card's own grain deep inside it, not a fixed
+  // number: the grain went finer and two steps quieter on 2026-10-25
+  // (Riley: "a finer, more subtle texture", then "one step quieter still";
+  // conversation-shell.css, --mn-card-finish), so its spread is about a
+  // third of what this was first set to. Across the fade it keeps the
+  // card's spread (two offset copies would average out below it), and the
+  // card has grain at all (a flat fill measures 0).
+  const cardGrainSd =
+    (edges.conversation as { deep: Stats } | null)?.deep.sd ?? 0;
   checks.top_veil_registration = {
     ...veilRegistration,
     fade_min_sd: Math.min(...fadeSd),
     fade_mean_sd: fadeSd.reduce((a, b) => a + b, 0) / (fadeSd.length || 1),
+    card_grain_sd: cardGrainSd,
     ok:
       veilRegistration.content_left === veilRegistration.veil_left &&
       veilRegistration.content_top === veilRegistration.veil_top &&
       fadeSd.length === 16 &&
-      Math.min(...fadeSd) >= 1.75,
+      cardGrainSd >= 0.4 &&
+      Math.min(...fadeSd) >= cardGrainSd * 0.8,
   };
 
   const lipNames: Record<string, unknown> = {
@@ -1401,15 +1412,18 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
           background,
           open_body: open,
           header: { ...header, band, line },
+          // The grain's spread, against the open body's (the grain went
+          // two steps quieter on 2026-10-25; see top_veil_registration):
+          // the body has grain, and the header's band keeps it.
           ok:
             background === "rgba(0, 0, 0, 0)" &&
-            open.sd >= 1 &&
+            open.sd >= 0.4 &&
             header.background === "rgba(0, 0, 0, 0)" &&
             header.backdrop === "none" &&
             header.border_bottom === "rgba(0, 0, 0, 0)" &&
             Math.abs(band.mean - open.mean) <= 0.5 &&
             Math.abs(line.mean - open.mean) <= 0.5 &&
-            band.sd >= 1,
+            band.sd >= open.sd * 0.8,
         };
       }
     }
