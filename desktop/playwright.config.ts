@@ -34,6 +34,7 @@ export default defineConfig({
         "**/shell-glass.spec.ts",
         "**/shell-glass-themes.spec.ts",
         "**/shell-place-rails.spec.ts",
+        "**/shell-one-card.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",

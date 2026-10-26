@@ -479,7 +479,7 @@ test("the Canvas in focus fills the content area, flush with the lip", async ({
           canvas.right === area.right &&
           canvas.bottom === area.bottom
         : false;
-    const expectedLeft = railClosed ? 44 : 268;
+    const expectedLeft = railClosed ? 44 : 264;
     const good =
       measured.mode === "focus" &&
       canvas?.top === 36 &&
@@ -1146,11 +1146,11 @@ test("without native lights the toggle heads the places' column and the tooltips
   }
   checks.no_lights_toggle = {
     measured: positions,
-    expected: { toggle: 10, toggle_centre: 22, toggle_y: 10, back: 274 },
+    expected: { toggle: 10, toggle_centre: 22, toggle_y: 10, back: 270 },
     ok:
       positions?.toggle === 10 &&
       positions.toggle_y === 10 &&
-      positions.back === 274,
+      positions.back === 270,
   };
   checks.ctrl_tooltips = { browser: results, ok: tipsOk };
   verdict("no_lights_toggle", "ctrl_tooltips");

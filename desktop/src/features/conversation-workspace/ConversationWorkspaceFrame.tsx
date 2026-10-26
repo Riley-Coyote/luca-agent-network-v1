@@ -247,6 +247,7 @@ export function ConversationWorkspaceFrame({
             ? ""
             : undefined
         }
+        data-preset={projection.preset}
         data-testid="conversation-workspace-grid"
         style={gridStyle(projection.preset, columnRatio, rowRatio)}
       >

@@ -41,11 +41,12 @@ const CARD_RIGHT_PROPERTY = "--luca-frame-card-right";
 const NAME_ROOM_MIN = 100;
 const NAME_ROOM_PAST_SLOT = 8 + 12;
 
-/** Where the conversation card's left edge comes to rest: the places' edge,
- *  past the rail's card and its gap while the rail is open. The lip takes it
- *  from the rail's own state, not from a measurement, so its part over the
- *  card glides there on the rail's own curve in the same frames as the card
- *  (shell-frame.css), instead of trailing the card by a frame. */
+/** Where what the rail opens begins: the places' edge, past the rail while
+ *  it is open, at its hairline (one card, WP-12: nothing between them). The
+ *  lip takes it from the rail's own state, not from a measurement, so its
+ *  part over the card glides there on the rail's own curve in the same
+ *  frames as the conversation's edge (shell-frame.css), instead of trailing
+ *  it by a frame. */
 export function shellFrameCardLeft({
   railOpen,
   besideRail = 0,
@@ -59,9 +60,7 @@ export function shellFrameCardLeft({
 }): number {
   const beside =
     besideRail > 0 ? besideRail + CARD_GAP + (railOpen ? 0 : CARD_GAP) : 0;
-  return (
-    PLACES_WIDTH + (railOpen ? SHELL_FRAME_RAIL_WIDTH + CARD_GAP : 0) + beside
-  );
+  return PLACES_WIDTH + (railOpen ? SHELL_FRAME_RAIL_WIDTH : 0) + beside;
 }
 
 /** The lip's part over the card: its left from the rail's state (above);

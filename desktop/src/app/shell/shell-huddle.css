@@ -120,10 +120,11 @@
 
 /* Its controls stand on the conversation card's axis, as the lip's name
  * does (the axis the composer above them is centred on): the bar's own
- * start moves to the card's left (268 with the rail open, the places' edge
- * with it closed), on the rail's motion. The band itself stays put. */
+ * start moves to the conversation's left (264 with the rail open, at its
+ * hairline on the one card; the places' edge with it closed), on the rail's
+ * motion. The band itself stays put. */
 .luca-huddle-band .buzz-huddle-drawer {
-  padding-left: calc(var(--luca-huddle-beside, 224px) + 10px);
+  padding-left: calc(var(--luca-huddle-beside, 220px) + 10px);
   transition: padding-left var(--luca-frame-slide);
 }
 

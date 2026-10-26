@@ -6,12 +6,12 @@
  * `shell-frame` flag is on.
  *
  * A thin frame on the floor (the lip, the window's top 36; the places, a
- * column of 44 under it) holds two cards of one material: the rail's (220,
- * from the places' edge, 6 above the window's bottom) and the
- * conversation's (4 from the rail's card, or at the places' edge when the
- * rail is closed; 6 from the window's right and bottom; top flush with the
- * lip). Closing the rail narrows its card to nothing over 460 ms, its rows
- * held still and clipped, and the conversation's card follows its edge.
+ * column of 44 under it) holds one card (WP-12, amended 2026-10-26): from
+ * the places' edge to 6 from the window's right (or 4 from an open right
+ * card), top flush with the lip, 6 above the window's bottom. The rail (its
+ * first 220) and what it opens lie on it, clear, a hairline between them.
+ * Closing the rail narrows it to nothing over 460 ms, its rows held still
+ * and clipped, and the conversation's edge follows; the card never moves.
  *
  * Fixed points, as the top chrome was: the frame sits beside the native
  * traffic lights, which ignore the app's text zoom.
@@ -27,9 +27,38 @@
   --mn-card-gap: 4px;
 }
 
-/* The row under the lip: the places, the rail's card, the conversation's. */
+/* The row under the lip: the places, the one card, and the rail and the
+ * conversation on it. It holds the card's place. */
 :root[data-luca-frame="solid"] [data-luca-frame-row] {
   padding-top: var(--luca-frame-lip);
+  position: relative;
+}
+
+/* ── the one card ──────────────────────────────────────────────────────
+ * Drawn once, beneath the rail and the content, and never moved: its
+ * surface, its grain, its lit top edge and (at night) the cards' edge light;
+ * by day its one shadow on the floor (shellGlass.ts). Its right edge is the
+ * conversation's, which the lip measures and publishes on the root as a
+ * right card opens (ShellLip.tsx); its bottom rises over a live huddle's
+ * band with every card's (shell-huddle.css). First in the row, so the rail
+ * and the content paint over it (the study's `.shell-onecard`,
+ * shellStudy.css, "one card or two"). Its grain is tiled from the window's
+ * origin, as every copy of it on the card is (below), so they register. */
+:root[data-luca-frame="solid"] [data-luca-one-card] {
+  background-attachment: fixed;
+  background-color: hsl(var(--mn-surface));
+  background-image: var(--mn-card-finish, none);
+  background-position: 0 0;
+  background-size: 256px 256px;
+  border-radius: var(--radius);
+  bottom: var(--luca-frame-card-bottom, var(--luca-frame-edge));
+  box-shadow: var(--mn-card-edge);
+  left: var(--luca-frame-places);
+  pointer-events: none;
+  position: absolute;
+  right: var(--luca-frame-card-right, var(--luca-frame-edge));
+  top: var(--luca-frame-lip);
+  z-index: 0;
 }
 
 /* ── the lip ───────────────────────────────────────────────────────── */
@@ -239,14 +268,14 @@
   outline-offset: -1px;
 }
 
-/* ── the rail's card ──────────────────────────────────────────────────
- * The shadcn rail, made a card under the frame: its footprint is the card
- * and the 4 beside it, its panel 6 short of the window's bottom, its surface
- * the cards' own (surface, the dark card edge, the grain), corners 10. It
- * closes by narrowing, not by sliding away. */
+/* ── the rail, on the card ────────────────────────────────────────────
+ * The shadcn rail, the card's first column under the frame: its footprint is
+ * its own 220 (nothing after it: the conversation begins at its hairline),
+ * its panel 6 short of the window's bottom. It closes by narrowing, not by
+ * sliding away. */
 :root[data-luca-frame="solid"] [data-frame] > [data-sidebar-gap] {
   transition: width var(--luca-frame-slide);
-  width: calc(var(--sidebar-width) + var(--mn-card-gap));
+  width: var(--sidebar-width);
 }
 
 :root[data-luca-frame="solid"]
@@ -263,9 +292,8 @@
   width: var(--sidebar-width);
 }
 
-/* Closed, the card is gone once it has narrowed to nothing: a card of no
- * width would still draw its edge light, a second rim on the conversation
- * card's left. It hides when the slide ends and shows the moment it opens. */
+/* Closed, the rail is gone once it has narrowed to nothing, and with it its
+ * hairline. It hides when the slide ends and shows the moment it opens. */
 :root[data-luca-frame="solid"]
   [data-frame][data-collapsible="offcanvas"]
   > [data-testid="app-sidebar"] {
@@ -276,7 +304,8 @@
   width: 0;
 }
 
-/* Peeking, the closed card opens over the conversation's, as before. */
+/* Peeking, the closed rail opens over the conversation as a card of its
+ * own, as before (its paint, below). */
 :root[data-luca-frame="solid"]
   [data-frame][data-peek="true"]
   > [data-testid="app-sidebar"] {
@@ -287,24 +316,78 @@
 
 :root[data-luca-frame="solid"] [data-frame] [data-sidebar="sidebar"] {
   background-size: 256px 256px;
-  border-radius: var(--radius);
-  box-shadow: var(--mn-card-edge);
+  border-radius: var(--radius) 0 0 var(--radius);
+  box-shadow: none;
   overflow: hidden;
   padding-right: 0;
 }
 
-/* The card's paint, in every palette. Slate (theme.css's
+/* The rail lies on the card, clear: no surface, grain or edge of its own,
+ * so nothing doubles and no seam shows. Every palette: Slate (theme.css's
  * `[data-buzz-sidebar]` and `[data-buzz-translucent]` rules, 0,5,0) clears
- * the rail's `.bg-sidebar` to show the floor through it: under the frame the
- * rail is a card of its own, never the floor and never glass, so the paint
- * names the element's own `.bg-sidebar:not([data-buzz-flat])` and outranks
- * them (0,6,0). Only the paint: the card's edge and shadow above stay where
- * the glass's own (shell-glass.css) can answer them. */
+ * `.bg-sidebar` too; this names the element's own
+ * `.bg-sidebar:not([data-buzz-flat])` and outranks them (0,6,0). */
 :root[data-luca-frame="solid"]
   [data-frame]
   [data-sidebar="sidebar"].bg-sidebar:not([data-buzz-flat]) {
+  background-color: transparent;
+  background-image: none;
+}
+
+/* Peeking (the rail closed, the pointer at its edge) it is a card of its
+ * own over the card, as it was: the cards' surface, grain and corners. Its
+ * top and left lie on the one card's, which already draw the lit top and the
+ * rim there, so it draws neither again: only its own right edge (at night
+ * the rim's half point of light) and its shadow (the panel's). */
+:root[data-luca-frame="solid"]
+  [data-frame][data-peek="true"]
+  [data-sidebar="sidebar"].bg-sidebar:not([data-buzz-flat]) {
+  background-attachment: fixed;
   background-color: hsl(var(--mn-surface));
   background-image: var(--mn-card-finish, none);
+  background-position: 0 0;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+:root[data-luca-frame="solid"].dark
+  [data-frame][data-peek="true"]
+  [data-sidebar="sidebar"].bg-sidebar:not([data-buzz-flat]) {
+  box-shadow: 0.5px 0 0 rgb(255 255 255 / 0.08);
+}
+
+/* Its shadow falls only past its right edge: above, beside and below it lie
+ * the one card's own edges, which a shadow cast there would dim. */
+:root[data-luca-frame="solid"]
+  [data-frame][data-peek="true"]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list]) {
+  clip-path: inset(0 -64px 0 0 round var(--radius) 0 0 var(--radius));
+}
+
+/* The hairline: half a point of ink at 8% along the rail's right edge, one
+ * device pixel on a Retina screen, drawn as an inset line (a box half a
+ * point wide isn't painted in Chromium). It lies over the rail's rows and
+ * its foot's fade, which would cover a line drawn on the rail itself, and
+ * goes with the rail's width as it narrows. Clipped to the card's left
+ * corners, so in the fold's last frames, the rail a few points wide, the
+ * line never shows past the card's rounded edge. Not while peeking: the
+ * peeking rail is a card, edged as one. */
+:root[data-luca-frame="solid"]
+  [data-frame]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list])::after {
+  box-shadow: inset -0.5px 0 0 hsl(var(--mn-ink) / 0.08);
+  clip-path: inset(0 -100vw 0 0 round var(--radius) 0 0 var(--radius));
+  content: "";
+  inset: 0 0 0 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 40;
+}
+
+:root[data-luca-frame="solid"]
+  [data-frame][data-peek="true"]
+  > :is([data-testid="app-sidebar"], [data-luca-settings-list])::after {
+  content: none;
 }
 
 /* Inside the card, what was painted as the rail's floor is the card's:
@@ -324,9 +407,12 @@
 /* The footer's fade is the card itself, drawn over the rows: the card's
  * grain on its surface, masked from opaque at the bottom to clear, the way
  * the conversation's veils are. A flat fade hid the grain and stopped it at
- * a line; this one hands the grain over to the card's own as it thins. */
+ * a line; this one hands the grain over to the card's own as it thins, the
+ * two tiled from the same origin (the window's) so they register. */
 :root[data-luca-frame="solid"] [data-frame] [data-sidebar="footer"]::before {
   background: var(--mn-card-finish, none), hsl(var(--mn-surface));
+  background-attachment: fixed;
+  background-position: 0 0;
   background-size:
     256px 256px,
     100% 100%;
@@ -345,9 +431,12 @@
   padding-top: var(--luca-frame-edge);
 }
 
-/* ── the conversation's card ──────────────────────────────────────────
- * Top flush with the lip, 6 from the window's right and bottom. The inset
- * carries the right and bottom edge, so the right cards share it. */
+/* ── what the rail opens, on the card ─────────────────────────────────
+ * Top flush with the lip, 6 from the window's right and bottom, beginning at
+ * the rail's hairline. The inset carries the right and bottom edge, so the
+ * right cards share it. Nothing beneath the card paints the floor over it:
+ * the inset and the floor host go clear, and the app surface behind the row
+ * paints the floor once. */
 /* The cards' edge light (the lit top, the rim) is drawn half a point
  * outside their box, and the inset and the route's plane both clip. Each
  * clip is given one point of room on the sides that touch a card, and a
@@ -358,10 +447,32 @@
   padding: 1px var(--luca-frame-edge) var(--luca-frame-edge) 1px;
 }
 
+:root[data-luca-frame="solid"][data-luca-shell]
+  :is(
+    main[data-buzz-glass-inset],
+    [data-luca-frame-row] > main > [data-luca-floor-host],
+    [data-luca-settings-card-host]
+  ) {
+  background: transparent;
+}
+
 :root[data-luca-frame="solid"]
   [data-luca-floor-host]
   > [data-luca-conversation-surface] {
   margin: 0;
+}
+
+/* The conversation, and Settings' panels, lie on the card, clear: no
+ * surface, grain or edge of their own. They keep the card's corners, so what
+ * they hold is clipped to them (shellStudy.css, `[data-cards="one"]
+ * .shell-card`). Spelled out to outrank the cards' paint and grain
+ * (conversation-shell.css, 0,6,0). */
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-frame-row]
+  :is([data-luca-floor-host], [data-luca-settings-card-host])
+  > [data-luca-conversation-surface] {
+  background: transparent;
+  box-shadow: none;
 }
 
 :root[data-luca-frame="solid"] [data-testid="conversation-workspace-grid"] {
@@ -380,19 +491,59 @@
   padding: 1px;
 }
 
-/* The right cards: 4 from the conversation's card, which the slot carries
- * itself, so the routed card's span is the conversation card's (the lip
- * centres the name on it). The workspace grid's own right gap stands down;
+/* On the one card what the rail opens is clipped just inside the card's
+ * corners: half a point in from its edge, on an arc half a point tighter,
+ * so nothing it holds (the veils, a pane's paint) swells a corner or covers
+ * the light the card's own edge draws in the turn. The planes are a point
+ * larger than the card (their room, above), so their clip is 1.5 in; the
+ * surface that is itself the content is the card's size, so its clip is
+ * 0.5 in. */
+:root:root[data-luca-frame="solid"]
+  [data-luca-floor-host]
+  > [data-luca-conversation-surface]:has([data-luca-workspace-floor]),
+:root[data-luca-frame="solid"] [data-buzz-content-plane] {
+  border-radius: 0;
+  clip-path: inset(1.5px round calc(var(--radius) - 0.5px));
+}
+
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-frame-row]
+  :is([data-luca-floor-host], [data-luca-settings-card-host])
+  > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor])) {
+  clip-path: inset(0.5px round calc(var(--radius) - 0.5px));
+}
+
+/* Every copy of the card's grain on it (the conversation's veils, here; the
+ * rail's foot and a peeking rail, above) is tiled from the window's origin,
+ * as the card's own is, so where a veil thins its grain lies on the card's
+ * grain exactly instead of beside it. */
+:root:root[data-luca-frame="solid"]
+  [data-luca-frame-row]
+  :is(.luca-conversation-veil-top, .luca-conversation-veil-bottom) {
+  background-attachment: fixed;
+  background-position: 0 0;
+}
+
+/* The right cards stay cards of their own: 4 from the one card, which the
+ * slot carries itself, so the routed card's span is the conversation's (the
+ * lip centres the name on it). The workspace grid's own right gap stands down;
  * its selector is restated to outrank it. */
 :root[data-luca-frame="solid"] [data-luca-right-cards] {
   padding: 0 0 0 var(--mn-card-gap);
+  transition: none;
 }
 
+/* A right card closing keeps its 4 while it narrows: the slot gives the gap
+ * up only in the close's second half, as the card is almost gone, and has
+ * none left when the card is taken away (PanelPresence, the standard
+ * duration and a frame). Opening, the gap is there at once. */
 :root[data-luca-frame="solid"]
   [data-luca-right-cards]:has([data-panel-open="false"]):not(
     :has([data-panel-open="true"])
   ) {
   padding-left: 0;
+  transition: padding-left calc(var(--motion-duration-standard) * 0.5)
+    cubic-bezier(0.55, 0, 1, 0.45) calc(var(--motion-duration-standard) * 0.5);
 }
 
 :root[data-luca-frame="solid"][data-luca-shell]
@@ -424,19 +575,70 @@
   margin: 0;
 }
 
-/* The grain reaches every card's edge, as it does on the rail's card. The
- * cards' transparent 1-point border kept the grain a point inside them (and
- * WebKit draws a grain that runs under a transparent border fainter across
- * the whole card), so the border goes and a point of padding takes its
- * place: the content box, and everything in it, stays where it was. The
- * grain is still laid from the content box, where the veils' copies of it
- * start, so the two register; it repeats out to the card's outer edge. */
+/* The cards' transparent 1-point border goes and a point of padding takes
+ * its place, so the content box, and everything in it, stays where it was
+ * (WebKit draws a grain that runs under a transparent border fainter across
+ * the whole card). On the one card nothing here paints grain of its own:
+ * the card's grain, and every copy of it, is tiled from the window's origin
+ * (above), not from these boxes. */
 :root[data-luca-frame="solid"]
   [data-buzz-content-surface]:not(:has([data-luca-workspace-floor])),
 :root[data-luca-frame="solid"] [data-luca-workspace-floor] [data-luca-card] {
   border-width: 0;
   padding: 1px;
   background-origin: content-box;
+}
+
+/* Panes side by side share the card (SHELL_SPEC.md, "Several conversations
+ * side by side"): clear, no gaps between them, divided by the rail's
+ * hairline, the lines drawn by the pane before each seam. The line is the
+ * hairline's tone mixed into the surface, opaque, so where two dividers
+ * cross (four panes) the crossing keeps one tone instead of inking twice. */
+:root[data-luca-frame="solid"] [data-testid="conversation-workspace-grid"] {
+  --luca-pane-divider: color-mix(
+    in srgb,
+    hsl(var(--mn-ink)) 8%,
+    hsl(var(--mn-surface))
+  );
+  gap: 0;
+}
+
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-workspace-floor]
+  [data-testid="conversation-workspace-grid"]
+  > [data-luca-card] {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-workspace-floor]
+  :is(
+    [data-preset="columns-2"] > [data-luca-card]:nth-child(1),
+    [data-preset="three"] > [data-luca-card]:nth-child(1),
+    [data-preset="grid-4"] > [data-luca-card]:nth-child(3)
+  ) {
+  box-shadow: inset -0.5px 0 0 var(--luca-pane-divider);
+}
+
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-workspace-floor]
+  :is(
+    [data-preset="rows-2"] > [data-luca-card]:nth-child(1),
+    [data-preset="three"] > [data-luca-card]:nth-child(2),
+    [data-preset="grid-4"] > [data-luca-card]:nth-child(2)
+  ) {
+  box-shadow: inset 0 -0.5px 0 var(--luca-pane-divider);
+}
+
+:root:root[data-luca-frame="solid"][data-luca-shell]
+  [data-luca-workspace-floor]
+  [data-preset="grid-4"]
+  > [data-luca-card]:nth-child(1) {
+  box-shadow:
+    inset -0.5px 0 0 var(--luca-pane-divider),
+    inset 0 -0.5px 0 var(--luca-pane-divider);
 }
 
 /* New conversation fills the card: its body paints no surface of its own,
@@ -455,8 +657,8 @@
 
 /* The conversation header's rules: app/shell/shell-header.css (WP-04). */
 
-/* Reduce Motion: the rail's card, the conversation's and the lip over it
- * are instant. Spelled out to outrank the closed and peeking card. */
+/* Reduce Motion: the rail's fold, the conversation's edge and the lip over
+ * it are instant. Spelled out to outrank the closed and peeking rail. */
 @media (prefers-reduced-motion: reduce) {
   :root[data-luca-frame="solid"]
     [data-frame]
@@ -464,6 +666,10 @@
   :root[data-luca-frame="solid"]
     [data-frame]:is([data-collapsible], [data-peek])
     > [data-testid="app-sidebar"],
+  :root[data-luca-frame="solid"]
+    [data-luca-right-cards]:has([data-panel-open="false"]):not(
+      :has([data-panel-open="true"])
+    ),
   .luca-lip-card,
   .luca-lip-history {
     transition: none;

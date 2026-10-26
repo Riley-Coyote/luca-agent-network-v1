@@ -374,12 +374,13 @@ test("flag on: Dark leads with Vitesse Black, where Obsidian's owners land", asy
   await expect(chosen).toBeInViewport();
 });
 
-// ── the rail is a card in every palette ─────────────────────────────────
+// ── the one card is painted in every palette ───────────────────────────
 
 // Slate clears the rail's .bg-sidebar to show its floor (theme.css); under
-// the frame the rail's card keeps its own surface, Black frame and Glass.
+// the frame the rail and the conversation lie on the one card (WP-12), which
+// keeps its own surface, Black frame and Glass, and the rail on it is clear.
 for (const frame of ["solid", "glass"] as const) {
-  test(`flag on, Slate, ${frame} frame: the rail's card is painted`, async ({
+  test(`flag on, Slate, ${frame} frame: the one card is painted`, async ({
     page,
   }) => {
     await fakeTauri(page);
@@ -392,20 +393,30 @@ for (const frame of ["solid", "glass"] as const) {
     await page.goto(`/#/channels/${GENERAL_CHANNEL_ID}`, {
       waitUntil: "domcontentloaded",
     });
-    const card = page.locator('[data-frame] [data-sidebar="sidebar"]');
-    await expect(card).toBeVisible({ timeout: 20_000 });
+    const rail = page.locator('[data-frame] [data-sidebar="sidebar"]');
+    await expect(rail).toBeVisible({ timeout: 20_000 });
     await waitForAnimations(page);
-    const paint = await card.evaluate((el) => {
+    const paint = await page.evaluate(() => {
+      const one = document.querySelector("[data-luca-one-card]");
+      const railCard = document.querySelector(
+        '[data-frame] [data-sidebar="sidebar"]',
+      );
+      if (!one || !railCard) return null;
       const probe = document.createElement("div");
       probe.style.backgroundColor = "hsl(var(--mn-surface))";
-      el.appendChild(probe);
+      one.appendChild(probe);
       const surface = getComputedStyle(probe).backgroundColor;
       probe.remove();
-      return { bg: getComputedStyle(el).backgroundColor, surface };
+      return {
+        bg: getComputedStyle(one).backgroundColor,
+        rail: getComputedStyle(railCard).backgroundColor,
+        surface,
+      };
     });
-    console.log(`[slate rail ${frame}] ${JSON.stringify(paint)}`);
-    expect(paint.bg).not.toBe("rgba(0, 0, 0, 0)");
-    expect(paint.bg).toBe(paint.surface);
+    console.log(`[slate one card ${frame}] ${JSON.stringify(paint)}`);
+    expect(paint?.bg).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paint?.bg).toBe(paint?.surface);
+    expect(paint?.rail).toBe("rgba(0, 0, 0, 0)");
   });
 }
 
