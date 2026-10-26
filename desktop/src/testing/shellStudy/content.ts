@@ -233,6 +233,18 @@ export const HOMES: Home[] = [
     ],
     sessions: [
       {
+        id: "atlas-claims",
+        ago: "1h",
+        title: "Claims check",
+        messages: [
+          {
+            from: "Atlas",
+            at: "8:40 AM",
+            text: "Every claim in the landing copy checked against the field guide. Two needed softer wording; they're marked in the draft.",
+          },
+        ],
+      },
+      {
         id: "atlas-runtime",
         ago: "9h",
         title: "Runtime atlas",
@@ -246,18 +258,6 @@ export const HOMES: Home[] = [
             from: OWNER,
             at: "Last night",
             text: "Good. Leave it there for tonight, I will look at it after dinner.",
-          },
-        ],
-      },
-      {
-        id: "atlas-release",
-        title: "Release notes",
-        working: true,
-        messages: [
-          {
-            from: "Atlas",
-            at: "10:20 AM",
-            text: "Drafting the beta 14 notes now: the black floor, the card's grain, and the new rail. Four lines each.",
           },
         ],
       },
@@ -480,9 +480,9 @@ export const PLACE_PAGES: Record<
         label: "Today",
         rows: [
           {
-            title: "Atlas started Release notes",
+            title: "Atlas started the beta 14 release notes",
             detail: "Atlas",
-            note: "10:20 AM",
+            note: "8:05 AM",
           },
           {
             title: "Wren moved the walk-through to Tuesday",
@@ -948,7 +948,7 @@ export const MIND_SPACES: Record<string, MindSpace> = {
     ],
   },
   atlas: {
-    now: "Rebuilding the runtime atlas",
+    now: "Drafting the beta 14 release notes",
     working: true,
     runtime: "Codex",
     words: {
