@@ -21,7 +21,9 @@ import type { ChatListItem } from "./chatListModel";
  *      open room, a forum, a group conversation, a private room with several
  *      others or none. A group conversation with no name of its own is named by
  *      its members ("Luca + Wren").
- * Luca's side conversations (WP-14) will join Luca's home as more sessions.
+ * Luca's side conversations (WP-14) are not chats: they are exchanges and
+ * runtime tasks Luca took part in, shown among Luca's sessions by time
+ * (`shownHomeEntries`), each opening the room where it happened.
  */
 
 export type RailHomeKind = "luca" | "project" | "agent" | "person" | "room";
@@ -421,4 +423,69 @@ export function shownSessions(
   const open = sessions.find((item) => item.channel.id === selectedChannelId);
   const shown = open && !latest.includes(open) ? [...latest, open] : latest;
   return { shown, hidden: sessions.length - shown.length };
+}
+
+/** One of Luca's side conversations as the rail lists it (WP-14, Decided 6):
+ *  "Atlas · Tidepool", "Claude Code · fix the build". */
+export type RailSideRow = {
+  id: string;
+  label: string;
+  /** When it last moved (ms): what orders it. */
+  at: number;
+  /** The time the row says, or null when none is known yet. */
+  shownAt?: number | null;
+  /** What it says in place of a time: talking…, working…, paused. */
+  word?: "talking" | "working" | "paused" | null;
+  /** Talking or working: it never folds away. */
+  live: boolean;
+  conversationId: string;
+  /** Where it opens in its room: an exchange's first message. */
+  messageId: string | null;
+};
+
+export type RailHomeEntry =
+  | { kind: "chat"; item: ChatListItem }
+  | { kind: "side"; row: RailSideRow };
+
+/**
+ * A home's sessions and side conversations in one list, newest first, as
+ * `shownSessions` shows sessions: the latest three, the open one wherever it
+ * falls, and (WP-14) every side conversation still talking; the rest wait
+ * behind "N more". With no side conversations it is `shownSessions`.
+ */
+export function shownHomeEntries(
+  sessions: readonly ChatListItem[],
+  side: readonly RailSideRow[],
+  selectedChannelId: string | null,
+  all = false,
+  createdAtById?: CreatedAtById,
+): { shown: RailHomeEntry[]; hidden: number; total: number } {
+  // Both lists are newest first already; merge, keeping each one's order.
+  const sorted = [...side].sort((a, b) => b.at - a.at);
+  const merged: RailHomeEntry[] = [];
+  let c = 0;
+  let s = 0;
+  while (c < sessions.length || s < sorted.length) {
+    const chat = sessions[c];
+    const row = sorted[s];
+    if (chat && (!row || activeMs(chat, createdAtById) >= row.at)) {
+      merged.push({ kind: "chat", item: chat });
+      c += 1;
+    } else if (row) {
+      merged.push({ kind: "side", row });
+      s += 1;
+    }
+  }
+  if (all || merged.length <= 3)
+    return { shown: merged, hidden: 0, total: merged.length };
+  const keep = new Set<RailHomeEntry>(merged.slice(0, 3));
+  for (const entry of merged) {
+    if (
+      (entry.kind === "chat" && entry.item.channel.id === selectedChannelId) ||
+      (entry.kind === "side" && entry.row.live)
+    )
+      keep.add(entry);
+  }
+  const shown = merged.filter((entry) => keep.has(entry));
+  return { shown, hidden: merged.length - shown.length, total: merged.length };
 }

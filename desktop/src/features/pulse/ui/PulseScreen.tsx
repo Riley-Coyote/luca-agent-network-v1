@@ -17,7 +17,16 @@ import { ProvenanceView } from "@/features/provenance/ui/ProvenanceView";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { ProfilePanelProvider } from "@/shared/context/ProfilePanelContext";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
-import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
+import { NeedsYouCard } from "@/app/shell/placeRails/NeedsYouCard";
+import {
+  ACTIVITY_STREAMS,
+  type ActivityStream,
+} from "@/app/shell/placeRails/placePicks";
+import { SideConversationsCard } from "@/app/shell/placeRails/SideConversationsCard";
+import {
+  useKeepPickInAddress,
+  usePlacePick,
+} from "@/app/shell/placeRails/usePlaceRails";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useThreadPanelWidth } from "@/shared/hooks/useThreadPanelWidth";
 
@@ -33,10 +42,17 @@ export function PulseScreen() {
   const [localSection, setSection] = React.useState<ActivitySection>("now");
   const identityQuery = useIdentityQuery();
   const { applyPatch, values } = useHistorySearchState(PULSE_PANEL_SEARCH_KEYS);
-  // Under the shell the rail picks the stream, in the address (WP-10).
+  // Under the shell the rail picks the stream, in the address (WP-10), and
+  // Activity opens on Needs you (WP-14).
   const shellFrame = useShellFrameEnabled();
+  const { pick } = usePlacePick("activity");
+  const stream: ActivityStream | "record" = values.record
+    ? "record"
+    : (ACTIVITY_STREAMS as readonly string[]).includes(pick ?? "")
+      ? (pick as ActivityStream)
+      : "needs-you";
   const section: ActivitySection = shellFrame
-    ? values.record
+    ? stream === "record"
       ? "record"
       : "now"
     : localSection;
@@ -79,7 +95,11 @@ export function PulseScreen() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {shellFrame ? <KeepActivityPick applyPatch={applyPatch} /> : null}
-            {section === "now" ? (
+            {shellFrame && stream === "needs-you" ? (
+              <NeedsYouCard />
+            ) : shellFrame && stream === "side" ? (
+              <SideConversationsCard />
+            ) : section === "now" ? (
               <LucaActivityView onSectionChange={setSection} />
             ) : (
               <ProvenanceView

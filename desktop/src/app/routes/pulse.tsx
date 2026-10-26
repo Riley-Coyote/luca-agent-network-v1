@@ -2,6 +2,10 @@ import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
 import {
+  ACTIVITY_STREAMS,
+  type ActivityStream,
+} from "@/app/shell/placeRails/placePicks";
+import {
   parseProfilePanelTab,
   parseProfilePanelView,
   type ProfilePanelTab,
@@ -16,10 +20,10 @@ const PulseScreen = React.lazy(async () => {
 
 type PulseRouteSearch = {
   profile?: string;
-  /** Under the shell, the stream the rail picked (WP-10): Now, or one
-   *  resident's signed record. */
+  /** Under the shell, the stream the rail picked (WP-10, WP-14): Needs
+   *  you, Now, Side conversations, or one resident's signed record. */
   record?: string;
-  stream?: "now";
+  stream?: ActivityStream;
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
 };
@@ -38,7 +42,9 @@ function validatePulseSearch(
       typeof search.record === "string" && search.record.length > 0
         ? search.record
         : undefined,
-    stream: search.stream === "now" ? "now" : undefined,
+    stream: (ACTIVITY_STREAMS as readonly unknown[]).includes(search.stream)
+      ? (search.stream as ActivityStream)
+      : undefined,
   };
 }
 

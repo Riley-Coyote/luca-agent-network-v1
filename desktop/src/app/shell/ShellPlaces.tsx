@@ -7,6 +7,9 @@ import {
   preloadArtifactsSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
+import { needsYouNote } from "@/app/shell/placeRails/needsYou";
+import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
+import "@/app/shell/shell-activity.css";
 import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
 import { useShellStatus } from "@/app/shell/useShellStatus";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
@@ -116,6 +119,7 @@ function usePlaceFocusHandOver(nav: React.RefObject<HTMLElement | null>) {
 
 function PlaceTile({
   badge,
+  badgeLabel,
   children,
   current,
   dot,
@@ -127,6 +131,8 @@ function PlaceTile({
   update,
 }: {
   badge?: number;
+  /** How the count reads ("99+" past 99); the number itself by default. */
+  badgeLabel?: string;
   children: React.ReactNode;
   current?: boolean;
   /** The app's unread dot, at the tile's top right. */
@@ -149,7 +155,9 @@ function PlaceTile({
               ? `${label}, update available`
               : dot
                 ? `${label}, unread`
-                : label
+                : badge && badge > 0
+                  ? `${label}, ${badgeLabel ?? badge} waiting on you`
+                  : label
           }
           className="luca-place"
           data-current={current ? "true" : undefined}
@@ -175,8 +183,17 @@ function PlaceTile({
             />
           ) : null}
           {badge && badge > 0 ? (
-            <span className="luca-place-badge" data-testid={`${testId}-count`}>
-              {Math.min(badge, 99)}
+            <span
+              aria-hidden="true"
+              className="luca-place-badge text-2xs"
+              data-testid={`${testId}-count`}
+              data-wide={
+                String(badgeLabel ?? Math.min(badge, 99)).length > 1
+                  ? ""
+                  : undefined
+              }
+            >
+              {badgeLabel ?? Math.min(badge, 99)}
             </span>
           ) : null}
         </button>
@@ -315,6 +332,9 @@ export function ShellPlaces({
   const status = useShellStatus();
   const { frameDrawn } = useTheme();
   const updateDot = status.updateAvailable && railSignalsSpeak;
+  // What waits on you, counted on Activity, where the Inbox's count drew
+  // (WP-14, Decided 4). At zero nothing shows.
+  const needsYou = useNeedsYou();
   return (
     <nav
       aria-label="Places"
@@ -354,6 +374,8 @@ export function ShellPlaces({
           <Bot />
         </PlaceTile>
         <PlaceTile
+          badge={needsYou.count}
+          badgeLabel={needsYouNote(needsYou.count)}
           current={here === "activity"}
           label="Activity"
           onClick={onSelectPulse}

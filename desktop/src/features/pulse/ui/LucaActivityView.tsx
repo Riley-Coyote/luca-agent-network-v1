@@ -30,7 +30,13 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Skeleton } from "@/shared/ui/skeleton";
 import { UserAvatar } from "@/shared/ui/UserAvatar";
+import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { PlaceListRow, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
+import {
+  namesAsList,
+  runtimeLabel as runtimeAppLabel,
+} from "@/features/exchange/sideConversations";
+import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 type ActivityResident = {
@@ -174,11 +180,15 @@ function idleDetail(resident: ActivityResident) {
 
 function ResidentActivityCard({
   flat,
+  inSideConversation = false,
   resident,
 }: {
   /** Under the shell: the study's flat stream, a row of who, what they're
    *  doing and when, Open activity a quiet action on it (WP-10). */
   flat: boolean;
+  /** Already listed as active by a live side conversation (WP-14 recheck):
+   *  not listed again lower down. */
+  inSideConversation?: boolean;
   resident: ActivityResident;
 }) {
   const working = useAgentWorking(resident.pubkey);
@@ -210,6 +220,8 @@ function ResidentActivityCard({
     : activity
       ? "recent"
       : "idle";
+
+  if (flat && inSideConversation && activityGroup !== "active") return null;
 
   if (flat) {
     return (
@@ -364,6 +376,56 @@ function ResidentActivityCard({
   );
 }
 
+/**
+ * Under the shell, Now and Side conversations agree (WP-14 review, fix 13):
+ * every side conversation still going (a mind working with Claude Code or
+ * Codex, two minds talking) is a row among who's working on what, opening
+ * where it happens.
+ */
+function LiveSideConversations() {
+  const { items, nameOf, roomOf } = useSideConversations();
+  const { goChannel } = useAppNavigation();
+  return (
+    <>
+      {items
+        .filter((item) => item.live)
+        .map((item) => {
+          const room = roomOf(item.conversationId);
+          const who =
+            item.kind === "task"
+              ? nameOf(item.residentPubkey)
+              : nameOf(item.openedBy);
+          const doing =
+            item.kind === "task"
+              ? `Working with ${runtimeAppLabel(item.runtimeFamily)} · ${item.summary}`
+              : `Talking with ${namesAsList(item.others.map(nameOf))}${room ? ` · ${room}` : ""}`;
+          return (
+            <PlaceListRow
+              as="div"
+              className="order-[2]"
+              data-activity-group="active"
+              data-activity-state="working"
+              key={`${item.kind}:${item.id}`}
+              note="now"
+              onOpen={() =>
+                void goChannel(
+                  item.conversationId,
+                  item.kind === "exchange"
+                    ? { messageId: item.rootEventId }
+                    : undefined,
+                )
+              }
+              openLabel={`${who}, ${doing}`}
+              summary={doing}
+              testId={`owner-activity-side-${item.id}`}
+              title={who}
+            />
+          );
+        })}
+    </>
+  );
+}
+
 function ActivityGroupHeading({
   flat,
   group,
@@ -487,6 +549,20 @@ export function LucaActivityView({
   const loading = managedQuery.isLoading || relayQuery.isLoading;
   const error = managedQuery.error ?? relayQuery.error;
   const flat = useShellFrameEnabled();
+  // Who the live side conversations already list as active, by the name
+  // their row says (the one asking, or the one running the task).
+  const side = useSideConversations();
+  const sideActive = React.useMemo(
+    () =>
+      new Set(
+        side.items
+          .filter((item) => item.live)
+          .map((item) =>
+            item.kind === "task" ? item.residentPubkey : item.openedBy,
+          ),
+      ),
+    [side.items],
+  );
 
   return (
     <main
@@ -593,10 +669,14 @@ export function LucaActivityView({
                 {residents.map((resident) => (
                   <ResidentActivityCard
                     flat={flat}
+                    inSideConversation={sideActive.has(
+                      normalizePubkey(resident.pubkey),
+                    )}
                     key={normalizePubkey(resident.pubkey)}
                     resident={resident}
                   />
                 ))}
+                {flat ? <LiveSideConversations /> : null}
               </section>
             )}
           </div>

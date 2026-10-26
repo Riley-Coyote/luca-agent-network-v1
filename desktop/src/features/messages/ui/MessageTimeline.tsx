@@ -59,6 +59,10 @@ type MessageTimelineProps = {
   /** A direct conversation with a resident, before its first message: the
    *  timeline opens on still water with the conversation's ink in it. */
   firstMessageOpen?: boolean;
+  /** The timeline shows one exchange (the focused view), under the shell:
+   *  the new-messages pill sits below the day label, with room made for it
+   *  (WP-14 review). */
+  focusedView?: boolean;
   isLoading?: boolean;
   entranceMessageId?: string | null;
   onEntranceMessageComplete?: (messageId: string) => void;
@@ -168,6 +172,7 @@ const MessageTimelineBase = React.forwardRef<
     channelIntro = null,
     directMessageIntro = null,
     firstMessageOpen = false,
+    focusedView = false,
     messages,
     mainEntries,
     threadSummaries,
@@ -815,7 +820,10 @@ const MessageTimelineBase = React.forwardRef<
 
   return (
     <TooltipProvider delayDuration={200}>
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        data-focused-view={focusedView ? "" : undefined}
+      >
         {/* Under everything else in the timeline: the water paints first. */}
         <AnimatePresence>
           {firstMessageOpen ? (
@@ -826,7 +834,8 @@ const MessageTimelineBase = React.forwardRef<
         {showUnreadPill ? (
           <div
             className={cn(
-              "pointer-events-none absolute inset-x-0 z-30 flex translate-y-3 justify-center px-4",
+              "pointer-events-none absolute inset-x-0 z-30 flex justify-center px-4",
+              focusedView ? "translate-y-9" : "translate-y-3",
               channelChrome.top,
             )}
           >

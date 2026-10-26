@@ -84,13 +84,41 @@
   margin-bottom: 6px;
 }
 
-/* A row: `.shell-page-group li`, the study's grid. */
+/* A row: `.shell-page-group li`, the study's grid. A row that opens
+ * something is one target (WP-14 review, fix 10): the whole row takes the
+ * click and the pointer, a plate of the ink at 4% lights under it (its
+ * padding outside the axis, so the text stays on it), and the focus ring
+ * goes round the whole row. Its actions stand above that click. */
 .luca-place-row {
   align-items: baseline;
+  border-radius: 8px;
   display: grid;
   gap: 16px;
   grid-template-columns: minmax(0, 1fr) auto 84px;
-  padding: 11px 0;
+  margin: 0 -10px;
+  padding: 11px 10px;
+  position: relative;
+  transition: background-color 120ms;
+}
+
+.luca-place-row:has(> .luca-place-row-open) {
+  cursor: pointer;
+}
+
+.luca-place-row:has(> .luca-place-row-open):hover {
+  background: hsl(var(--mn-ink) / 0.04);
+}
+
+.luca-place-row-open::after {
+  border-radius: 8px;
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.luca-place-row-middle {
+  position: relative;
+  z-index: 1;
 }
 
 .luca-place-row-what {
@@ -100,13 +128,13 @@
   text-align: left;
 }
 
-.luca-place-row-open {
-  border-radius: 6px;
+.luca-place-row-open:focus-visible {
+  outline: none;
 }
 
-.luca-place-row-open:focus-visible {
+.luca-place-row-open:focus-visible::after {
   outline: 1px solid hsl(var(--mn-ink) / 0.55);
-  outline-offset: 3px;
+  outline-offset: 0;
 }
 
 .luca-place-row-title {
@@ -129,6 +157,12 @@
   align-items: baseline;
   display: flex;
   gap: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-place-row {
+    transition: none;
+  }
 }
 
 .luca-place-row-detail {

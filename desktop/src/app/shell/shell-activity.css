@@ -1,0 +1,297 @@
+/* ── Activity: Needs you and Side conversations (SHELL_BUILD.md WP-14) ──
+ * Both cards wear the place page (shell-place-rails.css); these rules add
+ * what Needs you has and no other list does: an item that is a question,
+ * then its answer in place. Sizes are rem, so ⌘+ and ⌘− scale them. */
+
+/* Needs you's rows (PlaceAskRow.tsx): WP-10's row with its answers always
+ * in view. Hairlines on the answers only; no outline, fill or shadow around
+ * an item. */
+.luca-ask-list {
+  display: grid;
+}
+
+.luca-ask {
+  min-width: 0;
+}
+
+/* The answers stand above the row's own click (shell-place-rails.css). */
+/* Centred on the title's line, not on its baseline, so the hairline
+ * buttons never push the title down off the list's rhythm. */
+.luca-ask-answers {
+  align-items: center;
+  align-self: start;
+  margin-top: -3px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.luca-ask-choices {
+  display: inline-flex;
+  gap: 6px;
+  margin-right: 6px;
+}
+
+.luca-quiet-button {
+  border: 1px solid hsl(var(--mn-ink) / 0.14);
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  height: 1.625rem;
+  padding: 0 10px;
+  transition:
+    background-color 120ms,
+    border-color 120ms,
+    color 120ms;
+  white-space: nowrap;
+}
+
+.luca-quiet-button:hover:not(:disabled) {
+  border-color: hsl(var(--mn-ink) / 0.28);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-quiet-button[aria-pressed="true"] {
+  background: hsl(var(--mn-ink) / 0.08);
+  border-color: hsl(var(--mn-ink) / 0.32);
+  color: hsl(var(--mn-ink));
+}
+
+.luca-quiet-button:disabled {
+  opacity: 0.45;
+}
+
+.luca-quiet-button:focus-visible,
+.luca-ask-link:focus-visible,
+/* One faint line under who asks: a proposal's defaults, a disclosure. */
+.luca-ask-extra {
+  align-items: baseline;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  font-size: 0.75rem;
+  gap: 10px;
+  grid-column: 1 / -1;
+  margin-top: -10px;
+  min-width: 0;
+  position: relative;
+  width: fit-content;
+  z-index: 1;
+}
+
+.luca-ask-defaults {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-ask-link {
+  border-radius: 4px;
+  color: hsl(var(--mn-ink-muted));
+  flex: none;
+}
+
+.luca-ask-link:hover {
+  color: hsl(var(--mn-ink));
+}
+
+/* The long form, opened in place under its row. Here it lies on the page,
+ * not over a composer: no floating shadow, no blur, no margin of its own. */
+.luca-ask-panel {
+  min-width: 0;
+  padding: 2px 0 14px;
+}
+
+.luca-ask-panel [data-testid="runtime-task-confirmation"] {
+  backdrop-filter: none;
+  box-shadow: none;
+  margin-bottom: 0;
+}
+
+.luca-ask-panel [data-testid="managed-input-card"],
+.luca-ask-panel [data-testid="runtime-task-confirmation"] {
+  border-radius: 12px;
+}
+
+.luca-ask-details {
+  color: hsl(var(--mn-ink-muted));
+  display: grid;
+  font-size: 0.8125rem;
+  gap: 6px;
+}
+
+.luca-ask-details pre {
+  color: hsl(var(--mn-ink));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* A side conversation's state: alive ones breathe, the study's live dot
+ * (shellStudy.css, `.shell-livecard-dot`); at rest, the word alone. */
+.luca-side-state {
+  align-items: baseline;
+  display: inline-flex;
+  gap: 6px;
+  width: 4.75rem;
+}
+
+.luca-side-state[data-live]::before {
+  align-self: center;
+  animation: luca-side-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  content: "";
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+/* The turns' own slot, drawn even when empty, so the column lines up. */
+.luca-side-turns {
+  color: hsl(var(--mn-ink-faint));
+  display: inline-block;
+  text-align: right;
+  width: 3.25rem;
+}
+
+@keyframes luca-side-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* "What Luca did with it", under a connected app's sessions. */
+.luca-connected-history {
+  margin-top: 32px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .luca-side-state[data-live]::before {
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/* ── a room's waiting cards, held while one exchange is focused ──────
+ * One quiet line where the stack stood (ChannelPane.tsx): what waits, and
+ * Show. The plate and hairline of the exchange strip; no fill, no accent. */
+.luca-pending-held {
+  align-items: center;
+  background: hsl(var(--mn-ink) / 0.04);
+  border-radius: 10px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  transition: color 120ms;
+  width: 100%;
+}
+
+.luca-pending-held:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.luca-pending-held-show {
+  color: hsl(var(--mn-ink-faint));
+  flex: none;
+}
+
+.luca-measure[hidden] {
+  display: none;
+}
+
+/* The empty line takes focus after the last answer; it is not a control. */
+.luca-place-page-line:focus {
+  outline: none;
+}
+
+/* The focused view (one exchange): room under the day label for the
+ * new-messages pill, so neither sits on the other or on the message. */
+[data-focused-view] [data-testid="message-timeline-day-divider"] {
+  margin-bottom: 2.75rem;
+}
+
+/* ── the count on Activity (review fix 7) ───────────────────────────
+ * The shell's signal colour, the unread and update dots' own, centred where
+ * those dots sit (7 in from the tile's top right) and growing leftwards for
+ * "99+", so it never overhangs the tile; the icon gives way around it, as it
+ * does for the update dot (shell-status.css). Digits on the 2xs token. */
+:root[data-luca-shell] .luca-place-badge {
+  background: hsl(var(--mn-signal));
+  color: hsl(222 30% 9%);
+  font-size: var(--text-2xs, 0.6875rem);
+  height: 14px;
+  line-height: 14px;
+  min-width: 14px;
+  padding: 0 3px;
+  right: 0;
+  text-align: center;
+  top: 0;
+}
+
+:root[data-luca-shell] .luca-place:has(> .luca-place-badge) > svg {
+  mask-image: radial-gradient(
+    circle at calc(100% - 1px) 1px,
+    transparent 8px,
+    #000 8.5px
+  );
+}
+
+/* A wider count ("12", "99+") is a pill, not a dot: the icon gives way
+ * under the whole of it, a 1 cut below its edge. */
+:root[data-luca-shell] .luca-place:has(> .luca-place-badge[data-wide]) > svg {
+  mask-image: linear-gradient(to bottom, transparent 9px, #000 9.5px);
+}
+
+/* The ask is the content: never cut short. It wraps to as many lines as it
+ * needs; when the list is narrow, the answers take their own line under the
+ * text, and the time keeps its column (WP-14 recheck). */
+.luca-ask-list {
+  container-type: inline-size;
+}
+
+.luca-ask-row .luca-place-row-title {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@container (max-width: 34rem) {
+  .luca-ask-row {
+    grid-template-columns: minmax(0, 1fr) 84px;
+    row-gap: 10px;
+  }
+
+  .luca-ask-row > .luca-place-row-what {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .luca-ask-row > .luca-place-row-note {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .luca-ask-row > .luca-ask-extra {
+    grid-row: 2;
+    margin-top: -4px;
+  }
+
+  .luca-ask-row > .luca-ask-answers {
+    align-self: auto;
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: flex-start;
+    margin-top: 0;
+  }
+}

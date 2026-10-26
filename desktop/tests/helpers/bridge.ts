@@ -297,6 +297,79 @@ type MockBridgeOptions = {
    * `exchange-updated`.
    */
   exchanges?: MockExchangeSeed[];
+  /** Runtime tasks across rooms (WP-14), served by `list_runtime_tasks` and
+   *  `list_all_runtime_tasks`. A room by `conversationId` or `channelName`. */
+  runtimeTasks?: Array<{
+    taskId: string;
+    conversationId?: string;
+    channelName?: string;
+    residentPubkey: string;
+    runtimeFamily: "codex" | "claude_code";
+    summary: string;
+    state:
+      | "queued"
+      | "active"
+      | "stopping"
+      | "awaiting_native"
+      | "succeeded"
+      | "stopped"
+      | "failed"
+      | "interrupted";
+    startedAt: string;
+    updatedAt?: string;
+    completedAt?: string | null;
+    workingFolder?: string;
+  }>;
+  /** Open proposals to run Codex or Claude Code (WP-14); a respond removes
+   *  one and announces it. */
+  runtimeTaskProposals?: Array<{
+    proposalId: string;
+    conversationId?: string;
+    channelName?: string;
+    residentPubkey: string;
+    runtimeFamily: "codex" | "claude_code";
+    summary: string;
+    createdAt: string;
+  }>;
+  /** Pending permission requests, in the wire shape (`list_pending_managed_
+   *  permissions`); `resolve_managed_permission` removes one. */
+  managedPermissions?: Array<{
+    pendingId: string;
+    request: {
+      protocol: "luca.managed.permission.v1";
+      resident_pubkey: string;
+      conversation_id: string;
+      session_epoch: number;
+      turn_id: string;
+      acp_request_id: string;
+      title: string;
+      tool_call_id?: string | null;
+      action_preview?: string | null;
+      options: Array<{ option_id: string; name: string; kind: string }>;
+    };
+  }>;
+  /** Questions residents ask the owner (WP-14), in the wire shape. */
+  managedInputs?: Array<{
+    pendingId: string;
+    channelName?: string;
+    request: {
+      conversation_id?: string;
+      resident_pubkey: string;
+      message: string;
+      fields: Array<{
+        key: string;
+        label: string;
+        description: string | null;
+        kind: "text" | "single" | "multiple";
+        options: Array<{
+          value: string;
+          label: string;
+          description: string | null;
+        }>;
+        required: boolean;
+      }>;
+    };
+  }>;
   nativeResidentDiscovery?: NativeResidentDiscoveryOutcome;
   nativeResidentDiscoveryError?: string;
   createManagedAgentErrors?: (string | null)[];

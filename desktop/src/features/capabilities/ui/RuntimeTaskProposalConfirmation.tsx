@@ -11,16 +11,17 @@ import {
   type RuntimeTaskDraft,
 } from "./RuntimeTaskConfirmationCard";
 
-export function RuntimeTaskProposalConfirmation({
-  proposals,
-  projectSourceIds,
-  residentNames,
-}: {
-  proposals: RuntimeTaskProposal[];
-  projectSourceIds: string[];
-  residentNames: ReadonlyMap<string, string>;
-}) {
-  const proposal = proposals[0];
+/**
+ * The task a proposal asks for, with the details its card opens on: the
+ * project's folder, or the folder this conversation's last task ran in, or
+ * the existing session's own. Shared by the card and by Activity's Needs you
+ * (WP-14), whose row runs it with these defaults.
+ */
+export function useProposalDraft(
+  proposal: RuntimeTaskProposal | undefined,
+  projectSourceIds: string[],
+  residentNames: ReadonlyMap<string, string>,
+): RuntimeTaskDraft | null {
   const existingSession = isExistingRuntimeTask(proposal?.operation);
   const hasProjectSources = projectSourceIds.length > 0;
   const projectFolderQuery = useQuery({
@@ -45,7 +46,7 @@ export function RuntimeTaskProposalConfirmation({
       .slice()
       .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
       .find((task) => Boolean(task.workingFolder))?.workingFolder ?? null;
-  const draft: RuntimeTaskDraft = {
+  return {
     conversationId: proposal.conversationId,
     residentPubkey: proposal.residentPubkey,
     residentName: residentNames.get(proposal.residentPubkey) ?? "Your resident",
@@ -61,6 +62,20 @@ export function RuntimeTaskProposalConfirmation({
     targetLabel: proposal.targetLabel,
     targetWorkingFolder: proposal.targetWorkingFolder,
   };
+}
+
+export function RuntimeTaskProposalConfirmation({
+  proposals,
+  projectSourceIds,
+  residentNames,
+}: {
+  proposals: RuntimeTaskProposal[];
+  projectSourceIds: string[];
+  residentNames: ReadonlyMap<string, string>;
+}) {
+  const proposal = proposals[0];
+  const draft = useProposalDraft(proposal, projectSourceIds, residentNames);
+  if (!proposal || !draft) return null;
 
   return (
     <RuntimeTaskConfirmationCard

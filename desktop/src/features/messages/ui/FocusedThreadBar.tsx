@@ -16,11 +16,14 @@ import { cn } from "@/shared/lib/cn";
  */
 export function FocusedThreadBar({
   authorName,
+  own = false,
   replyCount,
   onExit,
   className,
 }: {
   authorName: string;
+  /** The message is the owner's own: "Your message", "2 replies to you". */
+  own?: boolean;
   replyCount: number;
   onExit: () => void;
   className?: string;
@@ -55,8 +58,10 @@ export function FocusedThreadBar({
       </span>
       <span className="min-w-0 truncate text-xs text-ink-faint">
         {replyCount === 0
-          ? `${authorName}'s message`
-          : `${replyCount} ${replyCount === 1 ? "reply" : "replies"} to ${authorName}`}
+          ? own
+            ? "Your message"
+            : `${authorName}'s message`
+          : `${replyCount} ${replyCount === 1 ? "reply" : "replies"} to ${own ? "you" : authorName}`}
       </span>
       <span className="ml-auto hidden shrink-0 text-2xs text-ink-faint sm:inline">
         esc

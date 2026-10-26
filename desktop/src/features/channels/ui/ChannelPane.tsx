@@ -117,6 +117,8 @@ import { useConversationEffort } from "@/features/thinking/useConversationEffort
 import { ConversationAccessPicker } from "@/features/settings/ui/ConversationAccessPicker";
 import { ConversationEffortPicker } from "@/features/thinking/ui/ConversationEffortPicker";
 import type { RuntimeTaskProjection } from "@/shared/api/tauriRuntimeTasks";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import "@/app/shell/shell-activity.css";
 export const ChannelPane = React.memo(function ChannelPane({
   activeChannel,
   agentPubkeys,
@@ -1019,6 +1021,23 @@ export const ChannelPane = React.memo(function ChannelPane({
     ],
   );
   const focusedThreadHead = focusedThread.head;
+  // Under the shell, landing on one exchange holds the room's waiting cards
+  // (permissions, questions, a proposal) to one quiet line, so the message
+  // you came to see is never under them; "Show" brings them back. A new
+  // focus holds them again. They stay answerable in Activity's Needs you.
+  const shellFrame = useShellFrameEnabled();
+  const [pendingShownFor, setPendingShownFor] = React.useState<string | null>(
+    null,
+  );
+  const pendingCount =
+    activePermissionRequests.length +
+    activeInputRequests.length +
+    (runtimeTaskProposalsQuery.data?.length ?? 0);
+  const holdPending =
+    shellFrame &&
+    focusedThreadHead !== null &&
+    pendingCount > 0 &&
+    pendingShownFor !== focusedThreadHead.id;
   const projectedTimelineMessages = openThreadHeadId
     ? focusedThread.messages
     : projectedRoomMessages;
@@ -1149,6 +1168,12 @@ export const ChannelPane = React.memo(function ChannelPane({
                   )}
                   authorName={focusedThreadHead.author}
                   onExit={onCloseThread}
+                  own={
+                    shellFrame &&
+                    Boolean(currentPubkey) &&
+                    normalizePubkey(focusedThreadHead.pubkey ?? "") ===
+                      normalizePubkey(currentPubkey ?? "")
+                  }
                   replyCount={Math.max(0, mainTimelineEntries.length - 1)}
                 />
               ) : null}
@@ -1164,6 +1189,7 @@ export const ChannelPane = React.memo(function ChannelPane({
                     focusedThreadHead ? null : directMessageIntro
                   }
                   firstMessageOpen={firstMessage.open && !focusedThreadHead}
+                  focusedView={shellFrame && Boolean(focusedThreadHead)}
                   scrollContainerRef={timelineScrollRef}
                   currentPubkey={currentPubkey}
                   fetchOlder={fetchOlder}
@@ -1351,8 +1377,9 @@ export const ChannelPane = React.memo(function ChannelPane({
                           : "Answer needed"
                       }
                       permissionContent={
-                        activePermissionRequests.length > 0 ||
-                        activeInputRequests.length > 0 ? (
+                        !holdPending &&
+                        (activePermissionRequests.length > 0 ||
+                          activeInputRequests.length > 0) ? (
                           <div className="grid gap-2">
                             {activePermissionRequests.map((pending) => (
                               <ManagedPermissionCard
@@ -1378,7 +1405,29 @@ export const ChannelPane = React.memo(function ChannelPane({
                     {/* The overlay is pointer-events-none; every child that
                         can be touched opts back in. Without this the task
                         card renders but nothing on it can be clicked. */}
-                    <div className="luca-measure pointer-events-auto">
+                    {holdPending && focusedThreadHead ? (
+                      <div className="luca-measure pointer-events-auto">
+                        <button
+                          className="luca-pending-held"
+                          data-testid="pending-held"
+                          onClick={() =>
+                            setPendingShownFor(focusedThreadHead.id)
+                          }
+                          type="button"
+                        >
+                          <span>
+                            {pendingCount === 1
+                              ? "1 request is waiting on you"
+                              : `${pendingCount} requests are waiting on you`}
+                          </span>
+                          <span className="luca-pending-held-show">Show</span>
+                        </button>
+                      </div>
+                    ) : null}
+                    <div
+                      className="luca-measure pointer-events-auto"
+                      hidden={holdPending}
+                    >
                       <RuntimeTaskProposalConfirmation
                         projectSourceIds={projectContext?.sourceIds ?? []}
                         proposals={runtimeTaskProposalsQuery.data ?? []}

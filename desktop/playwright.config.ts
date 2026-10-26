@@ -36,6 +36,7 @@ export default defineConfig({
         "**/shell-place-rails.spec.ts",
         "**/shell-one-card.spec.ts",
         "**/shell-mind-space.spec.ts",
+        "**/shell-activity.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",

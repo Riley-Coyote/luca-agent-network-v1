@@ -393,14 +393,16 @@ test("places, rails and cards", async ({ page }) => {
   await expect(page.getByTestId("place-rail-activity")).toBeVisible({
     timeout: 20_000,
   });
-  await expect(page.getByTestId("place-row-now")).toHaveAttribute(
+  // Activity's first pick is Needs you (WP-14, Decided 2).
+  await expect(page.getByTestId("place-row-needs-you")).toHaveAttribute(
     "data-active",
     "true",
   );
   await expect
     .poll(() => hashOf(page), { timeout: 10_000 })
-    .toContain("stream=now");
+    .toContain("stream=needs-you");
   measure("activity_hash_first", await hashOf(page));
+  await pick(page, "now");
   measure("activity_rail", await railRows(page, "activity"));
   measure(
     "activity_tabs",
@@ -505,9 +507,9 @@ test("back and forward step through each place's picks", async ({ page }) => {
   await record("agents forward");
   expect(await activeRow(page)).toBe("place-row-connected:claude-code");
 
-  // Activity: Now → Atlas → Luca, back, forward.
+  // Activity: Needs you → Atlas → Luca, back, forward.
   await page.getByTestId("open-activity-view").click();
-  await expect(page.getByTestId("place-row-now")).toHaveAttribute(
+  await expect(page.getByTestId("place-row-needs-you")).toHaveAttribute(
     "data-active",
     "true",
     { timeout: 20_000 },
@@ -519,7 +521,7 @@ test("back and forward step through each place's picks", async ({ page }) => {
   expect(await activeRow(page)).toBe(`place-row-record:${ATLAS}`);
   await back();
   await record("activity back 2");
-  expect(await activeRow(page)).toBe("place-row-now");
+  expect(await activeRow(page)).toBe("place-row-needs-you");
   await forward();
   await record("activity forward");
   expect(await activeRow(page)).toBe(`place-row-record:${ATLAS}`);
@@ -648,7 +650,7 @@ test("narrow window, Chats and Settings", async ({ page }) => {
   await expect(page.getByTestId("place-rail-agents")).toBeVisible();
   for (const [tile, name] of [
     ["open-agents-view", "agents-luca-800"],
-    ["open-activity-view", "activity-now-800"],
+    ["open-activity-view", "activity-needs-you-800"],
     ["open-artifacts-view", "library-all-800"],
   ] as const) {
     await page.getByTestId(tile).click();
@@ -928,6 +930,7 @@ test("review fixes", async ({ page }) => {
 
   // Activity: 1, 3, 6.
   await page.getByTestId("open-activity-view").click();
+  await pick(page, "now");
   await expect(page.getByTestId("owner-activity-list")).toBeVisible({
     timeout: 20_000,
   });

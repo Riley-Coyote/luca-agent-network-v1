@@ -12,7 +12,10 @@ import {
   rememberPick,
   type RailPlace,
 } from "@/app/shell/placeRails/placePicks";
+import { needsYouNote } from "@/app/shell/placeRails/needsYou";
+import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
+import { useRuntimeWorkingPubkeys } from "@/features/capabilities/useAllRuntimeTasks";
 import { useCapabilitySkills } from "@/features/capabilities/hooks";
 import { skillRuntimeLabel } from "@/features/capabilities/lib/skillHandoff";
 import {
@@ -35,9 +38,9 @@ import { normalizePubkey } from "@/shared/lib/pubkey";
 /**
  * Each place's rail, from the app's own data (NAVIGATION.md; SHELL_BUILD.md
  * WP-10, Decided 3, 5, 6). Rows only: what the rail draws, the lip names and
- * the cards pick by. A section with nothing in it hides, except Luca and Now
- * (Decided 10); a section with a `+` keeps its heading, so its `+` is never
- * out of reach.
+ * the cards pick by. A section with nothing in it hides, except Luca and
+ * Activity's streams (Decided 10; WP-14); a section with a `+` keeps its
+ * heading, so its `+` is never out of reach.
  */
 
 export type PlaceRailRow = {
@@ -77,14 +80,17 @@ function useAgentsRail(): PlaceRail {
   const luca = useCanonicalLucaPubkey();
   // The live signal the Chats rail reads, by agent rather than by chat.
   const workingChannels = useWorkingChannels();
+  // A runtime task of theirs running counts too (WP-14 review).
+  const runtimeWorking = useRuntimeWorkingPubkeys();
   const workingPubkeys = React.useMemo(
     () =>
-      new Set(
-        workingChannels.flatMap((summary) =>
+      new Set([
+        ...workingChannels.flatMap((summary) =>
           summary.agentPubkeys.map(normalizePubkey),
         ),
-      ),
-    [workingChannels],
+        ...runtimeWorking,
+      ]),
+    [runtimeWorking, workingChannels],
   );
   const ready =
     agentsQuery.data !== undefined &&
@@ -177,18 +183,27 @@ function useAgentsRail(): PlaceRail {
 
 function useActivityRail(): PlaceRail {
   const agentsQuery = useManagedAgentsQuery();
+  // Needs you, with its count at the row's end (WP-14, Decided 2 and 4).
+  const { count } = useNeedsYou();
   const sections = React.useMemo(() => {
     const records = (agentsQuery.data ?? []).map((agent) => ({
       id: `record:${normalizePubkey(agent.pubkey)}`,
       title: agent.name,
     }));
     const sections: PlaceRailSection[] = [
-      { key: "now", rows: [{ id: "now", title: "Now" }] },
+      {
+        key: "streams",
+        rows: [
+          { id: "needs-you", note: needsYouNote(count), title: "Needs you" },
+          { id: "now", title: "Now" },
+          { id: "side", title: "Side conversations" },
+        ],
+      },
     ];
     if (records.length > 0)
       sections.push({ key: "record", rows: records, title: "Signed record" });
     return sections;
-  }, [agentsQuery.data]);
+  }, [agentsQuery.data, count]);
   return { ready: agentsQuery.data !== undefined, sections };
 }
 

@@ -42,10 +42,13 @@ let pausedChannelIdsCache: ReadonlySet<string> | null = null;
 const EMPTY_ENTRIES: readonly ExchangeEntry[] = [];
 const EMPTY_CHANNEL_IDS: ReadonlySet<string> = new Set<string>();
 
+let allCache: readonly ExchangeEntry[] | null = null;
+
 function invalidateCaches() {
   roomCache.clear();
   historyCache.clear();
   pausedChannelIdsCache = null;
+  allCache = null;
 }
 
 function notify() {
@@ -249,9 +252,61 @@ export function usePausedExchangeChannelIds(): ReadonlySet<string> {
   );
 }
 
+/**
+ * Every exchange in every conversation, live, paused and closed (WP-14: the
+ * Activity place's side conversations and Needs you). Ordered as a room's
+ * history is: by deadline (opened-at plus a fixed window), newest first, then
+ * by first-seen. A consumer that knows a turn's time orders by that.
+ */
+export function getAllExchanges(): readonly ExchangeEntry[] {
+  if (allCache) return allCache;
+  const all = [...entries.values()].sort((a, b) =>
+    a.record.deadline !== b.record.deadline
+      ? b.record.deadline - a.record.deadline
+      : b.observedAt - a.observedAt,
+  );
+  allCache = all.length === 0 ? EMPTY_ENTRIES : all;
+  return allCache;
+}
+
+/** Every exchange this owner has, in every conversation. */
+export function useAllExchanges(): readonly ExchangeEntry[] {
+  return React.useSyncExternalStore(subscribeExchangeStore, getAllExchanges);
+}
+
+// When each exchange's latest turn was spoken (unix seconds), as the live
+// turn subscription sees them (useExchangeSync). Loaded history adds what
+// was said before this session; the record itself has no time but its
+// deadline.
+let turnTimes: ReadonlyMap<string, number> = new Map();
+
+/** Note a turn-tagged message's time. */
+export function noteExchangeTurn(exchangeId: string, createdAt: number) {
+  const key = exchangeId.toLowerCase();
+  if (!Number.isFinite(createdAt) || (turnTimes.get(key) ?? 0) >= createdAt)
+    return;
+  const next = new Map(turnTimes);
+  next.set(key, createdAt);
+  turnTimes = next;
+  notify();
+}
+
+/** Each exchange's latest live turn (unix seconds). */
+export function getExchangeTurnTimes(): ReadonlyMap<string, number> {
+  return turnTimes;
+}
+
+export function useExchangeTurnTimes(): ReadonlyMap<string, number> {
+  return React.useSyncExternalStore(
+    subscribeExchangeStore,
+    getExchangeTurnTimes,
+  );
+}
+
 /** Community-switch reset (see resetCommunityState in useCommunityInit). */
 export function resetExchangeStore() {
   entries.clear();
+  turnTimes = new Map();
   observedCounter = 0;
   liveObservedCounter = 0;
   notify();

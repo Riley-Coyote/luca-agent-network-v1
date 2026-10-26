@@ -2,6 +2,7 @@ import * as React from "react";
 
 import {
   applyExchangeSnapshot,
+  noteExchangeTurn,
   removeExchange,
   upsertExchangeRecord,
 } from "@/features/exchange/exchangeStore";
@@ -107,7 +108,10 @@ export function startExchangeSync(
   void relayClient
     .subscribeLive({ kinds: [KIND_STREAM_MESSAGE], limit: 0 }, (event) => {
       const exchangeId = exchangeIdFromTags(event.tags);
-      if (exchangeId) refreshFromTurn(exchangeId);
+      if (!exchangeId) return;
+      // Its time, for the side conversations' order (WP-14).
+      noteExchangeTurn(exchangeId, event.created_at);
+      refreshFromTurn(exchangeId);
     })
     .then((dispose) => {
       if (onCancelled()) void dispose();

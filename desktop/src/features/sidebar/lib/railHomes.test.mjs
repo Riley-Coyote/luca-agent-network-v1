@@ -8,6 +8,7 @@ import {
   buildRailHomes,
   homeIdOfChat,
   railHomeList,
+  shownHomeEntries,
   shownSessions,
 } from "./railHomes.ts";
 
@@ -428,4 +429,57 @@ test("project rooms sit in the rail unless Settings says a column", async () => 
     }),
     "rail",
   );
+});
+
+test("lucaSideRows_shareTheLatestThree_andATalkingOneNeverFolds", () => {
+  const sessions = ["s1", "s2", "s3"].map((id) => chat(id, [LUCA])).reverse();
+  // The sessions above were made last, so they are the newest chats.
+  const newest = Date.parse(sessions[0].channel.lastMessageAt); // s3
+  const side = [
+    {
+      id: "side:talking",
+      label: "Atlas · Tidepool",
+      at: newest - 3_600_000,
+      live: true,
+      conversationId: "r",
+      messageId: "m",
+    },
+    {
+      id: "side:quiet",
+      label: "Claude Code · build",
+      at: newest + 60_000,
+      live: false,
+      conversationId: "r",
+      messageId: null,
+    },
+  ];
+  const ids = (entries) =>
+    entries.map((entry) =>
+      entry.kind === "chat" ? entry.item.channel.id : entry.row.id,
+    );
+  const latest = shownHomeEntries(
+    [...sessions].sort((a, b) =>
+      b.channel.lastMessageAt.localeCompare(a.channel.lastMessageAt),
+    ),
+    side,
+    null,
+  );
+  // Newest first; the quiet side row is newest, the talking one stays.
+  assert.deepEqual(ids(latest.shown), [
+    "side:quiet",
+    "s3",
+    "s2",
+    "side:talking",
+  ]);
+  assert.equal(latest.hidden, 1);
+  assert.equal(latest.total, 5);
+  // With no side rows it is shownSessions.
+  const many = ["a5", "a4", "a3", "a2", "a1"].map((id) => chat(id, [LUCA]));
+  const plain = shownHomeEntries(many, [], "a1");
+  const before = shownSessions(many, "a1");
+  assert.deepEqual(
+    ids(plain.shown),
+    before.shown.map((item) => item.channel.id),
+  );
+  assert.equal(plain.hidden, before.hidden);
 });

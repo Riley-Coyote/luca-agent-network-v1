@@ -619,21 +619,45 @@ pub fn list_runtime_tasks(
     conversation_id: String,
 ) -> Result<Vec<RuntimeTaskProjectionV1>, String> {
     validate_opaque(&conversation_id, 128, "conversation")?;
-    load_receipts(&app)?;
-    let mut tasks = memory()
-        .lock()
-        .map_err(|_| "runtime task state is unavailable".to_owned())?
-        .projections
-        .values()
-        .filter(|task| task.conversation_id == conversation_id)
-        .cloned()
-        .collect::<Vec<_>>();
-    tasks.retain(|task| delivery::ensure_current_scope(&app, task).is_ok());
-    tasks.sort_by(|left, right| right.started_at.cmp(&left.started_at));
+    collect_runtime_tasks(&app, Some(&conversation_id))
+}
+
+/// Every runtime task in every conversation, newest first: the Activity
+/// place's side conversations and a connected app's history (WP-14). The
+/// same scope checks as one conversation's list; additive, read-only.
+pub fn list_all_runtime_tasks(app: AppHandle) -> Result<Vec<RuntimeTaskProjectionV1>, String> {
+    collect_runtime_tasks(&app, None)
+}
+
+fn collect_runtime_tasks(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+) -> Result<Vec<RuntimeTaskProjectionV1>, String> {
+    load_receipts(app)?;
+    let mut tasks = {
+        let state = memory()
+            .lock()
+            .map_err(|_| "runtime task state is unavailable".to_owned())?;
+        runtime_tasks_in(state.projections.values(), conversation_id)
+    };
+    tasks.retain(|task| delivery::ensure_current_scope(app, task).is_ok());
     for task in &mut tasks {
-        delivery::decorate(&app, task);
+        delivery::decorate(app, task);
     }
     Ok(tasks)
+}
+
+/// The tasks of one conversation, or of all of them, newest first.
+fn runtime_tasks_in<'a>(
+    projections: impl Iterator<Item = &'a RuntimeTaskProjectionV1>,
+    conversation_id: Option<&str>,
+) -> Vec<RuntimeTaskProjectionV1> {
+    let mut tasks = projections
+        .filter(|task| conversation_id.is_none_or(|wanted| task.conversation_id == wanted))
+        .cloned()
+        .collect::<Vec<_>>();
+    tasks.sort_by(|left, right| right.started_at.cmp(&left.started_at));
+    tasks
 }
 
 /// Reproject durable return state after a private job or broker transition.
@@ -817,20 +841,54 @@ pub fn list_runtime_task_proposals(
     conversation_id: String,
 ) -> Result<Vec<RuntimeTaskProposalV1>, String> {
     validate_opaque(&conversation_id, 128, "conversation")?;
-    let mut values = proposals()
+    collect_runtime_task_proposals(&app, Some(&conversation_id))
+}
+
+/// Every open runtime-task proposal in every conversation, oldest first, as
+/// one conversation's list orders them: the Activity place's Needs you
+/// (WP-14). The same owner and relay checks; additive, read-only.
+pub fn list_all_runtime_task_proposals(
+    app: AppHandle,
+) -> Result<Vec<RuntimeTaskProposalV1>, String> {
+    collect_runtime_task_proposals(&app, None)
+}
+
+fn collect_runtime_task_proposals(
+    app: &AppHandle,
+    conversation_id: Option<&str>,
+) -> Result<Vec<RuntimeTaskProposalV1>, String> {
+    let owner = delegation::owner(app).ok();
+    let origin = delivery::current_origin(app).ok().map(|(relay, _)| relay);
+    let pending = proposals()
         .lock()
-        .map_err(|_| "runtime task proposal state is unavailable".to_owned())?
-        .values()
-        .filter(|pending| {
-            pending.projection.conversation_id == conversation_id
-                && delegation::owner(&app).is_ok_and(|owner| owner.as_str() == pending.owner_pubkey)
-                && delivery::current_origin(&app)
-                    .is_ok_and(|(relay, _)| relay == pending.origin_relay_ref)
-        })
-        .map(|pending| pending.projection.clone())
+        .map_err(|_| "runtime task proposal state is unavailable".to_owned())?;
+    Ok(runtime_task_proposals_in(
+        pending
+            .values()
+            .filter(|pending| {
+                owner
+                    .as_ref()
+                    .is_some_and(|owner| owner.as_str() == pending.owner_pubkey)
+                    && origin
+                        .as_ref()
+                        .is_some_and(|relay| *relay == pending.origin_relay_ref)
+            })
+            .map(|pending| &pending.projection),
+        conversation_id,
+    ))
+}
+
+/// The open proposals of one conversation, or of all of them, oldest first.
+fn runtime_task_proposals_in<'a>(
+    pending: impl Iterator<Item = &'a RuntimeTaskProposalV1>,
+    conversation_id: Option<&str>,
+) -> Vec<RuntimeTaskProposalV1> {
+    let mut values = pending
+        .filter(|proposal| conversation_id.is_none_or(|wanted| proposal.conversation_id == wanted))
+        .cloned()
         .collect::<Vec<_>>();
     values.sort_by(|left, right| left.created_at.cmp(&right.created_at));
-    Ok(values)
+    values
 }
 
 pub fn respond_runtime_task_proposal(
@@ -1710,5 +1768,103 @@ mod tests {
         let encoded = serde_json::to_value(&proposal).unwrap();
         assert!(encoded.get("task").is_none());
         assert!(encoded.get("prompt").is_none());
+    }
+
+    fn task_in(task_id: &str, conversation_id: &str, started_at: &str) -> RuntimeTaskProjectionV1 {
+        RuntimeTaskProjectionV1 {
+            task_id: task_id.into(),
+            owner_pubkey: "33".repeat(32),
+            origin_relay_ref: None,
+            conversation_id: conversation_id.into(),
+            resident_pubkey: "11".repeat(32),
+            runtime_family: "claude_code".into(),
+            summary: "Fix the build".into(),
+            working_folder: "/tmp/project".into(),
+            permission_mode: "normal".into(),
+            operation: RuntimeTaskOperationV1::NewTask,
+            control_owner: RuntimeTaskControlOwnerV1::Polyphonic,
+            target_label: None,
+            target_session_ref: None,
+            target_source_ref: None,
+            native_acknowledgement_id: None,
+            delivery_state: None,
+            delivery_can_retry: false,
+            state: RuntimeTaskStateV1::Succeeded,
+            provider_session_id: None,
+            current_step: None,
+            completed_steps: 0,
+            steps: Vec::new(),
+            started_at: started_at.into(),
+            updated_at: started_at.into(),
+            completed_at: None,
+            error: None,
+            can_retry: false,
+            retry_of_task_id: None,
+        }
+    }
+
+    fn proposal_in(
+        proposal_id: &str,
+        conversation_id: &str,
+        created_at: &str,
+    ) -> RuntimeTaskProposalV1 {
+        RuntimeTaskProposalV1 {
+            proposal_id: proposal_id.into(),
+            conversation_id: conversation_id.into(),
+            resident_pubkey: "11".repeat(32),
+            runtime_family: "codex".into(),
+            summary: "Check the release script".into(),
+            operation: RuntimeTaskOperationV1::NewTask,
+            source_id: None,
+            session_id: None,
+            target_label: None,
+            target_working_folder: None,
+            created_at: created_at.into(),
+        }
+    }
+
+    #[test]
+    fn list_alls_span_every_conversation_and_keep_each_lists_order() {
+        let tasks = [
+            task_in("old", "room-a", "2026-10-25T08:00:00Z"),
+            task_in("new", "room-b", "2026-10-26T09:00:00Z"),
+            task_in("mid", "room-a", "2026-10-26T01:00:00Z"),
+        ];
+        let ids = |tasks: Vec<RuntimeTaskProjectionV1>| {
+            tasks
+                .into_iter()
+                .map(|task| task.task_id)
+                .collect::<Vec<_>>()
+        };
+        // Across every conversation, newest first.
+        assert_eq!(
+            ids(runtime_tasks_in(tasks.iter(), None)),
+            ["new", "mid", "old"]
+        );
+        // One conversation's list is unchanged by the shared helper.
+        assert_eq!(
+            ids(runtime_tasks_in(tasks.iter(), Some("room-a"))),
+            ["mid", "old"]
+        );
+        assert!(runtime_tasks_in(tasks.iter(), Some("room-c")).is_empty());
+
+        let pending = [
+            proposal_in("second", "room-b", "2026-10-26T09:05:00Z"),
+            proposal_in("first", "room-a", "2026-10-26T09:00:00Z"),
+        ];
+        let proposal_ids = |values: Vec<RuntimeTaskProposalV1>| {
+            values
+                .into_iter()
+                .map(|value| value.proposal_id)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            proposal_ids(runtime_task_proposals_in(pending.iter(), None)),
+            ["first", "second"]
+        );
+        assert_eq!(
+            proposal_ids(runtime_task_proposals_in(pending.iter(), Some("room-b"))),
+            ["second"]
+        );
     }
 }
