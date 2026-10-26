@@ -136,11 +136,20 @@ export function ShellPlacesMarks({
   );
 }
 
-/** The rail's mark, on the home row of what is open. */
+/** The rail's mark, on the home row of what is open. Settings' section
+ *  list wears the same mark on its current row (ShellSettingsMarks). */
 export function ShellRailMarks({
+  activeRow = ACTIVE_HOME_ROW,
   material = "plate",
+  row = HOME_ROW,
+  testId = "shell-rail-marks",
 }: {
+  /** The row that is marked (default: the open home). */
+  activeRow?: string;
   material?: MarkMaterial;
+  /** Every row the mark can stand on (default: the homes). */
+  row?: string;
+  testId?: string;
 }) {
   const layerRef = React.useRef<HTMLDivElement>(null);
   // Whether the rail's card is open (or peeking) and done sliding; null
@@ -157,13 +166,13 @@ export function ShellRailMarks({
       const host = layer.parentElement;
       // Open, its first page is its rows' first showing: until they render
       // (the conversations still loading) it has shown nothing yet.
-      if (shownRef.current && !host?.querySelector(HOME_ROW)) return;
-      const row = shownRef.current
-        ? host?.querySelector(ACTIVE_HOME_ROW)
-        : null;
+      if (shownRef.current && !host?.querySelector(row)) return;
+      const marked = shownRef.current ? host?.querySelector(activeRow) : null;
       group.show(
-        row?.getAttribute("data-home") ?? null,
-        boxIn(layer, row ?? null),
+        marked?.getAttribute("data-home") ??
+          marked?.getAttribute("data-testid") ??
+          null,
+        boxIn(layer, marked ?? null),
       );
     },
   );
@@ -219,7 +228,7 @@ export function ShellRailMarks({
     // is the list changing. Both are read once React has written them.
     const rows = new MutationObserver(() => sync());
     rows.observe(host, {
-      attributeFilter: ["data-active"],
+      attributeFilter: ["data-active", "data-current"],
       attributes: true,
       childList: true,
       subtree: true,
@@ -243,8 +252,20 @@ export function ShellRailMarks({
       aria-hidden="true"
       className="luca-marks"
       data-mark-material={material}
-      data-testid="shell-rail-marks"
+      data-testid={testId}
       ref={layerRef}
+    />
+  );
+}
+
+/** Settings' section list: the rail's mark on its current section, sliding
+ *  as the places' and the Chats rail's do (WP-09a). */
+export function ShellSettingsMarks() {
+  return (
+    <ShellRailMarks
+      activeRow="[data-settings-row][data-current]"
+      row="[data-settings-row]"
+      testId="shell-settings-marks"
     />
   );
 }

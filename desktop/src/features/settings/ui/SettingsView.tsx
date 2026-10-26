@@ -2,6 +2,7 @@ import * as React from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { ArrowLeft, Menu } from "lucide-react";
 
+import { ShellSettingsMarks } from "@/app/shell/ShellMarks";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { topChromeBackdrop } from "@/shared/layout/chromeLayout";
 import { cn } from "@/shared/lib/cn";
@@ -135,6 +136,8 @@ function SettingsFrameSectionList({
       data-testid="settings-section-list"
       onKeyDown={sectionListKeys}
     >
+      {/* Where you are: the sliding mark beneath the rows (WP-09a). */}
+      <ShellSettingsMarks />
       {groups.map((group, index) => (
         <section
           aria-labelledby={`${id}-${index}`}

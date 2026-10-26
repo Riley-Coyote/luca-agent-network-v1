@@ -13,6 +13,7 @@ import {
 
 import { router } from "@/app/router";
 import "@/app/shell/shell-edges.css";
+import "@/app/shell/shell-finish.css";
 import { isLucaFeatureEnabled } from "@/app/lucaFeatureFlags";
 import {
   createPersonalHomeTenancy,

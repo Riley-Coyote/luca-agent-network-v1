@@ -163,7 +163,9 @@ export function ForumView({
 
   return (
     <div className={cn("flex h-full flex-col", channelChrome.contentPadding)}>
-      <div className="border-b border-border/60 p-4">
+      {/* Under the shell's frame its top padding goes, so the first content
+          sits at the list's own 22, as a conversation's (shell-finish.css). */}
+      <div className="border-b border-border/60 p-4" data-forum-composer-band>
         {isComposerOpen ? (
           <ForumComposer
             autocompleteBelow

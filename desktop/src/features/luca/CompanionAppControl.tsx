@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { invokeTauri } from "@/shared/api/tauri";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { useIsFullscreen } from "@/shared/lib/useIsFullscreen";
 import "./companionAppControl.css";
 
 type Control = {
@@ -126,6 +128,98 @@ export function useCompanionAppControl() {
   return { visible, run, stop };
 }
 
+const DAY_PILL = '[data-testid="message-timeline-day-divider"]';
+const ASIDE = "data-companion-aside";
+
+/** The nearest ancestor that scrolls `element`. */
+function scrollerOf(element: Element): Element | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const overflow = getComputedStyle(node).overflowY;
+    if (overflow === "auto" || overflow === "scroll") return node;
+  }
+  return null;
+}
+
+/** Whether a day pill sits stuck at its scroller's top: its sticky top is
+ *  resolved inside the scroller's padding (the timeline's 22), so the line
+ *  is the scroller's top, its border and padding, and the sticky offset. A
+ *  pill resting there before any scroll is at the card's top too. */
+function stuckAtTop(section: HTMLElement): boolean {
+  const scroller = scrollerOf(section);
+  if (!scroller) return false;
+  const top = Number.parseFloat(getComputedStyle(section).top);
+  if (!Number.isFinite(top)) return false;
+  const scrollerStyle = getComputedStyle(scroller);
+  const line =
+    scroller.getBoundingClientRect().top +
+    Number.parseFloat(scrollerStyle.borderTopWidth || "0") +
+    Number.parseFloat(scrollerStyle.paddingTop || "0") +
+    top;
+  return Math.abs(section.getBoundingClientRect().top - line) < 1;
+}
+
+/**
+ * Under the shell's frame, while the badge shows: a day pill stuck at the
+ * card's top under the badge steps aside (fades out, shell-finish.css), and
+ * every pill comes back when the badge goes (WP-09a).
+ */
+function useDayPillsStepAside(badge: React.RefObject<HTMLElement | null>) {
+  const shellFrame = useShellFrameEnabled();
+  React.useEffect(() => {
+    if (!shellFrame) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      const box = badge.current?.getBoundingClientRect();
+      for (const section of document.querySelectorAll<HTMLElement>(DAY_PILL)) {
+        const pill = section.firstElementChild?.getBoundingClientRect();
+        const under =
+          box !== undefined &&
+          pill !== undefined &&
+          pill.left < box.right &&
+          pill.right > box.left;
+        section.toggleAttribute(ASIDE, under && stuckAtTop(section));
+      }
+    };
+    const schedule = () => {
+      if (frame === 0) frame = requestAnimationFrame(update);
+    };
+    update();
+    // Scrolling moves a pill to or from the top; a conversation opening
+    // brings new ones. A light sweep catches what neither event reports.
+    document.addEventListener("scroll", schedule, {
+      capture: true,
+      passive: true,
+    });
+    window.addEventListener("resize", schedule);
+    const sweep = window.setInterval(schedule, 400);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", schedule, { capture: true });
+      window.removeEventListener("resize", schedule);
+      window.clearInterval(sweep);
+      for (const section of document.querySelectorAll(
+        `${DAY_PILL}[${ASIDE}]`,
+      )) {
+        section.removeAttribute(ASIDE);
+      }
+    };
+  }, [badge, shellFrame]);
+}
+
+/** The halo, square in full screen as the window is (shell-finish.css). */
+function ControlHalo() {
+  const fullscreen = useIsFullscreen();
+  return (
+    <div
+      className="polyphonic-control-halo"
+      data-fullscreen={fullscreen ? "" : undefined}
+      data-testid="app-control-halo"
+      aria-hidden="true"
+    />
+  );
+}
+
 /** Soft halo approved in the control-signal lab. No observation or authority. */
 export function CompanionAppControl({
   control,
@@ -137,27 +231,32 @@ export function CompanionAppControl({
   if (!control) return null;
   return createPortal(
     <>
-      <div
-        className="polyphonic-control-halo"
-        data-testid="app-control-halo"
-        aria-hidden="true"
-      />
-      <div
-        className="polyphonic-control-badge text-sm"
-        data-testid="app-control-badge"
-      >
-        <span
-          className="polyphonic-control-label"
-          role="status"
-          title={`${control.name} is using Polyphonic`}
-        >
-          {control.name} is using Polyphonic
-        </span>
-        <button type="button" onClick={onStop} aria-label="Stop app navigation">
-          Stop
-        </button>
-      </div>
+      <ControlHalo />
+      <ControlBadge name={control.name} onStop={onStop} />
     </>,
     document.body,
+  );
+}
+
+function ControlBadge({ name, onStop }: { name: string; onStop: () => void }) {
+  const badge = React.useRef<HTMLDivElement>(null);
+  useDayPillsStepAside(badge);
+  return (
+    <div
+      className="polyphonic-control-badge text-sm"
+      data-testid="app-control-badge"
+      ref={badge}
+    >
+      <span
+        className="polyphonic-control-label"
+        role="status"
+        title={`${name} is using Polyphonic`}
+      >
+        {name} is using Polyphonic
+      </span>
+      <button type="button" onClick={onStop} aria-label="Stop app navigation">
+        Stop
+      </button>
+    </div>
   );
 }

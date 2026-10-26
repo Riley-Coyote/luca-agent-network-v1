@@ -229,3 +229,67 @@ test("frame on, System mode: a moved glass owner has Paper by day and Vitesse Bl
   assert.equal(resolveSystemTheme(PAPER_THEME_NAME, true), BUZZ_THEME_NAME);
   assert.equal(resolveSystemTheme(DEFAULT_THEME_NAME, false), "vitesse-light");
 });
+
+// WP-09a: a coloured accent Obsidian kept hidden (it pins the neutral one)
+// would show on Vitesse Black, which doesn't: it is set aside with the move
+// and comes back with the glass theme.
+const ACCENT = {
+  key: "buzz-accent-color",
+  neutral: "neutral",
+  pinsNeutral: (theme) =>
+    theme === PAPER_THEME_NAME ||
+    theme === OBSIDIAN_THEME_NAME ||
+    theme === CRYSTALLINE_THEME_NAME,
+};
+
+test("frame on: a moved Obsidian owner's coloured accent resets to the successor's", () => {
+  const storage = memoryStorage({
+    [THEME_STORAGE_KEY]: OBSIDIAN_THEME_NAME,
+    "buzz-accent-color": "#60a5fa",
+  });
+  assert.equal(
+    settleGlassThemeMove(true, storage, FRAME_KEY, ACCENT),
+    DEFAULT_THEME_NAME,
+  );
+  assert.equal(storage.getItem("buzz-accent-color"), "neutral");
+  assert.equal(
+    JSON.parse(storage.getItem(GLASS_THEME_MOVE_KEY)).accent,
+    "#60a5fa",
+  );
+  // Frame off: Obsidian and the accent come back.
+  assert.equal(
+    settleGlassThemeMove(false, storage, FRAME_KEY, ACCENT),
+    OBSIDIAN_THEME_NAME,
+  );
+  assert.equal(storage.getItem("buzz-accent-color"), "#60a5fa");
+});
+
+test("frame on: a neutral accent, or a successor that pins neutral, is left alone", () => {
+  const neutral = memoryStorage({
+    [THEME_STORAGE_KEY]: OBSIDIAN_THEME_NAME,
+    "buzz-accent-color": "neutral",
+  });
+  settleGlassThemeMove(true, neutral, FRAME_KEY, ACCENT);
+  assert.equal(neutral.getItem("buzz-accent-color"), "neutral");
+  assert.equal(
+    "accent" in JSON.parse(neutral.getItem(GLASS_THEME_MOVE_KEY)),
+    false,
+  );
+  const paper = memoryStorage({
+    [THEME_STORAGE_KEY]: CRYSTALLINE_THEME_NAME,
+    "buzz-accent-color": "#60a5fa",
+  });
+  settleGlassThemeMove(true, paper, FRAME_KEY, ACCENT);
+  assert.equal(paper.getItem("buzz-accent-color"), "#60a5fa");
+});
+
+test("frame off: an accent chosen since the move is kept", () => {
+  const storage = memoryStorage({
+    [THEME_STORAGE_KEY]: OBSIDIAN_THEME_NAME,
+    "buzz-accent-color": "#60a5fa",
+  });
+  settleGlassThemeMove(true, storage, FRAME_KEY, ACCENT);
+  storage.setItem("buzz-accent-color", "#22c55e");
+  settleGlassThemeMove(false, storage, FRAME_KEY, ACCENT);
+  assert.equal(storage.getItem("buzz-accent-color"), "#22c55e");
+});

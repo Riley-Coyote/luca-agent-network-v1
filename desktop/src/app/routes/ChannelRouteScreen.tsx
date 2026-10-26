@@ -294,8 +294,11 @@ function ChannelConversationSurface({
           : null
       }
       projectNavigatorVisible={navigatorShown}
+      // A project room's own header (its name and its rooms' picker) gives
+      // way to the lip and the rail's rooms under the frame; it stays when
+      // Settings puts the rooms in a column (WP-09a).
       projectRoomNavigation={
-        projectViewModel
+        projectViewModel && roomColumnOffered
           ? {
               onSelectRoom: (nextChannelId) => {
                 if (onSelectProjectRoom) {
