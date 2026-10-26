@@ -2019,3 +2019,42 @@ times, before and after, with and without Reduce Motion), `marks_instant`, `hist
    differ by a minute between two shots. Fix every flag-off comparison spec that compares a view with times in it.
 
 **Checks JSON keys:** `chats_status_card`, `talking_dot`, `frozen_clock_specs`, `gates`.
+
+## WP-22 · The final fixes (2026-10-26, Claude's design, from the reports and screenshots of WP-16 and WP-17)
+
+**Files in scope:**
+- `features/settings/ui/SettingsPanels.tsx` (Appearance's theme grid), and wherever WP-17 draws a panel's own header as a
+  group label (`SettingsSectionHeader.tsx`, `SettingsOptionGroup.tsx`, `app/shell/shell-settings.css`);
+- Settings > Agents' detail tabs (`features/settings/ui/SettingsAgentsPanel.tsx` and the tabs it draws);
+- `features/sidebar/ui/MoreUnreadButton.tsx`;
+- `app/shell/ShellPlaces.tsx` (only its "two columns" comment and focus hand-over);
+- `features/agents/ui/AgentDefaultsEditor.tsx` (one label).
+
+Not in scope: `AppSidebar.tsx` and `ShellRail.tsx` (WP-21 is building there).
+
+**Decisions** (all under `shell-frame`; flag off unchanged):
+1. **Appearance's theme grid flows on the page.** No inner scroll box (`max-h-[430px] overflow-y-auto`) and no fade:
+   every theme shows with its name in every mode, and the page scrolls (WP-17 d1: sections lose their boxes). Today the
+   third row's names are cut off in both modes.
+2. **A group label that only repeats the section's title goes** ("APPEARANCE" under the "Appearance" title): the same
+   rule as WP-19 d6 for eyebrows. Its description stays, under the title. A group label that says something else stays.
+   Check every section.
+3. **Settings > Agents: the detail's tabs all fit at 640** ("Advanced" is cut off today). They fit, or wrap to a second
+   line; none hidden, no sideways scroll.
+4. **The rail's "more unread" pill says what it counts.** It counts conversations out of view, but it reads
+   "N new messages", the conversation pill's words. Under the frame it reads "N unread", and the arrow says above or
+   below. The conversation's own pill keeps its words.
+5. **`ShellPlaces.tsx`:** remove the comment and the focus hand-over for "two columns", which are moot since WP-17 made
+   one column, after checking nothing else uses the hand-over.
+6. **"Luca managed" becomes "Polyphonic runtime"** in Defaults' runtime picker (`AgentDefaultsEditor.tsx:140`, the
+   `buzz-agent` runtime): the words the Agents library already uses (`agentLibraryViewModel.ts:112`). Luca is the
+   companion, not the app.
+
+**Verification:**
+- Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on.
+- One measurement or screenshot per decision.
+- Flag-off views of Appearance, Settings > Agents, Defaults, and a rail showing the more-unread pill, identical by hash to
+  the base on non-blank shots.
+- Gates: tsc, biome on changed files, px-text, the unit suite.
+
+**Checks JSON keys:** `d1` to `d6`, `flag_off_identical`, `gates`.
