@@ -22,3 +22,23 @@ export function preferredReadySkillRuntime(
     return directRuntimeIsReady(runtime);
   })?.runtimeId;
 }
+
+/** A skill runtime's name, as the Library says it. */
+export function skillRuntimeLabel(runtimeId: string): string {
+  switch (runtimeId) {
+    case "claude":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "openclaw":
+      return "OpenClaw";
+    case "hermes":
+      return "Hermes";
+    case "goose":
+      return "Goose";
+    case "polyphonic":
+      return "Polyphonic";
+    default:
+      return runtimeId;
+  }
+}

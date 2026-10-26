@@ -3,6 +3,8 @@ import * as React from "react";
 import type { AgentLibrarySection } from "@/features/agents/ui/AgentLibraryWorkspace";
 import { useRouter } from "@tanstack/react-router";
 
+import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -12,6 +14,9 @@ const AgentsView = React.lazy(async () => {
 });
 
 const AGENT_LIBRARY_SEARCH_KEYS = [
+  "add",
+  "connected",
+  "group",
   "profile",
   "profilePersona",
   "profileTab",
@@ -55,6 +60,7 @@ export function AgentsScreen() {
     () => null,
   );
   const section = sectionFromSearch(currentLocationSection, values.profileTab);
+  const shellFrame = useShellFrameEnabled();
 
   const selectResident = React.useCallback(
     (pubkey: string) => {
@@ -108,10 +114,24 @@ export function AgentsScreen() {
     [applyPatch],
   );
 
+  const consumeAdd = React.useCallback(
+    () => applyPatch({ add: null }, { replace: true }),
+    [applyPatch],
+  );
+
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {shellFrame ? <KeepAgentsPick applyPatch={applyPatch} /> : null}
       <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
         <AgentsView
+          addRequest={
+            shellFrame && (values.add === "agent" || values.add === "group")
+              ? values.add
+              : null
+          }
+          connectedKey={shellFrame ? values.connected : null}
+          groupId={shellFrame ? values.group : null}
+          onAddConsumed={consumeAdd}
           onClearSelection={clearSelection}
           onReviewNativeConsumed={() => applyPatch({ review: null })}
           onSectionChange={changeSection}
@@ -125,4 +145,17 @@ export function AgentsScreen() {
       </React.Suspense>
     </div>
   );
+}
+
+/** Under the shell the rail picks, and the pick is in the address (WP-10). */
+function KeepAgentsPick({
+  applyPatch,
+}: {
+  applyPatch: (
+    patch: Record<string, string | null>,
+    options?: { replace?: boolean },
+  ) => void;
+}) {
+  useKeepPickInAddress("agents", applyPatch);
+  return null;
 }

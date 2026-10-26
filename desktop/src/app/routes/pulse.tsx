@@ -16,6 +16,10 @@ const PulseScreen = React.lazy(async () => {
 
 type PulseRouteSearch = {
   profile?: string;
+  /** Under the shell, the stream the rail picked (WP-10): Now, or one
+   *  resident's signed record. */
+  record?: string;
+  stream?: "now";
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
 };
@@ -30,6 +34,11 @@ function validatePulseSearch(
         : undefined,
     profileTab: parseProfilePanelTab(search.profileTab) ?? undefined,
     profileView: parseProfilePanelView(search.profileView) ?? undefined,
+    record:
+      typeof search.record === "string" && search.record.length > 0
+        ? search.record
+        : undefined,
+    stream: search.stream === "now" ? "now" : undefined,
   };
 }
 

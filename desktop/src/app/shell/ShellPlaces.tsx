@@ -1,20 +1,10 @@
 import * as React from "react";
-import {
-  Activity,
-  Bot,
-  Brain,
-  Inbox,
-  Library,
-  MessagesSquare,
-  Settings,
-  SquarePen,
-} from "lucide-react";
+import { Activity, Bot, Library, MessagesSquare, Settings } from "lucide-react";
 
 import {
   preloadActivitySurface,
   preloadAgentsSurface,
   preloadArtifactsSurface,
-  preloadBrainSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
 import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
@@ -23,7 +13,6 @@ import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
 import { UNREAD_DOT_CLASS } from "@/features/sidebar/ui/ChatList";
 import { ShellRailSignalsContext } from "@/features/sidebar/ui/SidebarProfileCard";
 import type { Channel, SearchHit } from "@/shared/api/types";
-import { useInboxSurfaceEnabled } from "@/shared/features/useInboxSurfaceEnabled";
 import { cn } from "@/shared/lib/cn";
 import { shellShortcuts } from "@/app/shell/shellFrame";
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -31,12 +20,15 @@ import { useOptionalSidebar } from "@/shared/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/shared/ui/tooltip";
 
 /**
- * THE PLACES (docs/luca/rail-system/SHELL_SPEC.md, "The places column"): a
- * column 44 wide under the lip, its icons on the traffic lights' axis (22).
- * New conversation and Search; then the places; Settings and the avatar at
- * the foot. Every one is the app's existing action: this column only gives
- * them their new home. The current place is marked by the places' mark
- * (ShellMarks.tsx), which slides between them.
+ * THE PLACES (docs/luca/rail-system/SHELL_SPEC.md, "The places column", as
+ * amended by NAVIGATION.md): a column 44 wide under the lip, its icons on the
+ * traffic lights' axis (22). Search (⌘K); then Chats, Agents, Activity and
+ * Library; Settings (⌘,) and the avatar at the foot. Every one is the app's
+ * existing action: this column only gives them their home. New conversation
+ * (⌘N) is the `+` on the Chats rail, Brain belongs to Agents until a mind's
+ * own space takes it, and the Inbox becomes Activity's Needs you. The current
+ * place is marked by the places' mark (ShellMarks.tsx), which slides between
+ * them.
  */
 
 type PlacesView =
@@ -52,33 +44,27 @@ type PlacesView =
   | "projects"
   | "settings";
 
-type PlaceId =
-  | "conversations"
-  | "library"
-  | "inbox"
-  | "agents"
-  | "activity"
-  | "brain"
-  | "settings";
+type PlaceId = "conversations" | "agents" | "activity" | "library" | "settings";
 
-/** Which place a view belongs to. */
+/** Which place a view belongs to (SHELL_BUILD.md WP-10, Decided 2): Chats
+ *  holds conversations, New conversation, projects and workflows; Agents
+ *  holds Brain until a mind's own space takes it. The Inbox has left the
+ *  column and belongs to no place. */
 export function placeOfView(view: PlacesView): PlaceId | null {
   switch (view) {
     case "home":
     case "channel":
     case "messages":
     case "projects":
+    case "workflows":
       return "conversations";
     case "artifacts":
       return "library";
-    case "inbox":
-      return "inbox";
     case "agents":
+    case "brain":
       return "agents";
     case "pulse":
       return "activity";
-    case "brain":
-      return "brain";
     case "settings":
       return "settings";
     default:
@@ -271,16 +257,12 @@ function SearchPlace({
 
 export type ShellPlacesProps = {
   avatar: React.ReactNode;
-  /** Whether any conversation is unread: said on Conversations while the
-   *  rail, which shows each one, is closed. */
+  /** Whether any conversation is unread: said on Chats while the rail,
+   *  which shows each one, is closed. */
   hasUnread: boolean;
-  homeBadgeCount: number;
-  onNewConversation: () => void;
   onSelectAgents: () => void;
   onSelectArtifacts: () => void;
-  onSelectBrain: () => void;
   onSelectConversations: () => void;
-  onSelectInbox: () => void;
   onSelectPulse: () => void;
   onSelectSettings: () => void;
   search: {
@@ -302,19 +284,14 @@ export type ShellPlacesProps = {
 export function ShellPlaces({
   avatar,
   hasUnread,
-  homeBadgeCount,
-  onNewConversation,
   onSelectAgents,
   onSelectArtifacts,
-  onSelectBrain,
   onSelectConversations,
-  onSelectInbox,
   onSelectPulse,
   onSelectSettings,
   search,
   selectedView,
 }: ShellPlacesProps) {
-  const inboxEnabled = useInboxSurfaceEnabled();
   const here = placeOfView(selectedView);
   const { key } = shellShortcuts();
   const sidebar = useOptionalSidebar();
@@ -352,46 +329,18 @@ export function ShellPlaces({
         material={frameDrawn === "solid" ? "plate" : "card"}
       />
       <div className="luca-places-group">
-        <PlaceTile
-          label="New conversation"
-          onClick={onNewConversation}
-          shortcut={`${key}N`}
-          testId="open-new-conversation"
-        >
-          <SquarePen />
-        </PlaceTile>
         <SearchPlace search={search} shortcut={`${key}K`} />
       </div>
       <div className="luca-places-group">
         <PlaceTile
           current={here === "conversations"}
           dot={unreadDot}
-          label="Conversations"
+          label="Chats"
           onClick={onSelectConversations}
           testId="shell-place-conversations"
         >
           <MessagesSquare />
         </PlaceTile>
-        <PlaceTile
-          current={here === "library"}
-          label="Library"
-          onClick={onSelectArtifacts}
-          onPreload={() => void preloadArtifactsSurface()}
-          testId="open-artifacts-view"
-        >
-          <Library />
-        </PlaceTile>
-        {inboxEnabled ? (
-          <PlaceTile
-            badge={homeBadgeCount}
-            current={here === "inbox"}
-            label="Inbox"
-            onClick={onSelectInbox}
-            testId="open-inbox-view"
-          >
-            <Inbox />
-          </PlaceTile>
-        ) : null}
         <PlaceTile
           current={here === "agents"}
           label="Agents"
@@ -411,13 +360,13 @@ export function ShellPlaces({
           <Activity />
         </PlaceTile>
         <PlaceTile
-          current={here === "brain"}
-          label="Brain"
-          onClick={onSelectBrain}
-          onPreload={() => void preloadBrainSurface()}
-          testId="open-brain-setup"
+          current={here === "library"}
+          label="Library"
+          onClick={onSelectArtifacts}
+          onPreload={() => void preloadArtifactsSurface()}
+          testId="open-artifacts-view"
         >
-          <Brain />
+          <Library />
         </PlaceTile>
       </div>
       <div className="luca-places-group luca-places-end">

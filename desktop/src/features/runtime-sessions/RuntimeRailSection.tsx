@@ -20,13 +20,9 @@ import {
 } from "./runtimeRailPreferences";
 import { useCurrentRuntimeRailPins } from "./useRuntimeRailPins";
 
-export function RuntimeRailSection({
-  onSelect,
-  selectedRuntimeKey,
-}: {
-  onSelect: (runtime: RuntimeConnectionStatusV1) => void;
-  selectedRuntimeKey: string | null;
-}) {
+/** The Runtimes rows: the pinned families with their state. The shell's
+ *  Agents rail lists the same rows as Connected (SHELL_BUILD.md, WP-10). */
+export function useRuntimeRailConnections() {
   const query = useRuntimeConnectionsQuery();
   const catalogQuery = useAcpRuntimesQuery();
   const { pins } = useCurrentRuntimeRailPins();
@@ -38,8 +34,17 @@ export function RuntimeRailSection({
       ),
     [catalogQuery.data, pins, query.data],
   );
+  return { isLoading: query.isLoading || catalogQuery.isLoading, runtimes };
+}
 
-  const isLoading = query.isLoading || catalogQuery.isLoading;
+export function RuntimeRailSection({
+  onSelect,
+  selectedRuntimeKey,
+}: {
+  onSelect: (runtime: RuntimeConnectionStatusV1) => void;
+  selectedRuntimeKey: string | null;
+}) {
+  const { isLoading, runtimes } = useRuntimeRailConnections();
   if (!isLoading && runtimes.length === 0) return null;
 
   return (

@@ -1,5 +1,7 @@
 import { Bot } from "lucide-react";
 
+import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { cn } from "@/shared/lib/cn";
 
 /**
@@ -57,13 +59,33 @@ function SectionTab({
 export function ActivityPageHeader({
   description,
   onSectionChange,
+  recordName,
   section,
 }: {
   /** The active section's own supporting line. */
   description: string;
   onSectionChange: (section: ActivitySection) => void;
+  /** Whose signed record is open: the rail's row (under the shell). */
+  recordName?: string;
   section: ActivitySection;
 }) {
+  const shellFrame = useShellFrameEnabled();
+  // Under the shell the rail picks the stream (WP-10, Decided 5), so the
+  // page's tabs go; the card opens with the study's head: the section over
+  // the picked row's name, then the stream's own line.
+  if (shellFrame) {
+    return (
+      <div>
+        <PlacePageHead
+          eyebrow={section === "now" ? "Activity" : "Signed record"}
+          title={section === "now" ? "Now" : (recordName ?? "Signed record")}
+        />
+        <p className="-mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
+          {description}
+        </p>
+      </div>
+    );
+  }
   return (
     <header className="border-b border-border/60">
       <div className="flex items-center gap-2 text-2xs uppercase tracking-widest text-muted-foreground">

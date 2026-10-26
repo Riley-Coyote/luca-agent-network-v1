@@ -1,0 +1,64 @@
+/* ── every place's own rail (SHELL_BUILD.md WP-10; NAVIGATION.md) ──────
+ * The rail lists what's in the place you're on. Its rows are the Chats
+ * rail's (shell-rail.css), so these rules add only what the other places
+ * have and Chats doesn't: a quiet word at a row's end (a state), and the
+ * place's own first row (Luca, in Agents) set apart by weight. Every value
+ * is the shell study's (shellStudy.css, "every place's own rail"). Text is
+ * rem (`text-2xs`), so ⌘+ and ⌘− scale it. */
+
+:root[data-luca-shell] [data-shell-rail] .luca-rail-note {
+  color: var(--rail-faint);
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  margin-left: auto;
+  padding-left: 8px;
+  pointer-events: none;
+  position: relative;
+  white-space: nowrap;
+}
+
+:root[data-luca-shell]
+  [data-shell-rail]
+  .luca-rail-row[data-main]
+  .luca-rail-row-name {
+  font-weight: 600;
+}
+
+/* The card's head for a place's pick (PlacePageHead.tsx): a quiet line
+ * saying the section, over the picked row's name (shellStudy.css,
+ * `.shell-page-head`). It sits on the card's own reading axis, so it takes
+ * that axis's width rather than the study's 640. */
+.luca-place-page-head {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 26px;
+}
+
+.luca-place-page-eyebrow {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+}
+
+.luca-place-page-name {
+  color: hsl(var(--mn-ink));
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+
+/* The Library's card under the shell: the head where its title sat (the
+ * header's 1.75rem, on its rows' icons), and with the mode tabs gone the
+ * card's rows are head, search, list, footer. */
+.luca-place-library-head {
+  padding: 1.75rem 1.75rem 0;
+}
+
+.luca-place-library-head .luca-place-page-head {
+  margin-bottom: 0.5rem;
+}
+
+.artifact-library-screen__focal-card[data-place-pick] {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}

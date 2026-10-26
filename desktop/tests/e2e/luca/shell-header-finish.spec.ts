@@ -637,7 +637,7 @@ test("the header, finished, at 1440 × 900", async ({ page }, info) => {
   };
   expect(openWords).toMatch(/^Close the section list \((⌘|Ctrl\+)S\)$/);
   expect(closedWords).toMatch(/^Open the section list \((⌘|Ctrl\+)S\)$/);
-  expect(railWords).toMatch(/conversations rail/);
+  expect(railWords).toMatch(/chats rail/);
   saveChecks(dir);
 });
 

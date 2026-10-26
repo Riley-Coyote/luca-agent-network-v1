@@ -255,22 +255,31 @@ export function RuntimeSessionsPanel({
   );
 }
 
-function RuntimeSessionsPanelContent({
+/**
+ * A runtime's local sessions: its search, its empty states and "Start with
+ * this context". The column draws it with its own header and close; under
+ * the shell a connected app's card in Agents draws it (`variant="card"`,
+ * SHELL_BUILD.md WP-10), under the card's own head, which names it.
+ */
+export function RuntimeSessionsPanelContent({
   contextScopeKey,
   onClose,
   onOpenBrain,
   onStartContext,
   runtime,
+  variant = "panel",
 }: {
   contextScopeKey: string | null;
-  onClose: () => void;
+  onClose?: () => void;
   onOpenBrain: () => void;
   onStartContext: (
     context: ConnectedRuntimeSessionContext,
     authority: RuntimeSessionStartAuthority,
   ) => boolean;
   runtime: RuntimeConnectionStatusV1;
+  variant?: "panel" | "card";
 }) {
+  const inCard = variant === "card";
   const headingRef = React.useRef<HTMLHeadingElement>(null);
   const indexedId = indexedRuntimeId(runtime.runtimeId);
   const runtimeKey = runtimeConnectionKey(runtime);
@@ -315,8 +324,10 @@ function RuntimeSessionsPanelContent({
     setOperationError(null);
     setSearch("");
     setLoadAttempt(0);
-    headingRef.current?.focus({ preventScroll: true });
-  }, [contextScopeKey, runtimeKey]);
+    // The column takes focus to its heading as it opens; a card is picked
+    // from the rail, where focus stays.
+    if (!inCard) headingRef.current?.focus({ preventScroll: true });
+  }, [contextScopeKey, inCard, runtimeKey]);
 
   React.useEffect(() => {
     setIsSlowRead(false);
@@ -410,41 +421,50 @@ function RuntimeSessionsPanelContent({
 
   return (
     <>
-      <header className="shrink-0 border-b border-border/45 px-4 pb-3 pt-4">
-        <div className="flex items-start gap-3 pr-7">
-          <HarnessLogo
-            className="mt-0.5 text-foreground"
-            decorative
-            harness={harnessIdFromRuntimeId(runtime.runtimeId)}
-            size={20}
-          />
-          <div className="min-w-0 flex-1">
-            <h2
-              className="truncate text-sm font-semibold tracking-tight outline-none"
-              ref={headingRef}
-              tabIndex={-1}
-            >
-              {runtime.label} sessions
-            </h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              Browse local history or bring one session into a new Polyphonic
-              conversation as context.
-            </p>
+      {inCard ? null : (
+        <header className="shrink-0 border-b border-border/45 px-4 pb-3 pt-4">
+          <div className="flex items-start gap-3 pr-7">
+            <HarnessLogo
+              className="mt-0.5 text-foreground"
+              decorative
+              harness={harnessIdFromRuntimeId(runtime.runtimeId)}
+              size={20}
+            />
+            <div className="min-w-0 flex-1">
+              <h2
+                className="truncate text-sm font-semibold tracking-tight outline-none"
+                ref={headingRef}
+                tabIndex={-1}
+              >
+                {runtime.label} sessions
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Browse local history or bring one session into a new Polyphonic
+                conversation as context.
+              </p>
+            </div>
           </div>
-        </div>
-        <Button
-          aria-label={`Close ${runtime.label} sessions`}
-          className="absolute right-2.5 top-2.5"
-          onClick={onClose}
-          size="icon-xs"
-          type="button"
-          variant="ghost"
-        >
-          <X />
-        </Button>
-      </header>
+          <Button
+            aria-label={`Close ${runtime.label} sessions`}
+            className="absolute right-2.5 top-2.5"
+            onClick={onClose}
+            size="icon-xs"
+            type="button"
+            variant="ghost"
+          >
+            <X />
+          </Button>
+        </header>
+      )}
 
-      <div className="buzz-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div
+        className={
+          inCard
+            ? "min-w-0"
+            : "buzz-sidebar-scrollbar min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        }
+        data-testid={inCard ? "connected-sessions" : undefined}
+      >
         {!indexedId ? (
           <EmptyState
             detail={`${runtime.label} is installed, but Polyphonic does not currently discover or index its local session history.`}

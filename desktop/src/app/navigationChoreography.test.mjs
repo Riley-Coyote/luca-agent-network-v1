@@ -7,24 +7,24 @@ const places = navOrder(true);
 const rail = navOrder(false);
 
 test("frame_movingDownThePlacesDriftsDown", () => {
-  // The places column, top to bottom: New conversation, Conversations
-  // (home), Library, Inbox, Agents, Activity, Brain, Settings.
-  const column = [
-    "/messages/new",
-    "/",
-    "/artifacts",
-    "/inbox",
-    "/agents",
-    "/pulse",
-    "/brain",
-    "/settings",
-  ];
+  // The places column, top to bottom (NAVIGATION.md): Chats (home), Agents,
+  // Activity, Library, Settings.
+  const column = ["/", "/agents", "/pulse", "/artifacts", "/settings"];
   for (let index = 1; index < column.length; index += 1) {
     const above = column[index - 1];
     const below = column[index];
     assert.equal(resolveNavMotion(above, below, places), "down", below);
     assert.equal(resolveNavMotion(below, above, places), "up", above);
   }
+});
+
+test("frame_aPlacesOwnPagesShareItsSeat", () => {
+  // New conversation is in Chats, Brain in Agents, the Inbox with Activity:
+  // between them the page crossfades, never drifts.
+  assert.equal(resolveNavMotion("/", "/messages/new", places), "swap");
+  assert.equal(resolveNavMotion("/agents", "/brain", places), "swap");
+  assert.equal(resolveNavMotion("/pulse", "/inbox", places), "swap");
+  assert.equal(resolveNavMotion("/brain", "/pulse", places), "down");
 });
 
 test("frame_conversationsToLibraryIsDown_whereTheRailSaidUp", () => {

@@ -46,21 +46,22 @@ const RAIL_ORDER: NavOrder = {
 
 /**
  * Under the shell's frame the places column is the geography
- * (docs/luca/rail-system/SHELL_SPEC.md, "The places column"): New
- * conversation, Search (a dialog, not a page), Conversations (home), Library,
- * Inbox (behind its flag), Agents, Activity, Brain, then Settings at the foot.
- * Moving down the column moves the page the same way.
+ * (docs/luca/rail-system/SHELL_SPEC.md, "The places column", as NAVIGATION.md
+ * amended it): Search (a dialog, not a page), Chats (home, with New
+ * conversation in it), Agents (with Brain in it), Activity, Library, then
+ * Settings at the foot. Moving down the column moves the page the same way.
+ * The Inbox, out of the column, sits with Activity, where its list goes.
  */
 const PLACES_ORDER: NavOrder = {
-  home: 2,
+  home: 1,
   sections: [
-    ["/messages/new", 0],
-    ["/artifacts", 3],
-    ["/inbox", 4],
-    ["/agents", 5],
-    ["/pulse", 6],
-    ["/brain", 7],
-    ["/settings", 8],
+    ["/messages/new", 1],
+    ["/agents", 2],
+    ["/brain", 2],
+    ["/pulse", 3],
+    ["/inbox", 3],
+    ["/artifacts", 4],
+    ["/settings", 5],
   ],
 };
 

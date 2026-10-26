@@ -3,7 +3,10 @@ import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useAcpRuntimesQuery } from "@/features/agents/hooks";
-import { preferredReadySkillRuntime } from "@/features/capabilities/lib/skillHandoff";
+import {
+  preferredReadySkillRuntime,
+  skillRuntimeLabel as runtimeLabel,
+} from "@/features/capabilities/lib/skillHandoff";
 import {
   useCapabilitySkillDetail,
   useCapabilitySkills,
@@ -20,13 +23,20 @@ import {
 
 type RuntimeFilter = "all" | string;
 
-export function SkillLibraryPanel() {
+export function SkillLibraryPanel({
+  runtimeFilter: pickedRuntime,
+}: {
+  /** Under the shell the Library's rail picks the runtime (WP-10), and the
+   *  runtime chips go. */
+  runtimeFilter?: RuntimeFilter;
+} = {}) {
   const skillsQuery = useCapabilitySkills();
   const runtimesQuery = useAcpRuntimesQuery();
   const { goNewMessage } = useAppNavigation();
   const [query, setQuery] = React.useState("");
-  const [runtimeFilter, setRuntimeFilter] =
+  const [localRuntimeFilter, setRuntimeFilter] =
     React.useState<RuntimeFilter>("all");
+  const runtimeFilter = pickedRuntime ?? localRuntimeFilter;
   const [selectedSkill, setSelectedSkill] =
     React.useState<CapabilitySkillSummary | null>(null);
   const deferredQuery = React.useDeferredValue(
@@ -90,30 +100,32 @@ export function SkillLibraryPanel() {
             value={query}
           />
         </label>
-        <fieldset
-          aria-label="Filter skills by runtime"
-          className="artifact-library-filters"
-        >
-          <button
-            aria-pressed={runtimeFilter === "all"}
-            className={cn(runtimeFilter === "all" && "is-active")}
-            onClick={() => setRuntimeFilter("all")}
-            type="button"
+        {pickedRuntime === undefined ? (
+          <fieldset
+            aria-label="Filter skills by runtime"
+            className="artifact-library-filters"
           >
-            All runtimes
-          </button>
-          {runtimeIds.map((runtimeId) => (
             <button
-              aria-pressed={runtimeFilter === runtimeId}
-              className={cn(runtimeFilter === runtimeId && "is-active")}
-              key={runtimeId}
-              onClick={() => setRuntimeFilter(runtimeId)}
+              aria-pressed={runtimeFilter === "all"}
+              className={cn(runtimeFilter === "all" && "is-active")}
+              onClick={() => setRuntimeFilter("all")}
               type="button"
             >
-              {runtimeLabel(runtimeId)}
+              All runtimes
             </button>
-          ))}
-        </fieldset>
+            {runtimeIds.map((runtimeId) => (
+              <button
+                aria-pressed={runtimeFilter === runtimeId}
+                className={cn(runtimeFilter === runtimeId && "is-active")}
+                key={runtimeId}
+                onClick={() => setRuntimeFilter(runtimeId)}
+                type="button"
+              >
+                {runtimeLabel(runtimeId)}
+              </button>
+            ))}
+          </fieldset>
+        ) : null}
       </div>
 
       <div className="artifact-library-screen__body">
@@ -130,7 +142,11 @@ export function SkillLibraryPanel() {
         !skillsQuery.isError &&
         visibleSkills.length === 0 ? (
           <SkillLibraryState
-            action={query || runtimeFilter !== "all" ? "Clear filters" : null}
+            action={
+              query || (pickedRuntime === undefined && runtimeFilter !== "all")
+                ? "Clear filters"
+                : null
+            }
             onAction={() => {
               setQuery("");
               setRuntimeFilter("all");
@@ -343,25 +359,6 @@ function SkillLibraryState({
       ) : null}
     </div>
   );
-}
-
-function runtimeLabel(runtimeId: string): string {
-  switch (runtimeId) {
-    case "claude":
-      return "Claude Code";
-    case "codex":
-      return "Codex";
-    case "openclaw":
-      return "OpenClaw";
-    case "hermes":
-      return "Hermes";
-    case "goose":
-      return "Goose";
-    case "polyphonic":
-      return "Polyphonic";
-    default:
-      return runtimeId;
-  }
 }
 
 function runtimeList(runtimeIds: readonly string[]): string {
