@@ -668,81 +668,12 @@ export const FIRST_PICK: Record<ListPlace, string> = {
 export type PlaceCard = {
   eyebrow?: string;
   title: string;
-  /** A mind's space: Notebook, Self, Settings (the first is open). */
-  tabs?: string[];
   groups: { label: string; rows: PlaceRow[] }[];
 };
-
-const notebook = (rows: PlaceRow[]): PlaceCard["groups"] => [
-  { label: "Today", rows },
-];
-
-const MIND_TABS = ["Notebook", "Self", "Settings"];
 
 /** What the card shows for each rail row, by `place:row`. A row with no card
  *  of its own shows its title and a quiet line. */
 export const PLACE_CARDS: Record<string, PlaceCard> = {
-  "agents:luca": {
-    eyebrow: "Working with Atlas on the release notes",
-    title: "Luca",
-    tabs: MIND_TABS,
-    groups: notebook([
-      {
-        title: "Should the Tidepool page say preview or beta?",
-        detail: "Asks you",
-        note: "now",
-      },
-      {
-        title: "Drafted the release notes with Atlas",
-        detail: "For you",
-        note: "10:20 AM",
-      },
-      {
-        title: "Asked Claude Code to fix the failing build",
-        detail: "For you",
-        note: "1:40 AM",
-      },
-      {
-        title: "Started a drawing: tide pools at night",
-        detail: "Their own",
-        note: "3:30 AM",
-      },
-      {
-        title: "A quiet night. I like the hour before Sam wakes.",
-        detail: "Journal",
-        note: "4:05 AM",
-      },
-    ]),
-  },
-  "agents:atlas": {
-    eyebrow: "Rebuilding the runtime atlas",
-    title: "Atlas",
-    tabs: MIND_TABS,
-    groups: notebook([
-      {
-        title: "Release notes, second pass",
-        detail: "For you",
-        note: "10:20 AM",
-      },
-      {
-        title: "Rebuilt the runtime atlas",
-        detail: "For you",
-        note: "1:02 AM",
-      },
-    ]),
-  },
-  "agents:wren": {
-    eyebrow: "Resting",
-    title: "Wren",
-    tabs: MIND_TABS,
-    groups: notebook([
-      {
-        title: "Moved the walk-through to Tuesday",
-        detail: "For you",
-        note: "8:16 AM",
-      },
-    ]),
-  },
   "agents:claude-code": {
     eyebrow: "Connected · on this Mac",
     title: "Claude Code",
@@ -853,6 +784,240 @@ export const PLACE_CARDS: Record<string, PlaceCard> = {
           (row) => row.detail === "12 images",
         ),
       },
+    ],
+  },
+};
+
+// ── a mind's own space (NAVIGATION.md, "A mind's own space") ─────────
+// Notebook: their days, opening with their own words. Self: who they are,
+// and who writes each part. Settings: how they run, and what they can read.
+
+export type NotebookKind = "you" | "own" | "journal" | "memory";
+
+export type NotebookEntry = {
+  kind: NotebookKind;
+  text: string;
+  at: string;
+  /** Something they made, shown as a picture of it. */
+  made?: { kind: "drawing" | "doc"; title: string };
+};
+
+export type MindSpace = {
+  now: string;
+  working?: boolean;
+  runtime: string;
+  words: { intro: string; exploring: string; piece?: string };
+  asks: string[];
+  days: { day: string; entries: NotebookEntry[] }[];
+  self: { title: string; who: string; excerpt: string; changed: string }[];
+  settings: { title: string; value: string }[];
+};
+
+export const NOTEBOOK_FILTERS: { id: "all" | NotebookKind; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "you", label: "For you" },
+  { id: "own", label: "Their own" },
+  { id: "journal", label: "Journal" },
+  { id: "memory", label: "Memory" },
+];
+
+export const KIND_LABEL: Record<NotebookKind, string> = {
+  you: "For you",
+  own: "Their own",
+  journal: "Journal",
+  memory: "Memory",
+};
+
+export const MIND_SPACES: Record<string, MindSpace> = {
+  luca: {
+    now: "Working with Atlas on the release notes",
+    working: true,
+    runtime: "Claude Code",
+    words: {
+      intro:
+        "I keep Sam's days moving, and in my own time I've been learning to draw the coast.",
+      exploring: "How tide pools hold light after dark",
+      piece: "Tide pools at night",
+    },
+    asks: ["Should the Tidepool page say preview or beta?"],
+    days: [
+      {
+        day: "Today",
+        entries: [
+          {
+            kind: "you",
+            text: "Asked Atlas whether the release notes are ready for your read after lunch",
+            at: "9:21 AM",
+          },
+          {
+            kind: "you",
+            text: "Had Claude Code fix the studio site's failing build",
+            at: "8:19 AM",
+          },
+          {
+            kind: "memory",
+            text: "Kept: Sam reads long drafts after lunch, never before",
+            at: "7:58 AM",
+          },
+          {
+            kind: "journal",
+            text: "A quiet night. I like the hour before Sam wakes, when the inbox is still and I can finish a thought.",
+            at: "4:05 AM",
+          },
+          {
+            kind: "own",
+            text: "Started a drawing of the tide pools at night",
+            at: "3:30 AM",
+            made: { kind: "drawing", title: "Tide pools at night" },
+          },
+        ],
+      },
+      {
+        day: "Yesterday",
+        entries: [
+          {
+            kind: "own",
+            text: "Read about succession in tide pools: the first settlers make room for the rest",
+            at: "11:40 PM",
+          },
+          {
+            kind: "you",
+            text: "Drafted the release notes with Atlas",
+            at: "10:20 PM",
+            made: { kind: "doc", title: "release-notes.md" },
+          },
+          {
+            kind: "you",
+            text: "Sent Mara the shot list for Saturday's low tide",
+            at: "9:02 PM",
+          },
+        ],
+      },
+    ],
+    self: [
+      {
+        title: "Soul",
+        who: "You write it",
+        excerpt: "Warm, exact, and unhurried. Says what's true, kindly.",
+        changed: "Oct 18",
+      },
+      {
+        title: "Convictions",
+        who: "You promote them",
+        excerpt: "Finish the small thing before starting the big one.",
+        changed: "Oct 22",
+      },
+      {
+        title: "Who I'm becoming",
+        who: "Luca writes it, saying why",
+        excerpt: "I draw to think. Twice this week a sketch settled a plan.",
+        changed: "Today",
+      },
+      {
+        title: "What I know about Sam",
+        who: "Luca writes it",
+        excerpt: "Reads after lunch. Keeps Fridays clear. Nothing before nine.",
+        changed: "Today",
+      },
+      {
+        title: "Lessons",
+        who: "Luca writes them",
+        excerpt: "When a build fails, read the last change before the logs.",
+        changed: "Yesterday",
+      },
+      {
+        title: "Instructions",
+        who: "You write them",
+        excerpt: "Ask before anything leaves this Mac.",
+        changed: "Oct 9",
+      },
+    ],
+    settings: [
+      {
+        title: "Connected app and model",
+        value: "Claude Code · default model",
+      },
+      { title: "Wakes with the app", value: "On" },
+      { title: "Workspace", value: "~/Studio" },
+      {
+        title: "What Luca can read",
+        value: "3 repositories · Claude Code and Codex history · 12 files",
+      },
+      { title: "Permissions", value: "Asks before running commands" },
+      { title: "Identity", value: "Signed as Luca · b90c…165b" },
+    ],
+  },
+  atlas: {
+    now: "Rebuilding the runtime atlas",
+    working: true,
+    runtime: "Codex",
+    words: {
+      intro: "I keep the numbers honest: what runs where, and what it costs.",
+      exploring: "Why caches go stale",
+    },
+    asks: ["OK to run the release script?"],
+    days: [
+      {
+        day: "Today",
+        entries: [
+          {
+            kind: "you",
+            text: "Answered Luca: the release notes are ready by noon",
+            at: "9:23 AM",
+          },
+          {
+            kind: "you",
+            text: "Rebuilt the runtime atlas",
+            at: "1:02 AM",
+            made: { kind: "doc", title: "runtime-atlas.csv" },
+          },
+        ],
+      },
+    ],
+    self: [
+      {
+        title: "Soul",
+        who: "You write it",
+        excerpt: "Careful with numbers; plain about doubt.",
+        changed: "Oct 12",
+      },
+    ],
+    settings: [
+      { title: "Connected app and model", value: "Codex · default model" },
+      { title: "Wakes with the app", value: "Off" },
+    ],
+  },
+  wren: {
+    now: "Resting",
+    runtime: "Hermes",
+    words: {
+      intro: "I keep the calendar, and the promises in it.",
+      exploring: "What makes a week feel unhurried",
+    },
+    asks: [],
+    days: [
+      {
+        day: "Today",
+        entries: [
+          {
+            kind: "you",
+            text: "Moved the studio walk-through to Tuesday",
+            at: "8:16 AM",
+          },
+        ],
+      },
+    ],
+    self: [
+      {
+        title: "Soul",
+        who: "You write it",
+        excerpt: "Gentle with time; firm with mornings.",
+        changed: "Oct 14",
+      },
+    ],
+    settings: [
+      { title: "Connected app and model", value: "Hermes · default model" },
+      { title: "Wakes with the app", value: "On" },
     ],
   },
 };

@@ -31,8 +31,12 @@ import {
   FIRST_PICK,
   HOMES,
   type Home,
+  KIND_LABEL,
   type ListPlace,
+  MIND_SPACES,
   type Message,
+  NOTEBOOK_FILTERS,
+  type NotebookKind,
   OWNER,
   PLACE_CARDS,
   PLACE_RAILS,
@@ -929,7 +933,22 @@ export function ShellStudy() {
         data-luca-card
         ref={cardRef}
       >
-        {placeCard ? (
+        {listPlace === "agents" && pick && MIND_SPACES[pick] ? (
+          <MindSpaceCard
+            id={pick}
+            key={pick}
+            name={placeCard?.title ?? pick}
+            onNote={setNote}
+            onTalk={() => {
+              const home = homes.find((each) => each.id === pick);
+              if (home)
+                dispatch({
+                  type: "go",
+                  view: { place: "conversations", open: mainOf(home) },
+                });
+            }}
+          />
+        ) : placeCard ? (
           <PlacePage
             appearance={
               listPlace === "settings" && pick === "appearance" ? (
@@ -1450,8 +1469,7 @@ function Conversation({
   );
 }
 
-/** The card of a place's rail row: what it is, a mind's tabs (Notebook,
- *  Self, Settings; only drawn for now), then its rows. */
+/** The card of a place's rail row: what it is, then its rows. */
 function PlacePage({
   appearance,
   card,
@@ -1466,15 +1484,6 @@ function PlacePage({
           <p className="shell-page-eyebrow">{card.eyebrow}</p>
         ) : null}
         <h1 className="shell-page-name">{card.title}</h1>
-        {card.tabs ? (
-          <div aria-hidden="true" className="shell-page-tabs">
-            {card.tabs.map((tab, index) => (
-              <span data-selected={index === 0 ? "true" : undefined} key={tab}>
-                {tab}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </header>
       {appearance}
       {card.groups.length === 0 && !appearance ? (
@@ -1500,6 +1509,191 @@ function PlacePage({
           </ul>
         </section>
       ))}
+    </div>
+  );
+}
+
+type MindTab = "notebook" | "self" | "settings";
+const MIND_TABS: { id: MindTab; label: string }[] = [
+  { id: "notebook", label: "Notebook" },
+  { id: "self", label: "Self" },
+  { id: "settings", label: "Settings" },
+];
+
+/** A mind's own space (NAVIGATION.md): where you raise them. Notebook is
+ *  their days, opening with their own words and what they're asking you;
+ *  Self is who they are and who writes each part; Settings is how they run,
+ *  and what they can read. */
+function MindSpaceCard({
+  id,
+  name,
+  onNote,
+  onTalk,
+}: {
+  id: string;
+  name: string;
+  onNote: (note: string) => void;
+  onTalk: () => void;
+}) {
+  const space = MIND_SPACES[id];
+  const [tab, setTab] = React.useState<MindTab>("notebook");
+  const [filter, setFilter] = React.useState<"all" | NotebookKind>("all");
+  const days = space.days
+    .map((day) => ({
+      ...day,
+      entries: day.entries.filter(
+        (entry) => filter === "all" || entry.kind === filter,
+      ),
+    }))
+    .filter((day) => day.entries.length > 0);
+  return (
+    <div className="shell-page shell-mind">
+      <header className="shell-mind-head">
+        <span aria-hidden="true" className="shell-mind-face" />
+        <div className="shell-mind-who">
+          <h1 className="shell-page-name">{name}</h1>
+          <p
+            className="shell-mind-now"
+            data-working={space.working ? "true" : undefined}
+          >
+            {space.now}
+          </p>
+        </div>
+        <button className="shell-mind-talk" onClick={onTalk} type="button">
+          Talk
+        </button>
+      </header>
+      <div
+        aria-label={`${name}'s space`}
+        className="shell-mind-tabs"
+        role="tablist"
+      >
+        {MIND_TABS.map((each) => (
+          <button
+            aria-selected={tab === each.id}
+            className="shell-mind-tab"
+            data-selected={tab === each.id ? "true" : undefined}
+            key={each.id}
+            onClick={() => setTab(each.id)}
+            role="tab"
+            type="button"
+          >
+            {each.label}
+          </button>
+        ))}
+      </div>
+      {tab === "notebook" ? (
+        <div className="shell-mind-body" role="tabpanel">
+          <figure className="shell-mind-words">
+            <div>
+              <blockquote>{space.words.intro}</blockquote>
+              <figcaption>
+                Exploring {space.words.exploring.toLowerCase()}
+              </figcaption>
+            </div>
+            {space.words.piece ? (
+              <span
+                aria-label={`Chosen piece: ${space.words.piece}`}
+                className="shell-mind-thumb shell-mind-piece"
+                data-made="drawing"
+                role="img"
+              />
+            ) : null}
+          </figure>
+          {space.asks.map((ask) => (
+            <div className="shell-mind-ask" key={ask}>
+              <span className="shell-mind-kind">Asks you</span>
+              <p>{ask}</p>
+              <button
+                className="shell-mind-answer"
+                onClick={() => onNote(`Answer: sample only.`)}
+                type="button"
+              >
+                Answer
+              </button>
+            </div>
+          ))}
+          <fieldset aria-label="Show" className="shell-mind-filters">
+            {NOTEBOOK_FILTERS.map((each) => (
+              <button
+                aria-pressed={filter === each.id}
+                className="shell-mind-filter"
+                data-selected={filter === each.id ? "true" : undefined}
+                key={each.id}
+                onClick={() => setFilter(each.id)}
+                type="button"
+              >
+                {each.label}
+              </button>
+            ))}
+          </fieldset>
+          {days.length === 0 ? (
+            <p className="shell-mind-quiet">Nothing of this kind yet.</p>
+          ) : null}
+          {days.map((day) => (
+            <section
+              aria-label={day.day}
+              className="shell-mind-day"
+              key={day.day}
+            >
+              <h2 className="type-eyebrow">{day.day}</h2>
+              <ul>
+                {day.entries.map((entry) => (
+                  <li data-kind={entry.kind} key={`${entry.at}-${entry.text}`}>
+                    <span className="shell-mind-kind">
+                      {KIND_LABEL[entry.kind]}
+                    </span>
+                    <div className="shell-mind-entry">
+                      <p>{entry.text}</p>
+                      {entry.made ? (
+                        <span className="shell-mind-made">
+                          <span
+                            aria-hidden="true"
+                            className="shell-mind-thumb"
+                            data-made={entry.made.kind}
+                          />
+                          <span>{entry.made.title}</span>
+                        </span>
+                      ) : null}
+                    </div>
+                    <time>{entry.at}</time>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
+      ) : tab === "self" ? (
+        <div className="shell-mind-body" role="tabpanel">
+          <p className="shell-mind-quiet">
+            Most of this grows from talking. {name} asks before changing
+            anything you wrote.
+          </p>
+          <ul className="shell-mind-list">
+            {space.self.map((doc) => (
+              <li key={doc.title}>
+                <div>
+                  <p className="shell-mind-title">{doc.title}</p>
+                  <p className="shell-mind-excerpt">{doc.excerpt}</p>
+                </div>
+                <span className="shell-mind-writer">{doc.who}</span>
+                <time>{doc.changed}</time>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="shell-mind-body" role="tabpanel">
+          <ul className="shell-mind-list shell-mind-settings">
+            {space.settings.map((row) => (
+              <li key={row.title}>
+                <p className="shell-mind-title">{row.title}</p>
+                <span className="shell-mind-value">{row.value}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

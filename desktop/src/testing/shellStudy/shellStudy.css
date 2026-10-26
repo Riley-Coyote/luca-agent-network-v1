@@ -1593,3 +1593,343 @@
     animation: none;
   }
 }
+
+/* ── a mind's own space (NAVIGATION.md) ─────────────────────────────
+ * Where you raise them. One reading column: their mark and what they're
+ * doing now, then Notebook, Self, Settings. Type does the work: their own
+ * words largest, their days in one quiet stream, the kind of each entry in
+ * small capitals at the left, the time at the right. */
+.shell-mind-head,
+.shell-mind-tabs,
+.shell-mind-body {
+  margin-inline: auto;
+  max-width: 640px;
+}
+
+.shell-mind-head {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 20px;
+}
+
+/* Their mark: the black drop with eyes, lit from above. */
+.shell-mind-face {
+  background: #050505;
+  border-radius: 50%;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    0 1px 2px rgb(0 0 0 / 0.35);
+  display: block;
+  height: 40px;
+  position: relative;
+  width: 40px;
+}
+
+.shell-mind-face::before,
+.shell-mind-face::after {
+  background: rgb(250 248 243);
+  border-radius: 50%;
+  content: "";
+  height: 6px;
+  position: absolute;
+  top: 16px;
+  width: 6px;
+}
+
+.shell-mind-face::before {
+  left: 12px;
+}
+
+.shell-mind-face::after {
+  right: 12px;
+}
+
+.shell-mind-now {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 7px;
+  margin-top: 3px;
+}
+
+.shell-mind-now[data-working]::before {
+  animation: shell-livecard-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  content: "";
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+/* One solid button, never an outline: talk to them. */
+.shell-mind-talk {
+  background: hsl(var(--mn-ink));
+  border-radius: 9px;
+  color: hsl(var(--mn-surface));
+  font-size: 0.8125rem;
+  font-weight: 500;
+  height: 30px;
+  padding: 0 14px;
+  transition: opacity 120ms;
+}
+
+.shell-mind-talk:hover {
+  opacity: 0.86;
+}
+
+.shell-mind-tabs {
+  border-bottom: 1px solid hsl(var(--mn-ink) / 0.08);
+  display: flex;
+  gap: 22px;
+}
+
+.shell-mind-tab {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.84375rem;
+  padding: 0 0 9px;
+  transition: color 120ms;
+}
+
+.shell-mind-tab:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.shell-mind-tab[data-selected] {
+  box-shadow: inset 0 -1px 0 hsl(var(--mn-ink));
+  color: hsl(var(--mn-ink));
+}
+
+.shell-mind-body {
+  display: grid;
+  gap: 22px;
+  padding-top: 24px;
+}
+
+/* Their own words: the largest type in the space. */
+.shell-mind-words {
+  align-items: center;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0;
+}
+
+.shell-mind-words blockquote {
+  color: hsl(var(--mn-ink));
+  font-size: 1.0625rem;
+  line-height: 1.5;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.shell-mind-words figcaption {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.78125rem;
+  margin-top: 6px;
+}
+
+.shell-mind-ask {
+  align-items: baseline;
+  border: 1px solid hsl(var(--mn-ink) / 0.12);
+  border-radius: 10px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+  padding: 12px 14px;
+}
+
+.shell-mind-ask p {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+}
+
+.shell-mind-answer {
+  background: hsl(var(--mn-ink) / 0.08);
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  font-size: 0.78125rem;
+  padding: 4px 10px;
+}
+
+.shell-mind-filters {
+  border: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+
+.shell-mind-filter {
+  border-radius: 7px;
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  padding: 3px 10px;
+  transition:
+    color 120ms,
+    background-color 120ms;
+}
+
+.shell-mind-filter:hover {
+  color: hsl(var(--mn-ink));
+}
+
+.shell-mind-filter[data-selected] {
+  background: hsl(var(--mn-ink) / 0.08);
+  color: hsl(var(--mn-ink));
+}
+
+.shell-mind-day h2 {
+  color: hsl(var(--mn-ink-faint));
+  margin-bottom: 2px;
+}
+
+.shell-mind-day li,
+.shell-mind-list li {
+  align-items: baseline;
+  border-top: 1px solid hsl(var(--mn-ink) / 0.06);
+  display: grid;
+  gap: 14px;
+  padding: 11px 0;
+}
+
+.shell-mind-day li {
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+}
+
+.shell-mind-day li:first-child,
+.shell-mind-list li:first-child {
+  border-top: 0;
+}
+
+.shell-mind-kind {
+  color: hsl(var(--mn-ink-faint));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.59375rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.shell-mind-day li[data-kind="you"] .shell-mind-kind,
+.shell-mind-ask .shell-mind-kind {
+  color: hsl(var(--mn-ink-muted));
+}
+
+.shell-mind-entry p {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.shell-mind-day li[data-kind="journal"] .shell-mind-entry p {
+  color: hsl(var(--mn-ink-muted));
+  font-style: italic;
+}
+
+.shell-mind-day time,
+.shell-mind-list time {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* What they made, as a picture of it. */
+.shell-mind-made {
+  align-items: center;
+  color: hsl(var(--mn-ink-muted));
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.shell-mind-thumb {
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px hsl(var(--mn-ink) / 0.1);
+  display: block;
+  flex: none;
+  height: 36px;
+  width: 52px;
+}
+
+.shell-mind-piece {
+  height: 62px;
+  width: 90px;
+}
+
+/* Tide pools at night: three pools holding the last of the light, soft at
+ * their edges, under a darker sky. */
+.shell-mind-thumb[data-made="drawing"] {
+  background:
+    radial-gradient(
+      ellipse 22% 16% at 30% 66%,
+      rgb(168 196 232 / 0.55),
+      transparent
+    ),
+    radial-gradient(
+      ellipse 15% 11% at 64% 58%,
+      rgb(168 196 232 / 0.38),
+      transparent
+    ),
+    radial-gradient(
+      ellipse 10% 7% at 82% 74%,
+      rgb(168 196 232 / 0.3),
+      transparent
+    ),
+    linear-gradient(180deg, #060810 0 38%, #0d1522 38.5%, #070a10);
+}
+
+.shell-mind-thumb[data-made="doc"] {
+  background:
+    repeating-linear-gradient(
+      180deg,
+      transparent 0 5px,
+      hsl(var(--mn-ink) / 0.22) 5px 6px
+    )
+    8px 8px / calc(100% - 16px) calc(100% - 14px) no-repeat,
+    hsl(var(--mn-ink) / 0.06);
+}
+
+.shell-mind-quiet {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.8125rem;
+}
+
+.shell-mind-list {
+  display: grid;
+}
+
+.shell-mind-list li {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.shell-mind-settings li {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.shell-mind-title {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
+}
+
+.shell-mind-excerpt {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  margin-top: 3px;
+}
+
+.shell-mind-writer,
+.shell-mind-value {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.78125rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-mind-now[data-working]::before {
+    animation: none;
+  }
+}
