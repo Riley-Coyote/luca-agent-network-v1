@@ -10,11 +10,14 @@ export function unreadCountLabel(count: number) {
 }
 
 export function UnreadPill({
+  accessibleLabel,
   direction,
   label,
   onClick,
   testId,
 }: {
+  /** What the pill is called when its arrow is not seen; the label by default. */
+  accessibleLabel?: string;
   direction: "up" | "down";
   label: string;
   onClick: () => void;
@@ -23,6 +26,7 @@ export function UnreadPill({
   const Arrow = direction === "up" ? ArrowUp : ArrowDown;
   return (
     <Button
+      aria-label={accessibleLabel}
       className={UNREAD_PILL_CLASS}
       data-testid={testId}
       onClick={onClick}

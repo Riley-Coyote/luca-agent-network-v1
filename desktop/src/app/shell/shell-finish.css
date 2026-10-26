@@ -327,6 +327,15 @@
   );
 }
 
+/* The details card (WP-22, 9): it is the window's rightmost card wherever
+ * it opens, a right card beside the conversation or over it under 1024,
+ * its edge 6 from the window's right as the cards stand. So its content
+ * keeps the launcher's column clear by the same measure (20 + 46 + 8),
+ * taken from its own edge: the padding replaces its 16 on that side. */
+:root[data-luca-frame]:has(.qc-launcher) [data-luca-details-body] {
+  padding-right: max(1rem, calc(20px + 46px + 8px - 6px));
+}
+
 /* A conversation's composer: Send's side, past the overlay's own 20. */
 :root[data-luca-frame] [data-testid="channel-composer-overlay"] {
   container-type: inline-size;

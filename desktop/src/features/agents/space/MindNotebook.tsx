@@ -14,8 +14,12 @@ import { useManagedPermissions } from "@/features/agents/useManagedPermissions";
 import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibraryViewModel";
 import { useArtifactCanvas } from "@/features/artifacts/ArtifactCanvasProvider";
 import { useArtifactLibrary } from "@/features/artifacts/hooks";
+import { ProposalAsk } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import { useAllRuntimeTaskProposals } from "@/features/capabilities/useAllRuntimeTasks";
 import { useManagedInputs } from "@/features/capabilities/useManagedInputs";
 import { useChannelsQuery } from "@/features/channels/hooks";
+import { useRoomProjects } from "@/features/channels/lib/roomProjects";
+import { useCommunities } from "@/features/communities/useCommunities";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { ResidentHandoffPanel } from "@/features/profile/ui/ResidentContinuityPanel";
 import { ResidentNotebookDetailView } from "@/features/profile/ui/notebook/ResidentNotebookDetailView";
@@ -35,6 +39,7 @@ import {
   type ResidentNotebookDetail,
   type ResidentNotebookList,
 } from "@/shared/api/tauriNotebook";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import type { ManagedAgent } from "@/shared/api/types";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { MadeThumb } from "./MadeThumb";
@@ -316,14 +321,35 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
       ),
     [allPermissions, key],
   );
-  const { roomOf } = useSideConversations();
+  // Every ask the mind makes, its proposals too (WP-22, 7): newest first,
+  // after the requests that hold a turn open now, as Needs you orders them.
+  const allProposals = useAllRuntimeTaskProposals();
+  const proposals = React.useMemo(
+    () =>
+      allProposals
+        .filter((each) => normalizePubkey(each.residentPubkey) === key)
+        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)),
+    [allProposals, key],
+  );
+  // A proposal is answered as in its room: its project's sources name the
+  // working folder (NeedsYouCard).
+  const channels = useChannelsQuery().data;
+  const { activeCommunity } = useCommunities();
+  const owner = useIdentityQuery().data?.pubkey;
+  const projects = useRoomProjects(
+    channels ?? [],
+    owner,
+    activeCommunity?.relayUrl,
+  );
+  const { nameOf, roomOf } = useSideConversations();
   const { goChannel } = useAppNavigation();
   const keys = React.useMemo(
     () => [
       ...permissions.map((each) => `permission:${each.pendingId}`),
       ...inputs.map((each) => `question:${each.pendingId}`),
+      ...proposals.map((each) => `proposal:${each.proposalId}`),
     ],
-    [inputs, permissions],
+    [inputs, permissions, proposals],
   );
   const { listRef, onFocus } = useAskFocusHandoff(keys);
   if (keys.length === 0) return null;
@@ -366,6 +392,22 @@ function MindAsks({ residentPubkey }: { residentPubkey: string }) {
             key={pending.pendingId}
             pending={pending}
             summary={where(pending.request.conversationId)}
+          />
+        ))}
+        {proposals.map((proposal) => (
+          <ProposalAsk
+            common={common(
+              "proposal",
+              proposal.proposalId,
+              proposal.conversationId,
+            )}
+            key={proposal.proposalId}
+            projectSourceIds={
+              projects.get(proposal.conversationId)?.sourceIds ?? []
+            }
+            proposal={proposal}
+            summary={where(proposal.conversationId)}
+            who={nameOf(normalizePubkey(proposal.residentPubkey))}
           />
         ))}
       </ul>

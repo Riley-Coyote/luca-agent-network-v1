@@ -27,6 +27,7 @@ import {
   sortPersonaRuntimes,
 } from "@/features/agents/ui/agentConfigOptions";
 import { AgentDropdownSelect } from "@/features/agents/ui/agentConfigControls";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import {
   AgentConfigFields,
   EMPTY_GLOBAL_CONFIG,
@@ -112,6 +113,7 @@ export function AgentDefaultsEditor({
       });
   }, []);
 
+  const shellFrame = useShellFrameEnabled();
   const runtimesQuery = useAcpRuntimesQuery();
   const sortedRuntimes = React.useMemo(
     () =>
@@ -137,11 +139,15 @@ export function AgentDefaultsEditor({
       sortedRuntimes.map((runtime) => ({
         label:
           runtime.id === "buzz-agent"
-            ? "Luca managed"
+            ? // The Agents library's words; Luca is the companion, not the
+              // app (WP-22, 6).
+              shellFrame
+              ? "Polyphonic runtime"
+              : "Luca managed"
             : formatRuntimeOptionLabel(runtime),
         value: runtime.id,
       })),
-    [sortedRuntimes],
+    [shellFrame, sortedRuntimes],
   );
   const configSurfaceLoading = isLoading || runtimesQuery.isLoading;
   const configSurfaceError =

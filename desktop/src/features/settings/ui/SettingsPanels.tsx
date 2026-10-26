@@ -92,6 +92,7 @@ import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
 import {
+  SettingsPageTitleContext,
   SettingsSectionHeader,
   useSettingsAppName,
 } from "./SettingsSectionHeader";
@@ -452,11 +453,10 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
   const shouldReduceMotion = useReducedMotion();
 
   const appName = useSettingsAppName();
-  // The grid's edges fade into the page's own ground: the card's surface
-  // under the frame (the one card paints it), the background without.
-  const ground = shellFrame ? "--mn-surface" : "--background";
+  // Without the frame the grid scrolls in its own box, its edges fading into
+  // the page's background. Under the frame it flows on the page (WP-22, 1).
   const gridFade = (to: "top" | "bottom") =>
-    `linear-gradient(to ${to}, hsl(var(${ground})), hsl(var(${ground}) / 0))`;
+    `linear-gradient(to ${to}, hsl(var(--background)), hsl(var(--background) / 0))`;
   const previewVarsByTheme = useThemePreviewVars();
   const categories = useThemeCategories(shellFrame);
   // Under the frame the glass themes retire (SHELL_SPEC.md, Decided 7): the
@@ -652,29 +652,42 @@ function ThemeSettingsCard({ currentPubkey }: { currentPubkey?: string }) {
         </>
       )}
 
-      {/* Theme grid — constrained to ~3 rows, scrolls internally */}
+      {/* Theme grid — without the frame constrained to ~3 rows and
+          scrolling internally; under the frame every theme shows, with its
+          name, and the page scrolls (WP-22, 1). */}
       <div className="relative mb-6">
-        {/* Top fade */}
+        {shellFrame ? null : (
+          <>
+            {/* Top fade */}
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
+              style={{
+                background: gridFade("bottom"),
+              }}
+            />
+            {/* Bottom fade — hidden while the accent picker is visible so its
+                near-white gradient (Buzz light) can't mask the swatches below
+                it (the "white bar"). Kept only when the picker is hidden. */}
+            {accentPickerHidden ? (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3"
+                style={{
+                  background: gridFade("top"),
+                }}
+              />
+            ) : null}
+          </>
+        )}
         <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 h-3"
-          style={{
-            background: gridFade("bottom"),
-          }}
-        />
-        {/* Bottom fade — hidden while the accent picker is visible so its
-            near-white gradient (Buzz light) can't mask the swatches below it
-            (the "white bar"). Kept only when the picker is hidden. */}
-        {accentPickerHidden ? (
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-3"
-            style={{
-              background: gridFade("top"),
-            }}
-          />
-        ) : null}
-        <div className="max-h-[430px] overflow-y-auto rounded-lg pt-2">
+          className={
+            shellFrame
+              ? "rounded-lg pt-2"
+              : "max-h-[430px] overflow-y-auto rounded-lg pt-2"
+          }
+          data-testid="appearance-theme-grid"
+        >
           <div className="flex flex-wrap gap-4 p-1">
             {selectedMode === "system" ? (
               <SingleThemeTile
@@ -1146,6 +1159,21 @@ function AccentPickerContent({
 }
 
 export function renderSettingsSection(
+  section: SettingsSection,
+  props: SettingsPanelProps,
+): React.ReactNode {
+  // The page's title, so a group head that only repeats it can leave it
+  // to the page (WP-22, 2).
+  return (
+    <SettingsPageTitleContext.Provider
+      value={settingsSectionLabel(section, true)}
+    >
+      {renderSettingsSectionPanel(section, props)}
+    </SettingsPageTitleContext.Provider>
+  );
+}
+
+function renderSettingsSectionPanel(
   section: SettingsSection,
   props: SettingsPanelProps,
 ): React.ReactNode {
