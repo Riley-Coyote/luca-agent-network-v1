@@ -2250,3 +2250,43 @@ list in your report, for the merge.
 - the gates.
 
 **Checks JSON keys:** `d1` to `d5`, `buttons_left_for_the_merge`, `flag_off_identical`, `gates`.
+
+## WP-26 · The last pass (2026-10-26, Claude's design, from the reports of WP-22 to WP-25)
+
+**Files in scope:**
+- buttons only:
+  - `features/agents/space/MindSettings.tsx` (its seven outline buttons);
+  - `features/settings/ui/SettingsAgentsMinds.tsx` (Add agent);
+  - `features/settings/ui/OperatorForgeSettingsCard.tsx` (`:346`, and "Choose Hermes…" at `:361`);
+- the right card's panels and their safe area:
+  - `app/shell/shell-finish.css` (WP-22's Decided 9 rule);
+  - `features/channels/ui/ConversationContextPanel.tsx`;
+  - the thread panel and any other right-card panel;
+- `app/shell/shell-activity.css` (only its unused rules);
+- `routes/agents.tsx`, and `MindSettings.tsx`, for decision 4.
+
+**Decisions** (under `shell-frame`; flag off unchanged):
+1. **The last secondary buttons are WP-25's quiet button**: on a page or card at Talk's size, in a row at the ask's.
+   Every one in the files above.
+2. **The right card keeps clear of Quick Chat at its foot, not down its side.**
+   - WP-22's Decided 9 reserves a 68 px right gutter down the details card's whole height. That narrows its text by about
+     52 px at every size.
+   - Instead, every right-card panel (details, a thread, members, a profile) ends with room for the button below its
+     last item, so the end of its content scrolls clear of it, and nothing gives up width.
+   - A thread's reply box is content too: it never sits under the button.
+   - Measure at 800 × 500 and 1440 × 900.
+3. **Rules nothing uses go.** WP-23 left three in `shell-activity.css`: `.luca-pending-held` (with its `:hover` and
+   `-show`), `.luca-ask-stack`, and `.luca-work-tray__permissions .luca-ask-list`. Remove each only after a search of
+   the code and the built CSS shows nothing still uses it.
+4. **A way in that names a row of a mind's Settings opens that row.** Today an address that names a mind's runtime or
+   its access lands on the mind's Settings tab but not on the row. It should open, in view and lit, the row it names
+   (WP-24's open question). Do it by widening the route's `at`.
+
+**Verification:**
+- Playwright headless, 1440 × 900 and 800 × 500, dark and light, flag on: every changed button's box and style; the right
+  card's last item and a thread's reply box clear of the button at both sizes; the width of the details card's text
+  before and after; the row a way in opens;
+- flag-off views identical by hash to the base (`http://127.0.0.1:4334/`);
+- the gates.
+
+**Checks JSON keys:** `d1` to `d4`, `flag_off_identical`, `gates`.
