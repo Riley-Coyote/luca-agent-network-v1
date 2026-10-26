@@ -25,7 +25,8 @@ import {
  * each persona's name and runtime, on the page's list grid. The rest of
  * what the Agent groups dialog offered a group (duplicate, share, delete,
  * and importing one from a file) sits behind its quiet More, so nothing the
- * dialog did is lost with it.
+ * dialog did is lost with it. Both actions are quiet: Talk is the only
+ * solid button of its kind on a page (WP-19).
  */
 export function GroupCard({
   isPending,
@@ -73,6 +74,7 @@ export function GroupCard({
           onClick={() => onAddToRoom(team)}
           size="sm"
           type="button"
+          variant="outline"
         >
           Add to a room
         </Button>

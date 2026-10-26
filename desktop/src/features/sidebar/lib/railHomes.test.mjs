@@ -211,6 +211,41 @@ test("a person is an agent when their profile says so", () => {
   assert.equal(asAgent.agents.at(-1)?.main?.channel.id, "x-dm");
 });
 
+test("another agent's home is named by its profile, not its chat", () => {
+  // The 1:1 is titled "alice-tyler"; the agent's own name is "alice".
+  const items = [chat("alice-dm", [PERSON], "dm", "alice-tyler")];
+  const homes = buildRailHomes({
+    items,
+    agents: AGENTS,
+    agentPubkeys: new Set([PERSON]),
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+    names: new Map([[PERSON, "alice"]]),
+  });
+  assert.equal(homes.agents.at(-1)?.name, "alice");
+  // Without a profile name it keeps the chat's, as before.
+  const unnamed = buildRailHomes({
+    items,
+    agents: AGENTS,
+    agentPubkeys: new Set([PERSON]),
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+  });
+  assert.equal(unnamed.agents.at(-1)?.name, "alice-tyler");
+  // A person keeps the name of the 1:1, as before.
+  const person = buildRailHomes({
+    items,
+    agents: AGENTS,
+    primaryPubkey: LUCA,
+    projects: [],
+    projectByChannelId: new Map(),
+    names: new Map([[PERSON, "alice"]]),
+  });
+  assert.equal(person.people[0]?.name, "alice-tyler");
+});
+
 test("an unnamed group conversation is named by its members", () => {
   const STRANGER = "9".repeat(64);
   const OTHER = "8".repeat(64);

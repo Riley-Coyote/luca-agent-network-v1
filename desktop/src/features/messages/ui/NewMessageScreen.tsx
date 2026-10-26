@@ -46,6 +46,7 @@ import { SelectedRecipientChip } from "@/features/profile/ui/SelectedRecipientCh
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 import { Popover, PopoverAnchor, PopoverContent } from "@/shared/ui/popover";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Skeleton } from "@/shared/ui/skeleton";
 
 import { MessageComposer } from "./MessageComposer";
@@ -138,6 +139,13 @@ export function NewMessageScreen() {
     React.useState<string | null>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const toFieldRef = React.useRef<HTMLDivElement>(null);
+  const bodyRef = React.useRef<HTMLDivElement>(null);
+  const shellFrame = useShellFrameEnabled();
+  const resultsMaxHeight = useRecipientListRoom(
+    shellFrame,
+    toFieldRef,
+    bodyRef,
+  );
   const preparedDirectMessageRef = React.useRef<Channel | null>(null);
   const startedForFirstUseRef = React.useRef(new Set<string>());
   const appliedRuntimeFilterRef = React.useRef(false);
@@ -552,11 +560,24 @@ export function NewMessageScreen() {
       data-testid="new-message-page"
     >
       <header
-        className="relative z-40 shrink-0 cursor-default select-none border-b border-border/35 bg-background/80 px-5 py-2 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55"
+        className={
+          shellFrame
+            ? "relative z-40 shrink-0 cursor-default select-none py-2"
+            : "relative z-40 shrink-0 cursor-default select-none border-b border-border/35 bg-background/80 px-5 py-2 backdrop-blur-md supports-backdrop-filter:bg-background/70 dark:bg-background/70 dark:backdrop-blur-xl dark:supports-backdrop-filter:bg-background/55"
+        }
         data-testid="new-message-header"
         data-tauri-drag-region
       >
-        <div className="flex min-h-9 min-w-0 items-center">
+        {/* Under the frame "To:" sits on the reading column, at the message
+            box's own left edge (the composer pads the column by 20), with no
+            band or border (WP-19). */}
+        <div
+          className={
+            shellFrame
+              ? "luca-measure flex min-h-9 min-w-0 items-center px-5"
+              : "flex min-h-9 min-w-0 items-center"
+          }
+        >
           <Popover
             onOpenChange={(open) => {
               setIsRecipientPickerOpen(
@@ -569,7 +590,11 @@ export function NewMessageScreen() {
               {/* biome-ignore lint/a11y/noStaticElementInteractions: clicking anywhere in the recipient field focuses its input */}
               {/* biome-ignore lint/a11y/useKeyWithClickEvents: the nested combobox is the keyboard-accessible focus target */}
               <div
-                className="group/to-field -mx-2 flex min-h-9 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 rounded-md border border-transparent px-2 py-1 transition-colors duration-150 ease-out focus-within:border-foreground/20 focus-within:bg-muted/15"
+                className={
+                  shellFrame
+                    ? "group/to-field -mx-2 flex min-h-9 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 px-2 py-1"
+                    : "group/to-field -mx-2 flex min-h-9 min-w-0 flex-1 cursor-text flex-wrap items-center gap-1.5 rounded-md border border-transparent px-2 py-1 transition-colors duration-150 ease-out focus-within:border-foreground/20 focus-within:bg-muted/15"
+                }
                 data-testid="new-message-to-field"
                 onClick={() => {
                   setIsRecipientPickerOpen(true);
@@ -721,7 +746,14 @@ export function NewMessageScreen() {
             </PopoverAnchor>
             <PopoverContent
               align="start"
-              className="w-[min(36rem,var(--radix-popover-trigger-width),calc(100vw-3rem))] overflow-hidden p-0"
+              // Under the frame the list starts where "To:" and the message
+              // box do: the field reaches 8 past them on each side.
+              alignOffset={shellFrame ? 8 : undefined}
+              className={
+                shellFrame
+                  ? "w-[min(36rem,calc(var(--radix-popover-trigger-width)-1rem),calc(100vw-3rem))] overflow-hidden p-0"
+                  : "w-[min(36rem,var(--radix-popover-trigger-width),calc(100vw-3rem))] overflow-hidden p-0"
+              }
               data-testid="new-message-recipient-popover"
               onCloseAutoFocus={(event) => event.preventDefault()}
               onInteractOutside={(event) => {
@@ -741,6 +773,11 @@ export function NewMessageScreen() {
               <div
                 className="max-h-80 overflow-y-auto"
                 data-testid="new-dm-results"
+                style={
+                  resultsMaxHeight === null
+                    ? undefined
+                    : { maxHeight: resultsMaxHeight }
+                }
                 id="new-dm-results"
                 onScroll={handleDirectoryScroll}
                 role="listbox"
@@ -898,6 +935,7 @@ export function NewMessageScreen() {
         className="min-h-0 flex-1 bg-background"
         data-luca-floor
         data-testid="new-message-body"
+        ref={bodyRef}
       />
 
       {runtimeContext && runtimeContextEnvelope ? (
@@ -986,6 +1024,53 @@ export function NewMessageScreen() {
       <div aria-hidden="true" className="min-h-8 px-5 pb-1.5" />
     </div>
   );
+}
+
+/** The popover's gap under the To field (its `sideOffset`) and its border. */
+const RECIPIENT_LIST_OFFSET = 6 + 2;
+/** Air kept between the recipient list and the message box. */
+const RECIPIENT_LIST_CLEARANCE = 8;
+/** The list's own cap, `max-h-80`. */
+const RECIPIENT_LIST_CAP = 320;
+
+/**
+ * Under the frame the recipient list never covers the message box (WP-19):
+ * its height is the room between the To field and the top of what sits
+ * under the page's empty body (the composer, or a note above it), measured
+ * whenever either changes size. Off the frame: no cap beyond `max-h-80`.
+ */
+function useRecipientListRoom(
+  enabled: boolean,
+  fieldRef: React.RefObject<HTMLDivElement | null>,
+  bodyRef: React.RefObject<HTMLDivElement | null>,
+): number | null {
+  const [room, setRoom] = React.useState<number | null>(null);
+  React.useLayoutEffect(() => {
+    const field = fieldRef.current;
+    const body = bodyRef.current;
+    if (!enabled || !field || !body) {
+      setRoom(null);
+      return;
+    }
+    const measure = () => {
+      const space =
+        body.getBoundingClientRect().bottom -
+        field.getBoundingClientRect().bottom -
+        RECIPIENT_LIST_OFFSET -
+        RECIPIENT_LIST_CLEARANCE;
+      setRoom(Math.max(0, Math.min(RECIPIENT_LIST_CAP, Math.floor(space))));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(field);
+    observer.observe(body);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [enabled, fieldRef, bodyRef]);
+  return room;
 }
 
 function runtimeSearchLabel(runtimeId: string): string {

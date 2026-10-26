@@ -24,6 +24,8 @@ const PANE_LOCAL_CONTROL_SELECTOR = "[data-workspace-pane-local-control]";
 
 /** What an empty pane says at its centre. */
 export const EMPTY_PANE_WORDS = "Choose a conversation from the sidebar.";
+/** ...and under the frame, where the list is the rail (WP-19). */
+export const EMPTY_PANE_WORDS_FRAMED = "Choose a conversation from the rail";
 /** What the lip calls an empty focused pane: a state, not an instruction,
  *  in the frame's second tone (shell-finish.css). */
 export const EMPTY_PANE_LIP_NAME = "No conversation";
@@ -73,6 +75,12 @@ function EmptyPaneLipActions({
       )}
     </>
   );
+}
+
+/** An empty pane's words: the rail, under the frame; the sidebar, off it. */
+function EmptyPaneWords() {
+  const shellFrame = useShellFrameEnabled();
+  return <>{shellFrame ? EMPTY_PANE_WORDS_FRAMED : EMPTY_PANE_WORDS}</>;
 }
 
 function presetColumnCount(preset: WorkspacePreset) {
@@ -342,7 +350,7 @@ export function ConversationWorkspaceFrame({
                       />
                     ) : null}
                     <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                      {EMPTY_PANE_WORDS}
+                      <EmptyPaneWords />
                     </div>
                   </>
                 )}

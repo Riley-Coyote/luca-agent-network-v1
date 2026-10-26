@@ -11,6 +11,7 @@ import * as React from "react";
 
 import type { ProvenanceRecord } from "@/features/provenance/lib/provenanceRecord";
 import type { VerificationStatus } from "@/features/provenance/lib/verifyProvenance";
+import { formatTime } from "@/features/messages/lib/dateFormatters";
 import { copyTextToClipboard } from "@/shared/lib/clipboard";
 import { cn } from "@/shared/lib/cn";
 import { Button } from "@/shared/ui/button";
@@ -147,10 +148,13 @@ function ReceiptField({
 
 export function ProvenanceRow({
   channelLabel,
+  framed = false,
   onOpenInConversation,
   record,
 }: {
   channelLabel: string | null;
+  /** Under the frame the time is the app's shared one, "6:41 AM" (WP-19). */
+  framed?: boolean;
   /** Absent when the record is not something the app can navigate to. */
   onOpenInConversation: (() => void) | null;
   record: ProvenanceRecord;
@@ -178,8 +182,14 @@ export function ProvenanceRow({
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        <span className="w-12 shrink-0 text-2xs text-muted-foreground tabular-nums">
-          {clockLabel(record.createdAt)}
+        <span
+          className={cn(
+            "shrink-0 text-2xs text-muted-foreground tabular-nums",
+            framed ? "w-14" : "w-12",
+          )}
+          data-testid="provenance-time"
+        >
+          {framed ? formatTime(record.createdAt) : clockLabel(record.createdAt)}
         </span>
 
         <VerificationMark status={record.verification} />
@@ -222,7 +232,12 @@ export function ProvenanceRow({
       </button>
 
       <div hidden={!open} id={receiptId}>
-        <div className="mb-2 ml-12 rounded-lg border border-border/50 bg-foreground/[0.02] px-3 py-2.5">
+        <div
+          className={cn(
+            "mb-2 rounded-lg border border-border/50 bg-foreground/[0.02] px-3 py-2.5",
+            framed ? "ml-14" : "ml-12",
+          )}
+        >
           {/* What was said comes first. The cryptography backs it; it is not
               the thing a person opened the row to read. */}
           {record.event.content.length > 0 ? (

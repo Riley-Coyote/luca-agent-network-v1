@@ -40,14 +40,42 @@ test("frame_subPagesTakeTheirPlacesSeat", () => {
   assert.equal(resolveNavMotion("/settings", "/pulse", places), "up");
 });
 
-test("depthAndSameAreUnchangedByTheOrder", () => {
+test("noFrame_depthIsUnchanged", () => {
+  assert.equal(resolveNavMotion("/agents", "/channels/x", rail), "deeper");
+  assert.equal(resolveNavMotion("/channels/x", "/agents", rail), "shallower");
+  assert.equal(
+    resolveNavMotion("/projects/p", "/artifacts", rail),
+    "shallower",
+  );
+});
+
+test("frame_aConversationDriftsByThePlaces_likeEveryPlace", () => {
+  // WP-19: a conversation is Chats' own page, so arriving from another
+  // place moves by the column, and leaving does the reverse.
+  assert.equal(resolveNavMotion("/agents", "/channels/x", places), "up");
+  assert.equal(resolveNavMotion("/channels/x", "/agents", places), "down");
+  assert.equal(resolveNavMotion("/artifacts", "/channels/x", places), "up");
+  assert.equal(resolveNavMotion("/channels/x", "/pulse", places), "down");
+  assert.equal(resolveNavMotion("/settings", "/channels/x", places), "up");
+  assert.equal(resolveNavMotion("/projects/p", "/artifacts", places), "down");
+  // Within Chats a conversation is still deeper than its place's own pages.
+  assert.equal(resolveNavMotion("/", "/channels/x", places), "deeper");
+  assert.equal(
+    resolveNavMotion("/messages/new", "/channels/x", places),
+    "deeper",
+  );
+  assert.equal(
+    resolveNavMotion("/channels/x", "/messages/new", places),
+    "shallower",
+  );
+  // A workflow has no place of its own: depth, as before.
+  assert.equal(resolveNavMotion("/agents", "/workflows/w", places), "deeper");
+});
+
+test("sameIsUnchangedByTheOrder", () => {
   for (const order of [rail, places]) {
-    assert.equal(resolveNavMotion("/agents", "/channels/x", order), "deeper");
-    assert.equal(
-      resolveNavMotion("/channels/x", "/agents", order),
-      "shallower",
-    );
     assert.equal(resolveNavMotion("/channels/x", "/channels/y", order), "same");
+    assert.equal(resolveNavMotion("/channels/x", "/projects/p", order), "same");
     assert.equal(resolveNavMotion("/agents", "/agents", order), "same");
     assert.equal(resolveNavMotion("/agents", "/workflows", order), "swap");
   }

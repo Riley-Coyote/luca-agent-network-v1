@@ -410,7 +410,7 @@ test("the lip: Join's fade, Details open, an empty pane, a group's initials", as
       empty.h1s[0] === EMPTY_LIP &&
       empty.lip_colour === empty.frame_muted &&
       empty.lip_weight === "450" &&
-      empty.pane_words === "Choose a conversation from the sidebar." &&
+      empty.pane_words === "Choose a conversation from the rail" &&
       empty.menu_hit &&
       menuOpened &&
       after === "general",

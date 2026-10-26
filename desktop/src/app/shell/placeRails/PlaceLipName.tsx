@@ -32,9 +32,11 @@ function PickName({ fallback, place }: { fallback: string; place: RailPlace }) {
   const picked = pickedRow(sections, pick);
   if (!picked) return <>{fallback}</>;
   // A skill runtime reads under its section, as a session under its home:
-  // "Skills / Claude Code" (SHELL_SPEC.md, "Tabs"). Made's kinds keep their
-  // own name alone.
-  if (picked.section.key === "skills" && picked.section.title)
+  // "Skills / Claude Code" (SHELL_SPEC.md, "Tabs"). So does a pick whose name
+  // alone could be another's (WP-19): "Made / All" beside "Skills / All", and
+  // a mind's record, "Signed record / Luca", not Luca herself. Made's other
+  // kinds keep their own name alone.
+  if (picked.section.title && namesAmbiguously(sections, picked))
     return (
       <>
         <span className="luca-lip-home">{picked.section.title}</span>
@@ -43,6 +45,24 @@ function PickName({ fallback, place }: { fallback: string; place: RailPlace }) {
       </>
     );
   return <>{picked.row.title}</>;
+}
+
+/** Sections whose rows are always said under the section's name. */
+const SAID_UNDER_SECTION = new Set(["skills", "record"]);
+
+/** Whether the picked row's name alone would be ambiguous in the lip. */
+export function namesAmbiguously(
+  sections: readonly { key: string; rows: readonly { title: string }[] }[],
+  picked: { row: { title: string }; section: { key: string } },
+): boolean {
+  if (SAID_UNDER_SECTION.has(picked.section.key)) return true;
+  // "All" says nothing until it says all of what, other sections or none.
+  if (picked.row.title === "All") return true;
+  return sections.some(
+    (section) =>
+      section.key !== picked.section.key &&
+      section.rows.some((row) => row.title === picked.row.title),
+  );
 }
 
 const RAIL_PLACE_OF_VIEW: Partial<Record<AppView, RailPlace>> = {
