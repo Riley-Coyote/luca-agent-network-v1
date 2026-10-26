@@ -788,6 +788,8 @@ export function UserProfilePanel({
       <UserProfilePanelAgentSummary
         displayName={displayName}
         managedAgent={managedAgent}
+        messagePending={isOpeningDm}
+        onMessage={onOpenDm ? handleMessage : undefined}
         onOpenSpace={() => void goAgent(effectivePubkey)}
       />
     ) : undefined;

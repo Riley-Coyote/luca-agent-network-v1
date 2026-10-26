@@ -102,8 +102,11 @@ export function spaceDocumentLabel(
   ownerName: string | null | undefined,
 ): string {
   if (kind === "selfModel") return "Who I'm becoming";
-  if (kind === "userModel")
-    return `What I know about ${ownerName?.trim() || "you"}`;
+  if (kind === "userModel") {
+    // A name that is only a key (npub1…) is no name: say "you".
+    const name = ownerName?.trim();
+    return `What I know about ${name && !name.startsWith("npub1") ? name : "you"}`;
+  }
   return META[kind].label;
 }
 

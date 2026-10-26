@@ -157,14 +157,12 @@ function ScopedResidentPlace({
             onClick={state.beginEdit}
             type="button"
           >
-            Edit place
+            Edit
           </button>
           <span className="luca-mind-switch">
-            <span id="place-editing-label">
-              Let {residentName} edit this place
-            </span>
+            <span id="place-editing-label">Let {residentName} edit this</span>
             <Switch
-              aria-label={`Let ${residentName} edit this place`}
+              aria-label={`Let ${residentName} edit this`}
               aria-describedby="place-editing-label"
               checked={place.residentEditingEnabled}
               disabled={state.switching}

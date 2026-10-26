@@ -104,5 +104,10 @@ test("a mind's Self names the self-model and the user model for you", () => {
   assert.equal(spaceDocumentLabel("selfModel", "Sam"), "Who I'm becoming");
   assert.equal(spaceDocumentLabel("userModel", "Sam"), "What I know about Sam");
   assert.equal(spaceDocumentLabel("userModel", null), "What I know about you");
+  assert.equal(spaceDocumentLabel("userModel", "  "), "What I know about you");
+  assert.equal(
+    spaceDocumentLabel("userModel", "npub1mock..."),
+    "What I know about you",
+  );
   assert.equal(spaceDocumentLabel("instructions", null), "Instructions");
 });

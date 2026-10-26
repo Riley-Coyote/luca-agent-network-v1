@@ -295,24 +295,48 @@ export function BrainView({
 
         <div
           className={cn(
-            "flex items-center justify-between gap-3 border-b border-border/45",
-            !embedded && "mt-6",
+            "flex items-center justify-between gap-3",
+            embedded ? "luca-mind-read-bar" : "mt-6 border-b border-border/45",
           )}
         >
-          <div aria-label="Brain views" className="flex" role="tablist">
-            <ViewTab
-              active={mode === "connections"}
-              icon={GitBranch}
-              label="Connections"
-              onClick={() => setMode("connections")}
-            />
-            <ViewTab
-              active={mode === "activity"}
-              icon={Activity}
-              label="Activity"
-              onClick={() => setMode("activity")}
-            />
-          </div>
+          {embedded ? (
+            // In a mind's Settings the two views are a quiet filter, like
+            // the Notebook's, not a second strip of tabs.
+            <fieldset aria-label="Brain views" className="luca-mind-filters">
+              {(
+                [
+                  ["connections", "Connections"],
+                  ["activity", "Activity"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  aria-pressed={mode === id}
+                  className="luca-mind-filter"
+                  data-selected={mode === id ? "true" : undefined}
+                  key={id}
+                  onClick={() => setMode(id)}
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </fieldset>
+          ) : (
+            <div aria-label="Brain views" className="flex" role="tablist">
+              <ViewTab
+                active={mode === "connections"}
+                icon={GitBranch}
+                label="Connections"
+                onClick={() => setMode("connections")}
+              />
+              <ViewTab
+                active={mode === "activity"}
+                icon={Activity}
+                label="Activity"
+                onClick={() => setMode("activity")}
+              />
+            </div>
+          )}
           <Button
             aria-label="Scan for Brain sources"
             disabled={connectedQuery.isFetching}

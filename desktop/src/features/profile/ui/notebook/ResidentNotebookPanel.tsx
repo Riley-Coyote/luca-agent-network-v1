@@ -620,8 +620,11 @@ export function NewJournalPageForm({
   busy,
   onCancel,
   onCreate,
+  residentName,
 }: {
   busy: boolean;
+  /** Named in the submit button ("Ask Luca"), in a mind's space. */
+  residentName?: string;
   onCancel: () => void;
   onCreate: (input: {
     prompt: string;
@@ -711,7 +714,7 @@ export function NewJournalPageForm({
           }
         >
           {busy ? <LoaderCircle className="animate-spin" /> : <BookOpen />}
-          Ask resident
+          {residentName ? `Ask ${residentName}` : "Ask resident"}
         </Button>
       </div>
     </section>

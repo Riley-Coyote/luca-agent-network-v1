@@ -240,6 +240,8 @@ export function ProfileSummaryView({
   const activeTurns = useAgentWorking(isBot ? pubkey : null).channels;
 
   const inSpace = agentSummary !== undefined;
+  // In the summary the rest sits behind one quiet More (WP-13 review).
+  const [moreOpen, setMoreOpen] = React.useState(false);
   const showMemoriesTab = !inSpace && isOwner === true && Boolean(pubkey);
   const showContinuityTab =
     !inSpace && isOwner === true && managedAgent !== undefined;
@@ -378,19 +380,7 @@ export function ProfileSummaryView({
         />
       )}
 
-      {inSpace && pubkey ? (
-        <ProfilePrimaryActions
-          canEditAgent={false}
-          followMutation={followMutation}
-          onEditAgent={handleEditAgent}
-          agentActionDisabled={isAgentActionPending}
-          isFollowing={isFollowing}
-          messagePending={isMessagePending}
-          onMessage={onOpenDm ? handleMessage : undefined}
-          pubkey={pubkey}
-          unfollowMutation={unfollowMutation}
-        />
-      ) : canInstantiateAgent ? (
+      {inSpace ? null : canInstantiateAgent ? (
         <ProfilePersonaPrimaryActions
           canEditAgent={canEditAgent}
           disabled={isAgentActionPending}
@@ -433,7 +423,31 @@ export function ProfileSummaryView({
         />
       ) : null}
 
-      {showTabSection ? (
+      {inSpace ? (
+        <button
+          aria-expanded={moreOpen}
+          className="self-start text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          data-testid="profile-agent-more"
+          onClick={() => setMoreOpen((open) => !open)}
+          type="button"
+        >
+          {moreOpen ? "Less" : "More"}
+        </button>
+      ) : null}
+
+      {inSpace && moreOpen && pubkey ? (
+        <ProfilePrimaryActions
+          canEditAgent={false}
+          followMutation={followMutation}
+          onEditAgent={handleEditAgent}
+          agentActionDisabled={isAgentActionPending}
+          isFollowing={isFollowing}
+          pubkey={pubkey}
+          unfollowMutation={unfollowMutation}
+        />
+      ) : null}
+
+      {showTabSection && (!inSpace || moreOpen) ? (
         <section className="space-y-3">
           {showTabBar ? (
             <ProfileTabBar

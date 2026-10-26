@@ -28,6 +28,7 @@ import { Button } from "@/shared/ui/button";
  */
 export function ResidentDocumentEditor({
   agent,
+  backLabel = "Documents",
   fileNameOverride,
   nativeRuntime = null,
   onBack,
@@ -36,6 +37,8 @@ export function ResidentDocumentEditor({
   target,
 }: {
   agent: ManagedAgent;
+  /** Where Back returns to: "Self" in a mind's space (WP-13). */
+  backLabel?: string;
   /** The runtime's own file name for this kind (`SOUL.md`), when native. */
   fileNameOverride?: string;
   /** "Hermes" / "OpenClaw" when the file belongs to a native runtime. */
@@ -130,7 +133,7 @@ export function ResidentDocumentEditor({
           type="button"
         >
           <ArrowLeft className="size-3.5" />
-          Documents
+          {backLabel}
         </button>
       </div>
 

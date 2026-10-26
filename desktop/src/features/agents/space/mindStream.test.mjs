@@ -34,7 +34,10 @@ function input(overrides = {}) {
 test("firstLine drops heading marks and bullets", () => {
   assert.equal(firstLine("## Working note\n\nBody"), "Working note");
   assert.equal(firstLine("\n- a point"), "a point");
-  assert.equal(firstLines("## Head\n\nOne.\n- two"), "One. two");
+  assert.equal(
+    firstLines("## Head\n\nOne.\n- two\n- three"),
+    "One. · two · three",
+  );
 });
 
 test("the For you rule: a member's conversation, else their own", () => {
@@ -176,7 +179,7 @@ test("what they made is For you or their own by its conversation", () => {
   assert.deepEqual(
     entries.map((entry) => [entry.kind, entry.text, entry.made.id]),
     [
-      ["you", "", "x"],
+      ["you", "tide.png", "x"],
       ["own", "Release notes", "y"],
     ],
   );

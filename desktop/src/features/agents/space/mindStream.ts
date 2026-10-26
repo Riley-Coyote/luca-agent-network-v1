@@ -106,14 +106,17 @@ export function firstLine(body: string, max = 160): string {
   return line.length <= max ? line : `${line.slice(0, max - 1)}…`;
 }
 
-/** A page's first lines, after its first line when that is a heading. */
+/** A page's first lines, after its first line when that is a heading; its
+ *  list items joined by " · ". */
 export function firstLines(body: string, max = 220): string {
-  const lines = body
-    .split("\n")
-    .filter((each) => !/^\s*#{1,6}\s+/.test(each))
-    .map((each) => each.replace(/^\s*[-*+]\s+/, "").trim())
-    .filter(Boolean);
-  const text = lines.join(" ");
+  let text = "";
+  for (const raw of body.split("\n")) {
+    if (/^\s*#{1,6}\s+/.test(raw)) continue;
+    const item = /^\s*[-*+]\s+/.test(raw);
+    const line = raw.replace(/^\s*[-*+]\s+/, "").trim();
+    if (!line) continue;
+    text = text ? `${text}${item ? " · " : " "}${line}` : line;
+  }
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
@@ -256,8 +259,8 @@ export function buildMindEntries(input: MindStreamInput): MindEntry[] {
       id: `made:${artifact.id}`,
       kind: forYouOrOwn(artifact.conversationId, input.memberChannelIds),
       at: isoMs(artifact.createdAt),
-      // Its own summary when it has one; else the receipt alone says it.
-      text: artifact.summary?.trim() ?? "",
+      // Its own summary when it has one, else its title: the row's line.
+      text: artifact.summary?.trim() || artifact.title,
       made: artifact,
     });
   }

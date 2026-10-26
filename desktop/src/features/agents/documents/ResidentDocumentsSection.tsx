@@ -12,7 +12,10 @@ import {
   validateExtraFilePath,
 } from "@/features/agents/documents/documentKinds";
 import { ResidentDocumentEditor } from "@/features/agents/documents/ResidentDocumentEditor";
-import { useResidentDocumentsQuery } from "@/features/agents/documents/useResidentDocuments";
+import {
+  useResidentDocumentQuery,
+  useResidentDocumentsQuery,
+} from "@/features/agents/documents/useResidentDocuments";
 import { useProfileQuery } from "@/features/profile/hooks";
 import type {
   ResidentDocumentEntry,
@@ -61,6 +64,7 @@ export function ResidentDocumentsSection({
     return (
       <ResidentDocumentEditor
         agent={agent}
+        backLabel={variant === "space" ? "Self" : undefined}
         fileNameOverride={
           "kind" in selected ? byKind.get(selected.kind)?.fileName : undefined
         }
@@ -111,61 +115,71 @@ export function ResidentDocumentsSection({
       ) : null}
 
       {variant === "space" ? (
-        <ul className="luca-mind-list" data-testid="mind-self">
-          {RESIDENT_DOCUMENT_KINDS.map((kind) => {
-            const meta = documentKindMeta(kind);
-            const entry = byKind.get(kind) ?? null;
-            const label = spaceDocumentLabel(kind, ownerName);
-            if (isNative && documents.data && !entry) {
+        <>
+          {/* They write most of it (documentKinds.ts: the self-model, the
+            user model and lessons are theirs). */}
+          <p className="luca-mind-quiet">Most of this grows from talking.</p>
+          <ul className="luca-mind-list" data-testid="mind-self">
+            {RESIDENT_DOCUMENT_KINDS.map((kind) => {
+              const meta = documentKindMeta(kind);
+              const entry = byKind.get(kind) ?? null;
+              const label = spaceDocumentLabel(kind, ownerName);
+              if (isNative && documents.data && !entry) {
+                return (
+                  <li
+                    data-quiet="true"
+                    data-testid={`resident-document-${kind}`}
+                    key={kind}
+                  >
+                    <div>
+                      <p className="luca-mind-title">{label}</p>
+                      <p className="luca-mind-excerpt">{meta.blurb}</p>
+                    </div>
+                    <span className="luca-mind-writer">
+                      Not part of {runtimeName}
+                    </span>
+                    <span />
+                  </li>
+                );
+              }
               return (
-                <li
-                  data-quiet="true"
-                  data-testid={`resident-document-${kind}`}
-                  key={kind}
-                >
-                  <div>
-                    <p className="luca-mind-title">{label}</p>
-                    <p className="luca-mind-excerpt">{meta.blurb}</p>
-                  </div>
-                  <span className="luca-mind-writer">
-                    Not part of {runtimeName}
-                  </span>
-                  <span />
+                <li key={kind}>
+                  <button
+                    className="luca-mind-row-open"
+                    data-testid={`resident-document-${kind}`}
+                    onClick={() => setSelected({ kind })}
+                    type="button"
+                  >
+                    <span>
+                      <span className="luca-mind-title">{label}</span>
+                      <DocumentFirstLine
+                        blurb={meta.blurb}
+                        exists={entry?.exists ?? false}
+                        kind={kind}
+                        residentPubkey={agent.pubkey}
+                      />
+                    </span>
+                    <span
+                      className="luca-mind-writer"
+                      data-testid={`resident-document-${kind}-writer`}
+                    >
+                      {documentWriterLabel(meta.writer, residentName)}
+                    </span>
+                    <time data-testid={`resident-document-${kind}-status`}>
+                      {entry?.exists
+                        ? entry.modifiedAt == null
+                          ? formatDocumentBytes(entry.bytes)
+                          : `Edited ${formatRelativeAge(entry.modifiedAt * 1000, Date.now())}`
+                        : documents.isPending
+                          ? "…"
+                          : "Not written yet"}
+                    </time>
+                  </button>
                 </li>
               );
-            }
-            return (
-              <li key={kind}>
-                <button
-                  className="luca-mind-row-open"
-                  data-testid={`resident-document-${kind}`}
-                  onClick={() => setSelected({ kind })}
-                  type="button"
-                >
-                  <span>
-                    <span className="luca-mind-title">{label}</span>
-                    <span className="luca-mind-excerpt">{meta.blurb}</span>
-                  </span>
-                  <span
-                    className="luca-mind-writer"
-                    data-testid={`resident-document-${kind}-writer`}
-                  >
-                    {documentWriterLabel(meta.writer, residentName)}
-                  </span>
-                  <time data-testid={`resident-document-${kind}-status`}>
-                    {entry?.exists
-                      ? entry.modifiedAt == null
-                        ? formatDocumentBytes(entry.bytes)
-                        : `Edited ${formatRelativeAge(entry.modifiedAt * 1000, Date.now())}`
-                      : documents.isPending
-                        ? "…"
-                        : "Not written yet"}
-                  </time>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+            })}
+          </ul>
+        </>
       ) : (
         <ul className="divide-y divide-border/45 border-y border-border/55">
           {RESIDENT_DOCUMENT_KINDS.map((kind) => {
@@ -247,7 +261,13 @@ export function ResidentDocumentsSection({
 
       <section className="mt-9" data-testid="resident-extra-files">
         <div className="flex items-baseline justify-between gap-4">
-          <h3 className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
+          <h3
+            className={
+              variant === "space"
+                ? "type-eyebrow text-ink-faint"
+                : "text-2xs uppercase tracking-caps-wide text-muted-foreground"
+            }
+          >
             More files
           </h3>
           {!isNative ? (
@@ -324,7 +344,7 @@ export function ResidentDocumentsSection({
               : "Nothing else in the folder yet."}
           </p>
         )}
-        {documents.data ? (
+        {documents.data && variant !== "space" ? (
           <p className="mt-3 font-mono text-2xs text-ink-faint">
             {documents.data.dir}
           </p>
@@ -332,4 +352,46 @@ export function ResidentDocumentsSection({
       </section>
     </div>
   );
+}
+
+/** A written document's own first line; the type's description only when
+ *  nothing is written yet (WP-13, Self shows who they are). */
+function DocumentFirstLine({
+  blurb,
+  exists,
+  kind,
+  residentPubkey,
+}: {
+  blurb: string;
+  exists: boolean;
+  kind: ResidentDocumentEntry["kind"];
+  residentPubkey: string;
+}) {
+  const target = React.useMemo(() => ({ kind }), [kind]);
+  const document = useResidentDocumentQuery(
+    exists ? residentPubkey : null,
+    exists ? target : null,
+  );
+  const line = exists ? documentFirstLine(document.data?.content ?? "") : "";
+  return (
+    <span
+      className="luca-mind-excerpt"
+      data-testid={`resident-document-${kind}-line`}
+      data-written={line ? "true" : undefined}
+    >
+      {line || (exists && document.isPending ? "\u00a0" : blurb)}
+    </span>
+  );
+}
+
+/** A document's first line of prose: headings' marks and bullets off. */
+function documentFirstLine(content: string): string {
+  for (const raw of content.split("\n")) {
+    const line = raw
+      .replace(/^\s*#{1,6}\s+/, "")
+      .replace(/^\s*[-*+>]\s+/, "")
+      .trim();
+    if (line) return line;
+  }
+  return "";
 }

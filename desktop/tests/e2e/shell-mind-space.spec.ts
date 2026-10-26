@@ -565,18 +565,52 @@ async function seedRecords(page: Page) {
   );
 }
 
-async function shot(page: Page, name: string, maskCanvas = false) {
+async function shot(page: Page, name: string, maskMoving = false) {
   await waitForAnimations(page);
   await page.waitForTimeout(300);
   mkdirSync(SHOTS, { recursive: true });
   const path = `${SHOTS}/${name}.png`;
-  // A living dot field (the notebook's growth sigil) never holds one frame:
-  // the flag-off comparison masks it in both builds alike.
+  // The marks that move never hold one frame (the notebook's growth field,
+  // a resident's specimen, a clock): the flag-off comparison masks their
+  // own boxes, in both builds alike, and nothing else.
   await page.screenshot({
-    mask: maskCanvas ? [page.locator("canvas")] : [],
+    mask: maskMoving
+      ? [
+          page.getByTestId("resident-notebook-growth-field"),
+          page.locator(".agent-identity-specimen"),
+          // A message's time of day, which moves on between two loads.
+          page.locator("time"),
+        ]
+      : [],
     path,
   });
   return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/** How many colours a shot holds, sampled on a 120 x 75 grid: a blank or
+ *  one-colour shot proves nothing. */
+async function colorsOf(page: Page, name: string) {
+  const data = readFileSync(`${SHOTS}/${name}.png`).toString("base64");
+  return page.evaluate(async (data) => {
+    const image = new Image();
+    image.src = `data:image/png;base64,${data}`;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = 120;
+    canvas.height = 75;
+    const context = canvas.getContext("2d");
+    if (!context) return 0;
+    context.drawImage(image, 0, 0, 120, 75);
+    const pixels = context.getImageData(0, 0, 120, 75).data;
+    const seen = new Set<number>();
+    for (let index = 0; index < pixels.length; index += 4)
+      seen.add(
+        ((pixels[index] >> 3) << 10) |
+          ((pixels[index + 1] >> 3) << 5) |
+          (pixels[index + 2] >> 3),
+      );
+    return seen.size;
+  }, data);
 }
 
 function hashOf(page: Page) {
@@ -736,7 +770,7 @@ test("Luca's space: the head, Notebook, its stream and its filters", async ({
   measure("hashes-space", hashes);
 });
 
-test("asks are answered in place; notebook actions stay reachable", async ({
+test("asks are one line, answered in place; notebook actions stay reachable", async ({
   page,
 }) => {
   await boot(page);
@@ -745,15 +779,59 @@ test("asks are answered in place; notebook actions stay reachable", async ({
   await expect(asks.locator(".luca-mind-ask")).toHaveCount(2, {
     timeout: 20_000,
   });
+  await expect(page.getByTestId("mind-entry").first()).toBeVisible({
+    timeout: 20_000,
+  });
+  const lines = await asks.locator(".luca-mind-ask").evaluateAll((rows) =>
+    rows.map((row) => {
+      const box = row.getBoundingClientRect();
+      const answer = row.querySelector<HTMLElement>(".luca-mind-answer");
+      const text = row.querySelector<HTMLElement>(".luca-mind-ask-line p");
+      return {
+        height: Math.round(box.height),
+        kind: row.querySelector(".luca-mind-kind")?.textContent,
+        question: text?.textContent,
+        questionSize: text ? getComputedStyle(text).fontSize : null,
+        answer: answer?.textContent,
+        answerFill: answer ? getComputedStyle(answer).backgroundColor : null,
+        cardShown: Boolean(row.querySelector("section")),
+      };
+    }),
+  );
+  // Nothing solid on the first screen but Talk.
+  const solid = await page.evaluate(() => {
+    const out: string[] = [];
+    for (const element of document.querySelectorAll<HTMLElement>(
+      ".luca-mind button, .luca-mind [role=switch]",
+    )) {
+      const box = element.getBoundingClientRect();
+      if (box.top > window.innerHeight || box.bottom < 0) continue;
+      const fill = getComputedStyle(element).backgroundColor;
+      const match = fill.match(/rgba?\(([^)]+)\)/);
+      const alpha = match ? Number(match[1].split(",")[3] ?? 1) : 0;
+      if (alpha > 0.5)
+        out.push(
+          element.textContent?.trim() ||
+            element.getAttribute("aria-label") ||
+            "?",
+        );
+    }
+    return out;
+  });
+  const firstDay = await page
+    .locator(".luca-mind-day li")
+    .first()
+    .evaluate((row) => Math.round(row.getBoundingClientRect().top));
+  const lineShot = await shot(page, "asks-one-line");
+  await asks.getByRole("button", { name: "Answer" }).first().click();
   await asks.getByText("Beta", { exact: true }).click();
-  const send = asks.getByRole("button", { name: /send|answer|submit/i });
-  await send.first().click();
+  await asks.getByRole("button", { name: "Send answer" }).click();
   await expect(asks.locator(".luca-mind-ask")).toHaveCount(1, {
     timeout: 10_000,
   });
   const answered = await shot(page, "asks-answered");
 
-  // A journal page opens in place, where today's annotate lives.
+  // A journal page opens in place, in its own voice, where annotate lives.
   await page
     .getByTestId("mind-entry")
     .filter({ hasText: "A quiet night" })
@@ -761,96 +839,202 @@ test("asks are answered in place; notebook actions stay reachable", async ({
     .first()
     .click();
   await expect(page.getByRole("button", { name: "Annotate" })).toBeVisible();
+  const voice = await page.getByTestId("notebook-detail-voice").innerText();
+  const notes = await page.getByText("Your notes").count();
+  const journalPage = await shot(page, "journal-page");
   await page.getByRole("button", { name: "Back to notebook" }).click();
   await expect(page.getByTestId("mind-notebook")).toBeVisible();
-  // A new journal page and the saved handoff.
+  // New page and the saved handoff, at the end of the filters' row.
+  const row = await page.locator(".luca-mind-toolbar").evaluate((bar) => {
+    const box = bar.getBoundingClientRect();
+    return [...bar.querySelectorAll<HTMLElement>(".luca-mind-action")].map(
+      (each) => {
+        const b = each.getBoundingClientRect();
+        return {
+          text: each.textContent?.trim(),
+          fromRight: Math.round(box.right - b.right),
+          top: Math.round(b.top),
+          bottom: Math.round(b.bottom),
+        };
+      },
+    );
+  });
   await page.getByRole("button", { name: "New page" }).click();
   await expect(page.getByText("New journal page")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask Luca" })).toBeInViewport({
+    timeout: 5_000,
+  });
+  const askName = await page.getByRole("button", { name: "Ask Luca" }).count();
   await page.getByRole("button", { name: "Cancel" }).click();
-  await page.locator(".luca-mind-handoff > summary").click();
-  measure("notebook-actions", {
-    annotate: true,
+  await page.getByTestId("mind-handoff-toggle").click();
+  await expect(page.getByTestId("mind-handoff")).toBeVisible();
+  measure("asks-and-actions", {
     answered,
-    handoffOpen: await page
-      .locator(".luca-mind-handoff")
-      .evaluate((each) => (each as HTMLDetailsElement).open),
-    newPage: true,
+    askName,
+    firstDay,
+    journalPage,
+    lineShot,
+    lines,
+    notes,
+    row,
+    solid,
+    voice,
   });
 });
 
-test("Self and Settings: who writes each part; What they can read", async ({
-  page,
-}) => {
+test("Self and Settings: who they are; how they run", async ({ page }) => {
   await boot(page);
   await openLuca(page, "self");
   await expect.poll(() => hashOf(page)).toContain("section=self");
   await expect(page.getByTestId("mind-self")).toBeVisible();
+  await expect(page.getByTestId("resident-document-soul-line")).toHaveAttribute(
+    "data-written",
+    "true",
+  );
   const rows = await page
     .getByTestId("mind-self")
     .locator("li")
     .evaluateAll((items) =>
       items.map((item) => ({
         title: item.querySelector(".luca-mind-title")?.textContent,
+        line: item.querySelector(".luca-mind-excerpt")?.textContent,
+        written:
+          item
+            .querySelector(".luca-mind-excerpt")
+            ?.getAttribute("data-written") === "true",
         who: item.querySelector(".luca-mind-writer")?.textContent,
-        status: item.querySelector("time")?.textContent ?? null,
+        height: Math.round(item.getBoundingClientRect().height),
       })),
     );
+  const quiet = await page.locator(".luca-mind-quiet").first().textContent();
+  const folderPath = await page
+    .getByTestId("mind-space")
+    .getByText(/^residents\//)
+    .count();
+  const eyebrow = await page
+    .getByTestId("resident-extra-files")
+    .locator("h3")
+    .evaluate((h) => getComputedStyle(h).fontFamily.split(",")[0]);
   const self = await shot(page, "self");
   await page.getByTestId("resident-document-soul").click();
-  const back = page.getByRole("button", { name: "Documents" });
+  const back = page.getByRole("button", { name: "Self", exact: true });
   await expect(back).toBeVisible();
-  const editorOpens = await back.isVisible();
   await back.click();
   await expect(page.getByTestId("mind-self")).toBeVisible();
-  const moreFiles = await page.getByTestId("resident-extra-files").isVisible();
-  const newFile = await page.getByTestId("resident-new-file").isVisible();
-  measure("self", { editorOpens, moreFiles, newFile, rows });
+  measure("self", { eyebrow, folderPath, quiet, rows, self });
 
   await page.getByTestId("mind-tab-settings").click();
   await expect.poll(() => hashOf(page)).toContain("section=settings");
-  const sections = await page
+  await expect(page.getByTestId("mind-setting-wakes")).toBeVisible();
+  await page.waitForTimeout(800);
+  const settingRows = await page
     .getByTestId("agent-settings")
-    .locator(":scope > section, :scope > div > section")
+    .locator(":scope > li")
     .evaluateAll((items) =>
-      items.map((item) => item.querySelector("h3")?.textContent),
+      items.map((item) => {
+        const title = item.querySelector<HTMLElement>(".luca-mind-title");
+        const value = item.querySelector<HTMLElement>(".luca-mind-value");
+        return {
+          title: title?.textContent,
+          titleSize: title ? getComputedStyle(title).fontSize : null,
+          value: value?.textContent,
+          valueSize: value ? getComputedStyle(value).fontSize : null,
+          open: item.getAttribute("data-open") === "true",
+          height: Math.round(item.getBoundingClientRect().height),
+        };
+      }),
     );
+  const smallCaps = await page
+    .getByTestId("agent-settings")
+    .evaluate(
+      (list) =>
+        [...list.querySelectorAll<HTMLElement>("*")].filter(
+          (each) =>
+            getComputedStyle(each).textTransform === "uppercase" &&
+            each.textContent?.trim(),
+        ).length,
+    );
+  const helpClosed = await page
+    .getByText("Starts when Polyphonic opens", { exact: false })
+    .count();
   const settings = await shot(page, "settings");
-  await page.getByTestId("mind-what-they-can-read").scrollIntoViewIfNeeded();
+  await page
+    .getByTestId("mind-setting-wakes")
+    .locator("button")
+    .first()
+    .click();
+  const helpOpen = await page
+    .getByText("Starts when Polyphonic opens", { exact: false })
+    .count();
+  const wakesOpen = await shot(page, "settings-wakes-open");
+  await page
+    .getByTestId("mind-what-they-can-read")
+    .locator("button")
+    .first()
+    .click();
   await expect(page.getByTestId("brain-body")).toBeVisible();
   await expect(page.getByTestId("brain-card-repository")).toBeVisible({
     timeout: 20_000,
   });
+  await page
+    .getByTestId("mind-what-they-can-read")
+    .evaluate((each) => each.scrollIntoView({ block: "start" }));
   const read = await shot(page, "what-they-can-read");
-  const brainHeader = await page
-    .getByTestId("brain-body")
-    .getByRole("heading", { name: "Brain" })
-    .count();
-  const cards = await page.locator("[data-testid^='brain-card-']").count();
+  const brain = await page.getByTestId("brain-body").evaluate((body) => {
+    const card = body.querySelector<HTMLElement>(
+      "[data-testid^='brain-card-']",
+    );
+    const title = card?.querySelector<HTMLElement>("h2");
+    const row = body.closest("li");
+    return {
+      cards: body.querySelectorAll("[data-testid^='brain-card-']").length,
+      cardRadius: card ? getComputedStyle(card).borderRadius : null,
+      titleFont: title
+        ? `${getComputedStyle(title).fontSize} ${getComputedStyle(title).fontWeight}`
+        : null,
+      tabStrip: body.querySelectorAll("[role=tablist]").length,
+      filters: [...body.querySelectorAll(".luca-mind-filter")].map(
+        (each) => each.textContent,
+      ),
+      brainLabel: [...(row?.querySelectorAll("*") ?? [])].filter(
+        (each) =>
+          each.children.length === 0 &&
+          each.textContent?.trim().toLowerCase() === "brain",
+      ).length,
+    };
+  });
   measure("settings", {
-    brainCards: cards,
-    brainPageHeader: brainHeader,
-    hashes: { read, self, settings },
+    brain,
+    helpClosed,
+    helpOpen,
+    hashes: { read, settings, wakesOpen },
     scan: await page
       .getByRole("button", { name: "Scan for Brain sources" })
       .isVisible(),
-    sections,
+    settingRows,
+    smallCaps,
   });
 });
 
-test("/brain opens Luca's space on Settings, at What they can read", async ({
+test("/brain opens Luca's space on Settings, What they can read open", async ({
   page,
 }) => {
   await boot(page, { hash: "/brain" });
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
+  await expect(page.getByTestId("brain-body")).toBeVisible({
+    timeout: 10_000,
+  });
   await expect(page.getByTestId("mind-what-they-can-read")).toBeInViewport({
     timeout: 10_000,
   });
   const landing = await hashOf(page);
+  const open = await page
+    .getByTestId("mind-what-they-can-read")
+    .getAttribute("data-open");
   const redirect = await shot(page, "brain-redirect");
-  // Every way in calls the same route: the rail's project menu says Sources.
-  measure("brain-redirect", { landing, redirect });
+  measure("brain-redirect", { landing, open, redirect });
 });
 
 test("the profile card for an agent is a short summary", async ({ page }) => {
@@ -865,18 +1049,53 @@ test("the profile card for an agent is a short summary", async ({ page }) => {
   await expect(page.getByTestId("profile-agent-summary-intro")).toContainText(
     "learning to draw the coast",
   );
-  const tabs = await panel
-    .getByRole("tab")
-    .evaluateAll((items) => items.map((each) => each.textContent?.trim()));
-  const message = await panel.getByTestId("user-profile-message").count();
+  const before = {
+    buttons: await summary.getByRole("button").evaluateAll((items) =>
+      items.map((each) => ({
+        text: each.textContent?.trim(),
+        icon: Boolean(each.querySelector("svg")),
+        top: Math.round(each.getBoundingClientRect().top),
+      })),
+    ),
+    tabs: await panel.getByRole("tab").allTextContents(),
+  };
   const summaryShot = await shot(page, "profile-summary");
+  await page.getByTestId("profile-agent-more").click();
+  const afterTabs = await panel.getByRole("tab").allTextContents();
+  const moreShot = await shot(page, "profile-more");
   await page.getByTestId("profile-open-their-space").click();
   await expect(page.getByTestId("mind-space")).toBeVisible({
     timeout: 20_000,
   });
   const landing = await hashOf(page);
   const opened = await shot(page, "open-their-space");
-  measure("profile", { landing, message, opened, summaryShot, tabs });
+  measure("profile", {
+    afterTabs,
+    before,
+    landing,
+    moreShot,
+    opened,
+    summaryShot,
+  });
+});
+
+test("a profile opened from a conversation writes no dead tab", async ({
+  page,
+}) => {
+  await boot(page, { hash: `/channels/${GENERAL}` });
+  await seedRecords(page);
+  const author = page
+    .getByTestId("message-author")
+    .filter({ hasText: "Luca" })
+    .first();
+  await expect(author).toBeVisible({ timeout: 20_000 });
+  await author.click();
+  await expect(page.getByTestId("profile-agent-summary")).toBeVisible({
+    timeout: 20_000,
+  });
+  const address = await hashOf(page);
+  measure("profile-tab", { address });
+  expect(address).not.toContain("profileTab=continuity");
 });
 
 test("a mind not on this Mac: the same space, its parts with no data hide", async ({
@@ -894,6 +1113,38 @@ test("a mind not on this Mac: the same space, its parts with no data hide", asyn
   measure("native", { asks, native, ownWords: own });
 });
 
+test("the head's mark draws at 40 on a 40 column", async ({ page }) => {
+  await boot(page);
+  await openLuca(page);
+  const column = await page.locator(".luca-mind-mark").evaluate((box) => {
+    const outer = box.getBoundingClientRect();
+    const specimen = box.querySelector<HTMLElement>(".agent-identity-specimen");
+    const next = box.nextElementSibling?.getBoundingClientRect();
+    return {
+      column: [Math.round(outer.width), Math.round(outer.height)],
+      specimen: specimen
+        ? [
+            Math.round(specimen.getBoundingClientRect().width),
+            Math.round(specimen.getBoundingClientRect().height),
+          ]
+        : null,
+      nameX: next ? Math.round(next.x - outer.x) : null,
+      box: [Math.round(outer.x), Math.round(outer.y)],
+    };
+  });
+  await page.mouse.move(0, 0);
+  await page.screenshot({
+    clip: {
+      x: column.box[0] - 12,
+      y: column.box[1] - 12,
+      width: 64,
+      height: 64,
+    },
+    path: `${SHOTS}/mark.png`,
+  });
+  measure("mark", column);
+});
+
 test("the keyboard through the tabs and the filters", async ({ page }) => {
   await boot(page);
   await openLuca(page);
@@ -903,8 +1154,12 @@ test("the keyboard through the tabs and the filters", async ({ page }) => {
   await expect.poll(() => hashOf(page)).toContain("section=self");
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("mind-tab-settings")).toBeFocused();
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Home");
+  await expect(page.getByTestId("mind-tab-notebook")).toBeFocused();
+  await page.keyboard.press("End");
+  await expect(page.getByTestId("mind-tab-settings")).toBeFocused();
+  await expect.poll(() => hashOf(page)).toContain("section=settings");
+  await page.keyboard.press("Home");
   await expect(page.getByTestId("mind-tab-notebook")).toBeFocused();
   await expect(page.getByTestId("mind-filter-all")).toBeVisible({
     timeout: 20_000,
@@ -954,9 +1209,11 @@ test("flag off: today's agent page and Brain match the base", async ({
     ["brain", "/brain"],
     ["profile", `/channels/${GENERAL}?profile=${LUCA}`],
   ];
-  const result: Record<string, { base: string; ours: string }> = {};
+  const result: Record<string, { base: string; ours: string; colors: number }> =
+    {};
   for (const [name, hash] of views) {
     const hashes: string[] = [];
+    const colors: number[] = [];
     for (const origin of [BASE_URL, ""]) {
       const context = await browser.newContext({
         baseURL: test.info().project.use.baseURL,
@@ -968,14 +1225,24 @@ test("flag off: today's agent page and Brain match the base", async ({
       const page = await context.newPage();
       await boot(page, { hash, origin, shell: false });
       await page.waitForTimeout(2500);
-      hashes.push(
-        await shot(page, `flag-off-${name}-${origin ? "base" : "ours"}`, true),
-      );
+      const shotName = `flag-off-${name}-${origin ? "base" : "ours"}`;
+      hashes.push(await shot(page, shotName, true));
+      colors.push(await colorsOf(page, shotName));
       await context.close();
     }
-    result[name] = { base: hashes[0] ?? "", ours: hashes[1] ?? "" };
+    result[name] = {
+      base: hashes[0] ?? "",
+      colors: Math.min(colors[0] ?? 0, colors[1] ?? 0),
+      ours: hashes[1] ?? "",
+    };
   }
   measure("flag-off", result);
-  for (const [name, pair] of Object.entries(result))
+  for (const [name, pair] of Object.entries(result)) {
     expect(pair.ours, name).toBe(pair.base);
+    expect(pair.colors, `${name} is not one colour`).toBeGreaterThan(24);
+  }
+  // Six views, six pictures.
+  expect(new Set(Object.values(result).map((pair) => pair.ours)).size).toBe(
+    views.length,
+  );
 });

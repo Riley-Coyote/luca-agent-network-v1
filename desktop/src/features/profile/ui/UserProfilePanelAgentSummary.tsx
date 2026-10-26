@@ -1,5 +1,4 @@
 import * as React from "react";
-import { ArrowUpRight } from "lucide-react";
 
 import { agentStateWord } from "@/app/shell/placeRails/placePicks";
 import { useAgentWorking } from "@/features/agents/agentWorkingSignal";
@@ -21,10 +20,14 @@ import { Button } from "@/shared/ui/button";
 export function UserProfilePanelAgentSummary({
   displayName,
   managedAgent,
+  messagePending = false,
+  onMessage,
   onOpenSpace,
 }: {
   displayName: string;
   managedAgent: ManagedAgent;
+  messagePending?: boolean;
+  onMessage?: () => void;
   onOpenSpace: () => void;
 }) {
   const resident = managedAgentSummary(managedAgent);
@@ -88,14 +91,27 @@ export function UserProfilePanelAgentSummary({
           {intro}
         </p>
       ) : null}
-      <Button
-        className="w-full justify-between"
-        data-testid="profile-open-their-space"
-        onClick={onOpenSpace}
-        variant="outline"
-      >
-        Open their space <ArrowUpRight />
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          className="flex-1"
+          data-testid="profile-open-their-space"
+          onClick={onOpenSpace}
+          variant="outline"
+        >
+          Open their space
+        </Button>
+        {onMessage ? (
+          <Button
+            className="flex-1"
+            data-testid="user-profile-message"
+            disabled={messagePending}
+            onClick={onMessage}
+            variant="outline"
+          >
+            Message
+          </Button>
+        ) : null}
+      </div>
     </section>
   );
 }

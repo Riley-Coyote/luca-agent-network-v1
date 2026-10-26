@@ -14,16 +14,37 @@
   margin-bottom: 20px;
 }
 
+/* Their mark on a 40 column: the specimen's box is larger than its body
+ * (it leaves room for its light), so it is centred on the column and
+ * allowed past it. */
+.luca-mind-mark {
+  display: grid;
+  height: 40px;
+  overflow: visible;
+  place-items: center;
+  width: 40px;
+}
+
+/* Measured: at 55 the body draws 40 × 39, its centre 7 right of and 9
+ * below the box's; brought back onto the column's centre. */
+.luca-mind-mark > .agent-identity-specimen {
+  flex: none;
+  translate: -7px -9px;
+}
+
+/* One not yet set up: the roster's mark for it, its initial in a dashed
+ * square. */
 .luca-mind-initial {
   align-items: center;
   border: 1px dashed hsl(var(--mn-ink) / 0.25);
-  border-radius: 50%;
+  border-radius: 6px;
   color: hsl(var(--mn-ink-muted));
   display: flex;
-  font-size: 1rem;
-  height: 40px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  height: 32px;
   justify-content: center;
-  width: 40px;
+  width: 32px;
 }
 
 .luca-mind-who {
@@ -192,6 +213,11 @@
   gap: 10px;
 }
 
+/* On is a quiet tone, never solid ink: Talk is the one solid shape here. */
+.luca-mind [role="switch"][data-state="checked"] {
+  background: hsl(var(--mn-ink) / 0.28);
+}
+
 /* A quiet action: a word, lit on hover. */
 .luca-mind-action {
   align-items: center;
@@ -223,39 +249,79 @@
   width: 0.75rem;
 }
 
-.luca-mind-actions {
-  align-items: flex-start;
+/* The filters' row: the filters at the left, today's notebook actions at
+ * its end, on one line. */
+.luca-mind-toolbar {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
+  justify-content: space-between;
+  margin-bottom: 22px;
 }
 
-.luca-mind-handoff[open] {
-  flex-basis: 100%;
+.luca-mind-actions {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  margin-left: auto;
 }
 
 .luca-mind-handoff-body {
-  padding-top: 12px;
+  margin: -8px 0 22px;
 }
 
-/* What they're asking you: today's cards, each under its kind. */
+/* What they're asking you: the study's one line each, its kind, the
+ * question, and Answer in the faint fill. Answer opens today's card in
+ * place under the line. */
 .luca-mind-asks {
   display: grid;
   gap: 10px;
 }
 
 .luca-mind-ask {
-  align-items: baseline;
   border: 1px solid hsl(var(--mn-ink) / 0.12);
   border-radius: 10px;
-  display: grid;
-  gap: 14px;
-  grid-template-columns: 76px minmax(0, 1fr);
   padding: 12px 14px;
 }
 
-.luca-mind-ask-card {
+.luca-mind-ask-line {
+  align-items: baseline;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 76px minmax(0, 1fr) auto;
+}
+
+.luca-mind-ask-line p {
+  color: hsl(var(--mn-ink));
+  font-size: 0.875rem;
   min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.luca-mind-answer {
+  background: hsl(var(--mn-ink) / 0.08);
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  font-size: 0.78125rem;
+  padding: 4px 10px;
+  transition: background-color 120ms;
+}
+
+.luca-mind-answer:hover {
+  background: hsl(var(--mn-ink) / 0.12);
+}
+
+.luca-mind-answer:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+.luca-mind-ask-card {
+  border-top: 1px solid hsl(var(--mn-ink) / 0.06);
+  margin: 12px 0 0 90px;
+  min-width: 0;
+  padding-top: 12px;
 }
 
 /* Today's card, answered in place, on the ask's one outline: its own
@@ -275,7 +341,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 0 0 22px;
+  margin: 0;
   padding: 0;
 }
 
@@ -343,10 +409,13 @@
 }
 
 .luca-mind-entry p {
+  overflow-wrap: anywhere;
+}
+
+.luca-mind-entry .luca-mind-line {
   color: hsl(var(--mn-ink));
   font-size: 0.875rem;
   line-height: 1.45;
-  overflow-wrap: anywhere;
 }
 
 .luca-mind-entry-open {
@@ -356,12 +425,13 @@
   width: 100%;
 }
 
-.luca-mind-entry-open:hover p {
+.luca-mind-entry-open:hover .luca-mind-line {
   color: hsl(var(--mn-ink));
 }
 
-/* The journal speaks in italic. */
-.luca-mind-day li[data-kind="journal"] .luca-mind-entry p {
+/* The journal speaks in italic: the page's own line, and its first lines,
+ * fainter; your note under it reads in your own, upright type. */
+.luca-mind-day li[data-kind="journal"] .luca-mind-line {
   color: hsl(var(--mn-ink-muted));
   font-style: italic;
 }
@@ -369,6 +439,8 @@
 .luca-mind-entry .luca-mind-page-lines {
   color: hsl(var(--mn-ink-faint));
   font-size: 0.8125rem;
+  font-style: italic;
+  line-height: 1.45;
   margin-top: 3px;
 }
 
@@ -522,6 +594,9 @@
   color: hsl(var(--mn-ink-muted));
   font-size: 0.8125rem;
   margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .luca-mind-list li[data-quiet] .luca-mind-title,
@@ -539,30 +614,45 @@
   white-space: nowrap;
 }
 
-.luca-mind-read {
+/* Settings: one row per section, its title and its current value; a row
+ * opens today's controls beneath it. */
+.luca-mind-settings .luca-mind-row-open {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.luca-mind-value {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.78125rem;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.luca-mind-setting {
   scroll-margin-top: 12px;
 }
 
-@media (max-width: 640px) {
-  .luca-mind-day li,
-  .luca-mind-ask {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
+.luca-mind-setting[data-open] .luca-mind-value {
+  color: hsl(var(--mn-ink-faint));
+}
 
-  .luca-mind-day li .luca-mind-kind,
-  .luca-mind-ask .luca-mind-kind {
-    grid-column: 1 / -1;
-  }
+.luca-mind-setting-panel {
+  padding: 2px 0 20px;
+}
 
-  .luca-mind-row-open,
-  .luca-mind-list li[data-quiet] {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
+/* What they can read: Brain's body, its cards at the space's sizes. */
+.luca-mind-read-bar {
+  margin-bottom: 4px;
+}
 
-  .luca-mind-row-open time,
-  .luca-mind-list li[data-quiet] > span:last-child {
-    display: none;
-  }
+.luca-mind-setting-panel [data-testid^="brain-card-"] {
+  border-radius: 10px;
+}
+
+.luca-mind-setting-panel [data-testid^="brain-card-"] h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 @media (prefers-reduced-motion: reduce) {

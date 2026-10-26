@@ -16,6 +16,9 @@ import type { ResidentSummaryViewModel } from "@/features/agents/ui/agentLibrary
 import { MindNotebook } from "./MindNotebook";
 import type { MindSection } from "./mindSection";
 
+/** The specimen's box, for a 40 body: it draws its body at 29 of 40. */
+const MARK_SIZE = 55;
+
 const MIND_TABS: { id: MindSection; label: string }[] = [
   { id: "notebook", label: "Notebook" },
   { id: "self", label: "Self" },
@@ -99,16 +102,23 @@ export function MindSpace({
               key={each.id}
               onClick={() => onSectionChange(each.id)}
               onKeyDown={(event) => {
-                const step =
-                  event.key === "ArrowRight"
-                    ? 1
-                    : event.key === "ArrowLeft"
-                      ? -1
-                      : 0;
-                if (!step) return;
-                event.preventDefault();
+                const last = MIND_TABS.length - 1;
                 const next =
-                  (index + step + MIND_TABS.length) % MIND_TABS.length;
+                  event.key === "ArrowRight"
+                    ? index === last
+                      ? 0
+                      : index + 1
+                    : event.key === "ArrowLeft"
+                      ? index === 0
+                        ? last
+                        : index - 1
+                      : event.key === "Home"
+                        ? 0
+                        : event.key === "End"
+                          ? last
+                          : null;
+                if (next === null) return;
+                event.preventDefault();
                 const tab = MIND_TABS[next];
                 if (!tab) return;
                 onSectionChange(tab.id);
@@ -242,21 +252,26 @@ function MindHead({
 
   return (
     <header className="luca-mind-head" data-testid="mind-head">
-      {resident.pubkey ? (
-        <AgentIdentitySpecimen
-          accessibleName={resident.displayName}
-          avatarUrl={resident.avatarUrl}
-          className="luca-mind-mark"
-          motion="ambient"
-          publicKey={resident.pubkey}
-          size={40}
-          state={identityState(resident)}
-        />
-      ) : (
-        <span aria-hidden className="luca-mind-mark luca-mind-initial">
-          {resident.displayName.slice(0, 1).toUpperCase()}
-        </span>
-      )}
+      {/* The specimen draws its body inside its box with room for its
+          light; sized so the body itself is the study's 40, on a 40
+          column (WP-13 review, item 5). */}
+      <span aria-hidden={!resident.pubkey} className="luca-mind-mark">
+        {resident.pubkey ? (
+          <AgentIdentitySpecimen
+            accessibleName={resident.displayName}
+            avatarUrl={resident.avatarUrl}
+            motion="ambient"
+            publicKey={resident.pubkey}
+            size={MARK_SIZE}
+            state={identityState(resident)}
+          />
+        ) : (
+          // The roster's mark for one not yet set up.
+          <span className="luca-mind-initial">
+            {resident.displayName.slice(0, 1).toUpperCase()}
+          </span>
+        )}
+      </span>
       <div className="luca-mind-who">
         <h1 className="luca-place-page-name">{resident.displayName}</h1>
         <p
@@ -284,7 +299,7 @@ function MindHead({
           onClick={onStart}
           type="button"
         >
-          <Play aria-hidden /> Set up resident
+          <Play aria-hidden /> Set up
         </button>
       )}
     </header>

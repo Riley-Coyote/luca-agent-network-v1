@@ -4,6 +4,7 @@ import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useOpenDmMutation } from "@/features/channels/hooks";
 import type { ProfilePanelTab } from "@/features/profile/ui/UserProfilePanelUtils";
 import type { ProfilePanelOpenOptions } from "@/shared/context/ProfilePanelContext";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 type UseChannelProfilePanelOptions = {
   closeAgentSession: () => void;
@@ -30,6 +31,7 @@ export function useChannelProfilePanel({
 }: UseChannelProfilePanelOptions) {
   const { goChannel } = useAppNavigation();
   const openDmMutation = useOpenDmMutation();
+  const shellFrame = useShellFrameEnabled();
 
   const handleOpenProfilePanel = React.useCallback(
     (pubkey: string, options?: ProfilePanelOpenOptions) => {
@@ -41,9 +43,18 @@ export function useChannelProfilePanel({
       setChannelManagementOpen(false);
       setConversationContextOpen(false);
       setProfilePanelPubkey(pubkey);
-      setProfilePanelTab(options?.tab ?? "continuity");
+      const tab = options?.tab ?? "continuity";
+      // Under the shell an agent's notebook and memories live in their
+      // space (WP-13): the card opens on its summary, and no dead
+      // `profileTab=continuity` is written into the address.
+      setProfilePanelTab(
+        shellFrame && (tab === "continuity" || tab === "memories")
+          ? "info"
+          : tab,
+      );
     },
     [
+      shellFrame,
       closeAgentSession,
       setChannelManagementOpen,
       setConversationContextOpen,

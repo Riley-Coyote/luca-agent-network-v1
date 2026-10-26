@@ -772,16 +772,20 @@ export function SettingsSection({
 }
 
 export function CompanionSettingsSection({
+  bare = false,
   residentPubkey,
 }: {
+  /** Its content alone, inside a mind's Settings row (WP-13). */
+  bare?: boolean;
   residentPubkey: string;
 }) {
   const [request, setRequest] = React.useState<{
     residentPubkey: string;
   } | null>(null);
+  const Frame = bare ? BareSection : LedgerSection;
 
   return (
-    <LedgerSection
+    <Frame
       className="sm:grid-cols-1 @lg:grid-cols-[160px_minmax(0,1fr)]"
       eyebrow="Companion"
       title="Awareness and initiative"
@@ -806,8 +810,20 @@ export function CompanionSettingsSection({
           </Button>
         }
       />
-    </LedgerSection>
+    </Frame>
   );
+}
+
+/** A section's content without its eyebrow and title column. */
+function BareSection({
+  children,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  eyebrow: string;
+  title: string;
+}) {
+  return <div>{children}</div>;
 }
 
 export function LedgerSection({

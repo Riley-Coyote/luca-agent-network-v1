@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   CircleAlert,
   Folder,
@@ -15,7 +16,6 @@ import { CharacterAppearancePicker } from "@/features/agents/ui/CharacterAppeara
 import {
   CompanionSettingsSection,
   LedgerRow,
-  LedgerSection,
 } from "@/features/agents/ui/AgentLibraryWorkspace";
 import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import {
@@ -23,17 +23,35 @@ import {
   type ResidentSummaryViewModel,
 } from "@/features/agents/ui/agentLibraryViewModel";
 import { BrainView } from "@/features/luca/brain/BrainView";
+import {
+  useConnectedBrainInventoryQuery,
+  useOwnerBrainStateQuery,
+} from "@/features/luca/brain/hooks";
 import { ResidentAccessControl } from "@/features/settings/ui/ResidentCapabilitySettings";
+import { getResidentCapabilitySettings } from "@/shared/api/residentCapabilities";
 import type { AgentPersona, ManagedAgent } from "@/shared/api/types";
+import { truncatePubkey } from "@/shared/lib/pubkey";
 import { Button } from "@/shared/ui/button";
 import { Switch } from "@/shared/ui/switch";
 
+type RowId =
+  | "runtime"
+  | "wakes"
+  | "workspace"
+  | "read"
+  | "permissions"
+  | "identity"
+  | "character"
+  | "rooms"
+  | "health"
+  | "companion";
+
 /**
- * Settings: how they run (SHELL_BUILD.md WP-13, Decided 5 and 6). First the
- * connected app and model, waking with the app, the workspace, What they
- * can read (Brain's body, with this mind's grants), permissions and
- * identity; then today's other sections. A section a mind doesn't have
- * hides. Every control is today's, moved, never redrawn.
+ * Settings: how they run (SHELL_BUILD.md WP-13, Decided 5 and 6), in the
+ * study's form: one row per section, its title and its current value in
+ * plain words. A row opens today's controls in place beneath it, so nothing
+ * is lost; help text shows only in an open row. A section a mind doesn't
+ * have hides.
  */
 export function MindSettings({
   channels,
@@ -71,22 +89,53 @@ export function MindSettings({
   const workspace = nativeBinding?.defaultWorkspace;
   const isRunning =
     managedAgent?.status === "running" || managedAgent?.status === "deployed";
-  const readRef = React.useRef<HTMLDivElement | null>(null);
   const name = resident.displayName;
+  const [open, setOpen] = React.useState<ReadonlySet<RowId>>(
+    () => new Set(focusRead ? ["read"] : []),
+  );
+  const readRef = React.useRef<HTMLLIElement | null>(null);
+  const toggle = (id: RowId) =>
+    setOpen((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  // `/brain` lands here: on What they can read.
+  // `/brain` lands here: What they can read, already open.
   React.useEffect(() => {
-    if (!focusRead || !readRef.current) return;
-    readRef.current.scrollIntoView({ block: "start" });
+    if (!focusRead) return;
+    setOpen((current) => new Set([...current, "read"]));
+    readRef.current?.scrollIntoView({ block: "start" });
     onReadFocused?.();
   }, [focusRead, onReadFocused]);
 
+  const readValue = useWhatTheyCanRead(Boolean(resident.pubkey));
+  const permissionsValue = usePermissionsValue(managedAgent?.pubkey ?? null);
+  const restartFirst =
+    managedAgent?.needsRestart &&
+    managedAgent.backend.type === "local" &&
+    isRunning;
+
   return (
-    <div
-      className="@container luca-mind-settings divide-y divide-border/55"
+    <ul
+      className="luca-mind-list luca-mind-settings"
       data-testid="agent-settings"
     >
-      <LedgerSection eyebrow="Runtime" title="Connected app and model">
+      <SettingRow
+        id="runtime"
+        onToggle={toggle}
+        open={open}
+        title="Connected app and model"
+        value={[
+          residentSourceLabel(resident),
+          managedAgent || resident.modelLabel
+            ? (resident.modelLabel ?? "Default model")
+            : null,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+      >
         <LedgerRow label="Runtime" value={residentSourceLabel(resident)} />
         {managedAgent ? (
           <div className="grid min-w-0 gap-1 border-b border-border/40 py-3 first:pt-0 last:border-b-0 last:pb-0 sm:grid-cols-[140px_minmax(0,1fr)] sm:gap-5">
@@ -172,10 +221,16 @@ export function MindSettings({
             <Settings2 /> Advanced…
           </Button>
         </div>
-      </LedgerSection>
+      </SettingRow>
 
       {managedAgent ? (
-        <LedgerSection eyebrow="Lifecycle" title="Wakes with the app">
+        <SettingRow
+          id="wakes"
+          onToggle={toggle}
+          open={open}
+          title="Wakes with the app"
+          value={managedAgent.startOnAppLaunch ? "On" : "Off"}
+        >
           <div className="flex items-center justify-between gap-6 py-2">
             <div>
               <p className="text-sm">Wakes with the app</p>
@@ -214,10 +269,16 @@ export function MindSettings({
             />
           </div>
           <LedgerRow label="Responds to" value={managedAgent.respondTo} />
-        </LedgerSection>
+        </SettingRow>
       ) : null}
 
-      <LedgerSection eyebrow="Working context" title="Workspace">
+      <SettingRow
+        id="workspace"
+        onToggle={toggle}
+        open={open}
+        title="Workspace"
+        value={workspace ?? "No native workspace reported"}
+      >
         <LedgerRow
           icon={Folder}
           label="Default location"
@@ -231,35 +292,45 @@ export function MindSettings({
             value={managedAgent.documentsDir}
           />
         ) : null}
-      </LedgerSection>
+      </SettingRow>
 
       {resident.pubkey ? (
-        <div
-          className="luca-mind-read"
-          data-testid="mind-what-they-can-read"
-          ref={readRef}
+        <SettingRow
+          id="read"
+          onToggle={toggle}
+          open={open}
+          rowRef={readRef}
+          testId="mind-what-they-can-read"
+          title={`What ${name} can read`}
+          value={readValue}
         >
-          <LedgerSection
-            className="sm:grid-cols-1"
-            eyebrow="Brain"
-            title={`What ${name} can read`}
-          >
-            <BrainView embedded residentPubkey={resident.pubkey} />
-          </LedgerSection>
-        </div>
+          <BrainView embedded residentPubkey={resident.pubkey} />
+        </SettingRow>
       ) : null}
 
       {managedAgent ? (
-        <LedgerSection
-          className="sm:grid-cols-1"
-          eyebrow="Access"
+        <SettingRow
+          id="permissions"
+          onToggle={toggle}
+          open={open}
           title="Permissions"
+          value={permissionsValue}
         >
           <ResidentAccessControl residentPubkey={managedAgent.pubkey} />
-        </LedgerSection>
+        </SettingRow>
       ) : null}
 
-      <LedgerSection eyebrow="Identity" title="Custody and recovery">
+      <SettingRow
+        id="identity"
+        onToggle={toggle}
+        open={open}
+        title="Identity"
+        value={
+          managedAgent?.pubkey
+            ? `Signed as ${name} · ${truncatePubkey(managedAgent.pubkey)}`
+            : "Created when the resident starts"
+        }
+      >
         <LedgerRow
           icon={KeyRound}
           label="Public identity"
@@ -273,20 +344,32 @@ export function MindSettings({
           label="Definition"
           value={persona ? "Editable Luca definition" : "Runtime-owned profile"}
         />
-      </LedgerSection>
+      </SettingRow>
 
       {resident.pubkey ? (
-        <LedgerSection eyebrow="Appearance" title="Your character">
+        <SettingRow
+          id="character"
+          onToggle={toggle}
+          open={open}
+          title="Your character"
+          value=""
+        >
           <CharacterAppearancePicker
             avatarUrl={resident.avatarUrl}
             name={name}
             publicKey={resident.pubkey}
           />
-        </LedgerSection>
+        </SettingRow>
       ) : null}
 
       {channels.length > 0 ? (
-        <LedgerSection eyebrow="Conversations" title="Recent rooms">
+        <SettingRow
+          id="rooms"
+          onToggle={toggle}
+          open={open}
+          title="Recent rooms"
+          value={`${channels.length} ${channels.length === 1 ? "room" : "rooms"}`}
+        >
           <div className="divide-y divide-border/45">
             {channels.slice(0, 6).map((channel) => (
               <button
@@ -296,49 +379,142 @@ export function MindSettings({
                 type="button"
               >
                 <span>{channel.name}</span>
-                <span className="text-2xs uppercase tracking-caps-wide text-muted-foreground">
-                  Open
-                </span>
+                <span className="text-xs text-muted-foreground">Open</span>
               </button>
             ))}
           </div>
-        </LedgerSection>
+        </SettingRow>
       ) : null}
 
       {managedAgent?.needsRestart || managedAgent?.lastError ? (
-        <LedgerSection eyebrow="Attention" title="Runtime health">
+        <SettingRow
+          id="health"
+          onToggle={toggle}
+          open={open}
+          title="Runtime health"
+          value={
+            managedAgent.lastError ? "Needs attention" : "Restart required"
+          }
+        >
           <div className="flex items-start gap-3 text-sm text-destructive">
             <CircleAlert className="mt-0.5 size-4 shrink-0" />
             <span>{managedAgent.lastError ?? "Restart required"}</span>
           </div>
           <Button
             className="mt-4"
-            onClick={
-              managedAgent.needsRestart &&
-              managedAgent.backend.type === "local" &&
-              isRunning
-                ? onRestart
-                : onStart
-            }
+            onClick={restartFirst ? onRestart : onStart}
             size="sm"
             variant="outline"
           >
             <RotateCcw />
-            {managedAgent.needsRestart &&
-            managedAgent.backend.type === "local" &&
-            isRunning
-              ? "Restart resident"
-              : "Retry runtime"}
+            {restartFirst ? "Restart resident" : "Retry runtime"}
           </Button>
-        </LedgerSection>
+        </SettingRow>
       ) : null}
 
       {managedAgent ? (
-        <CompanionSettingsSection
-          key={managedAgent.pubkey}
-          residentPubkey={managedAgent.pubkey}
-        />
+        <SettingRow
+          id="companion"
+          onToggle={toggle}
+          open={open}
+          title="Awareness and initiative"
+          value=""
+        >
+          <CompanionSettingsSection
+            bare
+            key={managedAgent.pubkey}
+            residentPubkey={managedAgent.pubkey}
+          />
+        </SettingRow>
       ) : null}
-    </div>
+    </ul>
   );
+}
+
+/** One section: its title and current value, opening its controls. */
+function SettingRow({
+  children,
+  id,
+  onToggle,
+  open,
+  rowRef,
+  testId,
+  title,
+  value,
+}: {
+  children: React.ReactNode;
+  id: RowId;
+  onToggle: (id: RowId) => void;
+  open: ReadonlySet<RowId>;
+  rowRef?: React.Ref<HTMLLIElement>;
+  testId?: string;
+  title: string;
+  value: string;
+}) {
+  const isOpen = open.has(id);
+  const panelId = `mind-setting-${id}`;
+  return (
+    <li
+      className="luca-mind-setting"
+      data-open={isOpen ? "true" : undefined}
+      data-testid={testId ?? `mind-setting-${id}`}
+      ref={rowRef}
+    >
+      <button
+        aria-controls={panelId}
+        aria-expanded={isOpen}
+        className="luca-mind-row-open"
+        onClick={() => onToggle(id)}
+        type="button"
+      >
+        <span className="luca-mind-title">{title}</span>
+        <span className="luca-mind-value">{value}</span>
+      </button>
+      {isOpen ? (
+        <div className="@container luca-mind-setting-panel" id={panelId}>
+          {children}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/** What they can read, in a breath: Brain's sources as its cards count them. */
+function useWhatTheyCanRead(enabled: boolean): string {
+  const connected = useConnectedBrainInventoryQuery({ enabled });
+  const owner = useOwnerBrainStateQuery({ enabled });
+  const sources = (connected.data?.sources ?? []).filter(
+    (source) => source.status !== "disconnected",
+  );
+  const count = (kind: string) =>
+    sources.filter((source) => source.sourceKind === kind).length;
+  const repositories = count("repository");
+  const histories = [
+    count("claude_history") > 0 ? "Claude Code" : null,
+    count("codex_history") > 0 ? "Codex" : null,
+  ].filter(Boolean);
+  const files = owner.data?.sources.length ?? 0;
+  const parts = [
+    repositories > 0
+      ? `${repositories} ${repositories === 1 ? "repository" : "repositories"}`
+      : null,
+    histories.length > 0 ? `${histories.join(" and ")} history` : null,
+    files > 0 ? `${files} ${files === 1 ? "file" : "files"}` : null,
+  ].filter(Boolean);
+  if (!connected.data) return "";
+  return parts.length > 0 ? parts.join(" · ") : "Nothing connected";
+}
+
+/** Their machine access, as today's picker names it. */
+function usePermissionsValue(residentPubkey: string | null): string {
+  const settings = useQuery({
+    enabled: Boolean(residentPubkey),
+    queryFn: getResidentCapabilitySettings,
+    queryKey: ["resident-capability-settings"],
+  });
+  if (!settings.data || !residentPubkey) return "";
+  const level =
+    settings.data.residentAccess[residentPubkey] ??
+    settings.data.householdDefault;
+  return level === "full" ? "Don't ask me" : "Work in my project";
 }
