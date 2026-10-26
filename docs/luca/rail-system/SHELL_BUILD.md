@@ -114,6 +114,8 @@ LOST. LOST is a failure unless the spec retires it.
 | WP-11 the Chats rail | 2026-10-26, merge `9c09efbc5` | Luca, Projects, Agents, People, Rooms; one home per chat by what it is; Fleets retire; latest three with times, N more and Show fewer; Browse rooms… and Archived; the rail scrolls to what opens; landing on Luca when Luca has news. Review: new chats sort first, even section rhythm, room words, Room settings… At the merge its spec still boots on /pulse, which is Activity's now: WP-15. |
 | WP-12 one card | 2026-10-26, merge `771409c78` | The rail and what it opens lie on one card in every place, drawn once and never moved; the hairline; the fold with a still corner; panes share the card; grain from one origin. Review: the corners, the peek, the closing gap. |
 | WP-09a the finishing list | 2026-10-26, merge `e4d7a4ac2` | The reviews' small items, a project room without its own header, and the window's first size (1440 × 900 or the screen less a margin, kept across runs; its unit tests run at the final Rust build). |
+| WP-13 a mind's own space | 2026-10-26, merge `393d8c39a` | Every mind's card is their space: a head with Talk; Notebook (their own words, asks in one line, their days by kind), Self (their documents' own first lines), Settings (one quiet row per section, What they can read inside); /brain lands there; an agent's profile card is a summary. Review: the flag-off proof compared blank shots (now non-blank and distinct), the forms became lines and rows. |
+| WP-14 what agents say to each other, and what needs you | 2026-10-26, merge `c4dc71a22` | Needs you (permission requests, questions, proposals, paused exchanges) as calm rows answered in place, the count on the Activity icon; one Side conversations feed; Luca's under Luca in the Chats rail; what Luca did with a connected app; Now lists what's live. Rust list-alls with a unit test. |
 
 ## WP-01 · The frame, Black, dark (2026-10-24, Riley and Claude's design; Riley: "Start the team on the narrowed scope")
 
@@ -1772,3 +1774,61 @@ fails on your base.
    - flaky: fails on the base too, or once in two runs.
 
 **Checks JSON keys:** `specs_updated`, `suite_run_1`, `suite_run_2`, `app_bugs`, `flaky`, `gates`.
+
+## WP-09b · The last of the list, with everything landed (2026-10-26, Claude's design, from every review of the navigation round)
+
+**Why.**
+- WP-10 to WP-14 and WP-09a have all landed. Their reviews left a short list of items that wait for the pieces to be
+  together: one ask row in two places, a working mind that says so, a project room's name, and the Quick Chat button
+  over content in a small window.
+- Plus the few WP-09a deferred because their files were busy:
+  - the places' tiles;
+  - the lip's back and forward keys;
+  - the sheet's Escape;
+  - a room opened from Search.
+- This is the last package before the test app.
+
+**Base.**
+- The integration branch with WP-10 to WP-14 merged. WP-15 (the specs) may still be running: it changes only tests.
+  Add your own spec; don't edit WP-15's.
+- Your styles go in `desktop/src/app/shell/shell-finish.css` (WP-09a's).
+
+**Files in scope:** each item's own files, named below. Keep every edit small.
+
+**Decisions** (under `shell-frame`):
+1. **One ask row** (WP-14's `PlaceAskRow`) in both places, so an ask looks and answers the same in Needs you and in a
+   mind's Notebook.
+   - The Notebook's one-line asks (WP-13's `MindNotebook.tsx`) use it.
+   - In a mind's own space the second line ("Atlas asks · general") drops the mind's name, since the space is theirs:
+     it says only where.
+2. **A working mind says so everywhere.** A mind's now line in its space (`MindSpace.tsx`) and its row in Now use
+   `useRuntimeWorkingPubkeys` (`features/capabilities/useAllRuntimeTasks.ts`), so Luca reads "working" while Claude Code
+   or Codex runs a task for it.
+3. **A project room's lip names its project:** "Tidepool / general", the way the lab names a session under its home
+   (the lab's `.shell-title-home`, rule and session). A room outside any project keeps its own name.
+4. **The Quick Chat button never covers content.**
+   - At 800 × 500 it covers a mind's column, the side feed's times, and the composer's Send while a huddle is live.
+   - Give the card's content a right-hand safe area the button's width while it shows, or move the button clear. One
+     rule for all places, measured at 800 × 500 and 1440 × 900.
+5. **The chosen piece's thumbnail** in a mind's Notebook gets an accessible name: "Open <piece title>".
+6. **The places' tiles fade on 120 ms,** like every lip button (they're 150).
+7. **The lip's Back and Forward keys** (⌘[ and ⌘]) work while the lip's own back or forward button still has focus
+   after a click.
+8. **Under 768, closing the rail's sheet with Escape** returns focus to what opened it (the toggle), not to the page
+   body.
+9. **Opening a project room from Search** shows its project open in the rail with the room lit. WP-11's homes start
+   open and the rail scrolls to what opens, so this may already hold: verify first, and fix only if it doesn't.
+10. **The rail's mark on a first visit** to a connected app takes a first step of 15–21 where later picks take about 3
+    (WP-10 fix 14, partial). Chase it once with a frame trace. If the cause is the card's lazy load moving the rows,
+    hold the mark until the card has painted. Report what you find; if it's not cleanly fixable, leave it.
+11. **Paper's unread dot:** under the frame in light, deepen it so it reaches at least 3:1 on paper (today 2.9:1). Leave
+    the app-wide token as it is outside the frame.
+
+**Verification** (Playwright headless, flag on unless stated, 1440 × 900 and 800 × 500, no video or trace):
+- one measurement or screenshot per decision;
+- the flag-off views compared by hash to the base on non-blank shots;
+- the gates.
+
+**Checks JSON keys:** `ask_row_shared`, `working_everywhere`, `project_lip`, `quick_chat_clear`, `thumb_name`,
+`tiles_120`, `back_forward_keys`, `sheet_escape`, `search_room_open`, `first_mark`, `paper_dot`, `flag_off_identical`,
+`gates`.
