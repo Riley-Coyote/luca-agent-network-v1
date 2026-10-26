@@ -1435,3 +1435,73 @@
     0 1px 2px hsl(var(--mn-ink) / 0.06),
     0 12px 32px -8px hsl(var(--mn-ink) / 0.14);
 }
+
+/* ── every place's own rail (NAVIGATION.md) ─────────────────────────
+ * The rail lists what's in the place you're on. Chats' rail opens on its own
+ * heading with the + for a new conversation; the other places' rows are the
+ * rail's rows, with a quiet word at the end (a state, a count), and the
+ * place's own first row (Luca, in Agents) set apart by weight. */
+.shell-rail-head {
+  margin-bottom: 2px;
+}
+
+.shell-row-note {
+  color: var(--shell-faint);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  margin-left: auto;
+  padding-left: 8px;
+  pointer-events: none;
+  position: relative;
+}
+
+.shell-row[data-main] .shell-row-name {
+  font-weight: 600;
+}
+
+/* The card's head: a quiet line of what it's doing, its name, and for a
+ * mind its three tabs (Notebook first). */
+.shell-page-head {
+  display: grid;
+  gap: 6px;
+  margin: 0 auto 26px;
+  max-width: 640px;
+}
+
+.shell-page-eyebrow {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.75rem;
+}
+
+.shell-page-name {
+  color: hsl(var(--mn-ink));
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  line-height: 1.2;
+}
+
+.shell-page-tabs {
+  display: flex;
+  gap: 18px;
+  margin-top: 10px;
+}
+
+.shell-page-tabs span {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.8125rem;
+  padding-bottom: 6px;
+}
+
+.shell-page-tabs span[data-selected] {
+  box-shadow: inset 0 -1px 0 hsl(var(--mn-ink));
+  color: hsl(var(--mn-ink));
+}
+
+.shell-page-empty {
+  color: hsl(var(--mn-ink-faint));
+  font-size: 0.875rem;
+  margin: 0 auto;
+  max-width: 640px;
+}

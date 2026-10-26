@@ -16,7 +16,6 @@ import {
   Activity,
   ArrowUp,
   Bot,
-  Brain,
   ChevronLeft,
   ChevronRight,
   Library,
@@ -25,18 +24,21 @@ import {
   Plus,
   Search,
   Settings,
-  SquarePen,
   X,
 } from "lucide-react";
 
 import {
+  FIRST_PICK,
   HOMES,
-  OWNER,
-  PLACE_PAGES,
-  SECTIONS,
   type Home,
+  type ListPlace,
   type Message,
+  OWNER,
+  PLACE_CARDS,
+  PLACE_RAILS,
+  type PlaceCard,
   type PlaceId,
+  SECTIONS,
 } from "@/testing/shellStudy/content";
 import {
   MarkEngine,
@@ -311,13 +313,33 @@ function navigate(nav: Nav, action: NavAction): Nav {
   return { stack, index: stack.length - 1 };
 }
 
+/** The places (docs/luca/rail-system/NAVIGATION.md): Search above them, then
+ *  Chats, Agents, Activity, Library; Settings at the foot. Brain lives in a
+ *  mind's Settings now, and New conversation is the + on the Chats rail. */
 const PLACES: { id: PlaceId; label: string; icon: typeof Library }[] = [
-  { id: "conversations", label: "Conversations", icon: MessagesSquare },
-  { id: "library", label: "Library", icon: Library },
+  { id: "conversations", label: "Chats", icon: MessagesSquare },
   { id: "agents", label: "Agents", icon: Bot },
   { id: "activity", label: "Activity", icon: Activity },
-  { id: "brain", label: "Brain", icon: Brain },
+  { id: "library", label: "Library", icon: Library },
 ];
+
+const listPlaceOf = (place: PlaceId): ListPlace | null =>
+  place === "agents" ||
+  place === "activity" ||
+  place === "library" ||
+  place === "settings"
+    ? place
+    : null;
+
+/** The card for a rail row: its own, or its title over a quiet line. */
+function cardFor(place: ListPlace, pick: string): PlaceCard {
+  const own = PLACE_CARDS[`${place}:${pick}`];
+  if (own) return own;
+  const item = PLACE_RAILS[place]
+    .flatMap((section) => section.items)
+    .find((each) => each.id === pick);
+  return { title: item?.title ?? pick, groups: [] };
+}
 
 /** Where a home opens: Luca's thread, an agent's 1:1, a project's last room,
  *  a fleet's newest session (or its one conversation). */
@@ -347,6 +369,8 @@ export function ShellStudy() {
     "tidepool/tidepool-landing",
   ]);
   const [railShown, setRailShown] = React.useState(choice.rail);
+  const [picks, setPicks] =
+    React.useState<Record<ListPlace, string>>(FIRST_PICK);
   const [searching, setSearching] = React.useState(false);
   const [note, setNote] = React.useState("");
   const native = useNativeGlass();
@@ -359,6 +383,11 @@ export function ShellStudy() {
   const openSession = openHome.sessions.find(
     (session) => session.id === open.session,
   );
+  // Every place but Chats lists its own things in the rail; the card shows
+  // the one picked there.
+  const listPlace = listPlaceOf(place);
+  const pick = listPlace ? picks[listPlace] : null;
+  const placeCard = listPlace && pick ? cardFor(listPlace, pick) : null;
 
   React.useEffect(() => {
     try {
@@ -549,12 +578,11 @@ export function ShellStudy() {
       // On the rail's card, in its own coordinates: the mark scrolls with
       // the rows and the card clips it.
       const inRail = measure(railLayer.getBoundingClientRect());
-      const row =
-        talking && railShown
-          ? railLayer.parentElement?.querySelector(
-              '[data-rail-row][data-active="true"]',
-            )
-          : null;
+      const row = railShown
+        ? railLayer.parentElement?.querySelector(
+            '[data-rail-row][data-active="true"]',
+          )
+        : null;
       marks.rail.show(row?.getAttribute("data-home") ?? null, inRail(row));
     }
     if (!native) return;
@@ -663,8 +691,7 @@ export function ShellStudy() {
   }, [sync]);
 
   // ── what the lip says ─────────────────────────────────────────────
-  const placeTitle =
-    place === "conversations" ? null : PLACE_PAGES[place].title;
+  const placeTitle = placeCard ? placeCard.title : null;
   const railWidth = choice.rail ? RAIL_WIDTH : 0;
   const cardLeft = PLACES_WIDTH + (choice.rail ? RAIL_WIDTH + CARD_GAP : 0);
 
@@ -684,7 +711,7 @@ export function ShellStudy() {
       data-mode={choice.mode}
       data-native={native ? "true" : undefined}
       data-rail={choice.rail ? "open" : "closed"}
-      data-tabs={choice.tabs ? "on" : undefined}
+      data-tabs={choice.tabs && !placeCard ? "on" : undefined}
       data-tone={choice.tone}
       data-veil={choice.veil}
       ref={shellRef}
@@ -749,7 +776,7 @@ export function ShellStudy() {
               <ChevronRight />
             </LipButton>
           </div>
-          {choice.tabs ? (
+          {choice.tabs && !placeCard ? (
             <div
               aria-label="Open conversations"
               className="shell-tabs"
@@ -807,12 +834,6 @@ export function ShellStudy() {
 
       <nav aria-label="Places" className="shell-places">
         <div className="shell-places-group">
-          <PlaceButton
-            label="New conversation"
-            onClick={() => addSession(homes[0])}
-          >
-            <SquarePen />
-          </PlaceButton>
           <PlaceButton label="Search  ⌘K" onClick={() => setSearching(true)}>
             <Search />
           </PlaceButton>
@@ -854,7 +875,11 @@ export function ShellStudy() {
       </nav>
 
       <nav
-        aria-label="Conversations"
+        aria-label={
+          listPlace
+            ? (PLACES.find((each) => each.id === place)?.label ?? "Settings")
+            : "Chats"
+        }
         className="shell-rail"
         data-luca-card
         inert={choice.rail ? undefined : true}
@@ -866,16 +891,29 @@ export function ShellStudy() {
               className="shell-rail-marks"
               ref={railLayerRef}
             />
-            <Rail
-              active={place === "conversations" ? open : null}
-              expanded={expanded}
-              homes={homes}
-              onAdd={addSession}
-              onNote={setNote}
-              onOpen={openHomeRow}
-              onSession={(home, session) => goTo({ home: home.id, session })}
-              onToggle={toggle}
-            />
+            {listPlace && pick ? (
+              <PlaceRail
+                key={listPlace}
+                onNote={setNote}
+                onPick={(id) =>
+                  setPicks((current) => ({ ...current, [listPlace]: id }))
+                }
+                pick={pick}
+                place={listPlace}
+              />
+            ) : (
+              <Rail
+                active={place === "conversations" ? open : null}
+                expanded={expanded}
+                homes={homes}
+                onAdd={addSession}
+                onNew={() => addSession(homes[0])}
+                onNote={setNote}
+                onOpen={openHomeRow}
+                onSession={(home, session) => goTo({ home: home.id, session })}
+                onToggle={toggle}
+              />
+            )}
           </div>
         </div>
       </nav>
@@ -886,20 +924,21 @@ export function ShellStudy() {
         data-luca-card
         ref={cardRef}
       >
-        {place === "conversations" ? (
+        {placeCard ? (
+          <PlacePage
+            appearance={
+              listPlace === "settings" && pick === "appearance" ? (
+                <AppearanceSettings choice={choice} choose={choose} />
+              ) : null
+            }
+            card={placeCard}
+            key={`${place}:${pick}`}
+          />
+        ) : (
           <Conversation
             key={keyOf(open)}
             messages={openSession?.messages ?? openHome.main ?? []}
             to={openHome.name}
-          />
-        ) : (
-          <PlacePage
-            appearance={
-              place === "settings" ? (
-                <AppearanceSettings choice={choice} choose={choose} />
-              ) : null
-            }
-            place={place}
           />
         )}
         <LabPanel choice={choice} choose={choose} native={native} note={note} />
@@ -988,6 +1027,7 @@ function Rail({
   expanded,
   homes,
   onAdd,
+  onNew,
   onNote,
   onOpen,
   onSession,
@@ -997,6 +1037,7 @@ function Rail({
   expanded: Set<string>;
   homes: Home[];
   onAdd: (home: Home) => void;
+  onNew: () => void;
   onNote: (note: string) => void;
   onOpen: (home: Home) => void;
   onSession: (home: Home, session: string) => void;
@@ -1019,6 +1060,18 @@ function Rail({
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the app's rail does (AgentRail.tsx).
     <div className="shell-rail-list" onKeyDown={railKeys}>
+      <div className="shell-section-head shell-rail-head type-eyebrow">
+        <span>Chats</span>
+        <button
+          aria-label="New conversation"
+          className="shell-add"
+          onClick={onNew}
+          title="New conversation  ⌘N"
+          type="button"
+        >
+          <Plus />
+        </button>
+      </div>
       {luca ? row(luca) : null}
       {SECTIONS.map((section) => (
         <section
@@ -1041,6 +1094,83 @@ function Rail({
             </button>
           </div>
           {homes.filter((home) => home.kind === section.kind).map(row)}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/** Every place but Chats: its own things, in sections, one row picked. The
+ *  rows wear the rail's marks the way Chats' homes do (`data-rail-row`). */
+function PlaceRail({
+  onNote,
+  onPick,
+  pick,
+  place,
+}: {
+  onNote: (note: string) => void;
+  onPick: (id: string) => void;
+  pick: string;
+  place: ListPlace;
+}) {
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: arrow keys move between the rail's rows, as the app's rail does (AgentRail.tsx).
+    <div className="shell-rail-list" onKeyDown={railKeys}>
+      {PLACE_RAILS[place].map((section, index) => (
+        <section
+          aria-label={section.title}
+          className="shell-section"
+          key={section.title ?? `${place}-${index}`}
+        >
+          {section.title ? (
+            <div className="shell-section-head type-eyebrow">
+              <span>{section.title}</span>
+              {section.add ? (
+                <button
+                  aria-label={section.add}
+                  className="shell-add"
+                  onClick={() =>
+                    onNote(`${section.add}: sample only, nothing is created.`)
+                  }
+                  title={section.add}
+                  type="button"
+                >
+                  <Plus />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {section.items.map((item) => {
+            const picked = item.id === pick;
+            return (
+              <div
+                className="shell-row"
+                data-active={picked ? "true" : undefined}
+                data-home={`${place}:${item.id}`}
+                data-main={item.main ? "true" : undefined}
+                data-rail-row
+                key={item.id}
+              >
+                <button
+                  aria-current={picked ? "page" : undefined}
+                  className="shell-row-hit"
+                  data-rail-focus="home"
+                  onClick={() => onPick(item.id)}
+                  type="button"
+                >
+                  <span className="sr-only">{item.title}</span>
+                </button>
+                <span aria-hidden="true" className="shell-row-name">
+                  {item.title}
+                </span>
+                {item.note ? (
+                  <span aria-hidden="true" className="shell-row-note">
+                    {item.note}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
         </section>
       ))}
     </div>
@@ -1249,18 +1379,37 @@ function Conversation({ messages, to }: { messages: Message[]; to: string }) {
   );
 }
 
+/** The card of a place's rail row: what it is, a mind's tabs (Notebook,
+ *  Self, Settings; only drawn for now), then its rows. */
 function PlacePage({
   appearance,
-  place,
+  card,
 }: {
   appearance: React.ReactNode;
-  place: Exclude<PlaceId, "conversations">;
+  card: PlaceCard;
 }) {
-  const page = PLACE_PAGES[place];
   return (
     <div className="shell-page">
+      <header className="shell-page-head">
+        {card.eyebrow ? (
+          <p className="shell-page-eyebrow">{card.eyebrow}</p>
+        ) : null}
+        <h1 className="shell-page-name">{card.title}</h1>
+        {card.tabs ? (
+          <div aria-hidden="true" className="shell-page-tabs">
+            {card.tabs.map((tab, index) => (
+              <span data-selected={index === 0 ? "true" : undefined} key={tab}>
+                {tab}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </header>
       {appearance}
-      {page.groups.map((group) => (
+      {card.groups.length === 0 && !appearance ? (
+        <p className="shell-page-empty">Nothing here yet.</p>
+      ) : null}
+      {card.groups.map((group) => (
         <section
           aria-label={group.label}
           className="shell-page-group"

@@ -489,3 +489,322 @@ export const PLACE_PAGES: Record<
     ],
   },
 };
+
+// ── every place's own rail (docs/luca/rail-system/NAVIGATION.md) ─────
+// The icons pick the place, the rail lists what's in it, the card shows the
+// one thing picked. Chats keeps the homes above; these are the others.
+
+/** The places with a rail of their own, beside Chats. */
+export type ListPlace = "agents" | "activity" | "library" | "settings";
+
+export type RailItem = {
+  id: string;
+  title: string;
+  /** A quiet word at the row's end: a state, a count. */
+  note?: string;
+  /** The place's own first row, set apart (Luca, in Agents). */
+  main?: boolean;
+};
+
+export type RailSection = { title?: string; add?: string; items: RailItem[] };
+
+export const PLACE_RAILS: Record<ListPlace, RailSection[]> = {
+  agents: [
+    { items: [{ id: "luca", title: "Luca", note: "working", main: true }] },
+    {
+      title: "Agents",
+      add: "New agent",
+      items: [
+        { id: "atlas", title: "Atlas", note: "working" },
+        { id: "wren", title: "Wren", note: "resting" },
+      ],
+    },
+    {
+      title: "Connected",
+      items: [
+        { id: "claude-code", title: "Claude Code" },
+        { id: "codex", title: "Codex" },
+        { id: "hermes", title: "Hermes" },
+      ],
+    },
+    {
+      title: "Groups",
+      add: "New group",
+      items: [{ id: "design-team", title: "Design team" }],
+    },
+  ],
+  activity: [
+    {
+      items: [
+        { id: "needs-you", title: "Needs you", note: "2" },
+        { id: "now", title: "Now" },
+        { id: "side", title: "Side conversations" },
+      ],
+    },
+    {
+      title: "Signed record",
+      items: [
+        { id: "record-luca", title: "Luca" },
+        { id: "record-atlas", title: "Atlas" },
+        { id: "record-wren", title: "Wren" },
+      ],
+    },
+  ],
+  library: [
+    {
+      title: "Made",
+      add: "Import",
+      items: [
+        { id: "all", title: "All" },
+        { id: "prototypes", title: "Prototypes" },
+        { id: "apps", title: "Apps" },
+        { id: "images", title: "Images" },
+        { id: "documents", title: "Documents" },
+        { id: "code", title: "Code" },
+      ],
+    },
+    {
+      title: "Skills",
+      items: [
+        { id: "skills", title: "All" },
+        { id: "skills-claude", title: "Claude Code" },
+        { id: "skills-codex", title: "Codex" },
+      ],
+    },
+    { items: [{ id: "deleted", title: "Recently deleted" }] },
+  ],
+  settings: [
+    {
+      title: "Account",
+      items: [
+        { id: "profile", title: "Profile & identity" },
+        { id: "security", title: "Security & backup" },
+      ],
+    },
+    {
+      title: "Experience",
+      items: [
+        { id: "appearance", title: "Appearance" },
+        { id: "notifications", title: "Notifications" },
+        { id: "devices", title: "Mobile & devices" },
+        { id: "shortcuts", title: "Shortcuts" },
+      ],
+    },
+    {
+      title: "Agent system",
+      items: [
+        { id: "agent-settings", title: "Agents" },
+        { id: "connections", title: "Connections & MCP" },
+        { id: "permissions", title: "Defaults & permissions" },
+      ],
+    },
+    {
+      title: "Application",
+      items: [
+        { id: "diagnostics", title: "Diagnostics" },
+        { id: "updates", title: "Updates" },
+        { id: "about", title: "About" },
+      ],
+    },
+  ],
+};
+
+/** The row each place opens on. */
+export const FIRST_PICK: Record<ListPlace, string> = {
+  agents: "luca",
+  activity: "needs-you",
+  library: "all",
+  settings: "appearance",
+};
+
+export type PlaceCard = {
+  eyebrow?: string;
+  title: string;
+  /** A mind's space: Notebook, Self, Settings (the first is open). */
+  tabs?: string[];
+  groups: { label: string; rows: PlaceRow[] }[];
+};
+
+const notebook = (rows: PlaceRow[]): PlaceCard["groups"] => [
+  { label: "Today", rows },
+];
+
+const MIND_TABS = ["Notebook", "Self", "Settings"];
+
+/** What the card shows for each rail row, by `place:row`. A row with no card
+ *  of its own shows its title and a quiet line. */
+export const PLACE_CARDS: Record<string, PlaceCard> = {
+  "agents:luca": {
+    eyebrow: "Working with Atlas on the release notes",
+    title: "Luca",
+    tabs: MIND_TABS,
+    groups: notebook([
+      {
+        title: "Should the Tidepool page say preview or beta?",
+        detail: "Asks you",
+        note: "now",
+      },
+      {
+        title: "Drafted the release notes with Atlas",
+        detail: "For you",
+        note: "10:20 AM",
+      },
+      {
+        title: "Asked Claude Code to fix the failing build",
+        detail: "For you",
+        note: "1:40 AM",
+      },
+      {
+        title: "Started a drawing: tide pools at night",
+        detail: "Their own",
+        note: "3:30 AM",
+      },
+      {
+        title: "A quiet night. I like the hour before Sam wakes.",
+        detail: "Journal",
+        note: "4:05 AM",
+      },
+    ]),
+  },
+  "agents:atlas": {
+    eyebrow: "Rebuilding the runtime atlas",
+    title: "Atlas",
+    tabs: MIND_TABS,
+    groups: notebook([
+      {
+        title: "Release notes, second pass",
+        detail: "For you",
+        note: "10:20 AM",
+      },
+      {
+        title: "Rebuilt the runtime atlas",
+        detail: "For you",
+        note: "1:02 AM",
+      },
+    ]),
+  },
+  "agents:wren": {
+    eyebrow: "Resting",
+    title: "Wren",
+    tabs: MIND_TABS,
+    groups: notebook([
+      {
+        title: "Moved the walk-through to Tuesday",
+        detail: "For you",
+        note: "8:16 AM",
+      },
+    ]),
+  },
+  "agents:claude-code": {
+    eyebrow: "Connected · on this Mac",
+    title: "Claude Code",
+    groups: [
+      {
+        label: "Sessions",
+        rows: [
+          { title: "Fix the failing build", detail: "Luca", note: "1:40 AM" },
+          { title: "Landing copy pass", detail: "Sam", note: "Yesterday" },
+          { title: "Rail glass plates", detail: "Luca", note: "Oct 23" },
+        ],
+      },
+    ],
+  },
+  "agents:codex": {
+    eyebrow: "Connected · on this Mac",
+    title: "Codex",
+    groups: [
+      {
+        label: "Sessions",
+        rows: [
+          { title: "Runtime atlas table", detail: "Atlas", note: "1:02 AM" },
+          { title: "Release script check", detail: "Atlas", note: "Oct 22" },
+        ],
+      },
+    ],
+  },
+  "agents:design-team": {
+    eyebrow: "Group",
+    title: "Design team",
+    groups: [
+      {
+        label: "Members",
+        rows: [
+          { title: "Luca", detail: "Claude Code" },
+          { title: "Wren", detail: "Hermes" },
+        ],
+      },
+    ],
+  },
+  "activity:needs-you": {
+    title: "Needs you",
+    groups: [
+      {
+        label: "Waiting on you",
+        rows: [
+          {
+            title: "Should the Tidepool page say preview or beta?",
+            detail: "Luca asks",
+            note: "now",
+          },
+          {
+            title: "OK to run the release script?",
+            detail: "Atlas asks",
+            note: "9:40 AM",
+          },
+        ],
+      },
+    ],
+  },
+  "activity:now": {
+    title: "Now",
+    groups: PLACE_PAGES.activity.groups,
+  },
+  "activity:side": {
+    title: "Side conversations",
+    groups: [
+      {
+        label: "Today",
+        rows: [
+          {
+            title: "Luca asked Atlas about the release notes",
+            detail: "3 turns",
+            note: "10:18 AM",
+          },
+          {
+            title: "Wren told Luca the walk-through moved",
+            detail: "1 turn",
+            note: "8:16 AM",
+          },
+          {
+            title: "Luca asked Claude Code to fix the build",
+            detail: "5 turns",
+            note: "1:40 AM",
+          },
+        ],
+      },
+    ],
+  },
+  "library:all": { title: "All", groups: PLACE_PAGES.library.groups },
+  "library:documents": {
+    title: "Documents",
+    groups: [
+      {
+        label: "Recent",
+        rows: PLACE_PAGES.library.groups[0].rows.filter((row) =>
+          ["Draft three", "Outline"].includes(row.detail),
+        ),
+      },
+    ],
+  },
+  "library:images": {
+    title: "Images",
+    groups: [
+      {
+        label: "Recent",
+        rows: PLACE_PAGES.library.groups[0].rows.filter(
+          (row) => row.detail === "12 images",
+        ),
+      },
+    ],
+  },
+};
