@@ -468,9 +468,13 @@ function tinted(ask: Ask) {
 }
 
 async function openRoomStack(page: Page) {
-  await expect(page.getByTestId("runtime-task-proposal-row")).toBeVisible({
+  await expect(page.getByTestId("runtime-task-proposal-row")).toBeAttached({
     timeout: 20_000,
   });
+  // The room's stack folds where 40% of the conversation can't hold one ask
+  // (WP-23): Show opens it.
+  if (await page.getByTestId("pending-held").isVisible())
+    await page.getByTestId("pending-held").click();
   // The fold: open it when it is closed.
   if (
     (await page.getByTestId("managed-permission-card").count()) === 0 &&

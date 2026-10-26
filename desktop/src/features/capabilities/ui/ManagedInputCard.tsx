@@ -16,7 +16,9 @@ import {
 
 /** Native questions reuse the existing approval surface without granting
  *  access. Under the frame, the one drawing every ask has (SHELL_BUILD.md
- *  WP-16, Decided 2): Needs you's row, its form opened under it on request. */
+ *  WP-16, Decided 2): Needs you's row, its form opened under it on request,
+ *  as one item (`li`) of the room's one list of asks (WP-23,
+ *  ChannelPane.tsx). */
 export function ManagedInputCard({
   pending,
   compact = false,
@@ -30,16 +32,14 @@ export function ManagedInputCard({
   const shellFrame = useShellFrameEnabled();
   if (shellFrame)
     return (
-      <ul className="luca-ask-list">
-        <QuestionAsk
-          common={{
-            "data-pending-id": pending.pendingId,
-            "data-testid": "managed-input-card",
-          }}
-          pending={pending}
-          summary={summary ?? "Asks you"}
-        />
-      </ul>
+      <QuestionAsk
+        common={{
+          "data-pending-id": pending.pendingId,
+          "data-testid": "managed-input-card",
+        }}
+        pending={pending}
+        summary={summary ?? "Asks you"}
+      />
     );
   return (
     <ManagedInputForm

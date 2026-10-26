@@ -19,6 +19,12 @@ import {
   isTerminalConversationActivity,
   nextActivityWaitChangeMs,
   reconcileActivityShelfSlots,
+  roomStackFit,
+  roomStackFolded,
+  roomStackReach,
+  roomStackScrollDelta,
+  roomStackTooSmall,
+  roomStackWhole,
 } from "./conversationAgentActivityShelf.ts";
 
 function step(overrides = {}) {
@@ -395,5 +401,83 @@ describe("wait disclosure", () => {
       2,
       "with nothing live, the last thing that ran is the line",
     );
+  });
+});
+
+describe("a room's stack (WP-23)", () => {
+  it("rests at 40% of the conversation and reaches the card's top for a form", () => {
+    // 1440 x 900: the card's top to the message box is 760.
+    assert.deepEqual(
+      roomStackReach({ above: 0, conversation: 760, stackBottom: 707 }),
+      { rest: 304, whole: 695 },
+    );
+    // Something over the stack (an exchange strip) comes off the whole.
+    assert.equal(
+      roomStackReach({ above: 40, conversation: 760, stackBottom: 707 }).whole,
+      655,
+    );
+    // The rest height never exceeds the whole.
+    assert.equal(
+      roomStackReach({ above: 0, conversation: 760, stackBottom: 100 }).rest,
+      88,
+    );
+  });
+
+  it("folds where the rest height can't hold its label and one ask", () => {
+    assert.equal(
+      roomStackTooSmall({ firstAsk: 125, label: 22, rest: 144 }),
+      true,
+    );
+    assert.equal(
+      roomStackTooSmall({ firstAsk: 125, label: 22, rest: 304 }),
+      false,
+    );
+    assert.equal(
+      roomStackTooSmall({ firstAsk: 0, label: 22, rest: 10 }),
+      false,
+    );
+  });
+
+  it("folds only with asks, held or too small unless shown, always when hidden", () => {
+    const fold = (over) =>
+      roomStackFolded({
+        askCount: 2,
+        held: false,
+        mode: "rest",
+        tooSmall: false,
+        ...over,
+      });
+    assert.equal(fold({}), false);
+    assert.equal(fold({ held: true }), true);
+    assert.equal(fold({ tooSmall: true }), true);
+    assert.equal(fold({ held: true, mode: "shown" }), false);
+    assert.equal(fold({ mode: "hidden" }), true);
+    assert.equal(fold({ askCount: 0, mode: "hidden" }), false);
+  });
+
+  it("takes the whole height for a form, and fits one ask when shown small", () => {
+    assert.equal(roomStackWhole({ formOpen: true }), true);
+    assert.equal(roomStackWhole({ formOpen: false }), false);
+    assert.equal(
+      roomStackFit({ formOpen: false, mode: "shown", tooSmall: true }),
+      true,
+    );
+    assert.equal(
+      roomStackFit({ formOpen: true, mode: "shown", tooSmall: true }),
+      false,
+    );
+    assert.equal(
+      roomStackFit({ formOpen: false, mode: "rest", tooSmall: true }),
+      false,
+    );
+  });
+
+  it("scrolls an opened form into view", () => {
+    const body = { bottom: 500, top: 100 };
+    assert.equal(roomStackScrollDelta({ bottom: 300, top: 200 }, body), 0);
+    assert.equal(roomStackScrollDelta({ bottom: 650, top: 400 }, body), 150);
+    assert.equal(roomStackScrollDelta({ bottom: 150, top: 50 }, body), -50);
+    // Taller than the body: its top.
+    assert.equal(roomStackScrollDelta({ bottom: 900, top: 300 }, body), 200);
   });
 });

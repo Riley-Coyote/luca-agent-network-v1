@@ -19,6 +19,7 @@ import type { ChannelWindowThreadSummary } from "@/features/messages/lib/channel
 import type { UserProfileLookup } from "@/features/profile/lib/identity";
 import type { ChannelType } from "@/shared/api/types";
 import { cn } from "@/shared/lib/cn";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { channelChrome } from "@/shared/layout/chromeLayout";
 import { Spinner } from "@/shared/ui/spinner";
 import { TooltipProvider } from "@/shared/ui/tooltip";
@@ -232,6 +233,7 @@ const MessageTimelineBase = React.forwardRef<
     () => openVisitors(messages),
     [messages],
   );
+  const shellFrame = useShellFrameEnabled();
   const internalScrollRef = React.useRef<HTMLDivElement>(null);
   const scrollContainerRef = externalScrollRef ?? internalScrollRef;
   const contentRef = React.useRef<HTMLDivElement>(null);
@@ -970,7 +972,13 @@ const MessageTimelineBase = React.forwardRef<
           <div
             className={cn(
               "pointer-events-none absolute inset-x-0 z-50 flex justify-center px-4",
-              hasComposerOverlay ? "bottom-36" : "bottom-4",
+              // Under the shell, above the room's stack, never across a row
+              // of it (WP-23, Decided 4): ChannelPane measures the overlay.
+              hasComposerOverlay
+                ? shellFrame
+                  ? "bottom-[calc(var(--luca-composer-overlay-height,9rem)+0.75rem)]"
+                  : "bottom-36"
+                : "bottom-4",
             )}
           >
             <UnreadPill

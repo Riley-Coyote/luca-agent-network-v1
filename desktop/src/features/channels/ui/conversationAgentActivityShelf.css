@@ -575,3 +575,203 @@
     backdrop-filter: none;
   }
 }
+
+/* ── a room's stack, in the page (SHELL_BUILD.md WP-23) ───────────────────
+ * Under the frame, a room's asks and its current work are one stack between
+ * the timeline and the message box (ConversationRoomStack.tsx). It sits in
+ * the composer's overlay, on the card's own veil, so nothing of the
+ * conversation lies under it; every item is a flat row, as Needs you draws
+ * it (shell-activity.css): no border, plate or shadow, rows apart by the
+ * place page's rhythm (11 above and below a row's words). Every row's words
+ * sit on one axis, 44 in from the column: the message box's and the
+ * messages' own, with a row's mark (a finished task's check) in the margin
+ * before it. Its heights come from the measured conversation: 40% at rest,
+ * the whole height above the message box while a form is open. */
+:root[data-luca-frame] .luca-room-stack {
+  display: flex;
+  flex-direction: column;
+  max-height: var(--luca-room-stack-rest, 40vh);
+  min-height: 0;
+}
+
+:root[data-luca-frame] .luca-room-stack[data-whole] {
+  max-height: var(--luca-room-stack-whole, 80vh);
+}
+
+:root[data-luca-frame] .luca-room-stack__head {
+  align-items: baseline;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  flex: none;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 6px 16px 0 44px;
+}
+
+:root[data-luca-frame] .luca-room-stack__head h2 {
+  color: hsl(var(--mn-ink-faint));
+}
+
+/* "Current work" says itself only while work rows are there to name. */
+:root[data-luca-frame] .luca-room-stack__head[data-kind="work"] {
+  display: none;
+}
+
+:root[data-luca-frame]
+  .luca-room-stack:has(
+    .luca-activity-shelf[data-state="active"],
+    [data-testid="runtime-task-result-receipt"]
+  )
+  .luca-room-stack__head[data-kind="work"] {
+  display: flex;
+}
+
+/* Folded, the stack is its one line: "Needs you · 2 · Show". */
+:root[data-luca-frame] .luca-room-stack__fold {
+  align-items: baseline;
+  border-radius: 6px;
+  color: hsl(var(--mn-ink-faint));
+  display: flex;
+  margin: 0 -6px;
+  padding: 4px 6px 6px;
+  text-align: left;
+  transition: color 120ms;
+  width: calc(100% + 12px);
+}
+
+:root[data-luca-frame] .luca-room-stack__fold-show,
+:root[data-luca-frame] .luca-room-stack__hide {
+  color: hsl(var(--mn-ink-muted));
+  font-size: 0.75rem;
+  transition: color 120ms;
+}
+
+:root[data-luca-frame] .luca-room-stack__fold-show {
+  margin-left: 0.4em;
+}
+
+:root[data-luca-frame] .luca-room-stack__fold:hover,
+:root[data-luca-frame] .luca-room-stack__fold:hover .luca-room-stack__fold-show,
+:root[data-luca-frame] .luca-room-stack__hide:hover {
+  color: hsl(var(--mn-ink));
+}
+
+:root[data-luca-frame] .luca-room-stack__fold:focus-visible,
+:root[data-luca-frame] .luca-room-stack__hide:focus-visible {
+  outline: 1px solid hsl(var(--mn-ink) / 0.55);
+  outline-offset: 2px;
+}
+
+:root[data-luca-frame] .luca-room-stack__hide {
+  border-radius: 4px;
+  flex: none;
+}
+
+:root[data-luca-frame] .luca-room-stack__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+:root[data-luca-frame] .luca-room-stack__body[hidden] {
+  display: none;
+}
+
+/* The asks: Needs you's rows, on the stack's axis. No row opens anything
+ * here, so none needs the place row's outdent for a hover plate. */
+:root[data-luca-frame] .luca-room-stack__asks {
+  padding: 0 16px 0 44px;
+}
+
+:root[data-luca-frame] .luca-room-stack__asks .luca-place-row {
+  margin: 0;
+  padding: 11px 0;
+}
+
+/* The work: the strip's row, and its details opened under it in the page,
+ * never floating over the conversation. Its own "Current work" heading is
+ * the stack's label now. */
+:root[data-luca-frame]
+  .luca-room-stack
+  .luca-activity-shelf[data-expanded="true"] {
+  flex-basis: auto;
+  height: auto;
+}
+
+:root[data-luca-frame] .luca-room-stack .luca-activity-shelf__inner {
+  height: 60px;
+  padding-inline: 36px 8px;
+}
+
+:root[data-luca-frame] .luca-room-stack .luca-work-tray__expanded {
+  animation: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  max-height: none;
+  overflow: visible;
+  padding: 0 16px 0 44px;
+  position: static;
+  transform: none;
+}
+
+:root[data-luca-frame] .luca-room-stack .luca-work-tray__heading {
+  display: none;
+}
+
+:root[data-luca-frame] .luca-room-stack .luca-work-tray__run {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 11px 0;
+}
+
+/* A finished piece of work: the receipt's own row, flat; its check hangs in
+ * the margin before the axis (12 + 24 + 8 = 44). */
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-testid="runtime-task-result-receipt"] {
+  background: transparent;
+  border-color: transparent;
+  border-radius: 0;
+  margin: 0;
+  padding-block: 11px;
+  width: 100%;
+}
+
+/* A proposal's details opened under its row: its two pickers share the row's
+ * width, never pushing past the form's edge. */
+:root[data-luca-frame]
+  .luca-room-stack
+  [data-testid="runtime-task-confirmation"]
+  :is(label, select) {
+  min-width: 0;
+}
+
+/* Where the body scrolls, the side with more to read fades out over its last
+ * 24, so a row is never cut by a hard line (ConversationRoomStack.tsx). */
+:root[data-luca-frame] .luca-room-stack__body[data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+
+:root[data-luca-frame] .luca-room-stack__body[data-more-above] {
+  mask-image: linear-gradient(to top, #000 calc(100% - 24px), transparent);
+}
+
+:root[data-luca-frame]
+  .luca-room-stack__body[data-more-above][data-more-below] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 24px,
+    #000 calc(100% - 24px),
+    transparent
+  );
+}
+
+/* Shown where 40% can't hold one ask: its label and that one ask, whole. */
+:root[data-luca-frame] .luca-room-stack[data-fit] {
+  max-height: var(--luca-room-stack-fit, 40vh);
+}

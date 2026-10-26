@@ -303,3 +303,117 @@ export function currentActivityStep(
   }
   return steps[steps.length - 1] ?? null;
 }
+
+// ── a room's stack (SHELL_BUILD.md WP-23) ─────────────────────────────────
+// Under the frame, a room's asks and its current work are one stack between
+// the timeline and the message box. These say how tall it may be and when it
+// folds to its one line; ConversationRoomStack.tsx measures and draws it.
+
+/** At rest the stack takes at most this share of the conversation's height
+ *  (from the card's top to the message box), and scrolls inside beyond it. */
+export const ROOM_STACK_REST_SHARE = 0.4;
+
+/** Room kept between the stack and the card's top when it takes the whole
+ *  height for a form, so it never meets the lip. */
+export const ROOM_STACK_TOP_CLEARANCE = 12;
+
+/** How far the body's scrolling edge fades (conversationAgentActivityShelf
+ *  .css): a stack fitted to one ask leaves this much below it, so the fade
+ *  falls on the next row, never on the ask's answers. */
+export const ROOM_STACK_EDGE_FADE = 24;
+
+/** What the owner last asked of the stack: nothing ("rest"), to see it, or to
+ *  fold it. */
+export type RoomStackMode = "rest" | "shown" | "hidden";
+
+/** The stack's two heights, in px: its rest height, 40% of the conversation;
+ *  and the whole height above the message box, for an open form. `conversation`
+ *  is the card's top to the message box; `stackBottom` is how far the stack's
+ *  bottom lies below the card's top; `above` is what else of the overlay sits
+ *  over the stack (an exchange strip, a notice). */
+export function roomStackReach({
+  above,
+  conversation,
+  stackBottom,
+}: {
+  above: number;
+  conversation: number;
+  stackBottom: number;
+}): { rest: number; whole: number } {
+  const whole = Math.max(
+    0,
+    Math.floor(stackBottom - above - ROOM_STACK_TOP_CLEARANCE),
+  );
+  const rest = Math.max(
+    0,
+    Math.min(whole, Math.floor(conversation * ROOM_STACK_REST_SHARE)),
+  );
+  return { rest, whole };
+}
+
+/** Whether the rest height can't hold its label and one whole ask. */
+export function roomStackTooSmall({
+  firstAsk,
+  label,
+  rest,
+}: {
+  firstAsk: number;
+  label: number;
+  rest: number;
+}): boolean {
+  return firstAsk > 0 && label + firstAsk > rest;
+}
+
+/** Folded to its one line ("Needs you · 2 · Show"): only while it holds asks,
+ *  when the owner folded it, or, unless the owner asked to see it, while one
+ *  exchange is focused (`held`) or the rest height can't hold one ask. */
+export function roomStackFolded({
+  askCount,
+  held,
+  mode,
+  tooSmall,
+}: {
+  askCount: number;
+  held: boolean;
+  mode: RoomStackMode;
+  tooSmall: boolean;
+}): boolean {
+  if (askCount === 0) return false;
+  if (mode === "hidden") return true;
+  if (mode === "shown") return false;
+  return held || tooSmall;
+}
+
+/** The stack may take the whole height above the message box while a form is
+ *  open. */
+export function roomStackWhole({ formOpen }: { formOpen: boolean }): boolean {
+  return formOpen;
+}
+
+/** Shown although the rest height can't hold one ask: the stack takes just
+ *  the height of its label and that one ask (never more than the whole), so
+ *  the ask shows whole and the newest message stays in view above it. */
+export function roomStackFit({
+  formOpen,
+  mode,
+  tooSmall,
+}: {
+  formOpen: boolean;
+  mode: RoomStackMode;
+  tooSmall: boolean;
+}): boolean {
+  return !formOpen && mode === "shown" && tooSmall;
+}
+
+/** How far to scroll the stack's body so an ask (its row and its open form)
+ *  is in view: its top when it is taller than the body, else just enough. */
+export function roomStackScrollDelta(
+  item: { top: number; bottom: number },
+  body: { top: number; bottom: number },
+): number {
+  if (item.bottom - item.top >= body.bottom - body.top)
+    return item.top - body.top;
+  if (item.top < body.top) return item.top - body.top;
+  if (item.bottom > body.bottom) return item.bottom - body.bottom;
+  return 0;
+}

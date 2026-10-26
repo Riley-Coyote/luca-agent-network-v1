@@ -46,6 +46,8 @@ import { MessageThreadSummaryRow } from "./MessageThreadSummaryRow";
 import { TypingIndicatorRow } from "./TypingIndicatorRow";
 import { UnreadDivider } from "./UnreadDivider";
 import { useComposerHeightPadding } from "./useComposerHeightPadding";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
+import { observeElementBlockSize } from "@/shared/layout/observeElementBlockSize";
 import { useAnchoredScroll } from "./useAnchoredScroll";
 import { selectDeferredListRenderState } from "@/features/messages/lib/timelineSnapshot";
 
@@ -248,6 +250,27 @@ export function MessageThreadPanel({
     threadComposerWrapperRef,
     isSinglePanelView,
   );
+  // Under the shell, "Jump to latest" sits above the composer and whatever
+  // stands on it, never across it (WP-23, Decided 4): the overlay's height,
+  // for the pill beside it.
+  const shellFrame = useShellFrameEnabled();
+  React.useLayoutEffect(() => {
+    void isSinglePanelView;
+    void threadHeadId;
+    const overlay = threadComposerWrapperRef.current;
+    const holder = overlay?.parentElement;
+    if (!shellFrame || !overlay || !holder) return;
+    const stop = observeElementBlockSize(overlay, (size) =>
+      holder.style.setProperty(
+        "--luca-thread-overlay-height",
+        `${Math.ceil(size)}px`,
+      ),
+    );
+    return () => {
+      stop();
+      holder.style.removeProperty("--luca-thread-overlay-height");
+    };
+  }, [isSinglePanelView, shellFrame, threadHeadId]);
 
   // Live ref so onCaptureSendContext can read reply state at submit time
   // (before any async mention-flow awaits change navigation state).
@@ -796,7 +819,14 @@ export function MessageThreadPanel({
   const threadFooter = (
     <>
       {!isAtBottom ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-36 z-50 flex justify-center px-4">
+        <div
+          className={cn(
+            "pointer-events-none absolute inset-x-0 z-50 flex justify-center px-4",
+            shellFrame
+              ? "bottom-[calc(var(--luca-thread-overlay-height,9rem)+0.75rem)]"
+              : "bottom-36",
+          )}
+        >
           <Button
             className="pointer-events-auto h-7 min-h-7 gap-1.5 rounded-full border-border/50 bg-background/85 px-2.5 text-2xs font-medium text-muted-foreground shadow-xs backdrop-blur-sm hover:bg-muted/70 hover:text-foreground [&_svg]:size-4"
             data-testid="thread-scroll-to-latest"
