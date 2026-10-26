@@ -21,8 +21,8 @@ thread, the way Claude Code nests task sessions under their session. Nothing is 
 CHATS                                     +   ← new conversation (⌘N)
 
 Luca                                        ← the main thread, above everything else
-│ with Fifty · launch notes        ●        ← Luca's side conversations; a talking one never folds
-│ with Claude Code · build
+│ Fifty · launch notes             ●        ← Luca's side conversations; a talking one never folds
+│ Claude Code · build
 
 PROJECTS                                  +
 Tidepool  ⌄                               +   ← + appears on hover/focus: new session in this project

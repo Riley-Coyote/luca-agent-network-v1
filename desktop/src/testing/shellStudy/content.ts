@@ -1,10 +1,13 @@
 /**
  * What the shell study shows: a week of Sam's conversations with Luca, the
- * projects, the agents and the fleets, and the places beside them. Sample data
- * only; the names match the lab's ad scene (Tidepool, Atlas, Wren).
+ * projects, the agents, the people and the rooms, and the places beside them.
+ * Sample data only; the names match the lab's ad scene (Tidepool, Atlas, Wren).
  *
- * Every chat has exactly one home (docs/luca/rail-system/SPEC.md): a project's
- * rooms live under the project, a group under Fleets, a 1:1 under its agent.
+ * Every chat has exactly one home (docs/luca/rail-system/SPEC.md, amended
+ * 2026-10-25): a project's rooms live under the project; Luca's side
+ * conversations (Luca asking an agent or a connected app) under Luca; a 1:1
+ * under its agent, or under People for a person; anything with several
+ * members, or a shared room, under Rooms by its own name.
  */
 
 export type Message = {
@@ -12,6 +15,9 @@ export type Message = {
   from: string;
   at: string;
   text: string;
+  /** A side conversation Luca is holding, shown in this conversation as a
+   *  small live card that opens it (NAVIGATION.md, Chats). */
+  side?: { home: string; session: string };
 };
 
 export type Session = {
@@ -19,10 +25,12 @@ export type Session = {
   title: string;
   unread?: boolean;
   working?: boolean;
+  /** How long ago it was last active, said quietly at the row's end. */
+  ago?: string;
   messages: Message[];
 };
 
-export type HomeKind = "luca" | "project" | "agent" | "fleet";
+export type HomeKind = "luca" | "project" | "agent" | "person" | "room";
 
 export type Home = {
   id: string;
@@ -64,32 +72,45 @@ export const HOMES: Home[] = [
         at: "9:20 AM",
         text: "Good. Leave pricing where it is, I'll read the rest after lunch.",
       },
+      {
+        from: "Luca",
+        at: "9:21 AM",
+        text: "Luca is asking Atlas whether the release notes are ready for your read.",
+        side: { home: "luca", session: "luca-atlas" },
+      },
     ],
     sessions: [
       {
-        id: "luca-week",
-        title: "The week ahead",
+        id: "luca-atlas",
+        title: "Atlas · release notes",
+        working: true,
         messages: [
           {
             from: "Luca",
-            at: "Sun 7:40 PM",
-            text: "Here's the week as it stands: the Tidepool review Monday, the studio walk-through Tuesday, and Saturday's low tide for the field guide photos.",
+            at: "9:21 AM",
+            text: "Sam reads after lunch. Are the release notes ready for that, or should I hold them?",
           },
           {
-            from: OWNER,
-            at: "Sun 7:52 PM",
-            text: "Keep Friday clear.",
+            from: "Atlas",
+            at: "9:23 AM",
+            text: "Two lines left: the cache change and the update feed. Ready by noon.",
           },
         ],
       },
       {
-        id: "luca-reading",
-        title: "Reading list",
+        id: "luca-claude",
+        title: "Claude Code · the build",
+        ago: "1h",
         messages: [
           {
             from: "Luca",
-            at: "Thu 10:05 PM",
-            text: "Four pieces saved this week. The one on tide-pool succession is the only long one; the rest are under ten minutes.",
+            at: "8:02 AM",
+            text: "The studio site's build fails on the image step. Can you find out why and fix it?",
+          },
+          {
+            from: "Claude Code",
+            at: "8:19 AM",
+            text: "A renamed folder. Fixed, and the build passes again.",
           },
         ],
       },
@@ -102,6 +123,7 @@ export const HOMES: Home[] = [
     sessions: [
       {
         id: "tidepool-landing",
+        ago: "2h",
         title: "Landing page copy",
         messages: [
           {
@@ -128,6 +150,7 @@ export const HOMES: Home[] = [
       },
       {
         id: "tidepool-chapter",
+        ago: "1d",
         title: "Chapter nine",
         messages: [
           {
@@ -152,6 +175,7 @@ export const HOMES: Home[] = [
     sessions: [
       {
         id: "studio-home",
+        ago: "3h",
         title: "Homepage",
         messages: [
           {
@@ -163,6 +187,7 @@ export const HOMES: Home[] = [
       },
       {
         id: "studio-shop",
+        ago: "20m",
         title: "Shop",
         unread: true,
         messages: [
@@ -182,6 +207,7 @@ export const HOMES: Home[] = [
     sessions: [
       {
         id: "fieldguide-index",
+        ago: "4d",
         title: "Index",
         messages: [
           {
@@ -208,6 +234,7 @@ export const HOMES: Home[] = [
     sessions: [
       {
         id: "atlas-runtime",
+        ago: "9h",
         title: "Runtime atlas",
         messages: [
           {
@@ -250,6 +277,7 @@ export const HOMES: Home[] = [
     sessions: [
       {
         id: "wren-monday",
+        ago: "1d",
         title: "Monday plan",
         messages: [
           {
@@ -271,6 +299,7 @@ export const HOMES: Home[] = [
       },
       {
         id: "wren-tides",
+        ago: "2d",
         title: "The tide tables",
         messages: [
           {
@@ -297,47 +326,62 @@ export const HOMES: Home[] = [
     sessions: [],
   },
   {
-    id: "design",
-    kind: "fleet",
-    name: "Design team",
-    sessions: [
+    id: "mara",
+    kind: "person",
+    name: "Mara",
+    main: [
       {
-        id: "design-rail",
-        title: "Rail glass review",
-        messages: [
-          {
-            from: "Luca",
-            at: "11:02 AM",
-            text: "Two directions for the frame: black, with glass marking where you are, or glass, with the marks in the card's own black.",
-          },
-          {
-            from: "Wren",
-            at: "11:04 AM",
-            text: "The second makes the card feel like the one solid thing in the window.",
-          },
-          {
-            from: "Atlas",
-            at: "11:05 AM",
-            text: "Worth reading the rail's words over a bright desktop before choosing.",
-          },
-        ],
+        from: "Mara",
+        at: "Yesterday",
+        text: "Saturday's low tide is at 6:40. I can be at the cove by six with the long lens.",
       },
       {
-        id: "design-type",
-        title: "Type ramp",
-        messages: [
-          {
-            from: "Wren",
-            at: "Mon",
-            text: "Fewer sizes: 11, 14, 16 and 20 cover everything in the shell.",
-          },
-        ],
+        from: OWNER,
+        at: "Yesterday",
+        text: "Perfect. Luca will send you the shot list tonight.",
       },
     ],
+    sessions: [],
+  },
+  {
+    id: "design-rail",
+    kind: "room",
+    name: "Rail glass review",
+    main: [
+      {
+        from: "Luca",
+        at: "11:02 AM",
+        text: "Two directions for the frame: black, with glass marking where you are, or glass, with the marks in the card's own black.",
+      },
+      {
+        from: "Wren",
+        at: "11:04 AM",
+        text: "The second makes the card feel like the one solid thing in the window.",
+      },
+      {
+        from: "Atlas",
+        at: "11:05 AM",
+        text: "Worth reading the rail's words over a bright desktop before choosing.",
+      },
+    ],
+    sessions: [],
+  },
+  {
+    id: "design-type",
+    kind: "room",
+    name: "Type ramp",
+    main: [
+      {
+        from: "Wren",
+        at: "Mon",
+        text: "Fewer sizes: 11, 14, 16 and 20 cover everything in the shell.",
+      },
+    ],
+    sessions: [],
   },
   {
     id: "luca-wren",
-    kind: "fleet",
+    kind: "room",
     name: "Luca + Wren",
     main: [
       {
@@ -355,10 +399,14 @@ export const HOMES: Home[] = [
   },
 ];
 
-export const SECTIONS: { kind: HomeKind; title: string; add: string }[] = [
+/** The Chats rail's sections after Luca (NAVIGATION.md). Agents has no + of
+ *  its own: a new agent is made in Agents, or by asking Luca. People and Rooms
+ *  show only once there is one. */
+export const SECTIONS: { kind: HomeKind; title: string; add?: string }[] = [
   { kind: "project", title: "Projects", add: "New project" },
-  { kind: "agent", title: "Agents", add: "New agent" },
-  { kind: "fleet", title: "Fleets", add: "New fleet" },
+  { kind: "agent", title: "Agents" },
+  { kind: "person", title: "People" },
+  { kind: "room", title: "Rooms", add: "New room" },
 ];
 
 export type PlaceId =

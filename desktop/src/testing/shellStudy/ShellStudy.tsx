@@ -342,7 +342,7 @@ function cardFor(place: ListPlace, pick: string): PlaceCard {
 }
 
 /** Where a home opens: Luca's thread, an agent's 1:1, a project's last room,
- *  a fleet's newest session (or its one conversation). */
+ *  a room's own conversation. */
 function mainOf(home: Home): Open {
   if (home.main) return { home: home.id, session: null };
   return { home: home.id, session: home.sessions[0]?.id ?? null };
@@ -360,8 +360,13 @@ export function ShellStudy() {
     stack: [{ place: "conversations", open: { home: "luca", session: null } }],
     index: 0,
   });
+  // Every home shows its latest conversations from the start (NAVIGATION.md),
+  // so the Chats rail never reads empty; a home's chevron can still fold it.
   const [expanded, setExpanded] = React.useState(
-    () => new Set(["tidepool", "wren"]),
+    () =>
+      new Set(
+        HOMES.filter((home) => home.sessions.length > 0).map((home) => home.id),
+      ),
   );
   const [tabs, setTabs] = React.useState<string[]>([
     "luca/",
@@ -938,6 +943,7 @@ export function ShellStudy() {
           <Conversation
             key={keyOf(open)}
             messages={openSession?.messages ?? openHome.main ?? []}
+            onOpen={goTo}
             to={openHome.name}
           />
         )}
@@ -1073,29 +1079,54 @@ function Rail({
         </button>
       </div>
       {luca ? row(luca) : null}
-      {SECTIONS.map((section) => (
-        <section
-          aria-label={section.title}
-          className="shell-section"
-          key={section.kind}
-        >
-          <div className="shell-section-head type-eyebrow">
-            <span>{section.title}</span>
-            <button
-              aria-label={section.add}
-              className="shell-add"
-              onClick={() =>
-                onNote(`${section.add}: sample only, nothing is created.`)
-              }
-              title={section.add}
-              type="button"
-            >
-              <Plus />
-            </button>
-          </div>
-          {homes.filter((home) => home.kind === section.kind).map(row)}
-        </section>
-      ))}
+      {SECTIONS.map((section) => {
+        const members = homes.filter((home) => home.kind === section.kind);
+        // People and Rooms show once there is one; Projects and Agents always.
+        if (
+          members.length === 0 &&
+          (section.kind === "person" || section.kind === "room")
+        )
+          return null;
+        return (
+          <section
+            aria-label={section.title}
+            className="shell-section"
+            key={section.kind}
+          >
+            <div className="shell-section-head type-eyebrow">
+              <span>{section.title}</span>
+              {section.add ? (
+                <button
+                  aria-label={section.add}
+                  className="shell-add"
+                  onClick={() =>
+                    onNote(`${section.add}: sample only, nothing is created.`)
+                  }
+                  title={section.add}
+                  type="button"
+                >
+                  <Plus />
+                </button>
+              ) : null}
+            </div>
+            {members.map(row)}
+            {section.kind === "room"
+              ? ["Browse rooms…", "Archived"].map((label) => (
+                  <button
+                    className="shell-rail-tail"
+                    key={label}
+                    onClick={() =>
+                      onNote(`${label.replace("…", "")}: sample only.`)
+                    }
+                    type="button"
+                  >
+                    {label}
+                  </button>
+                ))
+              : null}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1237,6 +1268,16 @@ function HomeRow({
   onToggle: (home: Home) => void;
 }) {
   const nested = home.sessions.length > 0;
+  const [all, setAll] = React.useState(false);
+  const latest = home.sessions.slice(0, 3);
+  const opened = home.sessions.find((session) => session.id === current);
+  const shown =
+    all || home.sessions.length <= 3
+      ? home.sessions
+      : opened && !latest.includes(opened)
+        ? [...latest, opened]
+        : latest;
+  const hidden = home.sessions.length - shown.length;
   const signal = home.working ? (
     <span className="shell-working">working</span>
   ) : home.unread ? (
@@ -1297,7 +1338,7 @@ function HomeRow({
           aria-label={`${home.name}'s sessions`}
           className="shell-sessions"
         >
-          {home.sessions.map((session) => {
+          {shown.map((session) => {
             const open = active && current === session.id;
             return (
               <button
@@ -1319,10 +1360,21 @@ function HomeRow({
                     className="shell-dot luca-signal-dot"
                     role="img"
                   />
+                ) : session.ago ? (
+                  <span className="shell-session-ago">{session.ago}</span>
                 ) : null}
               </button>
             );
           })}
+          {hidden > 0 ? (
+            <button
+              className="shell-session shell-session-more"
+              onClick={() => setAll(true)}
+              type="button"
+            >
+              {hidden} more
+            </button>
+          ) : null}
         </fieldset>
       ) : null}
     </div>
@@ -1334,7 +1386,15 @@ function HomeRow({
 const messageKey = (message: Message) =>
   `${message.from}-${message.at}-${message.text.slice(0, 32)}`;
 
-function Conversation({ messages, to }: { messages: Message[]; to: string }) {
+function Conversation({
+  messages,
+  onOpen,
+  to,
+}: {
+  messages: Message[];
+  onOpen: (open: Open) => void;
+  to: string;
+}) {
   return (
     <div className="shell-conversation">
       <div className="shell-reading">
@@ -1348,7 +1408,18 @@ function Conversation({ messages, to }: { messages: Message[]; to: string }) {
           </p>
         )}
         {messages.map((message) =>
-          message.from === OWNER ? (
+          message.side ? (
+            <button
+              className="shell-livecard"
+              key={messageKey(message)}
+              onClick={() => message.side && onOpen(message.side)}
+              type="button"
+            >
+              <span className="shell-livecard-dot" aria-hidden="true" />
+              <span className="shell-livecard-text">{message.text}</span>
+              <span className="shell-livecard-open">Open</span>
+            </button>
+          ) : message.from === OWNER ? (
             <div className="shell-mine" key={messageKey(message)}>
               <p>{message.text}</p>
             </div>

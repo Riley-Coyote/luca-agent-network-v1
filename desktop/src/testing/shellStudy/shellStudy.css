@@ -1505,3 +1505,91 @@
   margin: 0 auto;
   max-width: 640px;
 }
+
+/* ── the Chats rail (SPEC.md, amended 2026-10-25) ───────────────────
+ * Every home's latest conversations show with how long ago each was last
+ * active; Rooms ends on its two quiet ways in (Browse rooms, Archived). */
+.shell-session-ago {
+  color: var(--shell-faint);
+  flex: none;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  padding-left: 8px;
+}
+
+.shell-session-more {
+  color: var(--shell-faint);
+  font-size: 0.75rem;
+}
+
+.shell-rail-tail {
+  border-radius: 8px;
+  color: var(--shell-faint);
+  display: block;
+  font-size: 0.8125rem;
+  height: 28px;
+  padding: 0 10px;
+  text-align: left;
+  transition: color 120ms;
+  width: 100%;
+}
+
+.shell-rail-tail:hover {
+  color: var(--shell-muted);
+}
+
+/* A side conversation Luca is holding, in your conversation: one quiet line
+ * that opens it. Its dot breathes only while the conversation is live. */
+.shell-livecard {
+  align-items: center;
+  border: 1px solid hsl(var(--mn-ink) / 0.1);
+  border-radius: 10px;
+  color: hsl(var(--mn-ink-muted));
+  display: flex;
+  font-size: 0.8125rem;
+  gap: 10px;
+  margin: 10px 0 18px;
+  max-width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  transition:
+    border-color 120ms,
+    color 120ms;
+  width: fit-content;
+}
+
+.shell-livecard:hover {
+  border-color: hsl(var(--mn-ink) / 0.2);
+  color: hsl(var(--mn-ink));
+}
+
+.shell-livecard-dot {
+  animation: shell-livecard-breathe 2.4s ease-in-out infinite;
+  background: hsl(var(--mn-ink));
+  border-radius: 50%;
+  flex: none;
+  height: 6px;
+  width: 6px;
+}
+
+.shell-livecard-open {
+  color: hsl(var(--mn-ink-faint));
+  flex: none;
+}
+
+@keyframes shell-livecard-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell-livecard-dot {
+    animation: none;
+  }
+}

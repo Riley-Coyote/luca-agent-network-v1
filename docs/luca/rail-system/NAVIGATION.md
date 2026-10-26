@@ -71,8 +71,9 @@ What moved:
 The rail, top to bottom (the full rules are `SPEC.md`):
 
 - **Luca**, pinned first. Under it, Luca's **side conversations**: the agents and connected apps Luca is asking right
-  now or asked recently ("with Fifty · launch notes", "with Claude Code · build"). A side conversation that is talking
-  never folds away. In your conversation each shows as a small live card ("Luca is asking Fifty…") that opens it.
+  now or asked recently ("Fifty · launch notes", "Claude Code · build"; under Luca's row the "with" goes without
+  saying). A side conversation that is talking never folds away. In your conversation each shows as a small live card
+  ("Luca is asking Fifty…") that opens it.
 - **Projects** `+`, each with its rooms under it.
 - **Agents**: your conversation with each other agent.
 - **People**: your direct messages with people. Shown once there is one.
