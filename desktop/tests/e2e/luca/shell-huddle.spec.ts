@@ -1718,35 +1718,44 @@ test("what opens from the bar wears the page's materials", async ({
   }
 });
 
-test("with a huddle live the runtime sessions card ends where the cards do", async ({
+test("with a huddle live a connected app's card ends where the cards do", async ({
   page,
 }) => {
+  // The runtime sessions column retired (SHELL_SPEC.md, "The rail"): a
+  // connected app's sessions are its card in Agents (WP-10), on the one card
+  // (WP-12). With a huddle live it ends where the rail does, 6 above the
+  // band, as the column's card did.
   test.setTimeout(120_000);
   await openApp(page, { frame: true });
   await openGeneral(page);
   await startHuddle(page);
-  // Runtimes live on the Agents page under the frame (WP-02); the first
-  // runtime's sessions open as a card beside the rail's (WP-08c).
   await page.evaluate(() => {
-    window.location.hash = "#/agents";
+    window.location.hash = "#/agents?connected=claude-code";
   });
-  await page
-    .locator("[data-runtime-connection-key]")
-    .first()
-    .click({ timeout: 20_000 });
-  const runtimeCard = page.locator('[data-luca-runtime-card="open"]');
-  await expect(runtimeCard).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("connected-app-card")).toBeVisible({
+    timeout: 20_000,
+  });
   await page.waitForTimeout(900);
   const bottoms = await page.evaluate(() => ({
-    runtime: document
-      .querySelector('[data-luca-runtime-card="open"]')
+    one: document.querySelector("[data-luca-one-card]")?.getBoundingClientRect()
+      .bottom,
+    connected: document
+      .querySelector('[data-testid="connected-app-card"]')
+      ?.closest("[data-luca-floor-host]")
       ?.getBoundingClientRect().bottom,
     rail: document
       .querySelector('[data-frame] > [data-testid="app-sidebar"]')
       ?.getBoundingClientRect().bottom,
     band: document.querySelector(".luca-huddle-band")?.getBoundingClientRect()
       .top,
+    column: document.querySelectorAll("[data-luca-runtime-card]").length,
   }));
-  expect(Math.round(bottoms.runtime ?? 0)).toBe(Math.round(bottoms.rail ?? -1));
-  expect(Math.round((bottoms.band ?? 0) - (bottoms.runtime ?? 0))).toBe(6);
+  expect(bottoms.column).toBe(0);
+  expect(Math.round(bottoms.one ?? 0)).toBe(Math.round(bottoms.rail ?? -1));
+  // It lies on the one card (its host keeps the plane's point of room).
+  expect(bottoms.connected ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(
+    bottoms.one ?? 0,
+  );
+  expect(bottoms.connected ?? 0).toBeGreaterThan((bottoms.one ?? 0) - 2);
+  expect(Math.round((bottoms.band ?? 0) - (bottoms.one ?? 0))).toBe(6);
 });

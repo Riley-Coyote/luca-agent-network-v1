@@ -160,7 +160,10 @@ async function boot(
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
   });
-  await page.goto("/?e2e=mock#/pulse");
+  // Boot on a conversation, so the rail is Chats' (/pulse is Activity's
+  // place now: NAVIGATION.md). Alice's 1:1 stays in the scene; the bare
+  // /#/ route keeps Back clean.
+  await page.goto("/#/channels/f48efb06-0c93-5025-aac9-2e646bb6bfa8");
   // Generous: on a busy machine the first boot can take a while.
   await expect(page.getByTestId("app-sidebar")).toBeVisible({
     timeout: 20_000,
@@ -174,7 +177,7 @@ async function boot(
 }
 
 /** The study's scene (as the rail's spec seeds it): Luca, agents with
- *  sessions, projects with rooms, fleets. */
+ *  sessions, projects with rooms, rooms (Fleets retired). */
 async function seedScene(page: Page) {
   await page.evaluate(
     async ({ ids, luca, atlas, wren }) => {
@@ -501,11 +504,11 @@ async function studyMarks(browser: Browser) {
   await shot(page, "study-marks", { x: 0, y: 0, width: 300, height: 320 });
   // The study's own motion, for the same moves.
   const placeTrace = await trace(page, {
-    click: '[data-place="brain"]',
+    click: '[data-place="library"]',
     marks: ".shell-marks > .shell-mark",
     ms: 1200,
   });
-  const brain = (await marksOf(page, ".shell-marks > .shell-mark"))[0];
+  const library = (await marksOf(page, ".shell-marks > .shell-mark"))[0];
   await page.click('[data-place="conversations"]');
   await pauseClock(page);
   await page.clock.runFor(6000);
@@ -529,7 +532,7 @@ async function studyMarks(browser: Browser) {
     placeStyle,
     rowStyle,
     pixels,
-    placeMotion: motionOf(placeTrace, place, brain),
+    placeMotion: motionOf(placeTrace, place, library),
     railMotion: motionOf(railTrace, row, farRow),
   };
 }
@@ -645,18 +648,19 @@ test.describe("the solid marks, under the frame", () => {
     await page.mouse.move(1400, 880);
     await marksAtRest(page);
 
-    // Places: Conversations to Brain, four tiles down.
-    await page.hover('[data-testid="open-brain-setup"]');
+    // Places: Chats to Library, three tiles down: the farthest move inside
+    // the column's middle group (NAVIGATION.md's six places; Brain left).
+    await page.hover('[data-testid="open-artifacts-view"]');
     await page.mouse.move(1400, 880);
     await page.waitForTimeout(400);
     const placeFrom = (await marksOf(page, PLACES_MARK))[0];
     const placeTrace = await trace(page, {
-      click: '[data-testid="open-brain-setup"]',
+      click: '[data-testid="open-artifacts-view"]',
       marks: PLACES_MARK,
       ms: 1200,
     });
-    const brainTile = await box(page, '[data-testid="open-brain-setup"]');
-    const places = motionOf(placeTrace, placeFrom, brainTile as Box);
+    const libraryTile = await box(page, '[data-testid="open-artifacts-view"]');
+    const places = motionOf(placeTrace, placeFrom, libraryTile as Box);
 
     // The rail: Luca, at the top, to the last home, at the bottom.
     await page.click('[data-testid="shell-place-conversations"]');
@@ -685,7 +689,7 @@ test.describe("the solid marks, under the frame", () => {
       (ours.max_stretch > 0.5 * theirs.max_stretch &&
         ours.max_stretch < 1.6 * theirs.max_stretch + 4);
     checks.motion_trace = {
-      places: { ...places, from: placeFrom, to: brainTile },
+      places: { ...places, from: placeFrom, to: libraryTile },
       rail: { ...rail, from: railFrom, to: farRow, home: lastHome },
       study_places: studyPlaces ?? "study not reachable: not compared",
       study_rail: studyRail ?? "study not reachable: not compared",
@@ -809,15 +813,15 @@ test.describe("the solid marks, under the frame", () => {
     await page.click(homeHit("luca"));
     await page.mouse.move(1400, 880);
     await marksAtRest(page);
-    await page.hover('[data-testid="open-brain-setup"]');
+    await page.hover('[data-testid="open-artifacts-view"]');
     await page.mouse.move(1400, 880);
     await page.waitForTimeout(300);
     const placeTrace = await trace(page, {
-      click: '[data-testid="open-brain-setup"]',
+      click: '[data-testid="open-artifacts-view"]',
       marks: PLACES_MARK,
       ms: 400,
     });
-    const brainTile = await box(page, '[data-testid="open-brain-setup"]');
+    const libraryTile = await box(page, '[data-testid="open-artifacts-view"]');
     const placeShapes = new Set(
       placeTrace
         .map((s) => s.marks[0])
@@ -872,7 +876,7 @@ test.describe("the solid marks, under the frame", () => {
       reopened_box: reopenedAt?.marks[0] ?? null,
       ok:
         placeShapes.size <= 2 &&
-        sameBox(placeAt, brainTile) &&
+        sameBox(placeAt, libraryTile) &&
         railShapes.size <= 2 &&
         sameBox(railTrace.at(-1)?.marks[0], farRow) &&
         closing.slice(2).every((s) => s.marks.length === 0) &&

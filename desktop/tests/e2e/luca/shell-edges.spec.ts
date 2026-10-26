@@ -172,7 +172,10 @@ async function openApp(page: Page, options: OpenOptions = {}) {
   );
   await options.before?.(page);
   await installMockBridge(page, options.bridge, options.bridgeFlags);
-  await page.goto(`${origin}/?e2e=mock${route}`);
+  // No query of the page's own: with one, the hash router glues it onto the
+  // last value on Back (WP-10's finding), which the app's window never has.
+  // The fixture alone turns the mock bridge on.
+  await page.goto(`${origin}/${route}`);
   if (!waitForShell) return;
   // Generous: on a busy machine the first boot can take a while.
   await expect(
@@ -417,8 +420,10 @@ test("the companion's halo is concentric and its badge stands below the lip, on 
 // ── 2. the Canvas in focus ───────────────────────────────────────────
 
 async function openCanvas(page: Page) {
+  // Under the frame the Library card lists the place page's flat rows
+  // (WP-10); with it off, today's library rows.
   const opener = page
-    .locator(".artifact-library-row__main")
+    .locator(".luca-place-row-open, .artifact-library-row__main")
     .filter({ hasText: "threshold-study.html" });
   await expect(opener).toBeVisible({ timeout: 20_000 });
   await opener.click();
@@ -550,21 +555,29 @@ test("the content's drift follows the places' order", async ({ page }) => {
     timeout: 20_000,
   });
   await traceDrift(page);
+  // The six places (NAVIGATION.md, 2026-10-25): Chats (with New
+  // conversation in it), Agents, Activity, Library, then Settings. New
+  // conversation and Brain left the column, so New conversation is reached
+  // by its key (⌘N), from Agents below it.
   const steps: Array<[string, string, string]> = [
-    // [place, its route, the drift expected moving to it]
-    ["open-new-conversation", "/messages/new", "up"],
-    ["open-artifacts-view", "/artifacts", "down"],
-    ["open-agents-view", "/agents", "down"],
+    // [place (or "key:" and its key), its route, the drift expected]
+    ["open-agents-view", "/agents", "up"],
     ["open-activity-view", "/pulse", "down"],
-    ["open-brain-setup", "/brain", "down"],
+    ["open-artifacts-view", "/artifacts", "down"],
     ["open-settings-view", "/settings", "down"],
     ["open-activity-view", "/pulse", "up"],
-    ["open-artifacts-view", "/artifacts", "up"],
+    ["open-agents-view", "/agents", "up"],
+    ["key:ControlOrMeta+n", "/messages/new", "up"],
+    ["open-artifacts-view", "/artifacts", "down"],
   ];
   const seen: Array<{ to: string; motion: string | null; drift?: string }> = [];
   for (const [place, route] of steps) {
     const before = (await driftTrace(page)).length;
-    await page.getByTestId(place).click();
+    if (place.startsWith("key:")) {
+      await page.keyboard.press(place.slice(4));
+    } else {
+      await page.getByTestId(place).click();
+    }
     await expect
       .poll(() => page.evaluate(() => location.hash), { timeout: 20_000 })
       .toContain(route);
@@ -942,9 +955,12 @@ async function tooltips(page: Page) {
           ?.getAttribute("title") ?? null,
     ),
   );
+  // The places that have keys are Search and Settings (NAVIGATION.md,
+  // 2026-10-25). New conversation left the column for the Chats rail's +,
+  // which names its key in its title.
   const places: string[] = [];
   for (const [id, label] of [
-    ["open-new-conversation", "New conversation"],
+    ["shell-place-search", "Search"],
     ["open-settings-view", "Settings"],
   ]) {
     const tip = page.getByRole("tooltip").filter({ hasText: label }).first();
@@ -957,7 +973,13 @@ async function tooltips(page: Page) {
     }).toPass({ timeout: 15_000 });
     places.push((await tip.innerText()).replace(/\s+/g, " ").trim());
   }
-  return { lip: titles, places };
+  const newConversation = (
+    (await page.getByTestId("rail-new-conversation").getAttribute("title")) ??
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  return { lip: titles, places, newConversation };
 }
 
 /** A full screen the page can be told about: `is_fullscreen` answers what
@@ -1071,6 +1093,7 @@ test("without native lights the toggle heads the places' column and the tooltips
         rail: "(⌘S)",
         back: "Go back (⌘[)",
         forward: "Go forward (⌘])",
+        search: "Search ⌘K",
         newConversation: "New conversation ⌘N",
         settings: "Settings ⌘,",
         avatar: "⌘,",
@@ -1089,6 +1112,7 @@ test("without native lights the toggle heads the places' column and the tooltips
         rail: "(Ctrl+S)",
         back: "Go back (Alt+←)",
         forward: "Go forward (Alt+→)",
+        search: "Search Ctrl+K",
         newConversation: "New conversation Ctrl+N",
         settings: "Settings Ctrl+,",
         avatar: "Ctrl+,",
@@ -1128,7 +1152,8 @@ test("without native lights the toggle heads the places' column and the tooltips
       tips.lip[0]?.endsWith(run.expect.rail) === true &&
       tips.lip[1] === run.expect.back &&
       tips.lip[2] === run.expect.forward &&
-      tips.places[0] === run.expect.newConversation &&
+      tips.places[0] === run.expect.search &&
+      tips.newConversation === run.expect.newConversation &&
       tips.places[1] === run.expect.settings &&
       avatar === run.expect.avatar;
     const ok =
@@ -1197,7 +1222,8 @@ test("with the Mac's lights the toggle sits past them, and in full screen where 
     tips.lip[0]?.endsWith("(⌘S)") === true &&
     tips.lip[1] === "Go back (⌘[)" &&
     tips.lip[2] === "Go forward (⌘])" &&
-    tips.places[0] === "New conversation ⌘N" &&
+    tips.places[0] === "Search ⌘K" &&
+    tips.newConversation === "New conversation ⌘N" &&
     tips.places[1] === "Settings ⌘,";
   checks.tooltips_native_mac_window = {
     platform,
@@ -1272,7 +1298,23 @@ async function sampleMark(page: Page, act: () => Promise<void>, frames = 40) {
 }
 
 async function firstMarkTrace(page: Page, origin: string) {
-  await openApp(page, { origin, route: "#/workflows" });
+  // A page with no place: workflows are Chats' now (SHELL_BUILD.md WP-10,
+  // Decided 2), and the Inbox, with its flag on, is the one view that
+  // belongs to no place (ShellPlaces.tsx, placeOfView).
+  await openApp(page, {
+    origin,
+    route: "#/inbox",
+    before: async (p) => {
+      await p.addInitScript((key) => {
+        const raw = window.localStorage.getItem(key);
+        const overrides = raw
+          ? (JSON.parse(raw) as Record<string, boolean>)
+          : {};
+        overrides.inbox = true;
+        window.localStorage.setItem(key, JSON.stringify(overrides));
+      }, FEATURE_OVERRIDES_STORAGE_KEY);
+    },
+  });
   await page.waitForTimeout(1_500);
   const before = await page.locator(PLACES_MARK).count();
   const samples = await sampleMark(page, () =>
@@ -1414,7 +1456,7 @@ test("the first mark after the page appears swells from a point", async ({
   await railContext.close();
 
   checks.first_mark_swells = {
-    page: "#/workflows (no place) → Agents",
+    page: "#/inbox, its flag on (no place) → Agents",
     ours: trace,
     // The base build at SHELL_BASE_URL predates the frame, so the before is
     // the marks' unit test (firstMarkAfterAPageWithout_swellsFromAPoint),

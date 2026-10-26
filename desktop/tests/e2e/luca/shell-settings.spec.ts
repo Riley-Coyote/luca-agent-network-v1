@@ -182,10 +182,10 @@ async function openGeneral(page: Page) {
   // Opened by its route, from Settings too: the shell's rail groups chats by
   // home (WP-02). Retried, because a fresh page's own first redirect can land
   // after the route is set.
-  // The app has booted: the rail's rows, or Settings (where the rail is not
-  // mounted).
+  // The app has booted: the Chats rail's rows, another place's rail (each
+  // place has its own: WP-10), or Settings (where the rail is not mounted).
   await page.waitForSelector(
-    '[data-testid="app-sidebar"] [data-channel-id], [data-testid="settings-view"]',
+    '[data-testid="app-sidebar"] :is([data-channel-id], [data-place-rail]), [data-testid="settings-view"]',
     { timeout: 20_000 },
   );
   await expect(async () => {
@@ -296,7 +296,8 @@ test("Settings in the frame", async ({ page }, info) => {
       lip?.h === 36 &&
       lip.w === W &&
       places?.w === 44 &&
-      iconCentres.length >= 8 &&
+      // Six places and the avatar (NAVIGATION.md, 2026-10-25).
+      iconCentres.length === 7 &&
       iconCentres.every((cx) => cx === 22) &&
       current.join(",") === "open-settings-view" &&
       // No native lights in a browser: the toggle on the places' axis, its
@@ -1208,7 +1209,32 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
   await page.getByTestId("settings-nav-appearance").click();
   await expect(page.getByTestId("settings-panel-appearance")).toBeVisible();
   await clickEmptyFrame(page);
-  const restingShadow = await page
+  // The lit top is the sliding mark's now (WP-09a: Settings' list wears the
+  // rail's mark), not the row's: read the mark once it has come to rest and
+  // dried (marks.ts), at rest and with its row focused.
+  const MARK = '[data-testid="shell-settings-marks"] > .luca-mark:last-child';
+  const markShadow = async () => {
+    await expect
+      .poll(
+        () =>
+          page.evaluate(
+            (selector) =>
+              document
+                .querySelector<HTMLElement>(selector)
+                ?.style.getPropertyValue("--wet") ?? null,
+            MARK,
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe("0.000");
+    return page.evaluate(
+      (selector) =>
+        getComputedStyle(document.querySelector(selector) as Element).boxShadow,
+      MARK,
+    );
+  };
+  const restingShadow = await markShadow();
+  const restingRowShadow = await page
     .getByTestId("settings-nav-appearance")
     .evaluate((element) => getComputedStyle(element).boxShadow);
   // From the keyboard: down to Notifications, up to Appearance.
@@ -1226,6 +1252,7 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
         : null,
     };
   });
+  const focusedMarkShadow = await markShadow();
   await page.mouse.move(1439, 899);
   const rowShot = path.join(dir, "wp05b-current-row-focused.png");
   await settle(page);
@@ -1240,13 +1267,18 @@ test("Settings and the Frame row, finished (WP-05b)", async ({
   files.push(rowShot);
   checks.focus_lit_top = {
     resting_shadow: restingShadow,
+    resting_row_shadow: restingRowShadow,
+    focused_mark_shadow: focusedMarkShadow,
     focused: focusedRow,
     ok:
       focusedRow.testid === "settings-nav-appearance" &&
       focusedRow.current === "page" &&
       focusedRow.focus_visible &&
-      /inset/.test(focusedRow.shadow ?? "") &&
-      focusedRow.shadow === restingShadow &&
+      /inset/.test(restingShadow) &&
+      focusedMarkShadow === restingShadow &&
+      // The row draws no plate or edge of its own beneath the mark.
+      restingRowShadow === "none" &&
+      focusedRow.shadow === "none" &&
       focusedRow.outline === "solid 1px",
   };
   await clickEmptyFrame(page);
