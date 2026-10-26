@@ -1,6 +1,11 @@
 import { ArrowUpRight } from "lucide-react";
 import * as React from "react";
 
+import {
+  mindStateLabel,
+  useMindState,
+} from "@/features/agents/lib/useMindState";
+import { managedAgentSummary } from "@/features/agents/ui/agentLibraryViewModel";
 import { ResidentModelMenu } from "@/features/agents/ui/ResidentModelMenu";
 import { useResidentModelChoice } from "@/features/agents/ui/useResidentModelChoice";
 import {
@@ -15,6 +20,7 @@ import {
 import { AgentIdentitySpecimen } from "@/shared/ui/AgentIdentitySpecimen";
 import type { ResidentDrawerPresentation } from "@/features/channels/ui/residentDrawerPresentation";
 import { savedHandoffPresentation } from "@/features/profile/ui/continuityPresentation";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 
 /**
  * The right drawer of a direct conversation with a resident: the resident,
@@ -46,6 +52,16 @@ export function ResidentDrawer({
   presentation: ResidentDrawerPresentation;
 }) {
   const model = useResidentModelChoice(agent);
+  // Under the shell, the card says the mind's one state, the word the Agents
+  // rail, their head, Now and Settings > Agents say (SHELL_BUILD.md WP-27,
+  // Decided 3): "Off" for a stopped mind, not this conversation's reading.
+  const shellFrame = useShellFrameEnabled();
+  const mindWord = useMindState(agent.pubkey, {
+    availability: managedAgentSummary(agent).availability,
+    lastError: agent.lastError,
+    waking: Boolean(agent.waking),
+  });
+  const stateLabel = shellFrame ? mindStateLabel(mindWord) : presentation.label;
   const role =
     agent.personaId === CANONICAL_LUCA_PERSONA_ID
       ? LUCA_INTRO_ROLE
@@ -96,7 +112,7 @@ export function ResidentDrawer({
             className="mt-1 flex items-center gap-2 text-2xs text-muted-foreground"
             data-testid="resident-drawer-state"
           >
-            <span className="text-ink-muted">{presentation.label}</span>
+            <span className="text-ink-muted">{stateLabel}</span>
             {model.runtimeLabel ? (
               <>
                 <span aria-hidden className="text-ink-ghost">

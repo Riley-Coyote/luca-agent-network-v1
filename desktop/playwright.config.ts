@@ -42,6 +42,7 @@ export default defineConfig({
         "**/shell-first-screen-asks.spec.ts",
         "**/shell-settings-agents.spec.ts",
         "**/shell-room-asks.spec.ts",
+        "**/shell-room-flows.spec.ts",
         "**/luca/shell-status.spec.ts",
         "**/onboarding-docked-cta-screenshots.spec.ts",
         "**/identity-key-help.spec.ts",
