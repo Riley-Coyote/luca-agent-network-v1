@@ -92,6 +92,21 @@ export function documentKindMeta(
   return META[kind];
 }
 
+/**
+ * A document's name in a mind's Self tab (SHELL_BUILD.md WP-13, Decided 4):
+ * the self-model is who they're becoming, the user model what they know
+ * about you, by your name when you have one.
+ */
+export function spaceDocumentLabel(
+  kind: ResidentDocumentKind,
+  ownerName: string | null | undefined,
+): string {
+  if (kind === "selfModel") return "Who I'm becoming";
+  if (kind === "userModel")
+    return `What I know about ${ownerName?.trim() || "you"}`;
+  return META[kind].label;
+}
+
 /** "You write this" / "Luca writes this" — who holds the pen. */
 export function documentWriterLabel(
   writer: ResidentDocumentWriter,

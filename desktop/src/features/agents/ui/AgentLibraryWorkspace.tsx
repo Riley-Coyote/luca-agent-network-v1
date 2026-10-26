@@ -43,6 +43,7 @@ import {
   type ResidentSummaryViewModel,
 } from "./agentLibraryViewModel";
 import { ManagedAgentLogPanel } from "./ManagedAgentLogPanel";
+import { MindSettings } from "@/features/agents/space/MindSettings";
 import { ResidentModelMenu } from "./ResidentModelMenu";
 import { CharacterAppearancePicker } from "./CharacterAppearancePicker";
 
@@ -403,7 +404,7 @@ function WorkspaceTab({
   );
 }
 
-function LogsSheet({
+export function LogsSheet({
   agent,
   onOpenChange,
   open,
@@ -503,23 +504,37 @@ function NotebookSection({
   );
 }
 
-function SettingsSection({
+export function SettingsSection({
   channels,
+  focusRead = false,
+  isActionPending = false,
+  layout = "page",
   managedAgent,
   onEdit,
   onOpenChannel,
+  onOpenLogs,
+  onReadFocused,
   onRestart,
   onStart,
+  onStop,
   onToggleStartOnLaunch,
   persona,
   resident,
 }: {
   channels: Array<{ id: string; name: string }>;
+  /** `space`: open at What they can read. */
+  focusRead?: boolean;
+  isActionPending?: boolean;
+  /** `space`: a mind's Settings tab (WP-13, Decided 5). */
+  layout?: "page" | "space";
   managedAgent: ManagedAgent | null;
   onEdit: () => void;
   onOpenChannel: (channelId: string) => void;
+  onOpenLogs?: () => void;
+  onReadFocused?: () => void;
   onRestart: () => void;
   onStart: () => void;
+  onStop?: () => void;
   onToggleStartOnLaunch: (enabled: boolean) => void;
   persona: AgentPersona | null;
   resident: ResidentSummaryViewModel;
@@ -527,6 +542,26 @@ function SettingsSection({
   const autoRestart = useSetManagedAgentAutoRestartMutation();
   const nativeBinding = managedAgent?.nativeRuntimeBinding;
   const workspace = nativeBinding?.defaultWorkspace;
+  if (layout === "space") {
+    return (
+      <MindSettings
+        channels={channels}
+        focusRead={focusRead}
+        isActionPending={isActionPending}
+        managedAgent={managedAgent}
+        onEdit={onEdit}
+        onOpenChannel={onOpenChannel}
+        onOpenLogs={onOpenLogs}
+        onReadFocused={onReadFocused}
+        onRestart={onRestart}
+        onStart={onStart}
+        onStop={onStop}
+        onToggleStartOnLaunch={onToggleStartOnLaunch}
+        persona={persona}
+        resident={resident}
+      />
+    );
+  }
 
   return (
     <div
@@ -736,7 +771,7 @@ function SettingsSection({
   );
 }
 
-function CompanionSettingsSection({
+export function CompanionSettingsSection({
   residentPubkey,
 }: {
   residentPubkey: string;
@@ -775,7 +810,7 @@ function CompanionSettingsSection({
   );
 }
 
-function LedgerSection({
+export function LedgerSection({
   children,
   className,
   eyebrow,
@@ -804,7 +839,7 @@ function LedgerSection({
   );
 }
 
-function LedgerRow({
+export function LedgerRow({
   danger = false,
   icon: Icon,
   label,

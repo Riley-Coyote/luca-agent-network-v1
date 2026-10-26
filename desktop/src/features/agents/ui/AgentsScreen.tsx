@@ -4,6 +4,10 @@ import type { AgentLibrarySection } from "@/features/agents/ui/AgentLibraryWorks
 import { useRouter } from "@tanstack/react-router";
 
 import { useKeepPickInAddress } from "@/app/shell/placeRails/usePlaceRails";
+import {
+  mindSectionOf,
+  type MindSection,
+} from "@/features/agents/space/mindSection";
 import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { useHistorySearchState } from "@/shared/hooks/useHistorySearchState";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
@@ -15,6 +19,7 @@ const AgentsView = React.lazy(async () => {
 
 const AGENT_LIBRARY_SEARCH_KEYS = [
   "add",
+  "at",
   "connected",
   "group",
   "profile",
@@ -61,12 +66,38 @@ export function AgentsScreen() {
   );
   const section = sectionFromSearch(currentLocationSection, values.profileTab);
   const shellFrame = useShellFrameEnabled();
+  // Under the shell a mind's space has three tabs (WP-13, Decided 2), the
+  // tab in the address; today's values read onto them.
+  const mindSection = mindSectionOf(
+    currentLocationSection ??
+      (values.profileTab === "continuity" || values.profileTab === "memories"
+        ? "notebook"
+        : values.profileTab === "runtime"
+          ? "settings"
+          : null),
+  );
+  const changeMindSection = React.useCallback(
+    (next: MindSection) => {
+      applyPatch({
+        at: null,
+        profileTab: null,
+        profileView: null,
+        section: next,
+      });
+    },
+    [applyPatch],
+  );
+  const consumeRead = React.useCallback(
+    () => applyPatch({ at: null }, { replace: true }),
+    [applyPatch],
+  );
 
   const selectResident = React.useCallback(
     (pubkey: string) => {
       const reselectingCurrentResident =
         values.profile?.toLowerCase() === pubkey.toLowerCase();
       applyPatch({
+        at: null,
         profile: pubkey,
         profilePersona: null,
         profileTab: null,
@@ -131,7 +162,11 @@ export function AgentsScreen() {
           }
           connectedKey={shellFrame ? values.connected : null}
           groupId={shellFrame ? values.group : null}
+          focusRead={shellFrame && values.at === "read"}
+          mindSection={mindSection}
           onAddConsumed={consumeAdd}
+          onMindSectionChange={changeMindSection}
+          onReadFocused={consumeRead}
           onClearSelection={clearSelection}
           onReviewNativeConsumed={() => applyPatch({ review: null })}
           onSectionChange={changeSection}

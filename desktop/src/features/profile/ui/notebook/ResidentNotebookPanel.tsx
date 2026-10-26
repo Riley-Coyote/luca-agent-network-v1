@@ -565,7 +565,7 @@ function NotebookTab({
   );
 }
 
-function JournalJobStrip({
+export function JournalJobStrip({
   job,
   onCancel,
   onRetry,
@@ -616,7 +616,7 @@ function JournalJobStrip({
   );
 }
 
-function NewJournalPageForm({
+export function NewJournalPageForm({
   busy,
   onCancel,
   onCreate,

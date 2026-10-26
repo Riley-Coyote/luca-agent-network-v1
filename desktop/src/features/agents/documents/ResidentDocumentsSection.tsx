@@ -8,10 +8,12 @@ import {
   formatDocumentBytes,
   formatDocumentStatus,
   formatRelativeAge,
+  spaceDocumentLabel,
   validateExtraFilePath,
 } from "@/features/agents/documents/documentKinds";
 import { ResidentDocumentEditor } from "@/features/agents/documents/ResidentDocumentEditor";
 import { useResidentDocumentsQuery } from "@/features/agents/documents/useResidentDocuments";
+import { useProfileQuery } from "@/features/profile/hooks";
 import type {
   ResidentDocumentEntry,
   ResidentDocumentTarget,
@@ -30,12 +32,17 @@ export function ResidentDocumentsSection({
   agent,
   onRestart,
   residentName,
+  variant = "page",
 }: {
   agent: ManagedAgent;
   onRestart: () => void;
   residentName: string;
+  /** `space`: a mind's Self tab (WP-13): the same rows, named as the
+   *  space names them, each saying who writes it. */
+  variant?: "page" | "space";
 }) {
   const documents = useResidentDocumentsQuery(agent.pubkey);
+  const ownerName = useProfileQuery(variant === "space").data?.displayName;
   const [selected, setSelected] = React.useState<ResidentDocumentTarget | null>(
     null,
   );
@@ -103,80 +110,140 @@ export function ResidentDocumentsSection({
         </p>
       ) : null}
 
-      <ul className="divide-y divide-border/45 border-y border-border/55">
-        {RESIDENT_DOCUMENT_KINDS.map((kind) => {
-          const meta = documentKindMeta(kind);
-          const entry = byKind.get(kind) ?? null;
-          const exists = entry?.exists ?? false;
-          if (isNative && documents.data && !entry) {
-            return (
-              <li
-                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 py-4"
-                data-testid={`resident-document-${kind}`}
-                key={kind}
-              >
-                <span className="text-base leading-6 text-ink-faint">
-                  {meta.label}
-                </span>
-                <span
-                  className="whitespace-nowrap text-2xs text-ink-faint"
-                  data-testid={`resident-document-${kind}-status`}
+      {variant === "space" ? (
+        <ul className="luca-mind-list" data-testid="mind-self">
+          {RESIDENT_DOCUMENT_KINDS.map((kind) => {
+            const meta = documentKindMeta(kind);
+            const entry = byKind.get(kind) ?? null;
+            const label = spaceDocumentLabel(kind, ownerName);
+            if (isNative && documents.data && !entry) {
+              return (
+                <li
+                  data-quiet="true"
+                  data-testid={`resident-document-${kind}`}
+                  key={kind}
                 >
-                  Not part of {runtimeName}
-                </span>
-                <span className="col-span-2 text-sm leading-5 text-ink-faint">
-                  {meta.blurb}
-                </span>
+                  <div>
+                    <p className="luca-mind-title">{label}</p>
+                    <p className="luca-mind-excerpt">{meta.blurb}</p>
+                  </div>
+                  <span className="luca-mind-writer">
+                    Not part of {runtimeName}
+                  </span>
+                  <span />
+                </li>
+              );
+            }
+            return (
+              <li key={kind}>
+                <button
+                  className="luca-mind-row-open"
+                  data-testid={`resident-document-${kind}`}
+                  onClick={() => setSelected({ kind })}
+                  type="button"
+                >
+                  <span>
+                    <span className="luca-mind-title">{label}</span>
+                    <span className="luca-mind-excerpt">{meta.blurb}</span>
+                  </span>
+                  <span
+                    className="luca-mind-writer"
+                    data-testid={`resident-document-${kind}-writer`}
+                  >
+                    {documentWriterLabel(meta.writer, residentName)}
+                  </span>
+                  <time data-testid={`resident-document-${kind}-status`}>
+                    {entry?.exists
+                      ? entry.modifiedAt == null
+                        ? formatDocumentBytes(entry.bytes)
+                        : `Edited ${formatRelativeAge(entry.modifiedAt * 1000, Date.now())}`
+                      : documents.isPending
+                        ? "…"
+                        : "Not written yet"}
+                  </time>
+                </button>
               </li>
             );
-          }
-          return (
-            <li key={kind}>
-              <button
-                className={cn(
-                  "group grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 py-4 text-left transition-colors",
-                  "hover:bg-foreground/[0.025] focus-visible:bg-foreground/[0.035] focus-visible:outline-hidden",
-                  "-mx-3 w-[calc(100%+1.5rem)] rounded-md px-3",
-                )}
-                data-testid={`resident-document-${kind}`}
-                onClick={() => setSelected({ kind })}
-                type="button"
-              >
-                <span className="flex min-w-0 items-baseline gap-3">
-                  <span
-                    className={cn(
-                      "text-base leading-6",
-                      exists ? "text-foreground" : "text-ink-muted",
-                    )}
-                  >
+          })}
+        </ul>
+      ) : (
+        <ul className="divide-y divide-border/45 border-y border-border/55">
+          {RESIDENT_DOCUMENT_KINDS.map((kind) => {
+            const meta = documentKindMeta(kind);
+            const entry = byKind.get(kind) ?? null;
+            const exists = entry?.exists ?? false;
+            if (isNative && documents.data && !entry) {
+              return (
+                <li
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 py-4"
+                  data-testid={`resident-document-${kind}`}
+                  key={kind}
+                >
+                  <span className="text-base leading-6 text-ink-faint">
                     {meta.label}
                   </span>
-                  <span className="hidden font-mono text-2xs text-ink-faint sm:inline">
-                    {entry?.fileName ?? meta.fileName}
+                  <span
+                    className="whitespace-nowrap text-2xs text-ink-faint"
+                    data-testid={`resident-document-${kind}-status`}
+                  >
+                    Not part of {runtimeName}
                   </span>
-                </span>
-                <span
-                  className="whitespace-nowrap text-2xs tabular-nums text-muted-foreground"
-                  data-testid={`resident-document-${kind}-status`}
+                  <span className="col-span-2 text-sm leading-5 text-ink-faint">
+                    {meta.blurb}
+                  </span>
+                </li>
+              );
+            }
+            return (
+              <li key={kind}>
+                <button
+                  className={cn(
+                    "group grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-6 gap-y-1 py-4 text-left transition-colors",
+                    "hover:bg-foreground/[0.025] focus-visible:bg-foreground/[0.035] focus-visible:outline-hidden",
+                    "-mx-3 w-[calc(100%+1.5rem)] rounded-md px-3",
+                  )}
+                  data-testid={`resident-document-${kind}`}
+                  onClick={() => setSelected({ kind })}
+                  type="button"
                 >
-                  {entry
-                    ? formatDocumentStatus(entry)
-                    : documents.isPending
-                      ? "…"
-                      : "Not written yet"}
-                </span>
-                <span className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 text-sm leading-5 text-muted-foreground">
-                  <span>{documentWriterLabel(meta.writer, residentName)}</span>
-                  <span aria-hidden className="text-ink-ghost">
-                    ·
+                  <span className="flex min-w-0 items-baseline gap-3">
+                    <span
+                      className={cn(
+                        "text-base leading-6",
+                        exists ? "text-foreground" : "text-ink-muted",
+                      )}
+                    >
+                      {meta.label}
+                    </span>
+                    <span className="hidden font-mono text-2xs text-ink-faint sm:inline">
+                      {entry?.fileName ?? meta.fileName}
+                    </span>
                   </span>
-                  <span className="min-w-0 text-ink-faint">{meta.blurb}</span>
-                </span>
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                  <span
+                    className="whitespace-nowrap text-2xs tabular-nums text-muted-foreground"
+                    data-testid={`resident-document-${kind}-status`}
+                  >
+                    {entry
+                      ? formatDocumentStatus(entry)
+                      : documents.isPending
+                        ? "…"
+                        : "Not written yet"}
+                  </span>
+                  <span className="col-span-2 flex min-w-0 flex-wrap items-baseline gap-x-3 text-sm leading-5 text-muted-foreground">
+                    <span>
+                      {documentWriterLabel(meta.writer, residentName)}
+                    </span>
+                    <span aria-hidden className="text-ink-ghost">
+                      ·
+                    </span>
+                    <span className="min-w-0 text-ink-faint">{meta.blurb}</span>
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       <section className="mt-9" data-testid="resident-extra-files">
         <div className="flex items-baseline justify-between gap-4">

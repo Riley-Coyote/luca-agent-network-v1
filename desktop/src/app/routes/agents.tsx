@@ -20,7 +20,10 @@ type AgentsRouteSearch = {
   profileTab?: ProfilePanelTab;
   profileView?: ProfilePanelView;
   review?: "native";
-  section?: "place" | "documents" | "notebook" | "settings";
+  /** Under the shell: a mind's space opened at What they can read (`/brain`). */
+  at?: "read";
+  /** A mind's tab. Under the shell: notebook, self or settings (WP-13). */
+  section?: "place" | "documents" | "notebook" | "self" | "settings";
 };
 
 function nonEmptyString(value: unknown): string | undefined {
@@ -34,12 +37,14 @@ function validateAgentsSearch(
     search.section === "place" ||
     search.section === "documents" ||
     search.section === "notebook" ||
+    search.section === "self" ||
     search.section === "settings"
       ? search.section
       : undefined;
   return {
     add:
       search.add === "agent" || search.add === "group" ? search.add : undefined,
+    at: search.at === "read" ? "read" : undefined,
     connected: nonEmptyString(search.connected),
     group: nonEmptyString(search.group),
     profile: nonEmptyString(search.profile),

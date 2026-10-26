@@ -8,6 +8,7 @@ import {
   formatDocumentBytes,
   formatDocumentStatus,
   formatRelativeAge,
+  spaceDocumentLabel,
   validateExtraFilePath,
 } from "./documentKinds.ts";
 
@@ -96,4 +97,12 @@ test("extra file paths stay inside the folder and stay text", () => {
   assert.match(validateExtraFilePath("../soul.md"), /climb/);
   assert.match(validateExtraFilePath(".hidden.md"), /Hidden/);
   assert.match(validateExtraFilePath("script.sh"), /Text files only/);
+});
+
+test("a mind's Self names the self-model and the user model for you", () => {
+  assert.equal(spaceDocumentLabel("soul", "Sam"), "Soul");
+  assert.equal(spaceDocumentLabel("selfModel", "Sam"), "Who I'm becoming");
+  assert.equal(spaceDocumentLabel("userModel", "Sam"), "What I know about Sam");
+  assert.equal(spaceDocumentLabel("userModel", null), "What I know about you");
+  assert.equal(spaceDocumentLabel("instructions", null), "Instructions");
 });

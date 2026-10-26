@@ -507,7 +507,7 @@ export function ShellRail({
         <ContextMenuIconSlot>
           <BookOpen className="h-4 w-4" />
         </ContextMenuIconSlot>
-        Sources in Brain
+        Sources
       </ContextMenuItem>
     </>
   );
