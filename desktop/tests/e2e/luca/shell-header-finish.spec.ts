@@ -40,8 +40,14 @@ const PANE = (slot: string) => `[data-testid="workspace-pane-${slot}"]`;
 test.use({ deviceScaleFactor: 2 });
 test.describe.configure({ mode: "default" });
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-header-finish")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const dir = process.env.SHELL_SHOTS ?? fallback;
+  const dir = SHELL_SHOTS ?? fallback;
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -620,9 +626,12 @@ test("the header, finished, at 1440 × 900", async ({ page }, info) => {
     .getByTestId("shell-lip-toggle")
     .getAttribute("aria-label");
   await page.getByTestId("open-settings-view").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("Settings", {
-    timeout: 20_000,
-  });
+  // The lip names the section, not "Settings" (WP-17, Decided 2); Settings
+  // opens on Profile & identity (WP-17, Decided 1).
+  await expect(page.getByTestId("shell-lip-name")).toHaveText(
+    "Profile & identity",
+    { timeout: 20_000 },
+  );
   const toggle = page.getByTestId("shell-lip-toggle");
   const openWords = await toggle.getAttribute("aria-label");
   await toggle.focus();
@@ -750,9 +759,11 @@ test("the header, finished, at 800 × 500", async ({ page }, info) => {
   await page.mouse.move(600, 400);
   await shot(page, dir, "800-05-presence", lipClip);
   await page.getByTestId("open-settings-view").click();
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("Settings", {
-    timeout: 20_000,
-  });
+  // The lip names the section (WP-17, Decided 1 and 2).
+  await expect(page.getByTestId("shell-lip-name")).toHaveText(
+    "Profile & identity",
+    { timeout: 20_000 },
+  );
   small.settings_toggle = await page
     .getByTestId("shell-lip-toggle")
     .getAttribute("aria-label");

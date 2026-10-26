@@ -22,7 +22,13 @@ import { installHuddleStage } from "./shell-huddle-stage";
  * flag-off hashes (default http://127.0.0.1:4300).
  */
 
-const SHOTS = process.env.SHELL_SHOTS ?? "test-results/shell-finish";
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-finish")
+  : undefined;
+
+const SHOTS = SHELL_SHOTS ?? "test-results/shell-finish";
 const BASE_URL = process.env.SHELL_BASE_URL ?? "http://127.0.0.1:4300";
 const GENERAL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 /** "design": an open channel the mock identity is not a member of. */
@@ -393,8 +399,13 @@ test("the lip: Join's fade, Details open, an empty pane, a group's initials", as
     h: 300,
   });
   await page.keyboard.press("Escape");
+  // The menu is closed before it opens again: under load a click that lands
+  // while it is still closing toggles it shut, and its item detaches (the
+  // final suite run, WP-28 row 19).
+  await expect(page.getByRole("menu")).toHaveCount(0);
   // Back to one pane: the lip names the conversation again, once.
   await page.locator(LAYOUT_MENU).click();
+  await expect(page.getByTestId("workspace-preset-single")).toBeVisible();
   await page.getByTestId("workspace-preset-single").click();
   await expect(page.getByTestId("shell-lip-name")).toHaveText("general", {
     timeout: 10_000,

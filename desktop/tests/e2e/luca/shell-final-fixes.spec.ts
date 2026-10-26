@@ -146,9 +146,14 @@ const MINDS = {
 
 const checks: Record<string, unknown> = {};
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-final-fixes")
+  : undefined;
+
 function shotsDir() {
-  const dir =
-    process.env.SHELL_SHOTS ?? test.info().project.outputDir ?? "test-results";
+  const dir = SHELL_SHOTS ?? test.info().project.outputDir ?? "test-results";
   mkdirSync(dir, { recursive: true });
   return dir;
 }

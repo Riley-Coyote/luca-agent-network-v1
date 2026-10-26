@@ -42,8 +42,14 @@ type Box = { x: number; y: number; w: number; h: number };
 const checks: Record<string, unknown> = {};
 let dir = "";
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-runtime")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const out = process.env.SHELL_SHOTS ?? fallback;
+  const out = SHELL_SHOTS ?? fallback;
   mkdirSync(out, { recursive: true });
   return out;
 }
@@ -105,6 +111,15 @@ async function openApp(
     await page.goto(url);
     try {
       await expect(ready).toBeVisible({ timeout: 20000 });
+      // Without the frame the app lands on its first screen by a redirect
+      // that can come after the rail's rows show. A click before it lands
+      // gets a second history entry and New conversation's recipient list
+      // open; after it, neither. On every build, :4300 included (WP-28, row
+      // 8): wait for the first screen, so both builds are shot alike.
+      if (!frame)
+        await page.waitForFunction(() => location.hash.length > 2, null, {
+          timeout: 20000,
+        });
       return;
     } catch (error) {
       if (attempt === 1) throw error;

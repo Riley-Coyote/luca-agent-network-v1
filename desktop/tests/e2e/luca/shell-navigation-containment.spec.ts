@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 
+import { waitForAnimations } from "../../helpers/animations";
 import { installMockBridge } from "../../helpers/bridge";
 
 test("runtime sessions replace stale project and tool surfaces", async ({
@@ -37,6 +38,11 @@ test("auxiliary presentation follows the stable shell without oscillating", asyn
   await page.getByTestId("channel-general").click();
   await page.getByRole("button", { name: "Open conversation details" }).click();
   await expect(page.getByTestId("conversation-context-panel")).toBeVisible();
+  // The details card slides open (.luca-panel-frame's width transition, in
+  // the app since 1e72ef328 on 2026-09-05, after this spec): the
+  // conversation narrows once, 896 to 798 in about 200 ms, on the pre-shell
+  // build too. Sample once it has landed; oscillation is what this measures.
+  await waitForAnimations(page);
 
   const wideSamples = await page.evaluate(async () => {
     const widths: number[] = [];

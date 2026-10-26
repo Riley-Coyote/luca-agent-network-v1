@@ -20,7 +20,13 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * http://127.0.0.1:4300), for the flag-off hashes.
  */
 
-const SHOTS = process.env.SHELL_SHOTS ?? "test-results/shell-edges";
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-edges")
+  : undefined;
+
+const SHOTS = SHELL_SHOTS ?? "test-results/shell-edges";
 const BASE_URL = process.env.SHELL_BASE_URL ?? "http://127.0.0.1:4300";
 const GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const LUCA = TEST_IDENTITIES.bob.pubkey;

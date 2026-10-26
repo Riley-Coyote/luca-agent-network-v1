@@ -45,8 +45,14 @@ const ONE_CARD = "[data-luca-one-card]";
 const ROUTE_CARD =
   "[data-luca-floor-host] > [data-luca-conversation-surface]:not(:has([data-luca-workspace-floor]))";
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-light")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const dir = process.env.SHELL_SHOTS ?? fallback;
+  const dir = SHELL_SHOTS ?? fallback;
   mkdirSync(dir, { recursive: true });
   return dir;
 }

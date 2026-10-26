@@ -45,8 +45,14 @@ const BAND = '[data-testid="shell-huddle-band"]';
 // The bar itself, not the popovers that wear its class.
 const BAR = ".buzz-huddle-drawer.grid";
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-huddle")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const dir = process.env.SHELL_SHOTS ?? fallback;
+  const dir = SHELL_SHOTS ?? fallback;
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -473,7 +479,11 @@ test("the huddle bar in the frame", async ({ page }, info) => {
   // ── Settings: its cards end above the band too ─────────────────────
   await page.getByTestId("open-settings-view").click();
   await expect(
-    page.getByRole("heading", { name: "Profile", exact: true }),
+    // The section's title is "Profile & identity" (WP-17, Decided 1), on
+    // the page's head; the lip names it too (Decided 2).
+    page
+      .getByTestId("place-page-head")
+      .getByRole("heading", { name: "Profile & identity", exact: true }),
   ).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(700, 300);
   await page.waitForTimeout(700);

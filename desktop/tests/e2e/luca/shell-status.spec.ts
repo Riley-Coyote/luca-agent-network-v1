@@ -20,7 +20,13 @@ import { FEATURE_OVERRIDES_STORAGE_KEY } from "../../helpers/features";
  * build for the flag-off hashes (default http://127.0.0.1:4300).
  */
 
-const SHOTS = process.env.SHELL_SHOTS ?? "test-results/shell-status";
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-status")
+  : undefined;
+
+const SHOTS = SHELL_SHOTS ?? "test-results/shell-status";
 const BASE_URL = process.env.SHELL_BASE_URL ?? "http://127.0.0.1:4300";
 const CONNECT_ERROR = "relay unreachable: could not connect to relay";
 const AUTH_ERROR = "Relay authentication rejected.";
@@ -462,7 +468,11 @@ test("an available update is a dot on Settings while the rail is closed", async 
   // In Settings the rail's card holds the sections, so the dot still says it.
   await page.getByTestId("open-settings-view").click();
   await expect(
-    page.getByRole("heading", { name: "Profile", exact: true }),
+    // The section's title is "Profile & identity" (WP-17, Decided 1), on
+    // the page's head; the lip names it too (Decided 2).
+    page
+      .getByTestId("place-page-head")
+      .getByRole("heading", { name: "Profile & identity", exact: true }),
   ).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(1000, 500);
   checks.in_settings = await updateDot(page);
@@ -1125,7 +1135,11 @@ test("the review's fixes: focus, the dot, the motion, the grid, the scale", asyn
   }
   await page.getByTestId("open-settings-view").click();
   await expect(
-    page.getByRole("heading", { name: "Profile", exact: true }),
+    // The section's title is "Profile & identity" (WP-17, Decided 1), on
+    // the page's head; the lip names it too (Decided 2).
+    page
+      .getByTestId("place-page-head")
+      .getByRole("heading", { name: "Profile & identity", exact: true }),
   ).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(1000, 500);
   await page.waitForTimeout(400);

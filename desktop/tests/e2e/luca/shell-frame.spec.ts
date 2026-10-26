@@ -26,8 +26,14 @@ test.describe.configure({ mode: "serial" });
 
 type Box = { x: number; y: number; w: number; h: number };
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-frame")
+  : undefined;
+
 function shotsDir(fallback: string) {
-  const dir = process.env.SHELL_SHOTS ?? fallback;
+  const dir = SHELL_SHOTS ?? fallback;
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -1394,17 +1400,21 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
             bottom: r.y + r.height,
           };
         });
+        // Read beside the reading column, over the same stretch as the open
+        // body: "To:" and its recipient list sit on the column now (WP-19,
+        // Decided 4), so the list's own edge lies under the header's foot
+        // there, and is not the header's.
         const [band, line] = await pixelStats(page, [
           {
-            x: Math.round((body.x + body.w - 540) * 2),
+            x: Math.round((body.x + body.w - 260) * 2),
             y: Math.round((header.bottom - 8) * 2),
-            w: 1000,
+            w: 400,
             h: 14,
           },
           {
-            x: Math.round((body.x + body.w - 540) * 2),
+            x: Math.round((body.x + body.w - 260) * 2),
             y: Math.round((header.bottom - 1) * 2),
-            w: 1000,
+            w: 400,
             h: 2,
           },
         ]);
@@ -1540,8 +1550,9 @@ test("the frame, finished (WP-01b)", async ({ page }, info) => {
   // the rail open it does what it did before.
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByTestId("open-artifacts-view").click();
-  // The lip names Library's first pick (WP-10, Decided 7 and 8).
-  await expect(page.getByTestId("shell-lip-name")).toHaveText("All");
+  // The lip names Library's first pick (WP-10, Decided 7 and 8), as
+  // "section / row", since "All" alone is ambiguous (WP-19, Decided 5).
+  await expect(page.getByTestId("shell-lip-name")).toHaveText("Made / All");
   await page.getByTestId("shell-place-conversations").click();
   await expect(page.locator(CONVERSATION_CARD).first()).toBeVisible();
   const fromLibrary = await page.getByTestId("shell-lip-name").innerText();

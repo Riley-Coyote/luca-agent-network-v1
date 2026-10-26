@@ -60,9 +60,14 @@ const COMPANION = [
 
 const checks: Record<string, unknown> = {};
 
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-settings-page")
+  : undefined;
+
 function shotsDir() {
-  const dir =
-    process.env.SHELL_SHOTS ?? test.info().project.outputDir ?? "test-results";
+  const dir = SHELL_SHOTS ?? test.info().project.outputDir ?? "test-results";
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -354,7 +359,13 @@ function read(page: Page) {
             .trim()
             .slice(0, 40),
         ),
-      overflowX: panel.scrollWidth > panel.clientWidth + 1,
+      // The page scrolls sideways. Read on the page, which scrolls, not the
+      // panel: Settings > Agents' rows are the shared place rows (WP-24,
+      // Decided 1), whose hover reaches 10 past the axis by design
+      // (shell-place-rails.css), inside the page.
+      overflowX: page
+        ? page.scrollWidth > page.clientWidth + 1
+        : panel.scrollWidth > panel.clientWidth + 1,
     };
   });
 }

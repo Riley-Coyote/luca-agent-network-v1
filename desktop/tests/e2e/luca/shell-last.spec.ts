@@ -21,7 +21,13 @@ import { installHuddleStage } from "./shell-huddle-stage";
  * http://127.0.0.1:4300).
  */
 
-const SHOTS = process.env.SHELL_SHOTS ?? "test-results/shell-last";
+// Each spec writes to its own folder under SHELL_SHOTS, so its hash checks
+// compare its own shots and no other spec's (WP-28, Decided 6).
+const SHELL_SHOTS = process.env.SHELL_SHOTS
+  ? path.join(process.env.SHELL_SHOTS, "shell-last")
+  : undefined;
+
+const SHOTS = SHELL_SHOTS ?? "test-results/shell-last";
 const BASE_URL = process.env.SHELL_BASE_URL ?? "http://127.0.0.1:4300";
 const LUCA = "a".repeat(64);
 const ATLAS = "b".repeat(64);
