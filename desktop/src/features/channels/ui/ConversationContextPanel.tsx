@@ -349,16 +349,14 @@ export function ConversationContextPanel({
                 </h2>
               </div>
               {canManage ? (
-                <Button
-                  className="shrink-0"
+                <button
+                  className="luca-room-settings h-8 shrink-0 px-3 text-xs font-medium"
                   data-testid="conversation-manage-room"
                   onClick={openManagement}
-                  size="sm"
                   type="button"
-                  variant="outline"
                 >
-                  Manage
-                </Button>
+                  Room settings…
+                </button>
               ) : null}
             </section>
 

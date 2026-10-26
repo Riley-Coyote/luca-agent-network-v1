@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { readExpandedHomes, railHomesStorageKey } from "./agentRailState.ts";
 import {
+  activeAt,
   activeRailHome,
   buildRailHomes,
   homeIdOfChat,
@@ -318,6 +319,41 @@ test("a home shows its latest three, and the open one wherever it falls", () => 
   assert.equal(shownSessions(sessions, "r4").hidden, 2);
   assert.equal(shownSessions(sessions, null, true).shown.length, 5);
   assert.equal(shownSessions(sessions.slice(0, 3), null).hidden, 0);
+});
+
+test("a chat with no messages yet is as recent as its making", () => {
+  const old = chat("old", [WREN]);
+  const older = chat("older", [WREN]);
+  const fresh = chat("fresh", [WREN]);
+  old.channel.lastMessageAt = "2026-10-01T00:00:00.000Z";
+  older.channel.lastMessageAt = "2026-09-01T00:00:00.000Z";
+  fresh.channel.lastMessageAt = null;
+  const build = (createdAtById) =>
+    buildRailHomes({
+      items: [old, older, fresh],
+      agents: AGENTS,
+      primaryPubkey: LUCA,
+      projects: [],
+      projectByChannelId: new Map(),
+      createdAtById,
+    }).agents.find((home) => home.name === "Wren");
+  // Not known yet: it waits last, as before.
+  assert.deepEqual(
+    build().sessions.map((item) => item.channel.id),
+    ["old", "older", "fresh"],
+  );
+  // Made today: first, and the home is as recent as it.
+  const made = build(new Map([["fresh", "2026-10-20T00:00:00.000Z"]]));
+  assert.deepEqual(
+    made.sessions.map((item) => item.channel.id),
+    ["fresh", "old", "older"],
+  );
+  assert.equal(made.mostRecent, Date.parse("2026-10-20T00:00:00.000Z"));
+  assert.equal(activeAt(fresh, new Map([["fresh", "x"]])), "x");
+  assert.equal(
+    activeAt(old, new Map([["old", "x"]])),
+    old.channel.lastMessageAt,
+  );
 });
 
 test("the active home is the parent of whatever is open", () => {

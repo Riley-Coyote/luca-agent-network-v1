@@ -58,7 +58,14 @@ test.use({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 const checks: Record<string, unknown> = {};
 const shots: string[] = [];
 
-async function boot(page: Page, { shell }: { shell: boolean }) {
+async function boot(
+  page: Page,
+  {
+    shell,
+    light = false,
+    atlasError,
+  }: { shell: boolean; light?: boolean; atlasError?: string },
+) {
   page.on("pageerror", (error) => console.log("PAGE ERROR", error.message));
   page.on("console", (message) => {
     if (message.type() === "error")
@@ -72,6 +79,12 @@ async function boot(page: Page, { shell }: { shell: boolean }) {
       window.localStorage.setItem(key, JSON.stringify(overrides));
     }, FEATURE_OVERRIDES_STORAGE_KEY);
   }
+  if (light) {
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("buzz-theme", "paper");
+    });
+  }
   await installMockBridge(page, {
     managedAgents: [
       {
@@ -80,7 +93,12 @@ async function boot(page: Page, { shell }: { shell: boolean }) {
         personaId: "builtin:fizz",
         status: "running",
       },
-      { name: "Atlas", pubkey: ATLAS, status: "running" },
+      {
+        name: "Atlas",
+        pubkey: ATLAS,
+        status: "running",
+        ...(atlasError ? { lastError: atlasError } : {}),
+      },
       { name: "Wren", pubkey: WREN, status: "running" },
       { name: "Codex", pubkey: CODEX, status: "running" },
     ],
@@ -617,6 +635,7 @@ test.describe("the Chats rail", () => {
     await expect(panel).toBeVisible();
     const manage = page.getByTestId("conversation-manage-room");
     await expect(manage).toBeVisible();
+    await expect(manage).toHaveText("Room settings…");
     await shoot(page, "manage-details", page.locator("body"));
     await manage.click();
     const management = page.getByTestId("channel-management-auxiliary-pane");
@@ -801,6 +820,640 @@ test.describe("where the app opens", () => {
       last: `channels/${ROOM.review}`,
       nothing_remembered: `channels/${lucaDm}`,
     };
+  });
+});
+
+/** The review's twelve items (SHELL_BUILD.md WP-11, fix round). Shots in
+ *  WP11_FIX_SHOTS when set. */
+const FIX_SHOTS = process.env.WP11_FIX_SHOTS ?? `${SHOTS}/fix`;
+const fixChecks: Record<string, unknown> = {};
+
+async function fixShot(page: Page, name: string, target?: Locator) {
+  await waitForAnimations(page);
+  mkdirSync(FIX_SHOTS, { recursive: true });
+  const path = `${FIX_SHOTS}/${name}.png`;
+  await (target ?? page.getByTestId("app-sidebar")).screenshot({ path });
+  return path;
+}
+
+/** Where a row sits in the rail's scroll view. */
+const inView = (page: Page, selector: string) =>
+  page.evaluate((sel) => {
+    const row = document.querySelector<HTMLElement>(sel);
+    const scroller = row?.closest<HTMLElement>('[data-sidebar="content"]');
+    if (!row || !scroller) return null;
+    const r = row.getBoundingClientRect();
+    const v = scroller.getBoundingClientRect();
+    return {
+      scrollTop: scroller.scrollTop,
+      rowTop: Math.round(r.top - v.top),
+      rowBottom: Math.round(r.bottom - v.top),
+      viewHeight: Math.round(v.height),
+      clearOfFade: v.bottom - r.bottom >= 39 && r.top >= v.top,
+    };
+  }, selector);
+
+test.describe("the review's fixes", () => {
+  test("fix 1: the rail scrolls to what opens from outside it", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 800, height: 500 });
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await expect(home(page, "luca")).toBeVisible();
+    const reviewRow = `[data-testid="rail-home-room:${ROOM.review}"]`;
+    // Opened by its route: its row comes into view, clear of the fade.
+    await goChannel(page, ROOM.review);
+    await expect(home(page, `room:${ROOM.review}`)).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    await expect
+      .poll(() => inView(page, reviewRow).then((v) => v?.clearOfFade))
+      .toBe(true);
+    const byRoute = await inView(page, reviewRow);
+    await fixShot(page, "fix1-by-route-800");
+    // Back up to Luca's session by route: the rail scrolls up to its row.
+    await goChannel(page, ROOM.weekly);
+
+    await expect
+      .poll(() =>
+        inView(page, `[data-testid="rail-session-${ROOM.weekly}"]`).then(
+          (v) => v?.rowTop ?? -1,
+        ),
+      )
+      .toBeGreaterThanOrEqual(0);
+    // A folded home: its row comes into view instead.
+    await hit(page, "project:tidepool").focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(session(page, ROOM.press)).toHaveCount(0);
+    const scroller = page.locator(
+      '[data-testid="app-sidebar-scroll-anchor"] [data-sidebar="content"]',
+    );
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await goChannel(page, ROOM.press);
+    await expect
+      .poll(() =>
+        inView(page, '[data-testid="rail-home-project:tidepool"]').then((v) =>
+          v ? v.rowTop >= 0 && v.clearOfFade : false,
+        ),
+      )
+      .toBe(true);
+    const folded = await inView(
+      page,
+      '[data-testid="rail-home-project:tidepool"]',
+    );
+    // A click in the rail never scrolls it.
+    await scroller.evaluate((el) => {
+      el.scrollTop = 120;
+    });
+    const before = await scroller.evaluate((el) => el.scrollTop);
+    const wren = page.getByTestId(`rail-session-${ROOM.monday}`);
+    await wren.click();
+    await expect(page.getByTestId("shell-lip-name")).toHaveText("Monday plan");
+    await page.waitForTimeout(600);
+    const after = await scroller.evaluate((el) => el.scrollTop);
+    // Reduce Motion: there in the same frame, no glide.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await goChannel(page, ROOM.scratch);
+    await expect(home(page, `room:${ROOM.scratch}`)).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    const reduced = await page.evaluate(
+      () =>
+        new Promise<number[]>((resolve) => {
+          const el = document.querySelector<HTMLElement>(
+            '[data-testid="app-sidebar-scroll-anchor"] [data-sidebar="content"]',
+          );
+          const tops: number[] = [];
+          let frames = 0;
+          const tick = () => {
+            tops.push(el?.scrollTop ?? -1);
+            if (++frames < 6) requestAnimationFrame(tick);
+            else resolve(tops);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+    fixChecks.fix_1 = {
+      by_route_800: byRoute,
+      folded_home: folded,
+      rail_click: { before, after, unchanged: before === after },
+      reduce_motion_scrollTops: reduced,
+      reduce_motion_instant: new Set(reduced).size === 1 && reduced[0] > 0,
+    };
+    expect(before).toBe(after);
+    expect(new Set(reduced).size).toBe(1);
+    expect(reduced[0]).toBeGreaterThan(0);
+    await fixShot(page, "fix1-reduced-scratch-800");
+  });
+
+  test("fix 2: a chat you just made comes first", async ({ page }) => {
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await expect(home(page, "luca")).toBeVisible();
+    const made = "0e6b0000-0000-4000-8000-0000000000ff";
+    await page.evaluate(async (id) => {
+      const invoke = window.__BUZZ_E2E_INVOKE_MOCK_COMMAND__;
+      if (!invoke) throw new Error("Expected the mock bridge.");
+      const real = crypto.randomUUID.bind(crypto);
+      let spent = false;
+      Object.defineProperty(crypto, "randomUUID", {
+        configurable: true,
+        writable: true,
+        value: () => {
+          if (spent) return real();
+          spent = true;
+          return id;
+        },
+      });
+      try {
+        await invoke("create_channel", {
+          channelType: "stream",
+          description: "",
+          name: "Lunch club",
+          visibility: "private",
+        });
+      } finally {
+        Object.defineProperty(crypto, "randomUUID", {
+          configurable: true,
+          writable: true,
+          value: real,
+        });
+      }
+      await window.__BUZZ_E2E_QUERY_CLIENT__?.invalidateQueries();
+    }, made);
+    await expect(home(page, `room:${made}`)).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          [
+            ...document.querySelectorAll<HTMLElement>(
+              '[data-shell-rail] [data-home-kind="room"]',
+            ),
+          ].map((row) => row.querySelector(".luca-rail-row-name")?.textContent),
+        ),
+      )
+      .toEqual([
+        "Lunch club",
+        "Design review",
+        "Luca + Wren",
+        "Tide watch",
+        "bob-tyler + charlie",
+        "Scratch",
+      ]);
+    fixChecks.fix_2 = {
+      rooms: await page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLElement>(
+            '[data-shell-rail] [data-home-kind="room"]',
+          ),
+        ].map((row) => row.querySelector(".luca-rail-row-name")?.textContent),
+      ),
+    };
+    await fixShot(page, "fix2-made-first");
+  });
+
+  test("fixes 3, 9, 11: section gaps, focus air, one trailing edge", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await goChannel(page, ROOM.chapter);
+    await expect(session(page, ROOM.chapter)).toHaveAttribute(
+      "data-current",
+      "true",
+    );
+    await page.mouse.move(1400, 880);
+    await waitForAnimations(page);
+    const m = await page.evaluate(() => {
+      const card = document
+        .querySelector('[data-frame] [data-sidebar="sidebar"]')
+        ?.getBoundingClientRect();
+      const left = card?.left ?? 0;
+      const top = (sel: string) =>
+        document.querySelector(sel)?.getBoundingClientRect().top ?? 0;
+      const bottom = (sel: string) =>
+        document.querySelector(sel)?.getBoundingClientRect().bottom ?? 0;
+      const right = (el: Element | null | undefined) =>
+        el
+          ? Math.round((el.getBoundingClientRect().right - left) * 100) / 100
+          : null;
+      const rail = document.querySelector("[data-shell-rail]");
+      const current = document.querySelector<HTMLElement>(
+        "[data-shell-rail] .luca-rail-session[data-current]",
+      );
+      const title = current?.querySelector(".luca-rail-session-title");
+      const thread = current?.closest(".luca-rail-sessions");
+      return {
+        rail_display: rail ? getComputedStyle(rail).display : null,
+        gap_after_open_home:
+          top('[data-testid="rail-section-project"] .luca-rail-section-head') -
+          bottom('[data-home-group="luca"] fieldset'),
+        gap_after_closed_home:
+          top('[data-testid="rail-section-agent"] .luca-rail-section-head') -
+          bottom('[data-home-group="project:field-guide"]'),
+        session_padding_left: current
+          ? getComputedStyle(current).paddingLeft
+          : null,
+        sessions_padding_left: thread
+          ? getComputedStyle(thread).paddingLeft
+          : null,
+        title_x: title
+          ? Math.round(title.getBoundingClientRect().left - left)
+          : null,
+        thread_x: thread
+          ? Math.round(thread.getBoundingClientRect().left - left)
+          : null,
+        lit_segment_left: current
+          ? getComputedStyle(current, "::before").left
+          : null,
+        lit_segment_x: current
+          ? Math.round(
+              current.getBoundingClientRect().left -
+                left +
+                Number.parseFloat(getComputedStyle(current, "::before").left),
+            )
+          : null,
+        trailing: {
+          heading_plus_glyph: right(
+            document.querySelector('[data-testid="rail-new-conversation"] svg'),
+          ),
+          session_time: right(
+            document.querySelector("[data-shell-rail] .luca-rail-session-ago"),
+          ),
+          home_signal_dot: right(
+            document.querySelector(
+              "[data-shell-rail] .luca-rail-row .luca-rail-dot",
+            ),
+          ),
+          home_signal_word: right(
+            document.querySelector(
+              "[data-shell-rail] .luca-rail-row :is(.luca-rail-working, .luca-rail-status)",
+            ),
+          ),
+          row_plus_glyph: right(
+            document.querySelector("[data-shell-rail] .luca-rail-row-add svg"),
+          ),
+        },
+      };
+    });
+    fixChecks.fix_3 = {
+      rail_display: m.rail_display,
+      gap_after_open_home: m.gap_after_open_home,
+      gap_after_closed_home: m.gap_after_closed_home,
+    };
+    fixChecks.fix_9 = {
+      session_padding_left: m.session_padding_left,
+      sessions_padding_left: m.sessions_padding_left,
+      title_x: m.title_x,
+      thread_x: m.thread_x,
+      lit_segment_left: m.lit_segment_left,
+      lit_segment_x: m.lit_segment_x,
+    };
+    fixChecks.fix_11 = m.trailing;
+    expect(m.rail_display).toBe("block");
+    expect(m.gap_after_open_home).toBe(14);
+    expect(m.session_padding_left).toBe("8px");
+    expect(m.sessions_padding_left).toBe("5px");
+    expect(m.title_x).toBe(30);
+    expect(m.lit_segment_x).toBe(m.thread_x);
+    expect(m.trailing.session_time).toBe(204);
+    expect(m.trailing.heading_plus_glyph).toBe(204);
+    await fixShot(page, "fix3-rail");
+    // The focus ring with air: a session and "N more".
+    await page.keyboard.press("Shift");
+    await session(page, ROOM.chapter).focus();
+    const card = await page
+      .locator('[data-frame] [data-sidebar="sidebar"]')
+      .boundingBox();
+    const box = await session(page, ROOM.chapter).boundingBox();
+    if (card && box)
+      await fixShot(
+        page,
+        "fix9-focus-session",
+        page.locator('[data-home-group="project:tidepool"]'),
+      );
+    await page.getByTestId("rail-more-project:tidepool").focus();
+    await fixShot(
+      page,
+      "fix9-focus-more",
+      page.locator('[data-home-group="project:tidepool"]'),
+    );
+    // The +'s glyph on the trailing edge too, shown by focus.
+    await hit(page, "project:tidepool").focus();
+    await page.keyboard.press("Tab");
+    const plus = await page.evaluate(() => {
+      const card = document
+        .querySelector('[data-frame] [data-sidebar="sidebar"]')
+        ?.getBoundingClientRect();
+      const svg = document.activeElement?.querySelector("svg");
+      return svg && card
+        ? Math.round((svg.getBoundingClientRect().right - card.left) * 100) /
+            100
+        : null;
+    });
+    (fixChecks.fix_11 as Record<string, unknown>).row_plus_glyph_focused = plus;
+    expect(plus).toBe(204);
+  });
+
+  test("fixes 4, 7, 10: signals stay without a +, no room +, working said once", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await goChannel(page, ROOM.review);
+    await expect(home(page, `room:${ROOM.review}`)).toHaveAttribute(
+      "data-active",
+      "true",
+    );
+    // Unread on a person's row and on a room's row.
+    await page.evaluate(
+      ({ bob, bobDm, scratch, owner }) => {
+        void owner;
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelId: bobDm,
+          content: "Are we still on for Saturday?",
+          pubkey: bob,
+        });
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelId: scratch,
+          content: "A note.",
+          pubkey: bob,
+        });
+      },
+      { bob: BOB, bobDm: BOB_DM, scratch: ROOM.scratch, owner: OWNER },
+    );
+    const bob = home(page, `person:${BOB}`);
+    await expect(bob.locator(".luca-rail-dot")).toBeVisible({
+      timeout: 10_000,
+    });
+    await bob.hover();
+    const hovered = await bob
+      .locator(".luca-rail-signal")
+      .evaluate((el) => getComputedStyle(el).visibility);
+    await hit(page, `person:${BOB}`).focus();
+    await page.keyboard.press("Shift");
+    const focused = await bob
+      .locator(".luca-rail-signal")
+      .evaluate((el) => getComputedStyle(el).visibility);
+    await fixShot(page, "fix4-person-hover-dot", bob);
+    // fix 11: a home's signal ends on the trailing column too.
+    await page.mouse.move(1400, 880);
+    const dotRight = await page.evaluate((id) => {
+      const card = document
+        .querySelector('[data-frame] [data-sidebar="sidebar"]')
+        ?.getBoundingClientRect();
+      const dot = document.querySelector(`[data-home="${id}"] .luca-rail-dot`);
+      return dot && card
+        ? Math.round((dot.getBoundingClientRect().right - card.left) * 100) /
+            100
+        : null;
+    }, `person:${BOB}`);
+    fixChecks.fix_11_home_signal_dot = dotRight;
+    expect(dotRight).toBe(204);
+    // No + on any room.
+    const roomPluses = await page
+      .locator('[data-shell-rail] [data-home-kind="room"] .luca-rail-row-add')
+      .count();
+    // Working once: Monday plan working under an open Wren.
+    await page.evaluate(
+      ({ wren, monday }) => {
+        (
+          window as Window & {
+            __BUZZ_E2E_SEED_ACTIVE_TURNS__?: (input: {
+              agentPubkey: string;
+              channelId: string;
+              turnId: string;
+            }) => void;
+          }
+        ).__BUZZ_E2E_SEED_ACTIVE_TURNS__?.({
+          agentPubkey: wren,
+          channelId: monday,
+          turnId: "wp11-fix-10",
+        });
+      },
+      { wren: WREN, monday: ROOM.monday },
+    );
+    await expect(
+      session(page, ROOM.monday).locator(".luca-rail-working"),
+    ).toBeVisible({ timeout: 10_000 });
+    const wrenRow = home(page, `agent:${WREN}`);
+    const openSays = await wrenRow.locator(".luca-rail-working").count();
+    await page.mouse.move(1400, 880);
+    await fixShot(page, "fix10-working-open", wrenRow.locator(".."));
+    await wrenRow.locator("[data-chevron]").click();
+    await expect(wrenRow.locator(".luca-rail-working")).toBeVisible();
+    await fixShot(page, "fix10-working-folded", wrenRow.locator(".."));
+    fixChecks.fix_4 = {
+      person_dot_on_hover: hovered,
+      person_dot_on_focus: focused,
+    };
+    fixChecks.fix_7 = { room_rows_with_plus: roomPluses };
+    fixChecks.fix_10 = {
+      open_home_says_working: openSays,
+      folded_home_says_working: 1,
+    };
+    expect(hovered).toBe("visible");
+    expect(focused).toBe("visible");
+    expect(roomPluses).toBe(0);
+    expect(openSays).toBe(0);
+  });
+
+  test("fix 5: the room browser speaks of rooms", async ({ page }) => {
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await page.getByTestId("rail-browse-rooms").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible({ timeout: 20_000 });
+    const words = {
+      title: await dialog.getByRole("heading").first().innerText(),
+      all_tab: await dialog.getByRole("tab").first().innerText(),
+      placeholder: await dialog
+        .getByTestId("channel-browser-search")
+        .getAttribute("placeholder"),
+      create_row: await dialog
+        .getByTestId("channel-browser-create-row")
+        .innerText(),
+      hashes: await dialog
+        .locator('[data-testid^="browse-channel-"]')
+        .evaluateAll(
+          (rows) => rows.filter((row) => row.textContent?.includes("#")).length,
+        ),
+    };
+    fixChecks.fix_5 = words;
+    expect(words.title).toBe("Browse rooms");
+    expect(words.all_tab).toBe("All rooms");
+    expect(words.placeholder).toBe("Search or start a room");
+    expect(words.create_row).toBe("Start a room");
+    expect(words.hashes).toBe(0);
+    await fixShot(page, "fix5-browse-rooms", page.locator("body"));
+  });
+
+  for (const light of [false, true]) {
+    test(`fix 6: Room settings…, ${light ? "paper by day" : "a plate at night"}`, async ({
+      page,
+    }) => {
+      await boot(page, { shell: true, light });
+      await seedScene(page);
+      await goChannel(page, ROOM.review);
+      await expect(home(page, `room:${ROOM.review}`)).toHaveAttribute(
+        "data-active",
+        "true",
+      );
+      await page.getByTestId("shell-lip-details").click();
+      const button = page.getByTestId("conversation-manage-room");
+      await expect(button).toBeVisible();
+      await page.mouse.move(10, 880);
+      await waitForAnimations(page);
+      const look = await button.evaluate((el) => {
+        const cs = getComputedStyle(el);
+        return {
+          text: el.textContent,
+          background: cs.backgroundColor,
+          border: cs.borderStyle === "none" || cs.borderWidth === "0px",
+          outline: cs.outlineStyle,
+          shadow: cs.boxShadow,
+          radius: cs.borderRadius,
+          dark: document.documentElement.classList.contains("dark"),
+        };
+      });
+      await expect(
+        page.getByTestId("conversation-manage-participants"),
+      ).toBeVisible();
+      const key = light ? "light" : "dark";
+      fixChecks.fix_6 = { ...(fixChecks.fix_6 as object), [key]: look };
+      expect(look.text).toBe("Room settings…");
+      expect(look.border).toBe(true);
+      expect(look.outline).toBe("none");
+      if (light) expect(look.shadow).not.toBe("none");
+      else expect(look.shadow).toBe("none");
+      await fixShot(
+        page,
+        `fix6-room-settings-${key}`,
+        page.getByTestId("conversation-context-panel"),
+      );
+      await button.click();
+      await expect(
+        page.getByTestId("channel-management-auxiliary-pane"),
+      ).toBeVisible();
+    });
+  }
+
+  test("fix 8: N more opens the list and Show fewer folds it back", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true });
+    await seedScene(page);
+    await goChannel(page, ROOM.review);
+    const group = page.locator('[data-home-group="project:tidepool"]');
+    const rows = () =>
+      group.locator("fieldset [data-rail-focus=session]").allInnerTexts();
+    const more = page.getByTestId("rail-more-project:tidepool");
+    await more.focus();
+    await page.keyboard.press("Enter");
+    await expect(session(page, ROOM.press)).toBeFocused();
+    const open = await rows();
+    await page.mouse.move(1400, 880);
+    await fixShot(page, "fix8-open", group);
+    const fewer = page.getByTestId("rail-fewer-project:tidepool");
+    await fewer.focus();
+    await page.keyboard.press("Enter");
+    await expect(more).toBeFocused();
+    const folded = await rows();
+    fixChecks.fix_8 = { open, folded, focus_after_fewer: "1 more" };
+    expect(open.at(-1)).toBe("Show fewer");
+    expect(open.map((t) => t.split("\n")[0])).toContain("Press kit");
+    expect(folded.at(-1)).toBe("1 more");
+    await fixShot(page, "fix8-folded", group);
+  });
+
+  test("fixes 13, 14, 15: Rooms with none, lowercase states, a named nav", async ({
+    page,
+  }) => {
+    await boot(page, { shell: true, atlasError: "The harness exited." });
+    const { groupDm } = await seedScene(page);
+    // Leave every room and the one person's 1:1.
+    await page.evaluate(
+      async ({ ids, owner }) => {
+        for (const channelId of ids)
+          window.__BUZZ_E2E_MUTATE_CHANNEL__?.({
+            channelId,
+            removeMemberPubkey: owner,
+          });
+        await window.__BUZZ_E2E_QUERY_CLIENT__?.invalidateQueries();
+      },
+      {
+        ids: [
+          ROOM.review,
+          ROOM.watch,
+          ROOM.scratch,
+          groupDm,
+          STOCK_GROUP,
+          BOB_DM,
+        ],
+        owner: OWNER,
+      },
+    );
+    await expect(
+      page.locator('[data-shell-rail] [data-home-kind="room"]'),
+    ).toHaveCount(0, { timeout: 20_000 });
+    await expect(page.locator(`[data-home="person:${BOB}"]`)).toHaveCount(0);
+    const heads = await page
+      .locator("[data-shell-rail] .luca-rail-section-head > span")
+      .allTextContents();
+    const rooms = page.getByTestId("rail-section-room");
+    await expect(rooms.getByTestId("create-room")).toBeVisible();
+    await expect(rooms.getByTestId("rail-browse-rooms")).toBeVisible();
+    await expect(rooms.getByTestId("rail-archived-rooms")).toBeVisible();
+    await rooms.scrollIntoViewIfNeeded();
+    await page.mouse.move(1400, 880);
+    await fixShot(page, "fix13-rooms-empty", rooms);
+    // Lowercase state words.
+    const atlas = home(page, `agent:${ATLAS}`);
+    const status = await atlas.locator(".luca-rail-status").innerText();
+    const label = await hit(page, `agent:${ATLAS}`).getAttribute("aria-label");
+    // The rail is its place's navigation, named.
+    const nav = page.getByRole("navigation", { name: "Chats" });
+    const navHoldsRail = await nav.evaluate((el) =>
+      el.matches("[data-shell-rail]"),
+    );
+    fixChecks.fix_13 = {
+      heads: heads.map((head) => head.trim()),
+      rooms_plus: true,
+      browse_and_archived: true,
+    };
+    fixChecks.fix_14 = { status, aria_label: label };
+    fixChecks.fix_15 = { nav_named_chats: navHoldsRail };
+    expect(heads.map((head) => head.trim())).toEqual([
+      "Chats",
+      "Projects",
+      "Agents",
+      "Rooms",
+    ]);
+    expect(status).toBe("needs attention");
+    expect(label).toContain("needs attention");
+    expect(navHoldsRail).toBe(true);
+  });
+
+  test.afterAll(() => {
+    mkdirSync(FIX_SHOTS, { recursive: true });
+    let previous: Record<string, unknown> = {};
+    try {
+      previous = JSON.parse(readFileSync(`${FIX_SHOTS}/checks.json`, "utf8"));
+    } catch {
+      /* first run */
+    }
+    writeFileSync(
+      `${FIX_SHOTS}/checks.json`,
+      JSON.stringify({ ...previous, ...fixChecks }, null, 2),
+    );
   });
 });
 

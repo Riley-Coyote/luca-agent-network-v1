@@ -15,8 +15,10 @@
   --rail-faint: hsl(var(--mn-ink-faint));
   --rail-plate: hsl(var(--mn-ink) / 0.06);
   --rail-thread: hsl(var(--mn-ink) / 0.16);
-  display: flex;
-  flex-direction: column;
+  /* A plain block, as the study's list is: a section's 14 above and an open
+   * home's 6 below collapse into one 14, as margins do between blocks (in a
+   * flex column they would add up to 20). */
+  display: block;
   /* No top padding of its own: the rail's scroller already holds the first
    * row 6 below the card's top, inside the scroll, as in the study
    * (shell-frame.css). */
@@ -181,7 +183,9 @@
 :root[data-luca-shell] [data-shell-rail] .luca-rail-signal {
   align-items: center;
   display: flex;
-  padding-right: 6px;
+  /* The trailing column ends at one x for every row: here 5 inside the row's
+   * 5 of padding, where a session's time and the +'s glyph end too. */
+  padding-right: 5px;
 }
 
 :root[data-luca-shell]
@@ -193,7 +197,9 @@
   opacity: 0;
   pointer-events: none;
   position: absolute;
-  right: 0;
+  /* 1 in from the row's end, so its glyph (4 inside the control) ends on
+   * the trailing column, with the times, the signals and the heading's +. */
+  right: 1px;
   top: 4px;
 }
 
@@ -206,9 +212,11 @@
   pointer-events: auto;
 }
 
+/* Only a row that has a + gives it the slot; a row without one (a person, a
+ * room) keeps its dot or "working…" under the pointer and the focus. */
 :root[data-luca-shell]
   [data-shell-rail]
-  .luca-rail-row:is(:hover, :has(:focus-visible))
+  .luca-rail-row:has(.luca-rail-row-add):is(:hover, :has(:focus-visible))
   .luca-rail-signal {
   visibility: hidden;
 }
@@ -242,7 +250,9 @@
   border: 0;
   margin: 1px 0 6px 11px;
   min-width: 0;
-  padding: 0 0 0 13px;
+  /* 5 here and 8 inside each row keep the titles where the study sets them
+   * (13 from the thread) and give a row's focus ring air before its text. */
+  padding: 0 0 0 5px;
   position: relative;
 }
 
@@ -265,7 +275,7 @@
   gap: 8px;
   height: 28px;
   justify-content: space-between;
-  padding-right: 10px;
+  padding: 0 10px 0 8px;
   position: relative;
   text-align: left;
   transition: color 120ms;
@@ -309,7 +319,7 @@
   background: var(--rail-ink);
   bottom: 6px;
   content: "";
-  left: -13px;
+  left: -5px;
   position: absolute;
   top: 6px;
   width: 1px;
@@ -319,7 +329,7 @@
   :root[data-luca-shell]
     [data-shell-rail]
     .luca-rail-session[data-current]::before {
-    left: -13.5px;
+    left: -5.5px;
     width: 2px;
   }
 }
@@ -410,6 +420,48 @@
   :root[data-luca-frame="solid"]
     [data-agents-runtimes]
     [data-runtime-connection-key] {
+    transition: none;
+  }
+}
+
+/* ── a room's settings, in its details card ──────────────────────────
+ * "Room settings…" opens the room's management panel (members, leave,
+ * archive, delete). The frame's quiet solid control: a plate of the ink at
+ * night; by day a piece of paper standing up with its soft shadow, as a
+ * chosen option and Send do (shell-light.css). No outline either way. */
+:root[data-luca-shell] .luca-room-settings {
+  background: hsl(var(--mn-ink) / 0.07);
+  border: 0;
+  border-radius: 8px;
+  color: hsl(var(--mn-ink));
+  transition: background-color 120ms;
+}
+
+:root[data-luca-shell] .luca-room-settings:hover {
+  background: hsl(var(--mn-ink) / 0.11);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-room-settings {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.22),
+    0 1px 3px hsl(var(--mn-ink) / 0.1);
+}
+
+:root[data-luca-shell]:not(.dark) .luca-room-settings:hover {
+  background: hsl(var(--mn-surface));
+  box-shadow:
+    0 0.5px 1px hsl(var(--mn-ink) / 0.26),
+    0 2px 6px hsl(var(--mn-ink) / 0.12);
+}
+
+:root[data-luca-shell] .luca-room-settings:focus-visible {
+  outline: 1px solid color-mix(in srgb, hsl(var(--mn-ink)) 55%, transparent);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-luca-shell] .luca-room-settings {
     transition: none;
   }
 }

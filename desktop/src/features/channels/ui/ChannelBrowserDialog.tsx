@@ -28,6 +28,7 @@ import {
   MODAL_SEARCH_INPUT_CLASS,
   MODAL_SEARCH_SHELL_CLASS,
 } from "@/shared/ui/modalSearchStyles";
+import { useShellFrameEnabled } from "@/shared/features/useShellFrameEnabled";
 import { Tabs, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import {
   DropdownMenu,
@@ -139,17 +140,29 @@ export function ChannelBrowserDialog({
   const normalizedQuery = trimmedQuery.toLowerCase();
 
   const isForumMode = channelTypeFilter === "forum";
+  // Under the shell's frame the browser speaks of rooms, as the Chats rail
+  // does: you browse rooms and start one (NAVIGATION.md, "Chats").
+  const rooms = useShellFrameEnabled() && !isForumMode;
   const canCreate = Boolean(onCreateChannel);
   const createKind = isForumMode ? "forum" : "stream";
-  const browseTitle = isForumMode ? "Add a forum" : "Browse channels";
+  const browseTitle = isForumMode
+    ? "Add a forum"
+    : rooms
+      ? "Browse rooms"
+      : "Browse channels";
   const searchPlaceholder = canCreate
     ? isForumMode
       ? "Search or create a forum"
-      : "Search or create a channel"
+      : rooms
+        ? "Search or start a room"
+        : "Search or create a channel"
     : isForumMode
       ? "Search forums by name or description"
-      : "Search channels by name or description";
-  const entityLabel = isForumMode ? "forum" : "channel";
+      : rooms
+        ? "Search rooms by name or description"
+        : "Search channels by name or description";
+  const entityLabel = isForumMode ? "forum" : rooms ? "room" : "channel";
+  const createVerb = rooms ? "Start" : "Create";
 
   const noopCreate = React.useCallback(async () => {}, []);
   const createForm = useCreateChannelForm({
@@ -239,7 +252,11 @@ export function ChannelBrowserDialog({
     CHANNEL_SORT_OPTIONS.find((option) => option.value === sort)?.label ??
     "Alphabetical";
 
-  const allTabLabel = isForumMode ? "All forums" : "All channels";
+  const allTabLabel = isForumMode
+    ? "All forums"
+    : rooms
+      ? "All rooms"
+      : "All channels";
 
   // Whether an exact name match already exists — if so we don't offer to
   // create a duplicate, mirroring how you'd never make two "#general"s.
@@ -403,13 +420,15 @@ export function ChannelBrowserDialog({
   const emptyDescription =
     deferredQuery.length > 0
       ? canCreate
-        ? `No ${entityLabel} by that name yet — create it to get started.`
+        ? `No ${entityLabel} by that name yet — ${createVerb.toLowerCase()} it to get started.`
         : "Try a different name or keyword."
       : activeTab === "archived"
         ? `Archived ${entityLabel}s you have joined will appear here.`
         : activeTab === "joined"
           ? `${entityLabel[0].toUpperCase()}${entityLabel.slice(1)}s you join will appear here.`
-          : `All open ${entityLabel}s are available in the sidebar. Create a new ${entityLabel} to get started.`;
+          : rooms
+            ? "Every open room is already in your rail. Start a room to get started."
+            : `All open ${entityLabel}s are available in the sidebar. Create a new ${entityLabel} to get started.`;
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -607,6 +626,7 @@ export function ChannelBrowserDialog({
                   {showCreateRow ? (
                     <div className="mb-3">
                       <CreateChannelRow
+                        createVerb={createVerb}
                         entityLabel={entityLabel}
                         isSelected={isCreateRowSelected}
                         onClick={() => enterCreateMode(trimmedQuery)}
@@ -626,6 +646,7 @@ export function ChannelBrowserDialog({
                       {orderedVisibleChannels.map((channel, index) => (
                         <ChannelCard
                           channel={channel}
+                          hash={!rooms}
                           isJoining={joiningChannelId === channel.id}
                           isSelected={
                             index + channelNavOffset === selectedIndex
@@ -654,11 +675,14 @@ export function ChannelBrowserDialog({
 }
 
 function CreateChannelRow({
+  createVerb,
   entityLabel,
   isSelected,
   onClick,
   query,
 }: {
+  /** "Create", or "Start" for a room under the shell's frame. */
+  createVerb: string;
   entityLabel: string;
   isSelected: boolean;
   onClick: () => void;
@@ -683,13 +707,15 @@ function CreateChannelRow({
       {hasQuery ? (
         <span className="min-w-0 text-sm">
           <span className="font-medium text-foreground">
-            Create {entityLabel}{" "}
+            {createVerb} {entityLabel}{" "}
           </span>
           <span className="font-semibold text-foreground">“{query}”</span>
         </span>
       ) : (
         <span className="min-w-0 text-sm font-medium text-foreground">
-          Create a new {entityLabel}
+          {createVerb === "Start"
+            ? `Start a ${entityLabel}`
+            : `Create a new ${entityLabel}`}
         </span>
       )}
     </button>
@@ -756,12 +782,15 @@ function ChannelCreateView({
 
 function ChannelCard({
   channel,
+  hash,
   isJoining,
   isSelected,
   onJoin,
   onSelect,
 }: {
   channel: Channel;
+  /** The # before the name: channels have it, rooms (the frame) do not. */
+  hash: boolean;
   isJoining: boolean;
   isSelected: boolean;
   onJoin?: () => void;
@@ -790,9 +819,11 @@ function ChannelCard({
       >
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className="shrink-0 text-sm font-normal text-muted-foreground">
-              #
-            </span>
+            {hash ? (
+              <span className="shrink-0 text-sm font-normal text-muted-foreground">
+                #
+              </span>
+            ) : null}
             <p className="min-w-0 truncate text-base font-medium tracking-tight">
               {channel.name}
             </p>

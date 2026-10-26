@@ -446,23 +446,18 @@ test.describe("the shell's rail", () => {
       "Release notes",
     );
     await expect(atlas).toHaveAttribute("data-active", "true");
+    // Its title (a session's row also says how long ago, "now" here).
     await expect(
       page.locator(
-        `[data-home-group="${agentId(ATLAS)}"] [data-current="true"]`,
+        `[data-home-group="${agentId(ATLAS)}"] [data-current="true"] .luca-rail-session-title`,
       ),
     ).toHaveText("Release notes");
 
-    // A room's + opens a session with every member, when they are all
-    // this Mac's agents.
+    // A room has no + of its own (WP-11): ROOMS' + starts a room, and a
+    // group's session starts from Groups in Agents.
     const group = home(page, roomId(ROOM.review));
     await group.hover();
-    await group
-      .getByRole("button", { name: "New session with Atlas + Wren" })
-      .click();
-    await expect(page.getByRole("dialog")).toContainText(
-      "New session with Atlas + Wren",
-    );
-    await page.keyboard.press("Escape");
+    await expect(group.locator(".luca-rail-row-add")).toHaveCount(0);
 
     // The project's + opens New room for that project.
     await home(page, "project:tidepool").hover();
@@ -1085,6 +1080,9 @@ test.describe("the rail, finished (WP-02b)", () => {
     );
     const slot = (id: string) =>
       home(page, id).locator(".luca-rail-signal").first();
+    // "working…" is said once (WP-11): by the session while it shows under
+    // the open home, by the home when it is folded. Fold Wren to read it.
+    await home(page, agentId(WREN)).locator("[data-chevron]").click();
     await expect(hit(page, agentId(WREN))).toHaveAttribute(
       "aria-label",
       /unread/,
@@ -1127,7 +1125,14 @@ test.describe("the rail, finished (WP-02b)", () => {
     expect(wrenSlot.dot).toBe(false);
     expect(wrenSlot.after).toBe('"…"');
     expect(wrenSlot.label).toContain("unread");
-    // The sessions show the same order: Monday working, the tides unread.
+    // The sessions show the same order: Monday working, the tides unread;
+    // open, the home leaves "working…" to Monday and keeps its dot.
+    await home(page, agentId(WREN)).locator("[data-chevron]").click();
+    await page.mouse.move(1400, 880);
+    await expect(slot(agentId(WREN)).locator(".luca-rail-dot")).toBeVisible();
+    await expect(
+      home(page, agentId(WREN)).locator(".luca-rail-working"),
+    ).toHaveCount(0);
     await expect(
       session(page, ROOM.monday).locator(".luca-rail-working"),
     ).toBeVisible();
@@ -1154,16 +1159,17 @@ test.describe("the rail, finished (WP-02b)", () => {
     await home(page, agentId(WREN)).screenshot({ path: hoverPath });
     shots.push(hoverPath);
 
-    // Needs attention: its own class, the working tone and size, no ellipsis.
+    // needs attention (lowercase, WP-11): its own class, the working tone and
+    // size, no ellipsis.
     const atlas = slots[agentId(ATLAS)];
-    expect(atlas.text).toBe("Needs attention");
+    expect(atlas.text).toBe("needs attention");
     expect(atlas.className).toContain("luca-rail-status");
     expect(atlas.after).toBe("none");
     expect(atlas.color).toBe(wrenSlot.color);
     expect(atlas.size).toBe(wrenSlot.size);
     // Waking keeps its ellipsis.
     const codex = slots[agentId(CODEX)];
-    expect(codex.text).toBe("Waking");
+    expect(codex.text).toBe("waking");
     expect(codex.after).toBe('"…"');
     measured.status_ellipsis = { atlas, codex };
     await page.mouse.move(1400, 880);

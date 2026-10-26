@@ -1,7 +1,7 @@
 import type { RoomProject } from "@/features/channels/lib/roomProjects";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
-import { type ChatListItem, sortChats } from "./chatListModel";
+import type { ChatListItem } from "./chatListModel";
 
 /**
  * The Chats rail as homes (docs/luca/rail-system/SPEC.md, "One home per chat",
@@ -58,8 +58,36 @@ export type RailHomes = {
 
 export type RailHomeAgent = { name: string; pubkey: string };
 
-const lastActive = (item: ChatListItem) =>
-  item.channel.lastMessageAt ? Date.parse(item.channel.lastMessageAt) || 0 : 0;
+/** When a chat was made, by id (ISO), for chats nothing has been said in. */
+export type CreatedAtById = ReadonlyMap<string, string>;
+
+/**
+ * When a chat was last active: its last message, or, for a chat nothing has
+ * been said in yet, when it was made, so a chat you just made comes first
+ * instead of sinking below weeks-old ones. ISO, or null when neither is known.
+ */
+export function activeAt(
+  item: ChatListItem,
+  createdAtById?: CreatedAtById,
+): string | null {
+  return (
+    item.channel.lastMessageAt ?? createdAtById?.get(item.channel.id) ?? null
+  );
+}
+
+const activeMs = (item: ChatListItem, createdAtById?: CreatedAtById) => {
+  const at = activeAt(item, createdAtById);
+  return at ? Date.parse(at) || 0 : 0;
+};
+
+/** Newest first by activeAt; never-active chats last, by name. */
+function byActivity(createdAtById?: CreatedAtById) {
+  return (a: ChatListItem, b: ChatListItem) => {
+    const at = activeMs(a, createdAtById);
+    const bt = activeMs(b, createdAtById);
+    return at !== bt ? bt - at : a.label.localeCompare(b.label);
+  };
+}
 
 const membersOf = (item: ChatListItem) =>
   [...new Set(item.participants.map(normalizePubkey))].sort();
@@ -121,8 +149,12 @@ const isDirectWith = (item: ChatListItem, pubkey: string) =>
   membersOf(item)[0] === pubkey;
 
 /** Split a home's chats into its own conversation and its sessions. */
-function settle(home: RailHome, chats: ChatListItem[]) {
-  const sorted = sortChats(chats);
+function settle(
+  home: RailHome,
+  chats: ChatListItem[],
+  createdAtById?: CreatedAtById,
+) {
+  const sorted = [...chats].sort(byActivity(createdAtById));
   let main: ChatListItem | null = null;
   if (home.kind === "room") {
     main = sorted[0] ?? null;
@@ -133,7 +165,7 @@ function settle(home: RailHome, chats: ChatListItem[]) {
   home.main = main;
   home.sessions = main ? sorted.filter((item) => item !== main) : sorted;
   home.mostRecent = sorted.reduce(
-    (newest, item) => Math.max(newest, lastActive(item)),
+    (newest, item) => Math.max(newest, activeMs(item, createdAtById)),
     0,
   );
 }
@@ -157,6 +189,7 @@ export function buildRailHomes({
   projects,
   projectByChannelId,
   names,
+  createdAtById,
 }: {
   items: readonly ChatListItem[];
   agents: readonly RailHomeAgent[];
@@ -167,6 +200,8 @@ export function buildRailHomes({
   /** Profile names by key (lowercase), for members who are not this Mac's
    *  agents and have no 1:1 to be named by. */
   names?: ReadonlyMap<string, string>;
+  /** When each chat with no messages yet was made (see activeAt). */
+  createdAtById?: CreatedAtById;
 }): RailHomes {
   const primary = primaryPubkey ? normalizePubkey(primaryPubkey) : null;
   const agentNames = new Map(
@@ -215,7 +250,7 @@ export function buildRailHomes({
       name: lucaAgent.name,
       pubkey: primary,
     });
-    settle(luca, take("luca"));
+    settle(luca, take("luca"), createdAtById);
   } else {
     // No primary resident known yet: its chats wait under its agent home.
     const chats = take("luca");
@@ -235,7 +270,7 @@ export function buildRailHomes({
       name: project.label,
       project,
     });
-    settle(each, take(each.id));
+    settle(each, take(each.id), createdAtById);
     return each;
   });
   projectHomes.sort(byRecency);
@@ -260,7 +295,7 @@ export function buildRailHomes({
       name: agent.name,
       pubkey,
     });
-    settle(each, take(each.id));
+    settle(each, take(each.id), createdAtById);
     agentHomes.push(each);
   }
   const otherAgents: RailHome[] = [];
@@ -272,13 +307,13 @@ export function buildRailHomes({
       const kind = id.startsWith("agent:") ? "agent" : "person";
       const pubkey = id.slice(id.indexOf(":") + 1);
       const each = home({ id, kind, name: "", pubkey });
-      settle(each, chats);
+      settle(each, chats, createdAtById);
       each.name =
         nameOf(pubkey) ?? each.main?.label ?? each.sessions[0]?.label ?? "";
       (kind === "agent" ? otherAgents : people).push(each);
     } else {
       const each = home({ id, kind: "room", name: "" });
-      settle(each, chats);
+      settle(each, chats, createdAtById);
       const chat = each.main;
       each.members = chat ? membersOf(chat) : [];
       each.membersName = membersName(each.members, nameOf, primary);
