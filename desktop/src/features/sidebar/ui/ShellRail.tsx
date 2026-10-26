@@ -30,6 +30,7 @@ import {
   isLucas,
   lucaRowLabel,
   shownAt,
+  sideLiveWord,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import type { AgentRailAgent } from "@/features/sidebar/ui/AgentRail";
@@ -384,6 +385,7 @@ export function ShellRail({
             .map((item) => ({
               at: item.at,
               shownAt: shownAt(item),
+              word: sideLiveWord(item),
               conversationId: item.conversationId,
               id: `${item.kind}:${item.id}`,
               label: lucaRowLabel(item, lucaKey, side.nameOf, side.roomOf),
@@ -840,6 +842,20 @@ function HomeRow({
         : count + (workingByChannelId?.get(item.channel.id)?.agentCount ?? 0),
     0,
   );
+  // A live side conversation of Luca's out of sight (the home folded, or
+  // behind "N more") is said on the home: working… for a running task,
+  // talking… for an exchange (review fix 12).
+  const shownSide = new Set(
+    nested && expanded
+      ? shown.flatMap((entry) => (entry.kind === "side" ? [entry.row.id] : []))
+      : [],
+  );
+  const hiddenLive = side.filter((row) => row.live && !shownSide.has(row.id));
+  const sideWord = hiddenLive.some((row) => row.word === "working")
+    ? "working"
+    : hiddenLive.length > 0
+      ? "talking"
+      : null;
   // State words are lowercase, as the study and the Agents rail say them.
   // Only work in progress trails off: "waking…" and "working…" keep their
   // ellipsis; a status such as "needs attention" has none.
@@ -861,6 +877,8 @@ function HomeRow({
     <StatusLabel>{status}</StatusLabel>
   ) : working > 0 ? (
     <WorkingLabel count={working} />
+  ) : sideWord ? (
+    <span className="luca-rail-working text-2xs">{sideWord}</span>
   ) : unread ? (
     <UnreadDot />
   ) : null;
@@ -903,7 +921,7 @@ function HomeRow({
           aria-label={[
             home.name,
             unread ? "unread" : null,
-            status ?? (working > 0 ? "working" : null),
+            status ?? (working > 0 ? "working" : sideWord),
           ]
             .filter(Boolean)
             .join(", ")}
@@ -970,9 +988,7 @@ function HomeRow({
                 : "";
               return (
                 <button
-                  aria-label={[row.label, row.live ? "working" : null]
-                    .filter(Boolean)
-                    .join(", ")}
+                  aria-label={[row.label, row.word].filter(Boolean).join(", ")}
                   className="luca-rail-session text-lip"
                   data-rail-focus="session"
                   data-side-row={row.live ? "live" : "quiet"}
@@ -983,8 +999,12 @@ function HomeRow({
                   type="button"
                 >
                   <span className="luca-rail-session-title">{row.label}</span>
-                  {row.live ? (
-                    <WorkingLabel count={1} />
+                  {row.word === "paused" ? (
+                    <StatusLabel>paused</StatusLabel>
+                  ) : row.word ? (
+                    <span className="luca-rail-working text-2xs">
+                      {row.word}
+                    </span>
                   ) : ago ? (
                     <span className="luca-rail-session-ago text-2xs">
                       {ago}

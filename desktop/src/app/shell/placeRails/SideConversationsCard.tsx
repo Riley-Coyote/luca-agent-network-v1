@@ -98,10 +98,12 @@ function SideRow({
           <span className="luca-side-state" data-live={item.live || undefined}>
             {item.word}
           </span>
-          {turns ? <span className="luca-side-turns">{turns}</span> : null}
+          <span className="luca-side-turns">{turns}</span>
         </>
       }
-      note={timeOfDay(shownAt(item))}
+      note={
+        item.kind === "exchange" && item.live ? "now" : timeOfDay(shownAt(item))
+      }
       onOpen={onOpen}
       openLabel={[title, summary, item.word, room && `in ${room}`]
         .filter(Boolean)

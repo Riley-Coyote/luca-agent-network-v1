@@ -10,6 +10,7 @@ import {
 } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useCommunities } from "@/features/communities/useCommunities";
+import { useCanonicalLucaPubkey } from "@/features/luca/canonicalLucaResident";
 import type { TaskSide } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
 import { useRuntimeRailConnections } from "@/features/runtime-sessions/RuntimeRailSection";
@@ -96,11 +97,17 @@ export function ConnectedAppCard({ runtimeKey }: { runtimeKey: string }) {
  * Shown once there is one, as a rail's sections are.
  */
 function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
-  const { items, nameOf, roomOf } = useSideConversations();
+  const { items, roomOf } = useSideConversations();
   const { goChannel } = useAppNavigation();
+  // Luca's runs only (review fix 11): what another mind did with the app is
+  // in its own space.
+  const luca = useCanonicalLucaPubkey();
   const tasks = items.filter(
     (item): item is TaskSide =>
-      item.kind === "task" && item.runtimeFamily === runtimeId,
+      item.kind === "task" &&
+      item.runtimeFamily === runtimeId &&
+      Boolean(luca) &&
+      item.residentPubkey === luca,
   );
   if (tasks.length === 0) return null;
   return (
@@ -108,7 +115,6 @@ function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
       <PlaceList label="What Luca did with it" testId="connected-what-luca-did">
         {tasks.map((task) => {
           const room = roomOf(task.conversationId);
-          const who = nameOf(task.residentPubkey);
           return (
             <PlaceListRow
               data-side-state={task.word}
@@ -123,10 +129,10 @@ function WhatLucaDid({ runtimeId }: { runtimeId: string }) {
               key={task.id}
               note={placeNoteTime(new Date(task.at).toISOString())}
               onOpen={() => void goChannel(task.conversationId)}
-              openLabel={[task.summary, who, task.word, room && `in ${room}`]
+              openLabel={[task.summary, task.word, room && `in ${room}`]
                 .filter(Boolean)
                 .join(", ")}
-              summary={room ? `${who} · ${room}` : who}
+              summary={room || undefined}
               testId={`connected-task-${task.id}`}
               title={task.summary}
             />

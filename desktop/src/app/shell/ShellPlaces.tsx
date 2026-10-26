@@ -7,7 +7,9 @@ import {
   preloadArtifactsSurface,
   preloadSettingsSurface,
 } from "@/app/navigation/preloadPrimarySurfaces";
+import { needsYouNote } from "@/app/shell/placeRails/needsYou";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
+import "@/app/shell/shell-activity.css";
 import { ShellPlacesMarks } from "@/app/shell/ShellMarks";
 import { useShellStatus } from "@/app/shell/useShellStatus";
 import { TopbarSearch } from "@/features/search/ui/TopbarSearch";
@@ -117,6 +119,7 @@ function usePlaceFocusHandOver(nav: React.RefObject<HTMLElement | null>) {
 
 function PlaceTile({
   badge,
+  badgeLabel,
   children,
   current,
   dot,
@@ -128,6 +131,8 @@ function PlaceTile({
   update,
 }: {
   badge?: number;
+  /** How the count reads ("99+" past 99); the number itself by default. */
+  badgeLabel?: string;
   children: React.ReactNode;
   current?: boolean;
   /** The app's unread dot, at the tile's top right. */
@@ -151,7 +156,7 @@ function PlaceTile({
               : dot
                 ? `${label}, unread`
                 : badge && badge > 0
-                  ? `${label}, ${badge} waiting on you`
+                  ? `${label}, ${badgeLabel ?? badge} waiting on you`
                   : label
           }
           className="luca-place"
@@ -178,8 +183,17 @@ function PlaceTile({
             />
           ) : null}
           {badge && badge > 0 ? (
-            <span className="luca-place-badge" data-testid={`${testId}-count`}>
-              {Math.min(badge, 99)}
+            <span
+              aria-hidden="true"
+              className="luca-place-badge text-2xs"
+              data-testid={`${testId}-count`}
+              data-wide={
+                String(badgeLabel ?? Math.min(badge, 99)).length > 1
+                  ? ""
+                  : undefined
+              }
+            >
+              {badgeLabel ?? Math.min(badge, 99)}
             </span>
           ) : null}
         </button>
@@ -361,6 +375,7 @@ export function ShellPlaces({
         </PlaceTile>
         <PlaceTile
           badge={needsYou.count}
+          badgeLabel={needsYouNote(needsYou.count)}
           current={here === "activity"}
           label="Activity"
           onClick={onSelectPulse}

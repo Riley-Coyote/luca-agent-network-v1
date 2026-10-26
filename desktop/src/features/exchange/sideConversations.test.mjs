@@ -6,7 +6,9 @@ import {
   exchangeTimesFromMessages,
   isLucas,
   lucaRowLabel,
+  shownAt,
   sideDays,
+  sideLiveWord,
   sideTitle,
   taskWord,
   turnsLabel,
@@ -200,4 +202,35 @@ test("feed_isByDay", () => {
       ["Tuesday, Oct 20", 1],
     ],
   );
+});
+
+test("words_andTimes_sayOnlyWhatIsKnown", () => {
+  const [talking, paused, done, deadlineOnly, working] = buildSideConversations(
+    {
+      exchanges: [
+        exchange("a", {}, 1, "open"),
+        exchange("b", {}, 3, "paused"),
+        exchange("c", { state: "closed" }, 2, "closed"),
+      ],
+      tasks: [],
+      times: new Map([
+        ["a", { latestTurnAt: 300 }],
+        ["b", { latestTurnAt: 200 }],
+        ["c", { latestTurnAt: 100 }],
+      ]),
+    },
+  ).concat(
+    buildSideConversations({ exchanges: [exchange("d")], tasks: [] }),
+    buildSideConversations({
+      exchanges: [],
+      tasks: [task("t", { state: "active", completedAt: null })],
+    }),
+  );
+  assert.deepEqual(
+    [talking, paused, done, deadlineOnly, working].map(sideLiveWord),
+    ["talking", "paused", null, "talking", "working"],
+  );
+  assert.equal(shownAt(talking), 300_000);
+  // A deadline is not when anything was said.
+  assert.equal(shownAt(deadlineOnly), null);
 });

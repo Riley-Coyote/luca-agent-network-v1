@@ -434,6 +434,8 @@ export type RailSideRow = {
   at: number;
   /** The time the row says, or null when none is known yet. */
   shownAt?: number | null;
+  /** What it says in place of a time: talking…, working…, paused. */
+  word?: "talking" | "working" | "paused" | null;
   /** Talking or working: it never folds away. */
   live: boolean;
   conversationId: string;

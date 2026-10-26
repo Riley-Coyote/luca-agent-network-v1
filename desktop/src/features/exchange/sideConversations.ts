@@ -154,16 +154,21 @@ export function taskSide(task: RuntimeTaskProjection): TaskSide {
 }
 
 /** The time a row says, or null: an exchange known only by its deadline
- *  says no time while that deadline is still ahead, since the record keeps no
- *  opened-at and a time to come is not when anything was said. It still
- *  orders by it. */
-export function shownAt(
-  item: SideConversation,
-  now: number = Date.now(),
-): number | null {
-  if (item.kind === "exchange" && item.atFrom === "deadline" && item.at > now)
-    return null;
+ *  says no time, since the record keeps no opened-at and a deadline is not
+ *  when anything was said (review fix 15). It still orders by it. */
+export function shownAt(item: SideConversation): number | null {
+  if (item.kind === "exchange" && item.atFrom === "deadline") return null;
   return item.at > 0 ? item.at : null;
+}
+
+/** The word a live or waiting side conversation says where a time would go
+ *  (review fix 16): talking, working, paused; null for one at rest. */
+export function sideLiveWord(
+  item: SideConversation,
+): "talking" | "working" | "paused" | null {
+  if (item.kind === "task") return item.live ? "working" : null;
+  if (item.live) return "talking";
+  return item.phase === "paused" ? "paused" : null;
 }
 
 /** Every exchange and every runtime task, newest first. */

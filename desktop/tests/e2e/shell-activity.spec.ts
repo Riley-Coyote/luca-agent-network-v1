@@ -357,25 +357,128 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
     "true",
   );
   const kinds = await items.evaluateAll((nodes) =>
-    nodes.map((node) => ({
-      kind: (node as HTMLElement).dataset.needsKind,
-      ask: node.querySelector(".luca-needs-ask")?.textContent,
-      when: node.querySelector(".luca-needs-when")?.textContent,
-      answer: [
-        ...node.querySelectorAll(
-          '[data-testid="managed-permission-card"], [data-testid="managed-input-card"], [data-testid="runtime-task-confirmation"], [data-testid="needs-you-exchange"]',
-        ),
-      ].map((each) => each.getAttribute("data-testid")),
-    })),
+    nodes.map((node) => {
+      const row = node.querySelector<HTMLElement>(".luca-place-row");
+      const title = node.querySelector(".luca-place-row-title");
+      const note = node.querySelector(".luca-place-row-note");
+      const box = row?.getBoundingClientRect();
+      return {
+        kind: (node as HTMLElement).dataset.needsKind,
+        title: title?.textContent,
+        titleSize: title ? getComputedStyle(title).fontSize : null,
+        summary: node.querySelector(".luca-place-row-summary")?.textContent,
+        note: note?.textContent,
+        noteRight: note ? Math.round(note.getBoundingClientRect().right) : null,
+        answers: [
+          ...node.querySelectorAll<HTMLElement>(".luca-ask-answers button"),
+        ].map((button) => ({
+          label: button.textContent,
+          border: getComputedStyle(button).borderTopWidth,
+          fill: getComputedStyle(button).backgroundColor,
+        })),
+        extra: node.querySelector(".luca-ask-extra")?.textContent ?? null,
+        // No outline, fill or shadow around an item.
+        item: {
+          background: getComputedStyle(node).backgroundColor,
+          border: getComputedStyle(node).borderTopWidth,
+          shadow: getComputedStyle(node).boxShadow,
+        },
+        rowHeight: box ? Math.round(box.height * 10) / 10 : null,
+        forms: node.querySelectorAll(
+          '[data-testid="managed-permission-card"], [data-testid="managed-input-card"], [data-testid="runtime-task-confirmation"]',
+        ).length,
+      };
+    }),
   );
-  measure("needs_you_kinds", kinds);
+  const firstRowGap = await page.evaluate(() => {
+    const eyebrow = document.querySelector(
+      '[data-testid="needs-you-card"] .luca-place-group > h2',
+    );
+    const title = document.querySelector(
+      '[data-testid="needs-you-card"] .luca-place-row-title',
+    );
+    return eyebrow && title
+      ? Math.round(
+          title.getBoundingClientRect().top -
+            eyebrow.getBoundingClientRect().bottom,
+        )
+      : null;
+  });
+  measure("needs_you_kinds", { firstRowGap, kinds });
+  for (const each of kinds) {
+    expect(each.forms).toBe(0);
+    expect(each.answers.length).toBeGreaterThan(0);
+    expect(each.item.shadow).toBe("none");
+    expect(each.titleSize).toBe("14px");
+  }
+  expect(new Set(kinds.map((each) => each.noteRight)).size).toBe(1);
+  expect(kinds.find((each) => each.kind === "permission")?.note).toBe("now");
+  expect(
+    kinds
+      .find((each) => each.kind === "permission")
+      ?.answers.map((a) => a.label),
+  ).toEqual(["Deny", "Once"]);
+  expect(
+    kinds.find((each) => each.kind === "question")?.answers.map((a) => a.label),
+  ).toEqual(["Preview", "Beta", "Send", "Skip"]);
+  expect(
+    kinds.find((each) => each.kind === "proposal")?.answers.map((a) => a.label),
+  ).toEqual(["Run", "Not now"]);
+  expect(kinds.find((each) => each.kind === "proposal")?.extra).toContain(
+    "Claude Code · ask when needed",
+  );
+  expect(kinds.find((each) => each.kind === "permission")?.summary).toBe(
+    "Atlas asks · general",
+  );
+
+  // The permission's preview sits behind Details; Change… opens the form.
+  const permissionRow = page.getByTestId(
+    "needs-you-permission:permission-release",
+  );
+  await permissionRow.getByRole("button", { name: "Details" }).click();
+  await expect(permissionRow.getByTestId("needs-you-details")).toContainText(
+    "./scripts/release.sh --dry-run",
+  );
+  const proposalRow = page.getByTestId("needs-you-proposal:proposal-notes");
+  await proposalRow.getByTestId("needs-you-proposal-change").click();
+  await expect(
+    proposalRow.getByTestId("runtime-task-confirmation"),
+  ).toBeVisible();
+  measure("shot_needs_you_open", await shot(page, "needs-you-details-open"));
+  await proposalRow.getByTestId("needs-you-proposal-change").click();
+  await permissionRow.getByRole("button", { name: "Hide details" }).click();
+
+  // The whole row opens, not just its title (fix 10): its time cell, here.
+  const rowStyle = await permissionRow
+    .locator(".luca-place-row")
+    .evaluate((row) => getComputedStyle(row).cursor);
+  measure("row_cursor", rowStyle);
+  expect(rowStyle).toBe("pointer");
+  await permissionRow.locator(".luca-place-row").hover();
+  await page.waitForTimeout(250);
+  measure(
+    "row_hover_plate",
+    await permissionRow
+      .locator(".luca-place-row")
+      .evaluate((row) => getComputedStyle(row).backgroundColor),
+  );
+  // A press in the time cell lands on the row's own target.
+  const rowBox = await permissionRow.locator(".luca-place-row").boundingBox();
+  if (!rowBox) throw new Error("Expected the permission's row.");
+  await permissionRow
+    .locator(".luca-place-row")
+    .click({ position: { x: rowBox.width - 24, y: 16 } });
+  await expect
+    .poll(() => page.evaluate(() => window.location.hash))
+    .toContain(`/channels/${GENERAL}`);
+  await page.goBack();
+  await expect(items).toHaveCount(4, { timeout: 20_000 });
   expect(kinds.map((each) => each.kind).sort()).toEqual([
     "exchange",
     "permission",
     "proposal",
     "question",
   ]);
-  for (const each of kinds) expect(each.answer).toHaveLength(1);
 
   const count = async () => ({
     tile: (await page.getByTestId("open-activity-view-count").count())
@@ -394,10 +497,47 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
   const before = await count();
   expect(before.tile).toBe("4");
   expect(before.row).toBe("4");
-  const badgeBox = await page
-    .getByTestId("open-activity-view-count")
-    .boundingBox();
-  measure("count_badge_before", { ...before, badgeBox });
+  const badge = await page.evaluate(() => {
+    const tile = document.querySelector('[data-testid="open-activity-view"]');
+    const count = document.querySelector(
+      '[data-testid="open-activity-view-count"]',
+    );
+    const dot = document.querySelector(
+      '[data-testid="shell-place-conversations"]',
+    );
+    if (!tile || !count) return null;
+    const t = tile.getBoundingClientRect();
+    const c = count.getBoundingClientRect();
+    const style = getComputedStyle(count);
+    const probe = document.createElement("span");
+    probe.style.background = "hsl(var(--mn-signal))";
+    document.body.append(probe);
+    const signal = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return {
+      background: style.backgroundColor,
+      signal,
+      fontSize: style.fontSize,
+      centreFromRight: Math.round((t.right - (c.left + c.right) / 2) * 10) / 10,
+      centreFromTop: Math.round(((c.top + c.bottom) / 2 - t.top) * 10) / 10,
+      overhangs:
+        c.right > t.right + 0.5 ||
+        c.top < t.top - 0.5 ||
+        c.left < t.left ||
+        c.bottom > t.bottom,
+      iconMask: getComputedStyle(tile.querySelector("svg") as Element)
+        .maskImage,
+      chatsTile: Boolean(dot),
+    };
+  });
+  measure("count_badge_before", { ...before, badge });
+  expect(badge?.background).toBe(badge?.signal);
+  expect(badge?.fontSize).toBe("11px");
+  expect(badge?.overhangs).toBe(false);
+  expect(badge?.centreFromRight).toBe(7);
+  expect(badge?.centreFromTop).toBe(7);
+  expect(badge?.iconMask).toContain("radial-gradient");
+  await page.mouse.move(1300, 860);
   measure("shot_needs_you", await shot(page, "needs-you"));
   measure(
     "shot_activity_count",
@@ -451,15 +591,15 @@ test("needs you: every kind, answered in place, counted", async ({ page }) => {
   });
   await answer("question:question-word", async () => {
     const question = page.getByTestId("needs-you-question:question-word");
-    await question.getByLabel("Beta").focus();
+    await question.getByRole("button", { name: "Beta", exact: true }).focus();
     await page.keyboard.press("Space");
-    await question.getByRole("button", { name: "Send answer" }).focus();
+    await question.getByTestId("needs-you-question-send").focus();
     await page.keyboard.press("Enter");
   });
   await answer("proposal:proposal-notes", async () => {
     await page
       .getByTestId("needs-you-proposal:proposal-notes")
-      .getByRole("button", { name: "Cancel runtime task" })
+      .getByTestId("needs-you-proposal-not-now")
       .focus();
     await page.keyboard.press("Enter");
   });
@@ -500,11 +640,12 @@ test("side conversations: one feed, by day", async ({ page }) => {
   await speak(page);
   const rows = page.locator("[data-side-kind]");
   await expect(rows).toHaveCount(6, { timeout: 20_000 });
-  // The exchanges' times are their latest turns, heard live.
+  // The exchanges' times are their latest turns, heard live (a talking one
+  // says now, so the paused one is the one to wait for).
   await expect
     .poll(() =>
       page
-        .getByTestId(`side-row-${X_OPEN}`)
+        .getByTestId(`side-row-${X_PAUSED}`)
         .locator(".luca-place-row-note")
         .textContent(),
     )
@@ -547,6 +688,77 @@ test("side conversations: one feed, by day", async ({ page }) => {
   expect(open.state).toBe("talking");
   expect(open.detail).toContain("1 turn");
   expect(open.summary).toBe("general");
+  // A talking exchange says now (fix 15).
+  expect(open.note).toBe("now");
+  // The state column lines up: one left edge for the words, one right edge
+  // for the turns, drawn even when empty (fix 9); the words on the row's
+  // baseline (fix 14).
+  const columns = await page.evaluate(() => {
+    const edge = (selector: string, side: "left" | "right") => [
+      ...new Set(
+        [...document.querySelectorAll(selector)].map((el) =>
+          Math.round(el.getBoundingClientRect()[side]),
+        ),
+      ),
+    ];
+    const state = document.querySelector(".luca-side-state");
+    return {
+      stateLeft: edge(
+        '[data-testid="side-conversations-card"] .luca-side-state',
+        "left",
+      ),
+      turnsRight: edge(
+        '[data-testid="side-conversations-card"] .luca-side-turns',
+        "right",
+      ),
+      turnsCount: document.querySelectorAll(
+        '[data-testid="side-conversations-card"] .luca-side-turns',
+      ).length,
+      rows: document.querySelectorAll(
+        '[data-testid="side-conversations-card"] [data-side-kind]',
+      ).length,
+      align: state ? getComputedStyle(state).alignItems : null,
+    };
+  });
+  measure("side_columns", columns);
+  measure(
+    "side_first_row_gap",
+    await page.evaluate(() => {
+      const eyebrow = document.querySelector(
+        '[data-testid="side-conversations-card"] .luca-place-group > h2',
+      );
+      const title = document.querySelector(
+        '[data-testid="side-conversations-card"] .luca-place-row-title',
+      );
+      return eyebrow && title
+        ? Math.round(
+            title.getBoundingClientRect().top -
+              eyebrow.getBoundingClientRect().bottom,
+          )
+        : null;
+    }),
+  );
+  measure(
+    "side_first_row_gap",
+    await page.evaluate(() => {
+      const eyebrow = document.querySelector(
+        '[data-testid="side-conversations-card"] .luca-place-group > h2',
+      );
+      const title = document.querySelector(
+        '[data-testid="side-conversations-card"] .luca-place-row-title',
+      );
+      return eyebrow && title
+        ? Math.round(
+            title.getBoundingClientRect().top -
+              eyebrow.getBoundingClientRect().bottom,
+          )
+        : null;
+    }),
+  );
+  expect(columns.stateLeft).toHaveLength(1);
+  expect(columns.turnsRight).toHaveLength(1);
+  expect(columns.turnsCount).toBe(columns.rows);
+  expect(columns.align).toBe("baseline");
   measure("shot_side_conversations", await shot(page, "side-conversations"));
 
   // An exchange opens its room at its first message.
@@ -592,13 +804,23 @@ test("Luca's side conversations under Luca in the Chats rail", async ({
             row.querySelector(".luca-rail-session-title")?.textContent ??
             row.textContent,
           trailing:
-            row.querySelector(".luca-rail-working, .luca-rail-session-ago")
-              ?.textContent ?? null,
+            row.querySelector(
+              ".luca-rail-working, .luca-rail-status, .luca-rail-session-ago",
+            )?.textContent ?? null,
           working: Boolean(row.querySelector(".luca-rail-working")),
         }),
       ),
     );
   const folded = await read();
+  // The feed's words (fix 16): talking… for a live exchange, working… for a
+  // running task, paused for a paused one.
+  const words = Object.fromEntries(
+    folded.filter((row) => row.side).map((row) => [row.label, row.trailing]),
+  );
+  measure("luca_words", words);
+  expect(words["Atlas · general"]).toBe("talking");
+  expect(words["Claude Code · Rail glass plates"]).toBe("working");
+  expect(words["Wren · design"]).toBe("paused");
   for (const live of ["Atlas · general", "Claude Code · Rail glass plates"])
     expect(folded.map((row) => row.label)).toContain(live);
   for (const row of folded.filter((each) => each.side === "live"))
@@ -630,6 +852,26 @@ test("Luca's side conversations under Luca in the Chats rail", async ({
     "Claude Code · Rail glass plates",
     "Wren · design",
   ]);
+  // Folded, Luca's home says what is live out of sight (fix 12).
+  await page.getByTestId("rail-home-luca").locator("[data-chevron]").click();
+  const foldedHome = await page
+    .getByTestId("rail-home-luca")
+    .evaluate((row) => ({
+      signal: row.querySelector(".luca-rail-signal")?.textContent ?? null,
+      label: row
+        .querySelector("[data-rail-focus=home]")
+        ?.getAttribute("aria-label"),
+    }));
+  measure("luca_folded", foldedHome);
+  expect(foldedHome.signal).toBe("working");
+  expect(foldedHome.label).toContain("working");
+  await page.mouse.move(900, 600);
+  measure(
+    "shot_luca_folded",
+    await shot(page, "luca-folded", { x: 0, y: 0, width: 300, height: 160 }),
+  );
+  await page.getByTestId("rail-home-luca").locator("[data-chevron]").click();
+  if (await more.count()) await more.click();
   // Each opens where it happened.
   await page.getByTestId(`rail-side-exchange:${X_DONE}`).click();
   await expect
@@ -671,6 +913,22 @@ test("a connected app: what Luca did with it", async ({ page }) => {
     })),
   );
   measure("connected_history", rows);
+  // Luca's runs only, the room alone under each (fix 11), and the list 32
+  // below Sessions (fix 17).
+  expect(rows.map((row) => row.summary)).toEqual(["design", "general"]);
+  const gap = await page.evaluate(() => {
+    const history = document.querySelector(
+      '[data-testid="connected-what-luca-did"]',
+    );
+    const before = history?.parentElement?.previousElementSibling;
+    return history && before
+      ? Math.round(
+          history.getBoundingClientRect().top -
+            before.getBoundingClientRect().bottom,
+        )
+      : null;
+  });
+  measure("connected_gap", gap);
   expect(rows.map((row) => row.title)).toEqual([
     "Rail glass plates",
     "Fix the failing build",
@@ -865,4 +1123,93 @@ test("landing on an exchange: its message in view, named for you", async ({
   await expect(page.getByTestId("managed-permission-card")).toBeVisible();
   await expect(page.getByTestId("runtime-task-confirmation")).toBeVisible();
   measure("shot_landing_shown", await shot(page, "exchange-landing-shown"));
+});
+
+test("now: the live side conversations among who's working", async ({
+  page,
+}) => {
+  await boot(page, { hash: "/pulse?stream=now" });
+  await expect(page.getByTestId("owner-activity-view")).toBeVisible({
+    timeout: 20_000,
+  });
+  await speak(page);
+  const live = page.locator('[data-testid^="owner-activity-side-"]');
+  await expect(live).toHaveCount(2, { timeout: 20_000 });
+  const rows = await live.evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      group: (node as HTMLElement).dataset.activityGroup,
+      title: node.querySelector(".luca-place-row-title")?.textContent,
+      summary: node.querySelector(".luca-place-row-summary")?.textContent,
+      note: node.querySelector(".luca-place-row-note")?.textContent,
+      underActiveHeading:
+        getComputedStyle(
+          document.querySelector(
+            '[data-testid="owner-activity-group-active"]',
+          ) as Element,
+        ).display !== "none",
+    })),
+  );
+  measure("now_side", rows);
+  expect(rows.map((row) => row.summary).sort()).toEqual([
+    "Talking with Atlas · general",
+    "Working with Claude Code · Rail glass plates",
+  ]);
+  for (const row of rows) {
+    expect(row.group).toBe("active");
+    expect(row.underActiveHeading).toBe(true);
+  }
+  measure("shot_now_side", await shot(page, "now-side"));
+});
+
+test("the count past 99 reads 99+, on the icon and the row", async ({
+  page,
+}) => {
+  await page.addInitScript((key) => {
+    const raw = window.localStorage.getItem(key);
+    const overrides = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    overrides["shell-frame"] = true;
+    window.localStorage.setItem(key, JSON.stringify(overrides));
+  }, FEATURE_OVERRIDES_STORAGE_KEY);
+  await installMockBridge(page, {
+    managedAgents: AGENTS.map((agent) => ({ ...agent })),
+    managedPermissions: Array.from({ length: 104 }, (_, index) => ({
+      pendingId: `permission-${index}`,
+      request: {
+        ...SHARED_SEEDS.managedPermissions[0].request,
+        acp_request_id: `acp-${index}`,
+        title: `Run step ${index + 1}`,
+        turn_id: `turn-${index}`,
+      },
+    })),
+  });
+  await expect(async () => {
+    await page.goto("/#/pulse");
+    await expect(page.getByTestId("app-sidebar")).toBeVisible({
+      timeout: 20_000,
+    });
+  }).toPass({ timeout: 60_000 });
+  await expect(page.getByTestId("open-activity-view-count")).toHaveText("99+", {
+    timeout: 20_000,
+  });
+  const row = await page
+    .getByTestId("place-row-needs-you")
+    .locator(".luca-rail-note")
+    .textContent();
+  const overhang = await page.evaluate(() => {
+    const tile = document
+      .querySelector('[data-testid="open-activity-view"]')
+      ?.getBoundingClientRect();
+    const count = document
+      .querySelector('[data-testid="open-activity-view-count"]')
+      ?.getBoundingClientRect();
+    return tile && count
+      ? { left: count.left - tile.left, right: tile.right - count.right }
+      : null;
+  });
+  measure("count_99", { overhang, row });
+  expect(row).toBe("99+");
+  measure(
+    "shot_count_99",
+    await shot(page, "count-99", { x: 0, y: 0, width: 330, height: 260 }),
+  );
 });

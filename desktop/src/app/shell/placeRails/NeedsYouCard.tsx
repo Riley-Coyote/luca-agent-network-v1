@@ -1,5 +1,5 @@
+import { useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { ArrowUpRight } from "lucide-react";
 import { toast } from "sonner";
 
 import "@/app/shell/shell-activity.css";
@@ -8,12 +8,27 @@ import {
   type NeedsYouEntry,
   orderNeedsYou,
 } from "@/app/shell/placeRails/needsYou";
+import {
+  PlaceAskLink,
+  PlaceAskRow,
+  PlaceQuietButton,
+} from "@/app/shell/placeRails/PlaceAskRow";
 import { PlacePage, placeNoteTime } from "@/app/shell/placeRails/PlacePage";
 import { PlacePageHead } from "@/app/shell/placeRails/PlacePageHead";
 import { useNeedsYou } from "@/app/shell/placeRails/useNeedsYou";
-import { ManagedPermissionCard } from "@/features/agents/ui/ManagedPermissionCard";
+import {
+  canRememberCapabilityPermission,
+  PERMISSION_TENSE_WIRE_VALUE,
+  runtimePermissionOffer,
+  visiblePermissionTenses,
+  type VisiblePermissionTense,
+} from "@/features/agents/managedPermissionPolicy";
+import { isExistingRuntimeTask } from "@/features/capabilities/lib/runtimeTaskPresentation";
 import { ManagedInputCard } from "@/features/capabilities/ui/ManagedInputCard";
-import { RuntimeTaskProposalConfirmation } from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
+import {
+  RuntimeTaskProposalConfirmation,
+  useProposalDraft,
+} from "@/features/capabilities/ui/RuntimeTaskProposalConfirmation";
 import { useChannelsQuery } from "@/features/channels/hooks";
 import { useRoomProjects } from "@/features/channels/lib/roomProjects";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -28,21 +43,31 @@ import {
   shownAt,
 } from "@/features/exchange/sideConversations";
 import { useSideConversations } from "@/features/exchange/useSideConversations";
-import type { PendingManagedInput } from "@/shared/api/managedInputs";
+import {
+  type PendingManagedInput,
+  resolveManagedInput,
+} from "@/shared/api/managedInputs";
+import { resolveManagedPermission } from "@/shared/api/managedPermissions";
 import { resolveExchange } from "@/shared/api/exchanges";
 import { useIdentityQuery } from "@/shared/api/hooks";
-import type { RuntimeTaskProposal } from "@/shared/api/tauriRuntimeTasks";
-import type { PendingManagedPermission } from "@/shared/api/types";
+import { listRuntimeConnectionStatus } from "@/shared/api/tauriMcp";
+import {
+  respondRuntimeTaskProposal,
+  type RuntimeTaskProposal,
+} from "@/shared/api/tauriRuntimeTasks";
+import type {
+  ManagedPermissionTense,
+  PendingManagedPermission,
+} from "@/shared/api/types";
 import { EXCHANGE_BUCKET_CEILING } from "@/shared/constants/kinds";
 import { normalizePubkey } from "@/shared/lib/pubkey";
 
 /**
- * Needs you (NAVIGATION.md, "Activity"; SHELL_BUILD.md WP-14, Decided 3):
- * everything waiting on you, newest first, each answerable where it stands
- * with the card its conversation shows (a permission, a question, Luca's
- * proposal to run Codex or Claude Code), or, for an exchange paused for
- * your word, Stop here and Let them go on. Each says who's asking and where,
- * and opens its conversation. The same list Ghost shows on the phone.
+ * Needs you (NAVIGATION.md, "Activity"; SHELL_BUILD.md WP-14, Decided 3 and
+ * review fix 6): everything waiting on you, newest first, one flat row each
+ * (PlaceAskRow): the ask in its own words, who asks and where, its answers
+ * as quiet buttons in the row, and the long form only when asked for. The
+ * row opens its conversation. The same list Ghost shows on the phone.
  */
 
 type Item =
@@ -51,7 +76,15 @@ type Item =
   | (NeedsYouEntry<RuntimeTaskProposal> & { kind: "proposal" })
   | (NeedsYouEntry<ExchangeEntry> & { kind: "exchange" });
 
-/** An item's controls, in order: its Open, then its answer's. */
+/** The answers a permission card offers, in its words. */
+const PERMISSION_TENSE_LABEL: Record<VisiblePermissionTense, string> = {
+  always: "Always",
+  deny: "Deny",
+  once: "Once",
+};
+
+/** An item's controls, in order: its title (which opens it), then its
+ *  answers. */
 const FOCUSABLE =
   'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -172,7 +205,7 @@ export function NeedsYouCard() {
         <section aria-label="Waiting on you" className="luca-place-group">
           <h2 className="type-eyebrow">Waiting on you</h2>
           <ul
-            className="luca-needs-list"
+            className="luca-ask-list"
             onFocus={(event) => {
               const item = (event.target as HTMLElement).closest<HTMLElement>(
                 "[data-needs-key]",
@@ -222,61 +255,378 @@ function NeedsYouItem({
 }) {
   const who = nameOf(item.askedBy);
   const room = roomOf(item.conversationId);
-  const ask =
-    item.kind === "exchange"
-      ? `${namesAsList(item.value.record.members.map(nameOf))} are waiting for you`
-      : item.kind === "proposal"
-        ? `${who} asks to run ${runtimeLabel(item.value.runtimeFamily)}`
-        : item.kind === "question"
-          ? `${who} asks you`
-          : `${who} asks permission`;
+  const where = (asking: string) => (room ? `${asking} · ${room}` : asking);
+  const common = {
+    "data-needs-key": item.key,
+    "data-needs-kind": item.kind,
+    "data-testid": `needs-you-${item.key}`,
+    note: item.at ? placeNoteTime(new Date(item.at).toISOString()) : "now",
+    onOpen,
+    openTestId: "needs-you-open",
+  };
+  if (item.kind === "permission")
+    return (
+      <PermissionAsk
+        common={common}
+        pending={item.value}
+        summary={where(`${who} asks`)}
+      />
+    );
+  if (item.kind === "question")
+    return (
+      <QuestionAsk
+        common={common}
+        pending={item.value}
+        summary={where(`${who} asks`)}
+      />
+    );
+  if (item.kind === "proposal")
+    return (
+      <ProposalAsk
+        common={common}
+        projectSourceIds={projectSourceIds}
+        proposal={item.value}
+        summary={where(`${who} asks`)}
+        who={who}
+      />
+    );
+  const names = namesAsList(item.value.record.members.map(nameOf));
   return (
-    <li
-      className="luca-needs-item"
-      data-needs-key={item.key}
-      data-needs-kind={item.kind}
-      data-testid={`needs-you-${item.key}`}
-    >
-      <div className="luca-needs-head">
-        <span className="luca-needs-ask">
-          <span className="luca-needs-who">{ask}</span>
-          {room ? <span className="luca-needs-where"> · {room}</span> : null}
-        </span>
-        <span className="luca-needs-when">
-          {item.at ? placeNoteTime(new Date(item.at).toISOString()) : ""}
-        </span>
-        <button
-          aria-label={`Open ${room || "the conversation"}`}
-          className="luca-needs-open"
-          data-testid="needs-you-open"
-          onClick={onOpen}
-          type="button"
-        >
-          Open
-          <ArrowUpRight aria-hidden />
-        </button>
-      </div>
-      <div className="luca-needs-answer">
-        {item.kind === "permission" ? (
-          <ManagedPermissionCard compact pending={item.value} />
-        ) : item.kind === "question" ? (
-          <ManagedInputCard compact pending={item.value} />
-        ) : item.kind === "proposal" ? (
-          <RuntimeTaskProposalConfirmation
-            projectSourceIds={projectSourceIds}
-            proposals={[item.value]}
-            residentNames={new Map([[item.askedBy, who]])}
-          />
-        ) : (
-          <PausedExchange entry={item.value} />
-        )}
-      </div>
-    </li>
+    <PausedExchangeAsk
+      common={common}
+      entry={item.value}
+      names={names}
+      summary={where("Waiting for you")}
+    />
   );
 }
 
+type Common = {
+  "data-needs-key": string;
+  "data-needs-kind": Item["kind"];
+  "data-testid": string;
+  note: string;
+  onOpen: () => void;
+  openTestId: string;
+};
+
+function failed(error: unknown, fallback: string) {
+  toast.error(error instanceof Error ? error.message : fallback);
+}
+
+/** A permission: Deny · Once (and Always, where the desktop offers it), its
+ *  action preview behind Details. */
+function PermissionAsk({
+  common,
+  pending,
+  summary,
+}: {
+  common: Common;
+  pending: PendingManagedPermission;
+  summary: string;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [details, setDetails] = React.useState(false);
+  const request = pending.request;
+  const structured = request.protocol === "luca.managed.permission.v2";
+  const offer = runtimePermissionOffer(pending);
+  const title = structured
+    ? request.operation
+    : request.title || "An agent is waiting for your decision.";
+  const answer = async (optionId?: string, tense?: ManagedPermissionTense) => {
+    setBusy(true);
+    try {
+      await resolveManagedPermission(pending.pendingId, optionId, tense);
+    } catch (error) {
+      failed(error, "This permission request is no longer active.");
+      setBusy(false);
+    }
+  };
+  const answers = structured
+    ? [
+        { key: "deny", label: "Deny", run: () => answer() },
+        { key: "once", label: "Once", run: () => answer("allow_once") },
+        ...(canRememberCapabilityPermission(request)
+          ? [
+              {
+                key: "always",
+                label: "Always here",
+                run: () => answer("always_allow"),
+              },
+            ]
+          : []),
+      ]
+    : visiblePermissionTenses(offer).map((tense) => ({
+        key: tense,
+        label: PERMISSION_TENSE_LABEL[tense],
+        run: () => answer(undefined, PERMISSION_TENSE_WIRE_VALUE[tense]),
+      }));
+  const preview = structured
+    ? request.resource.displayName
+    : (request.actionPreview ?? request.toolCallId);
+  const whereLine = structured
+    ? null
+    : offer.projectLabel
+      ? `In ${offer.projectLabel}`
+      : "Outside your projects";
+  return (
+    <PlaceAskRow
+      {...common}
+      answers={answers.map((each) => (
+        <PlaceQuietButton
+          data-testid={`needs-you-permission-${each.key}`}
+          disabled={busy}
+          key={each.key}
+          onClick={() => void each.run()}
+        >
+          {each.label}
+        </PlaceQuietButton>
+      ))}
+      extra={
+        preview || whereLine || offer.note ? (
+          <PlaceAskLink
+            aria-expanded={details}
+            onClick={() => setDetails((open) => !open)}
+          >
+            {details ? "Hide details" : "Details"}
+          </PlaceAskLink>
+        ) : null
+      }
+      openLabel={`${title}, ${summary}. Open the conversation`}
+      panel={
+        details ? (
+          <div className="luca-ask-details" data-testid="needs-you-details">
+            {whereLine ? <p>{whereLine}</p> : null}
+            {preview ? <pre>{preview}</pre> : null}
+            {offer.note ? <p>{offer.note}</p> : null}
+          </div>
+        ) : null
+      }
+      summary={summary}
+      title={title}
+    />
+  );
+}
+
+/** A question: with one choice field, its choices then Send and Skip;
+ *  otherwise Answer, which opens today's form under the row. */
+function QuestionAsk({
+  common,
+  pending,
+  summary,
+}: {
+  common: Common;
+  pending: PendingManagedInput;
+  summary: string;
+}) {
+  const [busy, setBusy] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+  const [choice, setChoice] = React.useState<string | null>(null);
+  const fields = pending.request.fields;
+  const only =
+    fields.length === 1 && fields[0].kind === "single" ? fields[0] : null;
+  const send = async (action: "answered" | "declined") => {
+    setBusy(true);
+    try {
+      await resolveManagedInput(
+        pending.pendingId,
+        action,
+        action === "answered" && only && choice ? { [only.key]: choice } : {},
+      );
+    } catch (error) {
+      failed(error, "This question is no longer waiting.");
+      setBusy(false);
+    }
+  };
+  return (
+    <PlaceAskRow
+      {...common}
+      answers={
+        only ? (
+          <>
+            <fieldset aria-label={only.label} className="luca-ask-choices">
+              {only.options.map((option) => (
+                <PlaceQuietButton
+                  disabled={busy}
+                  key={option.value}
+                  onClick={() => setChoice(option.value)}
+                  pressed={choice === option.value}
+                  title={option.description ?? undefined}
+                >
+                  {option.label}
+                </PlaceQuietButton>
+              ))}
+            </fieldset>
+            <PlaceQuietButton
+              data-testid="needs-you-question-send"
+              disabled={busy || !choice}
+              onClick={() => void send("answered")}
+            >
+              Send
+            </PlaceQuietButton>
+            <PlaceQuietButton
+              data-testid="needs-you-question-skip"
+              disabled={busy}
+              onClick={() => void send("declined")}
+            >
+              Skip
+            </PlaceQuietButton>
+          </>
+        ) : (
+          <PlaceQuietButton
+            aria-expanded={open}
+            data-testid="needs-you-question-answer"
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "Close" : "Answer"}
+          </PlaceQuietButton>
+        )
+      }
+      openLabel={`${pending.request.message}, ${summary}. Open the conversation`}
+      panel={
+        !only && open ? <ManagedInputCard compact pending={pending} /> : null
+      }
+      summary={summary}
+      title={pending.request.message}
+    />
+  );
+}
+
+/** Luca's proposal to run Codex or Claude Code: Run · Not now, its defaults
+ *  in one faint line, and Change… opening today's form under the row. */
+function ProposalAsk({
+  common,
+  projectSourceIds,
+  proposal,
+  summary,
+  who,
+}: {
+  common: Common;
+  projectSourceIds: string[];
+  proposal: RuntimeTaskProposal;
+  summary: string;
+  who: string;
+}) {
+  const residentNames = React.useMemo(
+    () => new Map([[proposal.residentPubkey, who]]),
+    [proposal.residentPubkey, who],
+  );
+  const draft = useProposalDraft(proposal, projectSourceIds, residentNames);
+  const targets = useQuery({
+    queryKey: ["runtime-task-targets"],
+    queryFn: listRuntimeConnectionStatus,
+    retry: false,
+    staleTime: 10_000,
+  });
+  const [busy, setBusy] = React.useState(false);
+  const [change, setChange] = React.useState(false);
+  const existing = isExistingRuntimeTask(proposal.operation);
+  const folder = existing
+    ? (proposal.targetWorkingFolder ?? null)
+    : (draft?.workingFolder ?? null);
+  const ready =
+    existing ||
+    (targets.data ?? []).some(
+      (runtime) =>
+        runtime.runtimeId === proposal.runtimeFamily &&
+        runtime.readiness === "ready" &&
+        runtime.authentication === "ready",
+    );
+  const canRun = Boolean(folder) && ready;
+  const respond = async (approved: boolean) => {
+    setBusy(true);
+    try {
+      await respondRuntimeTaskProposal(
+        approved && folder
+          ? {
+              approved: true,
+              permissionMode: "normal",
+              proposalId: proposal.proposalId,
+              runtimeFamily: proposal.runtimeFamily,
+              workingFolder: folder,
+            }
+          : { approved: false, proposalId: proposal.proposalId },
+      );
+    } catch (error) {
+      failed(error, "This runtime task proposal is no longer open.");
+      setBusy(false);
+    }
+  };
+  const defaults = [
+    runtimeLabel(proposal.runtimeFamily),
+    existing ? "its own permissions" : "ask when needed",
+    folder ? folderName(folder) : "no folder yet",
+  ].join(" · ");
+  return (
+    <PlaceAskRow
+      {...common}
+      answers={
+        <>
+          <PlaceQuietButton
+            data-testid="needs-you-proposal-run"
+            disabled={busy || !canRun}
+            onClick={() => void respond(true)}
+            title={canRun ? undefined : "Choose its details with Change…"}
+          >
+            Run
+          </PlaceQuietButton>
+          <PlaceQuietButton
+            data-testid="needs-you-proposal-not-now"
+            disabled={busy}
+            onClick={() => void respond(false)}
+          >
+            Not now
+          </PlaceQuietButton>
+        </>
+      }
+      extra={
+        <>
+          <span className="luca-ask-defaults" data-testid="needs-you-defaults">
+            {defaults}
+          </span>
+          <PlaceAskLink
+            aria-expanded={change}
+            data-testid="needs-you-proposal-change"
+            onClick={() => setChange((open) => !open)}
+          >
+            {change ? "Close" : "Change…"}
+          </PlaceAskLink>
+        </>
+      }
+      openLabel={`${proposal.summary}, ${summary}. Open the conversation`}
+      panel={
+        change ? (
+          <RuntimeTaskProposalConfirmation
+            projectSourceIds={projectSourceIds}
+            proposals={[proposal]}
+            residentNames={residentNames}
+          />
+        ) : null
+      }
+      summary={summary}
+      title={proposal.summary}
+    />
+  );
+}
+
+/** The folder's own name, as the defaults line says it. */
+function folderName(path: string) {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? path;
+}
+
 /** A paused exchange's two decisions, as its room's strip offers them. */
-function PausedExchange({ entry }: { entry: ExchangeEntry }) {
+function PausedExchangeAsk({
+  common,
+  entry,
+  names,
+  summary,
+}: {
+  common: Common;
+  entry: ExchangeEntry;
+  names: string;
+  summary: string;
+}) {
   const [resolving, setResolving] = React.useState<"stop" | "go" | null>(null);
   const atCeiling = entry.record.bucket >= EXCHANGE_BUCKET_CEILING;
   async function decide(action: "stop" | "go") {
@@ -286,41 +636,39 @@ function PausedExchange({ entry }: { entry: ExchangeEntry }) {
       // The head the relay kept, not the one this desktop hoped for.
       if (snapshot) applyExchangeSnapshot(snapshot);
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "That exchange could not be resolved.",
-      );
+      failed(error, "That exchange could not be resolved.");
     } finally {
       setResolving(null);
     }
   }
+  const title = atCeiling
+    ? `${names} reached the conversation's limit`
+    : `${names} used the ${entry.record.bucket} turns you gave them`;
   return (
-    <div className="luca-needs-exchange" data-testid="needs-you-exchange">
-      <span className="luca-needs-exchange-line">
-        {atCeiling
-          ? "They reached the conversation's limit."
-          : `They used the ${entry.record.bucket} turns you gave them.`}
-      </span>
-      <span className="luca-needs-exchange-actions">
-        <button
-          data-testid="needs-you-exchange-stop"
-          disabled={resolving !== null}
-          onClick={() => void decide("stop")}
-          type="button"
-        >
-          Stop here
-        </button>
-        <button
-          data-testid="needs-you-exchange-go"
-          disabled={resolving !== null || atCeiling}
-          onClick={() => void decide("go")}
-          title={atCeiling ? "Conversation limit reached" : undefined}
-          type="button"
-        >
-          Let them go on
-        </button>
-      </span>
-    </div>
+    <PlaceAskRow
+      {...common}
+      answers={
+        <>
+          <PlaceQuietButton
+            data-testid="needs-you-exchange-stop"
+            disabled={resolving !== null}
+            onClick={() => void decide("stop")}
+          >
+            Stop here
+          </PlaceQuietButton>
+          <PlaceQuietButton
+            data-testid="needs-you-exchange-go"
+            disabled={resolving !== null || atCeiling}
+            onClick={() => void decide("go")}
+            title={atCeiling ? "Conversation limit reached" : undefined}
+          >
+            Let them go on
+          </PlaceQuietButton>
+        </>
+      }
+      openLabel={`${title}, ${summary}. Open the conversation`}
+      summary={summary}
+      title={title}
+    />
   );
 }
